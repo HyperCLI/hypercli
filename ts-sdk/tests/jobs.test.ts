@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Jobs } from '../src/jobs.js';
 import type { HTTPClient } from '../src/http.js';
+import { BaseJob } from '../src/job/base.js';
 
 describe('Jobs API', () => {
   afterEach(() => {
@@ -225,5 +226,32 @@ describe('Jobs API', () => {
       '/api/jobs',
       { state: 'running', tag: ['team=ml', 'env=prod'], page: 2, page_size: 25 },
     ]);
+  });
+});
+
+describe('BaseJob hostname settling', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('waits on the consumer after RUNNING and allows an explicit override', async () => {
+    vi.useFakeTimers();
+    const job = { jobId: 'job-1', state: 'running', hostname: 'new-agent.example.test' } as any;
+    const client = { jobs: { get: vi.fn().mockResolvedValue(job) } } as any;
+    const managed = new BaseJob(client, job);
+    const health = vi.spyOn(managed, 'checkHealth').mockResolvedValue(true);
+
+    expect(BaseJob.DEFAULT_HOSTNAME_SETTLE_DELAY).toBe(15000);
+    const pending = managed.waitReady(30000, 5000);
+    await vi.advanceTimersByTimeAsync(BaseJob.DEFAULT_HOSTNAME_SETTLE_DELAY);
+    await expect(pending).resolves.toBe(true);
+    expect(health).toHaveBeenCalledTimes(1);
+
+    health.mockClear();
+    const immediate = managed.waitReady(30000, 5000, 0);
+    await vi.runAllTimersAsync();
+    await expect(immediate).resolves.toBe(true);
+    expect(health).toHaveBeenCalledTimes(1);
   });
 });

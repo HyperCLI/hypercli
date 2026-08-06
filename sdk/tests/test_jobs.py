@@ -1,6 +1,29 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from hypercli.jobs import Job, JobListPage, Jobs, get_job_tags, job_has_tags, normalize_job_tags
+from hypercli.job.base import BaseJob
+
+
+def test_base_job_hostname_settle_delay_is_consumer_side_and_overridable(monkeypatch):
+    job = SimpleNamespace(job_id="job-1", state="running", hostname="new-agent.example.test")
+    client = SimpleNamespace(jobs=SimpleNamespace(get=lambda _job_id: job))
+    managed = BaseJob(client, job)
+    sleeps: list[float] = []
+    checks: list[str] = []
+    monkeypatch.setattr("hypercli.job.base.time.sleep", sleeps.append)
+    managed.check_health = lambda: checks.append("health") or True
+
+    assert BaseJob.DEFAULT_HOSTNAME_SETTLE_DELAY == 15.0
+    assert managed.wait_ready(timeout=30)
+    assert sleeps == [15.0]
+    assert checks == ["health"]
+
+    sleeps.clear()
+    checks.clear()
+    assert managed.wait_ready(timeout=30, dns_delay=0)
+    assert sleeps == []
+    assert checks == ["health"]
 
 
 class DummyHTTP:

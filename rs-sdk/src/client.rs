@@ -32,6 +32,12 @@ use crate::{
 
 type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+/// Consumer-side settling window before the first request to a newly issued
+/// hostname.  The API commits the Cloudflare record and returns immediately;
+/// callers avoid a transient NXDOMAIN by waiting locally instead of holding a
+/// backend transaction open.
+pub const DEFAULT_HOSTNAME_SETTLE_DELAY: Duration = Duration::from_secs(15);
+
 #[derive(Deserialize)]
 struct DeploymentEventTokenResponse {
     token: String,
@@ -481,6 +487,27 @@ impl HyperCliClient {
             timeout,
         )
         .await
+    }
+
+    /// Wait for RUNNING, then allow a newly issued hostname to settle locally.
+    ///
+    /// This deliberately performs no DNS lookup.  Consumers should use the
+    /// returned deployment to make their first health request after the
+    /// bounded settle window.  Passing `Some(Duration::ZERO)` is useful for
+    /// already-propagated/reused hostnames and for deterministic tests.
+    pub async fn wait_deployment_running_settled(
+        &self,
+        deployment_id: &str,
+        timeout: Duration,
+        settle_delay: Option<Duration>,
+    ) -> Result<Deployment, HyperCliError> {
+        let settle_delay = settle_delay.unwrap_or(DEFAULT_HOSTNAME_SETTLE_DELAY);
+        let state_timeout = timeout.saturating_sub(settle_delay);
+        let deployment = self
+            .wait_deployment_running(deployment_id, state_timeout)
+            .await?;
+        tokio::time::sleep(settle_delay).await;
+        Ok(deployment)
     }
 
     pub fn create_deployment(
@@ -1647,12 +1674,12 @@ mod tests {
         .await
         .unwrap();
 
+        assert_eq!(DEFAULT_HOSTNAME_SETTLE_DELAY, Duration::from_secs(15));
         let deployment = event_client
-            .wait_deployment_state(
+            .wait_deployment_running_settled(
                 "deployment-1",
-                &["RUNNING"],
-                &["FAILED"],
                 Duration::from_secs(2),
+                Some(Duration::ZERO),
             )
             .await
             .unwrap();

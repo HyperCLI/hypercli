@@ -23,6 +23,13 @@ export class BaseJob {
   static HEALTH_ENDPOINT: string = '/';
   static HEALTH_TIMEOUT: number = 5000;
 
+  /**
+   * Consumer-side hostname settling window.  The API returns after committing
+   * the Cloudflare record; waiting before the first lookup avoids caching a
+   * transient NXDOMAIN in recursive resolvers.
+   */
+  static DEFAULT_HOSTNAME_SETTLE_DELAY: number = 15000;
+
   protected _baseUrl: string | null = null;
 
   constructor(
@@ -215,7 +222,7 @@ export class BaseJob {
   async waitReady(
     timeout: number = 300000,
     pollInterval: number = 5000,
-    dnsDelay: number = 15000
+    dnsDelay: number = (this.constructor as typeof BaseJob).DEFAULT_HOSTNAME_SETTLE_DELAY
   ): Promise<boolean> {
     const start = Date.now();
 

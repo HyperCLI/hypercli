@@ -11,6 +11,10 @@ if TYPE_CHECKING:
 class BaseJob:
     """Base class for managed GPU jobs with lifecycle helpers"""
 
+    # Keep hostname settling in the consumer.  The backend must return after
+    # committing the record; an immediate lookup can cache a transient NXDOMAIN.
+    DEFAULT_HOSTNAME_SETTLE_DELAY: float = 15.0
+
     DEFAULT_IMAGE: str = ""
     DEFAULT_GPU_TYPE: str = "l40s"
     HEALTH_ENDPOINT: str = "/"
@@ -191,7 +195,10 @@ class BaseJob:
         return False
 
     def wait_ready(
-        self, timeout: float = 300, poll_interval: float = 5, dns_delay: float = 15.0
+        self,
+        timeout: float = 300,
+        poll_interval: float = 5,
+        dns_delay: float = DEFAULT_HOSTNAME_SETTLE_DELAY,
     ) -> bool:
         """Wait for a NEW job to be ready (running state + health check passing).
 

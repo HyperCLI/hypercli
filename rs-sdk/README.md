@@ -48,6 +48,12 @@ println!("{} {}", running.id, running.state);
 # }
 ```
 
+For a newly issued hostname, consumers can use
+`wait_deployment_running_settled(&created.id, timeout, None)`.  It waits for
+the API state and then applies the bounded
+`DEFAULT_HOSTNAME_SETTLE_DELAY` (15 seconds) locally before the first health
+request; it does not perform a DNS probe or keep a backend transaction open.
+
 `subscribe_deployments()` provides flat, best-effort invalidations. Keep its
 synchronous callback small—for example, send the event into an application
 channel—and let the consumer call `get_deployment()` or
