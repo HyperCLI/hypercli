@@ -166,7 +166,7 @@ The largest file — manages the full agent experience:
 - **OpenClaw** — JSON config editor built from gateway schema. Uses `configPatch()`.
 - **Settings** — Agent name, integrations (Telegram, STT, TTS).
 
-**Agent lifecycle**: STOPPED → PENDING → STARTING → RUNNING → STOPPING → STOPPED. The page subscribes through `Deployments.subscribe()`, treats flat `/ws/deployments` events as invalidations, coalesces bursts, and reloads the authoritative REST list. It performs no deployment-state polling interval.
+**Agent lifecycle**: STOPPED → PENDING → STARTING → RUNNING → STOPPING → STOPPED. The page subscribes through `Deployments.subscribe()` to the token-returned `ws_url` (currently the canonical `/ws` endpoint), treats flat transition events as invalidations, coalesces bursts, and reloads the authoritative REST list. It performs no deployment-state polling interval.
 
 ### Components
 
