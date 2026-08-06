@@ -37,6 +37,24 @@ describe("createDeploymentRefreshScheduler", () => {
 
     expect(refresh).toHaveBeenCalledTimes(1);
   });
+
+  it("carries collection enrichment into the trailing refresh", async () => {
+    const releases: Array<() => void> = [];
+    const refresh = vi.fn((_includeEnrichment: boolean) => new Promise<void>((resolve) => {
+      releases.push(resolve);
+    }));
+    const scheduler = createDeploymentRefreshScheduler(refresh);
+
+    scheduler.invalidate(false);
+    scheduler.invalidate(true);
+    scheduler.invalidate(false);
+    expect(refresh).toHaveBeenNthCalledWith(1, false);
+
+    releases.shift()?.();
+    await tick();
+    expect(refresh).toHaveBeenNthCalledWith(2, true);
+    releases.shift()?.();
+  });
 });
 
 describe("createDeploymentSubscriptionRecovery", () => {

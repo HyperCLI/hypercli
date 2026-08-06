@@ -9,6 +9,7 @@ const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 test("deployment subscription invalidation reloads the authoritative REST snapshot", async ({ page }) => {
   let agentName = "Before Event";
   let deploymentListGets = 0;
+  let enrichmentGets = 0;
 
   await page.context().addCookies([
     {
@@ -145,6 +146,12 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       return;
     }
 
+    if (pathName.endsWith("/agents/subscriptions/summary") && method === "GET") {
+      enrichmentGets += 1;
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+
     if (pathName.endsWith("/agents/deployments/budget") && method === "GET") {
       await route.fulfill({
         status: 200,
@@ -158,11 +165,12 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
   });
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("Before Event", { exact: true })).toBeVisible();
+  await expect(page.getByText("Before Event", { exact: true }).first()).toBeVisible();
   await page.waitForFunction(() => Boolean((window as any).__deploymentEventTest?.ready));
   await expect.poll(() => deploymentListGets).toBeGreaterThanOrEqual(3);
   await page.waitForTimeout(100);
   const beforeEvent = deploymentListGets;
+  const beforeTransitionEnrichment = enrichmentGets;
 
   agentName = "After Event";
   await page.evaluate(() => {
@@ -176,6 +184,19 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
   });
 
   await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeEvent);
-  await expect(page.getByText("After Event", { exact: true })).toBeVisible();
+  await expect(page.getByText("After Event", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Before Event", { exact: true })).toHaveCount(0);
+  await page.waitForTimeout(100);
+  expect(enrichmentGets).toBe(beforeTransitionEnrichment);
+
+  const beforeCollectionEvent = deploymentListGets;
+  await page.evaluate(() => {
+    (window as any).__deploymentEventTest.emit({
+      version: 1,
+      type: "deployments.changed",
+    });
+  });
+
+  await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeCollectionEvent);
+  await expect.poll(() => enrichmentGets).toBeGreaterThan(beforeTransitionEnrichment);
 });

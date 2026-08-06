@@ -1281,7 +1281,10 @@ function AgentsPageContent() {
   const [recentlyStoppedIds, setRecentlyStoppedIds] = useState<Set<string>>(new Set());
   const [pendingSlotReleases, setPendingSlotReleases] = useState<Record<string, number>>({});
   const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const slotReleaseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pendingSlotReleaseBaselinesRef = useRef<Map<string, {
+    tier: string;
+    baseline: SlotInventoryEntry;
+  }>>(new Map());
   const tokenUsageRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
@@ -1390,7 +1393,6 @@ function AgentsPageContent() {
     return () => {
       pageActiveRef.current = false;
       stoppedTimersRef.current.forEach((t) => clearTimeout(t));
-      slotReleaseTimersRef.current.forEach((t) => clearTimeout(t));
       tokenUsageRefreshTimersRef.current.forEach((t) => clearTimeout(t));
       tokenUsageRefreshTimersRef.current = [];
       for (const objectUrl of agentAvatarObjectUrlsRef.current.values()) {
@@ -1689,6 +1691,7 @@ function AgentsPageContent() {
     setAgentsLoadError(null);
     setSelectedAgentId(null);
     setSelectedSessionKeysByAgent({});
+    pendingSlotReleaseBaselinesRef.current.clear();
     setPendingSlotReleases({});
     setDeletingId(null);
     setStartingId(null);
@@ -1887,6 +1890,35 @@ function AgentsPageContent() {
     tokenUsageRefreshTimersRef.current = [];
   }, []);
 
+  const syncPendingSlotReleaseCounts = useCallback(() => {
+    const counts: Record<string, number> = {};
+    for (const { tier } of pendingSlotReleaseBaselinesRef.current.values()) {
+      counts[tier] = (counts[tier] ?? 0) + 1;
+    }
+    setPendingSlotReleases(counts);
+  }, []);
+
+  const clearPendingSlotRelease = useCallback((releaseId: string) => {
+    if (!pendingSlotReleaseBaselinesRef.current.delete(releaseId)) return;
+    syncPendingSlotReleaseCounts();
+  }, [syncPendingSlotReleaseCounts]);
+
+  const trackPendingSlotRelease = useCallback((releaseId: string, tier: string, baseline: SlotInventoryEntry) => {
+    if (Math.max(baseline.used ?? 0, 0) <= 0) return;
+    pendingSlotReleaseBaselinesRef.current.set(releaseId, { tier, baseline });
+    syncPendingSlotReleaseCounts();
+  }, [syncPendingSlotReleaseCounts]);
+
+  const reconcilePendingSlotReleases = useCallback((nextBudget: AgentBudget | null) => {
+    let changed = false;
+    for (const [releaseId, pending] of pendingSlotReleaseBaselinesRef.current) {
+      if (!slotReleaseLanded(pending.baseline, nextBudget?.slots?.[pending.tier])) continue;
+      pendingSlotReleaseBaselinesRef.current.delete(releaseId);
+      changed = true;
+    }
+    if (changed) syncPendingSlotReleaseCounts();
+  }, [syncPendingSlotReleaseCounts]);
+
   const refreshTokenUsage = useCallback(async () => {
     if (!isAuthenticated) return;
     if (tokenUsageRefreshInFlightRef.current) return;
@@ -1958,6 +1990,7 @@ function AgentsPageContent() {
         const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
         const nextBudget = buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog);
         setBudget(nextBudget);
+        reconcilePendingSlotReleases(nextBudget);
         setCatalogPlans(plans);
         setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
         setSubscriptionSummary(summary);
@@ -1982,7 +2015,7 @@ function AgentsPageContent() {
       }
     });
     return promise;
-  }, [getToken, isAuthenticated, user?.id]);
+  }, [getToken, isAuthenticated, reconcilePendingSlotReleases, user?.id]);
 
   const fetchAgents = useCallback((options?: {
     force?: boolean;
@@ -2084,20 +2117,20 @@ function AgentsPageContent() {
   useEffect(() => {
     if (!isAuthenticated || !deployments || !user?.id) return;
     const controller = new AbortController();
-    const scheduler = createDeploymentRefreshScheduler(async () => {
+    const scheduler = createDeploymentRefreshScheduler(async (includeEnrichment) => {
       const inFlight = fetchAgentsInFlightRef.current?.promise;
       if (inFlight) await inFlight;
-      await fetchAgents({ includeEnrichment: false });
+      await fetchAgents({ includeEnrichment });
     });
-    void deployments.subscribe(() => {
+    void deployments.subscribe((event) => {
       deploymentSubscriptionRecoveryRef.current.markHealthy();
-      scheduler.invalidate();
+      scheduler.invalidate(event.type === "deployments.changed");
     }, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
       deploymentSubscriptionRecoveryRef.current.retryAfterFailure(() => {
-        void fetchAgents({ force: true, includeEnrichment: false });
+        void fetchAgents({ force: true });
       });
     });
     return () => {
@@ -2139,54 +2172,6 @@ function AgentsPageContent() {
   const refreshAgentsForChildren = useCallback(async () => {
     return Boolean(await fetchAgents({ force: true }));
   }, [fetchAgents]);
-
-  const clearPendingSlotRelease = useCallback((releaseId: string, tier: string) => {
-    const timer = slotReleaseTimersRef.current.get(releaseId);
-    if (timer) {
-      clearTimeout(timer);
-      slotReleaseTimersRef.current.delete(releaseId);
-    }
-    setPendingSlotReleases((current) => {
-      const count = Math.max((current[tier] ?? 0) - 1, 0);
-      if (count > 0) return { ...current, [tier]: count };
-      const next = { ...current };
-      delete next[tier];
-      return next;
-    });
-  }, []);
-
-  const scheduleSlotReleaseRefresh = useCallback((
-    releaseId: string,
-    tier: string,
-    baseline: SlotInventoryEntry,
-    attempt = 0,
-  ) => {
-    const previousTimer = slotReleaseTimersRef.current.get(releaseId);
-    if (previousTimer) clearTimeout(previousTimer);
-
-    const timer = setTimeout(() => {
-      void (async () => {
-        const refreshed = await refreshAgentEnrichment({ force: true });
-        const refreshedEntry = refreshed?.budget?.slots?.[tier];
-        if (slotReleaseLanded(baseline, refreshedEntry) || attempt >= 8) {
-          clearPendingSlotRelease(releaseId, tier);
-          return;
-        }
-        scheduleSlotReleaseRefresh(releaseId, tier, baseline, attempt + 1);
-      })();
-    }, attempt === 0 ? 1500 : 2500);
-
-    slotReleaseTimersRef.current.set(releaseId, timer);
-  }, [clearPendingSlotRelease, refreshAgentEnrichment]);
-
-  const trackPendingSlotRelease = useCallback((releaseId: string, tier: string, baseline: SlotInventoryEntry) => {
-    if (Math.max(baseline.used ?? 0, 0) <= 0) return;
-    setPendingSlotReleases((current) => ({
-      ...current,
-      [tier]: (current[tier] ?? 0) + 1,
-    }));
-    scheduleSlotReleaseRefresh(releaseId, tier, baseline);
-  }, [scheduleSlotReleaseRefresh]);
 
   const handleReflectedCheckout = useCallback((principalId: string, pending: PendingPlanCheckout | null) => {
     if (isFirstAgentSetupCheckout(pending)) {
@@ -4169,6 +4154,10 @@ function AgentsPageContent() {
 
   const handleDelete = async (agentId: string) => {
     const generation = agentDataGenerationRef.current;
+    const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
+    const releaseTier = agentToDelete ? inferAgentTier(agentToDelete, budget) : null;
+    const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
+    const releaseId = releaseTier && releaseBaseline ? `${agentId}:${releaseTier}` : null;
     deletingAgentIdsRef.current.add(agentId);
     setDeletingId(agentId);
     setError(null);
@@ -4177,16 +4166,19 @@ function AgentsPageContent() {
         await endTemporaryChatBeforeSelectionRef.current();
         if (generation !== agentDataGenerationRef.current) return;
       }
-      const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
-      const releaseTier = agentToDelete ? inferAgentTier(agentToDelete, budget) : null;
-      const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
+      if (releaseId && releaseTier && releaseBaseline) {
+        trackPendingSlotRelease(releaseId, releaseTier, releaseBaseline);
+      }
       const deleted = await runAgentMutation(agentId, async () => {
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current) return false;
         await createAgentClient(token).delete(agentId);
         return true;
       });
-      if (!deleted || generation !== agentDataGenerationRef.current) return;
+      if (!deleted || generation !== agentDataGenerationRef.current) {
+        if (releaseId) clearPendingSlotRelease(releaseId);
+        return;
+      }
       agentMutationVersionsRef.current.delete(agentId);
       clearOpenClawSessionPins(agentId);
       const nextAgents = removeSdkAgent(sdkAgents, agentId);
@@ -4211,13 +4203,11 @@ function AgentsPageContent() {
           ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? null
           : null,
       );
-      const refreshed = await fetchAgents({ force: true });
+      await fetchAgents({ force: true });
       if (generation !== agentDataGenerationRef.current) return;
-      if (releaseTier && releaseBaseline && !slotReleaseLanded(releaseBaseline, refreshed?.budget?.slots?.[releaseTier])) {
-        trackPendingSlotRelease(`${agentId}:${releaseTier}:${Date.now()}`, releaseTier, releaseBaseline);
-      }
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (releaseId) clearPendingSlotRelease(releaseId);
       deletingAgentIdsRef.current.delete(agentId);
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {

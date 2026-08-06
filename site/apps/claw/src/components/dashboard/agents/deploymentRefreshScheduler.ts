@@ -1,5 +1,5 @@
 export interface DeploymentRefreshScheduler {
-  invalidate(): void;
+  invalidate(includeEnrichment?: boolean): void;
   dispose(): void;
 }
 
@@ -57,17 +57,20 @@ export function createDeploymentSubscriptionRecovery(
 }
 
 export function createDeploymentRefreshScheduler(
-  refresh: () => Promise<unknown>,
+  refresh: (includeEnrichment: boolean) => Promise<unknown>,
 ): DeploymentRefreshScheduler {
   let running = false;
   let pending = false;
+  let enrichmentPending = false;
   let disposed = false;
 
   const drain = async () => {
     try {
       while (pending && !disposed) {
         pending = false;
-        await refresh();
+        const includeEnrichment = enrichmentPending;
+        enrichmentPending = false;
+        await refresh(includeEnrichment);
       }
     } finally {
       running = false;
@@ -75,9 +78,10 @@ export function createDeploymentRefreshScheduler(
   };
 
   return {
-    invalidate() {
+    invalidate(includeEnrichment = false) {
       if (disposed) return;
       pending = true;
+      enrichmentPending ||= includeEnrichment;
       if (running) return;
       running = true;
       void drain().catch(() => undefined);
@@ -85,6 +89,7 @@ export function createDeploymentRefreshScheduler(
     dispose() {
       disposed = true;
       pending = false;
+      enrichmentPending = false;
     },
   };
 }
