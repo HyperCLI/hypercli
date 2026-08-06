@@ -1190,6 +1190,14 @@ mod tests {
         assert_eq!(received[1].runtime_generation, Some(3));
         list.assert_async().await;
         token.assert_async().await;
+        drop(list);
+        drop(token);
+        tokio::task::spawn_blocking(move || {
+            drop(event_client);
+            drop(server);
+        })
+        .await
+        .unwrap();
     }
 
     #[test]
