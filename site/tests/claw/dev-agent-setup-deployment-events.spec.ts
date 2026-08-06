@@ -6,33 +6,34 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 
-test("deployment subscription invalidation reloads the authoritative REST snapshot", async ({ page }) => {
+test("dev agents retries a failed event refresh without replacing its subscription", async ({ page }) => {
   let agentName = "Before Event";
   let deploymentListGets = 0;
-  let enrichmentGets = 0;
   let listFailuresRemaining = 0;
 
-  await page.context().addCookies([
-    {
-      name: "auth_token",
-      value: TEST_JWT,
-      domain: "127.0.0.1",
-      path: "/",
-      httpOnly: false,
-      secure: false,
-      sameSite: "Lax",
-    },
-  ]);
+  await page.context().addCookies([{
+    name: "auth_token",
+    value: TEST_JWT,
+    domain: "127.0.0.1",
+    path: "/",
+    httpOnly: false,
+    secure: false,
+    sameSite: "Lax",
+  }]);
 
   await page.addInitScript((token) => {
     window.localStorage.setItem("claw_auth_token", token);
     const NativeWebSocket = window.WebSocket;
     const state: {
       ready: boolean;
+      constructions: number;
+      closes: number;
       socket: MockDeploymentWebSocket | null;
       emit(frame: unknown): void;
     } = {
       ready: false,
+      constructions: 0,
+      closes: 0,
       socket: null,
       emit(frame) {
         this.socket?.emit(frame);
@@ -48,6 +49,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       private readonly listeners = new Map<string, Set<(event: { data?: string }) => void>>();
 
       constructor() {
+        state.constructions += 1;
         state.socket = this;
         window.setTimeout(() => {
           this.readyState = MockDeploymentWebSocket.OPEN;
@@ -75,6 +77,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
 
       close() {
         if (this.readyState === MockDeploymentWebSocket.CLOSED) return;
+        state.closes += 1;
         this.readyState = MockDeploymentWebSocket.CLOSED;
         this.dispatch("close", {});
       }
@@ -90,7 +93,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       }
     }
 
-    (window as any).__deploymentEventTest = state;
+    (window as any).__devDeploymentEventTest = state;
     Object.defineProperty(window, "WebSocket", {
       configurable: true,
       writable: true,
@@ -137,36 +140,19 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify([
-          {
-            id: "agent-1",
-            name: agentName,
-            user_id: "user-1",
-            pod_id: null,
-            pod_name: null,
-            state: "STOPPED",
-            cpu: 1,
-            memory: 2,
-            hostname: "agent-1.hypercli.app",
-            created_at: "2026-08-06T00:00:00Z",
-            updated_at: "2026-08-06T00:00:00Z",
-          },
-        ]),
-      });
-      return;
-    }
-
-    if (pathName.endsWith("/agents/subscriptions/summary") && method === "GET") {
-      enrichmentGets += 1;
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-      return;
-    }
-
-    if (pathName.endsWith("/agents/deployments/budget") && method === "GET") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ pooled_tpd: 0, slots: {}, size_presets: {} }),
+        body: JSON.stringify([{
+          id: "agent-1",
+          name: agentName,
+          user_id: "user-1",
+          pod_id: null,
+          pod_name: null,
+          state: "STOPPED",
+          cpu: 1,
+          memory: 2,
+          hostname: "agent-1.hypercli.app",
+          created_at: "2026-08-06T00:00:00Z",
+          updated_at: "2026-08-06T00:00:00Z",
+        }]),
       });
       return;
     }
@@ -174,17 +160,16 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
 
-  await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
+  await page.goto("/dev/agent-setup/agents", { waitUntil: "domcontentloaded" });
   await expect(page.getByText("Before Event", { exact: true }).first()).toBeVisible();
-  await page.waitForFunction(() => Boolean((window as any).__deploymentEventTest?.ready));
-  await expect.poll(() => deploymentListGets).toBeGreaterThanOrEqual(3);
+  await page.waitForFunction(() => Boolean((window as any).__devDeploymentEventTest?.ready));
   await page.waitForTimeout(100);
   const beforeEvent = deploymentListGets;
-  const beforeTransitionEnrichment = enrichmentGets;
 
-  agentName = "After Event";
+  agentName = "After Retry";
+  listFailuresRemaining = 1;
   await page.evaluate(() => {
-    (window as any).__deploymentEventTest.emit({
+    (window as any).__devDeploymentEventTest.emit({
       version: 1,
       type: "deployment.transition",
       deployment_id: "agent-1",
@@ -193,38 +178,12 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
     });
   });
 
-  await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeEvent);
-  await expect(page.getByText("After Event", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Before Event", { exact: true })).toHaveCount(0);
-  await page.waitForTimeout(100);
-  expect(enrichmentGets).toBe(beforeTransitionEnrichment);
-
-  const beforeCollectionEvent = deploymentListGets;
-  await page.evaluate(() => {
-    (window as any).__deploymentEventTest.emit({
-      version: 1,
-      type: "deployments.changed",
-    });
-  });
-
-  await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeCollectionEvent);
-  await expect.poll(() => enrichmentGets).toBeGreaterThan(beforeTransitionEnrichment);
-
-  const beforeFailedRefresh = deploymentListGets;
-  agentName = "After Retry";
-  listFailuresRemaining = 1;
-  await page.evaluate(() => {
-    (window as any).__deploymentEventTest.emit({
-      version: 1,
-      type: "deployment.transition",
-      deployment_id: "agent-1",
-      state: "STOPPED",
-      placement_epoch: 3,
-    });
-  });
-
-  // The event-owned refresh scheduler must survive the failed REST attempt,
-  // retain the previous snapshot, and retry without another WebSocket event.
-  await expect.poll(() => deploymentListGets, { timeout: 10_000 }).toBeGreaterThanOrEqual(beforeFailedRefresh + 2);
+  await expect.poll(() => deploymentListGets).toBe(beforeEvent + 1);
+  await expect(page.getByText("Before Event", { exact: true }).first()).toBeVisible();
+  await expect.poll(() => deploymentListGets, { timeout: 10_000 }).toBeGreaterThanOrEqual(beforeEvent + 2);
   await expect(page.getByText("After Retry", { exact: true }).first()).toBeVisible();
+  expect(await page.evaluate(() => ({
+    constructions: (window as any).__devDeploymentEventTest.constructions,
+    closes: (window as any).__devDeploymentEventTest.closes,
+  }))).toEqual({ constructions: 1, closes: 0 });
 });

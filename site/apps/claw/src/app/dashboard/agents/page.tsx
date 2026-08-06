@@ -2078,16 +2078,10 @@ function AgentsPageContent() {
         setAgentsLoadError(described.message);
         setError(described.message);
         setAgentClusterUnavailable(described.clusterUnavailable);
-        setSdkAgents([]);
-        setAgentDataPrincipalId(null);
-        clearScheduledTokenUsageRefreshes();
-        tokenUsageRefreshInFlightRef.current = false;
-        setBudget(null);
-        setBillingDataPrincipalId(null);
-        setBillingDataError("Billing data could not be loaded. Retry before checkout.");
-        setCatalogPlans([]);
-        deploymentsRef.current = null;
-        setDeployments(null);
+        // Keep the last authoritative snapshot and the live subscription.
+        // The event scheduler treats this null result as a failed
+        // reconciliation and retries it with backoff. Clearing `deployments`
+        // here would dispose that scheduler and permanently lose the edge.
         return null;
       } finally {
         if (isCurrentRequest()) setAgentsLoading(false);
@@ -2100,7 +2094,7 @@ function AgentsPageContent() {
       }
     });
     return promise;
-  }, [clearScheduledTokenUsageRefreshes, getToken, isAuthenticated, refreshAgentEnrichment, user?.id]);
+  }, [getToken, isAuthenticated, refreshAgentEnrichment, user?.id]);
 
   const getAgentClient = useCallback(async () => {
     if (deployments) return deployments;
