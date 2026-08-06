@@ -117,27 +117,40 @@ def _agent_payload(runtime: str) -> dict:
 
 
 @pytest.mark.parametrize(
-    ("method_name", "runtime", "image", "agent_type"),
+    ("method_name", "runtime", "image", "agent_type", "sync_include"),
     [
-        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent),
-        ("create_opencode", "opencode", DEFAULT_OPENCODE_IMAGE, OpenCodeAgent),
-        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent),
+        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, []),
+        (
+            "create_opencode",
+            "opencode",
+            DEFAULT_OPENCODE_IMAGE,
+            OpenCodeAgent,
+            [
+                ".config/opencode",
+                ".local/share/opencode",
+                ".local/state/opencode",
+                ".cache/opencode",
+            ],
+        ),
+        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent, [".codex"]),
         (
             "create_claude_code",
             "claude-code",
             DEFAULT_CLAUDE_CODE_IMAGE,
             ClaudeCodeAgent,
+            [".claude", ".claude.json"],
         ),
-        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent),
+        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent, [".goose"]),
         (
             "create_kimi_code",
             "kimi-code",
             DEFAULT_KIMI_CODE_IMAGE,
             KimiCodeAgent,
+            [".kimi-code"],
         ),
     ],
 )
-def test_create_coding_agent_contract(method_name, runtime, image, agent_type):
+def test_create_coding_agent_contract(method_name, runtime, image, agent_type, sync_include):
     deployments = Deployments(
         _HTTP(),
         api_base="https://api.test.hypercli.com/agents",
@@ -158,6 +171,8 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type):
     assert posted["routes"] == {}
     assert posted["sync_root"] == "/home/node"
     assert posted["sync_enabled"] is True
+    assert posted["sync_include"] == sync_include
+    assert "sync_exclude" not in posted
     assert posted["sync_uid"] == 1000
     assert posted["sync_gid"] == 1000
     assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
@@ -181,6 +196,43 @@ def test_create_coding_agent_honors_runtime_scope_override():
     deployments.create_opencode(runtime_scopes=["models:*"])
 
     assert posted["runtime_scopes"] == ["models:*"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_include", "expected_exclude"),
+    [
+        ({"sync_all": True}, None, None),
+        ({"sync_include": []}, [], None),
+        ({"sync_include": ["work"], "sync_exclude": ["tmp"]}, ["work"], None),
+        ({"sync_exclude": [".cache"]}, None, [".cache"]),
+    ],
+)
+def test_coding_agent_sync_policy_overrides(kwargs, expected_include, expected_exclude):
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("codex")
+
+    deployments._post = fake_post
+    deployments.create_codex(**kwargs)
+
+    if expected_include is None:
+        assert "sync_include" not in posted
+    else:
+        assert posted["sync_include"] == expected_include
+    if expected_exclude is None:
+        assert "sync_exclude" not in posted
+    else:
+        assert posted["sync_exclude"] == expected_exclude
+
+
+def test_coding_agent_sync_all_rejects_other_policy_overrides():
+    deployments = Deployments(_HTTP())
+
+    with pytest.raises(ValueError, match="sync_all cannot be combined"):
+        deployments.create_codex(sync_all=True, sync_include=[".codex"])
 
 
 @pytest.mark.parametrize(

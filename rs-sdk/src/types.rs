@@ -36,6 +36,28 @@ impl ManagedRuntime {
             Self::Generic | Self::Openclaw | Self::OpenclawPro => None,
         }
     }
+
+    /// Runtime-owned persisted state selected by default for coding agents.
+    ///
+    /// An empty slice is intentional: Buzz Agent authentication is injected
+    /// through the environment, so it has no runtime state to persist by
+    /// default. `None` is reserved for non-coding runtimes.
+    pub const fn default_sync_include(self) -> Option<&'static [&'static str]> {
+        match self {
+            Self::BuzzAgent => Some(&[]),
+            Self::Opencode => Some(&[
+                ".config/opencode",
+                ".local/share/opencode",
+                ".local/state/opencode",
+                ".cache/opencode",
+            ]),
+            Self::Codex => Some(&[".codex"]),
+            Self::ClaudeCode => Some(&[".claude", ".claude.json"]),
+            Self::Goose => Some(&[".goose"]),
+            Self::KimiCode => Some(&[".kimi-code"]),
+            Self::Generic | Self::Openclaw | Self::OpenclawPro => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -362,6 +384,9 @@ pub struct BuzzLaunchConfig {
     pub require_reply: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
+    /// Explicitly synchronize the complete `sync_root` instead of applying
+    /// the selected runtime's narrow persisted-state default.
+    pub sync_all: bool,
 }
 
 impl BuzzLaunchConfig {
@@ -382,6 +407,7 @@ impl BuzzLaunchConfig {
             require_reply: false,
             session_title: None,
             rust_log: None,
+            sync_all: false,
         }
     }
 
@@ -429,6 +455,18 @@ impl BuzzLaunchConfig {
         request.routes.clear();
         request.sync_root = Some("/home/node".to_owned());
         request.sync_enabled = Some(true);
+        if self.sync_all {
+            request.sync_include = None;
+            request.sync_exclude = None;
+        } else if request.sync_include.is_none() && request.sync_exclude.is_none() {
+            request.sync_include = request
+                .runtime
+                .default_sync_include()
+                .map(|paths| paths.iter().map(|path| (*path).to_owned()).collect());
+        }
+        if request.sync_include.is_some() {
+            request.sync_exclude = None;
+        }
         request.sync_uid = Some(1000);
         request.sync_gid = Some(1000);
         // Hosted Buzz shutdown is process-driven; automatic restart would
@@ -604,6 +642,10 @@ pub struct CreateDeploymentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_include: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_exclude: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_uid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_gid: Option<u32>,
@@ -633,6 +675,8 @@ impl CreateDeploymentRequest {
             image: None,
             sync_root: None,
             sync_enabled: None,
+            sync_include: None,
+            sync_exclude: None,
             sync_uid: None,
             sync_gid: None,
             restart: None,
@@ -680,6 +724,10 @@ pub struct StartDeploymentRequest {
     pub sync_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_include: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_exclude: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_uid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1280,6 +1328,74 @@ mod tests {
                 contract["claude_code_executable"].as_str()
             );
         }
+    }
+
+    #[test]
+    fn coding_runtime_sync_defaults_and_overrides_are_flat() {
+        for (runtime, expected) in [
+            (ManagedRuntime::BuzzAgent, vec![]),
+            (
+                ManagedRuntime::Opencode,
+                vec![
+                    ".config/opencode",
+                    ".local/share/opencode",
+                    ".local/state/opencode",
+                    ".cache/opencode",
+                ],
+            ),
+            (ManagedRuntime::Codex, vec![".codex"]),
+            (ManagedRuntime::ClaudeCode, vec![".claude", ".claude.json"]),
+            (ManagedRuntime::Goose, vec![".goose"]),
+            (ManagedRuntime::KimiCode, vec![".kimi-code"]),
+        ] {
+            let mut request = CreateDeploymentRequest::new(runtime);
+            BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+                .apply_to(&mut request, None)
+                .unwrap();
+            assert_eq!(
+                request.sync_include,
+                Some(expected.into_iter().map(str::to_owned).collect())
+            );
+            assert_eq!(request.sync_exclude, None);
+        }
+
+        let mut custom = CreateDeploymentRequest::new(ManagedRuntime::Codex);
+        custom.sync_include = Some(vec!["work".to_owned()]);
+        custom.sync_exclude = Some(vec!["tmp".to_owned()]);
+        BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut custom, None)
+            .unwrap();
+        assert_eq!(custom.sync_include, Some(vec!["work".to_owned()]));
+        assert_eq!(custom.sync_exclude, None);
+
+        let mut all = CreateDeploymentRequest::new(ManagedRuntime::Codex);
+        let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+        buzz.sync_all = true;
+        buzz.apply_to(&mut all, None).unwrap();
+        assert_eq!(all.sync_include, None);
+        assert_eq!(all.sync_exclude, None);
+        let wire = serde_json::to_value(all).unwrap();
+        assert!(wire.get("sync_include").is_none());
+        assert!(wire.get("sync_exclude").is_none());
+    }
+
+    #[test]
+    fn explicit_empty_sync_include_round_trips_as_sync_nothing() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
+        request.sync_include = Some(Vec::new());
+        let wire = serde_json::to_value(&request).unwrap();
+        assert_eq!(wire["sync_include"], serde_json::json!([]));
+        let round_trip: CreateDeploymentRequest = serde_json::from_value(wire).unwrap();
+        assert_eq!(round_trip.sync_include, Some(Vec::new()));
+
+        let start = StartDeploymentRequest {
+            sync_include: Some(Vec::new()),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_value(start).unwrap()["sync_include"],
+            serde_json::json!([])
+        );
     }
 
     #[test]

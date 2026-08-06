@@ -96,6 +96,19 @@ export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, st
   goose: DEFAULT_GOOSE_IMAGE,
   'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
 };
+export const DEFAULT_CODING_AGENT_SYNC_INCLUDES: Readonly<Record<CodingAgentRuntime, readonly string[]>> = {
+  'buzz-agent': [],
+  opencode: [
+    '.config/opencode',
+    '.local/share/opencode',
+    '.local/state/opencode',
+    '.cache/opencode',
+  ],
+  codex: ['.codex'],
+  'claude-code': ['.claude', '.claude.json'],
+  goose: ['.goose'],
+  'kimi-code': ['.kimi-code'],
+};
 export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, string>> = {
   'buzz-agent': DEFAULT_BUZZ_AGENT_IMAGE,
   opencode: DEFAULT_BUZZ_OPENCODE_IMAGE,
@@ -196,6 +209,8 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'entrypoint',
   'sync_root',
   'sync_enabled',
+  'sync_include',
+  'sync_exclude',
   'sync_uid',
   'sync_gid',
   'registry_url',
@@ -544,6 +559,8 @@ export interface BuildAgentConfigOptions {
   image?: string | null;
   syncRoot?: string | null;
   syncEnabled?: boolean | null;
+  syncInclude?: readonly string[] | null;
+  syncExclude?: readonly string[] | null;
   syncUid?: number | null;
   syncGid?: number | null;
   registryUrl?: string | null;
@@ -747,6 +764,8 @@ export interface OpenClawStartAgentOptions extends StartAgentOptions {
 
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime' | 'injectGatewayToken'> {
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+  /** Synchronize all of `syncRoot` instead of the runtime's selective default. */
+  syncAll?: boolean;
   /** @deprecated Use the typed `buzz` launch contract. */
   buzzEnabled?: boolean;
   /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
@@ -1704,6 +1723,8 @@ export function buildAgentConfig(
   if (options.image !== undefined && options.image !== null) prepared.image = options.image;
   if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
   if (options.syncEnabled !== undefined && options.syncEnabled !== null) prepared.sync_enabled = options.syncEnabled;
+  if (options.syncInclude !== undefined && options.syncInclude !== null) prepared.sync_include = [...options.syncInclude];
+  if (options.syncExclude !== undefined && options.syncExclude !== null) prepared.sync_exclude = [...options.syncExclude];
   if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = options.syncUid;
   if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
@@ -2593,6 +2614,7 @@ export class RuntimeAuthClient {
 
 export class CodingAgent extends Agent {
   declare public readonly runtime: CodingAgentRuntime;
+  static readonly defaultSyncInclude: readonly string[] | null = null;
 
   get auth(): RuntimeAuthClient {
     return new RuntimeAuthClient(this);
@@ -2601,6 +2623,7 @@ export class CodingAgent extends Agent {
 
 export class BuzzAgent extends CodingAgent {
   declare public readonly runtime: 'buzz-agent';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['buzz-agent'];
   static override fromDict(data: AgentHydrationData): BuzzAgent {
     return new BuzzAgent(agentStateFromDict(data));
   }
@@ -2608,6 +2631,7 @@ export class BuzzAgent extends CodingAgent {
 
 export class OpenCodeAgent extends CodingAgent {
   declare public readonly runtime: 'opencode';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.opencode;
   static override fromDict(data: AgentHydrationData): OpenCodeAgent {
     return new OpenCodeAgent(agentStateFromDict(data));
   }
@@ -2615,6 +2639,7 @@ export class OpenCodeAgent extends CodingAgent {
 
 export class CodexAgent extends CodingAgent {
   declare public readonly runtime: 'codex';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.codex;
   static override fromDict(data: AgentHydrationData): CodexAgent {
     return new CodexAgent(agentStateFromDict(data));
   }
@@ -2622,6 +2647,7 @@ export class CodexAgent extends CodingAgent {
 
 export class ClaudeCodeAgent extends CodingAgent {
   declare public readonly runtime: 'claude-code';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['claude-code'];
   static override fromDict(data: AgentHydrationData): ClaudeCodeAgent {
     return new ClaudeCodeAgent(agentStateFromDict(data));
   }
@@ -2629,6 +2655,7 @@ export class ClaudeCodeAgent extends CodingAgent {
 
 export class GooseAgent extends CodingAgent {
   declare public readonly runtime: 'goose';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES.goose;
   static override fromDict(data: AgentHydrationData): GooseAgent {
     return new GooseAgent(agentStateFromDict(data));
   }
@@ -2636,6 +2663,7 @@ export class GooseAgent extends CodingAgent {
 
 export class KimiCodeAgent extends CodingAgent {
   declare public readonly runtime: 'kimi-code';
+  static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['kimi-code'];
   static override fromDict(data: AgentHydrationData): KimiCodeAgent {
     return new KimiCodeAgent(agentStateFromDict(data));
   }
@@ -3772,6 +3800,9 @@ export class Deployments {
     runtime: CodingAgentRuntime,
     options: CodingAgentCreateOptions,
   ): Promise<CodingAgent> {
+    if (options.syncAll && (options.syncInclude !== undefined || options.syncExclude !== undefined)) {
+      throw new Error('syncAll cannot be combined with syncInclude or syncExclude');
+    }
     if (options.buzzEnabled && options.buzz) {
       throw new Error('buzzEnabled cannot be combined with buzz');
     }
@@ -3797,6 +3828,24 @@ export class Deployments {
     if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
+    let syncInclude: readonly string[] | null;
+    let syncExclude: readonly string[] | null;
+    if (options.syncAll) {
+      syncInclude = null;
+      syncExclude = null;
+    } else if (options.syncInclude !== undefined && options.syncInclude !== null) {
+      syncInclude = options.syncInclude;
+      syncExclude = null;
+    } else if (options.syncExclude !== undefined) {
+      syncInclude = null;
+      syncExclude = options.syncExclude;
+    } else if (options.syncInclude === null) {
+      syncInclude = null;
+      syncExclude = null;
+    } else {
+      syncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime];
+      syncExclude = null;
+    }
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime,
@@ -3814,6 +3863,8 @@ export class Deployments {
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncEnabled: options.syncEnabled ?? true,
+      syncInclude,
+      syncExclude,
       syncUid: options.syncUid ?? 1000,
       syncGid: options.syncGid ?? 1000,
       // Hosted Buzz shutdown is process-driven; generic launch options cannot

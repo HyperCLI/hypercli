@@ -93,13 +93,18 @@ describe('coding agents', () => {
   });
 
   it.each([
-    ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent],
-    ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent],
-    ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent],
-    ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent],
-    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent],
-    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent],
-  ] as const)('creates %s with the managed runtime contract', async (helper, runtime, image, AgentClass) => {
+    ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, []],
+    ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent, [
+      '.config/opencode',
+      '.local/share/opencode',
+      '.local/state/opencode',
+      '.cache/opencode',
+    ]],
+    ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent, ['.codex']],
+    ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent, ['.claude', '.claude.json']],
+    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent, ['.goose']],
+    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent, ['.kimi-code']],
+  ] as const)('creates %s with the managed runtime contract', async (helper, runtime, image, AgentClass, syncInclude) => {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -118,6 +123,7 @@ describe('coding agents', () => {
       routes: {},
       sync_root: '/home/node',
       sync_enabled: true,
+      sync_include: syncInclude,
       sync_uid: 1000,
       sync_gid: 1000,
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
@@ -142,6 +148,36 @@ describe('coding agents', () => {
     await deployments.createOpenCode({ runtimeScopes: ['models:*'] });
 
     expect(post.mock.calls[0][1].runtime_scopes).toEqual(['models:*']);
+  });
+
+  it.each([
+    [{ syncAll: true }, undefined, undefined],
+    [{ syncInclude: [] }, [], undefined],
+    [{ syncInclude: ['work'], syncExclude: ['tmp'] }, ['work'], undefined],
+    [{ syncExclude: ['.cache'] }, undefined, ['.cache']],
+  ] as const)('applies coding-agent sync policy overrides', async (options, expectedInclude, expectedExclude) => {
+    const post = vi.fn().mockResolvedValue(response('codex'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createCodex(options);
+
+    expect(post.mock.calls[0][1].sync_include).toEqual(expectedInclude);
+    expect(post.mock.calls[0][1].sync_exclude).toEqual(expectedExclude);
+  });
+
+  it('rejects syncAll combined with another policy override', async () => {
+    const deployments = new Deployments(
+      { post: vi.fn() } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.createCodex({ syncAll: true, syncInclude: ['.codex'] }))
+      .rejects.toThrow('syncAll cannot be combined');
   });
 
   it('launches Buzz ACP explicitly and retains caller environment injection', async () => {

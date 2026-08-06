@@ -20,7 +20,7 @@ import re
 import secrets
 import shlex
 import time
-from typing import TYPE_CHECKING, Callable, Literal, Optional, Any, AsyncIterator, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Callable, ClassVar, Literal, Optional, Any, AsyncIterator, NotRequired, TypedDict
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
@@ -85,6 +85,8 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "entrypoint",
         "sync_root",
         "sync_enabled",
+        "sync_include",
+        "sync_exclude",
         "sync_uid",
         "sync_gid",
         "registry_url",
@@ -120,6 +122,19 @@ DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "claude-code": DEFAULT_CLAUDE_CODE_IMAGE,
     "goose": DEFAULT_GOOSE_IMAGE,
     "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
+}
+DEFAULT_CODING_AGENT_SYNC_INCLUDES: dict[CodingAgentRuntime, tuple[str, ...]] = {
+    "buzz-agent": (),
+    "opencode": (
+        ".config/opencode",
+        ".local/share/opencode",
+        ".local/state/opencode",
+        ".cache/opencode",
+    ),
+    "codex": (".codex",),
+    "claude-code": (".claude", ".claude.json"),
+    "goose": (".goose",),
+    "kimi-code": (".kimi-code",),
 }
 DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "buzz-agent": DEFAULT_BUZZ_AGENT_IMAGE,
@@ -755,6 +770,8 @@ def _build_agent_launch(
     image: str | None = None,
     sync_root: str | None = None,
     sync_enabled: bool | None = None,
+    sync_include: list[str] | None = None,
+    sync_exclude: list[str] | None = None,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
     registry_url: str | None = None,
@@ -812,6 +829,10 @@ def _build_agent_launch(
         launch["sync_root"] = sync_root
     if sync_enabled is not None:
         launch["sync_enabled"] = sync_enabled
+    if sync_include is not None:
+        launch["sync_include"] = list(sync_include)
+    if sync_exclude is not None:
+        launch["sync_exclude"] = list(sync_exclude)
     if sync_uid is not None:
         launch["sync_uid"] = int(sync_uid)
     if sync_gid is not None:
@@ -839,6 +860,8 @@ def build_agent_config(
     image: str | None = None,
     sync_root: str | None = None,
     sync_enabled: bool | None = None,
+    sync_include: list[str] | None = None,
+    sync_exclude: list[str] | None = None,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
     registry_url: str | None = None,
@@ -865,6 +888,8 @@ def build_agent_config(
         image=image,
         sync_root=sync_root,
         sync_enabled=sync_enabled,
+        sync_include=sync_include,
+        sync_exclude=sync_exclude,
         sync_uid=sync_uid,
         sync_gid=sync_gid,
         registry_url=registry_url,
@@ -881,6 +906,26 @@ def _default_openclaw_image(image: str | None) -> str | None:
     if image is not None:
         return image
     return DEFAULT_OPENCLAW_IMAGE
+
+
+def _resolve_coding_agent_sync_policy(
+    runtime: CodingAgentRuntime,
+    *,
+    sync_all: bool,
+    sync_include: list[str] | None | object,
+    sync_exclude: list[str] | None | object,
+) -> tuple[list[str] | None, list[str] | None]:
+    if sync_all:
+        if sync_include is not _UNSET or sync_exclude is not _UNSET:
+            raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
+        return None, None
+    if sync_include is not _UNSET:
+        include = None if sync_include is None else list(sync_include)
+        return include, None
+    if sync_exclude is not _UNSET:
+        exclude = None if sync_exclude is None else list(sync_exclude)
+        return None, exclude
+    return list(DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime]), None
 
 
 def _default_openclaw_pro_image(image: str | None) -> str | None:
@@ -1919,6 +1964,8 @@ class Agent:
 class CodingAgent(Agent):
     """Canonical hosted coding runtime with native authentication helpers."""
 
+    default_sync_include: ClassVar[tuple[str, ...] | None] = None
+
     @property
     def auth(self) -> RuntimeAuthClient:
         return RuntimeAuthClient(self)
@@ -1928,30 +1975,42 @@ class CodingAgent(Agent):
 class BuzzAgent(CodingAgent):
     """Native Buzz ACP runtime with the bundled developer MCP tools."""
 
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["buzz-agent"]
+
 
 @dataclass
 class OpenCodeAgent(CodingAgent):
     """OpenCode runtime hosted behind Buzz ACP."""
+
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["opencode"]
 
 
 @dataclass
 class CodexAgent(CodingAgent):
     """Codex runtime hosted behind the Codex ACP adapter."""
 
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["codex"]
+
 
 @dataclass
 class ClaudeCodeAgent(CodingAgent):
     """Claude Code runtime hosted behind the Claude ACP adapter."""
+
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["claude-code"]
 
 
 @dataclass
 class GooseAgent(CodingAgent):
     """Goose native ACP runtime using the hosted Anthropic-compatible route."""
 
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["goose"]
+
 
 @dataclass
 class KimiCodeAgent(CodingAgent):
     """Kimi Code native ACP runtime using Moonshot's upstream authentication."""
+
+    default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["kimi-code"]
 
 
 @dataclass
@@ -2803,6 +2862,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -2838,6 +2899,8 @@ class Deployments:
             image=image,
             sync_root=sync_root,
             sync_enabled=sync_enabled,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3025,6 +3088,9 @@ class Deployments:
         image: str | None = None,
         sync_root: str | None = None,
         sync_enabled: bool | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
+        sync_all: bool = False,
         sync_uid: int | None = None,
         sync_gid: int | None = None,
         registry_url: str | None = None,
@@ -3056,6 +3122,12 @@ class Deployments:
             effective_env.update(buzz.environment(runtime, default_session_title=name))
         if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
+        effective_sync_include, effective_sync_exclude = _resolve_coding_agent_sync_policy(
+            runtime,
+            sync_all=sync_all,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+        )
         # Hosted Buzz shutdown is process-driven. Never let a generic coding
         # launch override resurrect the adapter after `!shutdown`.
         effective_restart = False if buzz_launch else restart
@@ -3082,6 +3154,8 @@ class Deployments:
             ),
             sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
             sync_enabled=True if sync_enabled is None else sync_enabled,
+            sync_include=effective_sync_include,
+            sync_exclude=effective_sync_exclude,
             sync_uid=1000 if sync_uid is None else sync_uid,
             sync_gid=1000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
@@ -3417,6 +3491,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3446,6 +3522,8 @@ class Deployments:
                 "image": image,
                 "sync_root": sync_root,
                 "sync_enabled": sync_enabled,
+                "sync_include": sync_include,
+                "sync_exclude": sync_exclude,
                 "sync_uid": sync_uid,
                 "sync_gid": sync_gid,
                 "registry_url": registry_url,
@@ -3476,6 +3554,8 @@ class Deployments:
             image=image,
             sync_root=sync_root,
             sync_enabled=sync_enabled,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
