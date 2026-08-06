@@ -641,9 +641,9 @@ pub struct CreateDeploymentRequest {
     pub sync_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    // Create has no stored policy to inherit. Keep `None` on the wire as JSON
+    // null so full-root selection is explicit and matches the other SDKs.
     pub sync_include: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_exclude: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_uid: Option<u32>,
@@ -1404,8 +1404,8 @@ mod tests {
         assert_eq!(all.sync_include, None);
         assert_eq!(all.sync_exclude, None);
         let wire = serde_json::to_value(all).unwrap();
-        assert!(wire.get("sync_include").is_none());
-        assert!(wire.get("sync_exclude").is_none());
+        assert!(wire["sync_include"].is_null());
+        assert!(wire["sync_exclude"].is_null());
     }
 
     #[test]
