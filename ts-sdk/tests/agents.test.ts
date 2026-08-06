@@ -102,6 +102,82 @@ describe('Agents SDK', () => {
     expect(agent.managed).toBeNull();
   });
 
+  it('hydrates transition epochs and future public states', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        state: 'FUTURE_STATE',
+        placement_epoch: 8,
+        runtime_generation: 3,
+        finalize_epoch: 2,
+        restore_state: 'FUTURE_RESTORE',
+      }),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const agent = await deployments.get('agent-123');
+
+    expect(agent.state).toBe('FUTURE_STATE');
+    expect(agent.placementEpoch).toBe(8);
+    expect(agent.runtimeGeneration).toBe(3);
+    expect(agent.finalizeEpoch).toBe(2);
+    expect(agent.restoreState).toBe('FUTURE_RESTORE');
+  });
+
+  it('hydrates REST before subscribing and resyncs after ready', async () => {
+    const get = vi.fn().mockResolvedValue({ items: [] });
+    const post = vi.fn().mockResolvedValue({
+      version: 1,
+      token: 'event-token',
+      ws_url: 'wss://events.test/ws/deployments',
+    });
+    const http = { get, post } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const controller = new AbortController();
+    const received: string[] = [];
+
+    class FakeWebSocket extends EventTarget {
+      static OPEN = 1;
+      readyState = FakeWebSocket.OPEN;
+      constructor(public readonly url: string) {
+        super();
+        queueMicrotask(() => this.dispatchEvent(new Event('open')));
+      }
+      send(payload: string) {
+        expect(JSON.parse(payload)).toEqual({ version: 1, type: 'auth', token: 'event-token' });
+        for (const frame of [
+          { version: 1, type: 'ready' },
+          {
+            version: 1,
+            type: 'deployment.transition',
+            deployment_id: 'agent-123',
+            state: 'RUNNING',
+            placement_epoch: 8,
+          },
+        ]) {
+          queueMicrotask(() => {
+            const event = new Event('message');
+            Object.defineProperty(event, 'data', { value: JSON.stringify(frame) });
+            this.dispatchEvent(event);
+          });
+        }
+      }
+      close() {
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+
+    await deployments.subscribe((event) => {
+      received.push(event.type);
+      if (event.type === 'deployment.transition') controller.abort();
+    }, { signal: controller.signal });
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(post).toHaveBeenCalledWith('/deployments/events/token');
+    expect(received).toEqual(['deployments.changed', 'deployment.transition']);
+  });
+
   it('passes typed list filters to deployments list', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({ items: [] }),
