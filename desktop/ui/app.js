@@ -647,6 +647,7 @@ function showEditor(detail, agent = null) {
   setEditorField("agent-size", editorValue(detail, "size", agent?.requested_size || ""));
   setEditorField("agent-model", editorValue(detail, "model"));
   setEditorField("agent-concurrency", editorValue(detail, "concurrency"));
+  document.getElementById("agent-sync-all").checked = Boolean(editorValue(detail, "sync_all", false));
   const selectedConnectionId = editorValue(detail, "connection_id");
   renderConnectionSelect(selectedConnectionId);
   const connectionSelect = document.getElementById("agent-connection");
@@ -820,6 +821,7 @@ function editorPayload() {
     size: document.getElementById("agent-size").value || null,
     model: model.disabled ? null : model.value.trim() || null,
     concurrency: concurrencySource ? Number(concurrencySource) : null,
+    sync_all: document.getElementById("agent-sync-all").checked,
     relay: document.getElementById("agent-relay").value.trim(),
     connection_id: connectionId && connectionId !== "__add__" ? connectionId : null,
     channels: channel ? [channel] : [],

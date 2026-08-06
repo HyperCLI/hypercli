@@ -803,6 +803,35 @@ select:disabled {
   padding-top: 14px;
 }
 
+.sync-all-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.sync-all-row > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.sync-all-row strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sync-all-row input {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  accent-color: var(--primary);
+}
+
 .button-row.tight {
   flex: none;
   gap: 6px;

@@ -112,6 +112,7 @@ pub struct DesktopAgentDetail {
     avatar_url: Option<String>,
     model: Option<String>,
     concurrency: Option<u32>,
+    sync_all: bool,
     relay: String,
     community: String,
     connection_id: Option<String>,
@@ -136,6 +137,8 @@ pub struct AgentEditorInput {
     size: Option<String>,
     model: Option<String>,
     concurrency: Option<u32>,
+    #[serde(default)]
+    sync_all: bool,
     relay: String,
     community: String,
     #[serde(default)]
@@ -416,6 +419,39 @@ fn insert_launch_env(config: &mut BTreeMap<String, Value>, env: BTreeMap<String,
                 .collect::<JsonMap<String, Value>>(),
         ),
     );
+}
+
+fn launch_syncs_all(config: &DeploymentLaunchConfig) -> bool {
+    !config.as_map().contains_key("sync_include")
+        && !config.as_map().contains_key("sync_exclude")
+}
+
+fn apply_editor_sync_policy(
+    config: &mut BTreeMap<String, Value>,
+    runtime: ManagedRuntime,
+    sync_all: bool,
+) {
+    if sync_all {
+        config.remove("sync_include");
+        config.remove("sync_exclude");
+        return;
+    }
+    if !config.contains_key("sync_include") && !config.contains_key("sync_exclude") {
+        if let Some(paths) = runtime.default_sync_include() {
+            config.insert(
+                "sync_include".to_owned(),
+                Value::Array(
+                    paths
+                        .iter()
+                        .map(|path| Value::String((*path).to_owned()))
+                        .collect(),
+                ),
+            );
+        }
+    }
+    if config.contains_key("sync_include") {
+        config.remove("sync_exclude");
+    }
 }
 
 fn env_value(env: &BTreeMap<String, String>, key: &str) -> Option<String> {
@@ -1310,6 +1346,7 @@ fn get_agent_detail_blocking(agent_id: String) -> Result<DesktopAgentDetail, Str
         avatar_url: env_value(&env, "BUZZ_PROFILE_PICTURE"),
         model: env_value(&env, "BUZZ_ACP_MODEL"),
         concurrency: env_value(&env, "BUZZ_ACP_AGENTS").and_then(|value| value.parse().ok()),
+        sync_all: launch_syncs_all(&deployment.launch_config),
         relay: env_value(&env, "BUZZ_RELAY_URL").unwrap_or_default(),
         community,
         connection_id,
@@ -1693,6 +1730,7 @@ fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<Desk
             .flatten(),
     );
     insert_launch_env(&mut launch_config, env);
+    apply_editor_sync_policy(&mut launch_config, runtime, input.sync_all);
 
     let requested_size = parse_editor_size(input.size.as_deref())?;
     let size_changed =
@@ -2206,6 +2244,7 @@ fn create_buzz_deployment_blocking(
         .map(|value| value.trim().to_owned())
         .collect();
     buzz.display_name = Some(input.name.trim().to_owned());
+    buzz.sync_all = input.sync_all;
     buzz.apply_to(&mut request, Some(input.name.trim()))
         .map_err(|error| error.to_string())?;
     request.size = Some(requested_size);
@@ -3430,6 +3469,27 @@ mod tests {
 
         assert_eq!(view.name, "CI Buzz Agent");
         assert_eq!(view.agent_public_key.as_deref(), Some("79be667ef9dcbbac"));
+    }
+
+    #[test]
+    fn editor_sync_all_clears_policy_and_unchecked_restores_runtime_default() {
+        let mut launch_config = BTreeMap::from([
+            ("sync_include".to_owned(), serde_json::json!([".codex"])),
+            ("sync_exclude".to_owned(), serde_json::json!(["tmp"])),
+        ]);
+        apply_editor_sync_policy(&mut launch_config, ManagedRuntime::Codex, true);
+        assert!(!launch_config.contains_key("sync_include"));
+        assert!(!launch_config.contains_key("sync_exclude"));
+        assert!(launch_syncs_all(&DeploymentLaunchConfig::from_map(
+            launch_config.clone()
+        )));
+
+        apply_editor_sync_policy(&mut launch_config, ManagedRuntime::Codex, false);
+        assert_eq!(launch_config["sync_include"], serde_json::json!([".codex"]));
+        assert!(!launch_config.contains_key("sync_exclude"));
+        assert!(!launch_syncs_all(&DeploymentLaunchConfig::from_map(
+            launch_config
+        )));
     }
 
     #[test]

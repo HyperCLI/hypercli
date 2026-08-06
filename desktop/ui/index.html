@@ -277,6 +277,13 @@
           <details id="agent-advanced" class="advanced-panel">
             <summary>Advanced</summary>
             <div class="advanced-body">
+              <label class="sync-all-row" for="agent-sync-all">
+                <span>
+                  <strong>Sync all files</strong>
+                  <span class="hint">Persist everything in the agent home instead of only this runtime's login and settings.</span>
+                </span>
+                <input id="agent-sync-all" name="sync_all" type="checkbox" />
+              </label>
               <div class="field-stack">
                 <label for="agent-env">Environment</label>
                 <textarea id="agent-env" name="env" rows="4" spellcheck="false" placeholder="GITHUB_TOKEN=\nMY_SETTING=value"></textarea>

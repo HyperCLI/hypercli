@@ -307,6 +307,8 @@ test("editor saves Buzz policy and launch env through one typed payload", async 
   await page.locator("#agent-respond-to").selectOption("owner-only");
   await expect(page.locator("#allowlist-field")).toBeHidden();
   await page.locator("#agent-advanced").click();
+  await expect(page.locator("#agent-sync-all")).not.toBeChecked();
+  await page.locator("#agent-sync-all").check();
   await page.locator("#agent-env").fill("GITHUB_ORG=hypercli\nFEATURE_FLAG=true");
   await expect(page.locator("#ssh-import-btn")).toHaveText("Attach SSH key");
   await page.locator("#ssh-import-btn").click();
@@ -319,6 +321,7 @@ test("editor saves Buzz policy and launch env through one typed payload", async 
   const saveCall = await page.evaluate(() => window.__MOCK__.calls.find(([cmd]) => cmd === "save_agent"));
   expect(saveCall[1].agentId).toBe("40c42593-7d02-48f9-a3ff-6c7d6461f140");
   expect(saveCall[1].input.respond_to).toBe("owner-only");
+  expect(saveCall[1].input.sync_all).toBe(true);
   expect(saveCall[1].input.env).toEqual({ GITHUB_ORG: "hypercli", FEATURE_FLAG: "true" });
   await expect(page.locator("#dashboard-view")).toBeVisible();
 });
@@ -457,6 +460,7 @@ test("create flow is progressive and launches a Buzz agent", async ({ page }) =>
     respond_to: "allowlist",
     allowlist: ["npub1owner", "damian"],
     concurrency: null,
+    sync_all: false,
   });
   await expect(page.locator("#agents-summary")).toHaveText("3 Buzz · 4 total");
   await expect(page.locator(".agent-card", { hasText: "Compass" })).toBeVisible();

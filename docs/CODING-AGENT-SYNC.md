@@ -18,7 +18,9 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Pin cross-language serialization/default tests. Deep restore, sync,
   finalization, eviction, and archive validation remains with the Backend /
   Lagoon / Reef implementation workstream.
-- [ ] Add Desktop's **Sync all** control and preserve it through create/edit.
+- [x] Add Desktop's flat **Sync all files** control and preserve it through
+  create/edit. Legacy launches with neither policy field render as sync-all;
+  turning it off restores the selected runtime's default include list.
 - [ ] Complete the read-only feature audits and resolve findings.
 - [ ] Document every coding runtime and OpenClaw's full-root behavior in the
   public SDK/runtime documentation.
