@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import asyncio
+import json
 import os
 from datetime import datetime
 from unittest.mock import MagicMock, Mock, patch
@@ -18,6 +20,7 @@ from hypercli.agents import (
     DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_OPENCLAW_IMAGE,
     DEFAULT_OPENCLAW_PRO_IMAGE,
+    DeploymentEvent,
     Deployments,
     OpenClawAgent,
     OpenClawProAgent,
@@ -49,6 +52,106 @@ def test_agent_from_dict_minimal():
     assert agent.routes == {}
     assert agent.ports == []
     assert agent.managed is None
+
+
+def test_agent_from_dict_hydrates_transition_epochs_and_future_state():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "state": "FUTURE_STATE",
+            "placement_epoch": 7,
+            "runtime_generation": 4,
+            "finalize_epoch": 2,
+            "restore_state": "FUTURE_RESTORE",
+        }
+    )
+
+    assert agent.state == "FUTURE_STATE"
+    assert agent.placement_epoch == 7
+    assert agent.runtime_generation == 4
+    assert agent.finalize_epoch == 2
+    assert agent.restore_state == "FUTURE_RESTORE"
+
+
+@pytest.mark.asyncio
+async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    calls: list[str] = []
+    stop = asyncio.Event()
+    transition = {
+        "version": 1,
+        "type": "deployment.transition",
+        "deployment_id": "agent-123",
+        "state": "RUNNING",
+        "placement_epoch": 7,
+        "runtime_generation": 4,
+    }
+
+    monkeypatch.setattr(deployments, "list", lambda: calls.append("rest") or [])
+    monkeypatch.setattr(
+        deployments,
+        "_post",
+        lambda path: calls.append(path) or {"token": "token", "ws_url": "wss://events.test/ws/deployments"},
+    )
+
+    class FakeSocket:
+        def __init__(self):
+            self.messages = iter((json.dumps({"version": 1, "type": "ready"}), json.dumps(transition)))
+
+        async def send(self, payload):
+            calls.append(json.loads(payload)["type"])
+
+        async def recv(self):
+            return next(self.messages)
+
+    class FakeConnection:
+        async def __aenter__(self):
+            return FakeSocket()
+
+        async def __aexit__(self, *_args):
+            return None
+
+    import websockets
+
+    monkeypatch.setattr(websockets, "connect", lambda *_args, **_kwargs: FakeConnection())
+    received: list[DeploymentEvent] = []
+
+    def handler(event: DeploymentEvent):
+        received.append(event)
+        if event.type == "deployment.transition":
+            stop.set()
+
+    await deployments.subscribe(handler, stop_event=stop)
+
+    assert calls[:4] == ["rest", "/deployments/events/token", "auth", "rest"]
+    assert [event.type for event in received] == ["deployments.changed", "deployment.transition"]
+    assert received[-1].runtime_generation == 4
+
+
+@pytest.mark.asyncio
+async def test_wait_running_async_uses_event_wakeup_and_rest_confirmation(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    states = iter(("STARTING", "RUNNING"))
+    monkeypatch.setattr(deployments, "resolve_agent_id", lambda _value: "agent-123")
+    monkeypatch.setattr(
+        deployments,
+        "get",
+        lambda _value: Agent.from_dict({"id": "agent-123", "state": next(states)}),
+    )
+
+    async def subscribe(handler, **_kwargs):
+        handler(DeploymentEvent(version=1, type="deployment.transition", deployment_id="agent-123"))
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(deployments, "subscribe", subscribe)
+
+    agent = await deployments.wait_running_async("agent-123", timeout=1)
+
+    assert agent.state == "RUNNING"
 
 
 def _routes_response(**overrides):

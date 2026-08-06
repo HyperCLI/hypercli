@@ -75,6 +75,7 @@ from .agents import (
     DEFAULT_BUZZ_CODING_AGENT_IMAGES,
     DEFAULT_CODING_AGENT_IMAGES,
     DEFAULT_CODING_AGENT_SYNC_INCLUDES,
+    DeploymentEvent,
     Deployments,
     ExecResult,
     GooseAgent,
@@ -227,6 +228,7 @@ __all__ = [
     "fetch_logs",
     # Agents (Reef Pods)
     "Deployments",
+    "DeploymentEvent",
     "Agent",
     "AgentCapacity",
     "AgentFileSource",

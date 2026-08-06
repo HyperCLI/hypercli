@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 import asyncio
 import copy
+import inspect
 import json
 import mimetypes
 import os
@@ -1128,6 +1129,10 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
         "last_error": data.get("last_error"),
+        "placement_epoch": int(data.get("placement_epoch", 0) or 0),
+        "runtime_generation": int(data.get("runtime_generation", 0) or 0),
+        "finalize_epoch": int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
+        "restore_state": str(data["restore_state"]) if data.get("restore_state") is not None else None,
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": data.get("launch_config"),
@@ -1708,6 +1713,31 @@ class AgentSlot:
         )
 
 
+@dataclass(frozen=True)
+class DeploymentEvent:
+    """Flat v1 deployment invalidation received from Backend."""
+
+    version: int
+    type: str
+    deployment_id: str | None = None
+    state: str | None = None
+    placement_epoch: int | None = None
+    runtime_generation: int | None = None
+    finalize_epoch: int | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DeploymentEvent":
+        return cls(
+            version=int(data.get("version", 0) or 0),
+            type=str(data.get("type") or ""),
+            deployment_id=str(data["deployment_id"]) if data.get("deployment_id") else None,
+            state=str(data["state"]) if data.get("state") else None,
+            placement_epoch=int(data["placement_epoch"]) if data.get("placement_epoch") is not None else None,
+            runtime_generation=int(data["runtime_generation"]) if data.get("runtime_generation") is not None else None,
+            finalize_epoch=int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
+        )
+
+
 @dataclass
 class AgentCapacity:
     """Typed deployment-list envelope including stored and running capacity."""
@@ -1754,6 +1784,10 @@ class Agent:
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    placement_epoch: int = 0
+    runtime_generation: int = 0
+    finalize_epoch: int | None = None
+    restore_state: str | None = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
@@ -3465,20 +3499,122 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
-    def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
-        """Poll until an agent reaches RUNNING and return a refreshed agent."""
-        agent_id = self.resolve_agent_id(agent_id_or_name)
-        deadline = time.time() + timeout
-        last_state = None
-        while time.time() < deadline:
-            agent = self.get(agent_id)
-            last_state = str(agent.state or "")
-            if last_state.lower() == "running":
+    async def subscribe(
+        self,
+        handler: Callable[[DeploymentEvent], Any],
+        *,
+        stop_event: asyncio.Event | None = None,
+    ) -> None:
+        """Subscribe to flat deployment invalidations until cancelled."""
+        import websockets
+
+        await asyncio.to_thread(self.list)
+        retry_delay = 0.25
+        while stop_event is None or not stop_event.is_set():
+            try:
+                token_data = await asyncio.to_thread(self._post, f"{AGENTS_API_PREFIX}/events/token")
+                ws_url = str(token_data.get("ws_url") or "").strip()
+                token = str(token_data.get("token") or "").strip()
+                if not ws_url or not token:
+                    raise RuntimeError("Deployment event token response is incomplete")
+                async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20) as websocket:
+                    await websocket.send(json.dumps({"version": 1, "type": "auth", "token": token}))
+                    ready = json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
+                    if ready != {"version": 1, "type": "ready"}:
+                        raise RuntimeError("Deployment event socket did not send ready")
+                    await asyncio.to_thread(self.list)
+                    result = handler(DeploymentEvent(version=1, type="deployments.changed"))
+                    if inspect.isawaitable(result):
+                        await result
+                    retry_delay = 0.25
+                    while stop_event is None or not stop_event.is_set():
+                        try:
+                            raw = await asyncio.wait_for(
+                                websocket.recv(), timeout=0.5 if stop_event is not None else None
+                            )
+                        except asyncio.TimeoutError:
+                            continue
+                        event = DeploymentEvent.from_dict(json.loads(raw))
+                        if event.version != 1 or event.type not in {
+                            "deployment.transition",
+                            "deployments.changed",
+                        }:
+                            continue
+                        result = handler(event)
+                        if inspect.isawaitable(result):
+                            await result
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                if stop_event is None:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=retry_delay)
+                    except asyncio.TimeoutError:
+                        pass
+                retry_delay = min(retry_delay * 2, 5.0)
+
+    async def wait_running_async(self, agent_id_or_name: str, timeout: float = 300.0) -> Agent:
+        """Wait for RUNNING using WebSocket wakeups and REST confirmation."""
+        agent_id = await asyncio.to_thread(self.resolve_agent_id, agent_id_or_name)
+        deadline = asyncio.get_running_loop().time() + timeout
+        wake = asyncio.Event()
+        last_agent: Agent | None = None
+
+        def check(agent: Agent) -> Agent | None:
+            nonlocal last_agent
+            last_agent = agent
+            state = str(agent.state or "")
+            if state.lower() == "running":
                 return agent
-            if last_state.lower() in {"failed", "error", "restore_failed", "sync_failed"}:
-                raise RuntimeError(f"Agent entered {last_state} while waiting for RUNNING")
-            time.sleep(poll_interval)
+            if state.lower() in {"failed", "error", "restore_failed", "sync_failed"}:
+                raise RuntimeError(f"Agent entered {state} while waiting for RUNNING")
+            return None
+
+        initial = check(await asyncio.to_thread(self.get, agent_id))
+        if initial is not None:
+            return initial
+
+        def on_event(event: DeploymentEvent) -> None:
+            if event.deployment_id in {None, agent_id}:
+                wake.set()
+
+        subscription = asyncio.create_task(self.subscribe(on_event))
+        try:
+            while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                waiter = asyncio.create_task(wake.wait())
+                done, _ = await asyncio.wait(
+                    {waiter, subscription}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                )
+                if subscription in done:
+                    await subscription
+                    raise RuntimeError("Deployment event subscription ended unexpectedly")
+                if waiter not in done:
+                    waiter.cancel()
+                    break
+                wake.clear()
+                current = check(await asyncio.to_thread(self.get, agent_id))
+                if current is not None:
+                    return current
+        finally:
+            subscription.cancel()
+            await asyncio.gather(subscription, return_exceptions=True)
+
+        final = check(await asyncio.to_thread(self.get, agent_id))
+        if final is not None:
+            return final
+        last_state = str(last_agent.state or "") if last_agent is not None else "unknown"
         raise TimeoutError(f"Timed out waiting for agent {agent_id} to reach RUNNING (last={last_state})")
+
+    def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
+        """Wait for RUNNING via deployment events; ``poll_interval`` is deprecated."""
+        del poll_interval
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.wait_running_async(agent_id_or_name, timeout=timeout))
+        raise RuntimeError("wait_running() cannot run inside an event loop; use wait_running_async()")
 
     def start(
         self,
