@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use base64::Engine;
 use hypercli_sdk::{
@@ -25,6 +25,7 @@ use serde_json::{Map as JsonMap, Value};
 use tauri::{Emitter, Manager};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
+use tokio::sync::watch;
 use tokio::sync::Mutex as AsyncMutex;
 
 use buzz_connections::{
@@ -49,6 +50,51 @@ const DESKTOP_KEY_SCOPES: [&str; 4] = ["agents:*", "files:*", "models:kimi-k2.6"
 /// callback (site/apps/claw/src/app/desktop-login/page.tsx) — the exact
 /// Backseat Driver pattern: token in the URL fragment, no server round-trip.
 const DESKTOP_LOGIN_PAGE: &str = "https://agents.hypercli.com/desktop-login";
+
+struct DeploymentEventStream {
+    restart: watch::Sender<u64>,
+}
+
+impl DeploymentEventStream {
+    fn restart(&self) {
+        let _ = self.restart.send_modify(|generation| *generation += 1);
+    }
+}
+
+async fn run_deployment_event_stream(app: tauri::AppHandle, mut restart: watch::Receiver<u64>) {
+    loop {
+        let client = match tauri::async_runtime::spawn_blocking(managed_client).await {
+            Ok(Ok(client)) => Arc::new(client),
+            _ => {
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                    result = restart.changed() => if result.is_err() { return; },
+                }
+                continue;
+            }
+        };
+        let credential_changed = {
+            let event_client = Arc::clone(&client);
+            let event_app = app.clone();
+            tokio::select! {
+                _ = event_client.subscribe_deployments(move |_| {
+                    let _ = event_app.emit("deployments-invalidated", ());
+                }) => false,
+                result = restart.changed() => {
+                    if result.is_err() { return; }
+                    true
+                },
+            }
+        };
+        let _ = tauri::async_runtime::spawn_blocking(move || drop(client)).await;
+        if !credential_changed {
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                result = restart.changed() => if result.is_err() { return; },
+            }
+        }
+    }
+}
 
 #[derive(Serialize)]
 pub struct ProviderStatus {
@@ -1113,19 +1159,25 @@ fn uninstall_providers() -> Result<ProviderStatus, String> {
 }
 
 #[tauri::command]
-fn save_api_key(api_key: String) -> Result<(), String> {
+fn save_api_key(
+    api_key: String,
+    events: tauri::State<'_, DeploymentEventStream>,
+) -> Result<(), String> {
     let api_key = api_key.trim();
     if api_key.is_empty() {
         return Err("API key is empty".into());
     }
-    write_api_key(&home_dir()?, api_key).map_err(|e| e.to_string())
+    write_api_key(&home_dir()?, api_key).map_err(|e| e.to_string())?;
+    events.restart();
+    Ok(())
 }
 
 /// Returns true when a key is still discoverable afterwards — i.e. the
 /// environment exports one that logout cannot (and should not) remove.
 #[tauri::command]
-fn logout() -> Result<bool, String> {
+fn logout(events: tauri::State<'_, DeploymentEventStream>) -> Result<bool, String> {
     remove_config_api_keys(&home_dir()?).map_err(|e| e.to_string())?;
+    events.restart();
     let (still_has_key, _) = credential_state();
     Ok(still_has_key)
 }
@@ -1626,21 +1678,17 @@ fn validate_editor_input(input: &AgentEditorInput) -> Result<(), String> {
     validate_additional_env(&input.env)
 }
 
-fn wait_for_stopped(
-    client: &HyperCliClient,
-    mut deployment: Deployment,
-) -> Result<Deployment, String> {
-    let deadline = Instant::now() + RESTART_STOP_TIMEOUT;
-    while normalized_state(&deployment.state) != "stopped" {
-        if Instant::now() >= deadline {
-            return Err("Agent is still stopping. Save again after it reaches stopped.".to_owned());
-        }
-        std::thread::sleep(RESTART_POLL_INTERVAL);
-        deployment = client
-            .get_deployment(&deployment.id)
-            .map_err(|error| error.to_string())?;
+fn wait_for_stopped(client: &HyperCliClient, deployment: Deployment) -> Result<Deployment, String> {
+    if normalized_state(&deployment.state) == "stopped" {
+        return Ok(deployment);
     }
-    Ok(deployment)
+    tauri::async_runtime::block_on(client.wait_deployment_state(
+        &deployment.id,
+        &["stopped"],
+        &[],
+        RESTART_STOP_TIMEOUT,
+    ))
+    .map_err(|error| format!("Agent is still stopping: {error}"))
 }
 
 fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<DesktopAgent, String> {
@@ -2841,32 +2889,25 @@ async fn stop_agent(agent_id: String) -> Result<DesktopAgent, String> {
 }
 
 const RESTART_STOP_TIMEOUT: Duration = Duration::from_secs(60);
-const RESTART_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 fn restart_agent_blocking(agent_id: String) -> Result<DesktopAgent, String> {
     let agent_id = checked_agent_id(&agent_id)?;
     let client = managed_client()?;
-    let mut current = client
+    let current = client
         .get_deployment(&agent_id)
         .map_err(|error| error.to_string())?;
     let state = normalized_state(&current.state);
     if state == "running" {
-        current = client
+        client
             .stop_deployment(&agent_id)
             .map_err(|error| error.to_string())?;
-        let deadline = Instant::now() + RESTART_STOP_TIMEOUT;
-        while normalized_state(&current.state) != "stopped" {
-            if Instant::now() >= deadline {
-                return Err(
-                    "Agent is still stopping. Try restart again after it reaches stopped."
-                        .to_owned(),
-                );
-            }
-            std::thread::sleep(RESTART_POLL_INTERVAL);
-            current = client
-                .get_deployment(&agent_id)
-                .map_err(|error| error.to_string())?;
-        }
+        tauri::async_runtime::block_on(client.wait_deployment_state(
+            &agent_id,
+            &["stopped"],
+            &[],
+            RESTART_STOP_TIMEOUT,
+        ))
+        .map_err(|error| format!("Agent is still stopping: {error}"))?;
     } else if !agent_actions(&state).restart && state != "stopped" {
         return Err(format!("Agent cannot be restarted while it is {state}"));
     }
@@ -3193,11 +3234,19 @@ pub fn run() {
             .plugin(tauri_plugin_process::init())
     };
 
+    let (deployment_event_restart, deployment_event_rx) = watch::channel(0_u64);
     builder
+        .manage(DeploymentEventStream {
+            restart: deployment_event_restart,
+        })
         .manage(RuntimeLoginSessions::default())
         .manage(StagedAvatarUploads::default())
         .setup(|app| {
             let handle = app.handle().clone();
+            tauri::async_runtime::spawn(run_deployment_event_stream(
+                handle.clone(),
+                deployment_event_rx,
+            ));
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
                     if let Some(token) = token_from_callback(url.as_str()) {
@@ -3442,6 +3491,10 @@ mod tests {
             tags: vec!["buzz_agent=public-key".to_owned()],
             requested_size: Some("large".to_owned()),
             last_error: None,
+            placement_epoch: 0,
+            runtime_generation: 0,
+            finalize_epoch: None,
+            restore_state: None,
             launch_config: Default::default(),
         });
         let serialized = serde_json::to_value(view).unwrap();
@@ -3474,6 +3527,10 @@ mod tests {
             ],
             requested_size: Some("large".to_owned()),
             last_error: None,
+            placement_epoch: 0,
+            runtime_generation: 0,
+            finalize_epoch: None,
+            restore_state: None,
             launch_config: DeploymentLaunchConfig::from_map(launch_config),
         });
 

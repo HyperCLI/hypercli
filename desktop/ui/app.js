@@ -9,6 +9,7 @@ const agentsSummaryEl = document.getElementById("agents-summary");
 let agents = [];
 let agentFilter = "buzz";
 let agentsLoading = false;
+let agentsRefreshPending = false;
 let agentActionInFlight = false;
 let editingAgent = null;
 let editingDetail = null;
@@ -233,7 +234,12 @@ function renderAgents() {
 }
 
 async function refreshAgents() {
-  if (agentsLoading || agentActionInFlight || document.getElementById("agents-section").hidden || dashboardView.hidden) return;
+  if (agentsLoading) {
+    agentsRefreshPending = true;
+    return;
+  }
+  if (agentActionInFlight || document.getElementById("agents-section").hidden || dashboardView.hidden) return;
+  agentsRefreshPending = false;
   agentsLoading = true;
   renderAgents();
   document.getElementById("agents-refresh").disabled = true;
@@ -245,6 +251,7 @@ async function refreshAgents() {
     agentsLoading = false;
     document.getElementById("agents-refresh").disabled = false;
     renderAgents();
+    if (agentsRefreshPending) queueMicrotask(refreshAgents);
   }
 }
 
@@ -1399,4 +1406,7 @@ checkForUpdate();
 setInterval(checkForUpdate, UPDATE_CHECK_INTERVAL_MS);
 
 refreshStatus();
-setInterval(refreshAgents, 15_000);
+void listen("deployments-invalidated", () => {
+  agentsRefreshPending = true;
+  void refreshAgents();
+});
