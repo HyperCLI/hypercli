@@ -2758,6 +2758,15 @@ export class KimiCodeAgent extends CodingAgent {
   }
 }
 
+const CODING_AGENT_CLASSES = {
+  'buzz-agent': BuzzAgent,
+  opencode: OpenCodeAgent,
+  codex: CodexAgent,
+  'claude-code': ClaudeCodeAgent,
+  goose: GooseAgent,
+  'kimi-code': KimiCodeAgent,
+} as const;
+
 export class HermesAgent extends Agent {
   declare public readonly runtime: 'hermes-agent';
   public readonly apiUrl: string | null;
@@ -4010,6 +4019,7 @@ export class Deployments {
     }
     let syncInclude: readonly string[] | null;
     let syncExclude: readonly string[] | null;
+    let syncAll = options.syncAll === true;
     if (options.syncAll) {
       syncInclude = null;
       syncExclude = null;
@@ -4019,11 +4029,13 @@ export class Deployments {
     } else if (options.syncExclude !== undefined) {
       syncInclude = null;
       syncExclude = options.syncExclude;
+      syncAll = options.syncExclude === null;
     } else if (options.syncInclude === null) {
       syncInclude = null;
       syncExclude = null;
+      syncAll = true;
     } else {
-      syncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime];
+      syncInclude = CODING_AGENT_CLASSES[runtime].defaultSyncInclude;
       syncExclude = null;
     }
     const effectiveOptions: CreateAgentOptions = {
@@ -4045,6 +4057,7 @@ export class Deployments {
       syncEnabled: options.syncEnabled ?? true,
       syncInclude,
       syncExclude,
+      syncAll,
       syncUid: options.syncUid ?? 1000,
       syncGid: options.syncGid ?? 1000,
       // Hosted Buzz shutdown is process-driven; generic launch options cannot
@@ -4247,6 +4260,22 @@ export class Deployments {
   ): Promise<void> {
     await this.list({ signal: options.signal });
     let retryDelay = 250;
+    const waitBeforeReconnect = async () => {
+      let abortRetry: () => void = () => {};
+      const aborted = new Promise<void>((resolve) => {
+        if (options.signal?.aborted) resolve();
+        else {
+          abortRetry = resolve;
+          options.signal?.addEventListener('abort', abortRetry, { once: true });
+        }
+      });
+      try {
+        await Promise.race([sleep(retryDelay), aborted]);
+      } finally {
+        options.signal?.removeEventListener('abort', abortRetry);
+      }
+      retryDelay = Math.min(retryDelay * 2, 5_000);
+    };
     while (!options.signal?.aborted) {
       try {
         const token = await this.agentHttp.post<{
@@ -4304,23 +4333,11 @@ export class Deployments {
           if (options.signal?.aborted) abort();
           void opened;
         });
+        if (!options.signal?.aborted) await waitBeforeReconnect();
       } catch (error) {
         if (options.signal?.aborted) break;
         if (error instanceof APIError && [401, 403].includes(error.statusCode)) throw error;
-        let abortRetry: () => void = () => {};
-        const aborted = new Promise<void>((resolve) => {
-          if (options.signal?.aborted) resolve();
-          else {
-            abortRetry = resolve;
-            options.signal?.addEventListener('abort', abortRetry, { once: true });
-          }
-        });
-        try {
-          await Promise.race([sleep(retryDelay), aborted]);
-        } finally {
-          options.signal?.removeEventListener('abort', abortRetry);
-        }
-        retryDelay = Math.min(retryDelay * 2, 5_000);
+        await waitBeforeReconnect();
         void error;
       }
     }

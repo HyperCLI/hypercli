@@ -153,14 +153,6 @@ def _sync_policy_kwargs(
     return {}
 
 
-def _saved_sync_policy_kwargs(launch_fields: dict) -> dict[str, list[str]]:
-    if "sync_include" in launch_fields and launch_fields["sync_include"] is not None:
-        return {"sync_include": list(launch_fields["sync_include"])}
-    if "sync_exclude" in launch_fields and launch_fields["sync_exclude"] is not None:
-        return {"sync_exclude": list(launch_fields["sync_exclude"])}
-    return {}
-
-
 def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
     env_dict = dict(env or {})
     if force or "OPENCLAW_DESKTOP_ENABLED" not in env_dict:
@@ -1154,10 +1146,11 @@ def start(
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
     saved_launch_fields, saved_runtime_config = _split_saved_launch_config(local.get("launch_config"))
-    if sync_all or sync_include is not None or sync_exclude is not None:
-        sync_policy = _sync_policy_kwargs(sync_include, sync_exclude, sync_all=sync_all)
-    else:
-        sync_policy = _saved_sync_policy_kwargs(saved_launch_fields)
+    # A normal start inherits the backend's authoritative stored policy. The
+    # local state file is only a convenience cache and may be stale after an
+    # edit from Desktop or another SDK client; replay policy only when the
+    # caller explicitly supplied a sync flag.
+    sync_policy = _sync_policy_kwargs(sync_include, sync_exclude, sync_all=sync_all)
     runtime = str(getattr(existing_pod, "runtime", None) or local.get("runtime") or "openclaw").strip().lower()
     is_hermes = runtime == "hermes-agent"
     effective_gateway_token = gateway_token or local.get("gateway_token")

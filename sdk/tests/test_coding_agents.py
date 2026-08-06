@@ -199,16 +199,23 @@ def test_create_coding_agent_honors_runtime_scope_override():
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expected_include", "expected_exclude"),
+    ("kwargs", "expected_include", "expected_exclude", "expect_full_root"),
     [
-        ({"sync_all": True}, None, None),
-        ({"sync_include": []}, [], None),
-        ({"sync_include": ["work"], "sync_exclude": ["tmp"]}, ["work"], None),
-        ({"sync_include": None, "sync_exclude": ["tmp"]}, None, ["tmp"]),
-        ({"sync_exclude": [".cache"]}, None, [".cache"]),
+        ({"sync_all": True}, None, None, True),
+        ({"sync_include": None}, None, None, True),
+        ({"sync_exclude": None}, None, None, True),
+        ({"sync_include": []}, [], None, False),
+        ({"sync_include": ["work"], "sync_exclude": ["tmp"]}, ["work"], None, False),
+        ({"sync_include": None, "sync_exclude": ["tmp"]}, None, ["tmp"], False),
+        ({"sync_exclude": [".cache"]}, None, [".cache"], False),
     ],
 )
-def test_coding_agent_sync_policy_overrides(kwargs, expected_include, expected_exclude):
+def test_coding_agent_sync_policy_overrides(
+    kwargs,
+    expected_include,
+    expected_exclude,
+    expect_full_root,
+):
     deployments = Deployments(_HTTP())
     posted: dict = {}
 
@@ -219,19 +226,30 @@ def test_coding_agent_sync_policy_overrides(kwargs, expected_include, expected_e
     deployments._post = fake_post
     deployments.create_codex(**kwargs)
 
-    if kwargs.get("sync_all"):
+    if expect_full_root:
         assert posted["sync_include"] is None
         assert posted["sync_exclude"] is None
     elif expected_include is None:
         assert "sync_include" not in posted
     else:
         assert posted["sync_include"] == expected_include
-    if kwargs.get("sync_all"):
+    if expect_full_root:
         pass
     elif expected_exclude is None:
         assert "sync_exclude" not in posted
     else:
         assert posted["sync_exclude"] == expected_exclude
+
+
+def test_coding_agent_create_reads_the_runtime_subclass_sync_default(monkeypatch):
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+    monkeypatch.setattr(CodexAgent, "default_sync_include", (".custom-codex",))
+    deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("codex")
+
+    deployments.create_codex()
+
+    assert posted["sync_include"] == [".custom-codex"]
 
 
 def test_coding_agent_sync_all_rejects_other_policy_overrides():
@@ -308,6 +326,7 @@ def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, run
     assert posted["runtime"] == runtime
     assert posted["runtime_scopes"] == _BUZZ_GOLDEN["runtime_scopes"]
     assert posted["image"] == expected_runtime["image"]
+    assert posted["sync_include"] == expected_runtime["sync_include"]
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == expected_runtime["agent_command"]
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == expected_runtime["agent_args"]
     assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == expected_runtime["mcp_command"]

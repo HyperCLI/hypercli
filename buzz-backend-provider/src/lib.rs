@@ -628,7 +628,7 @@ fn restart_if_stopped(
     if !deployment.state.eq_ignore_ascii_case("stopped") {
         return Ok(deployment);
     }
-    let mut start = StartDeploymentRequest {
+    let start = StartDeploymentRequest {
         config: create.config.clone(),
         env: create.env.clone(),
         routes: create.routes.clone(),
@@ -645,10 +645,9 @@ fn restart_if_stopped(
         runtime_scopes: create.runtime_scopes.clone(),
         dry_run: false,
     };
-    // This is a declarative relaunch of the provider-owned create contract,
-    // not an ordinary user restart. Preserve all three sync states, including
-    // explicit full-root (`null/null`) rather than inheriting stale policy.
-    start.set_sync_policy(create.sync_include.clone(), create.sync_exclude.clone());
+    // Sync policy is backend-authoritative after creation. A user may have
+    // edited it from Desktop or another SDK client, so relaunch deliberately
+    // omits both tri-state fields and inherits the stored policy.
     client
         .start_deployment(&deployment.id, &start)
         .map_err(ProviderError::HyperCli)
@@ -757,6 +756,11 @@ fn build_launch_request_with_inference_base(
     request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
     request.sync_root = Some("/home/node".to_owned());
     request.sync_enabled = Some(true);
+    request.sync_include = request
+        .runtime
+        .default_sync_include()
+        .map(|paths| paths.iter().map(|path| (*path).to_owned()).collect());
+    request.sync_exclude = None;
     request.sync_uid = Some(1000);
     request.sync_gid = Some(1000);
     request.restart = Some(false);
@@ -2494,17 +2498,11 @@ mod tests {
     }
 
     #[test]
-    fn stopped_agent_relaunch_clears_stale_selective_sync_policy() {
+    fn stopped_agent_relaunch_inherits_backend_sync_policy() {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::PartialJsonString(
-                serde_json::json!({
-                    "sync_include": null,
-                    "sync_exclude": null
-                })
-                .to_string(),
-            ))
+            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
@@ -2524,17 +2522,11 @@ mod tests {
     }
 
     #[test]
-    fn stopped_agent_relaunch_reapplies_selective_sync_policy() {
+    fn stopped_agent_relaunch_does_not_replay_create_sync_default() {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::PartialJsonString(
-                serde_json::json!({
-                    "sync_include": [".config/opencode"],
-                    "sync_exclude": null
-                })
-                .to_string(),
-            ))
+            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)

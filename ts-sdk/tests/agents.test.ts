@@ -199,6 +199,68 @@ describe('Agents SDK', () => {
     expect(get.mock.calls[0]?.[2]?.signal).toBe(controller.signal);
   });
 
+  it('backs off an unexpected clean close before reconnecting and resyncing', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn().mockResolvedValue({ items: [] });
+    const post = vi.fn().mockResolvedValue({
+      version: 1,
+      token: 'event-token',
+      ws_url: 'wss://events.test/ws/deployments',
+    });
+    const deployments = new Deployments(
+      { get, post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const controller = new AbortController();
+    let sockets = 0;
+    let resyncs = 0;
+
+    class ClosingWebSocket extends EventTarget {
+      static OPEN = 1;
+      readyState = ClosingWebSocket.OPEN;
+      readonly ordinal = ++sockets;
+      private closed = false;
+      constructor(public readonly url: string) {
+        super();
+        queueMicrotask(() => this.dispatchEvent(new Event('open')));
+      }
+      send() {
+        queueMicrotask(() => {
+          const event = new Event('message');
+          Object.defineProperty(event, 'data', {
+            value: JSON.stringify({ version: 1, type: 'ready' }),
+          });
+          this.dispatchEvent(event);
+        });
+        if (this.ordinal === 1) queueMicrotask(() => this.close());
+      }
+      close() {
+        if (this.closed) return;
+        this.closed = true;
+        this.dispatchEvent(new Event('close'));
+      }
+    }
+    vi.stubGlobal('WebSocket', ClosingWebSocket);
+
+    const subscription = deployments.subscribe(() => {
+      resyncs += 1;
+      if (resyncs === 2) controller.abort();
+    }, { signal: controller.signal });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(post).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await subscription;
+
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(3);
+    expect(resyncs).toBe(2);
+  });
+
   it('passes typed list filters to deployments list', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({ items: [] }),

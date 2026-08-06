@@ -545,7 +545,7 @@ def test_agents_create_hermes_rejects_openclaw_only_flags(monkeypatch):
     assert "options: desktop" in result.stderr
 
 
-def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
+def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_policy(monkeypatch):
     captured = {}
     agent_id = "agent-123456789"
 
@@ -607,7 +607,7 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
     assert captured["runtime_scopes"] == ["agents:none", "models:*"]
     assert captured["sync_root"] == ".openclaw"
     assert captured["sync_enabled"] is True
-    assert captured["sync_include"] == []
+    assert "sync_include" not in captured
     assert "sync_exclude" not in captured
     assert captured["gateway_token"] == "saved-gateway-token"
 

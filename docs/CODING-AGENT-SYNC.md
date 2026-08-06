@@ -22,9 +22,10 @@ Related plan: `/tmp/LAGOON-PLAN.md`
   create/edit. Legacy launches with neither policy field render as sync-all;
   turning it off restores the selected runtime's default include list.
 - [x] Complete independent SDK and Desktop audits. The follow-up fixes preserve
-  excludes when Python receives a nullable include, carry the policy through a
-  provider restart, distinguish JSON null from an explicit empty include, and
-  let older Desktop callers preserve the current launch policy.
+  excludes when Python receives a nullable include, apply runtime defaults on
+  the provider's initial create while ordinary restarts inherit the backend's
+  stored policy, distinguish JSON null from an explicit empty include, and let
+  older Desktop callers preserve the current launch policy.
 - [x] Document every coding runtime and OpenClaw's full-root behavior in
   `docs/agents/coding-runtimes.mdx`.
 

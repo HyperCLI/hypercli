@@ -1426,6 +1426,10 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], contract["agent_args"]);
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], contract["mcp_command"]);
             assert_eq!(
+                serde_json::to_value(&request.sync_include).unwrap(),
+                contract["sync_include"]
+            );
+            assert_eq!(
                 request
                     .env
                     .get("CLAUDE_CODE_EXECUTABLE")
