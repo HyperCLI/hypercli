@@ -207,14 +207,15 @@ Anthropic-native `kimi-k2.6-anthropic` route; Kimi Code uses Moonshot's
 upstream login and service.
 Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
 launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility
-switch for Claude and Kimi; Codex cannot use the HyperCLI gateway until it
-offers the OpenAI Responses wire API. See the
+switch for Claude and Kimi. The gateway now exposes `/v1/responses`, and Buzz
+compatibility mode renders Codex with `wire_api="responses"`; a successful
+HyperCLI-model Codex Responses E2E remains unvalidated, so that path is not yet
+advertised as supported. See the
 [runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
 ```typescript
 const agent = await client.deployments.createOpenCode({
   name: 'buzz-ci',
-  env: { HYPER_API_KEY: process.env.HYPER_API_KEY! },
   buzz: {
     privateKeyNsec: agentNsec,
     relayUrl,
@@ -231,6 +232,9 @@ const login = await agent.auth.login({ method: 'device' });
 const authenticated = await login.wait();
 await agent.auth.logout();
 ```
+
+The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
+runtime. Do not copy an account API key into the launch environment.
 
 Authentication is runtime-specific rather than one universal login protocol.
 Native Buzz Agent has no separate login step and uses its injected model and

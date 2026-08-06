@@ -175,8 +175,10 @@ and Goose default to HyperCLI's Anthropic-native `kimi-k2.6-anthropic` route.
 Kimi Code keeps Moonshot's upstream device login and service.
 Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
 launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility
-switch for Claude and Kimi; Codex cannot use the HyperCLI gateway until it
-offers the OpenAI Responses wire API. See the
+switch for Claude and Kimi. The gateway now exposes `/v1/responses`, and Buzz
+compatibility mode renders Codex with `wire_api="responses"`; a successful
+HyperCLI-model Codex Responses E2E remains unvalidated, so that path is not yet
+advertised as supported. See the
 [runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
 ```python
