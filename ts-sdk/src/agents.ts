@@ -4100,7 +4100,7 @@ export class Deployments {
     handler: (event: DeploymentEvent) => void | Promise<void>,
     options: DeploymentSubscribeOptions = {},
   ): Promise<void> {
-    await this.list();
+    await this.list({ signal: options.signal });
     let retryDelay = 250;
     while (!options.signal?.aborted) {
       try {
@@ -4108,7 +4108,7 @@ export class Deployments {
           version: number;
           token: string;
           ws_url: string;
-        }>(`${DEPLOYMENTS_API_PREFIX}/events/token`);
+        }>(`${DEPLOYMENTS_API_PREFIX}/events/token`, undefined, { signal: options.signal });
         const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
         const ws = new WebSocketImpl(token.ws_url);
         await new Promise<void>((resolve, reject) => {
@@ -4134,7 +4134,7 @@ export class Deployments {
                 }
                 ready = true;
                 clearTimeout(readyTimer);
-                await this.list();
+                await this.list({ signal: options.signal });
                 await handler({ version: 1, type: 'deployments.changed' });
                 retryDelay = 250;
                 return;
@@ -4162,10 +4162,19 @@ export class Deployments {
       } catch (error) {
         if (options.signal?.aborted) break;
         if (error instanceof APIError && [401, 403].includes(error.statusCode)) throw error;
-        await Promise.race([
-          sleep(retryDelay),
-          new Promise<void>((resolve) => options.signal?.addEventListener('abort', () => resolve(), { once: true })),
-        ]);
+        let abortRetry: () => void = () => {};
+        const aborted = new Promise<void>((resolve) => {
+          if (options.signal?.aborted) resolve();
+          else {
+            abortRetry = resolve;
+            options.signal?.addEventListener('abort', abortRetry, { once: true });
+          }
+        });
+        try {
+          await Promise.race([sleep(retryDelay), aborted]);
+        } finally {
+          options.signal?.removeEventListener('abort', abortRetry);
+        }
         retryDelay = Math.min(retryDelay * 2, 5_000);
         void error;
       }

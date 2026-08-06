@@ -174,8 +174,29 @@ describe('Agents SDK', () => {
     }, { signal: controller.signal });
 
     expect(get).toHaveBeenCalledTimes(2);
-    expect(post).toHaveBeenCalledWith('/deployments/events/token');
+    expect(post).toHaveBeenCalledWith(
+      '/deployments/events/token',
+      undefined,
+      { signal: controller.signal },
+    );
     expect(received).toEqual(['deployments.changed', 'deployment.transition']);
+  });
+
+  it('passes cancellation through initial REST hydration', async () => {
+    const controller = new AbortController();
+    const get = vi.fn((_path: string, _params: unknown, requestOptions: { signal: AbortSignal }) => (
+      new Promise((_resolve, reject) => {
+        requestOptions.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      })
+    ));
+    const http = { get } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const subscription = deployments.subscribe(() => undefined, { signal: controller.signal });
+    controller.abort();
+
+    await expect(subscription).rejects.toThrow('aborted');
+    expect(get.mock.calls[0]?.[2]?.signal).toBe(controller.signal);
   });
 
   it('passes typed list filters to deployments list', async () => {
