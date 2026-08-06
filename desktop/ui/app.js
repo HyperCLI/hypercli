@@ -238,7 +238,10 @@ async function refreshAgents() {
     agentsRefreshPending = true;
     return;
   }
-  if (agentActionInFlight || document.getElementById("agents-section").hidden || dashboardView.hidden) return;
+  if (agentActionInFlight || document.getElementById("agents-section").hidden || dashboardView.hidden) {
+    agentsRefreshPending = true;
+    return;
+  }
   agentsRefreshPending = false;
   agentsLoading = true;
   renderAgents();
@@ -467,6 +470,7 @@ function closeBuzzConnections(savedConnectionId = "") {
   }
   connectionReturnView = "dashboard";
   connectionReturnSelection = "";
+  if (!dashboardView.hidden && agentsRefreshPending) queueMicrotask(refreshAgents);
 }
 
 async function updateSelectedConnection() {

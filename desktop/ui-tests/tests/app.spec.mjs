@@ -174,6 +174,30 @@ test("native deployment invalidation refreshes the REST-backed fleet", async ({ 
   await expect(page.locator('.agent-card[data-agent-id="40c42593-7d02-48f9-a3ff-6c7d6461f140"]')).toContainText("stopped");
 });
 
+test("deployment invalidation refreshes after leaving a dashboard subscreen", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await page.locator("#buzz-connections-manage").click();
+  await expect(page.locator("#buzz-connection-screen")).toBeVisible();
+
+  const before = await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ));
+  await page.evaluate(() => {
+    window.__MOCK__.agents[0].state = "stopped";
+    window.__MOCK__.listeners["deployments-invalidated"]({ payload: null });
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before);
+
+  await page.locator("#buzz-connection-back").click();
+  await expect.poll(() => page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBeGreaterThan(before);
+  await expect(page.locator('.agent-card[data-agent-id="40c42593-7d02-48f9-a3ff-6c7d6461f140"]')).toContainText("stopped");
+});
+
 test("fleet actions follow backend lifecycle rules", async ({ page }) => {
   await withMock(page, { status: { has_api_key: true } });
   await page.goto("/");

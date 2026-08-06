@@ -53,6 +53,10 @@ export interface Agent {
   last_error: string | null;
   created_at: string | null;
   updated_at: string | null;
+  placementEpoch: number;
+  runtimeGeneration: number;
+  finalizeEpoch: number | null;
+  restoreState: string | null;
   launchConfig?: Record<string, unknown> | null;
   gatewayToken?: string | null;
   hasDesktop?: boolean;

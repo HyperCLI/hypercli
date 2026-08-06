@@ -122,6 +122,10 @@ const agent: Agent = {
   last_error: null,
   created_at: "2026-05-05T00:00:00Z",
   updated_at: "2026-05-05T00:00:00Z",
+  placementEpoch: 0,
+  runtimeGeneration: 0,
+  finalizeEpoch: null,
+  restoreState: null,
   gatewayToken: null,
   meta: null,
 };

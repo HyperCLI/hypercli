@@ -377,6 +377,78 @@ def test_agents_create_accepts_memory_index_flags(monkeypatch):
     }
 
 
+def test_agents_create_sync_include_is_repeatable_and_wins_over_exclude(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url=None,
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        [
+            "agents",
+            "create",
+            "--dry-run",
+            "--sync-include",
+            "workspace",
+            "--sync-include",
+            ".config/opencode",
+            "--sync-exclude",
+            "workspace/tmp",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["sync_include"] == ["workspace", ".config/opencode"]
+    assert "sync_exclude" not in captured
+
+
+def test_agents_create_sync_all_omits_selective_policy(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url=None,
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        ["agents", "create", "--dry-run", "--sync-all", "--sync-include", "workspace"],
+    )
+
+    assert result.exit_code == 0
+    assert "sync_include" not in captured
+    assert "sync_exclude" not in captured
+
+
 def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
     captured = {}
     agent_id = "agent-123456789"
@@ -398,6 +470,8 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
                 "runtime_scopes": ["agents:none", "models:*"],
                 "sync_root": ".openclaw",
                 "sync_enabled": True,
+                "sync_include": [],
+                "sync_exclude": ["ignored-because-include-wins"],
             },
         }
     }
@@ -437,7 +511,94 @@ def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
     assert captured["runtime_scopes"] == ["agents:none", "models:*"]
     assert captured["sync_root"] == ".openclaw"
     assert captured["sync_enabled"] is True
+    assert captured["sync_include"] == []
+    assert "sync_exclude" not in captured
     assert captured["gateway_token"] == "saved-gateway-token"
+
+
+def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
+    captured = {}
+    agent_id = "agent-123456789"
+
+    class FakeDeployments:
+        def get(self, agent_ref):
+            assert agent_ref == agent_id
+            return SimpleNamespace(
+                id=agent_id,
+                gateway_token=None,
+                launch_config={
+                    "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
+                    "sync_include": ["workspace"],
+                },
+            )
+
+        def start_openclaw(self, agent_id_arg, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id=agent_id_arg,
+                pod_name="agent-pod",
+                dry_run=True,
+                vnc_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", dict)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        [
+            "agents",
+            "start",
+            agent_id,
+            "--dry-run",
+            "--sync-exclude",
+            "workspace/tmp",
+            "--sync-exclude",
+            "workspace/cache",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["sync_exclude"] == ["workspace/tmp", "workspace/cache"]
+    assert "sync_include" not in captured
+
+
+def test_agents_start_sync_all_omits_saved_selective_policy(monkeypatch):
+    captured = {}
+    agent_id = "agent-123456789"
+
+    class FakeDeployments:
+        def get(self, agent_ref):
+            assert agent_ref == agent_id
+            return SimpleNamespace(
+                id=agent_id,
+                gateway_token=None,
+                launch_config={
+                    "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
+                    "sync_include": ["workspace"],
+                },
+            )
+
+        def start_openclaw(self, agent_id_arg, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id=agent_id_arg,
+                pod_name="agent-pod",
+                dry_run=True,
+                vnc_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", dict)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        ["agents", "start", agent_id, "--dry-run", "--sync-all"],
+    )
+
+    assert result.exit_code == 0
+    assert "sync_include" not in captured
+    assert "sync_exclude" not in captured
 
 
 def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):

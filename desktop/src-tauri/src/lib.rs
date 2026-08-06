@@ -66,32 +66,43 @@ async fn run_deployment_event_stream(app: tauri::AppHandle, mut restart: watch::
         let client = match tauri::async_runtime::spawn_blocking(managed_client).await {
             Ok(Ok(client)) => Arc::new(client),
             _ => {
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-                    result = restart.changed() => if result.is_err() { return; },
+                if restart.changed().await.is_err() {
+                    return;
                 }
                 continue;
             }
         };
-        let credential_changed = {
+        let outcome = {
             let event_client = Arc::clone(&client);
             let event_app = app.clone();
             tokio::select! {
-                _ = event_client.subscribe_deployments(move |_| {
+                result = event_client.subscribe_deployments(move |_| {
                     let _ = event_app.emit("deployments-invalidated", ());
-                }) => false,
+                }) => Some(result),
                 result = restart.changed() => {
                     if result.is_err() { return; }
-                    true
+                    None
                 },
             }
         };
         let _ = tauri::async_runtime::spawn_blocking(move || drop(client)).await;
-        if !credential_changed {
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-                result = restart.changed() => if result.is_err() { return; },
+        let Some(outcome) = outcome else {
+            continue;
+        };
+        if outcome
+            .as_ref()
+            .err()
+            .and_then(|error| error.status())
+            .is_some_and(|status| matches!(status.as_u16(), 401 | 403))
+        {
+            if restart.changed().await.is_err() {
+                return;
             }
+            continue;
+        }
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+            result = restart.changed() => if result.is_err() { return; },
         }
     }
 }

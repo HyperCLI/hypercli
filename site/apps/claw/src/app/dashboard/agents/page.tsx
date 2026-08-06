@@ -215,6 +215,7 @@ import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/ch
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { createDeploymentRefreshScheduler } from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import { compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
@@ -1288,8 +1289,6 @@ function AgentsPageContent() {
     principalId: string;
     promise: Promise<FetchAgentsResult | null>;
   } | null>(null);
-  const deploymentInvalidationPendingRef = useRef(false);
-  const deploymentInvalidationRefreshRef = useRef<Promise<void> | null>(null);
   const fetchBillingInFlightRef = useRef<{
     generation: number;
     principalId: string;
@@ -2074,35 +2073,27 @@ function AgentsPageContent() {
     return createAgentClient(token);
   }, [getToken]);
 
-  const refreshAgentsFromInvalidation = useCallback(() => {
-    deploymentInvalidationPendingRef.current = true;
-    if (deploymentInvalidationRefreshRef.current) return;
-    const drain = async () => {
-      while (deploymentInvalidationPendingRef.current) {
-        deploymentInvalidationPendingRef.current = false;
-        await fetchAgents({ includeEnrichment: false });
-      }
-    };
-    let refresh: Promise<void>;
-    refresh = drain().finally(() => {
-      if (deploymentInvalidationRefreshRef.current === refresh) {
-        deploymentInvalidationRefreshRef.current = null;
-      }
-    });
-    deploymentInvalidationRefreshRef.current = refresh;
-  }, [fetchAgents]);
-
   useEffect(() => {
     if (!isAuthenticated || !deployments || !user?.id) return;
     const controller = new AbortController();
-    void deployments.subscribe(refreshAgentsFromInvalidation, { signal: controller.signal }).catch(() => {
+    const scheduler = createDeploymentRefreshScheduler(async () => {
+      const inFlight = fetchAgentsInFlightRef.current?.promise;
+      if (inFlight) await inFlight;
+      await fetchAgents({ includeEnrichment: false });
+    });
+    void deployments.subscribe(() => {
+      scheduler.invalidate();
+    }, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
       void fetchAgents({ force: true, includeEnrichment: false });
     });
-    return () => controller.abort();
-  }, [deployments, fetchAgents, isAuthenticated, refreshAgentsFromInvalidation, user?.id]);
+    return () => {
+      scheduler.dispose();
+      controller.abort();
+    };
+  }, [deployments, fetchAgents, isAuthenticated, user?.id]);
 
   const handleOpenDesktop = useCallback(async (agent: Agent) => {
     const desktopBaseUrl = agent.desktopUrl || (agent.hostname ? `https://desktop-${agent.hostname}` : "");
@@ -6099,7 +6090,7 @@ function AgentsPageContent() {
             onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
             onOpenSettings={openAccountSettings}
-            settingsActive={dashboardView === "settings"}
+            settingsActive={false}
             onUpgrade={() => { void openUpgradeCatalog(); }}
             onStartTrial={() => { openAgentCreationFlow(); }}
           />

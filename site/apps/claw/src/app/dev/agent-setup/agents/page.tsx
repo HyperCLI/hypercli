@@ -122,6 +122,7 @@ import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { createDeploymentRefreshScheduler } from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { normalizeCronJob } from "@/lib/cron-jobs";
@@ -329,8 +330,7 @@ export default function DevAgentSetupAgentsPage() {
   const deploymentsRef = useRef<Deployments | null>(null);
   const agentDataGenerationRef = useRef(0);
   const fetchAgentsRequestRef = useRef(0);
-  const deploymentInvalidationPendingRef = useRef(false);
-  const deploymentInvalidationRefreshRef = useRef<Promise<void> | null>(null);
+  const fetchAgentsInFlightRef = useRef<Promise<void> | null>(null);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
   const deletingAgentIdsRef = useRef<Set<string>>(new Set());
   const privatePrincipalRef = useRef<string | null>(user?.id ?? null);
@@ -452,6 +452,7 @@ export default function DevAgentSetupAgentsPage() {
   useLayoutEffect(() => {
     agentDataGenerationRef.current += 1;
     fetchAgentsRequestRef.current += 1;
+    fetchAgentsInFlightRef.current = null;
     agentMutationVersionsRef.current.clear();
     deletingAgentIdsRef.current.clear();
     deploymentsRef.current = null;
@@ -494,78 +495,85 @@ export default function DevAgentSetupAgentsPage() {
     setInspectorSheetOpen(true);
   }, []);
 
-  const fetchAgents = useCallback(async () => {
-    const principalId = user?.id ?? null;
-    if (!principalId) return;
-    const generation = agentDataGenerationRef.current;
-    const requestId = ++fetchAgentsRequestRef.current;
-    const mutationVersionsAtRequest = new Map(agentMutationVersionsRef.current);
-    const isCurrentRequest = () => (
-      generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
-    );
-    try {
-      const token = await getToken();
-      if (!isCurrentRequest()) return;
-      const agentClient = deploymentsRef.current ?? createAgentClient(token);
-      if (!deploymentsRef.current) {
-        deploymentsRef.current = agentClient;
-        setDeployments(agentClient);
+  const fetchAgents = useCallback((): Promise<void> => {
+    const promise = (async () => {
+      const principalId = user?.id ?? null;
+      if (!principalId) return;
+      const generation = agentDataGenerationRef.current;
+      const requestId = ++fetchAgentsRequestRef.current;
+      const mutationVersionsAtRequest = new Map(agentMutationVersionsRef.current);
+      const isCurrentRequest = () => (
+        generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
+      );
+      try {
+        const token = await getToken();
+        if (!isCurrentRequest()) return;
+        const agentClient = deploymentsRef.current ?? createAgentClient(token);
+        if (!deploymentsRef.current) {
+          deploymentsRef.current = agentClient;
+          setDeployments(agentClient);
+        }
+        setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
+        const hyperAgent = createHyperAgentClient(token);
+        const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
+          agentClient.list(),
+          hyperAgent.plans().catch(() => []),
+          hyperAgent.currentPlan().catch(() => null),
+          hyperAgent.subscriptionSummary().catch(() => null),
+          hyperAgent.usageHistory(1).catch(() => null),
+          hyperAgent.agentTypes().catch(() => null),
+        ]);
+        if (!isCurrentRequest()) return;
+        const plans = Array.isArray(catalogData) ? catalogData : [];
+        const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
+        const summary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
+        const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
+        setSdkAgents((current) => mergeAgentListAfterMutations(
+          current,
+          listedAgents,
+          mutationVersionsAtRequest,
+          agentMutationVersionsRef.current,
+        ));
+        setAgentDataPrincipalId(principalId);
+        setBudget(buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog));
+        setCatalogPlans(plans);
+        setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
+        setSubscriptionSummary(summary);
+        setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
+        setAgentClusterUnavailable(false);
+        const setupCreatedAgentId = window.sessionStorage.getItem("dev-agent-setup-created-agent-id");
+        setSelectedAgentId((currentId) => {
+          if (setupCreatedAgentId && listedAgents.some((item) => item.id === setupCreatedAgentId)) {
+            return setupCreatedAgentId;
+          }
+          if (!currentId) {
+            return listedAgents[0]?.id ?? null;
+          }
+          return listedAgents.some((item) => item.id === currentId)
+            ? currentId
+            : (listedAgents[0]?.id ?? null);
+        });
+      } catch (err) {
+        if (!isCurrentRequest()) return;
+        const described = describeAgentsPageError(err);
+        setError(described.message);
+        setAgentClusterUnavailable(described.clusterUnavailable);
+        setSdkAgents([]);
+        setAgentDataPrincipalId(null);
+        setBudget(null);
+        setCatalogPlans([]);
+        deploymentsRef.current = null;
+        setDeployments(null);
+        setWorkspacesClient(null);
+      } finally {
+        if (isCurrentRequest()) setLoading(false);
       }
-      setWorkspacesClient((current) => current ?? createWorkspacesClient(token));
-      const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
-        agentClient.list(),
-        hyperAgent.plans().catch(() => []),
-        hyperAgent.currentPlan().catch(() => null),
-        hyperAgent.subscriptionSummary().catch(() => null),
-        hyperAgent.usageHistory(1).catch(() => null),
-        hyperAgent.agentTypes().catch(() => null),
-      ]);
-      if (!isCurrentRequest()) return;
-      const plans = Array.isArray(catalogData) ? catalogData : [];
-      const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
-      const summary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
-      const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
-      setSdkAgents((current) => mergeAgentListAfterMutations(
-        current,
-        listedAgents,
-        mutationVersionsAtRequest,
-        agentMutationVersionsRef.current,
-      ));
-      setAgentDataPrincipalId(principalId);
-      setBudget(buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog));
-      setCatalogPlans(plans);
-      setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
-      setSubscriptionSummary(summary);
-      setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
-      setAgentClusterUnavailable(false);
-      const setupCreatedAgentId = window.sessionStorage.getItem("dev-agent-setup-created-agent-id");
-      setSelectedAgentId((currentId) => {
-        if (setupCreatedAgentId && listedAgents.some((item) => item.id === setupCreatedAgentId)) {
-          return setupCreatedAgentId;
-        }
-        if (!currentId) {
-          return listedAgents[0]?.id ?? null;
-        }
-        return listedAgents.some((item) => item.id === currentId)
-          ? currentId
-          : (listedAgents[0]?.id ?? null);
-      });
-    } catch (err) {
-      if (!isCurrentRequest()) return;
-      const described = describeAgentsPageError(err);
-      setError(described.message);
-      setAgentClusterUnavailable(described.clusterUnavailable);
-      setSdkAgents([]);
-      setAgentDataPrincipalId(null);
-      setBudget(null);
-      setCatalogPlans([]);
-      deploymentsRef.current = null;
-      setDeployments(null);
-      setWorkspacesClient(null);
-    } finally {
-      if (isCurrentRequest()) setLoading(false);
-    }
+    })();
+    fetchAgentsInFlightRef.current = promise;
+    void promise.finally(() => {
+      if (fetchAgentsInFlightRef.current === promise) fetchAgentsInFlightRef.current = null;
+    });
+    return promise;
   }, [getToken, user?.id]);
 
   const getAgentClient = useCallback(async () => {
@@ -578,35 +586,27 @@ export default function DevAgentSetupAgentsPage() {
     return createAgentClient(token);
   }, [getToken]);
 
-  const refreshAgentsFromInvalidation = useCallback(() => {
-    deploymentInvalidationPendingRef.current = true;
-    if (deploymentInvalidationRefreshRef.current) return;
-    const drain = async () => {
-      while (deploymentInvalidationPendingRef.current) {
-        deploymentInvalidationPendingRef.current = false;
-        await fetchAgents();
-      }
-    };
-    let refresh: Promise<void>;
-    refresh = drain().finally(() => {
-      if (deploymentInvalidationRefreshRef.current === refresh) {
-        deploymentInvalidationRefreshRef.current = null;
-      }
-    });
-    deploymentInvalidationRefreshRef.current = refresh;
-  }, [fetchAgents]);
-
   useEffect(() => {
     if (!deployments || !user?.id) return;
     const controller = new AbortController();
-    void deployments.subscribe(refreshAgentsFromInvalidation, { signal: controller.signal }).catch(() => {
+    const scheduler = createDeploymentRefreshScheduler(async () => {
+      const inFlight = fetchAgentsInFlightRef.current;
+      if (inFlight) await inFlight;
+      await fetchAgents();
+    });
+    void deployments.subscribe(() => {
+      scheduler.invalidate();
+    }, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
       void fetchAgents();
     });
-    return () => controller.abort();
-  }, [deployments, fetchAgents, refreshAgentsFromInvalidation, user?.id]);
+    return () => {
+      scheduler.dispose();
+      controller.abort();
+    };
+  }, [deployments, fetchAgents, user?.id]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 

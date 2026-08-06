@@ -36,6 +36,22 @@ describe("agentViewModel", () => {
     expect(toAgentViewModel(buildSdkAgent({ launchConfig })).launchConfig).toEqual(launchConfig);
   });
 
+  it("preserves read-only deployment epochs and restore state", () => {
+    const mapped = toAgentViewModel(buildSdkAgent({
+      placementEpoch: 4,
+      runtimeGeneration: 7,
+      finalizeEpoch: 3,
+      restoreState: "RESTORED",
+    }));
+
+    expect(mapped).toMatchObject({
+      placementEpoch: 4,
+      runtimeGeneration: 7,
+      finalizeEpoch: 3,
+      restoreState: "RESTORED",
+    });
+  });
+
   it("preserves runtime and gateway identity for surface selection", () => {
     const codingAgent = toAgentViewModel(buildSdkAgent({
       runtime: "opencode",

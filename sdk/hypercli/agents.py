@@ -930,6 +930,23 @@ def _resolve_coding_agent_sync_policy(
     return list(DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime]), None
 
 
+def _resolve_openclaw_sync_policy(
+    *,
+    sync_all: bool,
+    sync_include: list[str] | None,
+    sync_exclude: list[str] | None,
+) -> tuple[list[str] | None, list[str] | None]:
+    if sync_all:
+        if sync_include is not None or sync_exclude is not None:
+            raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
+        return None, None
+    if sync_include is not None:
+        return list(sync_include), None
+    if sync_exclude is not None:
+        return None, list(sync_exclude)
+    return None, None
+
+
 def _default_openclaw_pro_image(image: str | None) -> str | None:
     if image is not None:
         return image
@@ -2986,6 +3003,9 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
+        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3002,6 +3022,11 @@ class Deployments:
         workspaces_sync: dict | bool | None = None,
         runtime: ManagedAgentRuntime = "openclaw",
     ) -> Agent:
+        effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
+            sync_all=sync_all,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+        )
         effective_env = {
             "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
@@ -3027,6 +3052,8 @@ class Deployments:
             image=_default_openclaw_image(image),
             sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
             sync_enabled=True if sync_enabled is None else sync_enabled,
+            sync_include=effective_sync_include,
+            sync_exclude=effective_sync_exclude,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3054,6 +3081,9 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
+        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3085,6 +3115,9 @@ class Deployments:
             image=_default_openclaw_pro_image(image),
             sync_root=sync_root,
             sync_enabled=sync_enabled,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3782,6 +3815,9 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
+        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3796,6 +3832,11 @@ class Deployments:
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
+        effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
+            sync_all=sync_all,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+        )
         effective_env = {
             "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
@@ -3817,6 +3858,8 @@ class Deployments:
             image=_default_openclaw_image(image),
             sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
             sync_enabled=True if sync_enabled is None else sync_enabled,
+            sync_include=effective_sync_include,
+            sync_exclude=effective_sync_exclude,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3840,6 +3883,9 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
+        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3867,6 +3913,9 @@ class Deployments:
             image=_default_openclaw_pro_image(image),
             sync_root=sync_root,
             sync_enabled=sync_enabled,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,

@@ -1496,6 +1496,70 @@ def test_start_openclaw_pro_defaults_runtime_scopes(agents_client):
     assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
 
 
+@pytest.mark.parametrize(
+    ("method_name", "args", "kwargs", "expected_include", "expected_exclude"),
+    [
+        (
+            "create_openclaw",
+            (),
+            {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
+            ["workspace"],
+            None,
+        ),
+        ("create_openclaw_pro", (), {"sync_include": []}, [], None),
+        (
+            "start_openclaw",
+            ("11111111-1111-4111-8111-111111111111",),
+            {"sync_exclude": ["workspace/tmp"]},
+            None,
+            ["workspace/tmp"],
+        ),
+        (
+            "start_openclaw_pro",
+            ("11111111-1111-4111-8111-111111111111",),
+            {"sync_all": True},
+            None,
+            None,
+        ),
+    ],
+)
+def test_openclaw_wrappers_forward_sync_policy(
+    agents_client,
+    method_name,
+    args,
+    kwargs,
+    expected_include,
+    expected_exclude,
+):
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "starting",
+            "runtime": "openclaw-pro" if method_name.endswith("_pro") else "openclaw",
+        }
+
+    agents_client._post = fake_post
+    getattr(agents_client, method_name)(*args, **kwargs)
+
+    if expected_include is None:
+        assert "sync_include" not in posted
+    else:
+        assert posted["sync_include"] == expected_include
+    if expected_exclude is None:
+        assert "sync_exclude" not in posted
+    else:
+        assert posted["sync_exclude"] == expected_exclude
+
+
+def test_openclaw_sync_all_rejects_other_policy_overrides(agents_client):
+    with pytest.raises(ValueError, match="sync_all cannot be combined"):
+        agents_client.create_openclaw(sync_all=True, sync_include=["workspace"])
+
+
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()

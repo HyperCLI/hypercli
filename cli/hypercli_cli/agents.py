@@ -40,7 +40,9 @@ LAUNCH_FIELD_KEYS = {
     "routes",
     "runtime_scopes",
     "sync_enabled",
+    "sync_exclude",
     "sync_gid",
+    "sync_include",
     "sync_root",
     "sync_uid",
 }
@@ -98,6 +100,29 @@ def _split_saved_launch_config(launch_config: dict | None) -> tuple[dict, dict]:
         for key, value in launch_config.items()
         if key not in LAUNCH_FIELD_KEYS and key != "config"
     }
+
+
+def _sync_policy_kwargs(
+    sync_include: list[str] | None,
+    sync_exclude: list[str] | None,
+    *,
+    sync_all: bool = False,
+) -> dict[str, list[str]]:
+    if sync_all:
+        return {}
+    if sync_include is not None:
+        return {"sync_include": list(sync_include)}
+    if sync_exclude is not None:
+        return {"sync_exclude": list(sync_exclude)}
+    return {}
+
+
+def _saved_sync_policy_kwargs(launch_fields: dict) -> dict[str, list[str]]:
+    if "sync_include" in launch_fields and launch_fields["sync_include"] is not None:
+        return {"sync_include": list(launch_fields["sync_include"])}
+    if "sync_exclude" in launch_fields and launch_fields["sync_exclude"] is not None:
+        return {"sync_exclude": list(launch_fields["sync_exclude"])}
+    return {}
 
 
 def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
@@ -502,6 +527,21 @@ def create(
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
+    sync_include: list[str] = typer.Option(
+        None,
+        "--sync-include",
+        help="Path under the sync root to include. Repeatable; takes precedence over excludes.",
+    ),
+    sync_exclude: list[str] = typer.Option(
+        None,
+        "--sync-exclude",
+        help="Path under the sync root to exclude. Repeatable.",
+    ),
+    sync_all: bool = typer.Option(
+        False,
+        "--sync-all",
+        help="Sync the entire sync root; omit include and exclude policy.",
+    ),
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
@@ -526,6 +566,7 @@ def create(
         index_watch_debounce_ms=index_watch_debounce_ms,
         index_interval_minutes=index_interval_minutes,
     )
+    sync_policy = _sync_policy_kwargs(sync_include, sync_exclude, sync_all=sync_all)
 
     console.print("\n[bold]Creating agent pod...[/bold]")
 
@@ -548,6 +589,7 @@ def create(
             start=not no_start,
             openclaw_route_options={"include_desktop": desktop_enabled},
             memory_index=memory_index,
+            **sync_policy,
         )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
@@ -940,6 +982,21 @@ def start(
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
+    sync_include: list[str] = typer.Option(
+        None,
+        "--sync-include",
+        help="Path under the sync root to include. Repeatable; takes precedence over excludes.",
+    ),
+    sync_exclude: list[str] = typer.Option(
+        None,
+        "--sync-exclude",
+        help="Path under the sync root to exclude. Repeatable.",
+    ),
+    sync_all: bool = typer.Option(
+        False,
+        "--sync-all",
+        help="Sync the entire sync root; omit include and exclude policy.",
+    ),
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
@@ -969,6 +1026,9 @@ def start(
                 "registry_url": registry_url,
                 "registry_username": registry_username,
                 "registry_password": registry_password,
+                "sync_include": sync_include,
+                "sync_exclude": sync_exclude,
+                "sync_all": True if sync_all else None,
                 "sync_uid": sync_uid,
                 "sync_gid": sync_gid,
                 "gateway_token": gateway_token,
@@ -1010,6 +1070,10 @@ def start(
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
     saved_launch_fields, saved_openclaw_config = _split_saved_launch_config(local.get("launch_config"))
+    if sync_all or sync_include is not None or sync_exclude is not None:
+        sync_policy = _sync_policy_kwargs(sync_include, sync_exclude, sync_all=sync_all)
+    else:
+        sync_policy = _saved_sync_policy_kwargs(saved_launch_fields)
     effective_gateway_token = gateway_token or local.get("gateway_token")
     saved_env = saved_launch_fields.get("env") if isinstance(saved_launch_fields.get("env"), dict) else {}
     merged_env = {**dict(saved_env or {}), **dict(env_dict or {})}
@@ -1059,6 +1123,7 @@ def start(
             dry_run=dry_run,
             openclaw_route_options={"include_desktop": desktop_enabled},
             memory_index=memory_index,
+            **sync_policy,
         )
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")
