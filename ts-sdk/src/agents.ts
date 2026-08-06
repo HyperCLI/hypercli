@@ -4261,7 +4261,7 @@ export class Deployments {
           let ready = false;
           let processing = Promise.resolve();
           const readyTimer = setTimeout(() => {
-            ws.close(1002, 'Deployment event ready timed out');
+            ws.close(4002, 'Deployment event ready timed out');
             reject(new Error('Deployment event ready timed out'));
           }, 10_000);
           const abort = () => ws.close(1000, 'Subscription cancelled');
@@ -4291,7 +4291,7 @@ export class Deployments {
                 await handler(frame as unknown as DeploymentEvent);
               }
             }).catch((error) => {
-              ws.close(1002, 'Invalid deployment event');
+              ws.close(4002, 'Invalid deployment event');
               reject(error);
             });
           });
