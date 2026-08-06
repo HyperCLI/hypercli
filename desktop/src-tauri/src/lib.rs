@@ -320,6 +320,7 @@ fn runtime_id(runtime: ManagedRuntime) -> &'static str {
         ManagedRuntime::Generic => "generic",
         ManagedRuntime::Openclaw => "openclaw",
         ManagedRuntime::OpenclawPro => "openclaw-pro",
+        ManagedRuntime::HermesAgent => "hermes-agent",
         ManagedRuntime::BuzzAgent => "buzz-agent",
         ManagedRuntime::Opencode => "opencode",
         ManagedRuntime::Codex => "codex",
