@@ -6,7 +6,7 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 
-test("dev agents retries a failed event refresh without replacing its subscription", async ({ page }) => {
+test("dev agents retries a failed event refresh and resyncs after reconnect", async ({ page }) => {
   let agentName = "Before Event";
   let deploymentListGets = 0;
   let listFailuresRemaining = 0;
@@ -186,4 +186,20 @@ test("dev agents retries a failed event refresh without replacing its subscripti
     constructions: (window as any).__devDeploymentEventTest.constructions,
     closes: (window as any).__devDeploymentEventTest.closes,
   }))).toEqual({ constructions: 1, closes: 0 });
+
+  const beforeReconnect = deploymentListGets;
+  agentName = "After Reconnect";
+  await page.evaluate(() => {
+    (window as any).__devDeploymentEventTest.socket?.close();
+  });
+
+  await expect.poll(() => page.evaluate(
+    () => (window as any).__devDeploymentEventTest.constructions,
+  )).toBe(2);
+  await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeReconnect);
+  await expect(page.getByText("After Reconnect", { exact: true }).first()).toBeVisible();
+  expect(await page.evaluate(() => ({
+    constructions: (window as any).__devDeploymentEventTest.constructions,
+    closes: (window as any).__devDeploymentEventTest.closes,
+  }))).toEqual({ constructions: 2, closes: 1 });
 });

@@ -240,6 +240,7 @@ npx playwright test \
   tests/claw/agents-e2e-contract.spec.ts \
   tests/claw/agents-subscription.spec.ts \
   tests/claw/agents-deployment-events.spec.ts \
+  tests/claw/dev-agent-setup-deployment-events.spec.ts \
   tests/claw/agents-chat-navigation.spec.ts
 desktop_status=$?
 
