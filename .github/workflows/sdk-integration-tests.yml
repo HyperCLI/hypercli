@@ -40,7 +40,10 @@ jobs:
         run: npm ci
 
       - name: Run TS SDK unit tests
-        run: npm test
+        run: |
+          npm run clean
+          npm run build
+          npm test
 
   python-sdk-unit:
     runs-on: self-hosted

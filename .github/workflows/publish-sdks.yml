@@ -118,6 +118,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          npm run clean
+          npm run build
           npm test
           npm pack --dry-run
 
