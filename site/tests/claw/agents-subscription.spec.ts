@@ -1,6 +1,7 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
 import { expect, test, type Page } from "@playwright/test";
+import type { WebSocket as PlaywrightWebSocket } from "@playwright/test";
 import {
   cleanupClawAgents,
   captureStep,
@@ -27,35 +28,56 @@ type DeploymentTransitionFrame = {
 type DeploymentSocketObservation = {
   readyFrames: Array<Record<string, unknown>>;
   readySocketCount: () => number;
+  readySocketUrls: string[];
+  tokenSocketUrls: string[];
   transitions: DeploymentTransitionFrame[];
 };
 
 function observeDeploymentTransitions(page: Page): DeploymentSocketObservation {
-  const readySockets = new Set<object>();
+  const readySockets = new Set<PlaywrightWebSocket>();
+  const issuedSocketUrls = new Set<string>();
+  const readyFrameBySocket = new Map<PlaywrightWebSocket, Record<string, unknown>>();
   const observation: DeploymentSocketObservation = {
     readyFrames: [],
     readySocketCount: () => readySockets.size,
+    readySocketUrls: [],
+    tokenSocketUrls: [],
     transitions: [],
   };
+  const recordReady = (socket: PlaywrightWebSocket) => {
+    const frame = readyFrameBySocket.get(socket);
+    if (!frame || !issuedSocketUrls.has(socket.url()) || readySockets.has(socket)) return;
+    readySockets.add(socket);
+    observation.readyFrames.push(frame);
+    observation.readySocketUrls.push(socket.url());
+  };
+  page.on("response", async (response) => {
+    if (new URL(response.url()).pathname !== "/agents/deployments/events/token" || !response.ok()) return;
+    const body = await response.json().catch(() => null);
+    if (!body || typeof body.ws_url !== "string") return;
+    issuedSocketUrls.add(body.ws_url);
+    observation.tokenSocketUrls.push(body.ws_url);
+    for (const socket of readyFrameBySocket.keys()) recordReady(socket);
+  });
   page.on("websocket", (socket) => {
-    if (new URL(socket.url()).pathname !== "/ws") return;
-    let ready = false;
     socket.on("framereceived", ({ payload }) => {
       try {
         const frame = JSON.parse(typeof payload === "string" ? payload : payload.toString("utf8"));
         if (!frame || typeof frame !== "object") return;
         if (frame.type === "ready") {
-          ready = true;
-          readySockets.add(socket);
-          observation.readyFrames.push(frame as Record<string, unknown>);
-        } else if (ready && frame.type === "deployment.transition") {
+          readyFrameBySocket.set(socket, frame as Record<string, unknown>);
+          recordReady(socket);
+        } else if (readySockets.has(socket) && frame.type === "deployment.transition") {
           observation.transitions.push(frame as DeploymentTransitionFrame);
         }
       } catch {
         // Unrelated malformed frames are handled by the SDK reconnect path.
       }
     });
-    socket.on("close", () => readySockets.delete(socket));
+    socket.on("close", () => {
+      readySockets.delete(socket);
+      readyFrameBySocket.delete(socket);
+    });
   });
   return observation;
 }
@@ -327,6 +349,7 @@ test.describe.serial("Agents subscription", () => {
             })
             .toBeGreaterThan(0);
           expect(deploymentSocket.readyFrames.at(-1)).toEqual({ version: 1, type: "ready" });
+          expect(deploymentSocket.tokenSocketUrls).toContain(deploymentSocket.readySocketUrls.at(-1));
         },
       });
       createdAgentId = createdAgent.id;
