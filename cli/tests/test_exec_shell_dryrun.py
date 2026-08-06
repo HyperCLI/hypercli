@@ -445,7 +445,10 @@ def test_agents_create_sync_all_rejects_selective_policy(monkeypatch):
     )
 
     assert result.exit_code != 0
-    assert "--sync-all cannot be combined" in result.output
+    assert "Invalid value" in result.output
+    assert "--sync-all" in result.output
+    assert "--sync-include" in result.output
+    assert "--sync-exclude" in result.output
     assert captured == {}
 
 
