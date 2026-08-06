@@ -80,7 +80,7 @@ policy:
 ```bash
 hyper agents create --name docs-agent --size medium --dry-run
 hyper agents create --name docs-agent --size medium --wait
-hyper agents wait <agent> --timeout 300 --poll-interval 5
+hyper agents wait <agent> --timeout 300
 ```
 
 Important `create` controls include `--no-start`, `--wait/--no-wait`,
@@ -255,8 +255,9 @@ restart downtime is acceptable.
 
 - Resolve ambiguous agent prefixes through `list`; never choose a match by
   guesswork.
-- A successful create/start/stop response may be transitional. Use `wait` or a
-  bounded status poll when the next step depends on `RUNNING` or `STOPPED`.
+- A successful create/start/stop response may be transitional. Use the
+  event-assisted `wait`, which confirms through REST, when the next step
+  depends on `RUNNING` or `STOPPED`.
 - On `401`/`403`, load the `hypercli-auth` skill; do not rotate tokens or keys
   as an automatic retry.
 - Preserve remote exec exit status and stderr. Do not describe partial output

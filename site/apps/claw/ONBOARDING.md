@@ -24,7 +24,9 @@ These are exact workspace-root filenames recognized by the OpenClaw runtime. Too
 5. The user chooses launch capacity.
 6. Claw creates the agent with `start: false` and OpenClaw's real `agents.defaults.skipBootstrap` option, because the workspace is already configured.
 7. Claw writes the canonical files to `.openclaw/workspace/` through the agent file API with the S3/backup destination.
-8. Claw starts the same agent. Reef restores the backup into `/home/node` before OpenClaw starts, so the first turn sees the prepared files.
+8. Claw starts the same agent. The managed runtime restores the backup into
+   `/home/node` before OpenClaw starts, so the first turn sees the prepared
+   files.
 
 After the initial REST load, Claw subscribes through
 `client.deployments.subscribe()`. Lifecycle invalidations are coalesced and

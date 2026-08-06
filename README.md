@@ -40,7 +40,16 @@ hyper flow text-to-image "a cinematic portrait" --x402
 hyper agent plans
 hyper agent subscribe solo
 hyper config openclaw
+
+# Create an agent and wait through event-assisted REST confirmation
+hyper agents create --name docs-demo --size small --wait
+hyper agents status docs-demo
 ```
+
+For application updates, use the Python, TypeScript, or Rust deployment
+subscription documented in `docs/sdk/agents.mdx`, `docs/ts-sdk/agents.mdx`, and
+`rs-sdk/README.md`. REST remains authoritative; the WebSocket is an
+invalidation signal.
 
 Current paid plans are Solo ($39, 25M pooled tokens/day, one small agent), Team
 ($79, 50M pooled tokens/day, up to three medium agents), and Pro ($149, 100M

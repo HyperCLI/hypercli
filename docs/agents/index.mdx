@@ -5,7 +5,7 @@ description: OpenClaw desktop containers with VNC, shell, file access, and an AI
 
 ## What Are Agents?
 
-Agents are fully managed **OpenClaw desktop containers** that run on Kubernetes. Each agent provides:
+Agents are fully managed **OpenClaw desktop runtimes**. Each agent provides:
 
 - **Desktop** — full Linux desktop accessible via browser
 - **Shell access** — backend WebSocket PTY terminal
@@ -21,17 +21,20 @@ Client (CLI / SDK)
     │
     ▼
 HyperCLI Backend API (api.hypercli.com)
-    │  Auth, plan enforcement, DB persistence
+    │  Auth, plan enforcement, authoritative REST state
     ▼
-Lagoon (pod orchestrator)
-    │  Scheduling, health monitoring, log ingest
+HyperCLI managed control plane
+    │  Scheduling, health monitoring, lifecycle updates
     ▼
-Agent containers on Kubernetes
+Managed agent runtimes
     ├── Desktop (noVNC)
     └── OpenClaw Gateway (WebSocket RPC v3)
 ```
 
-The HyperCLI backend handles authentication and plan enforcement. It proxies lifecycle commands to **Lagoon**, which orchestrates `hypercli-openclaw` agent containers on the underlying Kubernetes cluster.
+The HyperCLI backend handles authentication, plan enforcement, and the public
+agent state. The managed control plane performs scheduling and lifecycle work;
+clients read snapshots from REST and use SDK deployment events as refresh
+signals.
 
 ## Hostnames
 
@@ -74,7 +77,8 @@ and can be restarted. Deleted agents are gone permanently.
 
 ## Health Monitoring
 
-Agent health is monitored via **app-level ping/pong** over the Lagoon log ingest WebSocket — not by direct HTTP probing. This approach:
+Agent health is monitored through the managed runtime connection rather than a
+public HTTP health endpoint. This approach:
 
 - Works through Traefik ingress without exposing health endpoints
 - Detects application-level hangs (not just TCP connectivity)
@@ -103,7 +107,7 @@ hyper agents budget
 
 These are the customer-facing machine shapes. Billing is enforced by tier
 count, not by summing CPU and RAM across the account. Kubernetes scheduling
-requests and burst ceilings are private backend-to-Lagoon implementation data.
+requests and burst ceilings are private control-plane details.
 
 Examples:
 

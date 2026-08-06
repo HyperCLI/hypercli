@@ -152,7 +152,8 @@ async def changed(_event):
     agents = await asyncio.to_thread(client.deployments.list)
     render(agents)
 
-await client.deployments.subscribe(changed, stop_event=asyncio.Event())
+stop = asyncio.Event()
+await client.deployments.subscribe(changed, stop_event=stop)
 ```
 
 The SDK owns authentication, ready/resync, and reconnect. Events are not
