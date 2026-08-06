@@ -4,7 +4,6 @@ import { Button } from "@hypercli/shared-ui";
 import {
   Fingerprint,
   HeartHandshake,
-  MessageCircle,
   MessagesSquare,
   Plug,
   UsersRound,
@@ -19,8 +18,6 @@ type AgentEmptyHistoryActions = Pick<
 >;
 
 interface AgentEmptyHistoryProps {
-  onSayHello: () => void | Promise<void>;
-  hasPriorInteraction?: boolean;
   userName?: string | null;
   salutationSeed?: string | null;
   actions?: AgentEmptyHistoryActions;
@@ -70,15 +67,11 @@ export function returningAgentSalutation(
 }
 
 export function AgentEmptyHistory({
-  onSayHello,
-  hasPriorInteraction = false,
   userName,
   salutationSeed,
   actions,
 }: AgentEmptyHistoryProps) {
-  const heading = hasPriorInteraction
-    ? returningAgentSalutation(salutationSeed, userName)
-    : "Meet your new AI teammate.";
+  const heading = returningAgentSalutation(salutationSeed, userName);
   const capabilities: Capability[] = [
     {
       id: "personalize",
@@ -152,22 +145,6 @@ export function AgentEmptyHistory({
         >
           {heading}
         </h2>
-        {!hasPriorInteraction ? (
-          <>
-            <p className="agent-empty-history-intro mx-auto mt-2 max-w-[38rem] text-sm leading-6 text-text-secondary">
-              Let&apos;s spend a few minutes getting to know each other so I can learn how you work and become a valuable member of your team.
-            </p>
-            <Button
-              type="button"
-              size="lg"
-              onClick={() => { void onSayHello(); }}
-              className="agent-empty-history-cta mt-5 h-11 rounded-xl px-5 text-sm font-semibold shadow-[0_12px_28px_rgb(var(--button-primary-rgb)_/_0.22)] hover:-translate-y-0.5 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.5)] motion-reduce:transform-none"
-            >
-              <MessageCircle aria-hidden="true" className="size-4" />
-              Say hello
-            </Button>
-          </>
-        ) : null}
       </header>
 
       <div className="agent-empty-history-capabilities mt-6 divide-y divide-border border-y border-border">

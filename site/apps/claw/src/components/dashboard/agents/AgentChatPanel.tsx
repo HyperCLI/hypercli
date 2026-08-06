@@ -40,7 +40,6 @@ import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel"
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { AgentChatComposerShell } from "@/components/dashboard/agents/AgentChatComposerShell";
 import { useAgentStartupExperience } from "@/hooks/useAgentStartupExperience";
-import { isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 export type ChatPendingFileRemovalState = "removing" | "failed";
@@ -74,7 +73,6 @@ const CHAT_HISTORY_LOAD_THRESHOLD_PX = 48;
 const CHAT_TRANSCRIPT_RENDER_LIMIT = 100;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const RESPONSE_STATUS_TICK_MS = 1_000;
-const AGENT_CHAT_INTRODUCED_STORAGE_PREFIX = "claw.agentChatIntroduced.v1";
 const AUDIO_BAR_WEIGHTS = [
   0.62,
   0.78,
@@ -99,24 +97,6 @@ const AUDIO_BAR_WEIGHTS = [
 ] as const;
 const MemoizedChatMessageBubble = React.memo(ChatMessageBubble);
 const MemoizedChatThinkingIndicator = React.memo(ChatThinkingIndicator);
-
-export function agentChatIntroducedStorageKey(agentId: string): string {
-  return `${AGENT_CHAT_INTRODUCED_STORAGE_PREFIX}:${agentId}`;
-}
-
-function readAgentChatIntroduced(agentId: string): boolean {
-  try {
-    return window.localStorage.getItem(agentChatIntroducedStorageKey(agentId)) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeAgentChatIntroduced(agentId: string): void {
-  try {
-    window.localStorage.setItem(agentChatIntroducedStorageKey(agentId), "1");
-  } catch {}
-}
 
 interface ActiveResponseStatusPresentation {
   label: string;
@@ -680,26 +660,6 @@ export function AgentChatPanel({
   const chatScrollContext = `${selectedAgent.id}\0${chat.activeSessionKey}`;
   const selectedAgentDisplayName = agentDisplayLabel(selectedAgent);
   const selectedAgentAvatarUrl = agentProfileImageUrl(selectedAgent);
-  const [introducedAgentIds, setIntroducedAgentIds] = React.useState<Set<string>>(() => new Set());
-  const hasConversationEvidence = chat.messages.some((message) => message.role === "user") || chat.sessions.some((session) => (
-    !isOpenClawMainSessionKey(session.key) && session.messageCount > 0
-  ));
-  const hasPriorInteraction = hasConversationEvidence || introducedAgentIds.has(selectedAgent.id);
-  const markAgentIntroduced = React.useCallback(() => {
-    writeAgentChatIntroduced(selectedAgent.id);
-    setIntroducedAgentIds((current) => {
-      if (current.has(selectedAgent.id)) return current;
-      const next = new Set(current);
-      next.add(selectedAgent.id);
-      return next;
-    });
-  }, [selectedAgent.id]);
-  React.useEffect(() => {
-    if (!hasConversationEvidence && !readAgentChatIntroduced(selectedAgent.id)) return;
-    if (hasConversationEvidence) writeAgentChatIntroduced(selectedAgent.id);
-    const timeout = window.setTimeout(markAgentIntroduced, 0);
-    return () => window.clearTimeout(timeout);
-  }, [hasConversationEvidence, markAgentIntroduced, selectedAgent.id]);
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1106,13 +1066,8 @@ export function AgentChatPanel({
     (composerHasText || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
   const submitCurrentChat = React.useCallback(() => {
     if (!canSendChatDraft) return;
-    markAgentIntroduced();
     handleSendChat();
-  }, [canSendChatDraft, handleSendChat, markAgentIntroduced]);
-  const sayHello = React.useCallback(() => {
-    markAgentIntroduced();
-    void chat.sendMessage("hi").catch(() => undefined);
-  }, [chat, markAgentIntroduced]);
+  }, [canSendChatDraft, handleSendChat]);
   const composerHasDraft =
     recording ||
     preparingAudioPreview ||
@@ -1244,8 +1199,6 @@ export function AgentChatPanel({
       if (journeyMissionCard?.enabled) return <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />;
       return (
         <AgentEmptyHistory
-          onSayHello={sayHello}
-          hasPriorInteraction={hasPriorInteraction}
           userName={userName}
           salutationSeed={chat.activeSessionKey}
           actions={commandActions}

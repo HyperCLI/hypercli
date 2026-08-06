@@ -12,7 +12,6 @@ import { toAgentViewModel } from "./agentViewModel";
 import { RETURNING_AGENT_SALUTATIONS } from "./AgentEmptyHistory";
 import {
   AgentChatPanel,
-  agentChatIntroducedStorageKey,
   chatMessageRowKey,
   failedReplyRetrySource,
   isRetryableFailedReply,
@@ -288,7 +287,6 @@ describe("AgentChatPanel", () => {
     vi.useRealTimers();
     chatMessageBubbleMock.mockClear();
     chatThinkingIndicatorMock.mockClear();
-    window.localStorage.removeItem(agentChatIntroducedStorageKey("agent-1"));
   });
 
   it("passes the profile avatar to user chat messages", () => {
@@ -806,11 +804,11 @@ describe("AgentChatPanel", () => {
     });
 
     const emptyStateFrame = screen
-      .getByRole("heading", { name: "Meet your new AI teammate." })
+      .getByRole("heading", { name: "What should we tackle today?" })
       .closest(".agent-empty-history-frame");
     expect(emptyStateFrame).toHaveClass("self-stretch");
     expect(emptyStateFrame).not.toHaveClass("max-h-full");
-    expect(screen.getByRole("button", { name: "Say hello" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open workspace files/i }));
     fireEvent.click(screen.getByRole("button", { name: /open integrations/i }));
@@ -823,29 +821,7 @@ describe("AgentChatPanel", () => {
     expect(onOpenScheduled).toHaveBeenCalledTimes(1);
   });
 
-  it("sends hi immediately from the first-use empty state", () => {
-    const sendMessage = vi.fn(async () => undefined);
-    const setInput = vi.fn();
-
-    renderAgentChatPanel({
-      chat: buildChat({
-        status: "connected",
-        gatewayConnected: true,
-        ready: true,
-        connected: true,
-        sendMessage,
-        setInput,
-      }),
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Say hello" }));
-
-    expect(sendMessage).toHaveBeenCalledWith("hi");
-    expect(setInput).not.toHaveBeenCalled();
-    expect(window.localStorage.getItem(agentChatIntroducedStorageKey("agent-1"))).toBe("1");
-  });
-
-  it("personalizes later empty sessions without repeating the first-use CTA", () => {
+  it("personalizes empty sessions without a separate first-use CTA", () => {
     renderAgentChatPanel({
       userName: "Sam Rivera",
       chat: buildChat({
@@ -866,9 +842,7 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText(/getting to know each other/i)).not.toBeInTheDocument();
   });
 
-  it("restores the returning empty state after conversation history is cleared", async () => {
-    window.localStorage.setItem(agentChatIntroducedStorageKey("agent-1"), "1");
-
+  it("keeps the standard new-session state after conversation history is cleared", async () => {
     renderAgentChatPanel({
       userName: "Sam Rivera",
       chat: buildChat({

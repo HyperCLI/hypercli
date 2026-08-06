@@ -10,38 +10,17 @@ import {
 } from "./AgentEmptyHistory";
 
 describe("AgentEmptyHistory", () => {
-  it("introduces the agent and starts the hello interaction", async () => {
-    const user = userEvent.setup();
-    const onSayHello = vi.fn();
-
+  it("uses the standard new-session salutation", () => {
     renderWithClient(
       <AgentEmptyHistory
-        onSayHello={onSayHello}
-      />,
-    );
-
-    const heading = screen.getByRole("heading", { name: "Meet your new AI teammate." });
-    expect(heading).toBeInTheDocument();
-    expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[44rem]");
-    expect(heading.closest("section")).not.toHaveClass("max-h-full");
-    expect(screen.getByText(/getting to know each other/i)).toBeInTheDocument();
-    const sayHello = screen.getByRole("button", { name: "Say hello" });
-    expect(sayHello).toHaveClass("bg-[var(--button-primary,var(--primary))]");
-
-    await user.click(sayHello);
-    expect(onSayHello).toHaveBeenCalledOnce();
-  });
-
-  it("welcomes returning users without repeating the introduction", () => {
-    renderWithClient(
-      <AgentEmptyHistory
-        onSayHello={vi.fn()}
-        hasPriorInteraction
         userName="Sam Rivera"
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "What are we working on today, Sam?" })).toBeInTheDocument();
+    const heading = screen.getByRole("heading", { name: "What are we working on today, Sam?" });
+    expect(heading).toBeInTheDocument();
+    expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[44rem]");
+    expect(heading.closest("section")).not.toHaveClass("max-h-full");
     expect(screen.queryByRole("heading", { name: "Meet your new AI teammate." })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
     expect(screen.queryByText(/getting to know each other/i)).not.toBeInTheDocument();
@@ -67,7 +46,6 @@ describe("AgentEmptyHistory", () => {
 
     renderWithClient(
       <AgentEmptyHistory
-        onSayHello={vi.fn()}
         actions={{ onOpenFiles, onOpenIntegrations, onOpenIntegrationChatCard, onOpenSkills, onOpenScheduled }}
       />,
     );
@@ -98,7 +76,6 @@ describe("AgentEmptyHistory", () => {
   it("does not advertise workspace tools without an action", () => {
     renderWithClient(
       <AgentEmptyHistory
-        onSayHello={vi.fn()}
         actions={{ onOpenFiles: vi.fn() }}
       />,
     );
