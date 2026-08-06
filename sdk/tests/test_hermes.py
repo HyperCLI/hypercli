@@ -9,6 +9,7 @@ from hypercli.agents import (
     DEFAULT_HERMES_AGENT_IMAGE,
     Deployments,
     HermesAgent,
+    build_agent_config,
     build_hermes_agent_routes,
 )
 from hypercli.hermes import HermesApiClient, HermesAPIError
@@ -55,15 +56,15 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
         client.__exit__.return_value = False
         client_class.return_value = client
 
-        agent = deployments.create_hermes_agent(name="hermes", sync_all=True)
+        agent = deployments.create_hermes_agent(name="hermes")
 
     body = client.post.call_args.kwargs["json"]
     assert body["runtime"] == "hermes-agent"
     assert body["image"] == DEFAULT_HERMES_AGENT_IMAGE
     assert body["sync_root"] == "/opt/data"
     assert body["sync_enabled"] is True
-    assert body["sync_include"] is None
-    assert body["sync_exclude"] is None
+    assert "sync_include" not in body
+    assert "sync_exclude" not in body
     assert body["sync_uid"] == 10000
     assert body["sync_gid"] == 10000
     assert body["routes"] == {
@@ -93,22 +94,25 @@ def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> 
         client.__exit__.return_value = False
         client_class.return_value = client
 
-        agent = deployments.start_hermes_agent("agent-123", sync_all=True)
+        agent = deployments.start_hermes_agent("agent-123")
 
     body = client.post.call_args.kwargs["json"]
-    assert body["sync_include"] is None
-    assert body["sync_exclude"] is None
+    assert "sync_include" not in body
+    assert "sync_exclude" not in body
     assert body["env"]["API_SERVER_KEY"] == "s" * 43
     assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
     assert agent.api_server_key == "s" * 43
 
 
-def test_hermes_sync_all_rejects_selective_policy(deployments: Deployments) -> None:
-    with pytest.raises(
-        ValueError,
-        match="sync_all cannot be combined with sync_include or sync_exclude",
-    ):
-        deployments.create_hermes_agent(sync_all=True, sync_include=["workspace"])
+def test_hermes_include_takes_precedence(deployments: Deployments) -> None:
+    launch, _ = build_agent_config(
+        sync_root="/opt/data",
+        sync_include=["workspace"],
+        sync_exclude=["tmp"],
+        inject_gateway_token=False,
+    )
+    assert launch["sync_include"] == ["workspace"]
+    assert "sync_exclude" not in launch
 
 
 def test_hydrated_hermes_agent_never_recovers_api_key(deployments: Deployments) -> None:

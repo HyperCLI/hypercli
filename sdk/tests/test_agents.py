@@ -1111,13 +1111,13 @@ def test_build_agent_launch_omits_unspecified_restart():
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
-        ({}, {}),
-        ({"sync_include": None}, {"sync_include": None}),
-        ({"sync_exclude": None}, {"sync_exclude": None}),
-        ({"sync_include": []}, {"sync_include": []}),
+        ({}, {"sync_enabled": False}),
+        ({"sync_include": None}, {"sync_enabled": False, "sync_include": None}),
+        ({"sync_exclude": None}, {"sync_enabled": False, "sync_exclude": None}),
+        ({"sync_include": []}, {"sync_enabled": False, "sync_include": []}),
         (
             {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
-            {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
+            {"sync_enabled": False, "sync_include": ["workspace"]},
         ),
     ],
 )
@@ -1630,7 +1630,7 @@ def test_start_openclaw_pro_defaults_runtime_scopes(agents_client):
         (
             "start_openclaw_pro",
             ("11111111-1111-4111-8111-111111111111",),
-            {"sync_all": True},
+            {"sync_include": None},
             None,
             None,
         ),
@@ -1658,24 +1658,29 @@ def test_openclaw_wrappers_forward_sync_policy(
     agents_client._post = fake_post
     getattr(agents_client, method_name)(*args, **kwargs)
 
-    if kwargs.get("sync_all"):
-        assert posted["sync_include"] is None
-        assert posted["sync_exclude"] is None
+    if "sync_include" in kwargs:
+        assert posted["sync_include"] == expected_include
     elif expected_include is None:
         assert "sync_include" not in posted
     else:
         assert posted["sync_include"] == expected_include
-    if kwargs.get("sync_all"):
-        pass
-    elif expected_exclude is None:
+    if expected_exclude is None:
         assert "sync_exclude" not in posted
     else:
         assert posted["sync_exclude"] == expected_exclude
 
 
-def test_openclaw_sync_all_rejects_other_policy_overrides(agents_client):
-    with pytest.raises(ValueError, match="sync_all cannot be combined"):
-        agents_client.create_openclaw(sync_all=True, sync_include=["workspace"])
+def test_openclaw_include_takes_precedence(agents_client):
+    posted: dict = {}
+    agents_client._post = lambda _path, json=None: posted.update(json or {}) or {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "user_id": "user-456",
+        "state": "starting",
+        "runtime": "openclaw",
+    }
+    agents_client.create_openclaw(sync_include=["workspace"], sync_exclude=["tmp"])
+    assert posted["sync_include"] == ["workspace"]
+    assert "sync_exclude" not in posted
 
 
 def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agents_client):
@@ -2121,7 +2126,6 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             command=["sh", "-c", "python -m http.server 80"],
             routes={"web": {"port": 80, "auth": False, "prefix": ""}},
             sync_root="/workspace",
-            sync_enabled=True,
             sync_uid=2000,
             sync_gid=2001,
             restart=False,

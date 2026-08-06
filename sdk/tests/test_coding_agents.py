@@ -201,7 +201,6 @@ def test_create_coding_agent_honors_runtime_scope_override():
 @pytest.mark.parametrize(
     ("kwargs", "expected_include", "expected_exclude", "expect_full_root"),
     [
-        ({"sync_all": True}, None, None, True),
         ({"sync_include": None}, None, None, True),
         ({"sync_exclude": None}, None, None, True),
         ({"sync_include": []}, [], None, False),
@@ -227,8 +226,8 @@ def test_coding_agent_sync_policy_overrides(
     deployments.create_codex(**kwargs)
 
     if expect_full_root:
-        assert posted["sync_include"] is None
-        assert posted["sync_exclude"] is None
+        assert "sync_include" not in posted
+        assert "sync_exclude" not in posted
     elif expected_include is None:
         assert "sync_include" not in posted
     else:
@@ -252,11 +251,14 @@ def test_coding_agent_create_reads_the_runtime_subclass_sync_default(monkeypatch
     assert posted["sync_include"] == [".custom-codex"]
 
 
-def test_coding_agent_sync_all_rejects_other_policy_overrides():
+def test_coding_agent_include_takes_precedence():
     deployments = Deployments(_HTTP())
+    posted: dict = {}
+    deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("codex")
 
-    with pytest.raises(ValueError, match="sync_all cannot be combined"):
-        deployments.create_codex(sync_all=True, sync_include=[".codex"])
+    deployments.create_codex(sync_include=[".codex"], sync_exclude=["tmp"])
+    assert posted["sync_include"] == [".codex"]
+    assert "sync_exclude" not in posted
 
 
 @pytest.mark.parametrize(

@@ -70,7 +70,6 @@ impl HermesLaunchConfig {
             &mut request.env,
             &mut request.routes,
             &mut request.sync_root,
-            &mut request.sync_enabled,
             &mut request.sync_uid,
             &mut request.sync_gid,
         );
@@ -82,7 +81,6 @@ impl HermesLaunchConfig {
             &mut request.env,
             &mut request.routes,
             &mut request.sync_root,
-            &mut request.sync_enabled,
             &mut request.sync_uid,
             &mut request.sync_gid,
         );
@@ -95,7 +93,6 @@ impl HermesLaunchConfig {
         env: &mut BTreeMap<String, String>,
         routes: &mut BTreeMap<String, RouteConfig>,
         sync_root: &mut Option<String>,
-        sync_enabled: &mut Option<bool>,
         sync_uid: &mut Option<u32>,
         sync_gid: &mut Option<u32>,
     ) {
@@ -116,7 +113,6 @@ impl HermesLaunchConfig {
                 prefix: Some(self.route_prefix.clone()),
             });
         sync_root.get_or_insert_with(|| "/opt/data".to_owned());
-        sync_enabled.get_or_insert(true);
         sync_uid.get_or_insert(10_000);
         sync_gid.get_or_insert(10_000);
     }

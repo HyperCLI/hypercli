@@ -87,7 +87,6 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "command",
         "entrypoint",
         "sync_root",
-        "sync_enabled",
         "sync_include",
         "sync_exclude",
         "sync_uid",
@@ -817,10 +816,8 @@ def _build_agent_launch(
     entrypoint: list[str] | None = None,
     image: str | None = None,
     sync_root: str | None = None,
-    sync_enabled: bool | None = None,
     sync_include: list[str] | None | object = _UNSET,
     sync_exclude: list[str] | None | object = _UNSET,
-    sync_all: bool = False,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
     registry_url: str | None = None,
@@ -831,10 +828,6 @@ def _build_agent_launch(
     heartbeat: dict | None = None,
     inject_gateway_token: bool = True,
 ) -> tuple[dict, str | None]:
-    if sync_all and (
-        sync_include not in (_UNSET, None) or sync_exclude not in (_UNSET, None)
-    ):
-        raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
     prepared_config = copy.deepcopy(config or {})
     nested_launch_keys = sorted(LAUNCH_CONFIG_KEYS.intersection(prepared_config.keys()))
     if nested_launch_keys:
@@ -878,18 +871,13 @@ def _build_agent_launch(
         launch["entrypoint"] = entrypoint
     if image is not None:
         launch["image"] = image
+    launch["sync_enabled"] = sync_root is not None
     if sync_root is not None:
         launch["sync_root"] = sync_root
-    if sync_enabled is not None:
-        launch["sync_enabled"] = sync_enabled
-    if sync_all:
-        launch["sync_include"] = None
-        launch["sync_exclude"] = None
-    else:
-        if sync_include is not _UNSET:
-            launch["sync_include"] = None if sync_include is None else list(sync_include)
-        if sync_exclude is not _UNSET:
-            launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
+    if sync_include is not _UNSET:
+        launch["sync_include"] = None if sync_include is None else list(sync_include)
+    if sync_include is _UNSET and sync_exclude is not _UNSET:
+        launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
     if sync_uid is not None:
         launch["sync_uid"] = int(sync_uid)
     if sync_gid is not None:
@@ -916,10 +904,8 @@ def build_agent_config(
     entrypoint: list[str] | None = None,
     image: str | None = None,
     sync_root: str | None = None,
-    sync_enabled: bool | None = None,
     sync_include: list[str] | None | object = _UNSET,
     sync_exclude: list[str] | None | object = _UNSET,
-    sync_all: bool = False,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
     registry_url: str | None = None,
@@ -945,10 +931,8 @@ def build_agent_config(
         entrypoint=entrypoint,
         image=image,
         sync_root=sync_root,
-        sync_enabled=sync_enabled,
         sync_include=sync_include,
         sync_exclude=sync_exclude,
-        sync_all=sync_all,
         sync_uid=sync_uid,
         sync_gid=sync_gid,
         registry_url=registry_url,
@@ -970,35 +954,25 @@ def _default_openclaw_image(image: str | None) -> str | None:
 def _resolve_coding_agent_sync_policy(
     runtime: CodingAgentRuntime,
     *,
-    sync_all: bool,
     sync_include: list[str] | None | object,
     sync_exclude: list[str] | None | object,
-) -> tuple[list[str] | object, list[str] | object, bool]:
-    if sync_all:
-        if sync_include is not _UNSET or sync_exclude is not _UNSET:
-            raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
-        return _UNSET, _UNSET, True
+) -> tuple[list[str] | object, list[str] | object]:
     if sync_include is not _UNSET and sync_include is not None:
-        return list(sync_include), _UNSET, False
+        return list(sync_include), _UNSET
     if sync_exclude is not _UNSET:
         if sync_exclude is None:
-            return _UNSET, _UNSET, True
-        return _UNSET, list(sync_exclude), False
+            return _UNSET, _UNSET
+        return _UNSET, list(sync_exclude)
     if sync_include is None:
-        return _UNSET, _UNSET, True
-    return list(_CODING_AGENT_CLASSES[runtime].default_sync_include or ()), _UNSET, False
+        return _UNSET, _UNSET
+    return list(_CODING_AGENT_CLASSES[runtime].default_sync_include or ()), _UNSET
 
 
 def _resolve_openclaw_sync_policy(
     *,
-    sync_all: bool,
     sync_include: list[str] | None | object,
     sync_exclude: list[str] | None | object,
 ) -> tuple[list[str] | None | object, list[str] | None | object]:
-    if sync_all:
-        if sync_include not in (_UNSET, None) or sync_exclude not in (_UNSET, None):
-            raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
-        return None, None
     if sync_include is not _UNSET:
         return (None if sync_include is None else list(sync_include)), _UNSET
     if sync_exclude is not _UNSET:
@@ -1211,7 +1185,15 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "restore_state": str(data["restore_state"]) if data.get("restore_state") is not None else None,
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
-        "launch_config": data.get("launch_config"),
+        "launch_config": (
+            {
+                key: copy.deepcopy(value)
+                for key, value in data["launch_config"].items()
+                if key != "sync_enabled"
+            }
+            if isinstance(data.get("launch_config"), dict)
+            else data.get("launch_config")
+        ),
         "meta_ui": copy.deepcopy(meta.get("ui")) if isinstance(meta.get("ui"), dict) else None,
         "routes": data.get("routes") or {},
         "command": data.get("command") or [],
@@ -3069,10 +3051,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3111,10 +3091,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=image,
             sync_root=sync_root,
-            sync_enabled=sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
-            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3150,7 +3128,11 @@ class Deployments:
             agent.gateway_token = effective_gateway_token
         if isinstance(agent, HermesAgent):
             agent.api_server_key = effective_api_server_key
-        agent.launch_config = launch_payload
+        agent.launch_config = {
+            key: copy.deepcopy(value)
+            for key, value in launch_payload.items()
+            if key != "sync_enabled"
+        }
         if isinstance(agent, HermesAgent) and isinstance(agent.launch_config.get("env"), dict):
             agent.launch_config = copy.deepcopy(agent.launch_config)
             agent.launch_config["env"].pop("API_SERVER_KEY", None)
@@ -3172,10 +3154,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3193,7 +3173,6 @@ class Deployments:
         runtime: ManagedAgentRuntime = "openclaw",
     ) -> Agent:
         effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
-            sync_all=sync_all,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
         )
@@ -3221,10 +3200,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=_default_openclaw_image(image),
             sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
-            sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
-            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3251,10 +3228,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3294,10 +3269,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
             sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
-            sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
-            sync_all=sync_all,
             sync_uid=10000 if sync_uid is None else sync_uid,
             sync_gid=10000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
@@ -3328,10 +3301,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3362,10 +3333,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=_default_openclaw_pro_image(image),
             sync_root=sync_root,
-            sync_enabled=sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
-            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3403,10 +3372,8 @@ class Deployments:
         entrypoint: list[str] | None = None,
         image: str | None = None,
         sync_root: str | None = None,
-        sync_enabled: bool | None = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int | None = None,
         sync_gid: int | None = None,
         registry_url: str | None = None,
@@ -3441,10 +3408,8 @@ class Deployments:
         (
             effective_sync_include,
             effective_sync_exclude,
-            effective_sync_all,
         ) = _resolve_coding_agent_sync_policy(
             runtime,
-            sync_all=sync_all,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
         )
@@ -3473,10 +3438,8 @@ class Deployments:
                 else DEFAULT_CODING_AGENT_IMAGES[runtime]
             ),
             sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
-            sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
-            sync_all=effective_sync_all,
             sync_uid=1000 if sync_uid is None else sync_uid,
             sync_gid=1000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
@@ -3971,10 +3934,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -4004,10 +3965,8 @@ class Deployments:
                 "entrypoint": entrypoint,
                 "image": image,
                 "sync_root": sync_root,
-                "sync_enabled": sync_enabled,
                 "sync_include": sync_include,
                 "sync_exclude": sync_exclude,
-                "sync_all": True if sync_all else None,
                 "sync_uid": sync_uid,
                 "sync_gid": sync_gid,
                 "registry_url": registry_url,
@@ -4049,10 +4008,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=image,
             sync_root=sync_root,
-            sync_enabled=sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
-            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -4086,10 +4043,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -4127,10 +4082,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
             sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
-            sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
-            sync_all=sync_all,
             sync_uid=10000 if sync_uid is None else sync_uid,
             sync_gid=10000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
@@ -4156,10 +4109,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -4175,7 +4126,6 @@ class Deployments:
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
         effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
-            sync_all=sync_all,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
         )
@@ -4199,10 +4149,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=_default_openclaw_image(image),
             sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
-            sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
-            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -4225,10 +4173,8 @@ class Deployments:
         entrypoint: list[str] = None,
         image: str = None,
         sync_root: str = None,
-        sync_enabled: bool = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
-        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -4255,10 +4201,8 @@ class Deployments:
             entrypoint=entrypoint,
             image=_default_openclaw_pro_image(image),
             sync_root=sync_root,
-            sync_enabled=sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
-            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,

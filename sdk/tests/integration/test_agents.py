@@ -128,7 +128,7 @@ def test_coding_runtime_create_dry_run_contract(
     assert getattr(preview, "dry_run", False) is True
     assert preview.launch_config["image"] == image
     assert preview.launch_config["sync_root"] == "/home/node"
-    assert preview.launch_config["sync_enabled"] is True
+    assert "sync_enabled" not in preview.launch_config
     assert preview.launch_config["sync_uid"] == 1000
     assert preview.launch_config["sync_gid"] == 1000
     assert preview.launch_config["routes"] == {}

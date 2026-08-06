@@ -48,7 +48,6 @@ LAUNCH_FIELD_KEYS = {
     "restart",
     "routes",
     "runtime_scopes",
-    "sync_enabled",
     "sync_exclude",
     "sync_gid",
     "sync_include",
@@ -137,15 +136,7 @@ def _split_saved_launch_config(launch_config: dict | None) -> tuple[dict, dict]:
 def _sync_policy_kwargs(
     sync_include: list[str] | None,
     sync_exclude: list[str] | None,
-    *,
-    sync_all: bool = False,
-) -> dict[str, list[str] | bool]:
-    if sync_all:
-        if sync_include is not None or sync_exclude is not None:
-            raise typer.BadParameter(
-                "--sync-all cannot be combined with --sync-include or --sync-exclude"
-            )
-        return {"sync_all": True}
+) -> dict[str, list[str]]:
     if sync_include is not None:
         return {"sync_include": list(sync_include)}
     if sync_exclude is not None:
@@ -572,11 +563,6 @@ def create(
         "--sync-exclude",
         help="Path under the sync root to exclude. Repeatable.",
     ),
-    sync_all: bool = typer.Option(
-        False,
-        "--sync-all",
-        help="Sync the entire sync root; clear any saved include and exclude policy.",
-    ),
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
@@ -593,7 +579,7 @@ def create(
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
-    sync_policy = _sync_policy_kwargs(sync_include, sync_exclude, sync_all=sync_all)
+    sync_policy = _sync_policy_kwargs(sync_include, sync_exclude)
     if runtime == "hermes-agent":
         _reject_hermes_openclaw_options(
             desktop=desktop,
@@ -1064,11 +1050,6 @@ def start(
         "--sync-exclude",
         help="Path under the sync root to exclude. Repeatable.",
     ),
-    sync_all: bool = typer.Option(
-        False,
-        "--sync-all",
-        help="Sync the entire sync root; clear any saved include and exclude policy.",
-    ),
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
@@ -1101,7 +1082,6 @@ def start(
                 "registry_password": registry_password,
                 "sync_include": sync_include,
                 "sync_exclude": sync_exclude,
-                "sync_all": True if sync_all else None,
                 "sync_uid": sync_uid,
                 "sync_gid": sync_gid,
                 "gateway_token": gateway_token,
@@ -1150,7 +1130,7 @@ def start(
     # local state file is only a convenience cache and may be stale after an
     # edit from Desktop or another SDK client; replay policy only when the
     # caller explicitly supplied a sync flag.
-    sync_policy = _sync_policy_kwargs(sync_include, sync_exclude, sync_all=sync_all)
+    sync_policy = _sync_policy_kwargs(sync_include, sync_exclude)
     runtime = str(getattr(existing_pod, "runtime", None) or local.get("runtime") or "openclaw").strip().lower()
     is_hermes = runtime == "hermes-agent"
     effective_gateway_token = gateway_token or local.get("gateway_token")
@@ -1216,7 +1196,6 @@ def start(
             "restart": saved_launch_fields.get("restart"),
             "runtime_scopes": saved_launch_fields.get("runtime_scopes"),
             "sync_root": saved_launch_fields.get("sync_root"),
-            "sync_enabled": saved_launch_fields.get("sync_enabled"),
             "sync_uid": effective_sync_uid,
             "sync_gid": effective_sync_gid,
             "dry_run": dry_run,

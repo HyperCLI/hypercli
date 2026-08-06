@@ -440,9 +440,6 @@ pub struct BuzzLaunchConfig {
     pub require_reply: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
-    /// Explicitly synchronize the complete `sync_root` instead of applying
-    /// the selected runtime's narrow persisted-state default.
-    pub sync_all: bool,
 }
 
 impl BuzzLaunchConfig {
@@ -463,7 +460,6 @@ impl BuzzLaunchConfig {
             require_reply: false,
             session_title: None,
             rust_log: None,
-            sync_all: false,
         }
     }
 
@@ -510,11 +506,7 @@ impl BuzzLaunchConfig {
         }
         request.routes.clear();
         request.sync_root = Some("/home/node".to_owned());
-        request.sync_enabled = Some(true);
-        if self.sync_all {
-            request.sync_include = None;
-            request.sync_exclude = None;
-        } else if request.sync_include.is_none() && request.sync_exclude.is_none() {
+        if request.sync_include.is_none() && request.sync_exclude.is_none() {
             request.sync_include = request
                 .runtime
                 .default_sync_include()
@@ -695,8 +687,6 @@ pub struct CreateDeploymentRequest {
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_enabled: Option<bool>,
     // Create has no stored policy to inherit. Keep `None` on the wire as JSON
     // null so full-root selection is explicit and matches the other SDKs.
     pub sync_include: Option<Vec<String>>,
@@ -730,7 +720,6 @@ impl CreateDeploymentRequest {
             entrypoint: Vec::new(),
             image: None,
             sync_root: None,
-            sync_enabled: None,
             sync_include: None,
             sync_exclude: None,
             sync_uid: None,
@@ -778,8 +767,6 @@ pub struct StartDeploymentRequest {
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_root: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_enabled: Option<bool>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1476,16 +1463,6 @@ mod tests {
             .unwrap();
         assert_eq!(custom.sync_include, Some(vec!["work".to_owned()]));
         assert_eq!(custom.sync_exclude, None);
-
-        let mut all = CreateDeploymentRequest::new(ManagedRuntime::Codex);
-        let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
-        buzz.sync_all = true;
-        buzz.apply_to(&mut all, None).unwrap();
-        assert_eq!(all.sync_include, None);
-        assert_eq!(all.sync_exclude, None);
-        let wire = serde_json::to_value(all).unwrap();
-        assert!(wire["sync_include"].is_null());
-        assert!(wire["sync_exclude"].is_null());
     }
 
     #[test]

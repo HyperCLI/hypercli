@@ -204,7 +204,7 @@ Accepted create/start options:
 - `dry_run`
 - `start`
 
-`registry_url`, `registry_auth`, `sync_root`, `sync_enabled`, and `restart`
+`registry_url`, `registry_auth`, `sync_root`, and `restart`
 are generic launch options. They belong to the base deployment contract, not
 to OpenClaw specifically. Omit `restart` to preserve the platform default, or
 set `restart=False` for a one-shot process that should leave the deployment
@@ -253,7 +253,7 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
 - `sync_root`
   defaults to `/home/node`
 - `sync_enabled`
-  defaults to `True`
+  is derived on the wire from the presence of `sync_root`
 - `heartbeat`
   maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
 

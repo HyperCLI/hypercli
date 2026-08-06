@@ -13,8 +13,8 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Give every coding runtime a visible SDK-owned default include policy.
   Buzz Agent deliberately defaults to an empty include because its identity
   and inference credentials are environment-owned.
-- [x] Add an explicit SDK `sync_all` / `syncAll` override that clears both
-  policy fields on the final wire request.
+- [x] Derive `sync_enabled` from `sync_root`; clients no longer expose an
+  independent `sync_all` or `sync_enabled` launch knob.
 - [x] Pin cross-language serialization/default tests. Deep restore, sync,
   finalization, eviction, and archive validation remains with the Backend /
   Lagoon / Reef implementation workstream.
@@ -29,10 +29,9 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Document every coding runtime and OpenClaw's full-root behavior in
   `docs/agents/coding-runtimes.mdx`.
 
-The wire contract stays flat. `sync_all` / `syncAll` is a client convenience
-and is never sent to Backend: it emits explicit JSON null for both
-`sync_include` and `sync_exclude`. Explicit null clears a stored selective
-policy and selects the complete sync root. Omitting both fields is different:
+The wire contract stays flat. A present `sync_root` emits `sync_enabled=true`;
+an absent root emits `sync_enabled=false`. Supplying a root with neither filter
+selects the complete sync root. Omitting both filter fields is different:
 on restart or edit it inherits the stored policy. An omitted create override
 receives the runtime subclass default; a custom include or exclude replaces
 that default, and a non-null include wins when both custom policies are
@@ -57,8 +56,8 @@ supplied. An explicit empty include remains distinct and means sync nothing.
 HyperCLI clients and the Backend launch path now contain the per-agent include
 contract. Deep restore/finalize/eviction validation remains active work:
 
-- Python and TypeScript expose flat include/exclude fields, explicit sync-all
-  convenience, and SDK-owned defaults for all six coding runtimes.
+- Python and TypeScript expose flat include/exclude fields and SDK-owned
+  defaults for all six coding runtimes.
 - Rust launch types expose the same wire fields, preserve explicit empty
   includes, and apply the runtime defaults to typed Buzz launches.
 - Backend persists and normalizes the flat policy, preserving omission,

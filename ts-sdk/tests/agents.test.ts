@@ -92,9 +92,10 @@ describe('Agents SDK', () => {
 
     expect(omitted).not.toHaveProperty('sync_include');
     expect(omitted).not.toHaveProperty('sync_exclude');
-    expect(includeAll).toEqual({ sync_include: null });
-    expect(excludeAll).toEqual({ sync_exclude: null });
-    expect(syncNothing).toEqual({ sync_include: [] });
+    expect(omitted).toHaveProperty('sync_enabled', false);
+    expect(includeAll).toEqual({ sync_enabled: false, sync_include: null });
+    expect(excludeAll).toEqual({ sync_enabled: false, sync_exclude: null });
+    expect(syncNothing).toEqual({ sync_enabled: false, sync_include: [] });
   });
 
   it('serializes runtime scopes as a top-level launch field', () => {
@@ -883,7 +884,7 @@ describe('Agents SDK', () => {
     expect(post.mock.calls[1][1].runtime_scopes).toEqual(['models:*']);
   });
 
-  it('clears a saved selective-sync policy when OpenClaw starts with syncAll', async () => {
+  it('uses the sync root without an independent full-sync knob', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-sync-all',
       user_id: 'user-456',
@@ -900,13 +901,14 @@ describe('Agents SDK', () => {
 
     await deployments.startOpenClaw(
       '11111111-1111-4111-8111-111111111111',
-      { syncAll: true },
+      { syncInclude: null },
     );
 
     expect(post.mock.calls[0][1]).toMatchObject({
-      sync_include: null,
-      sync_exclude: null,
+      sync_root: '/home/node',
+      sync_enabled: true,
     });
+    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_exclude');
   });
 
   it('distinguishes omitted and explicit null sync fields when starting', async () => {

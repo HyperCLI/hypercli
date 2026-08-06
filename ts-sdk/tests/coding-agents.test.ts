@@ -152,9 +152,8 @@ describe('coding agents', () => {
   });
 
   it.each([
-    [{ syncAll: true }, null, null],
-    [{ syncInclude: null }, null, null],
-    [{ syncExclude: null }, null, null],
+    [{ syncInclude: null }, undefined, undefined],
+    [{ syncExclude: null }, undefined, undefined],
     [{ syncInclude: [] }, [], undefined],
     [{ syncInclude: ['work'], syncExclude: ['tmp'] }, ['work'], undefined],
     [{ syncExclude: ['.cache'] }, undefined, ['.cache']],
@@ -197,15 +196,17 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1].sync_include).toEqual(['.custom-codex']);
   });
 
-  it('rejects syncAll combined with another policy override', async () => {
+  it('gives include precedence when both filters are supplied', async () => {
+    const post = vi.fn().mockResolvedValue(response('codex'));
     const deployments = new Deployments(
-      { post: vi.fn() } as unknown as HTTPClient,
+      { post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
 
-    await expect(deployments.createCodex({ syncAll: true, syncInclude: ['.codex'] }))
-      .rejects.toThrow('syncAll cannot be combined');
+    await deployments.createCodex({ syncInclude: ['.codex'], syncExclude: ['tmp'] });
+    expect(post.mock.calls[0][1].sync_include).toEqual(['.codex']);
+    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_exclude');
   });
 
   it('launches Buzz ACP explicitly and retains caller environment injection', async () => {

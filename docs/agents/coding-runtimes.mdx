@@ -16,7 +16,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 
 | Runtime | Default inference and authentication | Default selected state | Important limitations |
 | --- | --- | --- | --- |
-| Buzz Agent | HyperCLI-first. The platform injects the agent-scoped inference credential; there is no separate runtime login. | Nothing (`sync_include=[]`) | Identity and inference credentials are environment-owned. Select `sync_all` or a custom policy if you intentionally want other home-directory state backed up. |
+| Buzz Agent | HyperCLI-first. The platform injects the agent-scoped inference credential; there is no separate runtime login. | Nothing (`sync_include=[]`) | Identity and inference credentials are environment-owned. Clear the include policy or choose a custom policy if you intentionally want other home-directory state backed up. |
 | OpenCode | HyperCLI-first through the image's `hypercli` provider. Upstream provider login remains available when you configure another provider. | `.config/opencode`, `.local/share/opencode`, `.local/state/opencode`, `.cache/opencode` | Models are provider-qualified, for example `hypercli/kimi-k2.6-anthropic`. |
 | Codex | Native-first through the Codex/OpenAI device-login flow. | `.codex` | The gateway now exposes `/v1/responses`, and Buzz compatibility mode renders `wire_api="responses"`; a successful HyperCLI-model Codex Responses E2E is still unvalidated, so this path is not yet advertised as supported. |
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
@@ -52,8 +52,8 @@ OpenAI-compatible resources.
 ## Selective-sync contract
 
 The coding-runtime defaults are ordinary launch settings, not a hidden
-platform blacklist. Python uses `sync_include`, `sync_exclude`, and `sync_all`;
-TypeScript uses `syncInclude`, `syncExclude`, and `syncAll`.
+platform blacklist. Python uses `sync_include` and `sync_exclude`; TypeScript
+uses `syncInclude` and `syncExclude`.
 
 <Warning>
 These are the current SDK launch-contract defaults. End-to-end selective
@@ -68,9 +68,8 @@ understand the policy fields retains the historical full-root behavior.
 - Include wins when both custom policies are supplied; the clients serialize
   only the active policy.
 - An explicit empty include list means sync nothing.
-- `sync_all=True` / `syncAll: true` clears both policy fields and synchronizes
-  the runtime's complete sync root (`/home/node` for the ACP/OpenClaw families,
-  `/opt/data` for Hermes).
+- Supplying a sync root with neither policy field synchronizes the complete
+  root (`/home/node` for the ACP/OpenClaw families, `/opt/data` for Hermes).
 - Paths are relative to the sync root. Do not use absolute paths or `..`.
 
 OpenClaw deliberately remains full-root by default because its gateway config,

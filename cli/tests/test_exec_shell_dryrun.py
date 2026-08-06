@@ -423,43 +423,13 @@ def test_agents_create_sync_include_is_repeatable_and_wins_over_exclude(monkeypa
     assert "sync_exclude" not in captured
 
 
-def test_agents_create_sync_all_rejects_selective_policy(monkeypatch):
-    captured = {}
-
-    class FakeDeployments:
-        def create_openclaw(self, **kwargs):
-            captured.update(kwargs)
-            return SimpleNamespace(
-                id="agent-dryrun",
-                pod_name="agent-dryrun",
-                name="agent-dryrun",
-                cpu=2,
-                memory=2,
-                state="validated",
-                vnc_url=None,
-                ports=[],
-                dry_run=True,
-                shell_url=None,
-            )
-
-    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
-
-    with pytest.raises(BadParameter) as conflict:
-        agents_module._sync_policy_kwargs(["workspace"], None, sync_all=True)
-    assert str(conflict.value) == (
-        "--sync-all cannot be combined with --sync-include or --sync-exclude"
-    )
-
-    result = runner.invoke(
-        app,
-        ["agents", "create", "--dry-run", "--sync-all", "--sync-include", "workspace"],
-    )
-
-    assert result.exit_code != 0
-    assert captured == {}
+def test_agents_create_include_takes_precedence():
+    assert agents_module._sync_policy_kwargs(["workspace"], ["tmp"]) == {
+        "sync_include": ["workspace"]
+    }
 
 
-def test_agents_create_sync_all_clears_saved_selective_policy(monkeypatch):
+def test_agents_create_rejects_removed_sync_all_option(monkeypatch):
     captured = {}
 
     class FakeDeployments:
@@ -482,10 +452,8 @@ def test_agents_create_sync_all_clears_saved_selective_policy(monkeypatch):
 
     result = runner.invoke(app, ["agents", "create", "--dry-run", "--sync-all"])
 
-    assert result.exit_code == 0
-    assert captured["sync_all"] is True
-    assert "sync_include" not in captured
-    assert "sync_exclude" not in captured
+    assert result.exit_code != 0
+    assert captured == {}
 
 
 def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
@@ -519,7 +487,6 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
             "--dry-run",
             "--name",
             "demo",
-            "--sync-all",
         ],
     )
 
@@ -527,7 +494,8 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
     assert captured["image"] == DEFAULT_HERMES_AGENT_IMAGE
     assert captured["env"] is None
     assert captured["api_server_key"] is None
-    assert captured["sync_all"] is True
+    assert "sync_include" not in captured
+    assert "sync_exclude" not in captured
     assert "https://hermes-demo.hypercli.app" in result.stdout
     assert "Desktop" not in result.stdout
 
@@ -606,7 +574,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert captured["restart"] is False
     assert captured["runtime_scopes"] == ["agents:none", "models:*"]
     assert captured["sync_root"] == ".openclaw"
-    assert captured["sync_enabled"] is True
+    assert "sync_enabled" not in captured
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
     assert captured["gateway_token"] == "saved-gateway-token"
@@ -659,7 +627,7 @@ def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
     assert "sync_include" not in captured
 
 
-def test_agents_start_sync_all_clears_saved_selective_policy(monkeypatch):
+def test_agents_start_omits_policy_to_inherit_saved_selective_policy(monkeypatch):
     captured = {}
     agent_id = "agent-123456789"
 
@@ -689,11 +657,10 @@ def test_agents_start_sync_all_clears_saved_selective_policy(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["agents", "start", agent_id, "--dry-run", "--sync-all"],
+        ["agents", "start", agent_id, "--dry-run"],
     )
 
     assert result.exit_code == 0
-    assert captured["sync_all"] is True
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
 
@@ -781,7 +748,6 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
             "--dry-run",
             "--env",
             "NEW=2",
-            "--sync-all",
         ],
     )
 
@@ -793,7 +759,8 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
     assert captured["sync_root"] == "/opt/data"
     assert captured["sync_uid"] == 10000
     assert captured["sync_gid"] == 10000
-    assert captured["sync_all"] is True
+    assert "sync_include" not in captured
+    assert "sync_exclude" not in captured
 
 
 def test_agents_delete_by_name_removes_canonical_state(monkeypatch):

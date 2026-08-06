@@ -212,7 +212,6 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'command',
   'entrypoint',
   'sync_root',
-  'sync_enabled',
   'sync_include',
   'sync_exclude',
   'sync_uid',
@@ -565,11 +564,8 @@ export interface BuildAgentConfigOptions {
   entrypoint?: string[] | null;
   image?: string | null;
   syncRoot?: string | null;
-  syncEnabled?: boolean | null;
   syncInclude?: readonly string[] | null;
   syncExclude?: readonly string[] | null;
-  /** Clear any stored selective policy and synchronize all of `syncRoot`. */
-  syncAll?: boolean;
   syncUid?: number | null;
   syncGid?: number | null;
   registryUrl?: string | null;
@@ -1681,6 +1677,8 @@ function execResultFromDict(data: any): AgentExecResult {
 }
 
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
+  const launchConfig = data.launch_config ? structuredClone(data.launch_config) : null;
+  if (launchConfig) delete launchConfig.sync_enabled;
   return {
     id: data.id ?? '',
     userId: data.user_id ?? '',
@@ -1713,7 +1711,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     restoreState: data.restore_state ?? null,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
-    launchConfig: data.launch_config ?? null,
+    launchConfig,
     meta: data.meta?.ui ? { ui: structuredClone(data.meta.ui) } : null,
     routes: data.routes ?? {},
     command: data.command ?? [],
@@ -1772,21 +1770,13 @@ export function buildAgentConfig(
   if (options.command !== undefined && options.command !== null) prepared.command = options.command;
   if (options.entrypoint !== undefined && options.entrypoint !== null) prepared.entrypoint = options.entrypoint;
   if (options.image !== undefined && options.image !== null) prepared.image = options.image;
-  if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
-  if (options.syncEnabled !== undefined && options.syncEnabled !== null) prepared.sync_enabled = options.syncEnabled;
-  if (options.syncAll && (options.syncInclude != null || options.syncExclude != null)) {
-    throw new Error('syncAll cannot be combined with syncInclude or syncExclude');
+  prepared.sync_enabled = options.syncRoot !== undefined && options.syncRoot !== null;
+  if (prepared.sync_enabled) prepared.sync_root = options.syncRoot;
+  if (options.syncInclude !== undefined) {
+    prepared.sync_include = options.syncInclude === null ? null : [...options.syncInclude];
   }
-  if (options.syncAll) {
-    prepared.sync_include = null;
-    prepared.sync_exclude = null;
-  } else {
-    if (options.syncInclude !== undefined) {
-      prepared.sync_include = options.syncInclude === null ? null : [...options.syncInclude];
-    }
-    if (options.syncExclude !== undefined) {
-      prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
-    }
+  if (options.syncInclude === undefined && options.syncExclude !== undefined) {
+    prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
   }
   if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = options.syncUid;
   if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
@@ -3918,7 +3908,8 @@ export class Deployments {
     if (agent instanceof OpenClawAgent) {
       agent.gatewayToken = gatewayToken;
     }
-    agent.launchConfig = config;
+    agent.launchConfig = structuredClone(config);
+    delete agent.launchConfig.sync_enabled;
     agent.command = [...(config.command ?? [])];
     agent.entrypoint = [...(config.entrypoint ?? [])];
     return agent;
@@ -3937,7 +3928,6 @@ export class Deployments {
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
-    if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.create(effectiveOptions);
   }
 
@@ -3959,7 +3949,6 @@ export class Deployments {
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
-      syncEnabled: options.syncEnabled ?? true,
       syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
       syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
       routes: options.routes === undefined
@@ -3993,9 +3982,6 @@ export class Deployments {
     runtime: CodingAgentRuntime,
     options: CodingAgentCreateOptions,
   ): Promise<CodingAgent> {
-    if (options.syncAll && (options.syncInclude !== undefined || options.syncExclude !== undefined)) {
-      throw new Error('syncAll cannot be combined with syncInclude or syncExclude');
-    }
     if (options.buzzEnabled && options.buzz) {
       throw new Error('buzzEnabled cannot be combined with buzz');
     }
@@ -4023,21 +4009,15 @@ export class Deployments {
     }
     let syncInclude: readonly string[] | undefined;
     let syncExclude: readonly string[] | undefined;
-    let syncAll = options.syncAll === true;
-    if (options.syncAll) {
-      syncInclude = undefined;
-      syncExclude = undefined;
-    } else if (options.syncInclude !== undefined && options.syncInclude !== null) {
+    if (options.syncInclude !== undefined && options.syncInclude !== null) {
       syncInclude = options.syncInclude;
       syncExclude = undefined;
     } else if (options.syncExclude !== undefined) {
       syncInclude = undefined;
       syncExclude = options.syncExclude ?? undefined;
-      syncAll = options.syncExclude === null;
     } else if (options.syncInclude === null) {
       syncInclude = undefined;
       syncExclude = undefined;
-      syncAll = true;
     } else {
       syncInclude = CODING_AGENT_CLASSES[runtime].defaultSyncInclude;
       syncExclude = undefined;
@@ -4058,10 +4038,8 @@ export class Deployments {
         ? ['/usr/local/bin/buzz-acp']
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
-      syncEnabled: options.syncEnabled ?? true,
       syncInclude,
       syncExclude,
-      syncAll,
       syncUid: options.syncUid ?? 1000,
       syncGid: options.syncGid ?? 1000,
       // Hosted Buzz shutdown is process-driven; generic launch options cannot
@@ -4465,7 +4443,6 @@ export class Deployments {
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
-    if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentIdOrName, effectiveOptions);
   }
 
@@ -4486,7 +4463,6 @@ export class Deployments {
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
-      syncEnabled: options.syncEnabled ?? true,
       syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
       syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
       routes: options.routes === undefined
