@@ -160,6 +160,8 @@ jobs:
       - name: Bootstrap live integration credentials
         working-directory: ${{ github.workspace }}
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           if [ -z "${BACKEND_API_KEY:-}" ]; then
             echo "BACKEND_API_KEY is empty"
           else
@@ -186,6 +188,8 @@ jobs:
 
       - name: Run TS SDK integration tests
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           set -o pipefail
           run_integration() {
             local log_file
@@ -219,6 +223,8 @@ jobs:
         if: always()
         working-directory: ${{ github.workspace }}
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           if [ -d .bootstrap-venv ]; then
             source .bootstrap-venv/bin/activate
           fi
@@ -254,6 +260,8 @@ jobs:
       - name: Bootstrap live integration credentials
         working-directory: ${{ github.workspace }}
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           if [ -z "${BACKEND_API_KEY:-}" ]; then
             echo "BACKEND_API_KEY is empty"
           else
@@ -285,6 +293,8 @@ jobs:
 
       - name: Run Python SDK integration tests
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           source .venv/bin/activate
           run_integration() {
             local log_file
@@ -318,6 +328,8 @@ jobs:
         if: always()
         working-directory: ${{ github.workspace }}
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           if [ -d .bootstrap-venv ]; then
             source .bootstrap-venv/bin/activate
           fi

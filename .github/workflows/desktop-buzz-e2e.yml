@@ -91,7 +91,9 @@ jobs:
     name: "Dev relay (launch + #CI reply + cleanup)"
     needs: build-linux
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    # Keep live dev launches on Gilfoyle with the Backend restart gate. The
+    # build artifact is still produced portably by the separate Linux job.
+    runs-on: self-hosted
     timeout-minutes: 25
     env:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
@@ -106,6 +108,8 @@ jobs:
       - name: Bootstrap isolated Buzz E2E user with slots
         shell: bash
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           python3 .github/scripts/bootstrap_agents_e2e_user.py bootstrap \
             --suite desktop-buzz-e2e \
             --plan-id pro \
@@ -152,6 +156,8 @@ jobs:
         working-directory: desktop/e2e-tests
         run: |
           set -euo pipefail
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           dbus-run-session -- bash -lc '
             eval "$(printf "\n" | gnome-keyring-daemon --unlock --components=secrets)"
             xvfb-run -a npm run test:buzz
@@ -170,5 +176,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          exec 9>/tmp/hypercli-dev-control-plane.lock
+          flock --shared 9
           python3 .github/scripts/bootstrap_agents_e2e_user.py cleanup \
             --state-file "${AGENTS_E2E_USER_STATE_FILE}"
