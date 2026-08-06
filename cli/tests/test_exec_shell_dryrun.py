@@ -418,7 +418,7 @@ def test_agents_create_sync_include_is_repeatable_and_wins_over_exclude(monkeypa
     assert "sync_exclude" not in captured
 
 
-def test_agents_create_sync_all_omits_selective_policy(monkeypatch):
+def test_agents_create_sync_all_rejects_selective_policy(monkeypatch):
     captured = {}
 
     class FakeDeployments:
@@ -444,9 +444,36 @@ def test_agents_create_sync_all_omits_selective_policy(monkeypatch):
         ["agents", "create", "--dry-run", "--sync-all", "--sync-include", "workspace"],
     )
 
+    assert result.exit_code != 0
+    assert "--sync-all cannot be combined" in result.output
+    assert captured == {}
+
+
+def test_agents_create_sync_all_clears_saved_selective_policy(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                pod_name="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url=None,
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(app, ["agents", "create", "--dry-run", "--sync-all"])
+
     assert result.exit_code == 0
-    assert "sync_include" not in captured
-    assert "sync_exclude" not in captured
+    assert captured["sync_all"] is True
 
 
 def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
@@ -563,7 +590,7 @@ def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
     assert "sync_include" not in captured
 
 
-def test_agents_start_sync_all_omits_saved_selective_policy(monkeypatch):
+def test_agents_start_sync_all_clears_saved_selective_policy(monkeypatch):
     captured = {}
     agent_id = "agent-123456789"
 
@@ -597,6 +624,7 @@ def test_agents_start_sync_all_omits_saved_selective_policy(monkeypatch):
     )
 
     assert result.exit_code == 0
+    assert captured["sync_all"] is True
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
 

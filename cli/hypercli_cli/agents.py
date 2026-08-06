@@ -107,9 +107,13 @@ def _sync_policy_kwargs(
     sync_exclude: list[str] | None,
     *,
     sync_all: bool = False,
-) -> dict[str, list[str]]:
+) -> dict[str, list[str] | bool]:
     if sync_all:
-        return {}
+        if sync_include is not None or sync_exclude is not None:
+            raise typer.BadParameter(
+                "--sync-all cannot be combined with --sync-include or --sync-exclude"
+            )
+        return {"sync_all": True}
     if sync_include is not None:
         return {"sync_include": list(sync_include)}
     if sync_exclude is not None:
@@ -540,7 +544,7 @@ def create(
     sync_all: bool = typer.Option(
         False,
         "--sync-all",
-        help="Sync the entire sync root; omit include and exclude policy.",
+        help="Sync the entire sync root; clear any saved include and exclude policy.",
     ),
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
@@ -995,7 +999,7 @@ def start(
     sync_all: bool = typer.Option(
         False,
         "--sync-all",
-        help="Sync the entire sync root; omit include and exclude policy.",
+        help="Sync the entire sync root; clear any saved include and exclude policy.",
     ),
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),

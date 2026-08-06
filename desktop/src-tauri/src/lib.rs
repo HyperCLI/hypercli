@@ -494,8 +494,10 @@ fn apply_editor_sync_policy(
     sync_all: bool,
 ) {
     if sync_all {
-        config.remove("sync_include");
-        config.remove("sync_exclude");
+        // Explicit null is the backend's clear-to-full-root operation. Omitting
+        // both keys on a restart means "inherit the stored selective policy".
+        config.insert("sync_include".to_owned(), Value::Null);
+        config.insert("sync_exclude".to_owned(), Value::Null);
         return;
     }
     config.retain(|key, value| {
@@ -3563,8 +3565,8 @@ mod tests {
             ("sync_exclude".to_owned(), serde_json::json!(["tmp"])),
         ]);
         apply_editor_sync_policy(&mut launch_config, ManagedRuntime::Codex, true);
-        assert!(!launch_config.contains_key("sync_include"));
-        assert!(!launch_config.contains_key("sync_exclude"));
+        assert!(launch_config["sync_include"].is_null());
+        assert!(launch_config["sync_exclude"].is_null());
         assert!(launch_syncs_all(&DeploymentLaunchConfig::from_map(
             launch_config.clone()
         )));

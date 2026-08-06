@@ -774,6 +774,32 @@ describe('Agents SDK', () => {
     expect(post.mock.calls[1][1].runtime_scopes).toEqual(['models:*']);
   });
 
+  it('clears a saved selective-sync policy when OpenClaw starts with syncAll', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-sync-all',
+      user_id: 'user-456',
+      pod_id: 'pod-sync-all',
+      pod_name: 'sync-all',
+      state: 'STARTING',
+      runtime: 'openclaw',
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.startOpenClaw(
+      '11111111-1111-4111-8111-111111111111',
+      { syncAll: true },
+    );
+
+    expect(post.mock.calls[0][1]).toMatchObject({
+      sync_include: null,
+      sync_exclude: null,
+    });
+  });
+
   it('retains the backend-hydrated launch config after start', async () => {
     const persistedLaunchConfig = {
       image: 'ghcr.io/hypercli/hypercli-buzz-opencode:latest',

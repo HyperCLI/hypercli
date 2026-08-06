@@ -562,6 +562,8 @@ export interface BuildAgentConfigOptions {
   syncEnabled?: boolean | null;
   syncInclude?: readonly string[] | null;
   syncExclude?: readonly string[] | null;
+  /** Clear any stored selective policy and synchronize all of `syncRoot`. */
+  syncAll?: boolean;
   syncUid?: number | null;
   syncGid?: number | null;
   registryUrl?: string | null;
@@ -765,8 +767,6 @@ export interface OpenClawStartAgentOptions extends StartAgentOptions {
 
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime' | 'injectGatewayToken'> {
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
-  /** Synchronize all of `syncRoot` instead of the runtime's selective default. */
-  syncAll?: boolean;
   /** @deprecated Use the typed `buzz` launch contract. */
   buzzEnabled?: boolean;
   /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
@@ -1750,8 +1750,16 @@ export function buildAgentConfig(
   if (options.image !== undefined && options.image !== null) prepared.image = options.image;
   if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
   if (options.syncEnabled !== undefined && options.syncEnabled !== null) prepared.sync_enabled = options.syncEnabled;
-  if (options.syncInclude !== undefined && options.syncInclude !== null) prepared.sync_include = [...options.syncInclude];
-  if (options.syncExclude !== undefined && options.syncExclude !== null) prepared.sync_exclude = [...options.syncExclude];
+  if (options.syncAll && (options.syncInclude != null || options.syncExclude != null)) {
+    throw new Error('syncAll cannot be combined with syncInclude or syncExclude');
+  }
+  if (options.syncAll) {
+    prepared.sync_include = null;
+    prepared.sync_exclude = null;
+  } else {
+    if (options.syncInclude != null) prepared.sync_include = [...options.syncInclude];
+    if (options.syncExclude != null) prepared.sync_exclude = [...options.syncExclude];
+  }
   if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = options.syncUid;
   if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;

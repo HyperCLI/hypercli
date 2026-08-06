@@ -773,6 +773,7 @@ def _build_agent_launch(
     sync_enabled: bool | None = None,
     sync_include: list[str] | None = None,
     sync_exclude: list[str] | None = None,
+    sync_all: bool = False,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
     registry_url: str | None = None,
@@ -783,6 +784,8 @@ def _build_agent_launch(
     heartbeat: dict | None = None,
     inject_gateway_token: bool = True,
 ) -> tuple[dict, str | None]:
+    if sync_all and (sync_include is not None or sync_exclude is not None):
+        raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
     prepared_config = copy.deepcopy(config or {})
     nested_launch_keys = sorted(LAUNCH_CONFIG_KEYS.intersection(prepared_config.keys()))
     if nested_launch_keys:
@@ -830,9 +833,12 @@ def _build_agent_launch(
         launch["sync_root"] = sync_root
     if sync_enabled is not None:
         launch["sync_enabled"] = sync_enabled
-    if sync_include is not None:
+    if sync_all:
+        launch["sync_include"] = None
+        launch["sync_exclude"] = None
+    elif sync_include is not None:
         launch["sync_include"] = list(sync_include)
-    if sync_exclude is not None:
+    if not sync_all and sync_exclude is not None:
         launch["sync_exclude"] = list(sync_exclude)
     if sync_uid is not None:
         launch["sync_uid"] = int(sync_uid)
@@ -863,6 +869,7 @@ def build_agent_config(
     sync_enabled: bool | None = None,
     sync_include: list[str] | None = None,
     sync_exclude: list[str] | None = None,
+    sync_all: bool = False,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
     registry_url: str | None = None,
@@ -891,6 +898,7 @@ def build_agent_config(
         sync_enabled=sync_enabled,
         sync_include=sync_include,
         sync_exclude=sync_exclude,
+        sync_all=sync_all,
         sync_uid=sync_uid,
         sync_gid=sync_gid,
         registry_url=registry_url,
@@ -2916,6 +2924,7 @@ class Deployments:
         sync_enabled: bool = None,
         sync_include: list[str] | None = None,
         sync_exclude: list[str] | None = None,
+        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -2953,6 +2962,7 @@ class Deployments:
             sync_enabled=sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3054,6 +3064,7 @@ class Deployments:
             sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
+            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3224,6 +3235,7 @@ class Deployments:
             sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
+            sync_all=sync_all,
             sync_uid=1000 if sync_uid is None else sync_uid,
             sync_gid=1000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
@@ -3721,6 +3733,7 @@ class Deployments:
         sync_enabled: bool = None,
         sync_include: list[str] | None = None,
         sync_exclude: list[str] | None = None,
+        sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
         registry_url: str = None,
@@ -3752,6 +3765,7 @@ class Deployments:
                 "sync_enabled": sync_enabled,
                 "sync_include": sync_include,
                 "sync_exclude": sync_exclude,
+                "sync_all": True if sync_all else None,
                 "sync_uid": sync_uid,
                 "sync_gid": sync_gid,
                 "registry_url": registry_url,
@@ -3784,6 +3798,7 @@ class Deployments:
             sync_enabled=sync_enabled,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,
@@ -3860,6 +3875,7 @@ class Deployments:
             sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
+            sync_all=sync_all,
             sync_uid=sync_uid,
             sync_gid=sync_gid,
             registry_url=registry_url,

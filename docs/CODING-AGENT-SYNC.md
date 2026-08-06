@@ -1,6 +1,6 @@
 # Coding Agent Selective Sync Handoff
 
-Status: HyperCLI client implementation complete; Backend enforcement pending
+Status: Client and launch propagation complete; deep storage validation remains
 Date: 2026-08-06 UTC  
 Related plan: `/tmp/LAGOON-PLAN.md`
 
@@ -28,11 +28,14 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Document every coding runtime and OpenClaw's full-root behavior in
   `docs/agents/coding-runtimes.mdx`.
 
-The wire contract stays flat. `sync_all` is a client convenience and is never
-sent to Backend: it normalizes to omitted `sync_include` and `sync_exclude`.
-An omitted user override receives the runtime subclass default; a custom
-include or exclude replaces that default, and a non-null include wins when
-both custom policies are supplied.
+The wire contract stays flat. `sync_all` / `syncAll` is a client convenience
+and is never sent to Backend: it emits explicit JSON null for both
+`sync_include` and `sync_exclude`. Explicit null clears a stored selective
+policy and selects the complete sync root. Omitting both fields is different:
+on restart or edit it inherits the stored policy. An omitted create override
+receives the runtime subclass default; a custom include or exclude replaces
+that default, and a non-null include wins when both custom policies are
+supplied. An explicit empty include remains distinct and means sync nothing.
 
 ## User decisions
 
@@ -50,23 +53,23 @@ both custom policies are supplied.
 
 ## Current repository facts
 
-HyperCLI clients now contain the per-agent include contract; downstream
-enforcement remains the active implementation work:
+HyperCLI clients and the Backend launch path now contain the per-agent include
+contract. Deep restore/finalize/eviction validation remains active work:
 
 - Python and TypeScript expose flat include/exclude fields, explicit sync-all
   convenience, and SDK-owned defaults for all six coding runtimes.
 - Rust launch types expose the same wire fields, preserve explicit empty
   includes, and apply the runtime defaults to typed Buzz launches.
-- Backend launch fields currently cover `sync_root`, `sync_enabled`, UID, and
-  GID but do not yet enforce the selection policy end to end:
+- Backend persists and normalizes the flat policy, preserving omission,
+  explicit null, and explicit empty lists as distinct operations:
   `hyperclaw-backend/backend/agents/launch_contract.py`.
-- Lagoon currently passes only cluster-wide `REEF_INIT_EXCLUDES` and
-  `REEF_SYNC_EXCLUDES`: `hyperclaw-backend/lagoon/main.py`.
-- Reef parses only excludes and passes `--exclude` to `mc mirror`:
+- Lagoon passes the normalized policy to Reef, annotates retained namespaces,
+  and replaces an immutable retained Reef watcher when that policy changes:
+  `hyperclaw-backend/lagoon/main.py`.
+- Reef implements mutually exclusive include and exclude modes, including
+  scoped directory mirrors and exact-file synchronization:
+  `hyperclaw-backend/reef-sync/reef_policy.py` and
   `hyperclaw-backend/reef-sync/supervisor.py`.
-- `mc mirror` provides `--exclude` but no `--include`; selected include roots
-  therefore require separate scoped mirrors. Selected exact files require an
-  exact-file copy/delete action.
 - The consolidated `pulumi-provision-k8s/lagoon.py` currently does not wire the
   exclude settings that existed in the removed Pulumi stack. Do not assume the
   recently added exclude configuration is deployed end to end.

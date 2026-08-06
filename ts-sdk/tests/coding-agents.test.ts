@@ -151,7 +151,7 @@ describe('coding agents', () => {
   });
 
   it.each([
-    [{ syncAll: true }, undefined, undefined],
+    [{ syncAll: true }, null, null],
     [{ syncInclude: [] }, [], undefined],
     [{ syncInclude: ['work'], syncExclude: ['tmp'] }, ['work'], undefined],
     [{ syncExclude: ['.cache'] }, undefined, ['.cache']],

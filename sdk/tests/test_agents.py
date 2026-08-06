@@ -1545,11 +1545,16 @@ def test_openclaw_wrappers_forward_sync_policy(
     agents_client._post = fake_post
     getattr(agents_client, method_name)(*args, **kwargs)
 
-    if expected_include is None:
+    if kwargs.get("sync_all"):
+        assert posted["sync_include"] is None
+        assert posted["sync_exclude"] is None
+    elif expected_include is None:
         assert "sync_include" not in posted
     else:
         assert posted["sync_include"] == expected_include
-    if expected_exclude is None:
+    if kwargs.get("sync_all"):
+        pass
+    elif expected_exclude is None:
         assert "sync_exclude" not in posted
     else:
         assert posted["sync_exclude"] == expected_exclude

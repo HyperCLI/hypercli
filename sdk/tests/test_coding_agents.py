@@ -219,11 +219,16 @@ def test_coding_agent_sync_policy_overrides(kwargs, expected_include, expected_e
     deployments._post = fake_post
     deployments.create_codex(**kwargs)
 
-    if expected_include is None:
+    if kwargs.get("sync_all"):
+        assert posted["sync_include"] is None
+        assert posted["sync_exclude"] is None
+    elif expected_include is None:
         assert "sync_include" not in posted
     else:
         assert posted["sync_include"] == expected_include
-    if expected_exclude is None:
+    if kwargs.get("sync_all"):
+        pass
+    elif expected_exclude is None:
         assert "sync_exclude" not in posted
     else:
         assert posted["sync_exclude"] == expected_exclude
