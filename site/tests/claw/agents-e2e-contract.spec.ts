@@ -24,9 +24,11 @@ test("agents subscription retry permits immutable canceled history", () => {
 test("agents subscription observes the public deployment transition wire", () => {
   expect(subscriptionSpecSource).toContain('endsWith("/ws/deployments")');
   expect(subscriptionSpecSource).toContain('socket.on("framereceived"');
+  expect(subscriptionSpecSource).toContain('frame.type === "ready"');
+  expect(subscriptionSpecSource).toContain("beforeCreate: async () =>");
+  expect(subscriptionSpecSource).toContain('toEqual({ version: 1, type: "ready" })');
   expect(subscriptionSpecSource).toContain('frame.type === "deployment.transition"');
   expect(subscriptionSpecSource).toContain('expect(transition.version).toBe(1)');
-  expect(subscriptionSpecSource).toContain('"event_id"');
-  expect(subscriptionSpecSource).toContain('"operation_id"');
-  expect(subscriptionSpecSource).toContain('"launch_config"');
+  expect(subscriptionSpecSource).toContain("const allowedKeys = new Set([");
+  expect(subscriptionSpecSource).toContain('expect(transition).not.toHaveProperty("finalize_epoch")');
 });

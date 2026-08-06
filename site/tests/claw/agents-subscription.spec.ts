@@ -24,22 +24,40 @@ type DeploymentTransitionFrame = {
   [key: string]: unknown;
 };
 
-function observeDeploymentTransitions(page: Page): DeploymentTransitionFrame[] {
-  const frames: DeploymentTransitionFrame[] = [];
+type DeploymentSocketObservation = {
+  readyFrames: Array<Record<string, unknown>>;
+  readySocketCount: () => number;
+  transitions: DeploymentTransitionFrame[];
+};
+
+function observeDeploymentTransitions(page: Page): DeploymentSocketObservation {
+  const readySockets = new Set<object>();
+  const observation: DeploymentSocketObservation = {
+    readyFrames: [],
+    readySocketCount: () => readySockets.size,
+    transitions: [],
+  };
   page.on("websocket", (socket) => {
     if (!new URL(socket.url()).pathname.endsWith("/ws/deployments")) return;
+    let ready = false;
     socket.on("framereceived", ({ payload }) => {
       try {
         const frame = JSON.parse(typeof payload === "string" ? payload : payload.toString("utf8"));
-        if (frame && typeof frame === "object" && frame.type === "deployment.transition") {
-          frames.push(frame as DeploymentTransitionFrame);
+        if (!frame || typeof frame !== "object") return;
+        if (frame.type === "ready") {
+          ready = true;
+          readySockets.add(socket);
+          observation.readyFrames.push(frame as Record<string, unknown>);
+        } else if (ready && frame.type === "deployment.transition") {
+          observation.transitions.push(frame as DeploymentTransitionFrame);
         }
       } catch {
         // Unrelated malformed frames are handled by the SDK reconnect path.
       }
     });
+    socket.on("close", () => readySockets.delete(socket));
   });
-  return frames;
+  return observation;
 }
 
 function totalGrantedSlots(summary: Awaited<ReturnType<typeof fetchClawSubscriptionSummary>>): number {
@@ -157,7 +175,7 @@ test.describe.serial("Agents subscription", () => {
   test("logs into Claw, purchases a paid plan, launches an agent, and connects the gateway", async ({ page }) => {
     test.setTimeout(900_000);
 
-    const deploymentTransitions = observeDeploymentTransitions(page);
+    const deploymentSocket = observeDeploymentTransitions(page);
     let createdAgentId: string | null = null;
     let createdStripeSubscriptionId: string | null = null;
     const preCleanupStripeIds = await cancelActiveClawStripeSubscriptionsForTestUser().catch((error) => {
@@ -299,33 +317,60 @@ test.describe.serial("Agents subscription", () => {
       await captureStep(page, "agents-08-plan-active");
 
       await cleanupClawAgents(page);
-      const createdAgent = await launchClawAgentAndWaitForGateway(page, 360_000, { enableDesktop: checkoutCompleted });
+      const createdAgent = await launchClawAgentAndWaitForGateway(page, 360_000, {
+        enableDesktop: checkoutCompleted,
+        beforeCreate: async () => {
+          await expect
+            .poll(() => deploymentSocket.readySocketCount(), {
+              timeout: 30_000,
+              intervals: [250, 500, 1_000, 2_000],
+            })
+            .toBeGreaterThan(0);
+          expect(deploymentSocket.readyFrames.at(-1)).toEqual({ version: 1, type: "ready" });
+        },
+      });
       createdAgentId = createdAgent.id;
       expect(createdAgentId).toBeTruthy();
       expect(createdAgent.memory).toBe(4);
 
       await expect
-        .poll(() => deploymentTransitions.some((frame) => frame.deployment_id === createdAgentId), {
+        .poll(() => deploymentSocket.transitions.some((frame) => frame.deployment_id === createdAgentId), {
           timeout: 30_000,
           intervals: [250, 500, 1_000, 2_000],
         })
         .toBe(true);
-      const transition = deploymentTransitions.find((frame) => frame.deployment_id === createdAgentId)!;
+      const transition = deploymentSocket.transitions.find((frame) => frame.deployment_id === createdAgentId)!;
       expect(transition.version).toBe(1);
       expect(transition.type).toBe("deployment.transition");
-      expect(Object.values(transition).every((value) => value === null || typeof value !== "object")).toBe(true);
-      for (const forbidden of [
-        "data",
-        "payload",
-        "metadata",
-        "event_id",
-        "operation_id",
-        "launch_config",
-        "credentials",
-        "timestamp",
-      ]) {
-        expect(transition).not.toHaveProperty(forbidden);
-      }
+      expect(typeof transition.state).toBe("string");
+      expect(String(transition.state).length).toBeGreaterThan(0);
+      expect(Number.isInteger(transition.placement_epoch)).toBe(true);
+      expect(Number(transition.placement_epoch)).toBeGreaterThanOrEqual(0);
+      expect(Number.isInteger(transition.runtime_generation)).toBe(true);
+      expect(Number(transition.runtime_generation)).toBeGreaterThanOrEqual(0);
+      expect(transition).not.toHaveProperty("finalize_epoch");
+      expect(Object.values(transition).every((value) => value !== null && typeof value !== "object")).toBe(true);
+
+      const allowedKeys = new Set([
+        "version",
+        "type",
+        "deployment_id",
+        "state",
+        "placement_epoch",
+        "runtime_generation",
+        "finalize_epoch",
+      ]);
+      expect(Object.keys(transition).every((key) => allowedKeys.has(key))).toBe(true);
+      expect(Object.keys(transition)).toEqual(
+        expect.arrayContaining([
+          "version",
+          "type",
+          "deployment_id",
+          "state",
+          "placement_epoch",
+          "runtime_generation",
+        ])
+      );
     } finally {
       if (createdAgentId) {
         await deleteClawAgent(page, createdAgentId).catch(() => {});

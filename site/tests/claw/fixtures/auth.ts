@@ -1516,7 +1516,7 @@ export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<
 export async function launchClawAgentAndWaitForGateway(
   page: Page,
   timeout = 240_000,
-  options: { enableDesktop?: boolean } = {},
+  options: { enableDesktop?: boolean; beforeCreate?: () => Promise<void> } = {},
 ): Promise<DeploymentRecord> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
@@ -1907,6 +1907,7 @@ export async function launchClawAgentAndWaitForGateway(
   };
 
   await captureStep(page, "agents-10-dashboard");
+  await options.beforeCreate?.();
   if (!enableDesktop) {
     const controlUiOrigin = new URL(page.url()).origin;
     return await waitForCreatedAgent(
