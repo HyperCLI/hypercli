@@ -661,7 +661,6 @@ def create(
             create_func = agents.create_openclaw_pro if desktop_enabled else agents.create_openclaw
             pod = create_func(
                 **common,
-                sync_all=sync_all,
                 image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
                 gateway_token=gateway_token,
                 openclaw_route_options={"include_desktop": desktop_enabled},
@@ -1241,7 +1240,6 @@ def start(
             pod = start_func(
                 requested_agent_id if requested_agent_id == "self" else agent_id,
                 **common,
-                sync_all=sync_all,
                 gateway_token=effective_gateway_token,
                 openclaw_route_options={"include_desktop": desktop_enabled},
                 memory_index=memory_index,

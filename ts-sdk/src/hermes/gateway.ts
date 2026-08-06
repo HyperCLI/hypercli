@@ -89,7 +89,7 @@ export interface HermesCreateSessionRequest extends Record<string, unknown> {
 
 export interface HermesUpdateSessionRequest {
   title?: string | null;
-  end_reason?: string | null;
+  end_reason?: string;
 }
 
 export interface HermesSessionMessagesResponse extends Record<string, unknown> {
@@ -103,7 +103,6 @@ export interface HermesForkSessionRequest extends Record<string, unknown> {
   id?: string;
   session_id?: string;
   title?: string;
-  message_id?: string;
 }
 
 export interface HermesSessionChatRequest extends Record<string, unknown> {

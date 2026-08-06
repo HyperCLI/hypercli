@@ -511,13 +511,23 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["agents", "create", "--runtime", "hermes-agent", "--dry-run", "--name", "demo"],
+        [
+            "agents",
+            "create",
+            "--runtime",
+            "hermes-agent",
+            "--dry-run",
+            "--name",
+            "demo",
+            "--sync-all",
+        ],
     )
 
     assert result.exit_code == 0
     assert captured["image"] == DEFAULT_HERMES_AGENT_IMAGE
     assert captured["env"] is None
     assert captured["api_server_key"] is None
+    assert captured["sync_all"] is True
     assert "https://hermes-demo.hypercli.app" in result.stdout
     assert "Desktop" not in result.stdout
 
@@ -764,7 +774,15 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["agents", "start", "hermes-demo", "--dry-run", "--env", "NEW=2"],
+        [
+            "agents",
+            "start",
+            "hermes-demo",
+            "--dry-run",
+            "--env",
+            "NEW=2",
+            "--sync-all",
+        ],
     )
 
     assert result.exit_code == 0
@@ -775,6 +793,7 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
     assert captured["sync_root"] == "/opt/data"
     assert captured["sync_uid"] == 10000
     assert captured["sync_gid"] == 10000
+    assert captured["sync_all"] is True
 
 
 def test_agents_delete_by_name_removes_canonical_state(monkeypatch):

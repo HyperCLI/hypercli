@@ -19,7 +19,9 @@ use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
 
-use crate::{CreateDeploymentRequest, ManagedRuntime, RouteConfig, StartDeploymentRequest};
+use crate::{
+    CreateDeploymentRequest, ManagedRuntime, Nullable, RouteConfig, StartDeploymentRequest,
+};
 
 pub const HERMES_AGENT_IMAGE: &str = "ghcr.io/hypercli/hypercli-hermes-agent:latest";
 pub const HERMES_API_PORT: u16 = 8642;
@@ -194,15 +196,24 @@ impl HermesApiClient {
         &self,
         limit: Option<u32>,
         offset: Option<u32>,
+        source: Option<&str>,
+        include_children: Option<bool>,
     ) -> Result<HermesSessionList, HermesApiError> {
         let mut query = Vec::new();
         let limit_s = limit.map(|value| value.to_string());
         let offset_s = offset.map(|value| value.to_string());
+        let include_children_s = include_children.map(|value| value.to_string());
         if let Some(value) = limit_s.as_deref() {
             query.push(("limit", value));
         }
         if let Some(value) = offset_s.as_deref() {
             query.push(("offset", value));
+        }
+        if let Some(value) = source {
+            query.push(("source", value));
+        }
+        if let Some(value) = include_children_s.as_deref() {
+            query.push(("include_children", value));
         }
         self.json(
             Method::GET,
@@ -735,7 +746,7 @@ pub struct HermesSessionCreateRequest {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct HermesSessionPatchRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
+    pub title: Option<Nullable<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_reason: Option<String>,
 }
@@ -743,6 +754,8 @@ pub struct HermesSessionPatchRequest {
 pub struct HermesSessionForkRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
 }
@@ -934,6 +947,55 @@ mod tests {
         assert_eq!(request.env["API_SERVER_KEY"], "gateway-secret-only");
         assert!(!request.env.contains_key("OPENCLAW_GATEWAY_TOKEN"));
         assert!(!request.env.contains_key("HYPER_AGENTS_API_KEY"));
+    }
+
+    #[test]
+    fn session_mutations_preserve_upstream_null_and_fork_id_shapes() {
+        assert_eq!(
+            serde_json::to_value(HermesSessionPatchRequest::default()).unwrap(),
+            serde_json::json!({})
+        );
+        assert_eq!(
+            serde_json::to_value(HermesSessionPatchRequest {
+                title: Some(Nullable::Null),
+                end_reason: Some("complete".into()),
+            })
+            .unwrap(),
+            serde_json::json!({"title": null, "end_reason": "complete"})
+        );
+        assert_eq!(
+            serde_json::to_value(HermesSessionForkRequest {
+                session_id: Some("fork-id".into()),
+                title: Some("Fork".into()),
+                ..Default::default()
+            })
+            .unwrap(),
+            serde_json::json!({"session_id": "fork-id", "title": "Fork"})
+        );
+    }
+
+    #[tokio::test]
+    async fn session_list_forwards_upstream_filters() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/api/sessions")
+            .match_query(Matcher::Exact(
+                "limit=25&offset=10&source=api_server&include_children=true".into(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"object":"list","data":[],"limit":25,"offset":10,"has_more":false}"#)
+            .create_async()
+            .await;
+        let client = HermesApiClient::new(Url::parse(&server.url()).unwrap(), "key").unwrap();
+
+        let sessions = client
+            .sessions(Some(25), Some(10), Some("api_server"), Some(true))
+            .await
+            .unwrap();
+
+        assert!(sessions.data.is_empty());
+        mock.assert_async().await;
     }
 
     #[tokio::test]
