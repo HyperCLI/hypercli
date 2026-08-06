@@ -166,7 +166,7 @@ The largest file — manages the full agent experience:
 - **OpenClaw** — JSON config editor built from gateway schema. Uses `configPatch()`.
 - **Settings** — Agent name, integrations (Telegram, STT, TTS).
 
-**Agent lifecycle**: STOPPED → PENDING → STARTING → RUNNING → STOPPING → STOPPED. Fast polling (3s) during transitions, slow polling (60s) otherwise.
+**Agent lifecycle**: STOPPED → PENDING → STARTING → RUNNING → STOPPING → STOPPED. The page subscribes through `Deployments.subscribe()`, treats flat `/ws/deployments` events as invalidations, coalesces bursts, and reloads the authoritative REST list. It performs no deployment-state polling interval.
 
 ### Components
 
@@ -195,7 +195,7 @@ Hook-based data layer using `@tanstack/react-query` that wraps the `@hypercli.co
 | Hook | SDK Class | Purpose |
 |------|-----------|---------|
 | `useHyperCLI` | Context | Access `deployments`, `hyperAgent`, `token` from provider |
-| `useAgents` | `Deployments` | Agent list + create/start/stop/delete mutations, adaptive polling |
+| Agents page + deployment refresh scheduler | `Deployments` | Agent list + lifecycle mutations; WebSocket invalidation with REST resync |
 | `useAgent` | `Deployments.get` | Single agent detail, token refresh, env, metrics |
 | `useAgentFiles` | `Deployments.files*` | File list, upload, download, delete for an agent |
 | `useAgentLogs` | `Deployments.logsConnect` | WebSocket log streaming with auto-reconnect |

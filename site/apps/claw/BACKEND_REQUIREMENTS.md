@@ -177,7 +177,7 @@ GET /agents/{id}/limits
 
 ### D-8. Agent uptime + real-time metrics
 
-**Current:** Frontend computes uptime from `started_at`. CPU/memory only available via 60s polling on the deployments list.
+**Current:** Frontend computes uptime from `started_at`. Deployment lifecycle is event-driven through `/ws/deployments`; those invalidations intentionally carry no CPU or memory snapshot. The SDK exposes `Deployments.metrics(id)` for an on-demand backend read, but the dashboard has no metrics stream.
 
 **Required:** Either return live metrics in `agent.get()`, or expose a streaming endpoint:
 
