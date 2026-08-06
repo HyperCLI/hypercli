@@ -4,8 +4,9 @@ use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use futures_util::{SinkExt, StreamExt};
 use reqwest::blocking::{Client as HttpClient, RequestBuilder};
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
@@ -13,18 +14,28 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
+use tokio::net::TcpStream;
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
-    DeleteDeploymentResponse, Deployment, DeploymentFileWriteResponse,
+    DeleteDeploymentResponse, Deployment, DeploymentEvent, DeploymentFileWriteResponse,
     DeploymentProfileImageResponse, DeploymentRoutes, ExecDeploymentRequest,
     ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest,
 };
+
+type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+#[derive(Deserialize)]
+struct DeploymentEventTokenResponse {
+    token: String,
+    ws_url: String,
+}
 
 pub struct HyperCliClient {
     api_base: Url,
@@ -215,6 +226,163 @@ impl HyperCliClient {
             result.as_ref().map(|_| ()),
         );
         result
+    }
+
+    fn create_deployment_event_token(&self) -> Result<DeploymentEventTokenResponse, HyperCliError> {
+        let url = self.endpoint("deployments/events/token");
+        let builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        self.send_json(
+            "create_deployment_event_token",
+            "POST",
+            &url,
+            None,
+            builder,
+        )
+    }
+
+    async fn connect_deployment_events(&self) -> Result<DeploymentEventSocket, HyperCliError> {
+        let token = self.create_deployment_event_token()?;
+        let (mut socket, _) = connect_async(token.ws_url.as_str())
+            .await
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        socket
+            .send(Message::Text(
+                serde_json::to_string(&json!({
+                    "version": 1,
+                    "type": "auth",
+                    "token": token.token,
+                }))
+                .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?
+                .into(),
+            ))
+            .await
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        let ready = tokio::time::timeout(Duration::from_secs(10), socket.next())
+            .await
+            .map_err(|_| HyperCliError::Transport("deployment event ready timed out".to_owned()))?
+            .ok_or_else(|| HyperCliError::Transport("deployment event socket closed".to_owned()))?
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        let Message::Text(ready) = ready else {
+            return Err(HyperCliError::InvalidResponse(
+                "deployment event socket did not send ready".to_owned(),
+            ));
+        };
+        let ready: Value = serde_json::from_str(ready.as_ref())
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        if ready != json!({"version": 1, "type": "ready"}) {
+            return Err(HyperCliError::InvalidResponse(
+                "deployment event socket did not send ready".to_owned(),
+            ));
+        }
+        self.list_deployments_with_capacity()?;
+        Ok(socket)
+    }
+
+    /// Hydrate from REST, then invoke `handler` for flat deployment
+    /// invalidations. Cancel by aborting or dropping the returned future.
+    pub async fn subscribe_deployments<F>(&self, mut handler: F) -> Result<(), HyperCliError>
+    where
+        F: FnMut(DeploymentEvent),
+    {
+        self.list_deployments_with_capacity()?;
+        let mut retry_delay = Duration::from_millis(250);
+        loop {
+            let mut socket = match self.connect_deployment_events().await {
+                Ok(socket) => socket,
+                Err(error) if error.status().is_some() => return Err(error),
+                Err(_) => {
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
+                    continue;
+                }
+            };
+            handler(DeploymentEvent {
+                version: 1,
+                event_type: "deployments.changed".to_owned(),
+                deployment_id: None,
+                state: None,
+                placement_epoch: None,
+                runtime_generation: None,
+                finalize_epoch: None,
+            });
+            retry_delay = Duration::from_millis(250);
+            while let Some(message) = socket.next().await {
+                match message {
+                    Ok(Message::Text(value)) => {
+                        let event: DeploymentEvent = serde_json::from_str(value.as_ref())
+                            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+                        if event.version == 1
+                            && matches!(
+                                event.event_type.as_str(),
+                                "deployment.transition" | "deployments.changed"
+                            )
+                        {
+                            handler(event);
+                        }
+                    }
+                    Ok(Message::Ping(value)) => {
+                        socket
+                            .send(Message::Pong(value))
+                            .await
+                            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+                    }
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Wait for RUNNING using WebSocket wakeups and REST confirmation.
+    pub async fn wait_deployment_running(
+        &self,
+        deployment_id: &str,
+        timeout: Duration,
+    ) -> Result<Deployment, HyperCliError> {
+        tokio::time::timeout(timeout, async {
+            let check = |deployment: Deployment| -> Result<Option<Deployment>, HyperCliError> {
+                match deployment.state.to_ascii_uppercase().as_str() {
+                    "RUNNING" => Ok(Some(deployment)),
+                    "FAILED" | "RESTORE_FAILED" | "SYNC_FAILED" => Err(
+                        HyperCliError::InvalidResponse(format!(
+                            "deployment entered {} while waiting for RUNNING",
+                            deployment.state
+                        )),
+                    ),
+                    _ => Ok(None),
+                }
+            };
+            if let Some(deployment) = check(self.get_deployment(deployment_id)?)? {
+                return Ok(deployment);
+            }
+            loop {
+                let mut socket = self.connect_deployment_events().await?;
+                if let Some(deployment) = check(self.get_deployment(deployment_id)?)? {
+                    return Ok(deployment);
+                }
+                while let Some(message) = socket.next().await {
+                    let Ok(Message::Text(value)) = message else {
+                        continue;
+                    };
+                    let event: DeploymentEvent = serde_json::from_str(value.as_ref())
+                        .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+                    if event.version != 1
+                        || (event.deployment_id.as_deref().is_some()
+                            && event.deployment_id.as_deref() != Some(deployment_id))
+                    {
+                        continue;
+                    }
+                    if let Some(deployment) = check(self.get_deployment(deployment_id)?)? {
+                        return Ok(deployment);
+                    }
+                }
+            }
+        })
+        .await
+        .map_err(|_| HyperCliError::Transport("deployment wait timed out".to_owned()))?
     }
 
     pub fn create_deployment(
@@ -936,6 +1104,9 @@ mod tests {
     use crate::{AgentSize, ManagedRuntime};
     use mockito::{Matcher, Server};
     use secrecy::SecretString;
+    use std::sync::{Arc, Mutex};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::accept_async;
 
     fn client(server: &Server) -> HyperCliClient {
         HyperCliClient::new(ClientConfig {
@@ -944,6 +1115,81 @@ mod tests {
             trace_file: None,
         })
         .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn deployment_subscription_sends_auth_ready_resync_and_flat_transition() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
+        let websocket = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let auth = socket.next().await.unwrap().unwrap();
+            let Message::Text(auth) = auth else { panic!("expected auth text") };
+            assert_eq!(
+                serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
+                json!({"version": 1, "type": "auth", "token": "event-token"})
+            );
+            socket
+                .send(Message::Text(json!({"version": 1, "type": "ready"}).to_string().into()))
+                .await
+                .unwrap();
+            socket
+                .send(Message::Text(
+                    json!({
+                        "version": 1,
+                        "type": "deployment.transition",
+                        "deployment_id": "deployment-1",
+                        "state": "RUNNING",
+                        "placement_epoch": 8,
+                        "runtime_generation": 3
+                    })
+                    .to_string()
+                    .into(),
+                ))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let _ = socket.close(None).await;
+        });
+
+        let mut server = Server::new_async().await;
+        let list = server
+            .mock("GET", "/agents/deployments")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .expect_at_least(2)
+            .create_async()
+            .await;
+        let token = server
+            .mock("POST", "/agents/deployments/events/token")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"version": 1, "token": "event-token", "ws_url": ws_url}).to_string())
+            .create_async()
+            .await;
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let captured = Arc::clone(&received);
+        let event_client = client(&server);
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            event_client.subscribe_deployments(move |event| {
+                captured.lock().unwrap().push(event);
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        websocket.await.unwrap();
+        let received = received.lock().unwrap();
+        assert_eq!(received[0].event_type, "deployments.changed");
+        assert_eq!(received[1].deployment_id.as_deref(), Some("deployment-1"));
+        assert_eq!(received[1].runtime_generation, Some(3));
+        list.assert_async().await;
+        token.assert_async().await;
     }
 
     #[test]

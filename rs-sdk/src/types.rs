@@ -848,11 +848,36 @@ pub struct Deployment {
     pub requested_size: Option<String>,
     #[serde(default)]
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub placement_epoch: u64,
+    #[serde(default)]
+    pub runtime_generation: u64,
+    #[serde(default)]
+    pub finalize_epoch: Option<u64>,
+    #[serde(default)]
+    pub restore_state: Option<String>,
     /// Persisted launch settings. This can contain runtime credentials, so its
     /// `Debug` implementation is always redacted even though authenticated
     /// clients may inspect and patch individual fields deliberately.
     #[serde(default)]
     pub launch_config: DeploymentLaunchConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeploymentEvent {
+    pub version: u32,
+    #[serde(rename = "type")]
+    pub event_type: String,
+    #[serde(default)]
+    pub deployment_id: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub placement_epoch: Option<u64>,
+    #[serde(default)]
+    pub runtime_generation: Option<u64>,
+    #[serde(default)]
+    pub finalize_epoch: Option<u64>,
 }
 
 impl Deployment {
@@ -1267,6 +1292,10 @@ mod tests {
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
             last_error: None,
+            placement_epoch: 0,
+            runtime_generation: 0,
+            finalize_epoch: None,
+            restore_state: None,
             launch_config: Default::default(),
         };
 
