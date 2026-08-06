@@ -35,9 +35,14 @@ desktop/
      bundle, so App Translocation, app moves, and uninstall cannot leave
      dangling providers.
    - Windows: user-owned copies (symlinks require admin/Developer Mode).
-3. **Agent fleet**: after login, list saved deployments, default to a
+3. **Agent fleet**: after login, create or list saved deployments, default to a
    backward-compatible Buzz-only filter, and offer state-safe start, stop,
-   restart, and delete. Only stopped agents can be deleted.
+   restart, and delete. Only stopped agents can be deleted. Native Rust owns
+   one credential-bound deployment subscription and sends only a sanitized
+   `deployments-invalidated` signal to the webview. The webview coalesces
+   signals and reloads the authoritative REST fleet. Saving, replacing, or
+   clearing credentials restarts or stops the native stream; manual Refresh is
+   recovery, not background lifecycle polling.
 
 ## Build
 

@@ -155,6 +155,12 @@ const agent = await client.deployments.createOpenClaw({
   registryUrl: 'git.nedos.co',
   registryAuth: { username: 'ci', password: 'token' },
 });
+const running = await client.deployments.waitForState(
+  agent.id,
+  ['RUNNING'],
+  300_000,
+  ['FAILED', 'RESTORE_FAILED', 'SYNC_FAILED'],
+);
 
 const capacity = await client.deployments.listWithCapacity();
 console.log(capacity.maxAgentsPerAccount, capacity.runningAgents);
@@ -166,6 +172,23 @@ for (const slot of capacity.agentSlots) {
 `list()` remains the compatibility array. `listWithCapacity()` preserves the
 full deployment response: saved/running account limits, pooled TPD, aggregate
 slot inventory, and individual entitlement-backed agent slots.
+
+For a long-lived UI, subscribe to thin invalidations and refresh REST in the
+handler:
+
+```typescript
+const controller = new AbortController();
+const subscription = client.deployments.subscribe(async () => {
+  render(await client.deployments.list());
+}, { signal: controller.signal });
+
+// During application teardown:
+controller.abort();
+await subscription;
+```
+
+Abort during teardown. The SDK owns authentication, ready/resync, and
+reconnect; events are not snapshots and may be duplicated or coalesced.
 
 Use `createOpenClawPro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 

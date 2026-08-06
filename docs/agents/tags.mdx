@@ -69,6 +69,10 @@ The allowlist rule is simple:
 - a family `*` baseline grants broad access for that family
 - `family:none` means no baseline grant; it does not cancel matching selectors
 
+`agents:self` does not authorize the account-scoped deployment event stream.
+Subscriptions require `agents:*`, global `*:*`, or an exact
+`agent:<agent-uuid>` selector; exact keys receive events only for that agent.
+
 These are authorization scopes, not resource metadata.
 
 Do not use `customer:acme` or `project:alpha` for resource labeling. Those should be `customer=acme` and `project=alpha`.

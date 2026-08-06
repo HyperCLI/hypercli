@@ -395,12 +395,38 @@ await client.deployments.get(agent.id);
 await client.deployments.start(agent.id);
 await client.deployments.stop(agent.id);
 await client.deployments.delete(agent.id);
-await client.deployments.waitRunning(agent.id, 300_000, 5_000);
+const running = await client.deployments.waitForState(
+  agent.id,
+  ["RUNNING"],
+  300_000,
+  ["FAILED", "RESTORE_FAILED", "SYNC_FAILED"],
+);
 ```
 
 `stop()` returns the accepted lifecycle state, normally `stopping`. Cleanup is
-asynchronous: fetch the deployment until it becomes `stopped` before
-restarting it or treating its slot as available.
+asynchronous; use `waitForState()` before restarting it or treating its slot as
+available. The older polling-interval argument to `waitRunning()` is deprecated
+and ignored.
+
+### Subscribe to lifecycle invalidations
+
+```ts
+const controller = new AbortController();
+
+const subscription = client.deployments.subscribe(async () => {
+  const agents = await client.deployments.list();
+  render(agents);
+}, { signal: controller.signal });
+
+// During application teardown:
+controller.abort();
+await subscription;
+```
+
+The subscription runs until aborted or a permanent authentication error
+occurs. Events are thin, best-effort hints, not snapshots. The SDK reconnects
+with backoff and completes a full REST resync before delivering further
+invalidations. `AgentState` is intentionally open to future server states.
 
 ## `Agent`
 
@@ -411,6 +437,10 @@ Important fields:
 - `podId`
 - `podName`
 - `state`
+- `placementEpoch`
+- `runtimeGeneration`
+- `finalizeEpoch`
+- `restoreState`
 - `name`
 - `hostname`
 - `tags`
@@ -419,6 +449,10 @@ Important fields:
 - `command`
 - `entrypoint`
 - `ports`
+
+Epoch fields are opaque monotonic lifecycle identifiers. They are useful for
+correlation, but REST remains authoritative and clients should not reproduce
+the server state machine. `finalizeEpoch` is optional.
 
 Important properties:
 

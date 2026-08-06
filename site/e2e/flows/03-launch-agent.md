@@ -65,7 +65,8 @@ Saved to `e2e/screenshots/`:
 
 Key API calls to watch:
 - `POST /agents/deployments` — creates the agent (should return 200)
-- `GET /agents/deployments` — polls for state updates
+- `POST /agents/deployments/events/token` — authenticates lifecycle updates
+- `GET /agents/deployments` — authoritative snapshot after invalidation
 - `GET /deployments/{id}/token` — fetches reef auth token
 - gateway websocket `chat.send` — real assistant roundtrip after launch
 
@@ -78,7 +79,9 @@ Key API calls to watch:
 
 - Agent typically reaches RUNNING in 5-15s on dev (pod scheduling + OpenClaw boot)
 - The launch helper asserts the browser create payload stays flat (`image/env/routes` at top level)
-- The test polls every 3s for up to 3 minutes, refreshing the page every 5th attempt
+- The product uses deployment invalidations followed by REST refreshes. The
+  test runner may still retry assertions while waiting for the UI to converge;
+  those retries are not product lifecycle polling.
 - Network log includes all requests (Privy auth, API calls, static assets)
 - Filter by `/api/` or `/deployments` for relevant API traffic
 - Typical runtime: ~45s (login + launch + one real chat roundtrip)

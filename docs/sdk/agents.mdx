@@ -416,8 +416,17 @@ metrics = client.deployments.metrics(agent.id)
 ```
 
 `stop()` returns the accepted lifecycle state, normally `stopping`. Cleanup is
-asynchronous: poll `get()` until the state is `stopped` before restarting the
-agent or treating its slot as available.
+asynchronous; use the event-assisted state wait before restarting the agent or
+treating its slot as available:
+
+```python
+agent = client.deployments.wait_for_state(
+    agent.id,
+    {"stopped"},
+    timeout=300,
+    failure_states={"failed", "restore_failed", "sync_failed"},
+)
+```
 
 `budget` now reports slot inventory plus pooled inference, rather than a summed CPU / memory billing pool. Expect:
 
@@ -433,7 +442,7 @@ For account-facing billing and capacity screens, prefer `client.agent.entitlemen
 Wait for a running pod:
 
 ```python
-agent = client.deployments.wait_running(agent.id, timeout=300, poll_interval=5)
+agent = client.deployments.wait_running(agent.id, timeout=300)
 ```
 
 Or on the hydrated object:
@@ -441,6 +450,27 @@ Or on the hydrated object:
 ```python
 agent.wait_running(timeout=300)
 ```
+
+`poll_interval` is retained only for compatibility and is ignored. Waits use
+WebSocket invalidations to wake a fresh authoritative REST read.
+
+### Subscribe to lifecycle invalidations
+
+```python
+import asyncio
+
+async def refresh(_event):
+    agents = await asyncio.to_thread(client.deployments.list)
+    render(agents)
+
+stop = asyncio.Event()
+await client.deployments.subscribe(refresh, stop_event=stop)
+```
+
+`subscribe()` runs until cancelled or a permanent authentication error occurs.
+Events are thin, best-effort hints and may be duplicated or coalesced; REST is
+the snapshot. On reconnect the SDK authenticates a new stream and performs a
+full REST resync before delivering further invalidations.
 
 ## `Agent` Object
 
@@ -451,6 +481,10 @@ A hydrated `Agent` contains:
 - `pod_id`
 - `pod_name`
 - `state`
+- `placement_epoch`
+- `runtime_generation`
+- `finalize_epoch`
+- `restore_state`
 - `name`
 - `hostname`
 - `tags`
@@ -460,6 +494,10 @@ A hydrated `Agent` contains:
 - `command`
 - `entrypoint`
 - `ports`
+
+Lifecycle and restore states are forward-compatible strings. Epoch fields are
+opaque monotonic identifiers useful for correlating transitions; clients must
+not implement the server state machine from them. `finalize_epoch` is optional.
 
 Important computed properties:
 

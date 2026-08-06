@@ -49,8 +49,13 @@ hyper agent activate-code PROMO123
 hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
-hyper agents create --index-on-session-start --index-on-search --index-watch
+hyper agents create --name docs-demo --size small --wait
+hyper agents wait docs-demo --timeout 300
+hyper agents stop docs-demo --wait --timeout 900
 ```
+
+Agent waits are event-assisted and confirm state through REST. `hyper agents
+status` and `hyper agents list` are one-shot snapshots.
 
 The current paid plan IDs are `solo` ($39, 25M pooled tokens/day, one small
 agent), `team` ($79, 50M pooled tokens/day, up to three medium agents), and

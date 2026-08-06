@@ -253,6 +253,10 @@ Typical meaning:
 
 Broad agent access uses the `agents:* | agents:self | agents:none` family tags.
 
+For the account-scoped deployment event stream, only `agents:*`, global `*:*`,
+or an exact selector below is sufficient. `agents:self` is intentionally not
+an account-stream grant and cannot subscribe.
+
 Exact agent binding is separate and uses the selector tag:
 
 - `agent:<agent-uuid>`

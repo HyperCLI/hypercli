@@ -33,6 +33,26 @@ For scoped API keys:
 - model inference routes resolve the requested `model` and can be narrowed with reserved scopes like `models:kimi-k2.6`
 - subscription voice routes live under `/agents/voice/*` and use the `voice:*` family
 
+## Deployment Lifecycle Updates
+
+Deployment REST endpoints are the authoritative account snapshot. SDK
+deployment subscriptions use an authenticated account-scoped WebSocket only to
+signal that the snapshot may have changed. On startup and reconnect, an SDK
+reads REST, obtains a short-lived token from
+`POST /agents/deployments/events/token`, authenticates the stream, waits for a
+flat `ready` frame, and reads REST again before delivering invalidations.
+
+Applications should re-read REST in their handler. The stream is best effort:
+there is no client ACK, resume cursor, resource snapshot, or durable per-client
+outbox. Transport failures reconnect with backoff; `401` and `403` remain
+permanent until the caller supplies new credentials or scopes.
+
+A user JWT receives only its owner's account stream. An API key needs the
+canonical `agents:*` scope, global `*:*`, or an exact `agent:<uuid>` selector;
+an exact key receives only that deployment's events. `agents:self` and
+inference-only keys cannot subscribe. Credentials are exchanged for the
+short-lived socket token and are never placed in a WebSocket query string.
+
 ## Plans
 
 List plans:

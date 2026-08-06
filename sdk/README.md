@@ -130,6 +130,7 @@ agent = client.deployments.create_openclaw(
     registry_url="git.nedos.co",
     registry_auth={"username": "ci", "password": "token"},
 )
+agent = client.deployments.wait_running(agent.id, timeout=300)
 
 capacity = client.deployments.list_with_capacity()
 print(capacity.max_agents_per_account, capacity.running_agents)
@@ -140,6 +141,22 @@ for slot in capacity.agent_slots:
 `list()` remains the compatibility list of agents. `list_with_capacity()`
 preserves the full deployment envelope: saved/running account limits, pooled
 TPD, aggregate slot inventory, and individual entitlement-backed agent slots.
+
+For a long-lived UI, subscribe to thin invalidations and refresh REST in the
+handler:
+
+```python
+import asyncio
+
+async def changed(_event):
+    agents = await asyncio.to_thread(client.deployments.list)
+    render(agents)
+
+await client.deployments.subscribe(changed, stop_event=asyncio.Event())
+```
+
+The SDK owns authentication, ready/resync, and reconnect. Events are not
+resource snapshots and may be duplicated or coalesced.
 
 Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 

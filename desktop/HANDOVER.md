@@ -268,6 +268,13 @@ requests stop, waits up to 60 seconds for `stopped`, then starts from the
 stored launch contract. Delete is confirmed in the UI and rejected by the
 Tauri command unless the fresh state is exactly `stopped`.
 
+Native Rust owns exactly one deployment event subscription for the active
+credential. It performs the SDK's REST/auth/ready/REST sequence and emits only
+payload-free `deployments-invalidated` events into the webview. The UI
+coalesces bursts and reloads the REST fleet. Saving, browser-minting, replacing,
+or clearing a key restarts or stops the stream. Keep this separate from the
+runtime-login PTY and updater timers, which have unrelated lifecycles.
+
 ## Gotchas worth knowing
 
 * **Silent failures everywhere.** An unmatched model makes buzz-acp warn once
@@ -358,6 +365,7 @@ Because the dry-run still calls the API, the request it built is recorded in
 the HTTP trace — which is how you verify what env the provider *would* send
 without deploying anything.
 
+```text
 # Provider HTTP trace (set HYPER_HTTP_TRACE_FILE in ~/.hypercli/config):
 #   ~/.hypercli/logs/buzz-backend-hypercli.jsonl   — redacted JSONL, one line per call
 

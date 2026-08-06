@@ -25,6 +25,40 @@ mode-`0600` JSONL request traces. Trace payloads recursively redact
 secret-looking fields, omit authorization headers, and never record response
 bodies.
 
+## Launch and lifecycle updates
+
+Create the authoritative REST resource, then wait for lifecycle events to wake
+REST confirmation:
+
+```rust,no_run
+use std::time::Duration;
+use hypercli_sdk::{AgentSize, CreateDeploymentRequest, HyperCliClient, ManagedRuntime};
+
+# async fn example(client: &HyperCliClient) -> Result<(), Box<dyn std::error::Error>> {
+let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+request.name = Some("docs-demo".into());
+request.size = Some(AgentSize::Small);
+
+let created = client.create_deployment(&request)?;
+let running = client
+    .wait_deployment_running(&created.id, Duration::from_secs(300))
+    .await?;
+println!("{} {}", running.id, running.state);
+# Ok(())
+# }
+```
+
+`subscribe_deployments()` provides flat, best-effort invalidations. Keep its
+synchronous callback small—for example, send the event into an application
+channel—and let the consumer call `get_deployment()` or
+`list_deployments_with_capacity()`. The SDK performs REST hydration before the
+socket, authenticates, waits for `ready`, resyncs REST, and repeats that process
+after reconnect. There is no client ACK or durable client outbox.
+
+`Deployment.state` and `restore_state` remain open strings so future server
+states continue to parse. Placement, runtime, and optional finalize epochs are
+opaque correlation hints; REST is the snapshot.
+
 ## Plans and agent capacity
 
 Plan IDs remain `String` values so future and historical plans keep parsing;

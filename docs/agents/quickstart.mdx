@@ -22,8 +22,8 @@ description: Create and control an OpenClaw agent pod in a few commands.
 | Variable | Description | Default |
 | --- | --- | --- |
 | `HYPER_AGENTS_API_KEY` | HyperCLI API key used by `hyper agents` | Read from `~/.hypercli/agent-key.json` |
-| `AGENTS_API_BASE_URL` | HyperCLI backend base URL | `https://api.hypercli.com` |
-| `AGENTS_WS_URL` | Backend WebSocket override | Derived automatically |
+| `AGENTS_API_BASE_URL` | HyperCLI backend base URL | `https://api.hypercli.com/agents` |
+| `AGENTS_WS_URL` | Shell/log WebSocket override | Derived automatically |
 
 ## Create An Agent With The CLI
 
@@ -43,18 +43,13 @@ The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.jso
 ## Create An Agent With The Python SDK
 
 ```python
-import time
 from hypercli import HyperCLI
 
 client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
 agent = client.deployments.create_openclaw(name="my-agent", size="small", start=True)
-print(agent.id, agent.vnc_url)
-
-while not agent.is_running:
-    time.sleep(5)
-    agent = client.deployments.get(agent.id)
-    print(agent.state)
+agent = client.deployments.wait_running(agent.id, timeout=300)
+print(agent.id, agent.state, agent.vnc_url)
 
 result = client.deployments.exec(agent, "echo hello world")
 print(result.stdout)
@@ -65,6 +60,36 @@ print(content)
 
 client.deployments.stop(agent.id)
 ```
+
+`create --wait` and the SDK wait helpers use deployment events to wake an
+authoritative REST check. `status`, `get`, and `list` remain one-shot REST
+snapshots.
+
+## Receive Lifecycle Updates
+
+Applications can subscribe to thin deployment invalidations. The SDK performs
+the initial REST load, authenticates the account stream, waits for `ready`, and
+reads REST again before delivering events. Re-read REST in the handler rather
+than treating the event as a resource snapshot:
+
+```python
+import asyncio
+
+async def main():
+    stop = asyncio.Event()
+
+    async def changed(_event):
+        agents = await asyncio.to_thread(client.deployments.list)
+        print([(agent.name, agent.state) for agent in agents])
+
+    await client.deployments.subscribe(changed, stop_event=stop)
+
+asyncio.run(main())
+```
+
+The stream is best effort. SDKs reconnect with backoff and perform a complete
+REST resync; duplicate or coalesced invalidations are harmless. There is no
+client ACK, resume cursor, or per-client durable outbox.
 
 ## Use The Gateway
 

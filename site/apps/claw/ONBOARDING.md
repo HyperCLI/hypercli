@@ -26,6 +26,11 @@ These are exact workspace-root filenames recognized by the OpenClaw runtime. Too
 7. Claw writes the canonical files to `.openclaw/workspace/` through the agent file API with the S3/backup destination.
 8. Claw starts the same agent. Reef restores the backup into `/home/node` before OpenClaw starts, so the first turn sees the prepared files.
 
+After the initial REST load, Claw subscribes through
+`client.deployments.subscribe()`. Lifecycle invalidations are coalesced and
+trigger a fresh REST roster read. The SDK owns authentication, ready/resync,
+and reconnect; the page does not run a deployment-state interval.
+
 If file staging or start fails, the backend leaves the agent stopped rather than launching it with a partial workspace. That stopped agent remains recoverable through the normal agent and file APIs; the launcher does not claim an automatic resume protocol it does not implement.
 
 ## Deterministic generation

@@ -26,7 +26,8 @@ These props on `<AgentView>` replace mock data with live values:
 ### StatusCardModule
 - **Data:** `agentStatus` prop (see mapping above)
 - **Actions:** None (display only)
-- **Gateway calls:** None — derived from agent list polling + `agent.started_at`
+- **Gateway calls:** None — derived from the authoritative REST agent list,
+  refreshed by deployment invalidations, plus `agent.started_at`
 
 ### AgentCardModule
 - **Data:** `agentName`, `agentStatus`, `agentConfig`, `agentConnections`, `agentSessions`
@@ -276,6 +277,7 @@ These GatewayClient methods exist but aren't exposed by the hook:
 ```
 REST Agent Client (createAgentClient)
 ├── Agent CRUD: list, get, create, start, stop, delete, resize, update
+├── Lifecycle: deployments.subscribe → invalidation → REST list/get refresh
 ├── Files (binary): filesList, fileReadBytes, fileWriteBytes, fileDelete
 ├── Logs: logsConnect → WebSocket
 └── Shell: shellConnect → WebSocket

@@ -133,8 +133,11 @@ Use `--memory-search/--no-memory-search`, `--index-on-session-start/--no-index-o
 ### `wait`
 
 ```bash
-hyper agents wait <agent_id> --timeout 300 --poll-interval 5
+hyper agents wait <agent_id> --timeout 300
 ```
+
+`wait` uses deployment events to wake authoritative REST state checks. The
+legacy `--poll-interval` option is deprecated and ignored.
 
 ### `list`
 
@@ -187,9 +190,13 @@ hyper agents stop <agent_id> --wait --timeout 900
 ```
 
 Without `--wait`, a successful request normally reports **Agent stopping**:
-Lagoon has accepted cleanup, but the runtime namespace and deployment slot may
-still be active. `--wait` polls until cleanup is confirmed and the backend
-reports `STOPPED`.
+the managed control plane has accepted cleanup, but the runtime and deployment
+slot may still be active. `--wait` uses deployment events to wake REST checks
+until the backend reports `STOPPED`.
+
+`create --wait`, `wait`, and `stop --wait` are event-assisted. `list` and
+`status` are one-shot REST snapshots; there is no general-purpose
+`hyper agents watch` command.
 
 ### `delete`
 
