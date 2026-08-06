@@ -2072,6 +2072,20 @@ function AgentsPageContent() {
     return createAgentClient(token);
   }, [getToken]);
 
+  useEffect(() => {
+    if (!isAuthenticated || !deployments || !user?.id) return;
+    const controller = new AbortController();
+    void deployments.subscribe(() => {
+      void fetchAgents({ force: true, includeEnrichment: false });
+    }, { signal: controller.signal }).catch(() => {
+      if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
+      deploymentsRef.current = null;
+      setDeployments(null);
+      void fetchAgents({ force: true, includeEnrichment: false });
+    });
+    return () => controller.abort();
+  }, [deployments, fetchAgents, isAuthenticated, user?.id]);
+
   const handleOpenDesktop = useCallback(async (agent: Agent) => {
     const desktopBaseUrl = agent.desktopUrl || (agent.hostname ? `https://desktop-${agent.hostname}` : "");
     if (!desktopBaseUrl) {
@@ -2757,18 +2771,6 @@ function AgentsPageContent() {
     }
     return reasons;
   }, [isSelectedRunning, selectedAgentId, selectedOpenClawAgent]);
-  useEffect(() => {
-    if (!selectedAgentId || !selectedAgentState || !isAgentTransitionalState(selectedAgentState)) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      void fetchAgents({ force: true, includeEnrichment: false });
-    }, 2000);
-
-    return () => clearInterval(timer);
-  }, [fetchAgents, selectedAgentId, selectedAgentState]);
-
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
     const refreshIfVisible = () => {

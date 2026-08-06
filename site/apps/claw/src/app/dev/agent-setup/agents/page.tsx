@@ -576,6 +576,20 @@ export default function DevAgentSetupAgentsPage() {
     return createAgentClient(token);
   }, [getToken]);
 
+  useEffect(() => {
+    if (!deployments || !user?.id) return;
+    const controller = new AbortController();
+    void deployments.subscribe(() => {
+      void fetchAgents();
+    }, { signal: controller.signal }).catch(() => {
+      if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
+      deploymentsRef.current = null;
+      setDeployments(null);
+      void fetchAgents();
+    });
+    return () => controller.abort();
+  }, [deployments, fetchAgents, user?.id]);
+
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(
@@ -641,18 +655,6 @@ export default function DevAgentSetupAgentsPage() {
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && isAgentTransitionalState(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
-  useEffect(() => {
-    if (!selectedAgentId || !selectedAgentState || !isAgentTransitionalState(selectedAgentState)) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      void fetchAgents();
-    }, 2000);
-
-    return () => clearInterval(timer);
-  }, [fetchAgents, selectedAgentId, selectedAgentState]);
-
   const selectedAgentStartGuidance = useMemo(
     () =>
       selectedAgent && (selectedAgent.state === "STOPPED" || isAgentFailureState(selectedAgent.state))
