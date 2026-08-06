@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+from typer import BadParameter
 from typer.testing import CliRunner
 
 from hypercli.agents import AGENT_FILE_MAX_BYTES, DEFAULT_OPENCLAW_PRO_IMAGE
@@ -439,16 +441,18 @@ def test_agents_create_sync_all_rejects_selective_policy(monkeypatch):
 
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
 
+    with pytest.raises(BadParameter) as conflict:
+        agents_module._sync_policy_kwargs(["workspace"], None, sync_all=True)
+    assert str(conflict.value) == (
+        "--sync-all cannot be combined with --sync-include or --sync-exclude"
+    )
+
     result = runner.invoke(
         app,
         ["agents", "create", "--dry-run", "--sync-all", "--sync-include", "workspace"],
     )
 
     assert result.exit_code != 0
-    assert "Invalid value" in result.output
-    assert "--sync-all" in result.output
-    assert "--sync-include" in result.output
-    assert "--sync-exclude" in result.output
     assert captured == {}
 
 
