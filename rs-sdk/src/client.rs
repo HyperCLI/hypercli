@@ -8,6 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use futures_util::{SinkExt, StreamExt};
 use reqwest::blocking::{Client as HttpClient, RequestBuilder};
+use reqwest::Client as AsyncHttpClient;
 use reqwest::StatusCode;
 use secrecy::ExposeSecret;
 use serde::de::DeserializeOwned;
@@ -41,6 +42,7 @@ pub struct HyperCliClient {
     api_base: Url,
     api_key: secrecy::SecretString,
     http: HttpClient,
+    async_http: AsyncHttpClient,
     trace_file: Option<PathBuf>,
 }
 
@@ -69,10 +71,15 @@ impl HyperCliClient {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        let async_http = AsyncHttpClient::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         Ok(Self {
             api_base: config.api_base,
             api_key: config.api_key,
             http,
+            async_http,
             trace_file: config.trace_file,
         })
     }
@@ -228,23 +235,43 @@ impl HyperCliClient {
         result
     }
 
-    fn create_deployment_event_token(&self) -> Result<DeploymentEventTokenResponse, HyperCliError> {
+    async fn async_get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, HyperCliError> {
+        let response = self
+            .async_http
+            .get(self.endpoint(path))
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(HyperCliError::Status(response.status()));
+        }
+        response
+            .json()
+            .await
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))
+    }
+
+    async fn create_deployment_event_token(&self) -> Result<DeploymentEventTokenResponse, HyperCliError> {
         let url = self.endpoint("deployments/events/token");
-        let builder = self
-            .http
+        let response = self
+            .async_http
             .post(&url)
-            .bearer_auth(self.api_key.expose_secret());
-        self.send_json(
-            "create_deployment_event_token",
-            "POST",
-            &url,
-            None,
-            builder,
-        )
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(HyperCliError::Status(response.status()));
+        }
+        response
+            .json()
+            .await
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))
     }
 
     async fn connect_deployment_events(&self) -> Result<DeploymentEventSocket, HyperCliError> {
-        let token = self.create_deployment_event_token()?;
+        let token = self.create_deployment_event_token().await?;
         let (mut socket, _) = connect_async(token.ws_url.as_str())
             .await
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
@@ -277,7 +304,7 @@ impl HyperCliClient {
                 "deployment event socket did not send ready".to_owned(),
             ));
         }
-        self.list_deployments_with_capacity()?;
+        self.async_get_json::<AgentCapacity>("deployments").await?;
         Ok(socket)
     }
 
@@ -287,7 +314,7 @@ impl HyperCliClient {
     where
         F: FnMut(DeploymentEvent),
     {
-        self.list_deployments_with_capacity()?;
+        self.async_get_json::<AgentCapacity>("deployments").await?;
         let mut retry_delay = Duration::from_millis(250);
         loop {
             let mut socket = match self.connect_deployment_events().await {
@@ -355,12 +382,18 @@ impl HyperCliClient {
                     _ => Ok(None),
                 }
             };
-            if let Some(deployment) = check(self.get_deployment(deployment_id)?)? {
+            if let Some(deployment) = check(
+                self.async_get_json(&format!("deployments/{deployment_id}"))
+                    .await?,
+            )? {
                 return Ok(deployment);
             }
             loop {
                 let mut socket = self.connect_deployment_events().await?;
-                if let Some(deployment) = check(self.get_deployment(deployment_id)?)? {
+                if let Some(deployment) = check(
+                    self.async_get_json(&format!("deployments/{deployment_id}"))
+                        .await?,
+                )? {
                     return Ok(deployment);
                 }
                 while let Some(message) = socket.next().await {
@@ -375,7 +408,10 @@ impl HyperCliClient {
                     {
                         continue;
                     }
-                    if let Some(deployment) = check(self.get_deployment(deployment_id)?)? {
+                    if let Some(deployment) = check(
+                        self.async_get_json(&format!("deployments/{deployment_id}"))
+                            .await?,
+                    )? {
                         return Ok(deployment);
                     }
                 }
@@ -1173,7 +1209,17 @@ mod tests {
             .await;
         let received = Arc::new(Mutex::new(Vec::new()));
         let captured = Arc::clone(&received);
-        let event_client = client(&server);
+        let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
+        let event_client = tokio::task::spawn_blocking(move || {
+            HyperCliClient::new(ClientConfig {
+                api_base,
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+            })
+            .unwrap()
+        })
+        .await
+        .unwrap();
         let result = tokio::time::timeout(
             Duration::from_millis(500),
             event_client.subscribe_deployments(move |event| {
