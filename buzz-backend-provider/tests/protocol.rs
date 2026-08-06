@@ -333,6 +333,11 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "sync_enabled": common["sync_enabled"].clone(),
             "sync_uid": common["sync_uid"].clone(),
             "sync_gid": common["sync_gid"].clone(),
+            // Deployment creation has no prior policy to inherit. Explicit
+            // nulls pin the full-root contract and keep it distinct from the
+            // empty-array sync-nothing policy.
+            "sync_include": null,
+            "sync_exclude": null,
             "restart": common["restart"].clone(),
             "runtime_scopes": golden["runtime_scopes"].clone(),
             "start": true,
