@@ -818,8 +818,8 @@ def _build_agent_launch(
     image: str | None = None,
     sync_root: str | None = None,
     sync_enabled: bool | None = None,
-    sync_include: list[str] | None = None,
-    sync_exclude: list[str] | None = None,
+    sync_include: list[str] | None | object = _UNSET,
+    sync_exclude: list[str] | None | object = _UNSET,
     sync_all: bool = False,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
@@ -831,7 +831,9 @@ def _build_agent_launch(
     heartbeat: dict | None = None,
     inject_gateway_token: bool = True,
 ) -> tuple[dict, str | None]:
-    if sync_all and (sync_include is not None or sync_exclude is not None):
+    if sync_all and (
+        sync_include not in (_UNSET, None) or sync_exclude not in (_UNSET, None)
+    ):
         raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
     prepared_config = copy.deepcopy(config or {})
     nested_launch_keys = sorted(LAUNCH_CONFIG_KEYS.intersection(prepared_config.keys()))
@@ -883,10 +885,11 @@ def _build_agent_launch(
     if sync_all:
         launch["sync_include"] = None
         launch["sync_exclude"] = None
-    elif sync_include is not None:
-        launch["sync_include"] = list(sync_include)
-    if not sync_all and sync_exclude is not None:
-        launch["sync_exclude"] = list(sync_exclude)
+    else:
+        if sync_include is not _UNSET:
+            launch["sync_include"] = None if sync_include is None else list(sync_include)
+        if sync_exclude is not _UNSET:
+            launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
     if sync_uid is not None:
         launch["sync_uid"] = int(sync_uid)
     if sync_gid is not None:
@@ -914,8 +917,8 @@ def build_agent_config(
     image: str | None = None,
     sync_root: str | None = None,
     sync_enabled: bool | None = None,
-    sync_include: list[str] | None = None,
-    sync_exclude: list[str] | None = None,
+    sync_include: list[str] | None | object = _UNSET,
+    sync_exclude: list[str] | None | object = _UNSET,
     sync_all: bool = False,
     sync_uid: int | None = None,
     sync_gid: int | None = None,
@@ -970,37 +973,37 @@ def _resolve_coding_agent_sync_policy(
     sync_all: bool,
     sync_include: list[str] | None | object,
     sync_exclude: list[str] | None | object,
-) -> tuple[list[str] | None, list[str] | None, bool]:
+) -> tuple[list[str] | object, list[str] | object, bool]:
     if sync_all:
         if sync_include is not _UNSET or sync_exclude is not _UNSET:
             raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
-        return None, None, True
+        return _UNSET, _UNSET, True
     if sync_include is not _UNSET and sync_include is not None:
-        return list(sync_include), None, False
+        return list(sync_include), _UNSET, False
     if sync_exclude is not _UNSET:
         if sync_exclude is None:
-            return None, None, True
-        return None, list(sync_exclude), False
+            return _UNSET, _UNSET, True
+        return _UNSET, list(sync_exclude), False
     if sync_include is None:
-        return None, None, True
-    return list(_CODING_AGENT_CLASSES[runtime].default_sync_include or ()), None, False
+        return _UNSET, _UNSET, True
+    return list(_CODING_AGENT_CLASSES[runtime].default_sync_include or ()), _UNSET, False
 
 
 def _resolve_openclaw_sync_policy(
     *,
     sync_all: bool,
-    sync_include: list[str] | None,
-    sync_exclude: list[str] | None,
-) -> tuple[list[str] | None, list[str] | None]:
+    sync_include: list[str] | None | object,
+    sync_exclude: list[str] | None | object,
+) -> tuple[list[str] | None | object, list[str] | None | object]:
     if sync_all:
-        if sync_include is not None or sync_exclude is not None:
+        if sync_include not in (_UNSET, None) or sync_exclude not in (_UNSET, None):
             raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
         return None, None
-    if sync_include is not None:
-        return list(sync_include), None
-    if sync_exclude is not None:
-        return None, list(sync_exclude)
-    return None, None
+    if sync_include is not _UNSET:
+        return (None if sync_include is None else list(sync_include)), _UNSET
+    if sync_exclude is not _UNSET:
+        return _UNSET, (None if sync_exclude is None else list(sync_exclude))
+    return _UNSET, _UNSET
 
 
 def _default_openclaw_pro_image(image: str | None) -> str | None:
@@ -3067,8 +3070,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -3170,8 +3173,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -3249,8 +3252,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -3326,8 +3329,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -3969,8 +3972,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -4015,7 +4018,15 @@ class Deployments:
                 "api_server_key": api_server_key,
                 "heartbeat": heartbeat,
             }
-            provided = [name for name, value in overrides.items() if value is not None]
+            provided = [
+                name
+                for name, value in overrides.items()
+                if (
+                    value is not _UNSET
+                    if name in {"sync_include", "sync_exclude"}
+                    else value is not None
+                )
+            ]
             if dry_run:
                 provided.append("dry_run")
             if provided:
@@ -4076,8 +4087,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -4146,8 +4157,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,
@@ -4215,8 +4226,8 @@ class Deployments:
         image: str = None,
         sync_root: str = None,
         sync_enabled: bool = None,
-        sync_include: list[str] | None = None,
-        sync_exclude: list[str] | None = None,
+        sync_include: list[str] | None | object = _UNSET,
+        sync_exclude: list[str] | None | object = _UNSET,
         sync_all: bool = False,
         sync_uid: int = None,
         sync_gid: int = None,

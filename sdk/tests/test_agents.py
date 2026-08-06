@@ -1105,6 +1105,29 @@ def test_build_agent_launch_omits_unspecified_restart():
     assert "restart" not in launch
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, {}),
+        ({"sync_include": None}, {"sync_include": None}),
+        ({"sync_exclude": None}, {"sync_exclude": None}),
+        ({"sync_include": []}, {"sync_include": []}),
+        (
+            {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
+            {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
+        ),
+    ],
+)
+def test_build_agent_launch_preserves_sync_policy_presence(kwargs, expected):
+    launch, _gateway_token = _build_agent_launch(
+        {},
+        inject_gateway_token=False,
+        **kwargs,
+    )
+
+    assert {key: value for key, value in launch.items() if key.startswith("sync_")} == expected
+
+
 def test_build_agent_launch_merges_heartbeat_defaults():
     launch, _gateway_token = _build_agent_launch(
         {"agents": {"defaults": {"model": "openai/gpt-5.4", "heartbeat": {"target": "last"}}}},
@@ -1652,6 +1675,29 @@ def test_openclaw_sync_all_rejects_other_policy_overrides(agents_client):
         agents_client.create_openclaw(sync_all=True, sync_include=["workspace"])
 
 
+def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agents_client):
+    posted: list[dict] = []
+
+    def fake_post(_path, json=None):
+        posted.append(dict(json or {}))
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STARTING",
+            "runtime": "openclaw",
+        }
+
+    agents_client._post = fake_post
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    agents_client.start_openclaw(agent_id)
+    agents_client.start_openclaw(agent_id, sync_include=None)
+
+    assert "sync_include" not in posted[0]
+    assert "sync_exclude" not in posted[0]
+    assert posted[1]["sync_include"] is None
+    assert "sync_exclude" not in posted[1]
+
+
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
@@ -2088,6 +2134,33 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["sync_uid"] == 2000
         assert posted_json["sync_gid"] == 2001
         assert posted_json["restart"] is False
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({}, {}),
+        ({"sync_include": None}, {"sync_include": None}),
+        ({"sync_exclude": None}, {"sync_exclude": None}),
+        ({"sync_include": []}, {"sync_include": []}),
+    ],
+)
+def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expected):
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STARTING",
+        }
+
+    agents_client._post = fake_post
+    agents_client.start("11111111-1111-4111-8111-111111111111", **kwargs)
+
+    actual = {key: value for key, value in posted.items() if key in {"sync_include", "sync_exclude"}}
+    assert actual == expected
 
 
 def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
