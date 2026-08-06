@@ -174,6 +174,85 @@ test("native deployment invalidation refreshes the REST-backed fleet", async ({ 
   await expect(page.locator('.agent-card[data-agent-id="40c42593-7d02-48f9-a3ff-6c7d6461f140"]')).toContainText("stopped");
 });
 
+test("failed deployment invalidation retries without another native event", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await expect(page.locator(".agent-card")).toHaveCount(2);
+
+  const before = await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ));
+  await page.evaluate(() => {
+    window.__MOCK__.agents[0].state = "stopped";
+    window.__MOCK__.listAgentsFailuresRemaining = 1;
+    window.__MOCK__.listeners["deployments-invalidated"]({ payload: null });
+  });
+
+  await expect.poll(() => page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before + 1);
+  await expect(page.locator('.agent-card[data-agent-id="40c42593-7d02-48f9-a3ff-6c7d6461f140"]')).toContainText("running");
+
+  await expect.poll(() => page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  )), { timeout: 5_000 }).toBe(before + 2);
+  await expect(page.locator('.agent-card[data-agent-id="40c42593-7d02-48f9-a3ff-6c7d6461f140"]')).toContainText("stopped");
+
+  await page.waitForTimeout(1_200);
+  expect(await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before + 2);
+});
+
+test("logout cancels a pending deployment invalidation retry", async ({ page }) => {
+  await withMock(page, { status: { has_api_key: true } });
+  await page.goto("/");
+  await expect(page.locator(".agent-card")).toHaveCount(2);
+
+  const before = await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ));
+  await page.evaluate(() => {
+    window.__MOCK__.listAgentsFailuresRemaining = 1;
+    window.__MOCK__.listeners["deployments-invalidated"]({ payload: null });
+  });
+  await expect.poll(() => page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before + 1);
+
+  await page.locator("#logout-btn").click();
+  await expect(page.locator("#auth-disconnected")).toBeVisible();
+  await page.waitForTimeout(1_200);
+  expect(await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before + 1);
+});
+
+test("deployment invalidation bursts coalesce to one trailing REST refresh", async ({ page }) => {
+  await withMock(page, {
+    status: { has_api_key: true },
+    listAgentsDelayMs: 100,
+  });
+  await page.goto("/");
+  await expect(page.locator(".agent-card")).toHaveCount(2);
+
+  const before = await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ));
+  await page.evaluate(() => {
+    const invalidate = window.__MOCK__.listeners["deployments-invalidated"];
+    for (let index = 0; index < 10; index += 1) invalidate({ payload: null });
+  });
+
+  await expect.poll(() => page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before + 2);
+  await page.waitForTimeout(250);
+  expect(await page.evaluate(() => (
+    window.__MOCK__.calls.filter(([command]) => command === "list_agents").length
+  ))).toBe(before + 2);
+});
+
 test("deployment invalidation refreshes after leaving a dashboard subscreen", async ({ page }) => {
   await withMock(page, { status: { has_api_key: true } });
   await page.goto("/");

@@ -50,6 +50,7 @@ const buzzGolden = JSON.parse(readFileSync(
   }>;
   common: Record<string, unknown>;
   runtimes: Record<string, {
+    sync_include: string[];
     image: string;
     agent_command: string;
     agent_args: string;
@@ -152,6 +153,8 @@ describe('coding agents', () => {
 
   it.each([
     [{ syncAll: true }, null, null],
+    [{ syncInclude: null }, null, null],
+    [{ syncExclude: null }, null, null],
     [{ syncInclude: [] }, [], undefined],
     [{ syncInclude: ['work'], syncExclude: ['tmp'] }, ['work'], undefined],
     [{ syncExclude: ['.cache'] }, undefined, ['.cache']],
@@ -167,6 +170,31 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1].sync_include).toEqual(expectedInclude);
     expect(post.mock.calls[0][1].sync_exclude).toEqual(expectedExclude);
+  });
+
+  it('reads the runtime subclass sync default during creation', async () => {
+    const post = vi.fn().mockResolvedValue(response('codex'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const original = CodexAgent.defaultSyncInclude;
+    Object.defineProperty(CodexAgent, 'defaultSyncInclude', {
+      configurable: true,
+      value: ['.custom-codex'],
+    });
+
+    try {
+      await deployments.createCodex();
+    } finally {
+      Object.defineProperty(CodexAgent, 'defaultSyncInclude', {
+        configurable: true,
+        value: original,
+      });
+    }
+
+    expect(post.mock.calls[0][1].sync_include).toEqual(['.custom-codex']);
   });
 
   it('rejects syncAll combined with another policy override', async () => {
@@ -263,6 +291,7 @@ describe('coding agents', () => {
     expect(payload.runtime).toBe(runtime);
     expect(payload.runtime_scopes).toEqual(buzzGolden.runtime_scopes);
     expect(payload.image).toBe(expectedRuntime.image);
+    expect(payload.sync_include).toEqual(expectedRuntime.sync_include);
     expect(payload.env.BUZZ_ACP_AGENT_COMMAND).toBe(expectedRuntime.agent_command);
     expect(payload.env.BUZZ_ACP_AGENT_ARGS).toBe(expectedRuntime.agent_args);
     expect(payload.env.BUZZ_ACP_MCP_COMMAND).toBe(expectedRuntime.mcp_command);

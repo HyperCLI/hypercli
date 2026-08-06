@@ -37,6 +37,72 @@ describe("createDeploymentRefreshScheduler", () => {
 
     expect(refresh).toHaveBeenCalledTimes(1);
   });
+
+  it("carries collection enrichment into the trailing refresh", async () => {
+    const releases: Array<() => void> = [];
+    const refresh = vi.fn((_includeEnrichment: boolean) => new Promise<void>((resolve) => {
+      releases.push(resolve);
+    }));
+    const scheduler = createDeploymentRefreshScheduler(refresh);
+
+    scheduler.invalidate(false);
+    scheduler.invalidate(true);
+    scheduler.invalidate(false);
+    expect(refresh).toHaveBeenNthCalledWith(1, false);
+
+    releases.shift()?.();
+    await tick();
+    expect(refresh).toHaveBeenNthCalledWith(2, true);
+    releases.shift()?.();
+  });
+
+  it("retries a rejected refresh without losing queued enrichment", async () => {
+    vi.useFakeTimers();
+    const attempts: Array<{
+      includeEnrichment: boolean;
+      resolve: () => void;
+      reject: (error: Error) => void;
+    }> = [];
+    const refresh = vi.fn((includeEnrichment: boolean) => new Promise<void>((resolve, reject) => {
+      attempts.push({ includeEnrichment, resolve, reject });
+    }));
+    const scheduler = createDeploymentRefreshScheduler(refresh, {
+      retryDelayMs: 100,
+      maxRetryDelayMs: 100,
+    });
+
+    scheduler.invalidate(false);
+    scheduler.invalidate(true);
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]?.includeEnrichment).toBe(false);
+
+    attempts[0]?.reject(new Error("transient REST failure"));
+    await Promise.resolve();
+    vi.advanceTimersByTime(99);
+    expect(attempts).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1]?.includeEnrichment).toBe(true);
+
+    attempts[1]?.resolve();
+    await Promise.resolve();
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("cancels a scheduled refresh retry on disposal", async () => {
+    vi.useFakeTimers();
+    const refresh = vi.fn(() => Promise.reject(new Error("offline")));
+    const scheduler = createDeploymentRefreshScheduler(refresh, { retryDelayMs: 100 });
+
+    scheduler.invalidate(true);
+    await Promise.resolve();
+    scheduler.dispose();
+    vi.advanceTimersByTime(100);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
 });
 
 describe("createDeploymentSubscriptionRecovery", () => {

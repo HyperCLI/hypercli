@@ -10,6 +10,8 @@ let agents = [];
 let agentFilter = "buzz";
 let agentsLoading = false;
 let agentsRefreshPending = false;
+let agentsRefreshFailures = 0;
+let agentsRefreshRetryTimer = null;
 let agentActionInFlight = false;
 let editingAgent = null;
 let editingDetail = null;
@@ -29,6 +31,8 @@ const agentScreen = document.getElementById("agent-screen");
 const agentForm = document.getElementById("agent-form");
 const promptDraftScreen = document.getElementById("prompt-draft-screen");
 const nativeRuntimes = new Set(["claude-code", "codex", "kimi-code"]);
+const AGENTS_REFRESH_RETRY_BASE_MS = 1_000;
+const AGENTS_REFRESH_RETRY_MAX_MS = 30_000;
 
 // Window height follows content, capped. Width stays fixed.
 const WINDOW_WIDTH = 520;
@@ -80,6 +84,7 @@ function render(status) {
   document.getElementById("agents-section").hidden = !connected;
   if (status.config_error) setStatus(status.config_error, true);
   if (!connected) {
+    resetAgentsRefreshRecovery();
     agents = [];
     renderAgents();
     return;
@@ -242,20 +247,54 @@ async function refreshAgents() {
     agentsRefreshPending = true;
     return;
   }
+  const consumedInvalidation = agentsRefreshPending;
   agentsRefreshPending = false;
+  if (agentsRefreshRetryTimer !== null) {
+    clearTimeout(agentsRefreshRetryTimer);
+    agentsRefreshRetryTimer = null;
+  }
   agentsLoading = true;
+  let refreshFailed = false;
   renderAgents();
   document.getElementById("agents-refresh").disabled = true;
   try {
     agents = await invoke("list_agents");
+    agentsRefreshFailures = 0;
   } catch (error) {
+    refreshFailed = true;
+    if (consumedInvalidation || agentsRefreshPending) {
+      agentsRefreshPending = true;
+      agentsRefreshFailures += 1;
+      scheduleAgentsRefreshRetry();
+    }
     setStatus(`Could not load agents: ${String(error)}`, true);
   } finally {
     agentsLoading = false;
     document.getElementById("agents-refresh").disabled = false;
     renderAgents();
-    if (agentsRefreshPending) queueMicrotask(refreshAgents);
+    if (agentsRefreshPending && !refreshFailed && agentsRefreshRetryTimer === null) {
+      queueMicrotask(refreshAgents);
+    }
   }
+}
+
+function scheduleAgentsRefreshRetry() {
+  if (agentsRefreshRetryTimer !== null || !agentsRefreshPending) return;
+  const delay = Math.min(
+    AGENTS_REFRESH_RETRY_BASE_MS * (2 ** Math.min(Math.max(agentsRefreshFailures - 1, 0), 20)),
+    AGENTS_REFRESH_RETRY_MAX_MS,
+  );
+  agentsRefreshRetryTimer = setTimeout(() => {
+    agentsRefreshRetryTimer = null;
+    void refreshAgents();
+  }, delay);
+}
+
+function resetAgentsRefreshRecovery() {
+  if (agentsRefreshRetryTimer !== null) clearTimeout(agentsRefreshRetryTimer);
+  agentsRefreshRetryTimer = null;
+  agentsRefreshFailures = 0;
+  agentsRefreshPending = false;
 }
 
 for (const button of document.querySelectorAll(".segmented [data-filter]")) {

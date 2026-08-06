@@ -131,6 +131,93 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
 
 
 @pytest.mark.asyncio
+async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    calls: list[str] = []
+    connection_count = 0
+    transition = {
+        "version": 1,
+        "type": "deployment.transition",
+        "deployment_id": "agent-123",
+        "state": "RUNNING",
+    }
+
+    class FastStopEvent(asyncio.Event):
+        def __init__(self):
+            super().__init__()
+            self.waits = 0
+
+        async def wait(self):
+            self.waits += 1
+            raise asyncio.TimeoutError
+
+    stop = FastStopEvent()
+    monkeypatch.setattr(deployments, "list", lambda: calls.append("rest") or [])
+    monkeypatch.setattr(
+        deployments,
+        "_post",
+        lambda path: calls.append(path)
+        or {"token": "token", "ws_url": "wss://events.test/ws/deployments"},
+    )
+
+    class FakeSocket:
+        def __init__(self, ordinal):
+            messages = [json.dumps({"version": 1, "type": "ready"})]
+            if ordinal == 2:
+                messages.append(json.dumps(transition))
+            self.messages = iter(messages)
+
+        async def send(self, payload):
+            calls.append(json.loads(payload)["type"])
+
+        async def recv(self):
+            try:
+                return next(self.messages)
+            except StopIteration as exc:
+                raise RuntimeError("socket closed") from exc
+
+    class FakeConnection:
+        async def __aenter__(self):
+            nonlocal connection_count
+            connection_count += 1
+            return FakeSocket(connection_count)
+
+        async def __aexit__(self, *_args):
+            return None
+
+    import websockets
+
+    monkeypatch.setattr(websockets, "connect", lambda *_args, **_kwargs: FakeConnection())
+    received: list[DeploymentEvent] = []
+
+    def handler(event: DeploymentEvent):
+        received.append(event)
+        if event.type == "deployment.transition":
+            stop.set()
+
+    await deployments.subscribe(handler, stop_event=stop)
+
+    assert connection_count == 2
+    assert stop.waits == 1
+    assert calls == [
+        "rest",
+        "/deployments/events/token",
+        "auth",
+        "rest",
+        "/deployments/events/token",
+        "auth",
+        "rest",
+    ]
+    assert [event.type for event in received] == [
+        "deployments.changed",
+        "deployments.changed",
+        "deployment.transition",
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status_code", [401, 403])
 async def test_subscribe_surfaces_permanent_auth_failure(monkeypatch, status_code):
     http = MagicMock(spec=HTTPClient)

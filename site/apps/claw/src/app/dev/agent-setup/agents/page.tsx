@@ -142,6 +142,11 @@ type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 
+interface FetchAgentsOptions {
+  preserveCurrentSnapshotOnError?: boolean;
+  rejectOnError?: boolean;
+}
+
 function buildBillingBudget(
   summary: HyperAgentSubscriptionSummary | null,
   currentPlan: HyperAgentCurrentPlan | null,
@@ -503,7 +508,7 @@ export default function DevAgentSetupAgentsPage() {
     setInspectorSheetOpen(true);
   }, []);
 
-  const fetchAgents = useCallback((): Promise<void> => {
+  const fetchAgents = useCallback((options: FetchAgentsOptions = {}): Promise<void> => {
     const promise = (async () => {
       const principalId = user?.id ?? null;
       if (!principalId) return;
@@ -566,21 +571,25 @@ export default function DevAgentSetupAgentsPage() {
         const described = describeAgentsPageError(err);
         setError(described.message);
         setAgentClusterUnavailable(described.clusterUnavailable);
-        setSdkAgents([]);
-        setAgentDataPrincipalId(null);
-        setBudget(null);
-        setCatalogPlans([]);
-        deploymentsRef.current = null;
-        setDeployments(null);
-        setWorkspacesClient(null);
+        if (!options.preserveCurrentSnapshotOnError) {
+          setSdkAgents([]);
+          setAgentDataPrincipalId(null);
+          setBudget(null);
+          setCatalogPlans([]);
+          deploymentsRef.current = null;
+          setDeployments(null);
+          setWorkspacesClient(null);
+        }
+        if (options.rejectOnError) throw err;
       } finally {
         if (isCurrentRequest()) setLoading(false);
       }
     })();
     fetchAgentsInFlightRef.current = promise;
-    void promise.finally(() => {
+    const clearInFlight = () => {
       if (fetchAgentsInFlightRef.current === promise) fetchAgentsInFlightRef.current = null;
-    });
+    };
+    void promise.then(clearInFlight, clearInFlight);
     return promise;
   }, [getToken, user?.id]);
 
@@ -600,7 +609,10 @@ export default function DevAgentSetupAgentsPage() {
     const scheduler = createDeploymentRefreshScheduler(async () => {
       const inFlight = fetchAgentsInFlightRef.current;
       if (inFlight) await inFlight;
-      await fetchAgents();
+      await fetchAgents({
+        preserveCurrentSnapshotOnError: true,
+        rejectOnError: true,
+      });
     });
     void deployments.subscribe(() => {
       deploymentSubscriptionRecoveryRef.current.markHealthy();

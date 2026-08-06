@@ -333,10 +333,10 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "sync_enabled": common["sync_enabled"].clone(),
             "sync_uid": common["sync_uid"].clone(),
             "sync_gid": common["sync_gid"].clone(),
-            // Deployment creation has no prior policy to inherit. Explicit
-            // nulls pin the full-root contract and keep it distinct from the
-            // empty-array sync-nothing policy.
-            "sync_include": null,
+            // Deployment creation has no prior policy to inherit. Each coding
+            // runtime persists only its authentication/config state by
+            // default; Buzz Agent intentionally selects nothing.
+            "sync_include": contract["sync_include"].clone(),
             "sync_exclude": null,
             "restart": common["restart"].clone(),
             "runtime_scopes": golden["runtime_scopes"].clone(),

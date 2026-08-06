@@ -1,11 +1,12 @@
 ---
 title: Coding Runtimes and Persistence
-description: Inference, authentication, and selective-sync defaults for managed coding agents and OpenClaw
+description: Inference, authentication, and selective-sync defaults for managed coding agents, OpenClaw, and Hermes
 ---
 
-HyperCLI provides six coding-runtime container families in addition to
-OpenClaw. All use `/home/node` as their managed state root, but they do not all
-use the same inference or backup policy.
+HyperCLI provides six ACP coding-runtime container families plus the OpenClaw
+and Hermes gateway-style runtimes. The ACP families and OpenClaw use
+`/home/node`; Hermes uses `/opt/data`. They do not all use the same inference,
+API-authentication, or backup policy.
 
 The Python and TypeScript coding-agent helpers apply the defaults below. A
 Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
@@ -13,15 +14,16 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 
 ## Runtime matrix
 
-| Runtime | Default inference and authentication | Default selected state under `/home/node` | Important limitations |
+| Runtime | Default inference and authentication | Default selected state | Important limitations |
 | --- | --- | --- | --- |
 | Buzz Agent | HyperCLI-first. The platform injects the agent-scoped inference credential; there is no separate runtime login. | Nothing (`sync_include=[]`) | Identity and inference credentials are environment-owned. Select `sync_all` or a custom policy if you intentionally want other home-directory state backed up. |
 | OpenCode | HyperCLI-first through the image's `hypercli` provider. Upstream provider login remains available when you configure another provider. | `.config/opencode`, `.local/share/opencode`, `.local/state/opencode`, `.cache/opencode` | Models are provider-qualified, for example `hypercli/kimi-k2.6-anthropic`. |
-| Codex | Native-first through the Codex/OpenAI device-login flow. | `.codex` | HyperCLI inference is not currently supported. Codex requires an OpenAI Responses-compatible `wire_api="responses"` endpoint, while the HyperCLI gateway currently provides Anthropic Messages and chat completions. |
+| Codex | Native-first through the Codex/OpenAI device-login flow. | `.codex` | The gateway now exposes `/v1/responses`, and Buzz compatibility mode renders `wire_api="responses"`; a successful HyperCLI-model Codex Responses E2E is still unvalidated, so this path is not yet advertised as supported. |
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
 | OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | Full `/home/node` (no include or exclude policy) | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
+| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. Its HTTP API Server uses a separate generated `API_SERVER_KEY`. | Full `/opt/data` (no include or exclude policy), UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. The API key is write-only launch material; a later list/get cannot recover it. |
 
 Claude Code, Codex, and Kimi Code images expose the normalized
 `/usr/local/bin/hypercli-runtime-auth` wrapper. Their login commands run inside
@@ -36,6 +38,16 @@ Claude Code and Kimi Code launches, not a universal setting for arbitrary
 direct containers. Explicit native provider environment always wins as a
 complete configuration; HyperCLI does not mix a vendor URL with a platform
 credential.
+
+Hermes launches as runtime `hermes-agent` with
+`ghcr.io/hypercli/hypercli-hermes-agent:latest`, enables its API Server on port
+8642, and exposes the route named `hermes`. The SDK generates or accepts the
+separate API-server key and never substitutes it for the backend-injected
+model credential. Python and TypeScript retain it only on the agent object
+returned by create/start; Rust retains it on `HermesLaunchConfig`. Python,
+TypeScript, and Rust expose Hermes-native health, session, run, and SSE helpers;
+use the returned `/v1` base URL with an OpenAI client for the API Server's
+OpenAI-compatible resources.
 
 ## Selective-sync contract
 
@@ -57,11 +69,14 @@ understand the policy fields retains the historical full-root behavior.
   only the active policy.
 - An explicit empty include list means sync nothing.
 - `sync_all=True` / `syncAll: true` clears both policy fields and synchronizes
-  the complete `/home/node` root.
+  the runtime's complete sync root (`/home/node` for the ACP/OpenClaw families,
+  `/opt/data` for Hermes).
 - Paths are relative to the sync root. Do not use absolute paths or `..`.
 
 OpenClaw deliberately remains full-root by default because its gateway config,
 workspace, channel state, and other runtime data span the home directory.
+Hermes likewise remains full-root under `/opt/data`, where its runtime state is
+owned by UID/GID 10000.
 Coding runtimes default to the smallest roots needed to preserve their native
 configuration, credentials, and state. HyperCLI Workspace projections under
 `/home/node/workspaces` are a separate feature and are not added to a coding
@@ -84,5 +99,7 @@ override still wins.
 The coding runtimes have no OpenClaw gateway and no public route by default.
 Use authenticated deployment lifecycle, files, exec, shell, and runtime-auth
 APIs. OpenClaw instead exposes its gateway routes and should be controlled with
-the OpenClaw-specific SDK helpers. See [OpenClaw runtime config](/agents/openclaw-config)
-and [Buzz Desktop](/agents/buzz) for those runtime-specific control planes.
+the OpenClaw-specific SDK helpers. Hermes exposes its API Server through the
+`hermes` route and should be controlled with the Hermes SDK helpers. See
+[OpenClaw runtime config](/agents/openclaw-config) and
+[Buzz Desktop](/agents/buzz) for those runtime-specific control planes.

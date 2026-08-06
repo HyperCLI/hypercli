@@ -970,19 +970,20 @@ def _resolve_coding_agent_sync_policy(
     sync_all: bool,
     sync_include: list[str] | None | object,
     sync_exclude: list[str] | None | object,
-) -> tuple[list[str] | None, list[str] | None]:
+) -> tuple[list[str] | None, list[str] | None, bool]:
     if sync_all:
         if sync_include is not _UNSET or sync_exclude is not _UNSET:
             raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
-        return None, None
+        return None, None, True
     if sync_include is not _UNSET and sync_include is not None:
-        return list(sync_include), None
+        return list(sync_include), None, False
     if sync_exclude is not _UNSET:
-        exclude = None if sync_exclude is None else list(sync_exclude)
-        return None, exclude
+        if sync_exclude is None:
+            return None, None, True
+        return None, list(sync_exclude), False
     if sync_include is None:
-        return None, None
-    return list(DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime]), None
+        return None, None, True
+    return list(_CODING_AGENT_CLASSES[runtime].default_sync_include or ()), None, False
 
 
 def _resolve_openclaw_sync_policy(
@@ -2130,6 +2131,16 @@ class KimiCodeAgent(CodingAgent):
     """Kimi Code native ACP runtime using Moonshot's upstream authentication."""
 
     default_sync_include = DEFAULT_CODING_AGENT_SYNC_INCLUDES["kimi-code"]
+
+
+_CODING_AGENT_CLASSES: dict[CodingAgentRuntime, type[CodingAgent]] = {
+    "buzz-agent": BuzzAgent,
+    "opencode": OpenCodeAgent,
+    "codex": CodexAgent,
+    "claude-code": ClaudeCodeAgent,
+    "goose": GooseAgent,
+    "kimi-code": KimiCodeAgent,
+}
 
 
 @dataclass
@@ -3424,7 +3435,11 @@ class Deployments:
             effective_env.update(buzz.environment(runtime, default_session_title=name))
         if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
-        effective_sync_include, effective_sync_exclude = _resolve_coding_agent_sync_policy(
+        (
+            effective_sync_include,
+            effective_sync_exclude,
+            effective_sync_all,
+        ) = _resolve_coding_agent_sync_policy(
             runtime,
             sync_all=sync_all,
             sync_include=sync_include,
@@ -3458,7 +3473,7 @@ class Deployments:
             sync_enabled=True if sync_enabled is None else sync_enabled,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
-            sync_all=sync_all,
+            sync_all=effective_sync_all,
             sync_uid=1000 if sync_uid is None else sync_uid,
             sync_gid=1000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
@@ -4296,8 +4311,8 @@ class Deployments:
 
         Returns:
             Agent in ``stopping`` state while runtime cleanup is in progress.
-            Poll ``get()`` until the state becomes ``stopped`` before treating
-            the deployment slot as released.
+            Use ``wait_for_state(agent_id, {"stopped"})`` to wait through the
+            deployment event stream before treating the slot as released.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")

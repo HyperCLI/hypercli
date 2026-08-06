@@ -135,6 +135,8 @@
     runtimeLoginImmediateComplete: false,
     runtimeLoginBeginResult: null,
     runtimeLoginBeginDelayMs: 0,
+    listAgentsDelayMs: 0,
+    listAgentsFailuresRemaining: 0,
     draftError: null,
     buzzConnections: [
       {
@@ -173,6 +175,12 @@
   if (overrides.runtimeLoginBeginDelayMs !== undefined) {
     state.runtimeLoginBeginDelayMs = overrides.runtimeLoginBeginDelayMs;
   }
+  if (overrides.listAgentsDelayMs !== undefined) {
+    state.listAgentsDelayMs = overrides.listAgentsDelayMs;
+  }
+  if (overrides.listAgentsFailuresRemaining !== undefined) {
+    state.listAgentsFailuresRemaining = overrides.listAgentsFailuresRemaining;
+  }
   if (overrides.draftError !== undefined) state.draftError = overrides.draftError;
   if (overrides.buzzConnections) state.buzzConnections = overrides.buzzConnections.map((item) => ({ ...item }));
   if (overrides.sshKeys) state.sshKeys = { ...state.sshKeys, ...overrides.sshKeys };
@@ -199,6 +207,13 @@
           case "validate_key":
             return { ...state.validation };
           case "list_agents":
+            if (state.listAgentsDelayMs > 0) {
+              await new Promise((resolve) => setTimeout(resolve, state.listAgentsDelayMs));
+            }
+            if (state.listAgentsFailuresRemaining > 0) {
+              state.listAgentsFailuresRemaining -= 1;
+              throw "transient agent list failure";
+            }
             return state.agents.map((agent) => ({ ...agent, tags: [...agent.tags] }));
           case "get_agent_detail": {
             const agent = state.agents.find((item) => item.id === args?.agentId);
