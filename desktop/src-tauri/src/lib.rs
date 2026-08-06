@@ -57,7 +57,7 @@ struct DeploymentEventStream {
 
 impl DeploymentEventStream {
     fn restart(&self) {
-        let _ = self.restart.send_modify(|generation| *generation += 1);
+        self.restart.send_modify(|generation| *generation += 1);
     }
 }
 
