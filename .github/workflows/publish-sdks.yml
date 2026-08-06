@@ -86,6 +86,10 @@ jobs:
 
           update_json_version("ts-sdk/package.json", ts_version)
           update_json_version("ts-sdk/package-lock.json", ts_version)
+          lock_path = root / "ts-sdk/package-lock.json"
+          lock = json.loads(lock_path.read_text())
+          lock.setdefault("packages", {}).setdefault("", {})["version"] = ts_version
+          lock_path.write_text(json.dumps(lock, indent=2) + "\n")
 
           sdk_pyproject = root / "sdk/pyproject.toml"
           text = sdk_pyproject.read_text()
@@ -113,7 +117,7 @@ jobs:
         working-directory: ${{ github.workspace }}/${{ env.RELEASE_WORKDIR }}/ts-sdk
         run: npm ci
 
-      - name: Test and pack TS SDK
+      - name: Test and build TS SDK package
         working-directory: ${{ github.workspace }}/${{ env.RELEASE_WORKDIR }}/ts-sdk
         shell: bash
         run: |
@@ -121,13 +125,7 @@ jobs:
           npm run clean
           npm run build
           npm test
-          npm pack --dry-run
-
-      - name: Publish TS SDK to npm
-        working-directory: ${{ github.workspace }}/${{ env.RELEASE_WORKDIR }}/ts-sdk
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+          npm pack
 
       - name: Install Python build tools
         run: python -m pip install --upgrade build twine
@@ -139,6 +137,18 @@ jobs:
           rm -rf sdk/dist cli/dist
           python -m build sdk
           python -m build cli
+          python -m twine check sdk/dist/* cli/dist/*
+
+      - name: Publish TS SDK to npm
+        working-directory: ${{ github.workspace }}/${{ env.RELEASE_WORKDIR }}/ts-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package=$(find . -maxdepth 1 -type f -name 'hypercli.com-sdk-*.tgz' -print -quit)
+          test -n "$package"
+          npm publish "$package" --access public
 
       - name: Publish Python SDK and CLI to PyPI
         env:
