@@ -10,8 +10,8 @@ describe("agentViewModel", () => {
     expect(toAgentViewModel(buildSdkAgent({ state: "ERROR" as never })).state).toBe("FAILED");
   });
 
-  it("maps unknown string states to FAILED instead of inventing an unsupported state", () => {
-    expect(normalizeAgentState("crashed")).toBe("FAILED");
+  it("preserves unknown future string states", () => {
+    expect(normalizeAgentState("draining")).toBe("DRAINING");
   });
 
   it("keeps missing state as STOPPED", () => {

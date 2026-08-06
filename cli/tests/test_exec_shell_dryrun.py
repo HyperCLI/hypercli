@@ -621,8 +621,10 @@ def test_agents_stop_waits_for_stopped(monkeypatch):
             calls.append(f"stop:{agent_id}")
             return SimpleNamespace(id=agent_id, state="stopping")
 
-        def get(self, agent_id):
-            calls.append(f"get:{agent_id}")
+        def wait_for_state(self, agent_id, states, *, timeout):
+            assert states == {"stopped"}
+            assert timeout == 900.0
+            calls.append(f"wait:{agent_id}")
             return SimpleNamespace(id=agent_id, state="stopped")
 
     monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
@@ -636,7 +638,7 @@ def test_agents_stop_waits_for_stopped(monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert calls == ["stop:agent-123", "get:agent-123"]
+    assert calls == ["stop:agent-123", "wait:agent-123"]
     assert "Agent stopped" in result.output
 
 

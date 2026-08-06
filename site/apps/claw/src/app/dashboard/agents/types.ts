@@ -11,7 +11,8 @@ export type AgentState =
   | "RUNNING"
   | "STOPPING"
   | "STOPPED"
-  | "FAILED";
+  | "FAILED"
+  | (string & {});
 export type JsonObject = Record<string, unknown>;
 
 export const AGENT_TRANSITIONAL_STATES: AgentState[] = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"];

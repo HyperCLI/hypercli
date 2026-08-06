@@ -1288,6 +1288,8 @@ function AgentsPageContent() {
     principalId: string;
     promise: Promise<FetchAgentsResult | null>;
   } | null>(null);
+  const deploymentInvalidationPendingRef = useRef(false);
+  const deploymentInvalidationRefreshRef = useRef<Promise<void> | null>(null);
   const fetchBillingInFlightRef = useRef<{
     generation: number;
     principalId: string;
@@ -2072,19 +2074,35 @@ function AgentsPageContent() {
     return createAgentClient(token);
   }, [getToken]);
 
+  const refreshAgentsFromInvalidation = useCallback(() => {
+    deploymentInvalidationPendingRef.current = true;
+    if (deploymentInvalidationRefreshRef.current) return;
+    const drain = async () => {
+      while (deploymentInvalidationPendingRef.current) {
+        deploymentInvalidationPendingRef.current = false;
+        await fetchAgents({ includeEnrichment: false });
+      }
+    };
+    let refresh: Promise<void>;
+    refresh = drain().finally(() => {
+      if (deploymentInvalidationRefreshRef.current === refresh) {
+        deploymentInvalidationRefreshRef.current = null;
+      }
+    });
+    deploymentInvalidationRefreshRef.current = refresh;
+  }, [fetchAgents]);
+
   useEffect(() => {
     if (!isAuthenticated || !deployments || !user?.id) return;
     const controller = new AbortController();
-    void deployments.subscribe(() => {
-      void fetchAgents({ force: true, includeEnrichment: false });
-    }, { signal: controller.signal }).catch(() => {
+    void deployments.subscribe(refreshAgentsFromInvalidation, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
       void fetchAgents({ force: true, includeEnrichment: false });
     });
     return () => controller.abort();
-  }, [deployments, fetchAgents, isAuthenticated, user?.id]);
+  }, [deployments, fetchAgents, isAuthenticated, refreshAgentsFromInvalidation, user?.id]);
 
   const handleOpenDesktop = useCallback(async (agent: Agent) => {
     const desktopBaseUrl = agent.desktopUrl || (agent.hostname ? `https://desktop-${agent.hostname}` : "");

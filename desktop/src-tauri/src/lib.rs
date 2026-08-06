@@ -3102,10 +3102,17 @@ fn mint_api_key_blocking(session_token: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn mint_api_key(session_token: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || mint_api_key_blocking(session_token))
+async fn mint_api_key(
+    session_token: String,
+    events: tauri::State<'_, DeploymentEventStream>,
+) -> Result<String, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || mint_api_key_blocking(session_token))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    if result.is_ok() {
+        events.restart();
+    }
+    result
 }
 
 /// Returns `true` when the running install supports Tauri's auto-updater.

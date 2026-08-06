@@ -329,6 +329,8 @@ export default function DevAgentSetupAgentsPage() {
   const deploymentsRef = useRef<Deployments | null>(null);
   const agentDataGenerationRef = useRef(0);
   const fetchAgentsRequestRef = useRef(0);
+  const deploymentInvalidationPendingRef = useRef(false);
+  const deploymentInvalidationRefreshRef = useRef<Promise<void> | null>(null);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
   const deletingAgentIdsRef = useRef<Set<string>>(new Set());
   const privatePrincipalRef = useRef<string | null>(user?.id ?? null);
@@ -576,19 +578,35 @@ export default function DevAgentSetupAgentsPage() {
     return createAgentClient(token);
   }, [getToken]);
 
+  const refreshAgentsFromInvalidation = useCallback(() => {
+    deploymentInvalidationPendingRef.current = true;
+    if (deploymentInvalidationRefreshRef.current) return;
+    const drain = async () => {
+      while (deploymentInvalidationPendingRef.current) {
+        deploymentInvalidationPendingRef.current = false;
+        await fetchAgents();
+      }
+    };
+    let refresh: Promise<void>;
+    refresh = drain().finally(() => {
+      if (deploymentInvalidationRefreshRef.current === refresh) {
+        deploymentInvalidationRefreshRef.current = null;
+      }
+    });
+    deploymentInvalidationRefreshRef.current = refresh;
+  }, [fetchAgents]);
+
   useEffect(() => {
     if (!deployments || !user?.id) return;
     const controller = new AbortController();
-    void deployments.subscribe(() => {
-      void fetchAgents();
-    }, { signal: controller.signal }).catch(() => {
+    void deployments.subscribe(refreshAgentsFromInvalidation, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
       void fetchAgents();
     });
     return () => controller.abort();
-  }, [deployments, fetchAgents, user?.id]);
+  }, [deployments, fetchAgents, refreshAgentsFromInvalidation, user?.id]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 

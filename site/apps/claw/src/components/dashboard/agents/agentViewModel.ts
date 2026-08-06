@@ -20,7 +20,7 @@ export function normalizeAgentState(state: unknown): AgentState {
   ) {
     return normalized;
   }
-  return "FAILED";
+  return normalized;
 }
 
 export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | "displayName" | "managed" | "pod_name">): string {

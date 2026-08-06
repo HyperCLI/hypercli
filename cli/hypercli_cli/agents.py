@@ -594,7 +594,9 @@ def create(
 def wait_agent(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),
     timeout: int = typer.Option(300, "--timeout", help="Seconds to wait for RUNNING"),
-    poll_interval: float = typer.Option(5.0, "--poll-interval", help="Seconds between polls"),
+    poll_interval: float = typer.Option(
+        5.0, "--poll-interval", help="Deprecated; retained for compatibility"
+    ),
 ):
     """Wait for an agent to reach RUNNING."""
     agents = _get_deployments_client()
@@ -1091,15 +1093,7 @@ def stop(
     try:
         pod = agents.stop(agent_id)
         if wait:
-            deadline = time.monotonic() + timeout
-            while str(pod.state or "").lower() != "stopped":
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting for agent {agent_id} to reach STOPPED "
-                        f"(last={pod.state})"
-                    )
-                time.sleep(min(5.0, max(deadline - time.monotonic(), 0.0)))
-                pod = agents.get(agent_id)
+            pod = agents.wait_for_state(agent_id, {"stopped"}, timeout=timeout)
     except Exception as e:
         console.print(f"[red]❌ Failed to stop agent: {e}[/red]")
         raise typer.Exit(1)
