@@ -2002,6 +2002,7 @@ def test_agents_start_stop_delete(agents_client):
             "command": ["echo", "hello"],
             "entrypoint": ["/bin/sh", "-c"],
             "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
+            "sync_enabled": False,
         }
 
         mock_response.json.return_value["state"] = "stopping"
