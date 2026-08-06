@@ -31,10 +31,12 @@ The human owner's Buzz private key remains in Desktop. The generated agent
 private key, owner authorization tag, and merged runtime environment pass
 through the provider to HyperCLI.
 
-Supported runtime shapes are OpenCode, Codex, Claude Code, Goose, and Kimi
-Code. The current provider requires the HyperCLI `large` tier for Buzz-backed
-launches. Ordinary, non-Buzz coding-agent SDK launches retain their normal size
-choice.
+Supported runtime shapes are Buzz Agent, OpenCode, Codex, Claude Code, Goose,
+and Kimi Code. The provider chooses the largest currently available 2/4/8 GB
+entitlement slot. Ordinary, non-Buzz coding-agent SDK launches retain their
+normal size choice. See
+[Coding runtimes and persistence](/agents/coding-runtimes) for each runtime's
+inference, login, and selective-sync intent.
 
 ## Install the provider
 
@@ -165,14 +167,15 @@ Buzz's agent configuration. Desktop stages every provider executable as
 `provider[.exe]`, so the authoritative `launch.command` selects the canonical
 runtime and image; legacy requests without a launch block fall back to
 `agent.agent_command`. Editable legacy runtime and size values cannot change
-that result. The provider always uses the backend-owned `large` tier and
-enables canonical `/home/node` workspace sync. Previously saved image and
-workspace overrides remain accepted for compatibility.
+that result. The provider resolves the largest currently available entitlement
+slot and keeps `/home/node` as the canonical sync root. Previously saved image
+and workspace overrides remain accepted for compatibility.
 
 Default runtime mapping:
 
 | Runtime | Image | ACP child |
 | --- | --- | --- |
+| Buzz Agent | `ghcr.io/hypercli/hypercli-buzz-agent:latest` | `buzz-agent` |
 | OpenCode | `ghcr.io/hypercli/hypercli-buzz-opencode:latest` | `opencode acp` |
 | Codex | `ghcr.io/hypercli/hypercli-buzz-codex:latest` | `codex-acp` |
 | Claude Code | `ghcr.io/hypercli/hypercli-buzz-claude:latest` | `claude-agent-acp` |
@@ -189,7 +192,8 @@ non-Buzz SDK launches keep using the generic `hypercli-opencode`,
 The persistence and workspace roots are intentionally different:
 
 - `/home/node` is the persistent `sync_root` used by the Files API and runtime
-  credentials.
+  credentials. Coding helpers select only their documented state roots by
+  default; OpenClaw retains full-root persistence.
 - `/home/node/workspaces` is reserved for HyperCLI Workspace projections.
 - `/home/node/.buzz` is the hosted Buzz nest and the working directory of the
   `buzz-acp` process and coding runtime.

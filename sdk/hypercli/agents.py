@@ -919,12 +919,13 @@ def _resolve_coding_agent_sync_policy(
         if sync_include is not _UNSET or sync_exclude is not _UNSET:
             raise ValueError("sync_all cannot be combined with sync_include or sync_exclude")
         return None, None
-    if sync_include is not _UNSET:
-        include = None if sync_include is None else list(sync_include)
-        return include, None
+    if sync_include is not _UNSET and sync_include is not None:
+        return list(sync_include), None
     if sync_exclude is not _UNSET:
         exclude = None if sync_exclude is None else list(sync_exclude)
         return None, exclude
+    if sync_include is None:
+        return None, None
     return list(DEFAULT_CODING_AGENT_SYNC_INCLUDES[runtime]), None
 
 

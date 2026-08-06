@@ -288,10 +288,11 @@ agent = client.deployments.create_openclaw(
 
 ### Hosted Coding Agents
 
-The SDK has typed launch helpers for five non-OpenClaw runtimes:
+The SDK has typed launch helpers for six non-OpenClaw runtimes:
 
 | Runtime value | Python helper | Generic default image |
 | --- | --- | --- |
+| `buzz-agent` | `create_buzz_agent()` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
 | `opencode` | `create_opencode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
 | `codex` | `create_codex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
 | `claude-code` | `create_claude_code()` | `ghcr.io/hypercli/hypercli-claude-code:latest` |
@@ -326,6 +327,8 @@ OpenCode and Goose images default to HyperCLI's Anthropic-native
 `kimi-k2.6-anthropic` route. Kimi Code keeps Moonshot's upstream service and
 login flow. Login sessions use an agent-bound shell WebSocket and never put an
 API key on the command line; runtime credentials persist under `/home/node`.
+See [Coding runtimes and persistence](/agents/coding-runtimes) for the complete
+inference, authentication, and selective-sync matrix.
 
 #### Typed Buzz launches
 
@@ -351,7 +354,8 @@ into the runtime environment.
 
 A typed Buzz launch:
 
-- requires `size="large"` and sets `restart=False`;
+- leaves size unset for live backend/provider slot selection and sets
+  `restart=False`;
 - clears public routes and selects `/usr/local/bin/buzz-acp`;
 - derives the selected runtime's ACP child command and Buzz MCP command;
 - selects the matching `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`

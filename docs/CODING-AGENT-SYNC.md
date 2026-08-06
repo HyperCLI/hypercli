@@ -1,6 +1,6 @@
 # Coding Agent Selective Sync Handoff
 
-Status: implementation in progress  
+Status: HyperCLI client implementation complete; Backend enforcement pending
 Date: 2026-08-06 UTC  
 Related plan: `/tmp/LAGOON-PLAN.md`
 
@@ -21,9 +21,12 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Add Desktop's flat **Sync all files** control and preserve it through
   create/edit. Legacy launches with neither policy field render as sync-all;
   turning it off restores the selected runtime's default include list.
-- [ ] Complete the read-only feature audits and resolve findings.
-- [ ] Document every coding runtime and OpenClaw's full-root behavior in the
-  public SDK/runtime documentation.
+- [x] Complete independent SDK and Desktop audits. The follow-up fixes preserve
+  excludes when Python receives a nullable include, carry the policy through a
+  provider restart, distinguish JSON null from an explicit empty include, and
+  let older Desktop callers preserve the current launch policy.
+- [x] Document every coding runtime and OpenClaw's full-root behavior in
+  `docs/agents/coding-runtimes.mdx`.
 
 The wire contract stays flat. `sync_all` is a client convenience and is never
 sent to Backend: it normalizes to omitted `sync_include` and `sync_exclude`.
@@ -47,19 +50,16 @@ both custom policies are supplied.
 
 ## Current repository facts
 
-The current checkouts do not yet contain a per-agent include contract:
+HyperCLI clients now contain the per-agent include contract; downstream
+enforcement remains the active implementation work:
 
+- Python and TypeScript expose flat include/exclude fields, explicit sync-all
+  convenience, and SDK-owned defaults for all six coding runtimes.
+- Rust launch types expose the same wire fields, preserve explicit empty
+  includes, and apply the runtime defaults to typed Buzz launches.
 - Backend launch fields currently cover `sync_root`, `sync_enabled`, UID, and
-  GID: `hyperclaw-backend/backend/agents/launch_contract.py`.
-- Python SDK coding agents currently share a generic builder and default all
-  coding runtimes to `/home/node`:
-  `hypercli/sdk/hypercli/agents.py` (`DEFAULT_CODING_AGENT_SYNC_ROOT` and
-  `_create_coding_agent`).
-- TypeScript mirrors that generic behavior in
-  `hypercli/ts-sdk/src/agents.ts` (`DEFAULT_CODING_AGENT_SYNC_ROOT` and
-  `createCodingAgent`).
-- Rust launch types expose the existing sync-root fields but no policy:
-  `hypercli/rs-sdk/src/types.rs`.
+  GID but do not yet enforce the selection policy end to end:
+  `hyperclaw-backend/backend/agents/launch_contract.py`.
 - Lagoon currently passes only cluster-wide `REEF_INIT_EXCLUDES` and
   `REEF_SYNC_EXCLUDES`: `hyperclaw-backend/lagoon/main.py`.
 - Reef parses only excludes and passes `--exclude` to `mc mirror`:

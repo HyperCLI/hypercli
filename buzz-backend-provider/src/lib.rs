@@ -637,6 +637,8 @@ fn restart_if_stopped(
         image: create.image.clone(),
         sync_root: create.sync_root.clone(),
         sync_enabled: create.sync_enabled,
+        sync_include: create.sync_include.clone(),
+        sync_exclude: create.sync_exclude.clone(),
         sync_uid: create.sync_uid,
         sync_gid: create.sync_gid,
         restart: create.restart,

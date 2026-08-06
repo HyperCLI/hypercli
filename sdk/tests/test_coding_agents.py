@@ -204,6 +204,7 @@ def test_create_coding_agent_honors_runtime_scope_override():
         ({"sync_all": True}, None, None),
         ({"sync_include": []}, [], None),
         ({"sync_include": ["work"], "sync_exclude": ["tmp"]}, ["work"], None),
+        ({"sync_include": None, "sync_exclude": ["tmp"]}, None, ["tmp"]),
         ({"sync_exclude": [".cache"]}, None, [".cache"]),
     ],
 )

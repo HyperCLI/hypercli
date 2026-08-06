@@ -138,7 +138,7 @@ pub struct AgentEditorInput {
     model: Option<String>,
     concurrency: Option<u32>,
     #[serde(default)]
-    sync_all: bool,
+    sync_all: Option<bool>,
     relay: String,
     community: String,
     #[serde(default)]
@@ -422,8 +422,13 @@ fn insert_launch_env(config: &mut BTreeMap<String, Value>, env: BTreeMap<String,
 }
 
 fn launch_syncs_all(config: &DeploymentLaunchConfig) -> bool {
-    !config.as_map().contains_key("sync_include")
-        && !config.as_map().contains_key("sync_exclude")
+    let policy_is_set = |key: &str| {
+        config
+            .as_map()
+            .get(key)
+            .is_some_and(|value| !value.is_null())
+    };
+    !policy_is_set("sync_include") && !policy_is_set("sync_exclude")
 }
 
 fn apply_editor_sync_policy(
@@ -436,6 +441,9 @@ fn apply_editor_sync_policy(
         config.remove("sync_exclude");
         return;
     }
+    config.retain(|key, value| {
+        !matches!(key.as_str(), "sync_include" | "sync_exclude") || !value.is_null()
+    });
     if !config.contains_key("sync_include") && !config.contains_key("sync_exclude") {
         if let Some(paths) = runtime.default_sync_include() {
             config.insert(
@@ -1730,7 +1738,9 @@ fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<Desk
             .flatten(),
     );
     insert_launch_env(&mut launch_config, env);
-    apply_editor_sync_policy(&mut launch_config, runtime, input.sync_all);
+    if let Some(sync_all) = input.sync_all {
+        apply_editor_sync_policy(&mut launch_config, runtime, sync_all);
+    }
 
     let requested_size = parse_editor_size(input.size.as_deref())?;
     let size_changed =
@@ -2244,7 +2254,7 @@ fn create_buzz_deployment_blocking(
         .map(|value| value.trim().to_owned())
         .collect();
     buzz.display_name = Some(input.name.trim().to_owned());
-    buzz.sync_all = input.sync_all;
+    buzz.sync_all = input.sync_all.unwrap_or(false);
     buzz.apply_to(&mut request, Some(input.name.trim()))
         .map_err(|error| error.to_string())?;
     request.size = Some(requested_size);
@@ -3490,6 +3500,32 @@ mod tests {
         assert!(!launch_syncs_all(&DeploymentLaunchConfig::from_map(
             launch_config
         )));
+    }
+
+    #[test]
+    fn editor_sync_policy_distinguishes_empty_lists_from_nulls() {
+        let empty_include = DeploymentLaunchConfig::from_map(BTreeMap::from([(
+            "sync_include".to_owned(),
+            serde_json::json!([]),
+        )]));
+        assert!(!launch_syncs_all(&empty_include));
+
+        let null_policies = DeploymentLaunchConfig::from_map(BTreeMap::from([
+            ("sync_include".to_owned(), Value::Null),
+            ("sync_exclude".to_owned(), Value::Null),
+        ]));
+        assert!(launch_syncs_all(&null_policies));
+
+        let mut null_include_with_exclude = BTreeMap::from([
+            ("sync_include".to_owned(), Value::Null),
+            ("sync_exclude".to_owned(), serde_json::json!(["tmp"])),
+        ]);
+        apply_editor_sync_policy(&mut null_include_with_exclude, ManagedRuntime::Codex, false);
+        assert!(!null_include_with_exclude.contains_key("sync_include"));
+        assert_eq!(
+            null_include_with_exclude["sync_exclude"],
+            serde_json::json!(["tmp"])
+        );
     }
 
     #[test]

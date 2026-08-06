@@ -236,6 +236,18 @@ test("agent card opens a compact editor with native login state", async ({ page 
   await expect(page.locator("#agents-section")).toBeVisible();
 });
 
+test("legacy full-root agent detail renders Sync all checked", async ({ page }) => {
+  const agentId = "40c42593-7d02-48f9-a3ff-6c7d6461f140";
+  await withMock(page, {
+    status: { has_api_key: true },
+    agentDetails: { [agentId]: { sync_all: true } },
+  });
+  await page.goto("/");
+  await page.locator(".agent-card", { hasText: "Maverick" }).click();
+  await page.locator("#agent-advanced").click();
+  await expect(page.locator("#agent-sync-all")).toBeChecked();
+});
+
 test("native login acknowledges a slow secure-session start", async ({ page }) => {
   await withMock(page, {
     status: { has_api_key: true },

@@ -155,6 +155,11 @@ They have no public runtime port: lifecycle, exec, shell, workspace sync, and
 authentication all use the existing authenticated deployment APIs. OpenCode
 and Goose default to HyperCLI's Anthropic-native `kimi-k2.6-anthropic` route.
 Kimi Code keeps Moonshot's upstream device login and service.
+Claude Code, Codex, and Kimi Code are native-login-first. For Buzz-managed
+launches, `HYPERCLI_RUNTIME_INFERENCE=hypercli` is an explicit compatibility
+switch for Claude and Kimi; Codex cannot use the HyperCLI gateway until it
+offers the OpenAI Responses wire API. See the
+[runtime and persistence matrix](../docs/agents/coding-runtimes.mdx).
 
 ```python
 buzz_agent = client.deployments.create_buzz_agent(name="buzz-agent")
@@ -230,8 +235,9 @@ are rejected later by `buzz-acp`. The Desktop provider also maps structured
 Goose model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct Python
 SDK callers must set any Goose-specific environment themselves.
 
-Buzz launches require `size="large"`; ordinary coding-agent helpers preserve a
-caller-provided size or the backend default. Stock Buzz provider agents do not
+Buzz launches leave size unset for live backend/provider slot selection;
+ordinary coding-agent helpers preserve a caller-provided size or the backend
+default. Stock Buzz provider agents do not
 start on app launch and the current provider protocol has no stop callback.
 Editing a running agent does not replace its HyperCLI launch environment: stop
 the deployment through the authenticated HyperCLI API and deploy it again from
