@@ -124,7 +124,7 @@ AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 
 ## `client.deployments`
 
-This namespace manages actual agent pods.
+This namespace manages agent runtimes.
 
 ### Create
 
@@ -439,7 +439,7 @@ agent = client.deployments.wait_for_state(
 
 For account-facing billing and capacity screens, prefer `client.agent.entitlements()` or `client.agent.subscription_summary()` over `budget()`. `budget()` is runtime deployment capacity data, not recurring billing state.
 
-Wait for a running pod:
+Wait for a running agent:
 
 ```python
 agent = client.deployments.wait_running(agent.id, timeout=300)

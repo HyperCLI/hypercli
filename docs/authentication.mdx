@@ -456,8 +456,6 @@ HyperCLI browser routes use a separate model from the normal app session JWT.
 For agent-specific routes and backend WebSocket flows, the backend mints short-lived ES256 agent access tokens that carry:
 
 - `agent_id`
-- `pod`
-- `pod_id`
 - `route_prefixes`
 - expiry
 
@@ -476,8 +474,8 @@ Current flow:
 1. frontend requests `/api/deployments/{id}/token`
 2. backend returns a short-lived agent access token
 3. browser opens `https://desktop-<agent-host>/_jwt_auth?jwt=...`
-4. `lagoon-auth` verifies the token and current host
-5. `lagoon-auth` sets the host cookie and redirects to `/`
+4. the protected-route service verifies the token and current host
+5. the protected-route service sets the host cookie and redirects to `/`
 
 This is used for desktop and any other route marked `auth: true`.
 
