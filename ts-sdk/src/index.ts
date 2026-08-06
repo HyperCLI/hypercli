@@ -198,6 +198,10 @@ export {
 
 export {
   DEFAULT_AGENT_RUNTIME_SCOPES,
+  DEFAULT_HERMES_AGENT_IMAGE,
+  DEFAULT_HERMES_AGENT_SYNC_ROOT,
+  DEFAULT_HERMES_AGENT_SYNC_UID,
+  DEFAULT_HERMES_AGENT_SYNC_GID,
   DEFAULT_BUZZ_AGENT_IMAGE,
   DEFAULT_OPENCODE_IMAGE,
   DEFAULT_CODEX_IMAGE,
@@ -225,6 +229,7 @@ export {
   ClaudeCodeAgent,
   GooseAgent,
   KimiCodeAgent,
+  HermesAgent,
   RuntimeAuthClient,
   RuntimeLoginSession,
   OpenClawAgent,
@@ -234,6 +239,7 @@ export {
   buildOpenClawMemoryIndexEnv,
   buildOpenClawWorkspacesSyncEnv,
   buildOpenClawRoutes,
+  buildHermesAgentRoutes,
   startSlackOAuth,
   getSlackInstallStatus,
   listSlackDirectoryConversations,
@@ -283,16 +289,21 @@ export {
   type RuntimeAuthLoginOptions,
   type OpenClawHeartbeatConfig,
   type OpenClawRouteOptions,
+  type HermesAgentRouteOptions,
   type OpenClawOperationsSnapshot,
   type CreateAgentOptions,
   type OpenClawCreateAgentOptions,
   type OpenClawStartAgentOptions,
+  type HermesAgentCreateOptions,
+  type HermesAgentStartOptions,
   type StartAgentOptions,
   type AgentExecOptions,
   type AgentState,
   type DeploymentEvent,
   type DeploymentSubscribeOptions,
 } from './agents.js';
+
+export * from './hermes/gateway.js';
 
 export {
   type AgentSkillOrigin,

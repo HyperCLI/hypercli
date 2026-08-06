@@ -33,6 +33,7 @@ from .http import HTTPClient, APIError
 from .openclaw.gateway import create_openclaw_sdk_session_key
 
 if TYPE_CHECKING:
+    from .hermes import HermesApiClient
     from .openclaw.gateway import ChatEvent, GatewayClient
 
 
@@ -43,6 +44,7 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
 DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
+DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes-agent:latest"
 DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
 DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
 DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude-code:latest"
@@ -97,6 +99,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
     }
 )
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
+DEFAULT_HERMES_AGENT_SYNC_ROOT = "/opt/data"
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
@@ -107,6 +110,7 @@ ManagedAgentRuntime = Literal[
     "generic",
     "openclaw",
     "openclaw-pro",
+    "hermes-agent",
     "buzz-agent",
     "opencode",
     "codex",
@@ -568,6 +572,49 @@ def build_openclaw_routes(
             "prefix": str(desktop_prefix),
         }
     return routes
+
+
+def build_hermes_agent_routes(
+    *,
+    port: int = 8642,
+    auth: bool = False,
+    prefix: str = "",
+) -> dict[str, dict]:
+    """Build the public route for Hermes' bearer-authenticated API Server."""
+    return {
+        "hermes": {
+            "port": int(port),
+            "auth": bool(auth),
+            "prefix": str(prefix),
+        }
+    }
+
+
+def _resolve_hermes_agent_routes(
+    routes: dict | None,
+    *,
+    hermes_routes: dict | None = None,
+    hermes_route_options: dict | None = None,
+) -> dict:
+    if routes is not None:
+        return routes
+    if hermes_routes is not None:
+        return hermes_routes
+    return build_hermes_agent_routes(**dict(hermes_route_options or {}))
+
+
+def _inject_hermes_api_server_key(
+    env: dict | None,
+    api_server_key: str | None,
+) -> tuple[dict[str, Any], str]:
+    env_map: dict[str, Any] = dict(env or {})
+    effective_key = str(api_server_key or env_map.get("API_SERVER_KEY") or "").strip()
+    if not effective_key:
+        effective_key = secrets.token_urlsafe(32)
+    if len(effective_key) < 32:
+        raise ValueError("Hermes API_SERVER_KEY must be at least 32 characters")
+    env_map["API_SERVER_KEY"] = effective_key
+    return env_map, effective_key
 
 
 def _resolve_openclaw_routes(
@@ -1170,6 +1217,18 @@ def _is_openclaw_agent_data(data: dict) -> bool:
     if isinstance(launch_config, dict):
         launch_routes = launch_config.get("routes")
         if isinstance(launch_routes, dict) and launch_routes.get("openclaw"):
+            return True
+    return False
+
+
+def _is_hermes_agent_data(data: dict) -> bool:
+    routes = data.get("routes")
+    if isinstance(routes, dict) and routes.get("hermes"):
+        return True
+    launch_config = data.get("launch_config")
+    if isinstance(launch_config, dict):
+        launch_routes = launch_config.get("routes")
+        if isinstance(launch_routes, dict) and launch_routes.get("hermes"):
             return True
     return False
 
@@ -2066,6 +2125,79 @@ class KimiCodeAgent(CodingAgent):
 
 
 @dataclass
+class HermesAgent(Agent):
+    """Hermes-backed agent with access to its stable API Server surface."""
+
+    api_server_key: Optional[str] = field(default=None, repr=False, compare=False)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HermesAgent":
+        # API_SERVER_KEY is write-only launch material. It is retained only on
+        # the instance returned by create/start, never hydrated from API data.
+        kwargs = _agent_kwargs_from_dict(data)
+        launch_config = kwargs.get("launch_config")
+        if isinstance(launch_config, dict):
+            launch_config = copy.deepcopy(launch_config)
+            if isinstance(launch_config.get("env"), dict):
+                launch_config["env"].pop("API_SERVER_KEY", None)
+            kwargs["launch_config"] = launch_config
+        return cls(**kwargs, api_server_key=None)
+
+    @property
+    def api_url(self) -> Optional[str]:
+        return self.route_url("hermes", default_prefix="")
+
+    @property
+    def openai_base_url(self) -> Optional[str]:
+        return f"{self.api_url.rstrip('/')}/v1" if self.api_url else None
+
+    def api(self, **kwargs: Any) -> "HermesApiClient":
+        """Create a client for this Hermes agent's API Server."""
+        from .hermes import HermesApiClient
+
+        if not self.api_url:
+            raise ValueError("Agent has no Hermes API URL")
+        if not self.api_server_key:
+            raise ValueError(
+                "Hermes API key is unavailable; use the HermesAgent returned by "
+                "create_hermes_agent() or start_hermes_agent()"
+            )
+        return HermesApiClient(self.api_url, self.api_server_key, **kwargs)
+
+    def wait_running(
+        self,
+        timeout: float = 300.0,
+        poll_interval: float = 5.0,
+    ) -> "HermesAgent":
+        api_server_key = self.api_server_key
+        super().wait_running(timeout=timeout, poll_interval=poll_interval)
+        self.api_server_key = api_server_key
+        return self
+
+    def update(
+        self,
+        *,
+        name: str | None = None,
+        size: str | None = None,
+        launch_config: dict | None = None,
+        refresh_from_lagoon: bool | None = None,
+        last_error: str | None = None,
+        handle: str | None = None,
+    ) -> "HermesAgent":
+        api_server_key = self.api_server_key
+        super().update(
+            name=name,
+            size=size,
+            launch_config=launch_config,
+            refresh_from_lagoon=refresh_from_lagoon,
+            last_error=last_error,
+            handle=handle,
+        )
+        self.api_server_key = api_server_key
+        return self
+
+
+@dataclass
 class OpenClawAgent(Agent):
     """OpenClaw-backed agent with Gateway connection helpers."""
     gateway_url: Optional[str] = None
@@ -2732,6 +2864,8 @@ class Deployments:
             agent = GooseAgent.from_dict(data)
         elif runtime == "kimi-code":
             agent = KimiCodeAgent.from_dict(data)
+        elif runtime == "hermes-agent" or _is_hermes_agent_data(data):
+            agent = HermesAgent.from_dict(data)
         elif runtime == "openclaw-pro" or _is_openclaw_pro_agent_data(data):
             agent = OpenClawProAgent.from_dict(data)
         elif runtime == "openclaw" or _is_openclaw_agent_data(data):
@@ -2923,6 +3057,7 @@ class Deployments:
         restart: bool = None,
         runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
+        api_server_key: str = None,
         heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
@@ -2941,6 +3076,9 @@ class Deployments:
         Returns:
             Agent with connection details.
         """
+        effective_api_server_key: str | None = None
+        if runtime == "hermes-agent":
+            env, effective_api_server_key = _inject_hermes_api_server_key(env, api_server_key)
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
@@ -2962,7 +3100,10 @@ class Deployments:
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             inject_gateway_token=runtime
-            not in {"buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code"},
+            not in {
+                "buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code",
+                "hermes-agent",
+            },
         )
         body: dict = {**launch_payload, "start": start}
         if dry_run:
@@ -2983,7 +3124,12 @@ class Deployments:
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
+        if isinstance(agent, HermesAgent):
+            agent.api_server_key = effective_api_server_key
         agent.launch_config = launch_payload
+        if isinstance(agent, HermesAgent) and isinstance(agent.launch_config.get("env"), dict):
+            agent.launch_config = copy.deepcopy(agent.launch_config)
+            agent.launch_config["env"].pop("API_SERVER_KEY", None)
         agent.command = list(launch_payload.get("command") or [])
         agent.entrypoint = list(launch_payload.get("entrypoint") or [])
         return agent
@@ -3065,6 +3211,81 @@ class Deployments:
             dry_run=dry_run,
             start=start,
         )
+
+    def create_hermes_agent(
+        self,
+        name: str = None,
+        handle: str = None,
+        size: str = None,
+        config: dict = None,
+        tags: list[str] = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
+        sync_uid: int = None,
+        sync_gid: int = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        restart: bool = None,
+        runtime_scopes: list[str] | None = None,
+        api_server_key: str = None,
+        heartbeat: dict = None,
+        meta_ui: dict = None,
+        dry_run: bool = False,
+        start: bool = True,
+        hermes_routes: dict | None = None,
+        hermes_route_options: dict | None = None,
+    ) -> HermesAgent:
+        """Create a first-class Hermes Agent runtime."""
+        effective_env = {
+            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
+            "API_SERVER_ENABLED": "true",
+            "API_SERVER_HOST": "0.0.0.0",
+            **dict(env or {}),
+        }
+        agent = self.create(
+            name=name,
+            handle=handle,
+            size=size,
+            runtime="hermes-agent",
+            config=config,
+            tags=tags,
+            env=effective_env,
+            ports=ports,
+            routes=_resolve_hermes_agent_routes(
+                routes,
+                hermes_routes=hermes_routes,
+                hermes_route_options=hermes_route_options,
+            ),
+            command=command,
+            entrypoint=entrypoint,
+            image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
+            sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
+            sync_enabled=True if sync_enabled is None else sync_enabled,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+            sync_uid=10000 if sync_uid is None else sync_uid,
+            sync_gid=10000 if sync_gid is None else sync_gid,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            restart=restart,
+            runtime_scopes=runtime_scopes,
+            api_server_key=api_server_key,
+            heartbeat=heartbeat,
+            meta_ui=meta_ui,
+            dry_run=dry_run,
+            start=start,
+        )
+        if not isinstance(agent, HermesAgent):
+            raise TypeError("backend did not return a HermesAgent deployment")
+        return agent
 
     def create_openclaw_pro(
         self,
@@ -3728,6 +3949,7 @@ class Deployments:
         restart: bool = None,
         runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
+        api_server_key: str = None,
         heartbeat: dict = None,
         dry_run: bool = False,
     ) -> Agent:
@@ -3759,6 +3981,7 @@ class Deployments:
                 "restart": restart,
                 "runtime_scopes": runtime_scopes,
                 "gateway_token": gateway_token,
+                "api_server_key": api_server_key,
                 "heartbeat": heartbeat,
             }
             provided = [name for name, value in overrides.items() if value is not None]
@@ -3772,6 +3995,9 @@ class Deployments:
             data = self._post(f"{AGENTS_API_PREFIX}/self/start", json={})
             return self._hydrate_agent(data)
 
+        effective_api_server_key: str | None = None
+        if api_server_key is not None or (env and env.get("API_SERVER_KEY")):
+            env, effective_api_server_key = _inject_hermes_api_server_key(env, api_server_key)
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
@@ -3792,6 +4018,7 @@ class Deployments:
             runtime_scopes=runtime_scopes,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
+            inject_gateway_token=effective_api_server_key is None,
         )
         body: dict[str, Any] = dict(launch_payload)
         if dry_run:
@@ -3801,6 +4028,76 @@ class Deployments:
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
+        if isinstance(agent, HermesAgent):
+            agent.api_server_key = effective_api_server_key
+        return agent
+
+    def start_hermes_agent(
+        self,
+        agent_id: str,
+        config: dict = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
+        sync_include: list[str] | None = None,
+        sync_exclude: list[str] | None = None,
+        sync_uid: int = None,
+        sync_gid: int = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        restart: bool | None = None,
+        runtime_scopes: list[str] | None = None,
+        api_server_key: str = None,
+        heartbeat: dict = None,
+        dry_run: bool = False,
+        hermes_routes: dict | None = None,
+        hermes_route_options: dict | None = None,
+    ) -> HermesAgent:
+        """Start a Hermes runtime with a fresh write-only API Server key."""
+        effective_env = {
+            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
+            "API_SERVER_ENABLED": "true",
+            "API_SERVER_HOST": "0.0.0.0",
+            **dict(env or {}),
+        }
+        effective_env, effective_key = _inject_hermes_api_server_key(
+            effective_env,
+            api_server_key,
+        )
+        agent = self.start(
+            agent_id,
+            config=config,
+            env=effective_env,
+            ports=ports,
+            routes=_resolve_hermes_agent_routes(
+                routes,
+                hermes_routes=hermes_routes,
+                hermes_route_options=hermes_route_options,
+            ),
+            command=command,
+            entrypoint=entrypoint,
+            image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
+            sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
+            sync_enabled=True if sync_enabled is None else sync_enabled,
+            sync_include=sync_include,
+            sync_exclude=sync_exclude,
+            sync_uid=10000 if sync_uid is None else sync_uid,
+            sync_gid=10000 if sync_gid is None else sync_gid,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            restart=restart,
+            runtime_scopes=runtime_scopes,
+            api_server_key=effective_key,
+            heartbeat=heartbeat,
+            dry_run=dry_run,
+        )
+        if not isinstance(agent, HermesAgent):
+            raise TypeError("backend did not return a HermesAgent deployment")
         return agent
 
     def start_openclaw(

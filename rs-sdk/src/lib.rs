@@ -5,6 +5,7 @@
 
 mod client;
 mod config;
+mod hermes;
 mod runtime_auth;
 mod types;
 
@@ -13,6 +14,15 @@ pub use config::{
     discover_agents_api_base, discover_client_config, discover_client_config_from,
     normalize_agents_api_base, remove_config_api_keys, save_api_key, write_config_values,
     ClientConfig, ConfigError, API_KEY_CONFIG_KEYS, DEFAULT_AGENTS_API_BASE,
+};
+pub use hermes::{
+    HermesApiClient, HermesApiError, HermesCapabilities, HermesChatCompletion, HermesChatRequest,
+    HermesDeletedSession, HermesDetailedHealth, HermesEventStream, HermesHealth,
+    HermesLaunchConfig, HermesMessage, HermesMessageList, HermesModel, HermesModelList,
+    HermesModelLock, HermesModelLockRequest, HermesOpenAiError, HermesRun, HermesRunApproval,
+    HermesRunApprovalChoice, HermesRunApprovalRequest, HermesRunCreated, HermesRunRequest,
+    HermesSession, HermesSessionCreateRequest, HermesSessionForkRequest, HermesSessionList,
+    HermesSessionPatchRequest, HermesSseEvent, HERMES_AGENT_IMAGE, HERMES_API_PORT,
 };
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginChallenge, RuntimeLoginResult,
