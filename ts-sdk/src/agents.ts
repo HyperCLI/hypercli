@@ -1189,6 +1189,20 @@ export type AgentState =
   | 'FAILED'
   | (string & {});
 
+export interface DeploymentEvent {
+  version: number;
+  type: 'deployment.transition' | 'deployments.changed';
+  deployment_id?: string;
+  state?: AgentState;
+  placement_epoch?: number;
+  runtime_generation?: number;
+  finalize_epoch?: number;
+}
+
+export interface DeploymentSubscribeOptions {
+  signal?: AbortSignal;
+}
+
 export interface AgentStateFields {
   id: string;
   userId: string;
@@ -1215,6 +1229,10 @@ export interface AgentStateFields {
   startedAt?: Date | null;
   stoppedAt?: Date | null;
   lastError?: string | null;
+  placementEpoch?: number;
+  runtimeGeneration?: number;
+  finalizeEpoch?: number | null;
+  restoreState?: string | null;
   createdAt?: Date | null;
   updatedAt?: Date | null;
   launchConfig?: Record<string, any> | null;
@@ -1252,6 +1270,10 @@ export interface AgentHydrationData {
   started_at?: string | null;
   stopped_at?: string | null;
   last_error?: string | null;
+  placement_epoch?: number;
+  runtime_generation?: number;
+  finalize_epoch?: number | null;
+  restore_state?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
@@ -1660,6 +1682,10 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
     lastError: data.last_error ?? null,
+    placementEpoch: data.placement_epoch ?? 0,
+    runtimeGeneration: data.runtime_generation ?? 0,
+    finalizeEpoch: data.finalize_epoch ?? null,
+    restoreState: data.restore_state ?? null,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig: data.launch_config ?? null,
@@ -2052,6 +2078,10 @@ export class Agent {
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
   public readonly lastError: string | null;
+  public readonly placementEpoch: number;
+  public readonly runtimeGeneration: number;
+  public readonly finalizeEpoch: number | null;
+  public readonly restoreState: string | null;
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
   public launchConfig: Record<string, any> | null;
@@ -2089,6 +2119,10 @@ export class Agent {
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
     this.lastError = fields.lastError ?? null;
+    this.placementEpoch = fields.placementEpoch ?? 0;
+    this.runtimeGeneration = fields.runtimeGeneration ?? 0;
+    this.finalizeEpoch = fields.finalizeEpoch ?? null;
+    this.restoreState = fields.restoreState ?? null;
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
     this.launchConfig = fields.launchConfig ?? null;
@@ -4061,11 +4095,93 @@ export class Deployments {
     });
   }
 
+  async subscribe(
+    handler: (event: DeploymentEvent) => void | Promise<void>,
+    options: DeploymentSubscribeOptions = {},
+  ): Promise<void> {
+    await this.list();
+    let retryDelay = 250;
+    while (!options.signal?.aborted) {
+      try {
+        const token = await this.agentHttp.post<{
+          version: number;
+          token: string;
+          ws_url: string;
+        }>(`${DEPLOYMENTS_API_PREFIX}/events/token`);
+        const ws = new WebSocket(token.ws_url);
+        await new Promise<void>((resolve, reject) => {
+          let opened = false;
+          let ready = false;
+          let processing = Promise.resolve();
+          const abort = () => ws.close(1000, 'Subscription cancelled');
+          options.signal?.addEventListener('abort', abort, { once: true });
+          ws.addEventListener('open', () => {
+            opened = true;
+            ws.send(JSON.stringify({ version: 1, type: 'auth', token: token.token }));
+          });
+          ws.addEventListener('message', (message) => {
+            processing = processing.then(async () => {
+              const frame = JSON.parse(await websocketMessageText(message.data)) as Record<string, unknown>;
+              if (!ready) {
+                if (frame.version !== 1 || frame.type !== 'ready') {
+                  throw new Error('Deployment event socket did not send ready');
+                }
+                ready = true;
+                await this.list();
+                await handler({ version: 1, type: 'deployments.changed' });
+                retryDelay = 250;
+                return;
+              }
+              if (
+                frame.version === 1
+                && (frame.type === 'deployment.transition' || frame.type === 'deployments.changed')
+              ) {
+                await handler(frame as unknown as DeploymentEvent);
+              }
+            }).catch((error) => {
+              ws.close(1002, 'Invalid deployment event');
+              reject(error);
+            });
+          });
+          ws.addEventListener('error', () => reject(new Error('Deployment event WebSocket failed')));
+          ws.addEventListener('close', () => {
+            options.signal?.removeEventListener('abort', abort);
+            processing.then(resolve, reject);
+          });
+          if (options.signal?.aborted) abort();
+          void opened;
+        });
+      } catch (error) {
+        if (options.signal?.aborted) break;
+        await Promise.race([
+          sleep(retryDelay),
+          new Promise<void>((resolve) => options.signal?.addEventListener('abort', () => resolve(), { once: true })),
+        ]);
+        retryDelay = Math.min(retryDelay * 2, 5_000);
+        void error;
+      }
+    }
+  }
+
   async waitRunning(agentIdOrName: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
     let lastAgent: Agent | null = null;
+    let wakePending = true;
+    let wake: (() => void) | null = null;
+    let subscriptionError: unknown;
+    const controller = new AbortController();
+    const subscription = this.subscribe((event) => {
+      if (!event.deployment_id || event.deployment_id === agentId) {
+        wakePending = true;
+        wake?.();
+      }
+    }, { signal: controller.signal }).catch((error) => {
+      subscriptionError = error;
+      wake?.();
+    });
+    void pollIntervalMs;
     const diagnostics = (agent: Agent | null): string => {
       if (!agent) return '';
       const details: string[] = [];
@@ -4075,17 +4191,31 @@ export class Deployments {
       }
       return details.length ? `, ${details.join(', ')}` : '';
     };
-    while (Date.now() < deadline) {
-      const agent = await this.get(agentId);
-      lastAgent = agent;
-      lastState = String(agent.state || '');
-      if (lastState.toLowerCase() === 'running') {
-        return agent;
+    try {
+      while (Date.now() < deadline) {
+        if (wakePending) {
+          wakePending = false;
+          const agent = await this.get(agentId);
+          lastAgent = agent;
+          lastState = String(agent.state || '');
+          if (lastState.toLowerCase() === 'running') return agent;
+          if (['failed', 'error', 'restore_failed', 'sync_failed'].includes(lastState.toLowerCase())) {
+            throw new Error(`Agent entered ${lastState} while waiting for RUNNING${diagnostics(agent)}`);
+          }
+          continue;
+        }
+        if (subscriptionError) throw subscriptionError;
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) break;
+        await Promise.race([
+          new Promise<void>((resolve) => { wake = resolve; }),
+          sleep(remaining),
+        ]);
+        wake = null;
       }
-      if (['failed', 'error', 'restore_failed', 'sync_failed'].includes(lastState.toLowerCase())) {
-        throw new Error(`Agent entered ${lastState} while waiting for RUNNING${diagnostics(agent)}`);
-      }
-      await sleep(pollIntervalMs);
+    } finally {
+      controller.abort();
+      await subscription;
     }
     throw new Error(
       `Timed out waiting for agent ${agentId} to reach RUNNING (last=${lastState || 'unknown'}${diagnostics(lastAgent)})`,
