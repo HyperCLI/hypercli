@@ -127,7 +127,7 @@ persistence with UID/GID 1000, no public routes, lazy pool creation, relay
 observation, `restart: false`, and canonical runtime launch values. The
 restart policy lets an accepted Buzz `!shutdown` leave the coding process
 stopped instead of having the runtime automatically restart it. The hosted
-terminal-state observer then cleans the namespace, marks the deployment
+terminal-state observer then completes runtime cleanup, marks the deployment
 `stopped`, and releases its slot. Desktop receives no provider
 acknowledgement. Raw non-Buzz `CreateDeploymentRequest` sizing remains
 caller-selected. The config does not implement `Debug` or `Serialize` because

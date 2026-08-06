@@ -64,15 +64,15 @@ create → pending → starting → running → stopping → stopped → deleted
 
 | State      | Description                                                   |
 |------------|---------------------------------------------------------------|
-| `pending`  | Created in DB, waiting for pod scheduling                     |
-| `starting` | Pod scheduled, containers initializing                        |
-| `running`  | All containers healthy, endpoints accessible                  |
-| `stopping` | Runtime and namespace cleanup accepted but still in progress   |
-| `stopped`  | Cleanup confirmed, DB record preserved, deployment slot freed  |
-| `deleted`  | Fully removed (pod + DB record)                               |
+| `pending`  | Created, waiting for managed-runtime placement                 |
+| `starting` | Runtime placed and initializing                               |
+| `running`  | Runtime healthy and endpoints accessible                      |
+| `stopping` | Runtime cleanup accepted but still in progress                 |
+| `stopped`  | Cleanup confirmed, configuration preserved, slot freed         |
+| `deleted`  | Fully removed                                                  |
 
-Do not treat `stopping` as stopped: its namespace can still exist and its
-deployment slot remains occupied. Stopped agents retain their configuration
+Do not treat `stopping` as stopped: cleanup is still active and its deployment
+slot remains occupied. Stopped agents retain their configuration
 and can be restarted. Deleted agents are gone permanently.
 
 ## Health Monitoring
@@ -80,7 +80,7 @@ and can be restarted. Deleted agents are gone permanently.
 Agent health is monitored through the managed runtime connection rather than a
 public HTTP health endpoint. This approach:
 
-- Works through Traefik ingress without exposing health endpoints
+- Works through managed routing without exposing health endpoints
 - Detects application-level hangs (not just TCP connectivity)
 - Integrates with the existing log streaming infrastructure
 
@@ -106,8 +106,8 @@ hyper agents budget
 | `large` | 2 CPU / 8 GiB |
 
 These are the customer-facing machine shapes. Billing is enforced by tier
-count, not by summing CPU and RAM across the account. Kubernetes scheduling
-requests and burst ceilings are private control-plane details.
+count, not by summing CPU and RAM across the account. Placement requests and
+burst ceilings are private control-plane details.
 
 Examples:
 

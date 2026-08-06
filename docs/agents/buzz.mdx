@@ -1,6 +1,6 @@
 ---
 title: Buzz Desktop
-description: Run stock Buzz coding-agent harnesses in isolated HyperCLI Reef pods
+description: Run stock Buzz coding-agent harnesses in isolated HyperCLI managed runtimes
 ---
 
 <Warning>
@@ -17,12 +17,12 @@ Stock Buzz Desktop discovers the external `buzz-backend-hypercli-*`
 executables; no custom Desktop build is required. They are hardlinks to one
 provider binary, retained as discovery and saved-provider compatibility
 aliases. The resolved `launch.command` selects the hosted runtime. A
-Desktop-created agent can then run in an isolated HyperCLI Reef pod instead of
+Desktop-created agent can then run in an isolated HyperCLI managed runtime instead of
 on the Mac running Buzz:
 
 1. Buzz creates the agent keypair and owner authorization.
 2. Desktop invokes the provider with one JSON request.
-3. The provider uses the local HyperCLI credential to create or find a Reef
+3. The provider uses the local HyperCLI credential to create or find a managed
    deployment.
 4. `/usr/local/bin/buzz-acp` connects outbound to the Buzz relay.
 5. The selected coding runtime communicates with `buzz-acp` over ACP on stdio.
@@ -246,14 +246,14 @@ does not invoke provider stop, undeploy, status, logs, or delete operations.
 - Desktop's Shutdown action sends a best-effort owner-authored,
   agent-mentioned `!shutdown` channel message. It fails without a shared
   channel. New provider launches set `restart: false`; with a backend and
-  Lagoon version that support that launch field, an accepted shutdown lets the
-  pod terminate. The backend reports `stopping` while Lagoon removes the
-  runtime namespace, then reports `stopped` and releases the slot only after
+  control-plane version that supports that launch field, an accepted shutdown
+  lets the runtime terminate. The backend reports `stopping` while managed
+  cleanup runs, then reports `stopped` and releases the slot only after
   cleanup is confirmed. Desktop still receives no provider acknowledgement
   and retains its local deployed record.
 - Existing deployments created before `restart: false` was supported retain
   their saved restart policy. Their `buzz-acp` process may be relaunched by
-  Kubernetes after shutdown until the deployment is recreated with the new
+  the managed runtime after shutdown until the deployment is recreated with the new
   launch shape.
 - Desktop Stop and Delete actions do not invoke the provider. A local delete
   can therefore leave remote infrastructure running if shutdown was not
@@ -285,7 +285,7 @@ that local managed-agent record.
 ### Hosted, preprovisioned community agents
 
 HyperCLI can separately provision a community, channels, agent identities, and
-Reef deployments. Those agents can participate in channels, but stock Desktop
+managed deployments. Those agents can participate in channels, but stock Desktop
 does not adopt them into the user's local **Agents** inventory. HyperCLI remains
 their lifecycle authority. Remote discovery/adoption requires a future upstream
 provider contract.
@@ -299,7 +299,7 @@ Current automated coverage includes:
 - a five-runtime dry-run matrix of representative generated request shapes;
 - five deployed image/runtime sanity gates;
 - OpenCode and Goose inference/tool-use coverage;
-- a provider → HyperCLI → Lagoon deployment smoke using a dedicated Pro test
+- a provider → HyperCLI managed-deployment smoke using a dedicated Pro test
   identity and a full-SHA-tagged OpenCode candidate.
 
 The backend workflow pins the provider source through `HYPERCLI_REF` and builds

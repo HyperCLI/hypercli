@@ -168,7 +168,7 @@ Automatic memory indexing is off by default. Opt in with `memory_index={"on_sess
 ## Hosted Coding Agents
 
 Native Buzz Agent, OpenCode, Codex, Claude Code, Goose, and Kimi Code use
-canonical Reef images.
+canonical managed-runtime images.
 They have no public runtime port: lifecycle, exec, shell, workspace sync, and
 authentication all use the existing authenticated deployment APIs. OpenCode
 and Goose default to HyperCLI's Anthropic-native `kimi-k2.6-anthropic` route.
@@ -196,7 +196,7 @@ async with await codex.auth.login("device") as login:
 ```
 
 The login helper opens a short-lived, agent-bound shell WebSocket and runs the
-runtime's native login command inside the Reef pod. It never puts an API key on
+runtime's native login command inside the managed runtime. It never puts an API key on
 the command line. Runtime credentials and state live under the persistent
 `/home/node` sync root.
 
@@ -261,7 +261,7 @@ Editing a running agent does not replace its HyperCLI launch environment: stop
 the deployment through the authenticated HyperCLI API and deploy it again from
 Buzz to apply changes. A successfully delivered and accepted `!shutdown` can
 exit a new `restart=False` launch; the hosted terminal-state observer then
-reports `stopping`, cleans up the namespace, marks the deployment `stopped`,
+reports `stopping`, completes runtime cleanup, marks the deployment `stopped`,
 and releases its slot. Desktop receives no provider acknowledgement and keeps
 its local deployed record.
 

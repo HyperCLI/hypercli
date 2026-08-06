@@ -276,7 +276,7 @@ Editing a running agent does not replace its HyperCLI launch environment: stop
 the deployment through the authenticated HyperCLI API and deploy it again from
 Buzz to apply changes. A successfully delivered and accepted `!shutdown` can
 exit a new `restart: false` launch; the hosted terminal-state observer then
-reports `stopping`, cleans up the namespace, marks the deployment `stopped`,
+reports `stopping`, completes runtime cleanup, marks the deployment `stopped`,
 and releases its slot. Desktop receives no provider acknowledgement and keeps
 its local deployed record.
 

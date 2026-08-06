@@ -83,7 +83,7 @@ hyper agents stop self --force
 ```
 
 `self` is accepted only for status, start, stop, and route operations. An
-in-pod process cannot call `start self` after its own pod has stopped; that form
+in-runtime process cannot call `start self` after its own runtime has stopped; that form
 is intended for an out-of-band holder of a stable exact-agent key. `start self`
 always reuses the backend-stored launch configuration and rejects flags that
 would override it.
@@ -159,8 +159,8 @@ hyper agents status self
 
 ### `metrics`
 
-Show the live CPU and memory usage reported by Kubernetes for each container in
-a running agent. The values use Kubernetes quantity units such as `m`, `n`,
+Show the live CPU and memory usage reported for each process container in a
+running agent. Values use standard resource quantity units such as `m`, `n`,
 `Ki`, and `Mi`.
 
 ```bash
@@ -224,12 +224,12 @@ values before sharing. Avoid commands such as `env`, `printenv`, recursive home
 directory reads, or full config dumps unless the specific investigation
 requires them and the output remains private.
 
-For backend Kubernetes inspection, use read-only commands first and scope them
-to the relevant namespace, pod, and time window. Do not print pod specs,
-Secrets, ConfigMaps, or complete environment variables. `kubectl logs` can also
-contain credentials, so search for a narrow request ID, render ID, status code,
-or timestamp and redact before sharing. Never mutate or restart a workload as
-part of diagnosis without approval.
+For backend control-plane inspection, use read-only commands first and scope
+them to the relevant deployment and time window. Do not print workload specs,
+secrets, configuration objects, or complete environment variables. Runtime
+logs can also contain credentials, so search for a narrow request ID, render
+ID, status code, or timestamp and redact before sharing. Never mutate or
+restart a workload as part of diagnosis without approval.
 
 Ask before using `exec`, `shell`, remote-destination `cp`, `config-patch`,
 `cron-add`, `cron-remove`, `cron-run`, `token`, `start`, `stop`, `delete`,

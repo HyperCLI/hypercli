@@ -58,7 +58,7 @@ hyper agents budget
 
 Table output is the safe default. `list --json` includes complete
 `launch_config`, including the environment map; keep it private and never paste
-it wholesale. Metrics expose live Kubernetes CPU/memory quantities. Logs,
+it wholesale. Metrics expose live runtime CPU/memory quantities. Logs,
 gateway config, sessions, and files can contain credentials or private user
 content, so query narrowly and redact values when reporting.
 
@@ -146,7 +146,7 @@ binding while the generic runtime scope stays `agents:none`. It is not valid
 for delete or key rotation. `start self` is lifecycle-only: it sends no launch
 overrides and reuses the backend-stored configuration. A process can request
 `hyper agents stop self --force`, but it cannot restart itself after its own
-pod is gone.
+runtime is gone.
 
 ## External runtimes and relay keys
 

@@ -25,7 +25,7 @@ Full request/response logging is enabled:
 
 - Same as Flow 01 (Privy login)
 - User must have an active plan with available agent slots
-- Lagoon (claw cluster) must be running to schedule pods
+- The managed dev control plane must be running to place runtimes
 
 ## Environment Variables
 
@@ -67,7 +67,7 @@ Key API calls to watch:
 - `POST /agents/deployments` — creates the agent (should return 200)
 - `POST /agents/deployments/events/token` — authenticates lifecycle updates
 - `GET /agents/deployments` — authoritative snapshot after invalidation
-- `GET /deployments/{id}/token` — fetches reef auth token
+- `GET /deployments/{id}/token` — fetches a runtime auth token
 - gateway websocket `chat.send` — real assistant roundtrip after launch
 
 ## Key Files
@@ -77,7 +77,7 @@ Key API calls to watch:
 
 ## Notes
 
-- Agent typically reaches RUNNING in 5-15s on dev (pod scheduling + OpenClaw boot)
+- Agent typically reaches RUNNING in 5-15s on dev (runtime placement + OpenClaw boot)
 - The launch helper asserts the browser create payload stays flat (`image/env/routes` at top level)
 - The product uses deployment invalidations followed by REST refreshes. The
   test runner may still retry assertions while waiting for the UI to converge;
