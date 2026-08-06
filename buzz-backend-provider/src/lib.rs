@@ -2963,6 +2963,10 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             last_error: None,
+            placement_epoch: 0,
+            runtime_generation: 0,
+            finalize_epoch: None,
+            restore_state: None,
             launch_config: Default::default(),
         };
 
@@ -3001,6 +3005,10 @@ mod tests {
                 tags: Vec::new(),
                 requested_size: None,
                 last_error: None,
+                placement_epoch: 0,
+                runtime_generation: 0,
+                finalize_epoch: None,
+                restore_state: None,
                 launch_config: Default::default(),
             };
 
@@ -3042,6 +3050,10 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             last_error: None,
+            placement_epoch: 0,
+            runtime_generation: 0,
+            finalize_epoch: None,
+            restore_state: None,
             launch_config: Default::default(),
         };
 

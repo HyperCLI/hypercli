@@ -260,7 +260,9 @@ impl HyperCliClient {
             .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))
     }
 
-    async fn create_deployment_event_token(&self) -> Result<DeploymentEventTokenResponse, HyperCliError> {
+    async fn create_deployment_event_token(
+        &self,
+    ) -> Result<DeploymentEventTokenResponse, HyperCliError> {
         let url = self.endpoint("deployments/events/token");
         let response = self
             .async_http
@@ -347,7 +349,8 @@ impl HyperCliClient {
             while let Some(message) = socket.next().await {
                 match message {
                     Ok(Message::Text(value)) => {
-                        let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref()) else {
+                        let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref())
+                        else {
                             break;
                         };
                         if event.version == 1
@@ -359,11 +362,10 @@ impl HyperCliClient {
                             handler(event);
                         }
                     }
-                    Ok(Message::Ping(value)) => {
-                        if socket.send(Message::Pong(value)).await.is_err() {
-                            break;
-                        }
-                    }
+                    Ok(Message::Ping(value)) => match socket.send(Message::Pong(value)).await {
+                        Ok(()) => {}
+                        Err(_) => break,
+                    },
                     Ok(Message::Close(_)) | Err(_) => break,
                     _ => {}
                 }
@@ -1211,13 +1213,17 @@ mod tests {
             let (stream, _) = listener.accept().await.unwrap();
             let mut socket = accept_async(stream).await.unwrap();
             let auth = socket.next().await.unwrap().unwrap();
-            let Message::Text(auth) = auth else { panic!("expected auth text") };
+            let Message::Text(auth) = auth else {
+                panic!("expected auth text")
+            };
             assert_eq!(
                 serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
                 json!({"version": 1, "type": "auth", "token": "event-token"})
             );
             socket
-                .send(Message::Text(json!({"version": 1, "type": "ready"}).to_string().into()))
+                .send(Message::Text(
+                    json!({"version": 1, "type": "ready"}).to_string().into(),
+                ))
                 .await
                 .unwrap();
             socket
@@ -1280,10 +1286,12 @@ mod tests {
 
         assert!(result.is_err());
         websocket.await.unwrap();
-        let received = received.lock().unwrap();
-        assert_eq!(received[0].event_type, "deployments.changed");
-        assert_eq!(received[1].deployment_id.as_deref(), Some("deployment-1"));
-        assert_eq!(received[1].runtime_generation, Some(3));
+        {
+            let received = received.lock().unwrap();
+            assert_eq!(received[0].event_type, "deployments.changed");
+            assert_eq!(received[1].deployment_id.as_deref(), Some("deployment-1"));
+            assert_eq!(received[1].runtime_generation, Some(3));
+        }
         list.assert_async().await;
         token.assert_async().await;
         drop(list);
