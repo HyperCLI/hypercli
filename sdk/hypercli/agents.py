@@ -3545,6 +3545,17 @@ class Deployments:
                             await result
             except asyncio.CancelledError:
                 raise
+            except APIError as exc:
+                if exc.status_code in {401, 403}:
+                    raise
+                if stop_event is None:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=retry_delay)
+                    except asyncio.TimeoutError:
+                        pass
+                retry_delay = min(retry_delay * 2, 5.0)
             except Exception:
                 if stop_event is None:
                     await asyncio.sleep(retry_delay)

@@ -65,6 +65,14 @@ impl HyperCliError {
     }
 }
 
+fn permanent_deployment_event_error(error: &HyperCliError) -> bool {
+    error.status().is_some_and(|status| {
+        status.is_client_error()
+            && status != StatusCode::REQUEST_TIMEOUT
+            && status != StatusCode::TOO_MANY_REQUESTS
+    })
+}
+
 impl HyperCliClient {
     pub fn new(config: ClientConfig) -> Result<Self, HyperCliError> {
         let http = HttpClient::builder()
@@ -319,7 +327,7 @@ impl HyperCliClient {
         loop {
             let mut socket = match self.connect_deployment_events().await {
                 Ok(socket) => socket,
-                Err(error) if error.status().is_some() => return Err(error),
+                Err(error) if permanent_deployment_event_error(&error) => return Err(error),
                 Err(_) => {
                     tokio::time::sleep(retry_delay).await;
                     retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
@@ -339,8 +347,9 @@ impl HyperCliClient {
             while let Some(message) = socket.next().await {
                 match message {
                     Ok(Message::Text(value)) => {
-                        let event: DeploymentEvent = serde_json::from_str(value.as_ref())
-                            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+                        let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref()) else {
+                            break;
+                        };
                         if event.version == 1
                             && matches!(
                                 event.event_type.as_str(),
@@ -351,10 +360,9 @@ impl HyperCliClient {
                         }
                     }
                     Ok(Message::Ping(value)) => {
-                        socket
-                            .send(Message::Pong(value))
-                            .await
-                            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+                        if socket.send(Message::Pong(value)).await.is_err() {
+                            break;
+                        }
                     }
                     Ok(Message::Close(_)) | Err(_) => break,
                     _ => {}
@@ -402,8 +410,20 @@ impl HyperCliClient {
             )? {
                 return Ok(deployment);
             }
+            let mut retry_delay = Duration::from_millis(250);
             loop {
-                let mut socket = self.connect_deployment_events().await?;
+                let mut socket = match self.connect_deployment_events().await {
+                    Ok(socket) => {
+                        retry_delay = Duration::from_millis(250);
+                        socket
+                    }
+                    Err(error) if permanent_deployment_event_error(&error) => return Err(error),
+                    Err(_) => {
+                        tokio::time::sleep(retry_delay).await;
+                        retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
+                        continue;
+                    }
+                };
                 if let Some(deployment) = check(
                     self.async_get_json(&format!("deployments/{deployment_id}"))
                         .await?,
@@ -412,10 +432,11 @@ impl HyperCliClient {
                 }
                 while let Some(message) = socket.next().await {
                     let Ok(Message::Text(value)) = message else {
-                        continue;
+                        break;
                     };
-                    let event: DeploymentEvent = serde_json::from_str(value.as_ref())
-                        .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+                    let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref()) else {
+                        break;
+                    };
                     if event.version != 1
                         || (event.deployment_id.as_deref().is_some()
                             && event.deployment_id.as_deref() != Some(deployment_id))

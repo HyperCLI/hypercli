@@ -2,6 +2,7 @@
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
 import { randomFillSync } from 'node:crypto';
+import NodeWebSocket from 'ws';
 import {
   agentSlotFromDict,
   type AgentSlot,
@@ -4108,11 +4109,16 @@ export class Deployments {
           token: string;
           ws_url: string;
         }>(`${DEPLOYMENTS_API_PREFIX}/events/token`);
-        const ws = new WebSocket(token.ws_url);
+        const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+        const ws = new WebSocketImpl(token.ws_url);
         await new Promise<void>((resolve, reject) => {
           let opened = false;
           let ready = false;
           let processing = Promise.resolve();
+          const readyTimer = setTimeout(() => {
+            ws.close(1002, 'Deployment event ready timed out');
+            reject(new Error('Deployment event ready timed out'));
+          }, 10_000);
           const abort = () => ws.close(1000, 'Subscription cancelled');
           options.signal?.addEventListener('abort', abort, { once: true });
           ws.addEventListener('open', () => {
@@ -4127,6 +4133,7 @@ export class Deployments {
                   throw new Error('Deployment event socket did not send ready');
                 }
                 ready = true;
+                clearTimeout(readyTimer);
                 await this.list();
                 await handler({ version: 1, type: 'deployments.changed' });
                 retryDelay = 250;
@@ -4145,6 +4152,7 @@ export class Deployments {
           });
           ws.addEventListener('error', () => reject(new Error('Deployment event WebSocket failed')));
           ws.addEventListener('close', () => {
+            clearTimeout(readyTimer);
             options.signal?.removeEventListener('abort', abort);
             processing.then(resolve, reject);
           });

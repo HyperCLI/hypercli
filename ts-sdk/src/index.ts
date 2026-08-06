@@ -289,6 +289,9 @@ export {
   type OpenClawStartAgentOptions,
   type StartAgentOptions,
   type AgentExecOptions,
+  type AgentState,
+  type DeploymentEvent,
+  type DeploymentSubscribeOptions,
 } from './agents.js';
 
 export {

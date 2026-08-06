@@ -131,6 +131,25 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [401, 403])
+async def test_subscribe_surfaces_permanent_auth_failure(monkeypatch, status_code):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    monkeypatch.setattr(deployments, "list", lambda: [])
+
+    def reject_token(_path):
+        raise APIError(status_code, "not authorized")
+
+    monkeypatch.setattr(deployments, "_post", reject_token)
+
+    with pytest.raises(APIError) as error:
+        await deployments.subscribe(lambda _event: None)
+
+    assert error.value.status_code == status_code
+
+
+@pytest.mark.asyncio
 async def test_wait_running_async_uses_event_wakeup_and_rest_confirmation(monkeypatch):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
