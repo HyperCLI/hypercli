@@ -92,9 +92,10 @@ session to align with existing conventions; the conceptual shape is:
 Normalization rules:
 
 1. Distinguish an omitted field from an explicit empty list.
-2. If a non-empty include is supplied, normalize and use it; discard/ignore
-   exclude because include wins. Emit a diagnostic when both were supplied so
-   the precedence is visible.
+2. If a non-null include is supplied, normalize and use it; discard/ignore
+   exclude because include wins. This includes an explicit empty list, which
+   means sync nothing. Emit a diagnostic when both were supplied so the
+   precedence is visible.
 3. Otherwise, if exclude is supplied, synchronize the full root minus those
    patterns.
 4. With neither policy, synchronize the complete root.

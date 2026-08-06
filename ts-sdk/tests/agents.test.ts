@@ -17,6 +17,7 @@ import {
   startSlackOAuth,
 } from '../src/agents.js';
 import { HyperCLI } from '../src/client.js';
+import { APIError } from '../src/errors.js';
 import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
@@ -197,6 +198,27 @@ describe('Agents SDK', () => {
 
     await expect(subscription).rejects.toThrow('aborted');
     expect(get.mock.calls[0]?.[2]?.signal).toBe(controller.signal);
+  });
+
+  it.each([401, 403])('treats deployment event token HTTP %i as terminal', async (statusCode) => {
+    const get = vi.fn().mockResolvedValue({ items: [] });
+    const failure = new APIError(statusCode, 'Deployment event access denied');
+    const post = vi.fn().mockRejectedValue(failure);
+    const deployments = new Deployments(
+      { get, post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.subscribe(() => undefined)).rejects.toBe(failure);
+
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith(
+      '/deployments/events/token',
+      undefined,
+      { signal: undefined },
+    );
   });
 
   it('backs off an unexpected clean close before reconnecting and resyncing', async () => {

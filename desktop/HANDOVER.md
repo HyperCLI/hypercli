@@ -170,7 +170,7 @@ Verified per-runtime contract (source-cited, one agent per runtime):
 | **opencode** | config file only (`~/.config/opencode/opencode.json`, baked); models are named `<provider>/<model>` | **fixed**: qualify bare `BUZZ_ACP_MODEL` → `hypercli/<model>` so the switch stops silently no-op'ing |
 | **claude-code** | `claude-agent-acp` uses the synced native Claude login by default; it inherits `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_MODEL` only in explicit HyperCLI compatibility mode | **native-first**; HyperCLI injection requires `HYPERCLI_RUNTIME_INFERENCE=hypercli` |
 | **kimi-code** | pinned Kimi 0.31 uses its synced native login/config by default; compatibility mode synthesizes an in-memory provider from `KIMI_MODEL_*` env | **native-first**; HyperCLI injection requires `HYPERCLI_RUNTIME_INFERENCE=hypercli` |
-| **codex** | `codex-acp` uses its synced native login by default; compatibility mode forwards a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url` and `env_key` | **native-first; HyperCLI inference blocked**: codex ≥0.146 requires `wire_api = "responses"`; our gateway serves Anthropic Messages and chat-completions |
+| **codex** | `codex-acp` uses its synced native login by default; compatibility mode forwards a `CODEX_CONFIG` overlay with `model_providers.<id>.base_url`, `env_key`, and `wire_api = "responses"` | **native-first; compatibility unvalidated**: the gateway now exposes `/v1/responses`, but no successful HyperCLI-model Codex Responses E2E has proven the full path yet |
 
 Upstream login behavior is not uniform. Claude and Codex are built-ins with
 local auth probes (`claude auth status`, `codex login status`), while Kimi is a
@@ -181,8 +181,9 @@ native vendor login/config. Only the exact opt-in
 `HYPERCLI_RUNTIME_INFERENCE=hypercli` makes `hypercli-buzz-acp` derive a child
 environment from Lagoon's inherited `HYPER_API_BASE` +
 `HYPER_AGENTS_API_KEY` before each lazy spawn/respawn. It never persists the
-key and never mixes with explicit native runtime env. Codex still cannot infer
-through HyperCLI until the gateway serves Responses.
+key and never mixes with explicit native runtime env. The gateway now exposes
+the Responses route Codex requires, but keep HyperCLI Codex inference marked
+unvalidated until a real model request completes through that surface.
 
 Provider-level translation for Buzz Agent, Goose, and OpenCode lives in
 `apply_hypercli_inference_defaults` (`buzz-backend-provider/src/lib.rs`),
@@ -226,7 +227,7 @@ The backend provider smoke now uses the private shared dev `#CI` relay and
 invokes the exact one-shot provider binary against immutable candidate images.
 Buzz Agent, OpenCode, Goose, and Kimi must subscribe and return a non-empty
 reply within 60 seconds; Codex and Claude validate their native auth/config
-surfaces without pretending unsupported inference works. Every case publishes
+surfaces without claiming an unproven model-response E2E. Every case publishes
 owner-signed `!shutdown`, verifies the slot is released, and removes its
 deployment and Nostr identity. Backend candidate `c3da7fdd` passed all six
 runtime-image lanes, all six provider lanes, and the dynamic-route lifecycle;
