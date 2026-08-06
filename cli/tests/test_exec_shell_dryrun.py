@@ -2,12 +2,15 @@ from types import SimpleNamespace
 
 import pytest
 from typer import BadParameter
+from hypercli.agents import (
+    AGENT_FILE_MAX_BYTES,
+    DEFAULT_HERMES_AGENT_IMAGE,
+    DEFAULT_OPENCLAW_PRO_IMAGE,
+)
 from typer.testing import CliRunner
 
-from hypercli.agents import AGENT_FILE_MAX_BYTES, DEFAULT_OPENCLAW_PRO_IMAGE
-from hypercli_cli.cli import app
 from hypercli_cli import agents as agents_module
-
+from hypercli_cli.cli import app
 
 runner = CliRunner()
 FULL_JOB_ID = "123e4567-e89b-12d3-a456-426614174000"
@@ -481,6 +484,65 @@ def test_agents_create_sync_all_clears_saved_selective_policy(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["sync_all"] is True
+    assert "sync_include" not in captured
+    assert "sync_exclude" not in captured
+
+
+def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_hermes_agent(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-hermes-dryrun",
+                pod_name="agent-hermes-dryrun",
+                name="agent-hermes-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                api_url="https://hermes-demo.hypercli.app",
+                ports=[],
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        [
+            "agents",
+            "create",
+            "--runtime",
+            "hermes-agent",
+            "--dry-run",
+            "--name",
+            "demo",
+            "--sync-all",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["image"] == DEFAULT_HERMES_AGENT_IMAGE
+    assert captured["env"] is None
+    assert captured["api_server_key"] is None
+    assert captured["sync_all"] is True
+    assert "https://hermes-demo.hypercli.app" in result.stdout
+    assert "Desktop" not in result.stdout
+
+
+def test_agents_create_hermes_rejects_openclaw_only_flags(monkeypatch):
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: SimpleNamespace())
+
+    result = runner.invoke(
+        app,
+        ["agents", "create", "--runtime", "hermes-agent", "--dry-run", "--desktop"],
+    )
+
+    assert result.exit_code != 0
+    assert "Hermes Agent does not support OpenClaw-only" in result.stderr
+    assert "options: desktop" in result.stderr
 
 
 def test_agents_start_reuses_saved_launch_fields_as_top_level(monkeypatch):
@@ -670,6 +732,68 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
     assert captured["env"]["SAVED"] == "1"
     assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:saved"
     assert captured["gateway_token"] == "saved-gateway-token"
+
+
+def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
+    captured = {}
+    agent_id = "22222222-2222-4222-8222-222222222222"
+    saved_state = {
+        agent_id: {
+            "id": agent_id,
+            "runtime": "hermes-agent",
+            "api_server_key": "saved-api-server-key",
+            "launch_config": {
+                "config": {"model": {"default": "hyper/model"}},
+                "env": {"SAVED": "1"},
+                "image": "ghcr.io/hypercli/hypercli-hermes-agent:saved",
+                "routes": {"hermes-agent": {"port": 8642, "auth": False, "prefix": ""}},
+                "sync_root": "/opt/data",
+                "sync_uid": 10000,
+                "sync_gid": 10000,
+            },
+        }
+    }
+
+    class FakeDeployments:
+        def get(self, agent_ref):
+            assert agent_ref == "hermes-demo"
+            return SimpleNamespace(
+                id=agent_id,
+                runtime="hermes-agent",
+                launch_config=None,
+                api_server_key=None,
+            )
+
+        def start_hermes_agent(self, agent_id_arg, **kwargs):
+            captured["agent_id"] = agent_id_arg
+            captured.update(kwargs)
+            return SimpleNamespace(id=agent_id_arg, pod_name="hermes-pod", dry_run=True, api_url=None)
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: saved_state)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        [
+            "agents",
+            "start",
+            "hermes-demo",
+            "--dry-run",
+            "--env",
+            "NEW=2",
+            "--sync-all",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["agent_id"] == agent_id
+    assert captured["api_server_key"] == "saved-api-server-key"
+    assert captured["config"] == {"model": {"default": "hyper/model"}}
+    assert captured["env"] == {"SAVED": "1", "NEW": "2"}
+    assert captured["sync_root"] == "/opt/data"
+    assert captured["sync_uid"] == 10000
+    assert captured["sync_gid"] == 10000
+    assert captured["sync_all"] is True
 
 
 def test_agents_delete_by_name_removes_canonical_state(monkeypatch):

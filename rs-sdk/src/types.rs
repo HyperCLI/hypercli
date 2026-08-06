@@ -11,6 +11,7 @@ pub enum ManagedRuntime {
     Generic,
     Openclaw,
     OpenclawPro,
+    HermesAgent,
     BuzzAgent,
     Opencode,
     Codex,
@@ -33,7 +34,7 @@ impl ManagedRuntime {
             Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-buzz-claude:latest"),
             Self::Goose => Some("ghcr.io/hypercli/hypercli-buzz-goose:latest"),
             Self::KimiCode => Some("ghcr.io/hypercli/hypercli-buzz-kimi-code:latest"),
-            Self::Generic | Self::Openclaw | Self::OpenclawPro => None,
+            Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
         }
     }
 
@@ -55,7 +56,7 @@ impl ManagedRuntime {
             Self::ClaudeCode => Some(&[".claude", ".claude.json"]),
             Self::Goose => Some(&[".goose"]),
             Self::KimiCode => Some(&[".kimi-code"]),
-            Self::Generic | Self::Openclaw | Self::OpenclawPro => None,
+            Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
         }
     }
 }

@@ -49,6 +49,7 @@ import type {
   OpenClawSlackRelayConfiguration,
   OpenClawSlackSocketConfiguration,
 } from './openclaw/slack.js';
+import { HermesApiClient } from './hermes/gateway.js';
 
 const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
@@ -57,6 +58,7 @@ const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
 export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
+export const DEFAULT_HERMES_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-hermes-agent:latest';
 export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
 export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
 export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude-code:latest';
@@ -82,6 +84,7 @@ export type ManagedAgentRuntime =
   | 'generic'
   | 'openclaw'
   | 'openclaw-pro'
+  | 'hermes-agent'
   | 'buzz-agent'
   | 'opencode'
   | 'codex'
@@ -220,6 +223,9 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'runtime_scopes',
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
+export const DEFAULT_HERMES_AGENT_SYNC_ROOT = '/opt/data';
+export const DEFAULT_HERMES_AGENT_SYNC_UID = 10000;
+export const DEFAULT_HERMES_AGENT_SYNC_GID = 10000;
 export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
 export const AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024;
 export const AGENT_FILE_OPERATION_TIMEOUT_MS = 300_000;
@@ -589,6 +595,12 @@ export interface OpenClawRouteOptions {
   desktopPrefix?: string;
 }
 
+export interface HermesAgentRouteOptions {
+  port?: number;
+  auth?: boolean;
+  prefix?: string;
+}
+
 export interface OpenClawMemoryIndexOptions {
   enabled?: boolean | null;
   onSessionStart?: boolean | null;
@@ -763,6 +775,18 @@ export interface OpenClawStartAgentOptions extends StartAgentOptions {
   heartbeat?: OpenClawHeartbeatConfig | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+}
+
+export interface HermesAgentCreateOptions extends CreateAgentOptions {
+  hermesRoute?: HermesAgentRouteOptions | null;
+  /** Explicit inbound Hermes API credential; a fresh 32-byte key is generated when omitted. */
+  apiServerKey?: string | null;
+}
+
+export interface HermesAgentStartOptions extends StartAgentOptions {
+  hermesRoute?: HermesAgentRouteOptions | null;
+  /** Explicit inbound Hermes API credential; a fresh 32-byte key is generated when omitted. */
+  apiServerKey?: string | null;
 }
 
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime' | 'injectGatewayToken'> {
@@ -1786,6 +1810,18 @@ function defaultOpenClawProImage(
   return DEFAULT_OPENCLAW_PRO_IMAGE;
 }
 
+function defaultHermesAgentImage(image: string | null | undefined): string {
+  if (image !== undefined && image !== null) return image;
+  return DEFAULT_HERMES_AGENT_IMAGE;
+}
+
+function resolveHermesApiServerKey(explicit: string | null | undefined, env: Record<string, string> | undefined): string {
+  const supplied = explicit?.trim() || env?.API_SERVER_KEY?.trim() || '';
+  const key = supplied || randomHexToken(32);
+  if (key.length < 32) throw new Error('Hermes API_SERVER_KEY must be at least 32 characters');
+  return key;
+}
+
 function productApiBaseFromAgentsApiBase(apiBase: string): string {
   const normalized = apiBase.replace(/\/+$/, '');
   const agentsSuffix = '/agents';
@@ -1986,6 +2022,16 @@ export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<
     };
   }
   return routes;
+}
+
+export function buildHermesAgentRoutes(options: HermesAgentRouteOptions = {}): Record<string, AgentRouteConfig> {
+  return {
+    hermes: {
+      port: options.port ?? 8642,
+      auth: options.auth ?? false,
+      prefix: options.prefix ?? '',
+    },
+  };
 }
 
 function envBool(value: unknown): string {
@@ -2709,6 +2755,58 @@ export class KimiCodeAgent extends CodingAgent {
   static override readonly defaultSyncInclude = DEFAULT_CODING_AGENT_SYNC_INCLUDES['kimi-code'];
   static override fromDict(data: AgentHydrationData): KimiCodeAgent {
     return new KimiCodeAgent(agentStateFromDict(data));
+  }
+}
+
+export class HermesAgent extends Agent {
+  declare public readonly runtime: 'hermes-agent';
+  public readonly apiUrl: string | null;
+  public readonly openaiBaseUrl: string | null;
+  /** Available only on the instance returned by createHermesAgent/startHermesAgent. */
+  public apiServerKey: string | null;
+
+  constructor(fields: AgentStateFields & { apiUrl?: string | null; apiServerKey?: string | null }) {
+    super(fields);
+    this.apiUrl = fields.apiUrl ?? this.routeUrl('hermes', '');
+    this.openaiBaseUrl = this.apiUrl ? `${this.apiUrl.replace(/\/+$/, '')}/v1` : null;
+    this.apiServerKey = fields.apiServerKey ?? null;
+  }
+
+  static override fromDict(data: AgentHydrationData): HermesAgent {
+    const fields = agentStateFromDict(data);
+    if (fields.launchConfig?.env && typeof fields.launchConfig.env === 'object') {
+      fields.launchConfig = structuredClone(fields.launchConfig);
+      delete fields.launchConfig.env.API_SERVER_KEY;
+    }
+    return new HermesAgent({
+      ...fields,
+      // Never recover API_SERVER_KEY from launch_config or process env.
+      apiServerKey: null,
+    });
+  }
+
+  /** Create a client for this agent's authenticated Hermes API. */
+  get api(): HermesApiClient | null {
+    if (!this.apiUrl || !this.apiServerKey) return null;
+    return new HermesApiClient(this.apiUrl, { apiKey: this.apiServerKey });
+  }
+
+  /** Require a ready URL and the one-time SDK-retained API server key. */
+  apiClient(): HermesApiClient {
+    const client = this.api;
+    if (!client) {
+      throw new Error('Hermes API context is unavailable; use the HermesAgent returned by createHermesAgent/startHermesAgent after its hostname is attached');
+    }
+    return client;
+  }
+
+  override async waitRunning(timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<HermesAgent> {
+    const ready = await super.waitRunning(timeoutMs, pollIntervalMs);
+    if (!(ready instanceof HermesAgent)) {
+      throw new Error("Running deployment did not identify runtime 'hermes-agent'");
+    }
+    ready.apiServerKey = this.apiServerKey;
+    return ready;
   }
 }
 
@@ -3676,7 +3774,9 @@ export class Deployments {
 
   private hydrateAgent(data: AgentHydrationData): Agent {
     let agent: Agent;
-    if (data.runtime === 'buzz-agent') {
+    if (data.runtime === 'hermes-agent') {
+      agent = HermesAgent.fromDict(data);
+    } else if (data.runtime === 'buzz-agent') {
       agent = BuzzAgent.fromDict(data);
     } else if (data.runtime === 'opencode') {
       agent = OpenCodeAgent.fromDict(data);
@@ -3826,6 +3926,43 @@ export class Deployments {
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.create(effectiveOptions);
+  }
+
+  async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
+    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env);
+    const env: Record<string, string> = {
+      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
+      ...(options.env ?? {}),
+      API_SERVER_ENABLED: 'true',
+      API_SERVER_HOST: '0.0.0.0',
+      API_SERVER_KEY: apiServerKey,
+    };
+    delete env.OPENCLAW_GATEWAY_TOKEN;
+    const effectiveOptions: CreateAgentOptions = {
+      ...options,
+      runtime: 'hermes-agent',
+      env,
+      image: defaultHermesAgentImage(options.image),
+      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
+      injectGatewayToken: false,
+      syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
+      syncEnabled: options.syncEnabled ?? true,
+      syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
+      syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
+      routes: options.routes === undefined
+        ? buildHermesAgentRoutes(options.hermesRoute ?? {})
+        : options.routes,
+    };
+    const agent = await this.create(effectiveOptions);
+    if (!(agent instanceof HermesAgent)) {
+      throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
+    }
+    agent.apiServerKey = apiServerKey;
+    if (agent.launchConfig?.env && typeof agent.launchConfig.env === 'object') {
+      agent.launchConfig = structuredClone(agent.launchConfig);
+      delete agent.launchConfig.env.API_SERVER_KEY;
+    }
+    return agent;
   }
 
   async createOpenClawPro(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
@@ -4309,6 +4446,38 @@ export class Deployments {
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentIdOrName, effectiveOptions);
+  }
+
+  async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions = {}): Promise<HermesAgent> {
+    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env);
+    const env: Record<string, string> = {
+      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
+      ...(options.env ?? {}),
+      API_SERVER_ENABLED: 'true',
+      API_SERVER_HOST: '0.0.0.0',
+      API_SERVER_KEY: apiServerKey,
+    };
+    delete env.OPENCLAW_GATEWAY_TOKEN;
+    const effectiveOptions: StartAgentOptions = {
+      ...options,
+      env,
+      image: defaultHermesAgentImage(options.image),
+      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
+      injectGatewayToken: false,
+      syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
+      syncEnabled: options.syncEnabled ?? true,
+      syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
+      syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
+      routes: options.routes === undefined
+        ? buildHermesAgentRoutes(options.hermesRoute ?? {})
+        : options.routes,
+    };
+    const agent = await this.start(agentIdOrName, effectiveOptions);
+    if (!(agent instanceof HermesAgent)) {
+      throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
+    }
+    agent.apiServerKey = apiServerKey;
+    return agent;
   }
 
   async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
