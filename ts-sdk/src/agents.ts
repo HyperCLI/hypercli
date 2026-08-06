@@ -1781,8 +1781,12 @@ export function buildAgentConfig(
     prepared.sync_include = null;
     prepared.sync_exclude = null;
   } else {
-    if (options.syncInclude != null) prepared.sync_include = [...options.syncInclude];
-    if (options.syncExclude != null) prepared.sync_exclude = [...options.syncExclude];
+    if (options.syncInclude !== undefined) {
+      prepared.sync_include = options.syncInclude === null ? null : [...options.syncInclude];
+    }
+    if (options.syncExclude !== undefined) {
+      prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
+    }
   }
   if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = options.syncUid;
   if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
@@ -4017,26 +4021,26 @@ export class Deployments {
     if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
-    let syncInclude: readonly string[] | null;
-    let syncExclude: readonly string[] | null;
+    let syncInclude: readonly string[] | undefined;
+    let syncExclude: readonly string[] | undefined;
     let syncAll = options.syncAll === true;
     if (options.syncAll) {
-      syncInclude = null;
-      syncExclude = null;
+      syncInclude = undefined;
+      syncExclude = undefined;
     } else if (options.syncInclude !== undefined && options.syncInclude !== null) {
       syncInclude = options.syncInclude;
-      syncExclude = null;
+      syncExclude = undefined;
     } else if (options.syncExclude !== undefined) {
-      syncInclude = null;
-      syncExclude = options.syncExclude;
+      syncInclude = undefined;
+      syncExclude = options.syncExclude ?? undefined;
       syncAll = options.syncExclude === null;
     } else if (options.syncInclude === null) {
-      syncInclude = null;
-      syncExclude = null;
+      syncInclude = undefined;
+      syncExclude = undefined;
       syncAll = true;
     } else {
       syncInclude = CODING_AGENT_CLASSES[runtime].defaultSyncInclude;
-      syncExclude = null;
+      syncExclude = undefined;
     }
     const effectiveOptions: CreateAgentOptions = {
       ...options,

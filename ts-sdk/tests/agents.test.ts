@@ -75,6 +75,28 @@ describe('Agents SDK', () => {
     expect(disabled.restart).toBe(false);
   });
 
+  it('preserves omitted, null, and empty sync policy fields', () => {
+    const omitted = buildAgentConfig({}, { injectGatewayToken: false }).config;
+    const includeAll = buildAgentConfig({}, {
+      injectGatewayToken: false,
+      syncInclude: null,
+    }).config;
+    const excludeAll = buildAgentConfig({}, {
+      injectGatewayToken: false,
+      syncExclude: null,
+    }).config;
+    const syncNothing = buildAgentConfig({}, {
+      injectGatewayToken: false,
+      syncInclude: [],
+    }).config;
+
+    expect(omitted).not.toHaveProperty('sync_include');
+    expect(omitted).not.toHaveProperty('sync_exclude');
+    expect(includeAll).toEqual({ sync_include: null });
+    expect(excludeAll).toEqual({ sync_exclude: null });
+    expect(syncNothing).toEqual({ sync_include: [] });
+  });
+
   it('serializes runtime scopes as a top-level launch field', () => {
     const { config } = buildAgentConfig({}, {
       injectGatewayToken: false,
@@ -419,6 +441,9 @@ describe('Agents SDK', () => {
     await expect(
       deployments.start('self', { image: 'ghcr.io/example/override:latest' }),
     ).rejects.toThrow('backend-stored launch configuration');
+    await expect(
+      deployments.start('self', { syncInclude: null }),
+    ).rejects.toThrow('syncInclude');
     await expect(deployments.startOpenClaw('self')).rejects.toThrow(
       'backend-stored launch configuration',
     );
@@ -882,6 +907,33 @@ describe('Agents SDK', () => {
       sync_include: null,
       sync_exclude: null,
     });
+  });
+
+  it('distinguishes omitted and explicit null sync fields when starting', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-sync-presence',
+      user_id: 'user-456',
+      state: 'STARTING',
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agentId = '11111111-1111-4111-8111-111111111111';
+
+    await deployments.start(agentId);
+    await deployments.start(agentId, { syncInclude: null });
+    await deployments.start(agentId, { syncExclude: null });
+    await deployments.start(agentId, { syncInclude: [] });
+
+    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_include');
+    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_exclude');
+    expect(post.mock.calls[1][1]).toHaveProperty('sync_include', null);
+    expect(post.mock.calls[1][1]).not.toHaveProperty('sync_exclude');
+    expect(post.mock.calls[2][1]).toHaveProperty('sync_exclude', null);
+    expect(post.mock.calls[2][1]).not.toHaveProperty('sync_include');
+    expect(post.mock.calls[3][1]).toHaveProperty('sync_include', []);
   });
 
   it('retains the backend-hydrated launch config after start', async () => {
