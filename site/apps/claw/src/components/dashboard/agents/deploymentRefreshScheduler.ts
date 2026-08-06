@@ -3,6 +3,11 @@ export interface DeploymentRefreshScheduler {
   dispose(): void;
 }
 
+export interface DeploymentRefreshSchedulerOptions {
+  retryDelayMs?: number;
+  maxRetryDelayMs?: number;
+}
+
 export interface DeploymentSubscriptionRecovery {
   markHealthy(): void;
   retryAfterFailure(retry: () => void): number;
@@ -58,11 +63,39 @@ export function createDeploymentSubscriptionRecovery(
 
 export function createDeploymentRefreshScheduler(
   refresh: (includeEnrichment: boolean) => Promise<unknown>,
+  options: DeploymentRefreshSchedulerOptions = {},
 ): DeploymentRefreshScheduler {
+  const retryDelayMs = Math.max(1, options.retryDelayMs ?? 1_000);
+  const maxRetryDelayMs = Math.max(retryDelayMs, options.maxRetryDelayMs ?? 30_000);
   let running = false;
   let pending = false;
   let enrichmentPending = false;
   let disposed = false;
+  let failures = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearRetryTimer = () => {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
+  };
+
+  const startDrain = () => {
+    if (disposed || running || retryTimer !== null || !pending) return;
+    running = true;
+    void drain().catch(() => undefined);
+  };
+
+  const scheduleRetry = () => {
+    if (disposed || retryTimer !== null || !pending) return;
+    const delayMs = Math.min(
+      retryDelayMs * (2 ** Math.min(Math.max(failures - 1, 0), 20)),
+      maxRetryDelayMs,
+    );
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      startDrain();
+    }, delayMs);
+  };
 
   const drain = async () => {
     try {
@@ -70,10 +103,22 @@ export function createDeploymentRefreshScheduler(
         pending = false;
         const includeEnrichment = enrichmentPending;
         enrichmentPending = false;
-        await refresh(includeEnrichment);
+        try {
+          await refresh(includeEnrichment);
+          failures = 0;
+        } catch (error) {
+          // An invalidation is an edge-triggered hint. Preserve it until the
+          // authoritative REST snapshot succeeds, otherwise one transient
+          // failure can strand the UI indefinitely with no later event.
+          pending = true;
+          enrichmentPending ||= includeEnrichment;
+          failures += 1;
+          throw error;
+        }
       }
     } finally {
       running = false;
+      scheduleRetry();
     }
   };
 
@@ -82,14 +127,13 @@ export function createDeploymentRefreshScheduler(
       if (disposed) return;
       pending = true;
       enrichmentPending ||= includeEnrichment;
-      if (running) return;
-      running = true;
-      void drain().catch(() => undefined);
+      startDrain();
     },
     dispose() {
       disposed = true;
       pending = false;
       enrichmentPending = false;
+      clearRetryTimer();
     },
   };
 }
