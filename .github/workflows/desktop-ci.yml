@@ -5,6 +5,7 @@ name: Desktop CI
 # gates in other workflows do not cover it. This closes that blind spot.
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
