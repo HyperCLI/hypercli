@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -66,6 +66,61 @@ pub enum AgentSize {
     Small,
     Medium,
     Large,
+}
+
+/// A value that is explicitly present on the wire and may be JSON `null`.
+///
+/// Request fields wrap this in `Option`: outer `None` means omit/inherit,
+/// `Some(Nullable::Null)` means clear, and `Some(Nullable::Value(value))`
+/// applies the supplied value. This keeps restart policy updates tri-state.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Nullable<T> {
+    Null,
+    Value(T),
+}
+
+impl<T> From<T> for Nullable<T> {
+    fn from(value: T) -> Self {
+        Self::Value(value)
+    }
+}
+
+impl<T> Serialize for Nullable<T>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Null => serializer.serialize_none(),
+            Self::Value(value) => value.serialize(serializer),
+        }
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Nullable<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(match Option::<T>::deserialize(deserializer)? {
+            Some(value) => Self::Value(value),
+            None => Self::Null,
+        })
+    }
+}
+
+fn deserialize_present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Nullable<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Nullable::deserialize(deserializer).map(Some)
 }
 
 impl AgentSize {
@@ -724,10 +779,18 @@ pub struct StartDeploymentRequest {
     pub sync_root: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_enabled: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_include: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_exclude: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present_nullable"
+    )]
+    pub sync_include: Option<Nullable<Vec<String>>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present_nullable"
+    )]
+    pub sync_exclude: Option<Nullable<Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_uid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -738,6 +801,18 @@ pub struct StartDeploymentRequest {
     pub runtime_scopes: Vec<String>,
     #[serde(default)]
     pub dry_run: bool,
+}
+
+impl StartDeploymentRequest {
+    /// Apply an explicit sync policy on restart.
+    ///
+    /// Passing `None` for both lists emits JSON `null` for both fields and
+    /// clears any saved selective policy. Leaving the request fields at their
+    /// default outer `None` omits them and inherits the saved policy instead.
+    pub fn set_sync_policy(&mut self, include: Option<Vec<String>>, exclude: Option<Vec<String>>) {
+        self.sync_include = Some(include.map_or(Nullable::Null, Nullable::Value));
+        self.sync_exclude = Some(exclude.map_or(Nullable::Null, Nullable::Value));
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1417,14 +1492,32 @@ mod tests {
         let round_trip: CreateDeploymentRequest = serde_json::from_value(wire).unwrap();
         assert_eq!(round_trip.sync_include, Some(Vec::new()));
 
-        let start = StartDeploymentRequest {
-            sync_include: Some(Vec::new()),
-            ..Default::default()
-        };
+        let inherited = StartDeploymentRequest::default();
+        let inherited_wire = serde_json::to_value(&inherited).unwrap();
+        assert!(inherited_wire.get("sync_include").is_none());
+        assert!(inherited_wire.get("sync_exclude").is_none());
+
+        let mut start = StartDeploymentRequest::default();
+        start.set_sync_policy(Some(Vec::new()), None);
+        let start_wire = serde_json::to_value(&start).unwrap();
+        assert_eq!(start_wire["sync_include"], serde_json::json!([]));
+        assert!(start_wire["sync_exclude"].is_null());
+        let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_wire).unwrap();
         assert_eq!(
-            serde_json::to_value(start).unwrap()["sync_include"],
-            serde_json::json!([])
+            start_round_trip.sync_include,
+            Some(Nullable::Value(Vec::new()))
         );
+        assert_eq!(start_round_trip.sync_exclude, Some(Nullable::Null));
+
+        let mut full_root = StartDeploymentRequest::default();
+        full_root.set_sync_policy(None, None);
+        let full_root_wire = serde_json::to_value(&full_root).unwrap();
+        assert!(full_root_wire["sync_include"].is_null());
+        assert!(full_root_wire["sync_exclude"].is_null());
+        let full_root_round_trip: StartDeploymentRequest =
+            serde_json::from_value(full_root_wire).unwrap();
+        assert_eq!(full_root_round_trip.sync_include, Some(Nullable::Null));
+        assert_eq!(full_root_round_trip.sync_exclude, Some(Nullable::Null));
     }
 
     #[test]

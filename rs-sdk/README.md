@@ -59,6 +59,13 @@ after reconnect. There is no client ACK or durable client outbox.
 states continue to parse. Placement, runtime, and optional finalize epochs are
 opaque correlation hints; REST is the snapshot.
 
+Restart sync policy is deliberately tri-state. A default
+`StartDeploymentRequest` omits the fields and inherits the saved policy;
+`set_sync_policy(None, None)` emits explicit `null/null` and selects the full
+sync root; `set_sync_policy(Some(vec![]), None)` emits `[]/null` and selects
+nothing. This distinction is required for a stopped deployment to clear an
+older selective policy.
+
 ## Plans and agent capacity
 
 Plan IDs remain `String` values so future and historical plans keep parsing;

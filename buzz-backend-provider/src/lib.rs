@@ -628,7 +628,7 @@ fn restart_if_stopped(
     if !deployment.state.eq_ignore_ascii_case("stopped") {
         return Ok(deployment);
     }
-    let start = StartDeploymentRequest {
+    let mut start = StartDeploymentRequest {
         config: create.config.clone(),
         env: create.env.clone(),
         routes: create.routes.clone(),
@@ -637,14 +637,18 @@ fn restart_if_stopped(
         image: create.image.clone(),
         sync_root: create.sync_root.clone(),
         sync_enabled: create.sync_enabled,
-        sync_include: create.sync_include.clone(),
-        sync_exclude: create.sync_exclude.clone(),
+        sync_include: None,
+        sync_exclude: None,
         sync_uid: create.sync_uid,
         sync_gid: create.sync_gid,
         restart: create.restart,
         runtime_scopes: create.runtime_scopes.clone(),
         dry_run: false,
     };
+    // This is a declarative relaunch of the provider-owned create contract,
+    // not an ordinary user restart. Preserve all three sync states, including
+    // explicit full-root (`null/null`) rather than inheriting stale policy.
+    start.set_sync_policy(create.sync_include.clone(), create.sync_exclude.clone());
     client
         .start_deployment(&deployment.id, &start)
         .map_err(ProviderError::HyperCli)
@@ -2487,6 +2491,67 @@ mod tests {
         lookup.assert();
         restart.assert();
         ready.assert();
+    }
+
+    #[test]
+    fn stopped_agent_relaunch_clears_stale_selective_sync_policy() {
+        let mut server = Server::new();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({
+                    "sync_include": null,
+                    "sync_exclude": null
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
+            .create();
+        let deployment: Deployment = serde_json::from_value(serde_json::json!({
+            "id": "existing",
+            "runtime": "opencode",
+            "state": "stopped"
+        }))
+        .unwrap();
+        let create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+
+        let restarted = restart_if_stopped(&client(&server), deployment, &create).unwrap();
+
+        assert_eq!(restarted.id, "existing");
+        restart.assert();
+    }
+
+    #[test]
+    fn stopped_agent_relaunch_reapplies_selective_sync_policy() {
+        let mut server = Server::new();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({
+                    "sync_include": [".config/opencode"],
+                    "sync_exclude": null
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
+            .create();
+        let deployment: Deployment = serde_json::from_value(serde_json::json!({
+            "id": "existing",
+            "runtime": "opencode",
+            "state": "stopped"
+        }))
+        .unwrap();
+        let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        create.sync_include = Some(vec![".config/opencode".to_owned()]);
+
+        let restarted = restart_if_stopped(&client(&server), deployment, &create).unwrap();
+
+        assert_eq!(restarted.id, "existing");
+        restart.assert();
     }
 
     #[test]
