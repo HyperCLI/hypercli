@@ -484,6 +484,8 @@ def test_agents_create_sync_all_clears_saved_selective_policy(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["sync_all"] is True
+    assert "sync_include" not in captured
+    assert "sync_exclude" not in captured
 
 
 def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
