@@ -363,24 +363,38 @@ impl HyperCliClient {
         }
     }
 
-    /// Wait for RUNNING using WebSocket wakeups and REST confirmation.
-    pub async fn wait_deployment_running(
+    /// Wait for a deployment state using WebSocket wakeups and REST confirmation.
+    pub async fn wait_deployment_state(
         &self,
         deployment_id: &str,
+        states: &[&str],
+        failure_states: &[&str],
         timeout: Duration,
     ) -> Result<Deployment, HyperCliError> {
+        if states.is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "deployment wait states must not be empty".to_owned(),
+            ));
+        }
         tokio::time::timeout(timeout, async {
             let check = |deployment: Deployment| -> Result<Option<Deployment>, HyperCliError> {
-                match deployment.state.to_ascii_uppercase().as_str() {
-                    "RUNNING" => Ok(Some(deployment)),
-                    "FAILED" | "RESTORE_FAILED" | "SYNC_FAILED" => Err(
-                        HyperCliError::InvalidResponse(format!(
-                            "deployment entered {} while waiting for RUNNING",
-                            deployment.state
-                        )),
-                    ),
-                    _ => Ok(None),
+                if states
+                    .iter()
+                    .any(|state| deployment.state.eq_ignore_ascii_case(state))
+                {
+                    return Ok(Some(deployment));
                 }
+                if failure_states
+                    .iter()
+                    .any(|state| deployment.state.eq_ignore_ascii_case(state))
+                {
+                    return Err(HyperCliError::InvalidResponse(format!(
+                        "deployment entered {} while waiting for {}",
+                        deployment.state,
+                        states.join(", ")
+                    )));
+                }
+                Ok(None)
             };
             if let Some(deployment) = check(
                 self.async_get_json(&format!("deployments/{deployment_id}"))
@@ -419,6 +433,21 @@ impl HyperCliClient {
         })
         .await
         .map_err(|_| HyperCliError::Transport("deployment wait timed out".to_owned()))?
+    }
+
+    /// Wait for RUNNING using WebSocket wakeups and REST confirmation.
+    pub async fn wait_deployment_running(
+        &self,
+        deployment_id: &str,
+        timeout: Duration,
+    ) -> Result<Deployment, HyperCliError> {
+        self.wait_deployment_state(
+            deployment_id,
+            &["running"],
+            &["failed", "restore_failed", "sync_failed"],
+            timeout,
+        )
+        .await
     }
 
     pub fn create_deployment(

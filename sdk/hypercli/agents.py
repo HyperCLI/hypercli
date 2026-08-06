@@ -3555,21 +3555,34 @@ class Deployments:
                         pass
                 retry_delay = min(retry_delay * 2, 5.0)
 
-    async def wait_running_async(self, agent_id_or_name: str, timeout: float = 300.0) -> Agent:
-        """Wait for RUNNING using WebSocket wakeups and REST confirmation."""
+    async def wait_for_state_async(
+        self,
+        agent_id_or_name: str,
+        states: set[str],
+        *,
+        timeout: float = 300.0,
+        failure_states: set[str] | None = None,
+    ) -> Agent:
+        """Wait for one of ``states`` using WebSocket wakeups and REST confirmation."""
         agent_id = await asyncio.to_thread(self.resolve_agent_id, agent_id_or_name)
         deadline = asyncio.get_running_loop().time() + timeout
         wake = asyncio.Event()
         last_agent: Agent | None = None
+        desired = {state.lower() for state in states}
+        failures = {state.lower() for state in (failure_states or set())}
+        if not desired:
+            raise ValueError("states must not be empty")
 
         def check(agent: Agent) -> Agent | None:
             nonlocal last_agent
             last_agent = agent
             state = str(agent.state or "")
-            if state.lower() == "running":
+            if state.lower() in desired:
                 return agent
-            if state.lower() in {"failed", "error", "restore_failed", "sync_failed"}:
-                raise RuntimeError(f"Agent entered {state} while waiting for RUNNING")
+            if state.lower() in failures:
+                raise RuntimeError(
+                    f"Agent entered {state} while waiting for {', '.join(sorted(states))}"
+                )
             return None
 
         initial = check(await asyncio.to_thread(self.get, agent_id))
@@ -3605,7 +3618,41 @@ class Deployments:
         if final is not None:
             return final
         last_state = str(last_agent.state or "") if last_agent is not None else "unknown"
-        raise TimeoutError(f"Timed out waiting for agent {agent_id} to reach RUNNING (last={last_state})")
+        raise TimeoutError(
+            f"Timed out waiting for agent {agent_id} to reach "
+            f"{', '.join(sorted(states))} (last={last_state})"
+        )
+
+    async def wait_running_async(self, agent_id_or_name: str, timeout: float = 300.0) -> Agent:
+        """Wait for RUNNING using WebSocket wakeups and REST confirmation."""
+        return await self.wait_for_state_async(
+            agent_id_or_name,
+            {"running"},
+            timeout=timeout,
+            failure_states={"failed", "error", "restore_failed", "sync_failed"},
+        )
+
+    def wait_for_state(
+        self,
+        agent_id_or_name: str,
+        states: set[str],
+        *,
+        timeout: float = 300.0,
+        failure_states: set[str] | None = None,
+    ) -> Agent:
+        """Synchronous event-assisted state wait; use the async variant in an event loop."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.wait_for_state_async(
+                    agent_id_or_name,
+                    states,
+                    timeout=timeout,
+                    failure_states=failure_states,
+                )
+            )
+        raise RuntimeError("wait_for_state() cannot run inside an event loop; use wait_for_state_async()")
 
     def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
         """Wait for RUNNING via deployment events; ``poll_interval`` is deprecated."""

@@ -4153,6 +4153,7 @@ export class Deployments {
         });
       } catch (error) {
         if (options.signal?.aborted) break;
+        if (error instanceof APIError && [401, 403].includes(error.statusCode)) throw error;
         await Promise.race([
           sleep(retryDelay),
           new Promise<void>((resolve) => options.signal?.addEventListener('abort', () => resolve(), { once: true })),
@@ -4163,7 +4164,13 @@ export class Deployments {
     }
   }
 
-  async waitRunning(agentIdOrName: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+  async waitForState(
+    agentIdOrName: string,
+    states: readonly AgentState[],
+    timeoutMs = 300_000,
+    failureStates: readonly AgentState[] = [],
+  ): Promise<Agent> {
+    if (!states.length) throw new Error('states must not be empty');
     const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
@@ -4181,7 +4188,9 @@ export class Deployments {
       subscriptionError = error;
       wake?.();
     });
-    void pollIntervalMs;
+    const desired = new Set(states.map((state) => state.toLowerCase()));
+    const failures = new Set(failureStates.map((state) => state.toLowerCase()));
+    const stateLabel = states.join(', ');
     const diagnostics = (agent: Agent | null): string => {
       if (!agent) return '';
       const details: string[] = [];
@@ -4198,9 +4207,9 @@ export class Deployments {
           const agent = await this.get(agentId);
           lastAgent = agent;
           lastState = String(agent.state || '');
-          if (lastState.toLowerCase() === 'running') return agent;
-          if (['failed', 'error', 'restore_failed', 'sync_failed'].includes(lastState.toLowerCase())) {
-            throw new Error(`Agent entered ${lastState} while waiting for RUNNING${diagnostics(agent)}`);
+          if (desired.has(lastState.toLowerCase())) return agent;
+          if (failures.has(lastState.toLowerCase())) {
+            throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}${diagnostics(agent)}`);
           }
           continue;
         }
@@ -4218,7 +4227,17 @@ export class Deployments {
       await subscription;
     }
     throw new Error(
-      `Timed out waiting for agent ${agentId} to reach RUNNING (last=${lastState || 'unknown'}${diagnostics(lastAgent)})`,
+      `Timed out waiting for agent ${agentId} to reach ${stateLabel} (last=${lastState || 'unknown'}${diagnostics(lastAgent)})`,
+    );
+  }
+
+  async waitRunning(agentIdOrName: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+    void pollIntervalMs;
+    return this.waitForState(
+      agentIdOrName,
+      ['RUNNING'],
+      timeoutMs,
+      ['FAILED', 'RESTORE_FAILED', 'SYNC_FAILED', 'error'],
     );
   }
 

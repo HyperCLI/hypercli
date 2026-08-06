@@ -381,6 +381,17 @@ def test_agent_stop_waits_for_cleanup_before_reporting_stopped(monkeypatch):
                 state="STOPPING",
             )
 
+        def wait_for_state(self, agent_id, states, *, timeout):
+            calls.append(("wait_for_state", (agent_id, states, timeout)))
+            return Agent(
+                id=agent_id,
+                user_id="user-1",
+                pod_id="",
+                pod_name="clear-window-works",
+                name="clear-window-works",
+                state="STOPPED",
+            )
+
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
     monkeypatch.setattr(agent_mod.time, "sleep", lambda _seconds: None)
 
@@ -393,7 +404,10 @@ def test_agent_stop_waits_for_cleanup_before_reporting_stopped(monkeypatch):
     assert calls == [
         ("get", "clear-window-works"),
         ("stop", "11111111-1111-4111-8111-111111111111"),
-        ("get", "11111111-1111-4111-8111-111111111111"),
+        (
+            "wait_for_state",
+            ("11111111-1111-4111-8111-111111111111", {"stopped"}, 900.0),
+        ),
     ]
     assert "Agent stopped" in result.output
     assert "State: STOPPED" in result.output

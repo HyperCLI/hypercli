@@ -135,18 +135,8 @@ def _wait_agent_state(
     timeout: float = 300.0,
     poll_interval: float = 5.0,
 ) -> DeploymentAgent:
-    deadline = time.monotonic() + timeout
-    last: DeploymentAgent | None = None
-    normalized_states = {state.lower() for state in states}
-    while time.monotonic() < deadline:
-        last = deployments.get(agent_id)
-        if str(last.state or "").lower() in normalized_states:
-            return last
-        time.sleep(poll_interval)
-    raise TimeoutError(
-        f"Timed out waiting for agent {agent_id} to reach {', '.join(sorted(states))} "
-        f"(last={getattr(last, 'state', None)})"
-    )
+    del poll_interval
+    return deployments.wait_for_state(agent_id, states, timeout=timeout)
 
 
 def _start_deployment_agent(
