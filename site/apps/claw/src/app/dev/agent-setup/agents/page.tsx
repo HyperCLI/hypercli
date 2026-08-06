@@ -122,7 +122,10 @@ import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { createDeploymentRefreshScheduler } from "@/components/dashboard/agents/deploymentRefreshScheduler";
+import {
+  createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRecovery,
+} from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { normalizeCronJob } from "@/lib/cron-jobs";
@@ -328,6 +331,10 @@ export default function DevAgentSetupAgentsPage() {
   const [tokenUsage, setTokenUsage] = useState<number | null>(null);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const deploymentsRef = useRef<Deployments | null>(null);
+  const deploymentSubscriptionRecoveryRef = useRef(
+    createDeploymentSubscriptionRecovery(),
+  );
+  useEffect(() => () => deploymentSubscriptionRecoveryRef.current.reset(), []);
   const agentDataGenerationRef = useRef(0);
   const fetchAgentsRequestRef = useRef(0);
   const fetchAgentsInFlightRef = useRef<Promise<void> | null>(null);
@@ -457,6 +464,7 @@ export default function DevAgentSetupAgentsPage() {
     deletingAgentIdsRef.current.clear();
     deploymentsRef.current = null;
     const nextPrincipal = user?.id ?? null;
+    deploymentSubscriptionRecoveryRef.current.reset();
     if (privatePrincipalRef.current === nextPrincipal) return;
     privatePrincipalRef.current = nextPrincipal;
     setSdkAgents([]);
@@ -595,12 +603,15 @@ export default function DevAgentSetupAgentsPage() {
       await fetchAgents();
     });
     void deployments.subscribe(() => {
+      deploymentSubscriptionRecoveryRef.current.markHealthy();
       scheduler.invalidate();
     }, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
-      void fetchAgents();
+      deploymentSubscriptionRecoveryRef.current.retryAfterFailure(() => {
+        void fetchAgents();
+      });
     });
     return () => {
       scheduler.dispose();

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createDeploymentRefreshScheduler } from "./deploymentRefreshScheduler";
+import {
+  createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRecovery,
+} from "./deploymentRefreshScheduler";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -33,5 +36,46 @@ describe("createDeploymentRefreshScheduler", () => {
     await tick();
 
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createDeploymentSubscriptionRecovery", () => {
+  it("refreshes once immediately and backs off repeated credential failures", () => {
+    vi.useFakeTimers();
+    const retry = vi.fn();
+    const recovery = createDeploymentSubscriptionRecovery({ baseDelayMs: 100, maxDelayMs: 250 });
+
+    expect(recovery.retryAfterFailure(retry)).toBe(0);
+    vi.advanceTimersByTime(0);
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    expect(recovery.retryAfterFailure(retry)).toBe(100);
+    vi.advanceTimersByTime(99);
+    expect(retry).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(retry).toHaveBeenCalledTimes(2);
+
+    expect(recovery.retryAfterFailure(retry)).toBe(200);
+    expect(recovery.retryAfterFailure(retry)).toBe(250);
+    expect(recovery.retryAfterFailure(retry)).toBe(250);
+    recovery.reset();
+    vi.runOnlyPendingTimers();
+    expect(retry).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("restores immediate recovery after a refreshed stream receives an event", () => {
+    vi.useFakeTimers();
+    const retry = vi.fn();
+    const recovery = createDeploymentSubscriptionRecovery({ baseDelayMs: 100 });
+
+    recovery.retryAfterFailure(retry);
+    vi.advanceTimersByTime(0);
+    expect(recovery.retryAfterFailure(retry)).toBe(100);
+    recovery.markHealthy();
+    expect(recovery.retryAfterFailure(retry)).toBe(0);
+    vi.advanceTimersByTime(0);
+    expect(retry).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });

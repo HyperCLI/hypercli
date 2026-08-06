@@ -215,7 +215,10 @@ import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/ch
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { createDeploymentRefreshScheduler } from "@/components/dashboard/agents/deploymentRefreshScheduler";
+import {
+  createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRecovery,
+} from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import { compactBundle, formatBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
@@ -1264,6 +1267,10 @@ function AgentsPageContent() {
   const agentLauncherSuspended = upgradeCatalogOpen || Boolean(upgradeCheckoutPlan) || checkoutRecoveryDialogVisible;
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const deploymentsRef = useRef<Deployments | null>(null);
+  const deploymentSubscriptionRecoveryRef = useRef(
+    createDeploymentSubscriptionRecovery(),
+  );
+  useEffect(() => () => deploymentSubscriptionRecoveryRef.current.reset(), []);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1663,6 +1670,7 @@ function AgentsPageContent() {
     deletingAgentIdsRef.current.clear();
     deploymentsRef.current = null;
     const nextPrincipal = isAuthenticated ? user?.id ?? null : null;
+    deploymentSubscriptionRecoveryRef.current.reset();
     if (privatePrincipalRef.current === nextPrincipal) return;
     privatePrincipalRef.current = nextPrincipal;
     setAnonymousDesktopPreviewOpen(false);
@@ -2082,12 +2090,15 @@ function AgentsPageContent() {
       await fetchAgents({ includeEnrichment: false });
     });
     void deployments.subscribe(() => {
+      deploymentSubscriptionRecoveryRef.current.markHealthy();
       scheduler.invalidate();
     }, { signal: controller.signal }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
-      void fetchAgents({ force: true, includeEnrichment: false });
+      deploymentSubscriptionRecoveryRef.current.retryAfterFailure(() => {
+        void fetchAgents({ force: true, includeEnrichment: false });
+      });
     });
     return () => {
       scheduler.dispose();
