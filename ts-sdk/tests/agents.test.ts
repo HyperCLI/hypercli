@@ -441,6 +441,9 @@ describe('Agents SDK', () => {
     await expect(
       deployments.start('self', { image: 'ghcr.io/example/override:latest' }),
     ).rejects.toThrow('backend-stored launch configuration');
+    await expect(
+      deployments.start('self', { syncInclude: null }),
+    ).rejects.toThrow('syncInclude');
     await expect(deployments.startOpenClaw('self')).rejects.toThrow(
       'backend-stored launch configuration',
     );

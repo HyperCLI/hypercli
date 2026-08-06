@@ -335,6 +335,9 @@ def test_self_selector_is_limited_to_status_lifecycle_and_routes():
     with pytest.raises(ValueError, match="backend-stored launch configuration"):
         deployments.start("self", image="ghcr.io/example/override:latest")
 
+    with pytest.raises(ValueError, match="sync_include"):
+        deployments.start("self", sync_include=None)
+
     with pytest.raises(ValueError, match="backend-stored launch configuration"):
         deployments.start_openclaw("self")
 
