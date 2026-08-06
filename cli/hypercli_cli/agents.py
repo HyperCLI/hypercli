@@ -9,11 +9,20 @@ import time
 from pathlib import Path
 
 import typer
+from hypercli.agents import (
+    AGENT_FILE_MAX_BYTES,
+    DEFAULT_HERMES_AGENT_IMAGE,
+    DEFAULT_OPENCLAW_IMAGE,
+    DEFAULT_OPENCLAW_PRO_IMAGE,
+    Agent,
+    Deployments,
+    HermesAgent,
+    OpenClawAgent,
+    build_openclaw_memory_index_env,
+)
+from hypercli.config import get_agent_api_key as get_config_agent_api_key
 from rich.console import Console
 from rich.table import Table
-
-from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, DEFAULT_OPENCLAW_IMAGE, DEFAULT_OPENCLAW_PRO_IMAGE, Deployments, OpenClawAgent, build_openclaw_memory_index_env
-from hypercli.config import get_agent_api_key as get_config_agent_api_key
 
 app = typer.Typer(help="Manage agent deployments")
 routes_app = typer.Typer(help="Manage declarative agent routes", no_args_is_help=True)
@@ -58,6 +67,29 @@ def _default_openclaw_pro_image(image: str | None, config: dict | None = None) -
         return image
     configured = str((config or {}).get("image") or "").strip()
     return configured or DEFAULT_OPENCLAW_PRO_IMAGE
+
+
+def _default_hermes_agent_image(image: str | None, config: dict | None = None) -> str:
+    if image:
+        return image
+    configured = str((config or {}).get("image") or "").strip()
+    return configured or DEFAULT_HERMES_AGENT_IMAGE
+
+
+def _managed_runtime(value: str) -> str:
+    runtime = str(value or "").strip().lower()
+    if runtime not in {"openclaw", "hermes-agent"}:
+        raise typer.BadParameter("must be 'openclaw' or 'hermes-agent'", param_hint="--runtime")
+    return runtime
+
+
+def _reject_hermes_openclaw_options(**options: object) -> None:
+    provided = [name for name, value in options.items() if value is not None]
+    if provided:
+        raise typer.BadParameter(
+            "Hermes Agent does not support OpenClaw-only options: " + ", ".join(provided),
+            param_hint="--runtime",
+        )
 
 
 def _truthy_env(value: object) -> bool:
@@ -191,6 +223,10 @@ def _save_pod_state(pod: Agent):
         "gateway_token": (
             pod.gateway_token if isinstance(pod, OpenClawAgent) else existing.get("gateway_token")
         ),
+        "api_server_key": (
+            pod.api_server_key if isinstance(pod, HermesAgent) else existing.get("api_server_key")
+        ),
+        "runtime": pod.runtime or existing.get("runtime"),
         "launch_config": pod.launch_config if pod.launch_config is not None else existing.get("launch_config"),
         "state": pod.state,
     }
@@ -240,6 +276,8 @@ def _get_pod_with_token(agent_id: str) -> Agent:
         pod.jwt_token = local["jwt_token"]
     if isinstance(pod, OpenClawAgent) and not pod.gateway_token and local.get("gateway_token"):
         pod.gateway_token = local["gateway_token"]
+    if isinstance(pod, HermesAgent) and not pod.api_server_key and local.get("api_server_key"):
+        pod.api_server_key = local["api_server_key"]
     if pod.launch_config is None and local.get("launch_config") is not None:
         pod.launch_config = local["launch_config"]
     return pod
@@ -485,13 +523,14 @@ def budget():
 
 @app.command("create")
 def create(
+    runtime: str = typer.Option("openclaw", "--runtime", help="Managed runtime: openclaw or hermes-agent"),
     name: str = typer.Option(None, "--name", "-n", help="Agent name (auto-generated if omitted, becomes {name}.hypercli.com)"),
     size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
     env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable (KEY=VALUE). Repeatable."),
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
-    image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
+    image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
     memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
     index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
@@ -505,50 +544,82 @@ def create(
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
+    api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent or pod"),
     no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
 ):
-    """Create a new OpenClaw agent pod."""
+    """Create a new managed agent pod."""
+    runtime = _managed_runtime(runtime)
     agents = _get_deployments_client()
     env_dict = _parse_env_vars(env)
     ports_list = _parse_ports(port)
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
-    desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict)
-    effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
-    memory_index = _build_memory_index_options(
-        memory_search=memory_search,
-        index_on_session_start=index_on_session_start,
-        index_on_search=index_on_search,
-        index_watch=index_watch,
-        index_watch_debounce_ms=index_watch_debounce_ms,
-        index_interval_minutes=index_interval_minutes,
-    )
+    if runtime == "hermes-agent":
+        _reject_hermes_openclaw_options(
+            desktop=desktop,
+            memory_search=memory_search,
+            index_on_session_start=index_on_session_start,
+            index_on_search=index_on_search,
+            index_watch=index_watch,
+            index_watch_debounce_ms=index_watch_debounce_ms,
+            index_interval_minutes=index_interval_minutes,
+            gateway_token=gateway_token,
+        )
+        desktop_enabled = False
+        effective_env = env_dict
+        memory_index = None
+    else:
+        if api_server_key is not None:
+            raise typer.BadParameter(
+                "--api-server-key is only valid with --runtime hermes-agent",
+                param_hint="--api-server-key",
+            )
+        desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict)
+        effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
+        memory_index = _build_memory_index_options(
+            memory_search=memory_search,
+            index_on_session_start=index_on_session_start,
+            index_on_search=index_on_search,
+            index_watch=index_watch,
+            index_watch_debounce_ms=index_watch_debounce_ms,
+            index_interval_minutes=index_interval_minutes,
+        )
 
     console.print("\n[bold]Creating agent pod...[/bold]")
 
     try:
-        create_func = agents.create_openclaw_pro if desktop_enabled else agents.create_openclaw
-        pod = create_func(
-            name=name,
-            size=size,
-            env=effective_env,
-            ports=ports_list,
-            command=command_argv,
-            entrypoint=entrypoint_argv,
-            image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
-            registry_url=registry_url,
-            registry_auth=registry_auth,
-            sync_uid=sync_uid,
-            sync_gid=sync_gid,
-            gateway_token=gateway_token,
-            dry_run=dry_run,
-            start=not no_start,
-            openclaw_route_options={"include_desktop": desktop_enabled},
-            memory_index=memory_index,
-        )
+        common = {
+            "name": name,
+            "size": size,
+            "env": effective_env,
+            "ports": ports_list,
+            "command": command_argv,
+            "entrypoint": entrypoint_argv,
+            "registry_url": registry_url,
+            "registry_auth": registry_auth,
+            "sync_uid": sync_uid,
+            "sync_gid": sync_gid,
+            "dry_run": dry_run,
+            "start": not no_start,
+        }
+        if runtime == "hermes-agent":
+            pod = agents.create_hermes_agent(
+                **common,
+                image=_default_hermes_agent_image(image),
+                api_server_key=api_server_key,
+            )
+        else:
+            create_func = agents.create_openclaw_pro if desktop_enabled else agents.create_openclaw
+            pod = create_func(
+                **common,
+                image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
+                gateway_token=gateway_token,
+                openclaw_route_options={"include_desktop": desktop_enabled},
+                memory_index=memory_index,
+            )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
         raise typer.Exit(1)
@@ -560,7 +631,10 @@ def create(
     console.print(f"  Name:     {pod.name or pod.pod_name}")
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
-    console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
+    if runtime == "hermes-agent":
+        console.print(f"  API:      {pod.api_url or 'pending route assignment'}")
+    else:
+        console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
     display_ports = pod.ports or ports_list or []
     for p in display_ports:
@@ -584,7 +658,9 @@ def create(
     else:
         console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
-        if desktop_enabled:
+        if runtime == "hermes-agent":
+            console.print(f"API:     {pod.api_url or 'pending route assignment'}")
+        elif desktop_enabled:
             console.print(f"Desktop: {pod.vnc_url}")
         else:
             console.print("Desktop: disabled (launch with --desktop to enable)")
@@ -927,7 +1003,7 @@ def start(
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
-    image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
+    image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
     memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
     index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
@@ -941,6 +1017,7 @@ def start(
     sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
+    api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting the agent"),
 ):
     """Start a previously stopped agent."""
@@ -970,6 +1047,7 @@ def start(
                 "sync_uid": sync_uid,
                 "sync_gid": sync_gid,
                 "gateway_token": gateway_token,
+                "api_server_key": api_server_key,
                 "dry_run": True if dry_run else None,
             }.items()
             if value is not None
@@ -1000,6 +1078,8 @@ def start(
     if not local and getattr(existing_pod, "launch_config", None) is not None:
         local = {
             "gateway_token": getattr(existing_pod, "gateway_token", None),
+            "api_server_key": getattr(existing_pod, "api_server_key", None),
+            "runtime": getattr(existing_pod, "runtime", None),
             "launch_config": existing_pod.launch_config,
         }
     env_dict = _parse_env_vars(env)
@@ -1007,17 +1087,42 @@ def start(
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
-    saved_launch_fields, saved_openclaw_config = _split_saved_launch_config(local.get("launch_config"))
+    saved_launch_fields, saved_runtime_config = _split_saved_launch_config(local.get("launch_config"))
+    runtime = str(getattr(existing_pod, "runtime", None) or local.get("runtime") or "openclaw").strip().lower()
+    is_hermes = runtime == "hermes-agent"
     effective_gateway_token = gateway_token or local.get("gateway_token")
+    effective_api_server_key = api_server_key or local.get("api_server_key") or getattr(
+        existing_pod, "api_server_key", None
+    )
     saved_env = saved_launch_fields.get("env") if isinstance(saved_launch_fields.get("env"), dict) else {}
     merged_env = {**dict(saved_env or {}), **dict(env_dict or {})}
-    desktop_enabled = _desktop_enabled_from_launch(desktop, merged_env, saved_launch_fields)
-    effective_env = _openclaw_env_with_desktop(merged_env, desktop_enabled, force=desktop is not None)
-    effective_image = (
-        _default_openclaw_pro_image(image, saved_launch_fields)
-        if desktop_enabled
-        else _default_openclaw_image(image, saved_launch_fields)
-    )
+    if is_hermes:
+        _reject_hermes_openclaw_options(
+            desktop=desktop,
+            memory_search=memory_search,
+            index_on_session_start=index_on_session_start,
+            index_on_search=index_on_search,
+            index_watch=index_watch,
+            index_watch_debounce_ms=index_watch_debounce_ms,
+            index_interval_minutes=index_interval_minutes,
+            gateway_token=gateway_token,
+        )
+        desktop_enabled = False
+        effective_env = merged_env
+        effective_image = _default_hermes_agent_image(image, saved_launch_fields)
+    else:
+        if api_server_key is not None:
+            raise typer.BadParameter(
+                "--api-server-key is only valid for a Hermes Agent",
+                param_hint="--api-server-key",
+            )
+        desktop_enabled = _desktop_enabled_from_launch(desktop, merged_env, saved_launch_fields)
+        effective_env = _openclaw_env_with_desktop(merged_env, desktop_enabled, force=desktop is not None)
+        effective_image = (
+            _default_openclaw_pro_image(image, saved_launch_fields)
+            if desktop_enabled
+            else _default_openclaw_image(image, saved_launch_fields)
+        )
     effective_ports = ports_list if ports_list is not None else saved_launch_fields.get("ports")
     effective_command = command_argv if command_argv is not None else saved_launch_fields.get("command")
     effective_entrypoint = entrypoint_argv if entrypoint_argv is not None else saved_launch_fields.get("entrypoint")
@@ -1025,7 +1130,7 @@ def start(
     effective_registry_auth = registry_auth if registry_auth is not None else saved_launch_fields.get("registry_auth")
     effective_sync_uid = sync_uid if sync_uid is not None else saved_launch_fields.get("sync_uid")
     effective_sync_gid = sync_gid if sync_gid is not None else saved_launch_fields.get("sync_gid")
-    memory_index = _build_memory_index_options(
+    memory_index = None if is_hermes else _build_memory_index_options(
         memory_search=memory_search,
         index_on_session_start=index_on_session_start,
         index_on_search=index_on_search,
@@ -1035,29 +1140,39 @@ def start(
     )
 
     try:
-        start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
-        pod = start_func(
-            requested_agent_id if requested_agent_id == "self" else agent_id,
-            config=saved_openclaw_config,
-            env=effective_env,
-            ports=effective_ports,
-            routes=saved_launch_fields.get("routes"),
-            command=effective_command,
-            entrypoint=effective_entrypoint,
-            image=effective_image,
-            registry_url=effective_registry_url,
-            registry_auth=effective_registry_auth,
-            restart=saved_launch_fields.get("restart"),
-            runtime_scopes=saved_launch_fields.get("runtime_scopes"),
-            sync_root=saved_launch_fields.get("sync_root"),
-            sync_enabled=saved_launch_fields.get("sync_enabled"),
-            sync_uid=effective_sync_uid,
-            sync_gid=effective_sync_gid,
-            gateway_token=effective_gateway_token,
-            dry_run=dry_run,
-            openclaw_route_options={"include_desktop": desktop_enabled},
-            memory_index=memory_index,
-        )
+        common = {
+            "config": saved_runtime_config,
+            "env": effective_env,
+            "ports": effective_ports,
+            "routes": saved_launch_fields.get("routes"),
+            "command": effective_command,
+            "entrypoint": effective_entrypoint,
+            "image": effective_image,
+            "registry_url": effective_registry_url,
+            "registry_auth": effective_registry_auth,
+            "restart": saved_launch_fields.get("restart"),
+            "runtime_scopes": saved_launch_fields.get("runtime_scopes"),
+            "sync_root": saved_launch_fields.get("sync_root"),
+            "sync_enabled": saved_launch_fields.get("sync_enabled"),
+            "sync_uid": effective_sync_uid,
+            "sync_gid": effective_sync_gid,
+            "dry_run": dry_run,
+        }
+        if is_hermes:
+            pod = agents.start_hermes_agent(
+                requested_agent_id if requested_agent_id == "self" else agent_id,
+                **common,
+                api_server_key=effective_api_server_key,
+            )
+        else:
+            start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
+            pod = start_func(
+                requested_agent_id if requested_agent_id == "self" else agent_id,
+                **common,
+                gateway_token=effective_gateway_token,
+                openclaw_route_options={"include_desktop": desktop_enabled},
+                memory_index=memory_index,
+            )
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")
         raise typer.Exit(1)
@@ -1068,7 +1183,10 @@ def start(
     if pod.dry_run:
         console.print("  No pod was created.")
     else:
-        console.print(f"  Desktop: {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
+        if is_hermes:
+            console.print(f"  API: {pod.api_url or 'pending route assignment'}")
+        else:
+            console.print(f"  Desktop: {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
 
 
 @app.command("stop")
