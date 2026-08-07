@@ -263,11 +263,15 @@ async def test_subscribe_surfaces_permanent_auth_failure(monkeypatch, status_cod
 
 
 @pytest.mark.asyncio
-async def test_wait_running_async_uses_event_wakeup_and_rest_confirmation(monkeypatch):
+@pytest.mark.parametrize(
+    "boot_state",
+    ["PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STOPPING"],
+)
+async def test_wait_running_async_accepts_every_canonical_boot_state(monkeypatch, boot_state):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
-    states = iter(("PENDING", "RUNNING"))
+    states = iter((boot_state, "RUNNING"))
     monkeypatch.setattr(deployments, "resolve_agent_id", lambda _value: "agent-123")
     monkeypatch.setattr(
         deployments,
@@ -632,8 +636,11 @@ async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
     assert seen == [({"replyToMode": "all"}, "personal")]
 
 
-@pytest.mark.parametrize("failed_state", ["FAILED", "RESTORE_FAILED", "SYNC_FAILED"])
-def test_wait_running_fails_on_canonical_and_legacy_failed_states(monkeypatch, failed_state):
+@pytest.mark.parametrize(
+    "failed_state",
+    ["STOPPED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"],
+)
+def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
@@ -709,6 +716,46 @@ def test_agent_urls_and_running_state():
     assert agent.shell_url is None
     assert agent.executor_url is None
     assert agent.is_running is True
+
+
+@pytest.mark.parametrize(
+    ("state", "expected"),
+    [("RUNNING", True), ("running", True), ("STOPPED", False), ("", False)],
+)
+def test_agent_running_state_is_case_insensitive(state, expected):
+    agent = Agent.from_dict({"id": "agent-123", "state": state})
+
+    assert agent.is_running is expected
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        "PENDING",
+        "DOWNLOADING",
+        "RESTORING",
+        "SYNCING",
+        "RUNNING",
+        "STOPPING",
+        "STOPPED",
+        "FAILED",
+    ],
+)
+def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "state": state,
+            "stage": state.lower(),
+            "error": "ExampleError" if state == "FAILED" else None,
+            "message": f"Lifecycle state is {state}",
+        }
+    )
+
+    assert agent.state == state
+    assert agent.stage == state.lower()
+    assert agent.error == ("ExampleError" if state == "FAILED" else None)
+    assert agent.message == f"Lifecycle state is {state}"
 
 
 def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():

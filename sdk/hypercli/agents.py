@@ -1936,7 +1936,7 @@ class Agent:
 
     @property
     def is_running(self) -> bool:
-        return self.state == "running"
+        return str(self.state or "").lower() == "running"
 
     @property
     def has_desktop(self) -> bool:
@@ -3901,10 +3901,10 @@ class Deployments:
             agent_id_or_name,
             {"running"},
             timeout=timeout,
-            # Canonical backends emit FAILED. Keep the two former terminal
-            # names as input-only rollout aliases so older deployments fail
-            # promptly instead of looking like indefinitely transitional work.
-            failure_states={"failed", "restore_failed", "sync_failed"},
+            # STOPPED and FAILED are terminal for a wait whose goal is RUNNING.
+            # Keep the two former failure names as input-only rollout aliases
+            # so older deployments also fail promptly.
+            failure_states={"stopped", "failed", "restore_failed", "sync_failed"},
         )
 
     def wait_for_state(

@@ -511,13 +511,8 @@ impl HyperCliClient {
         deployment_id: &str,
         timeout: Duration,
     ) -> Result<Deployment, HyperCliError> {
-        self.wait_deployment_state(
-            deployment_id,
-            &["running"],
-            &["failed"],
-            timeout,
-        )
-        .await
+        self.wait_deployment_state(deployment_id, &["running"], &["stopped", "failed"], timeout)
+            .await
     }
 
     /// Wait for RUNNING, then allow a newly issued hostname to settle locally.
@@ -1733,6 +1728,101 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_deployment_running_fails_promptly_when_already_stopped() {
+        let mut server = Server::new_async().await;
+        let stopped = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "id": "deployment-1",
+                    "state": "STOPPED",
+                    "stage": "stopped",
+                    "message": "Runtime stopped before becoming ready"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create_async()
+            .await;
+        let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
+        let event_client = tokio::task::spawn_blocking(move || {
+            HyperCliClient::new(ClientConfig {
+                api_base,
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+            })
+            .unwrap()
+        })
+        .await
+        .unwrap();
+
+        let error = event_client
+            .wait_deployment_running("deployment-1", Duration::from_secs(1))
+            .await
+            .unwrap_err();
+
+        assert!(error.to_string().contains("entered STOPPED"));
+        stopped.assert_async().await;
+        drop(stopped);
+        tokio::task::spawn_blocking(move || {
+            drop(event_client);
+            drop(server);
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_deployment_state_accepts_every_canonical_boot_state() {
+        for state in ["PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STOPPING"] {
+            let mut server = Server::new_async().await;
+            let observed = server
+                .mock("GET", "/agents/deployments/deployment-1")
+                .match_header("authorization", "Bearer test-credential")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(json!({"id": "deployment-1", "state": state}).to_string())
+                .expect(1)
+                .create_async()
+                .await;
+            let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
+            let event_client = tokio::task::spawn_blocking(move || {
+                HyperCliClient::new(ClientConfig {
+                    api_base,
+                    api_key: SecretString::from("test-credential"),
+                    trace_file: None,
+                })
+                .unwrap()
+            })
+            .await
+            .unwrap();
+
+            let deployment = event_client
+                .wait_deployment_state(
+                    "deployment-1",
+                    &[state],
+                    &["STOPPED", "FAILED"],
+                    Duration::from_secs(1),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(deployment.state, state);
+            observed.assert_async().await;
+            drop(observed);
+            tokio::task::spawn_blocking(move || {
+                drop(event_client);
+                drop(server);
+            })
+            .await
+            .unwrap();
+        }
     }
 
     #[test]

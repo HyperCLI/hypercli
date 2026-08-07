@@ -1434,6 +1434,42 @@ mod tests {
     }
 
     #[test]
+    fn deployment_deserializes_every_canonical_lifecycle_state_and_diagnostics() {
+        for state in [
+            "PENDING",
+            "DOWNLOADING",
+            "RESTORING",
+            "SYNCING",
+            "RUNNING",
+            "STOPPING",
+            "STOPPED",
+            "FAILED",
+        ] {
+            let expected_stage = state.to_ascii_lowercase();
+            let expected_message = format!("Lifecycle state is {state}");
+            let deployment: Deployment = serde_json::from_value(serde_json::json!({
+                "id": "agent-1",
+                "state": state,
+                "stage": expected_stage,
+                "error": (state == "FAILED").then_some("ExampleError"),
+                "message": expected_message,
+            }))
+            .unwrap();
+
+            assert_eq!(deployment.state, state);
+            assert_eq!(deployment.stage.as_deref(), Some(expected_stage.as_str()));
+            assert_eq!(
+                deployment.error.as_deref(),
+                (state == "FAILED").then_some("ExampleError")
+            );
+            assert_eq!(
+                deployment.message.as_deref(),
+                Some(expected_message.as_str())
+            );
+        }
+    }
+
+    #[test]
     fn deployment_launch_config_round_trips_but_debug_is_redacted() {
         let config: DeploymentLaunchConfig = serde_json::from_value(serde_json::json!({
             "env": {"BUZZ_PRIVATE_KEY": "nsec-secret", "SAFE": "visible"},

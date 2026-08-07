@@ -4451,7 +4451,7 @@ export class Deployments {
       agentIdOrName,
       ['RUNNING'],
       timeoutMs,
-      ['FAILED'],
+      ['STOPPED', 'FAILED'],
     );
   }
 

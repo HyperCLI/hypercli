@@ -684,22 +684,47 @@ describe('Agents SDK', () => {
     expect(gateway.close).toHaveBeenCalledOnce();
   });
 
-  it('hydrates granular restore and workspace sync states', async () => {
+  it.each([
+    'PENDING',
+    'DOWNLOADING',
+    'RESTORING',
+    'SYNCING',
+    'RUNNING',
+    'STOPPING',
+    'STOPPED',
+    'FAILED',
+  ] as const)('hydrates canonical lifecycle state %s and diagnostics', async (state) => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
-        state: 'SYNCING',
+        state,
+        stage: state.toLowerCase(),
+        error: state === 'FAILED' ? 'ExampleError' : null,
+        message: `Lifecycle state is ${state}`,
       }),
     } as unknown as HTTPClient;
 
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const agent = await deployments.get('agent-123');
 
-    expect(agent.state).toBe('SYNCING');
+    expect(agent.state).toBe(state);
+    expect(agent.stage).toBe(state.toLowerCase());
+    expect(agent.error).toBe(state === 'FAILED' ? 'ExampleError' : null);
+    expect(agent.message).toBe(`Lifecycle state is ${state}`);
   });
+
+  it.each(['PENDING', 'DOWNLOADING', 'RESTORING', 'SYNCING', 'STOPPING'] as const)(
+    'waitForState treats boot state %s as a valid intermediate observation',
+    async (state) => {
+      const http = {
+        get: vi.fn().mockResolvedValue({ id: 'agent-123', user_id: 'user-456', state }),
+      } as unknown as HTTPClient;
+      const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+      await expect(deployments.waitForState('agent-123', [state], 100)).resolves.toMatchObject({ state });
+    },
+  );
 
   it('hydrates canonical downloading diagnostics', async () => {
     const http = {
@@ -722,27 +747,30 @@ describe('Agents SDK', () => {
     expect(agent.message).toBe('Pulling runtime image');
   });
 
-  it('fails waitRunning on FAILED with structured stage diagnostics', async () => {
-    const http = {
-      get: vi.fn().mockResolvedValue({
-        id: 'agent-123',
-        user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
-        state: 'FAILED',
-        stage: 'syncing',
-        error: 'WorkspaceSyncFailed',
-        message: 'workspace sync failed',
-        updated_at: '2026-07-27T12:00:00Z',
-      }),
-    } as unknown as HTTPClient;
+  it.each(['STOPPED', 'FAILED'] as const)(
+    'fails waitRunning promptly on terminal state %s with structured diagnostics',
+    async (state) => {
+      const http = {
+        get: vi.fn().mockResolvedValue({
+          id: 'agent-123',
+          user_id: 'user-456',
+          pod_id: 'pod-789',
+          pod_name: 'pod-789',
+          state,
+          stage: 'syncing',
+          error: 'WorkspaceSyncFailed',
+          message: 'workspace sync failed',
+          updated_at: '2026-07-27T12:00:00Z',
+        }),
+      } as unknown as HTTPClient;
 
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+      const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
-    await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
-      'Agent entered FAILED while waiting for RUNNING, stage="syncing", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z',
-    );
-  });
+      await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
+        `Agent entered ${state} while waiting for RUNNING, stage="syncing", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
+      );
+    },
+  );
 
   it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
     vi.useFakeTimers();
