@@ -38,7 +38,7 @@ function observeDeploymentTransitions(page: Page): DeploymentSocketObservation {
     transitions: [],
   };
   page.on("websocket", (socket) => {
-    if (new URL(socket.url()).pathname !== "/ws") return;
+    if (new URL(socket.url()).pathname !== "/ws/deployments") return;
     let ready = false;
     socket.on("framereceived", ({ payload }) => {
       try {

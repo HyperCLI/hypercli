@@ -22,7 +22,7 @@ test("agents subscription retry permits immutable canceled history", () => {
 });
 
 test("agents subscription observes the public deployment transition wire", () => {
-  expect(subscriptionSpecSource).toContain('pathname !== "/ws"');
+  expect(subscriptionSpecSource).toContain('pathname !== "/ws/deployments"');
   expect(subscriptionSpecSource).toContain('socket.on("framereceived"');
   expect(subscriptionSpecSource).toContain('frame.type === "ready"');
   expect(subscriptionSpecSource).toContain("beforeCreate: async () =>");
