@@ -663,7 +663,10 @@ fn wait_until_running(
         let state = deployment.state.trim().to_ascii_lowercase();
         match state.as_str() {
             "running" => return Ok(deployment),
-            "pending" | "restoring" | "syncing" | "starting" => {}
+            // `starting` is accepted only as a rollout compatibility alias;
+            // canonical deployments progress through DOWNLOADING before
+            // RESTORING/SYNCING and then RUNNING.
+            "pending" | "downloading" | "restoring" | "syncing" | "starting" => {}
             "stopping" => {
                 return Err(ProviderError::DeploymentBusy {
                     deployment_id: deployment.id,
@@ -2984,6 +2987,13 @@ mod tests {
     #[test]
     fn readiness_wait_accepts_every_booting_state_before_running() {
         let mut server = Server::new();
+        let downloading = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"downloading"}"#)
+            .expect(1)
+            .create();
         let restoring = server
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
@@ -3023,7 +3033,11 @@ mod tests {
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
+            stage: None,
+            error: None,
+            message: None,
             last_error: None,
+            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
@@ -3040,6 +3054,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(ready.state, "running");
+        downloading.assert();
         restoring.assert();
         syncing.assert();
         starting.assert();
@@ -3065,7 +3080,11 @@ mod tests {
                 hostname: None,
                 tags: Vec::new(),
                 requested_size: None,
+                stage: None,
+                error: None,
+                message: None,
                 last_error: None,
+                runtime_status: None,
                 placement_epoch: 0,
                 runtime_generation: 0,
                 finalize_epoch: None,
@@ -3110,7 +3129,11 @@ mod tests {
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
+            stage: None,
+            error: None,
+            message: None,
             last_error: None,
+            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,

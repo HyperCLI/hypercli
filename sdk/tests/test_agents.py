@@ -632,7 +632,8 @@ async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
     assert seen == [({"replyToMode": "all"}, "personal")]
 
 
-def test_wait_running_fails_on_canonical_failed_state(monkeypatch):
+@pytest.mark.parametrize("failed_state", ["FAILED", "RESTORE_FAILED", "SYNC_FAILED"])
+def test_wait_running_fails_on_canonical_and_legacy_failed_states(monkeypatch, failed_state):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
@@ -646,7 +647,7 @@ def test_wait_running_fails_on_canonical_failed_state(monkeypatch):
                 "user_id": "user-456",
                 "pod_id": "pod-789",
                 "pod_name": "pod-789",
-                "state": "FAILED",
+                "state": failed_state,
                 "stage": "syncing",
                 "error": "WorkspaceSyncFailed",
                 "message": "workspace sync failed",
@@ -654,7 +655,7 @@ def test_wait_running_fails_on_canonical_failed_state(monkeypatch):
         ),
     )
 
-    with pytest.raises(RuntimeError, match="FAILED"):
+    with pytest.raises(RuntimeError, match=failed_state):
         deployments.wait_running("agent-123", timeout=1, poll_interval=0)
 
 
