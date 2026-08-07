@@ -941,7 +941,15 @@ pub struct Deployment {
     #[serde(default)]
     pub requested_size: Option<String>,
     #[serde(default)]
+    pub stage: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Deprecated rollout compatibility alias; use `error`/`message`.
+    #[serde(default)]
     pub last_error: Option<String>,
+    /// Deprecated rollout compatibility alias; use `stage`/`error`/`message`.
     #[serde(default)]
     pub runtime_status: Option<AgentRuntimeStatus>,
     #[serde(default)]
@@ -1387,6 +1395,9 @@ mod tests {
             hostname: None,
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
+            stage: None,
+            error: None,
+            message: None,
             last_error: None,
             runtime_status: None,
             placement_epoch: 0,

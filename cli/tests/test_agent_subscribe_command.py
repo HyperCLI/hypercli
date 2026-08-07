@@ -300,7 +300,7 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
                 pod_id="pod-1",
                 pod_name="clear-window-works",
                 name="clear-window-works",
-                state="STARTING",
+                state="PENDING",
             )
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())

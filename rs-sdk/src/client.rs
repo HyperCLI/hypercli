@@ -514,7 +514,7 @@ impl HyperCliClient {
         self.wait_deployment_state(
             deployment_id,
             &["running"],
-            &["failed", "restore_failed", "sync_failed"],
+            &["failed"],
             timeout,
         )
         .await
@@ -1667,7 +1667,7 @@ mod tests {
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(json!({"id": "deployment-1", "state": "STARTING"}).to_string())
+            .with_body(json!({"id": "deployment-1", "state": "PENDING"}).to_string())
             .expect(2)
             .create_async()
             .await;

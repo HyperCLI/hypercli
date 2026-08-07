@@ -1181,7 +1181,11 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "jwt_expires_at": _parse_dt(data.get("jwt_expires_at")),
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
-        "last_error": data.get("last_error"),
+        "stage": data.get("stage"),
+        "error": data.get("error", data.get("last_error")),
+        "message": data.get("message"),
+        # Rollout-only compatibility aliases. New APIs use stage/error/message.
+        "last_error": data.get("last_error", data.get("error")),
         "runtime_status": (
             copy.deepcopy(data.get("runtime_status"))
             if isinstance(data.get("runtime_status"), dict)
@@ -1854,6 +1858,10 @@ class Agent:
     jwt_expires_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
+    stage: Optional[str] = None
+    error: Optional[str] = None
+    message: Optional[str] = None
+    # Deprecated rollout compatibility aliases; use stage/error/message.
     last_error: Optional[str] = None
     runtime_status: Optional[dict] = None
     placement_epoch: int = 0
@@ -3893,7 +3901,7 @@ class Deployments:
             agent_id_or_name,
             {"running"},
             timeout=timeout,
-            failure_states={"failed", "error", "restore_failed", "sync_failed"},
+            failure_states={"failed"},
         )
 
     def wait_for_state(

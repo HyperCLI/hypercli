@@ -159,7 +159,7 @@ const running = await client.deployments.waitForState(
   agent.id,
   ['RUNNING'],
   300_000,
-  ['FAILED', 'RESTORE_FAILED', 'SYNC_FAILED'],
+  ['FAILED'],
 );
 
 const capacity = await client.deployments.listWithCapacity();

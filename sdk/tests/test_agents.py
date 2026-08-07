@@ -267,7 +267,7 @@ async def test_wait_running_async_uses_event_wakeup_and_rest_confirmation(monkey
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
-    states = iter(("STARTING", "RUNNING"))
+    states = iter(("PENDING", "RUNNING"))
     monkeypatch.setattr(deployments, "resolve_agent_id", lambda _value: "agent-123")
     monkeypatch.setattr(
         deployments,
@@ -632,28 +632,30 @@ async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
     assert seen == [({"replyToMode": "all"}, "personal")]
 
 
-def test_wait_running_fails_on_restore_and_sync_failures(monkeypatch):
+def test_wait_running_fails_on_canonical_failed_state(monkeypatch):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
 
-    for state in ("RESTORE_FAILED", "SYNC_FAILED"):
-        monkeypatch.setattr(
-            deployments,
-            "get",
-            lambda _agent_id, state=state: Agent.from_dict(
-                {
-                    "id": "agent-123",
-                    "user_id": "user-456",
-                    "pod_id": "pod-789",
-                    "pod_name": "pod-789",
-                    "state": state,
-                }
-            ),
-        )
+    monkeypatch.setattr(
+        deployments,
+        "get",
+        lambda _agent_id: Agent.from_dict(
+            {
+                "id": "agent-123",
+                "user_id": "user-456",
+                "pod_id": "pod-789",
+                "pod_name": "pod-789",
+                "state": "FAILED",
+                "stage": "syncing",
+                "error": "WorkspaceSyncFailed",
+                "message": "workspace sync failed",
+            }
+        ),
+    )
 
-        with pytest.raises(RuntimeError, match=state):
-            deployments.wait_running("agent-123", timeout=1, poll_interval=0)
+    with pytest.raises(RuntimeError, match="FAILED"):
+        deployments.wait_running("agent-123", timeout=1, poll_interval=0)
 
 
 def test_agent_from_dict_hydrates_only_meta_ui():
@@ -1754,7 +1756,7 @@ def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agen
         return {
             "id": "11111111-1111-4111-8111-111111111111",
             "user_id": "user-456",
-            "state": "STARTING",
+            "state": "PENDING",
             "runtime": "openclaw",
         }
 
@@ -2224,7 +2226,7 @@ def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expe
         return {
             "id": "11111111-1111-4111-8111-111111111111",
             "user_id": "user-456",
-            "state": "STARTING",
+            "state": "PENDING",
         }
 
     agents_client._post = fake_post

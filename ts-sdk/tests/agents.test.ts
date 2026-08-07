@@ -701,20 +701,15 @@ describe('Agents SDK', () => {
     expect(agent.state).toBe('SYNCING');
   });
 
-  it('hydrates downloading state with structured image-pull status', async () => {
+  it('hydrates canonical downloading diagnostics', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
         state: 'DOWNLOADING',
-        last_error: 'ErrImagePull; unauthorized',
-        runtime_status: {
-          pod_phase: 'Pending',
-          container_name: 'reef',
-          state: 'waiting',
-          reason: 'ErrImagePull',
-          message: 'unauthorized',
-        },
+        stage: 'downloading',
+        error: null,
+        message: 'Pulling runtime image',
       }),
     } as unknown as HTTPClient;
 
@@ -722,24 +717,22 @@ describe('Agents SDK', () => {
     const agent = await deployments.get('agent-123');
 
     expect(agent.state).toBe('DOWNLOADING');
-    expect(agent.runtimeStatus).toEqual({
-      pod_phase: 'Pending',
-      container_name: 'reef',
-      state: 'waiting',
-      reason: 'ErrImagePull',
-      message: 'unauthorized',
-    });
+    expect(agent.stage).toBe('downloading');
+    expect(agent.error).toBeNull();
+    expect(agent.message).toBe('Pulling runtime image');
   });
 
-  it('fails waitRunning on granular init failure states', async () => {
+  it('fails waitRunning on FAILED with structured stage diagnostics', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
         pod_id: 'pod-789',
         pod_name: 'pod-789',
-        state: 'SYNC_FAILED',
-        last_error: 'workspace sync failed',
+        state: 'FAILED',
+        stage: 'syncing',
+        error: 'WorkspaceSyncFailed',
+        message: 'workspace sync failed',
         updated_at: '2026-07-27T12:00:00Z',
       }),
     } as unknown as HTTPClient;
@@ -747,7 +740,7 @@ describe('Agents SDK', () => {
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
-      'Agent entered SYNC_FAILED while waiting for RUNNING, lastError="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z',
+      'Agent entered FAILED while waiting for RUNNING, stage="syncing", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z',
     );
   });
 
@@ -760,7 +753,9 @@ describe('Agents SDK', () => {
         pod_id: 'pod-789',
         pod_name: 'pod-789',
         state: 'RESTORING',
-        last_error: 'restore init container is still waiting',
+        stage: 'restoring',
+        error: null,
+        message: 'restore init container is still waiting',
         updated_at: '2026-07-27T12:00:00Z',
       }),
     } as unknown as HTTPClient;
@@ -768,7 +763,7 @@ describe('Agents SDK', () => {
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     const assertion = expect(deployments.waitRunning('agent-123', 1_000, 100)).rejects.toThrow(
-      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, lastError="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',
+      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, stage="restoring", message="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',
     );
     await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
@@ -863,7 +858,7 @@ describe('Agents SDK', () => {
       pod_name: 'clear-window-works',
       name: 'clear-window-works',
       handle: 'coder',
-      state: 'STARTING',
+      state: 'PENDING',
     }));
     const http = { get, post } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
@@ -897,7 +892,7 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       pod_id: 'pod-pro',
       pod_name: 'pro',
-      state: 'STARTING',
+      state: 'PENDING',
       runtime: 'openclaw-pro',
     });
     const deployments = new Deployments(
@@ -920,7 +915,7 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       pod_id: 'pod-sync-all',
       pod_name: 'sync-all',
-      state: 'STARTING',
+      state: 'PENDING',
       runtime: 'openclaw',
     });
     const deployments = new Deployments(
@@ -945,7 +940,7 @@ describe('Agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-sync-presence',
       user_id: 'user-456',
-      state: 'STARTING',
+      state: 'PENDING',
     });
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -980,7 +975,7 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       pod_id: 'pod-789',
       pod_name: 'buzz-agent',
-      state: 'STARTING',
+      state: 'PENDING',
       runtime: 'opencode',
       launch_config: persistedLaunchConfig,
     });

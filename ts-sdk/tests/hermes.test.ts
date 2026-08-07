@@ -15,7 +15,7 @@ function deployment(runtime = 'hermes-agent') {
     user_id: 'user-1',
     pod_id: 'pod-1',
     pod_name: 'hermes',
-    state: 'STARTING',
+    state: 'PENDING',
     runtime,
     hostname: 'hermes-agent.example.test',
     routes: { hermes: { port: 8642, auth: false, prefix: '' } },

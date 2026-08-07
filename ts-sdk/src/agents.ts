@@ -1201,12 +1201,9 @@ export interface AgentDirectoryListing {
 
 export type AgentState =
   | 'PENDING'
-  | 'RESTORING'
-  | 'RESTORE_FAILED'
-  | 'SYNCING'
-  | 'SYNC_FAILED'
-  | 'STARTING'
   | 'DOWNLOADING'
+  | 'RESTORING'
+  | 'SYNCING'
   | 'RUNNING'
   | 'STOPPING'
   | 'STOPPED'
@@ -1252,7 +1249,12 @@ export interface AgentStateFields {
   jwtExpiresAt?: Date | null;
   startedAt?: Date | null;
   stoppedAt?: Date | null;
+  stage?: string | null;
+  error?: string | null;
+  message?: string | null;
+  /** @deprecated Use error/message. Accepted during the rollout only. */
   lastError?: string | null;
+  /** @deprecated Use stage/error/message. Accepted during the rollout only. */
   runtimeStatus?: AgentRuntimeStatus | null;
   placementEpoch?: number;
   runtimeGeneration?: number;
@@ -1303,7 +1305,12 @@ export interface AgentHydrationData {
   jwt_expires_at?: string | null;
   started_at?: string | null;
   stopped_at?: string | null;
+  stage?: string | null;
+  error?: string | null;
+  message?: string | null;
+  /** @deprecated Accepted from older Backend deployments during rollout. */
   last_error?: string | null;
+  /** @deprecated Accepted from older Backend deployments during rollout. */
   runtime_status?: AgentRuntimeStatus | null;
   placement_epoch?: number;
   runtime_generation?: number;
@@ -1719,7 +1726,10 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     jwtExpiresAt: parseDate(data.jwt_expires_at),
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
-    lastError: data.last_error ?? null,
+    stage: data.stage ?? null,
+    error: data.error ?? data.last_error ?? null,
+    message: data.message ?? null,
+    lastError: data.last_error ?? data.error ?? null,
     runtimeStatus: data.runtime_status ? structuredClone(data.runtime_status) : null,
     placementEpoch: data.placement_epoch ?? 0,
     runtimeGeneration: data.runtime_generation ?? 0,
@@ -2153,7 +2163,12 @@ export class Agent {
   public jwtExpiresAt: Date | null;
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
+  public readonly stage: string | null;
+  public readonly error: string | null;
+  public readonly message: string | null;
+  /** @deprecated Use error/message. */
   public readonly lastError: string | null;
+  /** @deprecated Use stage/error/message. */
   public readonly runtimeStatus: AgentRuntimeStatus | null;
   public readonly placementEpoch: number;
   public readonly runtimeGeneration: number;
@@ -2196,7 +2211,10 @@ export class Agent {
     this.jwtExpiresAt = fields.jwtExpiresAt ?? null;
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
-    this.lastError = fields.lastError ?? null;
+    this.stage = fields.stage ?? null;
+    this.error = fields.error ?? fields.lastError ?? null;
+    this.message = fields.message ?? null;
+    this.lastError = fields.lastError ?? fields.error ?? null;
     this.runtimeStatus = fields.runtimeStatus ? structuredClone(fields.runtimeStatus) : null;
     this.placementEpoch = fields.placementEpoch ?? 0;
     this.runtimeGeneration = fields.runtimeGeneration ?? 0;
@@ -4388,7 +4406,9 @@ export class Deployments {
     const diagnostics = (agent: Agent | null): string => {
       if (!agent) return '';
       const details: string[] = [];
-      if (agent.lastError) details.push(`lastError=${JSON.stringify(agent.lastError)}`);
+      if (agent.stage) details.push(`stage=${JSON.stringify(agent.stage)}`);
+      if (agent.error) details.push(`error=${JSON.stringify(agent.error)}`);
+      if (agent.message) details.push(`message=${JSON.stringify(agent.message)}`);
       if (agent.updatedAt && !Number.isNaN(agent.updatedAt.getTime())) {
         details.push(`updatedAt=${agent.updatedAt.toISOString()}`);
       }
@@ -4431,7 +4451,7 @@ export class Deployments {
       agentIdOrName,
       ['RUNNING'],
       timeoutMs,
-      ['FAILED', 'RESTORE_FAILED', 'SYNC_FAILED', 'error'],
+      ['FAILED'],
     );
   }
 
