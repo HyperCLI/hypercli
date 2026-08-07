@@ -930,6 +930,7 @@ def test_agents_stop_waits_for_stopped(monkeypatch):
 
 
 def test_agents_list_uses_transitional_and_terminal_state_colors():
+    assert agents_module._agent_state_style("DOWNLOADING") == "yellow"
     assert agents_module._agent_state_style("STOPPING") == "yellow"
     assert agents_module._agent_state_style("STOPPED") == "dim"
     assert agents_module._agent_state_style("FAILED") == "red"

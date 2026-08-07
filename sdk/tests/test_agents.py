@@ -73,6 +73,32 @@ def test_agent_from_dict_hydrates_transition_epochs_and_future_state():
     assert agent.restore_state == "FUTURE_RESTORE"
 
 
+def test_agent_from_dict_hydrates_downloading_runtime_status():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "state": "DOWNLOADING",
+            "last_error": "ErrImagePull; unauthorized",
+            "runtime_status": {
+                "pod_phase": "Pending",
+                "container_name": "reef",
+                "state": "waiting",
+                "reason": "ErrImagePull",
+                "message": "unauthorized",
+            },
+        }
+    )
+
+    assert agent.state == "DOWNLOADING"
+    assert agent.runtime_status == {
+        "pod_phase": "Pending",
+        "container_name": "reef",
+        "state": "waiting",
+        "reason": "ErrImagePull",
+        "message": "unauthorized",
+    }
+
+
 @pytest.mark.asyncio
 async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(monkeypatch):
     http = MagicMock(spec=HTTPClient)

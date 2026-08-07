@@ -909,6 +909,17 @@ pub struct DeploymentListFilters {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AgentRuntimeStatus {
+    pub pod_phase: String,
+    pub container_name: String,
+    pub state: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,
     #[serde(default)]
@@ -931,6 +942,8 @@ pub struct Deployment {
     pub requested_size: Option<String>,
     #[serde(default)]
     pub last_error: Option<String>,
+    #[serde(default)]
+    pub runtime_status: Option<AgentRuntimeStatus>,
     #[serde(default)]
     pub placement_epoch: u64,
     #[serde(default)]
@@ -1375,6 +1388,7 @@ mod tests {
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
             last_error: None,
+            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
@@ -1385,6 +1399,27 @@ mod tests {
         assert!(deployment(&[BUZZ_DEPLOYMENT_TAG]).is_buzz_managed());
         assert!(deployment(&["buzz_agent=public-key"]).is_buzz_managed());
         assert!(!deployment(&["app=openclaw"]).is_buzz_managed());
+    }
+
+    #[test]
+    fn deployment_deserializes_downloading_runtime_status() {
+        let deployment: Deployment = serde_json::from_value(serde_json::json!({
+            "id": "agent-1",
+            "state": "DOWNLOADING",
+            "runtime_status": {
+                "pod_phase": "Pending",
+                "container_name": "reef",
+                "state": "waiting",
+                "reason": "ImagePullBackOff",
+                "message": "back-off pulling image"
+            }
+        }))
+        .unwrap();
+
+        let status = deployment.runtime_status.unwrap();
+        assert_eq!(deployment.state, "DOWNLOADING");
+        assert_eq!(status.reason.as_deref(), Some("ImagePullBackOff"));
+        assert_eq!(status.message.as_deref(), Some("back-off pulling image"));
     }
 
     #[test]

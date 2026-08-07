@@ -701,6 +701,36 @@ describe('Agents SDK', () => {
     expect(agent.state).toBe('SYNCING');
   });
 
+  it('hydrates downloading state with structured image-pull status', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        state: 'DOWNLOADING',
+        last_error: 'ErrImagePull; unauthorized',
+        runtime_status: {
+          pod_phase: 'Pending',
+          container_name: 'reef',
+          state: 'waiting',
+          reason: 'ErrImagePull',
+          message: 'unauthorized',
+        },
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.get('agent-123');
+
+    expect(agent.state).toBe('DOWNLOADING');
+    expect(agent.runtimeStatus).toEqual({
+      pod_phase: 'Pending',
+      container_name: 'reef',
+      state: 'waiting',
+      reason: 'ErrImagePull',
+      message: 'unauthorized',
+    });
+  });
+
   it('fails waitRunning on granular init failure states', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

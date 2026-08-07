@@ -727,6 +727,7 @@ def _agent_state_style(state: object) -> str:
         "restoring": "yellow",
         "syncing": "yellow",
         "starting": "yellow",
+        "downloading": "yellow",
         "stopping": "yellow",
         "stopped": "dim",
         "failed": "red",

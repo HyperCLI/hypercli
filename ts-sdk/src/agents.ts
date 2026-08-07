@@ -1206,6 +1206,7 @@ export type AgentState =
   | 'SYNCING'
   | 'SYNC_FAILED'
   | 'STARTING'
+  | 'DOWNLOADING'
   | 'RUNNING'
   | 'STOPPING'
   | 'STOPPED'
@@ -1252,6 +1253,7 @@ export interface AgentStateFields {
   startedAt?: Date | null;
   stoppedAt?: Date | null;
   lastError?: string | null;
+  runtimeStatus?: AgentRuntimeStatus | null;
   placementEpoch?: number;
   runtimeGeneration?: number;
   finalizeEpoch?: number | null;
@@ -1266,6 +1268,14 @@ export interface AgentStateFields {
   ports: Record<string, any>[];
   dryRun: boolean;
   creationReplayed?: boolean;
+}
+
+export interface AgentRuntimeStatus {
+  pod_phase: string;
+  container_name: string;
+  state: 'waiting';
+  reason?: string | null;
+  message?: string | null;
 }
 
 export interface AgentHydrationData {
@@ -1294,6 +1304,7 @@ export interface AgentHydrationData {
   started_at?: string | null;
   stopped_at?: string | null;
   last_error?: string | null;
+  runtime_status?: AgentRuntimeStatus | null;
   placement_epoch?: number;
   runtime_generation?: number;
   finalize_epoch?: number | null;
@@ -1709,6 +1720,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
     lastError: data.last_error ?? null,
+    runtimeStatus: data.runtime_status ? structuredClone(data.runtime_status) : null,
     placementEpoch: data.placement_epoch ?? 0,
     runtimeGeneration: data.runtime_generation ?? 0,
     finalizeEpoch: data.finalize_epoch ?? null,
@@ -2142,6 +2154,7 @@ export class Agent {
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
   public readonly lastError: string | null;
+  public readonly runtimeStatus: AgentRuntimeStatus | null;
   public readonly placementEpoch: number;
   public readonly runtimeGeneration: number;
   public readonly finalizeEpoch: number | null;
@@ -2184,6 +2197,7 @@ export class Agent {
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
     this.lastError = fields.lastError ?? null;
+    this.runtimeStatus = fields.runtimeStatus ? structuredClone(fields.runtimeStatus) : null;
     this.placementEpoch = fields.placementEpoch ?? 0;
     this.runtimeGeneration = fields.runtimeGeneration ?? 0;
     this.finalizeEpoch = fields.finalizeEpoch ?? null;

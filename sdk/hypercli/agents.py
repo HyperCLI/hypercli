@@ -1182,6 +1182,11 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
         "last_error": data.get("last_error"),
+        "runtime_status": (
+            copy.deepcopy(data.get("runtime_status"))
+            if isinstance(data.get("runtime_status"), dict)
+            else None
+        ),
         "placement_epoch": int(data.get("placement_epoch", 0) or 0),
         "runtime_generation": int(data.get("runtime_generation", 0) or 0),
         "finalize_epoch": int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
@@ -1850,6 +1855,7 @@ class Agent:
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    runtime_status: Optional[dict] = None
     placement_epoch: int = 0
     runtime_generation: int = 0
     finalize_epoch: int | None = None
