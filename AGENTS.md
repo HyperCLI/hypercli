@@ -167,6 +167,11 @@ Generated paths (do not hand-edit):
 If you add templates, update `scripts/templates.txt` and re-run the generator.
 
 ## Code conventions and agent workflow
+- Work only in the canonical `~/dev/hypercli` checkout on `main`; do not create
+  branches, worktrees, or duplicate checkouts for agent work.
+- Before every commit, run `git diff --check` and reject any unresolved merge
+  marker. A red or unavailable GitHub Actions run is never permission to merge
+  or push known-broken source to `main`.
 - Tech stack: Next.js 16, React 19, TypeScript, Tailwind v4, Turbo monorepo.
 - Shared UI lives in `site/packages/shared-ui`; prefer editing there when a
   change impacts multiple apps.
