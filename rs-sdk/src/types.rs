@@ -888,6 +888,26 @@ pub struct DeploymentProfileImageResponse {
     pub s3_key: Option<String>,
 }
 
+/// Filters accepted by `GET /deployments`.
+///
+/// `query` maps to the API's `q` parameter and searches deployment IDs,
+/// names, handles, pod names, and hostnames. Exact `handle` and `name`
+/// filters remain separate so callers do not need to reproduce server-side
+/// matching rules.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct DeploymentListFilters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub handle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "q", skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_deleted: Option<bool>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,

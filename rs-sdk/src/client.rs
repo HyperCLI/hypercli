@@ -23,7 +23,7 @@ use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
     DeleteDeploymentResponse, Deployment, DeploymentEvent, DeploymentFileWriteResponse,
-    DeploymentProfileImageResponse, DeploymentRoutes, ExecDeploymentRequest,
+    DeploymentListFilters, DeploymentProfileImageResponse, DeploymentRoutes, ExecDeploymentRequest,
     ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
@@ -132,6 +132,21 @@ impl HyperCliClient {
         self.send_json(path, "GET", &url, None, builder)
     }
 
+    pub fn list_deployments(&self) -> Result<Vec<Deployment>, HyperCliError> {
+        Ok(self.list_deployments_with_capacity()?.items)
+    }
+
+    pub fn list_deployments_with_capacity(&self) -> Result<AgentCapacity, HyperCliError> {
+        self.list_deployments_filtered_with_capacity(&DeploymentListFilters::default())
+    }
+
+    pub fn list_deployments_filtered(
+        &self,
+        filters: &DeploymentListFilters,
+    ) -> Result<Vec<Deployment>, HyperCliError> {
+        Ok(self.list_deployments_filtered_with_capacity(filters)?.items)
+    }
+
     pub fn list_deployments_by_handle(
         &self,
         handle: &str,
@@ -139,37 +154,34 @@ impl HyperCliClient {
         Ok(self.list_deployments_by_handle_with_capacity(handle)?.items)
     }
 
-    pub fn list_deployments_with_capacity(&self) -> Result<AgentCapacity, HyperCliError> {
-        self.list_deployments_capacity(None)
-    }
-
     pub fn list_deployments_by_handle_with_capacity(
         &self,
         handle: &str,
     ) -> Result<AgentCapacity, HyperCliError> {
-        self.list_deployments_capacity(Some(handle))
+        self.list_deployments_filtered_with_capacity(&DeploymentListFilters {
+            handle: Some(handle.to_owned()),
+            ..DeploymentListFilters::default()
+        })
     }
 
-    fn list_deployments_capacity(
+    pub fn list_deployments_filtered_with_capacity(
         &self,
-        handle: Option<&str>,
+        filters: &DeploymentListFilters,
     ) -> Result<AgentCapacity, HyperCliError> {
         let url = self.endpoint("deployments");
-        let request = handle.map(|value| json!({"handle": value}));
+        let request = serde_json::to_value(filters).ok();
         let started = Instant::now();
-        let mut request_builder = self
+        let request_builder = self
             .http
             .get(&url)
-            .bearer_auth(self.api_key.expose_secret());
-        if let Some(handle) = handle {
-            request_builder = request_builder.query(&[("handle", handle)]);
-        }
+            .bearer_auth(self.api_key.expose_secret())
+            .query(filters);
         let response = match request_builder.send() {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
                 self.trace_http(
-                    "list_deployments_by_handle",
+                    "list_deployments",
                     "GET",
                     &url,
                     request.as_ref(),
@@ -185,7 +197,7 @@ impl HyperCliClient {
         let headers = trace_headers(&response);
         let result: Result<AgentCapacity, HyperCliError> = decode_json(response);
         self.trace_http(
-            "list_deployments_by_handle",
+            "list_deployments",
             "GET",
             &url,
             request.as_ref(),
@@ -1825,6 +1837,38 @@ mod tests {
         assert_eq!(capacity.slots["large"].available, 2);
         assert_eq!(capacity.agent_slots[0].plan_id, "pro");
         assert_eq!(capacity.pooled_tpd, 100_000_000);
+        mock.assert();
+    }
+
+    #[test]
+    fn list_forwards_every_supported_deployment_filter() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("GET", "/agents/deployments")
+            .match_header("authorization", "Bearer test-credential")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("state".into(), "STOPPED".into()),
+                Matcher::UrlEncoded("handle".into(), "relay-smoke".into()),
+                Matcher::UrlEncoded("name".into(), "relay-agent".into()),
+                Matcher::UrlEncoded("q".into(), "agent-id-prefix".into()),
+                Matcher::UrlEncoded("include_deleted".into(), "true".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"items": []}"#)
+            .create();
+
+        let deployments = client(&server)
+            .list_deployments_filtered(&DeploymentListFilters {
+                state: Some("STOPPED".into()),
+                handle: Some("relay-smoke".into()),
+                name: Some("relay-agent".into()),
+                query: Some("agent-id-prefix".into()),
+                include_deleted: Some(true),
+            })
+            .unwrap();
+
+        assert!(deployments.is_empty());
         mock.assert();
     }
 

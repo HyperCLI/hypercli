@@ -739,12 +739,23 @@ def _agent_state_style(state: object) -> str:
 @app.command("list")
 def list_agents(
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
+    state: str | None = typer.Option(None, "--state", "-s", help="Filter by lifecycle state"),
+    handle: str | None = typer.Option(None, "--handle", help="Filter by exact agent handle"),
+    name: str | None = typer.Option(None, "--name", "-n", help="Filter by exact agent name"),
+    query: str | None = typer.Option(None, "--query", "-q", help="Search IDs, names, handles, pods, and hostnames"),
+    include_deleted: bool = typer.Option(False, "--include-deleted", help="Include deleted agents"),
 ):
     """List all agent pods."""
     agents = _get_deployments_client()
 
     try:
-        pods = agents.list()
+        pods = agents.list(
+            state=state,
+            handle=handle,
+            name=name,
+            query=query,
+            include_deleted=include_deleted,
+        )
     except Exception as e:
         console.print(f"[red]❌ Failed to list agents: {e}[/red]")
         raise typer.Exit(1)
