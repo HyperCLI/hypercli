@@ -106,7 +106,6 @@ async function main() {
     size,
     image,
     syncRoot: '/home/node',
-    syncEnabled: true,
     env: {
       HOME: '/home/node',
       HYPER_API_BASE: productBase,

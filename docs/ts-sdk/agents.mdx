@@ -196,16 +196,23 @@ Create/start options:
 - `entrypoint`
 - `restart`
 - `image`
+- `syncRoot`
+- `syncInclude`
+- `syncExclude`
+- `syncUid`
+- `syncGid`
 - `registryUrl`
 - `registryAuth`
 - `gatewayToken`
 - `dryRun`
 
-`registryUrl`, `registryAuth`, `syncRoot`, `syncEnabled`, and `restart` are
-generic launch options. They belong to the base deployment contract, not to
-OpenClaw specifically. Omit `restart` to preserve the platform default, or set
-`restart: false` for a one-shot process that should leave the deployment
-stopped after its main container exits.
+`registryUrl`, `registryAuth`, `syncRoot`, and `restart` are generic launch
+options. They belong to the base deployment contract, not to OpenClaw
+specifically. Synchronization is enabled when `syncRoot` is present and
+disabled when it is absent; the SDK derives the compatibility wire boolean.
+Omit `restart` to preserve the platform default, or set `restart: false` for a
+one-shot process that should leave the deployment stopped after its main
+container exits.
 
 ## OpenClaw Presets
 
@@ -249,8 +256,6 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   defaults to the standard `openclaw` and `desktop` routes when omitted
 - `syncRoot`
   defaults to `/home/node`
-- `syncEnabled`
-  defaults to `true`
 - `heartbeat`
   maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
 

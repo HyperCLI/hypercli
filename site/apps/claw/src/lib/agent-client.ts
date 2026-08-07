@@ -344,7 +344,6 @@ function launchConfigStartOptions(launchConfig: Record<string, unknown> | null |
   }
   if (typeof launchConfig.image === "string") options.image = launchConfig.image;
   if (typeof launchConfig.sync_root === "string") options.syncRoot = launchConfig.sync_root;
-  if (typeof launchConfig.sync_enabled === "boolean") options.syncEnabled = launchConfig.sync_enabled;
   if (typeof launchConfig.registry_url === "string") options.registryUrl = launchConfig.registry_url;
   if (isRecord(launchConfig.registry_auth)) {
     options.registryAuth = cloneRecord(launchConfig.registry_auth) as FrontendOpenClawStartOptions["registryAuth"];

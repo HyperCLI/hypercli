@@ -146,7 +146,7 @@ state. Consumers should represent that as unknown, never as an explicit no.
 
 ### OpenClaw Agents
 
-OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `syncRoot=/home/node`.
+OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, and `syncRoot` are generic deployment options; synchronization is enabled when `syncRoot` is present and disabled when it is absent. The OpenClaw helpers only add defaults such as routes, image, and `syncRoot=/home/node`.
 
 ```typescript
 const agent = await client.deployments.createOpenClaw({

@@ -92,7 +92,7 @@ describe("agent-client", () => {
     expect(agentCreationId({ meta: { ui: {} } })).toBeNull();
   });
 
-  it("starts existing OpenClaw agents with their stored launch config and strips stale control UI origin locks by default", async () => {
+  it("starts from stored sync_root, ignores stale sync_enabled, and strips stale origin locks", async () => {
     deploymentsInstance.get.mockResolvedValue({
       launchConfig: {
         config: {
@@ -119,14 +119,12 @@ describe("agent-client", () => {
 
     await startOpenClawAgent("hyper_api_test", "agent-123", {
       env: { EXTRA: "value" },
-      syncEnabled: true,
     });
 
     expect(deploymentsInstance.get).toHaveBeenCalledWith("agent-123");
     expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.objectContaining({
       image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
       syncRoot: "/home/ubuntu",
-      syncEnabled: true,
       controlUiOriginLock: true,
       config: {},
       env: {

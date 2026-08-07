@@ -636,7 +636,6 @@ fn restart_if_stopped(
         entrypoint: create.entrypoint.clone(),
         image: create.image.clone(),
         sync_root: create.sync_root.clone(),
-        sync_enabled: create.sync_enabled,
         sync_include: None,
         sync_exclude: None,
         sync_uid: create.sync_uid,
@@ -645,9 +644,9 @@ fn restart_if_stopped(
         runtime_scopes: create.runtime_scopes.clone(),
         dry_run: false,
     };
-    // Sync policy is backend-authoritative after creation. A user may have
-    // edited it from Desktop or another SDK client, so relaunch deliberately
-    // omits both tri-state fields and inherits the stored policy.
+    // The Rust SDK derives the compatibility sync_enabled wire field from
+    // sync_root. Keep the include/exclude filters omitted here so a relaunch
+    // does not overwrite the backend's stored filter policy.
     client
         .start_deployment(&deployment.id, &start)
         .map_err(ProviderError::HyperCli)
@@ -755,7 +754,6 @@ fn build_launch_request_with_inference_base(
 
     request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
     request.sync_root = Some("/home/node".to_owned());
-    request.sync_enabled = Some(true);
     request.sync_include = request
         .runtime
         .default_sync_include()
@@ -2498,11 +2496,14 @@ mod tests {
     }
 
     #[test]
-    fn stopped_agent_relaunch_inherits_backend_sync_policy() {
+    fn stopped_agent_relaunch_without_sync_root_disables_sync() {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
+            .match_body(Matcher::Json(serde_json::json!({
+                "sync_enabled": false,
+                "dry_run": false
+            })))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
@@ -2522,11 +2523,14 @@ mod tests {
     }
 
     #[test]
-    fn stopped_agent_relaunch_does_not_replay_create_sync_default() {
+    fn stopped_agent_relaunch_filter_does_not_enable_sync_without_root() {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
+            .match_body(Matcher::Json(serde_json::json!({
+                "sync_enabled": false,
+                "dry_run": false
+            })))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
