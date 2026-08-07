@@ -15,6 +15,16 @@ test("agents launch helper accepts the current workspace empty state", () => {
   expect(authFixtureSource).toContain("expected Team to select medium launch capacity");
 });
 
+test("agents launch helper observes an authenticated gateway WebSocket connect", () => {
+  expect(authFixtureSource).toContain('page.on("websocket", observeGatewaySocket)');
+  expect(authFixtureSource).toContain('frame.method === "connect"');
+  expect(authFixtureSource).toContain('typeof auth?.token === "string"');
+  expect(authFixtureSource).toContain('frame?.type === "res"');
+  expect(authFixtureSource).toContain("gatewayConnectRequestIds.has(frame.id)");
+  expect(authFixtureSource).toContain("authenticated WebSocket connect observed");
+  expect(authFixtureSource).toContain('page.off("websocket", observeGatewaySocket)');
+});
+
 test("agents subscription retry permits immutable canceled history", () => {
   expect(subscriptionSpecSource).toContain("beforeSummary.activeSubscriptions).toHaveLength(0)");
   expect(subscriptionSpecSource).toContain("filter((subscription) => subscription.isCurrent)");

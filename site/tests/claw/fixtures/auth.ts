@@ -1,7 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { expect, type Frame, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  type Frame,
+  type Locator,
+  type Page,
+  type WebSocket as PlaywrightWebSocket,
+} from "@playwright/test";
 
 type RequiredEnvKey =
   | "TEST_BASE_URL"
@@ -1817,60 +1823,119 @@ export async function launchClawAgentAndWaitForGateway(
       await verifyDesktopAuthRoute(running);
       await waitForGatewayRoute(running);
 
-      await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
-      await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
-      await captureStep(page, "agents-11-created-opened");
-
-      const composer = page.getByRole("textbox", { name: /Message agent/i });
-      const readyStatus = page.getByText("Ready", { exact: true });
-      const connectingStatus = page
-        .locator("main")
-        .getByText(
-          /Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up|Restoring files|Syncing shared knowledge|RESTORING|SYNCING/i
-        );
-      const readinessStartedAt = Date.now();
-      let refreshedAgentRoute = false;
-      const refreshAgentRoute = async (): Promise<void> => {
-        refreshedAgentRoute = true;
-        await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+      let authenticatedGatewayConnections = 0;
+      const inspectGatewayFrame = (payload: string | Buffer): Record<string, unknown> | null => {
+        try {
+          const parsed = JSON.parse(typeof payload === "string" ? payload : payload.toString("utf8"));
+          return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
+        } catch {
+          return null;
+        }
       };
-      await expect
-        .poll(
-          async () => {
-            const visibleComposer = await findLastVisible(composer, 250);
-            const composerVisible = Boolean(visibleComposer);
-            const composerEnabled = visibleComposer ? await visibleComposer.isEnabled().catch(() => false) : false;
-            const readyVisible = await hasVisible(readyStatus);
-            if (composerVisible && composerEnabled && readyVisible) {
-              return "ready";
-            }
+      const observeGatewaySocket = (socket: PlaywrightWebSocket): void => {
+        let socketHostname = "";
+        try {
+          socketHostname = new URL(socket.url()).hostname;
+        } catch {
+          return;
+        }
+        if (socketHostname !== running.hostname) return;
+        const gatewayConnectRequestIds = new Set<string>();
 
-            const loadingShellVisible = await page
-              .locator("main")
-              .getByText(/Checking your workspace before selecting an agent/i)
-              .first()
-              .isVisible()
-              .catch(() => false);
-            if (loadingShellVisible && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
-              await refreshAgentRoute();
-            }
+        socket.on("framesent", ({ payload }) => {
+          const frame = inspectGatewayFrame(payload);
+          const params = frame?.params && typeof frame.params === "object"
+            ? frame.params as Record<string, unknown>
+            : null;
+          const auth = params?.auth && typeof params.auth === "object"
+            ? params.auth as Record<string, unknown>
+            : null;
+          if (
+            frame?.type === "req" &&
+            frame.method === "connect" &&
+            typeof frame.id === "string" &&
+            typeof auth?.token === "string" &&
+            auth.token.length > 0
+          ) {
+            gatewayConnectRequestIds.add(frame.id);
+          }
+        });
+        socket.on("framereceived", ({ payload }) => {
+          const frame = inspectGatewayFrame(payload);
+          if (
+            frame?.type === "res" &&
+            frame.ok === true &&
+            typeof frame.id === "string" &&
+            gatewayConnectRequestIds.has(frame.id)
+          ) {
+            authenticatedGatewayConnections += 1;
+          }
+        });
+      };
+      page.on("websocket", observeGatewaySocket);
 
-            const visibleWaiting = await findLastVisible(connectingStatus, 250);
-            const waitingText = visibleWaiting ? await visibleWaiting.textContent({ timeout: 500 }).catch(() => "") : "";
-            if (waitingText && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
-              await refreshAgentRoute();
-            }
-            return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
-          },
-          { timeout: Math.max(timeout, 180_000), intervals: [1_000, 2_000, 5_000] }
-        )
-        .toBe("ready");
-      const visibleComposer = await findLastVisible(composer, 5_000);
-      expect(visibleComposer, "expected a visible message composer after gateway readiness").not.toBeNull();
-      await expect(visibleComposer!).toBeEnabled({ timeout: 5_000 });
-      expect(await hasVisible(readyStatus), "expected a visible Ready status after gateway readiness").toBe(true);
-      await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
-      await captureStep(page, "agents-12-gateway-connected");
+      try {
+        await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
+        await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
+        await captureStep(page, "agents-11-created-opened");
+
+        const composer = page.getByRole("textbox", { name: /Message agent/i });
+        const readyStatus = page.getByText("Ready", { exact: true });
+        const connectingStatus = page
+          .locator("main")
+          .getByText(
+            /Connecting|Preparing chat|Loading workspace|Fetching messages|Checking your workspace|Waiting for gateway|Gateway disconnected|runtime is up|Restoring files|Syncing shared knowledge|RESTORING|SYNCING/i
+          );
+        const readinessStartedAt = Date.now();
+        let refreshedAgentRoute = false;
+        const refreshAgentRoute = async (): Promise<void> => {
+          refreshedAgentRoute = true;
+          await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" }).catch(() => {});
+        };
+        await expect
+          .poll(
+            async () => {
+              const visibleComposer = await findLastVisible(composer, 250);
+              const composerVisible = Boolean(visibleComposer);
+              const composerEnabled = visibleComposer ? await visibleComposer.isEnabled().catch(() => false) : false;
+              const readyVisible = await hasVisible(readyStatus);
+              if (composerVisible && composerEnabled && readyVisible) {
+                return "ready";
+              }
+
+              const loadingShellVisible = await page
+                .locator("main")
+                .getByText(/Checking your workspace before selecting an agent/i)
+                .first()
+                .isVisible()
+                .catch(() => false);
+              if (loadingShellVisible && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
+                await refreshAgentRoute();
+              }
+
+              const visibleWaiting = await findLastVisible(connectingStatus, 250);
+              const waitingText = visibleWaiting ? await visibleWaiting.textContent({ timeout: 500 }).catch(() => "") : "";
+              if (waitingText && !refreshedAgentRoute && Date.now() - readinessStartedAt > 60_000) {
+                await refreshAgentRoute();
+              }
+              return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
+            },
+            { timeout: Math.max(timeout, 180_000), intervals: [1_000, 2_000, 5_000] }
+          )
+          .toBe("ready");
+        await expect
+          .poll(() => authenticatedGatewayConnections, { timeout: 10_000, intervals: [100, 250, 500] })
+          .toBeGreaterThan(0);
+        console.log("[agents-gateway] authenticated WebSocket connect observed");
+        const visibleComposer = await findLastVisible(composer, 5_000);
+        expect(visibleComposer, "expected a visible message composer after gateway readiness").not.toBeNull();
+        await expect(visibleComposer!).toBeEnabled({ timeout: 5_000 });
+        expect(await hasVisible(readyStatus), "expected a visible Ready status after gateway readiness").toBe(true);
+        await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
+        await captureStep(page, "agents-12-gateway-connected");
+      } finally {
+        page.off("websocket", observeGatewaySocket);
+      }
 
       return created;
     } catch (error) {
