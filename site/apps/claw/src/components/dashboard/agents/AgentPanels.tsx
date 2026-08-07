@@ -8,7 +8,7 @@ import { ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
-import { Button, Input, writeClipboardText } from "@hypercli/shared-ui";
+import { Button, Input, Switch, writeClipboardText } from "@hypercli/shared-ui";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "@/app/dashboard/agents/types";
@@ -1374,54 +1374,56 @@ function AgentSectionSettingsContent({
           </div>
 
           <AgentProfileSettingsRow label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
-            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex h-9 items-center justify-end">
+              <Switch
                 checked={desktopEnabled}
-                onChange={(event) => onDesktopEnabledChange(event.target.checked)}
-                className={SETTINGS_CHECKBOX_CLASS}
+                onCheckedChange={onDesktopEnabledChange}
+                aria-label="Enable desktop route"
               />
-              Enable desktop route
-            </label>
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow label="Shared knowledge" description="Sync shared knowledge Markdown before OpenClaw starts.">
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
+            <div className="space-y-3">
+              <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                <div className="flex h-9 items-center gap-2">
+                  <Switch
+                    id="agent-shared-knowledge-sync"
+                    checked={workspacesSync.enabled}
+                    onCheckedChange={(checked) => onWorkspacesSyncChange({ ...workspacesSync, enabled: checked })}
+                    aria-label="Boot sync"
+                  />
+                  <label htmlFor="agent-shared-knowledge-sync" className="text-sm font-medium text-foreground">Boot sync</label>
+                </div>
                 <input
-                  type="checkbox"
-                  checked={workspacesSync.enabled}
-                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, enabled: event.target.checked })}
-                  className={SETTINGS_CHECKBOX_CLASS}
-                />
-                Boot sync
-              </label>
-              <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
-                <input
-                  type="checkbox"
-                  checked={workspacesSync.readyOnly}
-                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, readyOnly: event.target.checked })}
+                  value={workspacesSync.outputDir}
+                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, outputDir: event.target.value })}
                   disabled={!workspacesSync.enabled}
-                  className={SETTINGS_CHECKBOX_CLASS}
+                  placeholder="/home/node/workspaces"
+                  aria-label="Shared knowledge sync directory"
+                  className={SETTINGS_FIELD_CLASS}
                 />
-                Ready files only
-              </label>
-              <input
-                value={workspacesSync.outputDir}
-                onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, outputDir: event.target.value })}
-                disabled={!workspacesSync.enabled}
-                placeholder="/home/node/workspaces"
-                aria-label="Shared knowledge sync directory"
-                className={SETTINGS_FIELD_CLASS}
-              />
-              <input
-                value={workspacesSync.workspace}
-                onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, workspace: event.target.value })}
-                disabled={!workspacesSync.enabled}
-                placeholder="All accessible shared knowledge"
-                aria-label="Shared knowledge sync selection"
-                className={SETTINGS_FIELD_CLASS}
-              />
+              </div>
+              <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+                <div className="flex h-9 items-center gap-2">
+                  <Switch
+                    id="agent-shared-knowledge-ready-only"
+                    checked={workspacesSync.readyOnly}
+                    onCheckedChange={(checked) => onWorkspacesSyncChange({ ...workspacesSync, readyOnly: checked })}
+                    disabled={!workspacesSync.enabled}
+                    aria-label="Ready files only"
+                  />
+                  <label htmlFor="agent-shared-knowledge-ready-only" className="text-sm font-medium text-foreground">Ready files only</label>
+                </div>
+                <input
+                  value={workspacesSync.workspace}
+                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, workspace: event.target.value })}
+                  disabled={!workspacesSync.enabled}
+                  placeholder="All accessible shared knowledge"
+                  aria-label="Shared knowledge sync selection"
+                  className={SETTINGS_FIELD_CLASS}
+                />
+              </div>
             </div>
           </AgentProfileSettingsRow>
 
@@ -1513,15 +1515,13 @@ function AgentSectionSettingsContent({
             label="File source tabs"
             description="Show Agent, Backup, and Gateway source tabs in the file browser. Useful for backup inspection and debugging."
           >
-            <label className="flex min-h-9 cursor-pointer items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex min-h-9 items-center justify-end">
+              <Switch
                 checked={showFileSourceTabs}
-                onChange={(event) => onShowFileSourceTabsChange?.(event.target.checked)}
-                className={SETTINGS_CHECKBOX_CLASS}
+                onCheckedChange={(checked) => onShowFileSourceTabsChange?.(checked)}
+                aria-label="Show source tabs"
               />
-              <span>Show source tabs</span>
-            </label>
+            </div>
           </AgentProfileSettingsRow>
         </section>
 
@@ -1584,8 +1584,8 @@ function AgentIndexSettingsContent({
   disabled?: boolean;
 }) {
   const setBoolean = (key: keyof Pick<MemoryIndexSettings, "enabled" | "onSessionStart" | "onSearch" | "watch">) =>
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      onSettingsChange({ ...settings, [key]: event.target.checked });
+    (checked: boolean) => {
+      onSettingsChange({ ...settings, [key]: checked });
     };
   const setDebounceSeconds = (event: React.ChangeEvent<HTMLInputElement>) => {
     const seconds = Math.max(0, Number.parseFloat(event.target.value || "0") || 0);
@@ -1615,55 +1615,47 @@ function AgentIndexSettingsContent({
         )}
         <section className="mt-4 divide-y divide-border overflow-hidden rounded-xl border border-border bg-surface-low/30 px-4 sm:px-5 md:mt-7">
           <AgentProfileSettingsRow compact label="Memory search" description="Enable semantic search over indexed memory files.">
-            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex h-9 items-center justify-end">
+              <Switch
                 checked={settings.enabled}
-                onChange={setBoolean("enabled")}
+                onCheckedChange={setBoolean("enabled")}
                 disabled={disabled}
-                className={SETTINGS_CHECKBOX_CLASS}
+                aria-label="Enable memory search"
               />
-              Enabled
-            </label>
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow compact label="Session start" description="Refresh the index when a new agent session starts.">
-            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex h-9 items-center justify-end">
+              <Switch
                 checked={settings.onSessionStart}
-                onChange={setBoolean("onSessionStart")}
+                onCheckedChange={setBoolean("onSessionStart")}
                 disabled={disabled}
-                className={SETTINGS_CHECKBOX_CLASS}
+                aria-label="Sync on session start"
               />
-              Sync on session start
-            </label>
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow compact label="Search fallback" description="Let memory search trigger a sync when the index is missing or stale.">
-            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex h-9 items-center justify-end">
+              <Switch
                 checked={settings.onSearch}
-                onChange={setBoolean("onSearch")}
+                onCheckedChange={setBoolean("onSearch")}
                 disabled={disabled}
-                className={SETTINGS_CHECKBOX_CLASS}
+                aria-label="Sync on search"
               />
-              Sync on search
-            </label>
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow compact label="File watcher" description="Watch memory files and sync after writes settle.">
-            <label className="flex h-9 items-center gap-2 text-sm font-medium text-foreground">
-              <input
-                type="checkbox"
+            <div className="flex h-9 items-center justify-end">
+              <Switch
                 checked={settings.watch}
-                onChange={setBoolean("watch")}
+                onCheckedChange={setBoolean("watch")}
                 disabled={disabled}
-                className={SETTINGS_CHECKBOX_CLASS}
+                aria-label="Watch memory files"
               />
-              Watch memory files
-            </label>
+            </div>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow compact label="Watch debounce" description="Seconds of quiet time before watcher sync runs.">
@@ -3242,12 +3234,13 @@ export function LaunchFirstAgentEmptyState({
 }: AgentEmptyStateProps) {
   const workspaceScoped = Boolean(workspaceName);
   const workspaceSetupRequired = !workspaceScoped && Boolean(onCreateWorkspace);
+  const firstAgentOnboarding = !hasAccountAgents;
 
   return (
     <div data-slot="first-agent-empty-state" className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-5 py-8">
         <div className="flex w-full max-w-[600px] flex-col items-center text-center">
-        {!workspaceScoped ? (
+        {firstAgentOnboarding ? (
           <div className="mb-6 inline-flex h-5 items-center gap-1.5 rounded-full border border-foreground px-2.5 text-[11px] font-semibold leading-none text-foreground">
             <Sparkles className="h-3 w-3" />
             <span>{"Let's get started"}</span>
@@ -3255,11 +3248,11 @@ export function LaunchFirstAgentEmptyState({
         ) : null}
 
         <h1 className={`font-semibold leading-none tracking-normal text-foreground ${
-          workspaceScoped
-            ? "text-[40px] sm:text-[52px]"
-            : "whitespace-nowrap text-[clamp(1.75rem,7vw,3.625rem)]"
+          firstAgentOnboarding
+            ? "whitespace-nowrap text-[clamp(1.75rem,7vw,3.625rem)]"
+            : "text-[40px] sm:text-[52px]"
         }`}>
-          {workspaceScoped ? `Welcome to your ${workspaceName}` : "Launch your first agent"}
+          {firstAgentOnboarding ? "Launch your first agent" : `Welcome to ${workspaceName}`}
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
           {workspaceScoped && hasAccountAgents

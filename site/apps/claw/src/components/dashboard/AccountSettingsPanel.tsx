@@ -106,12 +106,12 @@ export default function AccountSettingsPanel() {
     <div className="h-full overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
         <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="grid w-full gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
             <div className="min-w-0">
               <h2 className="text-base font-semibold text-foreground">Appearance</h2>
               <p className="mt-1 text-sm text-text-muted">Choose how HyperCLI looks across all apps.</p>
             </div>
-            <ThemeSelector aria-label="Appearance theme" className="lg:mt-0.5" />
+            <ThemeSelector aria-label="Appearance theme" className="justify-self-start md:justify-self-end" />
           </div>
         </Card>
         <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">

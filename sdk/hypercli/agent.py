@@ -5,8 +5,9 @@ Provides access to the HyperClaw inference API for AI agents.
 Uses the official OpenAI Python client for chat completions.
 """
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from math import isfinite
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import quote, urlsplit
 
@@ -126,6 +127,181 @@ class HyperAgentCurrentPlan:
 
 
 @dataclass
+class HyperAgentSubscriptionTrial:
+    """Authoritative trial timing for a recurring HyperClaw subscription."""
+
+    active: bool
+    days: int | None
+    starts_at: datetime | None
+    ends_at: datetime | None
+    seconds_remaining: int | None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionTrial":
+        return cls(
+            active=data.get("active") is True,
+            days=_nullable_trial_int(data.get("days")),
+            starts_at=_valid_trial_datetime(data.get("starts_at")),
+            ends_at=_valid_trial_datetime(data.get("ends_at")),
+            seconds_remaining=_nullable_trial_int(data.get("seconds_remaining")),
+        )
+
+
+_ACTIVE_LIKE_SUBSCRIPTION_STATUSES = {"active", "trialing"}
+
+
+def _nullable_trial_int(value: object) -> int | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(parsed) if isfinite(parsed) else None
+
+
+def _valid_trial_datetime(value: object) -> datetime | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = str(value).strip()
+        try:
+            numeric_value = float(text)
+        except ValueError:
+            numeric_value = None
+        if numeric_value is not None and isfinite(numeric_value):
+            timestamp = (
+                numeric_value / 1000 if abs(numeric_value) >= 1_000_000_000_000 else numeric_value
+            )
+            try:
+                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _first_valid_trial_datetime(*values: object) -> datetime | None:
+    for value in values:
+        parsed = _valid_trial_datetime(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _hyper_agent_subscription_trial_from_dict(
+    data: dict[str, Any],
+    entitlements: list["HyperAgentEntitlement"],
+) -> HyperAgentSubscriptionTrial | None:
+    if "trial" in data:
+        trial = data.get("trial")
+        return HyperAgentSubscriptionTrial.from_dict(trial) if isinstance(trial, dict) else None
+
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else None
+    if meta is None:
+        return None
+
+    trial_marker = meta.get("trial")
+    has_trial_marker = trial_marker is True or (
+        isinstance(trial_marker, str) and trial_marker.strip().lower() == "true"
+    )
+    trial_active_marker = meta.get("trial_active")
+    explicitly_inactive = (
+        trial_active_marker is False
+        or (isinstance(trial_active_marker, str) and trial_active_marker.strip().lower() == "false")
+        or bool(meta.get("trial_ended_at"))
+        or bool(data.get("cancel_at_period_end"))
+    )
+    status = str(data.get("status") or "").strip().lower()
+    trial_days = _nullable_trial_int(meta.get("trial_days"))
+    metadata_starts_at = _first_valid_trial_datetime(
+        meta.get("trial_starts_at"),
+        meta.get("trial_started_at"),
+        meta.get("trial_start_at"),
+        meta.get("trial_start"),
+    )
+    metadata_ends_at = _first_valid_trial_datetime(
+        meta.get("trial_ends_at"),
+        meta.get("trial_ended_at"),
+        meta.get("trial_end_at"),
+        meta.get("trial_end"),
+    )
+    entitlement_starts = [
+        parsed
+        for entitlement in entitlements
+        if (parsed := _valid_trial_datetime(getattr(entitlement, "starts_at", None))) is not None
+    ]
+    entitlement_starts_at = min(entitlement_starts, default=None)
+    trial_duration = None
+    if trial_days is not None and trial_days > 0:
+        try:
+            trial_duration = timedelta(days=trial_days)
+        except OverflowError:
+            pass
+
+    fallback_starts_at = metadata_starts_at or entitlement_starts_at
+    derived_ends_at = None
+    if fallback_starts_at is not None and trial_duration is not None:
+        try:
+            derived_ends_at = fallback_starts_at + trial_duration
+        except OverflowError:
+            pass
+    period_end_value = (
+        data.get("current_period_end")
+        if data.get("current_period_end") is not None
+        else data.get("expires_at")
+    )
+    period_ends_at = _valid_trial_datetime(period_end_value)
+    authoritative_ends_at = metadata_ends_at or period_ends_at
+    starts_at = metadata_starts_at
+    if starts_at is None and authoritative_ends_at is not None and trial_duration is not None:
+        try:
+            starts_at = authoritative_ends_at - trial_duration
+        except OverflowError:
+            pass
+    starts_at = starts_at or entitlement_starts_at
+    has_persisted_trial_timing = bool(
+        metadata_starts_at
+        or metadata_ends_at
+        or (entitlement_starts_at is not None and trial_duration is not None)
+    )
+    now = datetime.now(timezone.utc)
+    period_would_revive_expired_trial = bool(
+        metadata_ends_at is None
+        and period_ends_at is not None
+        and period_ends_at > now
+        and derived_ends_at is not None
+        and derived_ends_at <= now
+    )
+    ends_at = authoritative_ends_at or derived_ends_at
+    if (
+        not has_trial_marker
+        or explicitly_inactive
+        or status not in _ACTIVE_LIKE_SUBSCRIPTION_STATUSES
+        or not has_persisted_trial_timing
+        or period_would_revive_expired_trial
+        or ends_at is None
+        or ends_at <= now
+    ):
+        return None
+
+    return HyperAgentSubscriptionTrial(
+        active=True,
+        days=trial_days,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        seconds_remaining=max(0, int((ends_at - now).total_seconds())),
+    )
+
+
+@dataclass
 class HyperAgentSubscription:
     """A recurring HyperClaw billing subscription."""
 
@@ -150,12 +326,15 @@ class HyperAgentSubscription:
     slot_grants: dict[str, int] | None = None
     entitlements: list["HyperAgentEntitlement"] | None = None
     agent_slots: list[AgentSlot] = field(default_factory=list)
+    trial: HyperAgentSubscriptionTrial | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentSubscription":
         expires_at = data.get("current_period_end", data.get("expires_at"))
         updated_at = data.get("updated_at")
-        entitlements = [HyperAgentEntitlement.from_dict(item) for item in data.get("entitlements", [])]
+        entitlements = [
+            HyperAgentEntitlement.from_dict(item) for item in data.get("entitlements", [])
+        ]
         direct_slots = [AgentSlot.from_dict(slot) for slot in data.get("agent_slots", [])]
         return cls(
             id=data["id"],
@@ -165,8 +344,12 @@ class HyperAgentSubscription:
             provider=data.get("provider", ""),
             status=data.get("status", ""),
             quantity=int(data.get("quantity", 1) or 1),
-            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None,
-            updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00")) if updated_at else None,
+            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if expires_at
+            else None,
+            updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+            if updated_at
+            else None,
             stripe_subscription_id=data.get("stripe_subscription_id"),
             cancel_at_period_end=bool(data.get("cancel_at_period_end", False)),
             can_cancel=bool(data.get("can_cancel", False)),
@@ -178,7 +361,9 @@ class HyperAgentSubscription:
             plan_agent_tier=data.get("plan_agent_tier"),
             slot_grants=data.get("slot_grants") or None,
             entitlements=entitlements or None,
-            agent_slots=direct_slots or [slot for entitlement in entitlements for slot in entitlement.agent_slots],
+            agent_slots=direct_slots
+            or [slot for entitlement in entitlements for slot in entitlement.agent_slots],
+            trial=_hyper_agent_subscription_trial_from_dict(data, entitlements),
         )
 
 
@@ -697,10 +882,18 @@ class HyperAgentPaymentsResponse:
 @dataclass
 class HyperAgentStripeCheckoutResponse:
     checkout_url: str
+    checkout_session_id: str | None = None
+    checkout_attempt_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentStripeCheckoutResponse":
-        return cls(checkout_url=str(data.get("checkout_url", "")))
+        session_id = data.get("session_id")
+        attempt_id = data.get("checkout_attempt_id")
+        return cls(
+            checkout_url=str(data.get("checkout_url", "")),
+            checkout_session_id=str(session_id) if session_id else None,
+            checkout_attempt_id=str(attempt_id) if attempt_id else None,
+        )
 
 
 @dataclass
@@ -980,6 +1173,22 @@ class HyperAgent:
             {"plan_id": normalized_plan_id, "quantity": quantity},
         )
         return HyperAgentSubscriptionMutationResult.from_dict(data)
+
+    def create_stripe_trial_checkout(
+        self,
+        *,
+        success_url: str | None = None,
+        cancel_url: str | None = None,
+    ) -> HyperAgentStripeCheckoutResponse:
+        """Create the account's one-time Team trial checkout."""
+        payload: dict[str, str] = {}
+        if success_url is not None:
+            payload["success_url"] = success_url
+        if cancel_url is not None:
+            payload["cancel_url"] = cancel_url
+        return HyperAgentStripeCheckoutResponse.from_dict(
+            self._control_post("/stripe/trial", payload)
+        )
 
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> Dict[str, Any]:
         payload: dict[str, Any] = {"code": str(code)}

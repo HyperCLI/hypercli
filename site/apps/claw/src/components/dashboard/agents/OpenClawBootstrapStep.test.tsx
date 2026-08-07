@@ -1,6 +1,6 @@
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import {
   OPENCLAW_BOOTSTRAP_PACK_VERSION,
@@ -8,14 +8,13 @@ import {
   createDefaultOpenClawBootstrapInputs,
   type OpenClawBootstrapDraft,
 } from "@/lib/openclaw-bootstrap-pack";
-import type { OpenClawBootstrapGenerationState } from "./openclaw-bootstrap-generation-machine";
-import { OpenClawBootstrapStep } from "./OpenClawBootstrapStep";
+import { OpenClawBootstrapStep, type OpenClawBootstrapStage } from "./OpenClawBootstrapStep";
 
 describe("OpenClawBootstrapStep", () => {
-  it("left-aligns workspace file tabs and saves raw edits to the parent draft", async () => {
-    const onRegenerate = vi.fn();
+  it("renders one form panel while rebuilding workspace files behind it", () => {
+    let latestDraft: OpenClawBootstrapDraft | null = null;
 
-    function Harness() {
+    function Harness({ stage }: { stage: OpenClawBootstrapStage }) {
       const inputs = React.useMemo(() => createDefaultOpenClawBootstrapInputs("Tern"), []);
       const [draft, setDraft] = React.useState<OpenClawBootstrapDraft>({
         version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
@@ -23,75 +22,63 @@ describe("OpenClawBootstrapStep", () => {
         files: buildDeterministicOpenClawBootstrapPack(inputs),
         generationSource: "deterministic",
       });
-      const generation: OpenClawBootstrapGenerationState = {
-        runId: 1,
-        files: {
-          "AGENTS.md": { status: "ready" },
-          "SOUL.md": { status: "generating" },
-          "USER.md": { status: "queued" },
-        },
-      };
+      latestDraft = draft;
       return (
         <OpenClawBootstrapStep
           agentName="Tern"
           draft={draft}
           onChange={setDraft}
-          generation={generation}
-          onRegenerate={onRegenerate}
+          stage={stage}
           wide
         />
       );
     }
 
-    render(<Harness />);
+    const view = render(<Harness stage="objective" />);
 
-    expect(screen.queryByText("AGENTS.md ready")).not.toBeInTheDocument();
-    expect(screen.queryByText("Generating SOUL.md")).not.toBeInTheDocument();
-    expect(screen.queryByText("USER.md queued")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Restart generation" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Shape the agent" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Generated workspace files" })).not.toBeInTheDocument();
-    expect(screen.getByText("Describe its main goals, recurring tasks, and important limits.")).toBeInTheDocument();
-    const fileTabs = screen.getByRole("group", { name: "Workspace files" });
-    expect(fileTabs).toHaveClass("justify-start");
-    expect(within(fileTabs).getAllByRole("button")).toHaveLength(3);
-    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("heading", { name: "What do you want to get done?" })).toBeInTheDocument();
+    expect(screen.getByText(/It will figure out how to help make it happen/)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Workspace file editor" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Workspace files" })).not.toBeInTheDocument();
+    expect(view.container.querySelectorAll('[data-slot="openclaw-bootstrap-step"] > section')).toHaveLength(1);
     expect(document.querySelector('[data-slot="openclaw-bootstrap-step"]')).toHaveClass(
       "min-h-full",
       "xl:h-full",
       "xl:min-h-0",
-      "xl:grid-cols-[minmax(320px,0.9fr)_minmax(400px,1.1fr)]",
-      "xl:grid-rows-[minmax(0,1fr)]",
     );
 
-    fireEvent.change(screen.getByLabelText("What should this agent help you accomplish?"), {
+    expect(screen.getByLabelText("Role and outcome")).toHaveAttribute("maxlength", "300");
+    fireEvent.click(screen.getByRole("button", { name: /^Build a product/ }));
+    expect(screen.getByLabelText("Role and outcome")).toHaveValue("Build a product. Turn an idea into working software.");
+    expect(latestDraft!.files.find((file) => file.name === "AGENTS.md")?.content)
+      .toContain("Build a product. Turn an idea into working software.");
+
+    fireEvent.change(screen.getByLabelText("Role and outcome"), {
       target: { value: "Investigate deployments without changing production." },
     });
 
-    expect(screen.getByLabelText("What should this agent help you accomplish?"))
+    expect(screen.getByLabelText("Role and outcome"))
       .toHaveValue("Investigate deployments without changing production.");
-    expect(screen.getByText("Investigate deployments without changing production.", { selector: "p" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
-    const rawEditor = screen.getByLabelText("AGENTS.md contents") as HTMLTextAreaElement;
-    expect(rawEditor.value)
+    expect(latestDraft!.files.find((file) => file.name === "AGENTS.md")?.content)
       .toContain("Investigate deployments without changing production.");
-    fireEvent.change(rawEditor, { target: { value: "# Custom operating instructions" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
-    expect(screen.getByRole("heading", { name: "Custom operating instructions" })).toBeInTheDocument();
+    expect(latestDraft!.files.find((file) => file.name === "SOUL.md")?.content)
+      .toContain("Investigate deployments without changing production.");
 
-    fireEvent.click(within(fileTabs).getByRole("button", { name: "SOUL.md" }));
-    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
+    view.rerender(<Harness stage="personality" />);
+    expect(screen.getByRole("heading", { name: "How should Tern approach the work?" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Working style")).toHaveAttribute("maxlength", "300");
+
+    fireEvent.click(screen.getByRole("button", { name: /^The Operator/ }));
+    expect(screen.getByLabelText("Working style")).toHaveValue(
+      "Be a relentless operator who moves fast, challenges my assumptions, and does not need much hand-holding.",
+    );
+    expect(latestDraft!.files.find((file) => file.name === "SOUL.md")?.content)
+      .toContain("Be a relentless operator who moves fast, challenges my assumptions, and does not need much hand-holding.");
 
     const optionalContext = screen.getByText("Personal and work context").closest("details");
     expect(optionalContext).not.toHaveAttribute("open");
     fireEvent.click(optionalContext!.querySelector("summary")!);
     expect(optionalContext).toHaveAttribute("open");
     expect(screen.getByLabelText("Preferred name")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Restart generation" }));
-    expect(onRegenerate).toHaveBeenCalledTimes(1);
   });
 });

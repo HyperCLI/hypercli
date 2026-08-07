@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { HyperCLILogo, PrivyLoginPanel } from "@hypercli/shared-ui";
 import { useClawAuth } from "@/hooks/useClawAuth";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { buildAuthenticatedClawHomeHref } from "@/lib/dashboard-route";
 
 export default function Home() {
   const router = useRouter();
@@ -12,7 +12,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace(DASHBOARD_VIEW_HREFS.overview);
+      router.replace(buildAuthenticatedClawHomeHref(window.location.search));
     }
   }, [isLoading, isAuthenticated, router]);
 

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { INTEGRATION_BRAND_LOGOS } from "./integration-brand-icons";
 
 const THEMED_SURFACES = [
+  "src/components/dashboard/integrations/CustomIntegrationPanel.tsx",
   "src/components/dashboard/integrations/IntegrationsDirectoryPanel.tsx",
   "src/components/dashboard/integrations/TokenSetupWizard.tsx",
   "src/components/dashboard/integrations/QrLoginWizard.tsx",

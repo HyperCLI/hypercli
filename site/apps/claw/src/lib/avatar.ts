@@ -49,6 +49,7 @@ export interface AgentUiAvatar {
 
 export interface AgentUiMeta {
   avatar?: AgentUiAvatar | null;
+  creation_id?: string | null;
   [key: string]: unknown;
 }
 

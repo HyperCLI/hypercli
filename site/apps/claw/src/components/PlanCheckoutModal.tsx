@@ -5,7 +5,13 @@ import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
-import { buildStripeCheckoutReturnUrl, clearPendingPlanCheckout, writePendingPlanCheckout } from "@/lib/plan-checkout-state";
+import {
+  buildStripeCheckoutReturnUrl,
+  clearPendingPlanCheckout,
+  createPlanCheckoutAttemptId,
+  writePendingPlanCheckout,
+  type PendingPlanCheckout,
+} from "@/lib/plan-checkout-state";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
 import { notifyBillingPlanChanged } from "@hypercli/shared-ui";
@@ -118,7 +124,7 @@ interface PlanCheckoutModalProps {
   isPrincipalCurrent?: () => boolean;
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (pending: PendingPlanCheckout) => void;
   getToken: () => Promise<string>;
 }
 
@@ -175,11 +181,12 @@ export function PlanCheckoutModal({
       if (!canContinue()) return;
       const hyperAgent = createHyperAgentClient(token);
       const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
+      const checkoutAttemptId = createPlanCheckoutAttemptId();
       const data = await hyperAgent.createStripeCheckout(
         {
           quantity: 1,
-          successUrl: buildStripeCheckoutReturnUrl("success"),
-          cancelUrl: buildStripeCheckoutReturnUrl("cancelled"),
+          successUrl: buildStripeCheckoutReturnUrl("success", checkoutAttemptId),
+          cancelUrl: buildStripeCheckoutReturnUrl("cancelled", checkoutAttemptId),
         },
         plan.id,
       );
@@ -190,6 +197,8 @@ export function PlanCheckoutModal({
         planName: plan.name,
         ownedCount,
         startedAt: Date.now(),
+        checkoutAttemptId: data.checkoutAttemptId ?? checkoutAttemptId,
+        ...(data.checkoutSessionId ? { checkoutSessionId: data.checkoutSessionId } : {}),
         ...(planBundle ? { bundle: planBundle } : {}),
         baselineGrantedSlots,
       });
@@ -222,6 +231,7 @@ export function PlanCheckoutModal({
   const handleCrypto = async () => {
     setProcessing(true);
     setError(null);
+    let pendingCheckout: PendingPlanCheckout | null = null;
     try {
       if (!principalId) throw new Error("Sign in again before starting checkout.");
       const token = await getToken();
@@ -230,15 +240,18 @@ export function PlanCheckoutModal({
       const wallet = await connectWallet();
       if (!canContinue()) return;
       const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
-      writePendingPlanCheckout({
+      const checkoutAttemptId = createPlanCheckoutAttemptId();
+      pendingCheckout = {
         principalId,
         planId: plan.id,
         planName: plan.name,
         ownedCount,
         startedAt: Date.now(),
+        checkoutAttemptId,
         ...(planBundle ? { bundle: planBundle } : {}),
         baselineGrantedSlots,
-      });
+      };
+      writePendingPlanCheckout(pendingCheckout);
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
         quantity: 1,
         signer: walletClientToX402Signer(wallet.client),
@@ -246,25 +259,20 @@ export function PlanCheckoutModal({
       });
       if (!canContinue()) return;
       notifyBillingPlanChanged();
-      writePendingPlanCheckout({
-        principalId,
-        planId: plan.id,
-        planName: plan.name,
-        ownedCount,
-        startedAt: Date.now(),
-        returnSessionId: `x402:${Date.now()}`,
-        ...(planBundle ? { bundle: planBundle } : {}),
-        baselineGrantedSlots,
-      });
+      pendingCheckout = {
+        ...pendingCheckout,
+        returnSessionId: `x402:${checkoutAttemptId}`,
+      };
+      writePendingPlanCheckout(pendingCheckout);
       setSuccess(true);
-      onSuccess();
+      onSuccess(pendingCheckout);
       successTimerRef.current = setTimeout(() => {
         if (!canContinue()) return;
         handleClose();
       }, 2000);
     } catch (err: any) {
       if (!canContinue()) return;
-      clearPendingPlanCheckout(principalId);
+      if (pendingCheckout) clearPendingPlanCheckout(principalId, pendingCheckout);
       let msg = "Payment failed. Please try again.";
       if (err.response?.data?.detail) {
         msg =

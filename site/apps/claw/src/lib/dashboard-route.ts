@@ -26,6 +26,22 @@ export function buildAgentLauncherHref(planId?: string | null): string {
   return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
 }
 
+export function buildAgentTrialHref(planId = "team"): string {
+  const params = new URLSearchParams({ intent: "trial", plan: planId });
+  return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
+}
+
+export function buildAuthenticatedClawHomeHref(search = ""): string {
+  const params = new URLSearchParams(search);
+  const planId = params.get("plan")?.trim() || null;
+  if (params.get("intent") === "trial" || planId?.toLowerCase() === "team") {
+    return buildAgentTrialHref(planId || "team");
+  }
+  if (planId) return buildAgentLauncherHref(planId);
+  const query = params.toString();
+  return query ? `${DASHBOARD_AGENTS_PATH}?${query}` : DASHBOARD_VIEW_HREFS.overview;
+}
+
 export function buildKnowledgeHubHref(selection?: {
   domainId?: string | null;
   agentId?: string | null;

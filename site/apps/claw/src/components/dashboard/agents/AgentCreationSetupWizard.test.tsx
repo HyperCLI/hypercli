@@ -140,6 +140,7 @@ function renderTieredLaunchableWizard(onCreateAgent = vi.fn(async () => "agent-1
 function goToPlanStep() {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 function getPlanCard(name: string): HTMLElement {

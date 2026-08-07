@@ -1498,6 +1498,41 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert agent._deployments is agents_client
 
 
+def test_agents_create_preserves_backend_contract_on_idempotent_replay(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-replayed",
+            "user_id": "user-456",
+            "state": "stopped",
+            "runtime": "openclaw",
+            "creation_replayed": True,
+            "launch_config": {
+                "env": {"OPENCLAW_GATEWAY_TOKEN": "original-token"},
+                "command": ["original-command"],
+                "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
+            },
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agent = agents_client.create_openclaw(
+            name="replayed-agent",
+            start=False,
+            env={"OPENCLAW_GATEWAY_TOKEN": "retry-token"},
+            command=["retry-command"],
+            meta_ui={"creation_id": "setup-123"},
+        )
+
+        assert agent.creation_replayed is True
+        assert agent.launch_config["env"]["OPENCLAW_GATEWAY_TOKEN"] == "original-token"
+        assert agent.command == ["original-command"]
+
+
 def test_create_openclaw_defaults_sync_root(agents_client):
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
         mock_client = MagicMock()

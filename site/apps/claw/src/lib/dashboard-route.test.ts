@@ -5,6 +5,8 @@ import {
   DASHBOARD_VIEW_HREFS,
   KNOWLEDGE_HUB_HREF,
   buildAgentLauncherHref,
+  buildAgentTrialHref,
+  buildAuthenticatedClawHomeHref,
   buildDashboardAgentsRedirectHref,
   buildDashboardViewHref,
   buildDashboardViewRedirectHref,
@@ -43,6 +45,19 @@ describe("dashboard routes", () => {
     expect(buildAgentLauncherHref()).toBe("/dashboard/agents?open=agent-launcher");
     expect(buildAgentLauncherHref(" pro/annual ")).toBe(
       "/dashboard/agents?open=agent-launcher&plan=pro%2Fannual",
+    );
+  });
+
+  it("builds and preserves an explicit Team trial entry", () => {
+    expect(buildAgentTrialHref()).toBe("/dashboard/agents?intent=trial&plan=team");
+    expect(buildAuthenticatedClawHomeHref("?intent=trial&plan=team")).toBe(
+      "/dashboard/agents?intent=trial&plan=team",
+    );
+    expect(buildAuthenticatedClawHomeHref("?plan=team")).toBe(
+      "/dashboard/agents?intent=trial&plan=team",
+    );
+    expect(buildAuthenticatedClawHomeHref("?plan=pro")).toBe(
+      "/dashboard/agents?open=agent-launcher&plan=pro",
     );
   });
 

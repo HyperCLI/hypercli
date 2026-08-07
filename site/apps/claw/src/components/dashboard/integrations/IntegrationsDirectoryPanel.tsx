@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, ArrowRight, Cable, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
@@ -15,6 +15,7 @@ import { DirectoryDetail } from "../directory/DirectoryDetail";
 import type { DirectoryCategory } from "../directory/directory-utils";
 import { CHANNEL_SETUP_CANDIDATE_IDS, PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { INTEGRATION_BRAND_LOGOS, type IntegrationBrandIcon } from "./integration-brand-icons";
+import { CustomIntegrationPanel } from "./CustomIntegrationPanel";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 import { AgentLoadingState } from "../agents/page-helpers";
@@ -144,6 +145,7 @@ function displayNameFromId(id: string): string {
 
 const RUNTIME_CONNECTOR_IDS = new Set<ClawIntegrationConnectId>(["github", "telegram", "discord", "slack", "whatsapp"]);
 const CONFIGURED_CHANNEL_IDS = new Set<OpenClawConfiguredChannelId>(["telegram", "discord", "slack", "whatsapp"]);
+const CUSTOM_INTEGRATION_ID = "__custom-integration__";
 
 function isRuntimeConnectorId(id: string): id is ClawIntegrationConnectId {
   return RUNTIME_CONNECTOR_IDS.has(id as ClawIntegrationConnectId);
@@ -331,6 +333,33 @@ function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () =
   );
 }
 
+function CustomIntegrationCallout({ onOpen }: { onOpen: () => void }) {
+  const titleId = React.useId();
+  const descriptionId = React.useId();
+  return (
+    <button
+      type="button"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      onClick={onOpen}
+      className="group flex min-h-[76px] w-full items-start gap-3 rounded-[10px] border border-selection-accent/30 bg-selection-accent/10 p-4 text-left transition-colors hover:border-selection-accent/50 hover:bg-selection-accent/15"
+    >
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] border border-selection-accent/25 bg-background/70 text-selection-accent">
+        <Cable className="h-5 w-5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <h3 id={titleId} className="text-[15px] font-semibold leading-tight text-foreground">Connect a custom service</h3>
+        <p id={descriptionId} className="mt-1 text-[13px] leading-snug text-foreground/70">
+          Describe any API, webhook, or service. Setup runs here and pauses only when your approval is required.
+        </p>
+      </div>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-selection-accent text-selection-accent-foreground transition-transform group-hover:translate-x-0.5">
+        <ArrowRight className="h-4 w-4" aria-hidden="true" />
+      </span>
+    </button>
+  );
+}
+
 function RuntimeStatusNotice({
   displayName,
   detail,
@@ -449,6 +478,7 @@ export function IntegrationsDirectoryPanel({
   const selectedChannelId = selection.requestedId === requestedChannelId
     ? selection.selectedId
     : requestedChannelId;
+  const customIntegrationSelected = selectedChannelId === CUSTOM_INTEGRATION_ID;
   const selectChannel = React.useCallback((channelId: string | null) => {
     setSelection({ requestedId: requestedChannelId, selectedId: channelId });
     slackRelayOperationRef.current += 1;
@@ -696,6 +726,19 @@ export function IntegrationsDirectoryPanel({
     ));
   }, [integrationFilter, searchQuery, tiles]);
 
+  if (customIntegrationSelected) {
+    return (
+      <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5 text-foreground">
+        <div className="mx-auto w-full max-w-6xl">
+          <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
+            {detailBackLabel}
+          </button>
+          <CustomIntegrationPanel key={agentId} connected={connected} runEphemeralPrompt={gatewaySession.runEphemeralPrompt} />
+        </div>
+      </div>
+    );
+  }
+
   if (!connected && !selectedIsSlackRelaySetup) {
     const bootStatus = getAgentGatewayPanelBootStatus({
       connected,
@@ -915,22 +958,27 @@ export function IntegrationsDirectoryPanel({
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
       <div className="mx-auto w-full max-w-6xl">
-        <div className="border-b border-border px-5 py-5">
-          <div className="flex flex-col gap-5">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="shrink-0 text-[22px] font-semibold leading-none">{integrationFilter === "all" ? "All integrations" : "Messaging integrations"}</h2>
-              <label className="relative min-w-0 flex-1 lg:max-w-[560px]">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-text-muted" />
-                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search integrations..." className="h-12 w-full rounded-2xl border border-border bg-input-background pl-12 pr-12 text-base text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong focus:ring-2 focus:ring-ring" />
-                <button type="button" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh integrations" className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-xl text-text-secondary transition-colors hover:bg-surface-high hover:text-foreground disabled:opacity-50">
-                  <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-                </button>
+        <div className="border-b border-border px-5 py-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="order-1 shrink-0 text-[19px] font-semibold leading-none">Integrations</h2>
+            <div className="order-2 flex shrink-0 items-center gap-2" aria-label="Integration type">
+              <button type="button" aria-pressed={integrationFilter === "all"} onClick={() => setIntegrationFilter("all")} className={`h-9 rounded-full border px-4 text-[13px] font-semibold transition-colors ${integrationFilter === "all" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>All</button>
+              <button type="button" aria-pressed={integrationFilter === "messaging"} onClick={() => setIntegrationFilter("messaging")} className={`h-9 rounded-full border px-4 text-[13px] font-semibold transition-colors ${integrationFilter === "messaging" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>Messaging</button>
+            </div>
+            <div className="order-4 flex min-w-0 basis-full items-center gap-2 lg:order-3 lg:ml-auto lg:min-w-[18rem] lg:basis-[22rem] lg:flex-1 xl:max-w-[480px]">
+              <label className="relative min-w-0 flex-1">
+                <span className="sr-only">Search integrations</span>
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search integrations..." className="h-9 w-full rounded-xl border border-border bg-input-background pl-10 pr-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong focus:ring-2 focus:ring-ring" />
               </label>
+              <button type="button" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh integrations" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:opacity-50">
+                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              </button>
             </div>
-            <div className="flex flex-wrap items-center gap-2.5" aria-label="Integration type">
-              <button type="button" aria-pressed={integrationFilter === "all"} onClick={() => setIntegrationFilter("all")} className={`h-10 rounded-full border px-5 text-sm font-semibold transition-colors ${integrationFilter === "all" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>All</button>
-              <button type="button" aria-pressed={integrationFilter === "messaging"} onClick={() => setIntegrationFilter("messaging")} className={`h-10 rounded-full border px-5 text-sm font-semibold transition-colors ${integrationFilter === "messaging" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>Messaging</button>
-            </div>
+            <button type="button" onClick={() => selectChannel(CUSTOM_INTEGRATION_ID)} className="order-3 ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-selection-accent/30 bg-selection-accent/10 px-3 text-xs font-semibold text-selection-accent transition-colors hover:border-selection-accent/50 hover:bg-selection-accent/15 lg:order-4 lg:ml-0">
+              <Plus className="h-3.5 w-3.5" />
+              Set up custom integration
+            </button>
           </div>
         </div>
 
@@ -951,15 +999,17 @@ export function IntegrationsDirectoryPanel({
               <p className="text-sm text-destructive">This workspace could not report its integrations.</p>
               <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-destructive/10">Try again</button>
             </div>
-          ) : filteredTiles.length > 0 ? (
+          ) : (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               {filteredTiles.map((tile) => (
                 <IntegrationCard key={tile.id} tile={tile} onOpen={() => selectChannel(tile.id)} />
               ))}
-            </div>
-          ) : (
-            <div className="rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center text-sm text-text-muted">
-              {tiles.length === 0 ? "This workspace reports no integrations." : "No integrations match this search."}
+              {filteredTiles.length === 0 ? (
+                <div className="rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center text-sm text-text-muted">
+                  {tiles.length === 0 ? "This workspace reports no integrations." : "No integrations match this search."}
+                </div>
+              ) : null}
+              <CustomIntegrationCallout onOpen={() => selectChannel(CUSTOM_INTEGRATION_ID)} />
             </div>
           )}
         </div>

@@ -426,9 +426,9 @@ export function AgentMainPanel({
   return (
     <div className={`min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
       {launcherContent ? (
-        <div className="relative flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
           {persistentPanelContent}
-          <div className="relative z-20 flex min-h-0 flex-1 bg-background">{launcherContent}</div>
+          <div className="relative z-20 flex min-h-0 min-w-0 flex-1 bg-background">{launcherContent}</div>
         </div>
       ) : !selectedAgent && (!isAuthenticated || showAgentlessSectionPreviews) ? (
         <div className="flex-1 min-h-0">

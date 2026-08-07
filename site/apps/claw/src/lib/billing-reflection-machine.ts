@@ -1,6 +1,7 @@
-import type {
-  CheckoutReflectionStatus,
-  PendingPlanCheckout,
+import {
+  isTeamTrialCheckoutFlow,
+  type CheckoutReflectionStatus,
+  type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 
 export type CheckoutSyncBanner = {
@@ -36,18 +37,32 @@ export function billingReflectionReducer(
       };
     case "REFLECTION_RECEIVED":
       if (event.reflectionStatus === "ready") {
+        const trialActive = isTeamTrialCheckoutFlow(event.pending);
         return {
           status: "success",
           pending: event.pending,
-          message: `${event.pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
+          message: trialActive
+            ? `${event.pending?.planName ?? "Your"} trial is active. Agent slots and limits are ready.`
+            : `${event.pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
         };
       }
       if (event.reflectionStatus === "waiting-entitlement") {
+        const trialActive = isTeamTrialCheckoutFlow(event.pending);
         return {
           status: "pending",
           pending: event.pending,
           reason: "waiting-entitlement",
-          message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+          message: trialActive
+            ? "Trial active. Waiting for agent slots to finish provisioning before an agent can be created."
+            : "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+        };
+      }
+      if (isTeamTrialCheckoutFlow(event.pending)) {
+        return {
+          status: "pending",
+          pending: event.pending,
+          reason: "waiting-payment",
+          message: "Trial checkout completed. Billing is still activating the Team trial.",
         };
       }
       return {

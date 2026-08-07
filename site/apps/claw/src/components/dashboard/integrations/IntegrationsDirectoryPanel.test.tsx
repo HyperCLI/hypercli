@@ -143,25 +143,30 @@ function gatewaySession(overrides: Record<string, unknown> = {}) {
 }
 
 function renderPanel(overrides: Partial<ComponentProps<typeof IntegrationsDirectoryPanel>> = {}) {
-  return renderWithClient(
-    <IntegrationsDirectoryPanel
-      initialCategory="channels"
-      initialPluginId="telegram"
-      agentId="agent-1"
-      agentName="Agent"
-      gatewaySession={gatewaySession()}
-      channelsProvider={channelsProvider}
-      reportedChannels={runtimeChannelSummaries}
-      reportedChannelSnapshot={runtimeSnapshot()}
-      reportedChannelsReady
-      config={null}
-      connected
-      onSaveConfig={vi.fn(async () => undefined)}
-      onChannelProbe={vi.fn(async () => ({}))}
-      onOpenShell={vi.fn()}
-      {...overrides}
-    />,
-  );
+  const props: ComponentProps<typeof IntegrationsDirectoryPanel> = {
+    initialCategory: "channels",
+    initialPluginId: "telegram",
+    agentId: "agent-1",
+    agentName: "Agent",
+    gatewaySession: gatewaySession(),
+    channelsProvider,
+    reportedChannels: runtimeChannelSummaries,
+    reportedChannelSnapshot: runtimeSnapshot(),
+    reportedChannelsReady: true,
+    config: null,
+    connected: true,
+    onSaveConfig: vi.fn(async () => undefined),
+    onChannelProbe: vi.fn(async () => ({})),
+    onOpenShell: vi.fn(),
+    ...overrides,
+  };
+  const rendered = renderWithClient(<IntegrationsDirectoryPanel {...props} />);
+  return {
+    ...rendered,
+    rerenderPanel(next: Partial<ComponentProps<typeof IntegrationsDirectoryPanel>>) {
+      rendered.rerender(<IntegrationsDirectoryPanel {...props} {...next} />);
+    },
+  };
 }
 
 describe("IntegrationsDirectoryPanel", () => {
@@ -196,9 +201,11 @@ describe("IntegrationsDirectoryPanel", () => {
   it("renders core setup options alongside channels reported by the runtime", async () => {
     const { container } = renderPanel({ initialCategory: null, initialPluginId: null });
 
-    expect(await screen.findByRole("heading", { name: "All integrations" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Integrations" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Channels" })).not.toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Search integrations...")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search integrations" })).toHaveAttribute("placeholder", "Search integrations...");
+    expect(screen.getByRole("button", { name: "Set up custom integration" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect a custom service" })).toHaveTextContent("Setup runs here and pauses only when your approval is required.");
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("Telegram")).toBeInTheDocument();
     expect(screen.queryByText(/grammY/i)).not.toBeInTheDocument();
@@ -207,12 +214,56 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.getByText("WhatsApp")).toBeInTheDocument();
     expect(screen.getByText("GitHub")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Messaging" }));
-    expect(screen.getByRole("heading", { name: "Messaging integrations" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Integrations" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Messaging" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByText("GitHub")).not.toBeInTheDocument();
     expect(screen.queryByText("HubSpot")).not.toBeInTheDocument();
     expect(screen.queryByText("Google Drive")).not.toBeInTheDocument();
     expect(container.querySelector(".max-w-6xl")).toBeInTheDocument();
+  });
+
+  it("opens the same custom planner from both entry points and clears its draft on exit", async () => {
+    const onSaveConfig = vi.fn(async () => undefined);
+    renderPanel({ initialCategory: null, initialPluginId: null, onSaveConfig });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Set up custom integration" }));
+    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "What do you want to connect?" }), { target: { value: "Linear" } });
+    expect(screen.getByRole("textbox", { name: "What do you want to connect?" })).toHaveValue("Linear");
+
+    fireEvent.click(screen.getByRole("button", { name: /back to integrations/i }));
+    expect(screen.getByRole("heading", { name: "Integrations" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Connect a custom service" }));
+
+    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "What do you want to connect?" })).toHaveValue("");
+    expect(screen.queryByRole("button", { name: /connect|enable|save|test connection/i })).not.toBeInTheDocument();
+    expect(onSaveConfig).not.toHaveBeenCalled();
+    expect(channelsProvider.configure).not.toHaveBeenCalled();
+    expect(connectorsProvider.configure).not.toHaveBeenCalled();
+  });
+
+  it("clears a confirmed custom integration when the selected agent changes", async () => {
+    const { rerenderPanel } = renderPanel({ initialCategory: null, initialPluginId: null });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Set up custom integration" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "What do you want to connect?" }), { target: { value: "Notion" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review integration" }));
+    expect(screen.getByRole("heading", { name: "Is this the right integration?" })).toBeInTheDocument();
+
+    rerenderPanel({ agentId: "agent-2" });
+
+    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "What do you want to connect?" })).toHaveValue("");
+  });
+
+  it("keeps custom integration guidance visible when search has no match", async () => {
+    renderPanel({ initialCategory: null, initialPluginId: null });
+
+    fireEvent.change(await screen.findByRole("textbox", { name: "Search integrations" }), { target: { value: "not-listed" } });
+
+    expect(screen.getByText("No integrations match this search.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect a custom service" })).toBeInTheDocument();
   });
 
   it("keeps supported setup channels visible when the runtime reports only one channel", async () => {
@@ -293,7 +344,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.getByText("Waiting for gateway")).toBeInTheDocument();
     expect(screen.getByText("Start the agent gateway to manage integrations.")).toBeInTheDocument();
     expect(document.querySelector('[data-loading-stage="gateway"]')).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "All integrations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Integrations" })).not.toBeInTheDocument();
     expect(screen.queryByText("Slack")).not.toBeInTheDocument();
     expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
     expect(screen.queryByText("No integrations reported")).not.toBeInTheDocument();

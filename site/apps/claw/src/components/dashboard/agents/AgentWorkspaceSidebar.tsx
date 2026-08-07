@@ -72,6 +72,7 @@ import {
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
+import type { ActiveAgentTrial } from "@/lib/agent-trial";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -82,10 +83,14 @@ interface AgentWorkspaceSidebarProps {
   tokenUsed?: number | null;
   tokenLimit?: number | null;
   isAuthenticated?: boolean;
+  activeTrial?: ActiveAgentTrial | null;
+  canStartTrial?: boolean;
+  trialCheckoutPending?: boolean;
   disabled?: boolean;
   disabledReason?: string;
   allowAgentlessFeaturePreviews?: boolean;
   desktopPreviewActive?: boolean;
+  desktopAccessAllowed?: boolean;
   scheduledDisabled?: boolean;
   scheduledDisabledReason?: string;
   isDesktopViewport: boolean;
@@ -105,6 +110,7 @@ interface AgentWorkspaceSidebarProps {
   settingsActive?: boolean;
   onUpgrade: () => void;
   onStartTrial?: () => void;
+  onManageTrial?: () => void;
   renderMobile?: boolean;
   forceExpanded?: boolean;
   collapsed?: boolean;
@@ -127,7 +133,6 @@ interface AgentWorkspaceSidebarProps {
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionKey: string) => Promise<void> | void;
   openingDesktop?: boolean;
-  showDesktop?: boolean;
 }
 
 type WorkspaceItem = {
@@ -1021,10 +1026,14 @@ export function AgentWorkspaceSidebar({
   tokenUsed,
   tokenLimit,
   isAuthenticated = true,
+  activeTrial = null,
+  canStartTrial = false,
+  trialCheckoutPending = false,
   disabled = false,
   disabledReason = "Workspace is loading",
   allowAgentlessFeaturePreviews = false,
   desktopPreviewActive = false,
+  desktopAccessAllowed,
   scheduledDisabled = false,
   scheduledDisabledReason = "Scheduled workflows are not available yet.",
   isDesktopViewport,
@@ -1044,6 +1053,7 @@ export function AgentWorkspaceSidebar({
   settingsActive = false,
   onUpgrade,
   onStartTrial,
+  onManageTrial,
   renderMobile = false,
   forceExpanded = false,
   collapsed: controlledCollapsed,
@@ -1066,7 +1076,6 @@ export function AgentWorkspaceSidebar({
   onRenameSession,
   onDeleteSession,
   openingDesktop = false,
-  showDesktop = true,
 }: AgentWorkspaceSidebarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
@@ -1097,7 +1106,26 @@ export function AgentWorkspaceSidebar({
   const tokenUsageLabel = tokenTotal
     ? `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
     : `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / --`;
-  const onUsageAction = isAuthenticated ? onUpgrade : onStartTrial ?? onUpgrade;
+  const trialOfferVisible = !isAuthenticated || canStartTrial;
+  const onUsageAction = activeTrial
+    ? onManageTrial ?? onUpgrade
+    : trialOfferVisible
+      ? onStartTrial ?? onUpgrade
+      : onUpgrade;
+  const usageActionLabel = trialCheckoutPending
+    ? "Opening checkout..."
+    : activeTrial
+      ? "Manage trial"
+      : trialOfferVisible
+        ? "Start free trial"
+        : "Upgrade";
+  const collapsedUsageLabel = trialCheckoutPending
+    ? "Opening Team trial checkout"
+    : activeTrial
+      ? `${activeTrial.planName} trial: ${activeTrial.timeRemainingLabel}`
+      : trialOfferVisible
+        ? "Start free trial"
+        : `Tokens today: ${tokenUsageLabel}`;
   const hasSelectedAgent = Boolean(selectedAgent);
   const agentState: AgentState | undefined = selectedAgent?.state;
   const noSelectedAgent = !selectedAgent;
@@ -1185,10 +1213,14 @@ export function AgentWorkspaceSidebar({
               ? undefined
               : "New sessions are unavailable.";
   const agentlessDesktopPreview = noSelectedAgent && allowAgentlessFeaturePreviews;
-  const desktopVisible = showDesktop && (Boolean(selectedAgent?.hasDesktop) || agentlessDesktopPreview);
-  const openDesktopDisabledReason = disabled
-    ? disabledReason
-    : agentlessDesktopPreview
+  const desktopRequiresUpgrade = Boolean(
+    selectedAgent && selectedAgent.hasDesktop !== true && desktopAccessAllowed === false,
+  );
+  const openDesktopDisabledReason = desktopRequiresUpgrade
+    ? undefined
+    : disabled
+      ? disabledReason
+      : agentlessDesktopPreview
       ? onOpenDesktopPreview
         ? undefined
         : "Desktop preview is unavailable."
@@ -1238,7 +1270,7 @@ export function AgentWorkspaceSidebar({
       onClick: onOpenScheduled,
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : previewableItemProps),
     },
-    ...(desktopVisible ? [{
+    {
       id: "desktop",
       label: openingDesktop ? "Opening Desktop" : "Desktop",
       icon: openingDesktop ? Loader2 : Monitor,
@@ -1247,10 +1279,14 @@ export function AgentWorkspaceSidebar({
       disabled: Boolean(openDesktopDisabledReason),
       disabledReason: openDesktopDisabledReason,
       onClick: () => {
+        if (desktopRequiresUpgrade) {
+          onUpgrade();
+          return;
+        }
         if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
         else onOpenDesktopPreview?.();
       },
-    } satisfies WorkspaceItem] : []),
+    },
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;
@@ -1267,7 +1303,7 @@ export function AgentWorkspaceSidebar({
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
     { id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
-    { id: "settings", label: "Settings", icon: Settings, active: settingsActive, onClick: onOpenSettings },
+    { id: "settings", label: "Agent Settings", icon: Settings, active: settingsActive, onClick: onOpenSettings },
   ];
   const advancedActive = advancedItems.some((item) => item.active);
   const prepareShell = () => {
@@ -1317,11 +1353,11 @@ export function AgentWorkspaceSidebar({
     >
       {embeddedInNavigation ? (
         <div
-          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center justify-center border-b border-r border-border bg-[var(--agent-panel-background)] px-3 transition-[left] duration-200 ease-out ${
+          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center justify-start border-b border-r border-border bg-[var(--agent-panel-background)] px-3 transition-[left] duration-200 ease-out ${
             isCollapsed ? "-left-52" : "-left-12"
           }`}
         >
-          <HyperCLILogoLink className="h-[28px] w-[144px]" imageClassName="text-[20px]" />
+          <HyperCLILogoLink className="h-[24px] w-[124px]" imageClassName="text-[17px]" />
           {onClose ? (
             <button
               ref={closeButtonRef}
@@ -1612,17 +1648,29 @@ export function AgentWorkspaceSidebar({
               <button
                 type="button"
                 onClick={onUsageAction}
-                aria-label={isAuthenticated ? `Tokens today: ${tokenUsageLabel}` : "Start free trial"}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                aria-label={collapsedUsageLabel}
+                disabled={trialCheckoutPending}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-wait disabled:opacity-70"
               >
-                <Sparkles className="h-4 w-4" />
+                {trialCheckoutPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : activeTrial ? (
+                  <CalendarClock className="h-4 w-4" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">{isAuthenticated ? `Tokens today: ${tokenUsageLabel}` : "Start your 7-day free trial"}</TooltipContent>
+            <TooltipContent side="right">{collapsedUsageLabel}</TooltipContent>
           </Tooltip>
         ) : (
           <div className="space-y-2">
-            {!isAuthenticated ? (
+            {activeTrial ? (
+              <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
+                <CalendarClock className="h-3 w-3 shrink-0" />
+                <span className="whitespace-nowrap">{activeTrial.planName} trial · {activeTrial.timeRemainingLabel}</span>
+              </div>
+            ) : trialOfferVisible ? (
               <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
                 <Sparkles className="h-3 w-3 shrink-0" />
                 <span className="whitespace-nowrap">7-day free trial on Team</span>
@@ -1640,12 +1688,19 @@ export function AgentWorkspaceSidebar({
             <button
               type="button"
               onClick={onUsageAction}
-              className={`flex w-full items-center justify-center gap-2 border border-border bg-background font-medium text-foreground transition-colors hover:bg-surface-low ${
+              disabled={trialCheckoutPending}
+              className={`flex w-full items-center justify-center gap-2 border border-border bg-background font-medium text-foreground transition-colors hover:bg-surface-low disabled:cursor-wait disabled:opacity-70 ${
                 renderMobile ? "h-10 rounded-[10px] text-sm" : isAuthenticated ? "h-8 rounded-full text-xs" : "h-9 rounded-[9px] text-xs"
               }`}
             >
-              <Sparkles className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
-              {isAuthenticated ? "Upgrade" : "Start free trial"}
+              {trialCheckoutPending ? (
+                <Loader2 className={`${renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} animate-spin`} />
+              ) : activeTrial ? (
+                <CalendarClock className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
+              ) : (
+                <Sparkles className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
+              )}
+              {usageActionLabel}
             </button>
           </div>
         )}

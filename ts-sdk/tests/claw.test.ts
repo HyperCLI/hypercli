@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { HyperCLI } from '../src/client.js';
 import { HyperAgent, hasActivePlan, parseHyperAgentPlanId } from '../src/agent.js';
+import { APIError } from '../src/errors.js';
 
 describe('HyperAgent API', () => {
   const client = new HyperCLI({ apiKey: 'hyper_api_test_key' });
@@ -272,6 +273,177 @@ describe('HyperAgent API', () => {
     }
   });
 
+  it('parses first-class subscription trial details', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [{
+        id: 'sub-trial',
+        status: 'TRIALING',
+        meta: { campaign: 'team-trial' },
+        trial: {
+          active: true,
+          days: 14,
+          starts_at: '2030-01-01T00:00:00Z',
+          ends_at: '2030-01-15T00:00:00Z',
+          seconds_remaining: 1209600,
+        },
+      }, {
+        id: 'sub-explicit-no-trial',
+        status: 'ACTIVE',
+        current_period_end: '2030-01-15T00:00:00Z',
+        meta: { trial: true, trial_days: 14 },
+        trial: null,
+        entitlements: [{
+          id: 'ent-explicit-no-trial',
+          starts_at: '2030-01-01T00:00:00Z',
+        }],
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch;
+
+    try {
+      const [subscription, explicitNoTrial] = await agent.subscriptions();
+      expect(subscription?.trial).toEqual({
+        active: true,
+        days: 14,
+        startsAt: new Date('2030-01-01T00:00:00Z'),
+        endsAt: new Date('2030-01-15T00:00:00Z'),
+        secondsRemaining: 1209600,
+      });
+      expect(subscription?.meta).toEqual({ campaign: 'team-trial' });
+      expect(explicitNoTrial?.trial).toBeNull();
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('falls back to active trial metadata only before the active subscription period ends', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const metadataStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const futureEnd = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    const pastEnd = new Date(Date.now() - 1000);
+    const metadataEnd = new Date(Date.now() + 4 * 24 * 60 * 60 * 1000);
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [{
+        id: 'sub-active-trial',
+        status: 'ACTIVE',
+        current_period_end: futureEnd.toISOString(),
+        meta: {
+          trial: true,
+          trial_days: '14',
+          campaign: 'team-trial',
+        },
+        entitlements: [{
+          id: 'ent-active-trial',
+          starts_at: new Date(Date.now() + 1000).toISOString(),
+        }],
+      }, {
+        id: 'sub-metadata-end-trial',
+        status: 'TRIALING',
+        current_period_end: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        meta: {
+          trial: true,
+          trial_days: 14,
+          trial_start: Math.floor(metadataStart.getTime() / 1000),
+          trial_end: Math.floor(metadataEnd.getTime() / 1000),
+        },
+        entitlements: [{
+          id: 'ent-metadata-end-trial',
+          starts_at: new Date(Date.now() - 1000).toISOString(),
+        }],
+      }, {
+        id: 'sub-expired-trial',
+        status: 'ACTIVE',
+        current_period_end: pastEnd.toISOString(),
+        meta: { trial: true, trial_days: 14 },
+        entitlements: [{
+          id: 'ent-expired-trial',
+          starts_at: new Date(Date.now() - 1000).toISOString(),
+        }],
+      }, {
+        id: 'sub-converted-trial',
+        status: 'ACTIVE',
+        current_period_end: futureEnd.toISOString(),
+        meta: { trial: true, trial_days: 7 },
+        entitlements: [{
+          id: 'ent-converted-trial',
+          starts_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+        }],
+      }, {
+        id: 'sub-canceled-trial',
+        status: 'CANCELED',
+        current_period_end: futureEnd.toISOString(),
+        meta: { trial: true, trial_days: 14 },
+        entitlements: [{
+          id: 'ent-canceled-trial',
+          starts_at: new Date(Date.now() - 1000).toISOString(),
+        }],
+      }, {
+        id: 'sub-finalized-trial',
+        status: 'ACTIVE',
+        current_period_end: futureEnd.toISOString(),
+        meta: {
+          trial: true,
+          trial_active: false,
+          trial_days: 14,
+          trial_started_at: metadataStart.toISOString(),
+          trial_ends_at: metadataEnd.toISOString(),
+        },
+      }, {
+        id: 'sub-cancel-scheduled-trial',
+        status: 'ACTIVE',
+        cancel_at_period_end: true,
+        current_period_end: futureEnd.toISOString(),
+        meta: {
+          trial: true,
+          trial_days: 14,
+          trial_started_at: metadataStart.toISOString(),
+          trial_ends_at: metadataEnd.toISOString(),
+        },
+      }],
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })) as typeof fetch;
+
+    try {
+      const subscriptions = await agent.subscriptions();
+      expect(subscriptions[0]?.trial).toEqual({
+        active: true,
+        days: 14,
+        startsAt: new Date(futureEnd.getTime() - 14 * 24 * 60 * 60 * 1000),
+        endsAt: futureEnd,
+        secondsRemaining: expect.any(Number),
+      });
+      expect(subscriptions[0]?.trial?.secondsRemaining).toBeGreaterThan(0);
+      expect(subscriptions[0]?.meta).toEqual({
+        trial: true,
+        trial_days: '14',
+        campaign: 'team-trial',
+      });
+      expect(subscriptions[1]?.trial).toMatchObject({
+        active: true,
+        startsAt: new Date(Math.floor(metadataStart.getTime() / 1000) * 1000),
+        endsAt: new Date(Math.floor(metadataEnd.getTime() / 1000) * 1000),
+      });
+      expect(subscriptions[2]?.trial).toBeNull();
+      expect(subscriptions[3]?.trial).toBeNull();
+      expect(subscriptions[4]?.trial).toBeNull();
+      expect(subscriptions[5]?.trial).toBeNull();
+      expect(subscriptions[6]?.trial).toBeNull();
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
   it('uses the API subscription-summary endpoint on the primary API host', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
@@ -531,6 +703,79 @@ describe('HyperAgent API', () => {
         }),
       );
       expect(calls[0]?.init?.body).toBe(JSON.stringify({ plan_id: 'team', quantity: 2 }));
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('creates a Team trial Stripe checkout on the agents control host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({
+        checkout_url: 'https://checkout.stripe.com/c/pay/cs_trial',
+        session_id: 'cs_trial',
+        checkout_attempt_id: 'attempt-trial',
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      await expect(agent.createStripeTrialCheckout({
+        successUrl: 'https://claw.hypercli.com/plans?trial=success',
+        cancelUrl: 'https://claw.hypercli.com/plans?trial=canceled',
+      })).resolves.toEqual({
+        checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_trial',
+        checkoutSessionId: 'cs_trial',
+        checkoutAttemptId: 'attempt-trial',
+      });
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/stripe/trial');
+      expect(calls[0]?.init?.method).toBe('POST');
+      expect(calls[0]?.init?.headers).toEqual(expect.objectContaining({
+        Authorization: 'Bearer sk-hyper-test',
+        'Content-Type': 'application/json',
+      }));
+      expect(calls[0]?.init?.body).toBe(JSON.stringify({
+        success_url: 'https://claw.hypercli.com/plans?trial=success',
+        cancel_url: 'https://claw.hypercli.com/plans?trial=canceled',
+      }));
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('surfaces trial checkout conflicts as APIError details', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ detail: 'Team trial has already been used' }),
+      {
+        status: 409,
+        statusText: 'Conflict',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )) as typeof fetch;
+
+    try {
+      const error = await agent.createStripeTrialCheckout().then(
+        () => null,
+        (reason: unknown) => reason,
+      );
+      expect(error).toBeInstanceOf(APIError);
+      expect(error).toMatchObject({
+        statusCode: 409,
+        detail: 'Team trial has already been used',
+        method: 'POST',
+        url: 'https://api.hypercli.com/agents/stripe/trial',
+      });
     } finally {
       globalThis.fetch = fetchMock;
     }

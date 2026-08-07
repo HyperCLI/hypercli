@@ -4,7 +4,7 @@
  * Note: OpenAI client integration is not included in this SDK.
  * Use the OpenAI Node.js SDK directly with HyperClaw endpoints.
  */
-import type { HTTPClient } from './http.js';
+import { responseAPIError, type HTTPClient } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
 import type { X402Signer } from './x402.js';
 import { agentSlotFromDict, type AgentSlot } from './agent-slots.js';
@@ -126,6 +126,14 @@ export interface HyperAgentCurrentPlan {
   agentSlots: AgentSlot[];
 }
 
+export interface HyperAgentSubscriptionTrial {
+  active: boolean;
+  days: number | null;
+  startsAt: Date | null;
+  endsAt: Date | null;
+  secondsRemaining: number | null;
+}
+
 export interface HyperAgentSubscription {
   id: string;
   userId: string;
@@ -141,6 +149,7 @@ export interface HyperAgentSubscription {
   canCancel: boolean;
   isCurrent: boolean;
   meta: Record<string, any> | null;
+  trial?: HyperAgentSubscriptionTrial | null;
   planTpmLimit: number;
   planRpmLimit: number;
   planTpd: number;
@@ -434,8 +443,15 @@ export interface HyperAgentStripeCheckoutRequest {
   quantity?: number;
 }
 
+export interface HyperAgentStripeTrialCheckoutRequest {
+  successUrl?: string;
+  cancelUrl?: string;
+}
+
 export interface HyperAgentStripeCheckoutResponse {
   checkoutUrl: string;
+  checkoutSessionId: string | null;
+  checkoutAttemptId: string | null;
 }
 
 export type HyperAgentStripeBillingPortalFlowType = 'payment_method_update';
@@ -598,8 +614,128 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
   };
 }
 
+const ACTIVE_LIKE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
+
+function nullableNumberFromDict(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function validDateFromDict(value: unknown): Date | null {
+  if (value === undefined || value === null || value === '') return null;
+  const numericValue = typeof value === 'number'
+    ? value
+    : typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value.trim())
+      ? Number(value)
+      : null;
+  const date = numericValue !== null && Number.isFinite(numericValue)
+    ? new Date(Math.abs(numericValue) < 1_000_000_000_000 ? numericValue * 1000 : numericValue)
+    : dateFromDict(value);
+  return date && Number.isFinite(date.getTime()) ? date : null;
+}
+
+function firstValidDateFromDict(...values: unknown[]): Date | null {
+  for (const value of values) {
+    const date = validDateFromDict(value);
+    if (date) return date;
+  }
+  return null;
+}
+
+function hyperAgentSubscriptionTrialFromDict(
+  data: any,
+  meta: Record<string, any> | null,
+  entitlements: HyperAgentEntitlement[],
+): HyperAgentSubscriptionTrial | null {
+  if (Object.prototype.hasOwnProperty.call(data || {}, 'trial')) {
+    const trial = data.trial;
+    if (!trial || typeof trial !== 'object' || Array.isArray(trial)) return null;
+    return {
+      active: trial.active === true,
+      days: nullableNumberFromDict(trial.days),
+      startsAt: validDateFromDict(trial.starts_at),
+      endsAt: validDateFromDict(trial.ends_at),
+      secondsRemaining: nullableNumberFromDict(trial.seconds_remaining),
+    };
+  }
+
+  const trialMarker = meta?.trial;
+  const hasTrialMarker = trialMarker === true
+    || (typeof trialMarker === 'string' && trialMarker.trim().toLowerCase() === 'true');
+  const trialActiveMarker = meta?.trial_active;
+  const explicitlyInactive = trialActiveMarker === false
+    || (typeof trialActiveMarker === 'string' && trialActiveMarker.trim().toLowerCase() === 'false')
+    || Boolean(meta?.trial_ended_at)
+    || Boolean(data?.cancel_at_period_end);
+  const status = String(data?.status || '').trim().toLowerCase();
+  const trialDays = nullableNumberFromDict(meta?.trial_days);
+  const metadataStartsAt = firstValidDateFromDict(
+    meta?.trial_starts_at,
+    meta?.trial_started_at,
+    meta?.trial_start_at,
+    meta?.trial_start,
+  );
+  const metadataEndsAt = firstValidDateFromDict(
+    meta?.trial_ends_at,
+    meta?.trial_ended_at,
+    meta?.trial_end_at,
+    meta?.trial_end,
+  );
+  const entitlementStartsAt = entitlements
+    .map((entitlement) => entitlement.startsAt)
+    .filter((value): value is Date => Boolean(value && Number.isFinite(value.getTime())))
+    .sort((left, right) => left.getTime() - right.getTime())[0] ?? null;
+  const fallbackStartsAt = metadataStartsAt ?? entitlementStartsAt;
+  const derivedEndsAt = fallbackStartsAt && trialDays && trialDays > 0
+    ? new Date(fallbackStartsAt.getTime() + trialDays * 24 * 60 * 60 * 1000)
+    : null;
+  const periodEndsAt = validDateFromDict(data?.current_period_end ?? data?.expires_at);
+  const authoritativeEndsAt = metadataEndsAt ?? periodEndsAt;
+  let startsAt = metadataStartsAt;
+  if (!startsAt && authoritativeEndsAt && trialDays && trialDays > 0) {
+    startsAt = new Date(authoritativeEndsAt.getTime() - trialDays * 24 * 60 * 60 * 1000);
+  }
+  startsAt ??= entitlementStartsAt;
+  const hasPersistedTrialTiming = Boolean(
+    metadataStartsAt
+    || metadataEndsAt
+    || (entitlementStartsAt && trialDays && trialDays > 0),
+  );
+  const now = Date.now();
+  const periodWouldReviveExpiredTrial = Boolean(
+    !metadataEndsAt
+    && periodEndsAt
+    && periodEndsAt.getTime() > now
+    && derivedEndsAt
+    && derivedEndsAt.getTime() <= now,
+  );
+  const endsAt = authoritativeEndsAt ?? derivedEndsAt;
+  if (
+    !hasTrialMarker
+    || explicitlyInactive
+    || !ACTIVE_LIKE_SUBSCRIPTION_STATUSES.has(status)
+    || !hasPersistedTrialTiming
+    || periodWouldReviveExpiredTrial
+    || !endsAt
+    || endsAt.getTime() <= now
+  ) {
+    return null;
+  }
+
+  return {
+    active: true,
+    days: trialDays,
+    startsAt,
+    endsAt,
+    secondsRemaining: Math.max(0, Math.floor((endsAt.getTime() - now) / 1000)),
+  };
+}
+
 function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
   const periodEnd = data.current_period_end || data.expires_at || null;
+  const expiresAt = validDateFromDict(periodEnd);
+  const meta = data.meta ?? null;
   const entitlements = (data.entitlements || []).map(hyperAgentEntitlementFromDict);
   const directAgentSlots = (data.agent_slots || []).map(agentSlotFromDict);
   const slotGrants = mergeSlotGrants(
@@ -614,13 +750,14 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
     provider: data.provider || '',
     status: data.status || '',
     quantity: data.quantity || 1,
-    expiresAt: periodEnd ? new Date(String(periodEnd).replace('Z', '+00:00')) : null,
+    expiresAt,
     updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
     stripeSubscriptionId: data.stripe_subscription_id || null,
     cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
     canCancel: Boolean(data.can_cancel),
     isCurrent: Boolean(data.is_current),
-    meta: data.meta || null,
+    meta,
+    trial: hyperAgentSubscriptionTrialFromDict(data, meta, entitlements),
     planTpmLimit: data.plan_tpm_limit || 0,
     planRpmLimit: data.plan_rpm_limit || 0,
     planTpd: data.plan_tpd || 0,
@@ -944,6 +1081,8 @@ function hyperAgentGrantRedemptionResponseFromDict(data: any): HyperAgentGrantRe
 function hyperAgentStripeCheckoutResponseFromDict(data: any): HyperAgentStripeCheckoutResponse {
   return {
     checkoutUrl: String(data?.checkout_url || ''),
+    checkoutSessionId: data?.session_id ? String(data.session_id) : null,
+    checkoutAttemptId: data?.checkout_attempt_id ? String(data.checkout_attempt_id) : null,
   };
 }
 
@@ -1033,7 +1172,8 @@ export class HyperAgent {
   }
 
   private async controlPost<T = any>(path: string, body?: any): Promise<T> {
-    const response = await fetch(`${this.controlBaseUrl}${path}`, {
+    const url = `${this.controlBaseUrl}${path}`;
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -1043,7 +1183,7 @@ export class HyperAgent {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to POST ${path}: ${response.statusText}`);
+      throw await responseAPIError(response, 'POST', url);
     }
 
     return response.json() as Promise<T>;
@@ -1343,6 +1483,17 @@ export class HyperAgent {
     };
     const path = planId ? `/stripe/${encodeURIComponent(planId)}` : '/stripe/checkout';
     return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
+  }
+
+  async createStripeTrialCheckout(
+    request: HyperAgentStripeTrialCheckoutRequest = {},
+  ): Promise<HyperAgentStripeCheckoutResponse> {
+    return hyperAgentStripeCheckoutResponseFromDict(
+      await this.controlPost('/stripe/trial', {
+        ...(request.successUrl !== undefined ? { success_url: request.successUrl } : {}),
+        ...(request.cancelUrl !== undefined ? { cancel_url: request.cancelUrl } : {}),
+      }),
+    );
   }
 
   async createStripeBillingPortalSession(

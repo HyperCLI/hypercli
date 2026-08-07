@@ -90,6 +90,7 @@ Major methods:
 - `redeemGrantCode(code, { extendExisting? })`
 - `updateSubscription(subscriptionId, { planId, quantity })`
 - `cancelSubscription(subscriptionId)`
+- `createStripeTrialCheckout({ successUrl?, cancelUrl? })`
 - `models()`
 - `discoveryHealth()`
 - `discoveryConfig()`
@@ -97,7 +98,8 @@ Major methods:
 Important account types:
 
 - `HyperAgentSubscription`
-  recurring billing object with `cancelAtPeriodEnd`, `currentPeriodEnd`, `planAgentTier`, and `slotGrants`
+  recurring billing object with `cancelAtPeriodEnd`, `currentPeriodEnd`,
+  `planAgentTier`, `slotGrants`, and authoritative `trial` timing when present
 - `HyperAgentEntitlements`
   effective account state with `slotInventory`, `pooledTpd`, `activeEntitlementCount`, and `billingResetAt`
 - `HyperAgentEntitlement`

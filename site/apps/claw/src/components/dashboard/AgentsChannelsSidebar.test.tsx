@@ -289,6 +289,12 @@ describe("AgentsChannelsSidebar", () => {
     const primary = screen.getByRole("button", { name: "Select Primary Agent" });
     expect(primary).toHaveAttribute("aria-current", "page");
     expect(primary).toHaveClass("items-center", "gap-1", "pl-1", "pr-2", "py-2");
+    expect(primary).toHaveClass(
+      "transition-[background-color]",
+      "duration-200",
+      "ease-out",
+      "bg-[rgb(var(--selection-accent-rgb)_/_0.1)]",
+    );
     const name = primary.querySelector(".agents-roster-agent-name");
     const status = primary.querySelector(".agents-roster-agent-status");
     const activity = primary.querySelector(".agents-roster-agent-activity");

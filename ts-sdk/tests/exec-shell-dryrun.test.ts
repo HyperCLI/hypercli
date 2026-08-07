@@ -1001,6 +1001,7 @@ describe('HyperClaw agents SDK', () => {
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       meta: {
         ui: {
+          creation_id: 'setup-123',
           avatar: {
             image: 'data:image/png;base64,xyz',
             icon_index: 5,
@@ -1016,8 +1017,10 @@ describe('HyperClaw agents SDK', () => {
 
     const agent = await agents.create({
       name: 'meta-check',
+      start: false,
       meta: {
         ui: {
+          creation_id: 'setup-123',
           avatar: {
             image: 'data:image/png;base64,xyz',
             icon_index: 5,
@@ -1030,8 +1033,10 @@ describe('HyperClaw agents SDK', () => {
       '/deployments',
       expect.objectContaining({
         name: 'meta-check',
+        start: false,
         meta: {
           ui: {
+            creation_id: 'setup-123',
             avatar: {
               image: 'data:image/png;base64,xyz',
               icon_index: 5,
@@ -1043,12 +1048,45 @@ describe('HyperClaw agents SDK', () => {
     expect((post as any).mock.calls[0][1].meta.internal).toBeUndefined();
     expect(agent.meta).toEqual({
       ui: {
+        creation_id: 'setup-123',
         avatar: {
           image: 'data:image/png;base64,xyz',
           icon_index: 5,
         },
       },
     });
+  });
+
+  it('keeps the backend launch contract when creation is an idempotent replay', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-replayed',
+      user_id: 'user-1',
+      state: 'stopped',
+      runtime: 'openclaw',
+      creation_replayed: true,
+      launch_config: {
+        env: { OPENCLAW_GATEWAY_TOKEN: 'original-token' },
+        command: ['original-command'],
+      },
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+    });
+    const agents = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hyperclaw.app',
+    );
+
+    const agent = await agents.createOpenClaw({
+      name: 'replayed-agent',
+      start: false,
+      env: { OPENCLAW_GATEWAY_TOKEN: 'retry-token' },
+      command: ['retry-command'],
+      meta: { ui: { creation_id: 'setup-123' } },
+    });
+
+    expect(agent.creationReplayed).toBe(true);
+    expect(agent.launchConfig?.env?.OPENCLAW_GATEWAY_TOKEN).toBe('original-token');
+    expect(agent.command).toEqual(['original-command']);
   });
 
   it('list returns hydrated items', async () => {

@@ -386,15 +386,28 @@ describe("LaunchFirstAgentEmptyState", () => {
     expect(screen.getAllByText("Select a Domain before launching an agent.").length).toBeGreaterThan(0);
   });
 
-  it("welcomes users to an empty Domain by name", () => {
+  it("keeps first-agent onboarding copy for the account General Domain", () => {
+    render(
+      <LaunchFirstAgentEmptyState
+        onCreate={vi.fn()}
+        workspaceName="General"
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Launch your first agent" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Welcome to.*General/i })).not.toBeInTheDocument();
+  });
+
+  it("welcomes established users to an empty Domain by name", () => {
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
         workspaceName="Personal Workspace"
+        hasAccountAgents
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Welcome to your Personal Workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome to Personal Workspace" })).toBeInTheDocument();
     expect(screen.queryByText("Workspace roster")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message agent" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Message agent" })).toHaveAttribute(
@@ -1181,7 +1194,7 @@ describe("AgentSettingsPanel", () => {
     renderAgentSettingsPanel({ showFileSourceTabs: true, onShowFileSourceTabsChange });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    const toggle = screen.getByRole("checkbox", { name: /show source tabs/i });
+    const toggle = screen.getByRole("switch", { name: /show source tabs/i });
 
     expect(toggle).toBeChecked();
     fireEvent.click(toggle);
@@ -1827,8 +1840,8 @@ describe("AgentSettingsPanel", () => {
     renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Enable desktop route" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Ready files only" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Enable desktop route" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Ready files only" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Shared knowledge sync directory" }), {
       target: { value: "/home/node/TeamWorkspaces" },
     });
@@ -1881,9 +1894,9 @@ describe("AgentSettingsPanel", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByRole("checkbox", { name: "Enable desktop route" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable desktop route" })).toBeChecked();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Enable desktop route" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Enable desktop route" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => {
@@ -1926,11 +1939,11 @@ describe("AgentSettingsPanel", () => {
     const { rerender, props } = renderAgentSettingsPanel({ agent: initialAgent });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByRole("checkbox", { name: "Enable desktop route" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable desktop route" })).not.toBeChecked();
 
     rerender(<AgentSettingsPanel {...props} agent={refreshedAgent} />);
 
-    expect(screen.getByRole("checkbox", { name: "Enable desktop route" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable desktop route" })).toBeChecked();
   });
 
   it("keeps the desktop toggle disabled when saved env disables a stale desktop route", () => {
@@ -1953,7 +1966,7 @@ describe("AgentSettingsPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
 
-    expect(screen.getByRole("checkbox", { name: "Enable desktop route" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable desktop route" })).not.toBeChecked();
   });
 
   it("renders usage when selected", () => {
@@ -1993,9 +2006,9 @@ describe("AgentSettingsPanel", () => {
     renderAgentSettingsPanel({ onSaveOpenClawConfig, onUpdateAgentLaunchConfig });
 
     fireEvent.click(screen.getByRole("button", { name: "Index" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Sync on session start" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Sync on search" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Watch memory files" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sync on session start" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sync on search" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Watch memory files" }));
     fireEvent.change(screen.getByRole("spinbutton", { name: "Watch debounce seconds" }), {
       target: { value: "60" },
     });
@@ -2059,7 +2072,7 @@ describe("AgentSettingsPanel", () => {
     renderAgentSettingsPanel({ onSaveOpenClawConfig, onUpdateAgentLaunchConfig: undefined });
 
     fireEvent.click(screen.getByRole("button", { name: "Index" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Watch memory files" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Watch memory files" }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Runtime launch updates are unavailable.")).toBeInTheDocument();

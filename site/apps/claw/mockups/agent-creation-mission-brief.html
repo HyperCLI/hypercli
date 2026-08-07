@@ -1,0 +1,1678 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HyperCLI Agent Setup</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #10151f;
+        --sidebar: #1b2331;
+        --sidebar-deep: #1a2230;
+        --panel: #232d3f;
+        --surface: #1b2331;
+        --surface-high: #232d3f;
+        --surface-soft: #232d3f;
+        --border: rgba(255, 255, 255, 0.12);
+        --border-strong: rgba(255, 255, 255, 0.28);
+        --input-border: rgba(255, 255, 255, 0.18);
+        --text: #e8edf4;
+        --text-secondary: #b9c4d6;
+        --text-muted: #8f9db1;
+        --selection: #9db4ff;
+        --selection-strong: #5d87ff;
+        --selection-soft: rgba(93, 135, 255, 0.16);
+        --primary: #4f7cff;
+        --primary-hover: #3d68e6;
+        --focus: rgba(157, 180, 255, 0.42);
+        --success: #6ce8c4;
+        --font-ui: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        overflow: hidden;
+        background: var(--background);
+        color: var(--text);
+        font-family: var(--font-ui);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      input,
+      textarea {
+        outline: 0;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible {
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .app-shell {
+        width: 100%;
+        height: 100vh;
+        height: 100svh;
+        min-height: 0;
+        display: flex;
+        overflow: hidden;
+      }
+
+      .mobile-shell-header {
+        display: none;
+      }
+
+      .sidebar {
+        position: relative;
+        width: 256px;
+        min-width: 256px;
+        height: 100%;
+        display: grid;
+        grid-template-columns: 208px 48px;
+        padding-top: 56px;
+        background: var(--sidebar);
+        border-right: 1px solid var(--border);
+      }
+
+      .sidebar-main {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding-top: 8px;
+        border-right: 1px solid var(--border);
+        background: var(--surface);
+      }
+
+      .brand {
+        position: absolute;
+        z-index: 2;
+        inset: 0 0 auto;
+        width: 256px;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        background: var(--sidebar);
+      }
+
+      .brand img {
+        width: 124px;
+        height: 25px;
+        object-fit: contain;
+        object-position: left center;
+      }
+
+      .sidebar-scroll {
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-top: 1px solid var(--border);
+        border-top-right-radius: 16px;
+        background: var(--sidebar-deep);
+        box-shadow: inset -1px 0 0 var(--border);
+        scrollbar-color: var(--border-strong) transparent;
+        scrollbar-width: thin;
+      }
+
+      .roster-toolbar {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 8px 6px 12px;
+      }
+
+      .roster-toolbar strong {
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .roster-toolbar button {
+        width: 32px;
+        height: 32px;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        color: var(--text-muted);
+      }
+
+      .roster-toolbar button:hover {
+        border-color: var(--border);
+        background: rgba(16, 21, 31, 0.35);
+        color: var(--text);
+      }
+
+      .nav-list,
+      .agent-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .nav-list {
+        margin-bottom: 4px;
+      }
+
+      .nav-item,
+      .agent-item {
+        width: 100%;
+        min-width: 0;
+        border: 0;
+        border-radius: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px 0 5px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 13px;
+        text-align: left;
+      }
+
+      .nav-item {
+        height: 36px;
+      }
+
+      .agent-item {
+        min-height: 42px;
+        padding-block: 5px;
+      }
+
+      .nav-item:hover,
+      .agent-item:hover {
+        background: rgba(255, 255, 255, 0.035);
+        color: var(--text);
+      }
+
+      .nav-icon,
+      .rail-icon {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .agent-list {
+        min-height: 0;
+      }
+
+      .launch-row {
+        width: 100%;
+        min-height: 54px;
+        border: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 8px 7px 5px;
+        background: transparent;
+        color: var(--text);
+        text-align: left;
+      }
+
+      .launch-row:hover {
+        background: rgba(27, 35, 49, 0.5);
+      }
+
+      .launch-mark {
+        width: 22px;
+        height: 22px;
+        flex: 0 0 22px;
+        border: 1px solid rgba(157, 180, 255, 0.25);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(157, 180, 255, 0.1);
+        color: var(--selection);
+      }
+
+      .launch-mark .nav-icon {
+        width: 12px;
+        height: 12px;
+      }
+
+      .launch-row strong,
+      .launch-row small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .launch-row > span:last-child {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .launch-row strong {
+        font-size: 13px;
+        line-height: 1.25;
+      }
+
+      .launch-row small {
+        margin-top: 2px;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.25;
+      }
+
+      .agent-avatar {
+        position: relative;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface-soft);
+        color: var(--selection);
+        font-size: 10px;
+        font-weight: 750;
+      }
+
+      .agent-avatar::after {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        width: 7px;
+        height: 7px;
+        border: 1px solid var(--sidebar-deep);
+        border-radius: 50%;
+        background: var(--success);
+        content: "";
+      }
+
+      .agent-copy {
+        min-width: 0;
+      }
+
+      .agent-copy strong,
+      .agent-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .agent-copy strong {
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .agent-copy small {
+        margin-top: 1px;
+        color: var(--text-muted);
+        font-size: 10px;
+      }
+
+      .admin-section {
+        margin-top: 4px;
+      }
+
+      .admin-section > span {
+        display: block;
+        padding: 7px 8px 5px 6px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .account {
+        width: 100%;
+        min-height: 58px;
+        border: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 10px;
+        background: var(--sidebar-deep);
+        color: var(--text-secondary);
+        text-align: left;
+        box-shadow: inset -1px 0 0 var(--border);
+      }
+
+      .account-mark {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface-soft);
+        color: var(--text);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .account strong,
+      .account small {
+        display: block;
+      }
+
+      .account strong {
+        color: var(--text);
+        font-size: 11px;
+      }
+
+      .account small {
+        color: var(--text-muted);
+        font-size: 9px;
+      }
+
+      .account > span:nth-child(2) {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .account-chevron {
+        width: 14px;
+        height: 14px;
+        flex: 0 0 14px;
+        fill: none;
+        stroke: var(--text-muted);
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .workspace-rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        padding: 12px 6px 8px;
+        background: var(--surface);
+      }
+
+      .rail-button {
+        width: 35px;
+        height: 35px;
+        border: 1px solid transparent;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        color: var(--text-muted);
+      }
+
+      .rail-button:hover,
+      .rail-button--active {
+        border-color: var(--border-strong);
+        background: var(--selection-soft);
+        color: var(--selection);
+      }
+
+      .rail-spacer {
+        flex: 1 1 auto;
+      }
+
+      .wizard {
+        min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .wizard-header {
+        position: relative;
+        z-index: 3;
+        min-height: 82px;
+        flex: 0 0 auto;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 12px 64px 12px 24px;
+        background: var(--background);
+      }
+
+      .header-copy {
+        min-width: 0;
+      }
+
+      .header-copy h1 {
+        margin: 0;
+        color: var(--text);
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.025em;
+        line-height: 1.25;
+      }
+
+      .header-copy p {
+        margin: 4px 0 0;
+        color: var(--text-muted);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+
+      .close-button {
+        position: absolute;
+        top: 25px;
+        right: 20px;
+        width: 32px;
+        height: 32px;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(16, 21, 31, 0.7);
+        color: var(--text-muted);
+      }
+
+      .close-button svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+      }
+
+      .wizard-body {
+        min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 16px 24px;
+        scrollbar-color: var(--border-strong) transparent;
+        scrollbar-width: thin;
+      }
+
+      .step-screen {
+        width: min(100%, 1168px);
+        min-width: 0;
+        min-height: 100%;
+        margin: 0 auto;
+      }
+
+      .step-screen--centered {
+        display: grid;
+        place-items: center;
+      }
+
+      .screen-panel {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--panel);
+        padding: 20px;
+      }
+
+      .browse-panel {
+        padding: 20px;
+      }
+
+      .browse-panel .question-heading {
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 14px;
+        margin-bottom: 20px;
+      }
+
+      .browse-panel .question-number {
+        width: 36px;
+        height: 36px;
+        font-size: 13px;
+      }
+
+      .browse-panel .question-heading h2 {
+        font-size: 22px;
+      }
+
+      .browse-panel .question-heading p {
+        max-width: 68ch;
+        margin-top: 7px;
+        font-size: 13px;
+      }
+
+      .browse-panel .brief-textarea {
+        min-height: 146px;
+      }
+
+      .browse-panel .choice-divider {
+        margin: 20px 0 16px;
+      }
+
+      .identity-panel {
+        width: min(100%, 660px);
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        padding: 0;
+      }
+
+      .launch-panel {
+        width: min(100%, 780px);
+      }
+
+      .panel-heading {
+        margin-bottom: 18px;
+      }
+
+      .question-heading {
+        display: grid;
+        grid-template-columns: 32px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+        margin-bottom: 18px;
+      }
+
+      .question-number {
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--border-strong);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface);
+        color: var(--selection);
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .panel-heading h2,
+      .question-heading h2 {
+        margin: 0;
+        color: var(--text);
+        font-size: 20px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+        line-height: 1.3;
+      }
+
+      .panel-heading p,
+      .question-heading p {
+        max-width: 72ch;
+        margin: 5px 0 0;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
+      .field {
+        min-width: 0;
+      }
+
+      .identity-field + .identity-field {
+        margin-top: 16px;
+      }
+
+      .field-label {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+      }
+
+      .text-input {
+        width: 100%;
+        height: 40px;
+        border: 1px solid var(--input-border);
+        border-radius: 10px;
+        padding: 0 12px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 14px;
+      }
+
+      .text-input:hover,
+      .brief-textarea:hover {
+        border-color: var(--border-strong);
+      }
+
+      .url-preview {
+        height: 40px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        align-items: stretch;
+        background: var(--surface);
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+
+      .url-icon {
+        width: 40px;
+        flex: 0 0 40px;
+        border-right: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        color: var(--text);
+      }
+
+      .url-icon svg,
+      .select-wrap svg,
+      .advanced-settings summary svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .url-preview output {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        color: var(--text);
+        font-weight: 500;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .url-suffix {
+        flex: 0 0 auto;
+        border-left: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+      }
+
+      .select-wrap {
+        position: relative;
+      }
+
+      .select-wrap select {
+        width: 100%;
+        height: 40px;
+        appearance: none;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0 40px 0 12px;
+        background: var(--background);
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+      }
+
+      .select-wrap > svg {
+        position: absolute;
+        top: 50%;
+        right: 12px;
+        color: var(--text-muted);
+        pointer-events: none;
+        transform: translateY(-50%);
+      }
+
+      .field-helper {
+        margin: 6px 0 0;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .advanced-settings {
+        overflow: hidden;
+        margin-top: 16px;
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        background: var(--surface-high);
+      }
+
+      .advanced-settings summary {
+        min-height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        color: var(--text);
+        cursor: pointer;
+        list-style: none;
+      }
+
+      .advanced-settings summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .advanced-settings summary > span {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .advanced-settings strong,
+      .advanced-settings small {
+        display: block;
+      }
+
+      .advanced-settings strong {
+        font-size: 13px;
+      }
+
+      .advanced-settings small {
+        margin-top: 2px;
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .advanced-chevron {
+        transition: transform 180ms ease;
+      }
+
+      .advanced-settings[open] .advanced-chevron {
+        transform: rotate(180deg);
+      }
+
+      .advanced-content {
+        border-top: 1px solid var(--border);
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        padding: 12px;
+      }
+
+      .advanced-content label {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px;
+        background: var(--background);
+      }
+
+      .advanced-content input {
+        width: 16px;
+        height: 16px;
+        margin: 2px 0 0;
+        accent-color: var(--primary);
+      }
+
+      .brief-textarea-wrap {
+        position: relative;
+      }
+
+      .brief-textarea {
+        width: 100%;
+        min-height: 142px;
+        resize: vertical;
+        border: 1px solid var(--input-border);
+        border-radius: 11px;
+        padding: 14px 15px 32px;
+        background: var(--surface);
+        color: var(--text);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .brief-textarea::placeholder {
+        color: #7486a1;
+      }
+
+      .character-count {
+        position: absolute;
+        right: 12px;
+        bottom: 9px;
+        color: var(--text-muted);
+        font-size: 9px;
+      }
+
+      .choice-divider {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 13px;
+        margin: 18px 0 14px;
+        color: var(--text-muted);
+        font-size: 9px;
+        font-weight: 750;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .choice-divider::before,
+      .choice-divider::after {
+        height: 1px;
+        background: var(--border);
+        content: "";
+      }
+
+      .mission-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .mission-option,
+      .persona-option {
+        position: relative;
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        background: var(--background);
+        color: var(--text-secondary);
+        text-align: left;
+        transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+      }
+
+      .mission-option:hover,
+      .persona-option:hover {
+        border-color: var(--border-strong);
+        background: color-mix(in srgb, var(--selection) 4%, var(--background));
+      }
+
+      .mission-option[aria-pressed="true"],
+      .persona-option[aria-pressed="true"] {
+        border-color: rgba(157, 180, 255, 0.42);
+        background: rgba(93, 135, 255, 0.12);
+        box-shadow: inset 0 0 0 1px rgba(157, 180, 255, 0.08);
+      }
+
+      .mission-option {
+        min-height: 142px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 17px;
+        text-align: center;
+      }
+
+      .mission-option strong,
+      .mission-detail {
+        display: block;
+      }
+
+      .mission-option strong {
+        margin: 0;
+        color: var(--text);
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+
+      .mission-detail {
+        max-width: 26ch;
+        margin-top: 9px;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+      }
+
+      .persona-list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .persona-option {
+        min-height: 148px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        padding: 17px;
+        text-align: center;
+      }
+
+      .persona-option-title strong {
+        display: block;
+      }
+
+      .persona-option-title strong {
+        color: var(--text);
+        font-size: 15px;
+        overflow-wrap: anywhere;
+      }
+
+      .persona-option > span:last-child {
+        max-width: 27ch;
+        margin-top: 10px;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
+
+      .launch-summary {
+        display: grid;
+        gap: 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .summary-row {
+        display: grid;
+        grid-template-columns: 145px minmax(0, 1fr);
+        gap: 18px;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .summary-row dt {
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .summary-row dd {
+        min-width: 0;
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.55;
+        overflow-wrap: anywhere;
+      }
+
+      .launch-note {
+        margin-top: 16px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: var(--background);
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      .launch-complete {
+        margin-top: 16px;
+        border: 1px solid rgba(114, 221, 188, 0.35);
+        border-radius: 10px;
+        padding: 11px 12px;
+        background: rgba(114, 221, 188, 0.08);
+        color: #a8f1dc;
+        font-size: 11px;
+      }
+
+      .wizard-footer {
+        position: relative;
+        min-height: 72px;
+        flex: 0 0 auto;
+        border-top: 1px solid var(--border);
+        display: grid;
+        grid-template-columns: auto minmax(160px, 1fr) auto;
+        align-items: center;
+        gap: 20px;
+        padding: 11px 24px;
+        background: var(--surface);
+      }
+
+      .footer-action {
+        min-width: 88px;
+        height: 40px;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 0 15px;
+        font-size: 14px;
+        font-weight: 500;
+        transition: border-color 180ms ease, background 180ms ease, color 180ms ease;
+      }
+
+      .footer-action svg {
+        width: 15px;
+        height: 15px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .footer-action--secondary {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--text);
+      }
+
+      .footer-action--secondary:hover:not(:disabled) {
+        border-color: var(--border-strong);
+        background: var(--surface-high);
+      }
+
+      .footer-action--secondary:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      .footer-action--primary {
+        border: 1px solid transparent;
+        background: var(--primary);
+        color: white;
+      }
+
+      .footer-action--primary:hover:not(:disabled) {
+        background: var(--primary-hover);
+      }
+
+      .progress {
+        min-width: 0;
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+      }
+
+      .progress-track {
+        position: absolute;
+        inset: 0 0 auto;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .progress-fill {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: var(--selection);
+        transform: scaleX(0.64);
+        transform-origin: left center;
+        transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .progress strong {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--selection);
+        font-size: 9px;
+        font-weight: 750;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      .progress strong::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      .progress span:last-child {
+        color: var(--text-muted);
+        font-size: 11px;
+      }
+
+      @media (max-width: 1120px) {
+        .mission-grid,
+        .persona-list {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .mission-grid,
+        .persona-list,
+        .advanced-content {
+          grid-template-columns: 1fr;
+        }
+
+        .mission-option,
+        .persona-option {
+          min-height: 112px;
+        }
+
+        .wizard-footer {
+          grid-template-columns: 76px minmax(0, 1fr) 76px;
+          gap: 4px;
+          padding: 10px 8px;
+        }
+
+        .footer-action {
+          width: 76px;
+          min-width: 0;
+          padding-inline: 6px;
+          gap: 5px;
+          font-size: 11px;
+          line-height: 1.15;
+          white-space: normal;
+        }
+
+        .footer-action svg {
+          width: 13px;
+          height: 13px;
+          flex: 0 0 13px;
+        }
+      }
+
+      @media (max-width: 639px) {
+        .app-shell {
+          flex-direction: column;
+        }
+
+        .mobile-shell-header {
+          position: relative;
+          z-index: 5;
+          height: calc(56px + env(safe-area-inset-top));
+          flex: 0 0 auto;
+          display: grid;
+          grid-template-columns: 44px minmax(0, 1fr) 44px;
+          align-items: center;
+          padding: env(safe-area-inset-top) 12px 0;
+          border-bottom: 1px solid var(--border);
+          background: var(--background);
+        }
+
+        .mobile-shell-header a,
+        .mobile-shell-header button {
+          width: 44px;
+          height: 44px;
+          border: 0;
+          border-radius: 12px;
+          display: grid;
+          place-items: center;
+          background: transparent;
+          color: var(--text-secondary);
+        }
+
+        .mobile-shell-header a:hover,
+        .mobile-shell-header button:hover {
+          background: var(--surface);
+          color: var(--text);
+        }
+
+        .mobile-shell-header img {
+          width: 24px;
+          height: 24px;
+        }
+
+        .mobile-shell-header svg {
+          width: 22px;
+          height: 22px;
+          fill: none;
+          stroke: currentColor;
+          stroke-width: 1.8;
+          stroke-linecap: round;
+        }
+
+        .mobile-shell-header > span {
+          overflow: hidden;
+          color: var(--text);
+          font-size: 12px;
+          font-weight: 600;
+          text-align: center;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .sidebar {
+          display: none;
+        }
+
+        .wizard {
+          width: 100%;
+        }
+
+        .wizard-header {
+          min-height: 82px;
+          padding: 12px 56px 12px 20px;
+        }
+
+        .close-button {
+          right: 16px;
+        }
+
+        .wizard-body {
+          padding: 16px 12px;
+        }
+
+        .screen-panel,
+        .browse-panel {
+          padding: 16px;
+        }
+
+      }
+
+      @media (max-width: 520px) {
+        .browse-panel .question-heading {
+          grid-template-columns: 27px minmax(0, 1fr);
+          gap: 9px;
+        }
+
+        .browse-panel .question-number {
+          width: 26px;
+          height: 26px;
+          font-size: 11px;
+        }
+
+        .browse-panel .question-heading h2 {
+          font-size: 18px;
+        }
+
+        .question-heading {
+          grid-template-columns: 27px minmax(0, 1fr);
+          gap: 9px;
+        }
+
+        .question-number {
+          width: 26px;
+          height: 26px;
+        }
+
+        .question-heading h2,
+        .panel-heading h2 {
+          font-size: 18px;
+        }
+
+        .brief-textarea {
+          min-height: 132px;
+        }
+
+        .summary-row {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+
+        .progress span:last-child {
+          display: none;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="sr-only" aria-hidden="true">
+      <defs>
+        <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v10h14V10M9 20v-6h6v6" /></symbol>
+        <symbol id="icon-book" viewBox="0 0 24 24"><path d="M4 4h6a3 3 0 0 1 3 3v13a3 3 0 0 0-3-3H4V4ZM20 4h-4a3 3 0 0 0-3 3v13a3 3 0 0 1 3-3h4V4Z" /></symbol>
+        <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+        <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3V6Z" /></symbol>
+        <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></symbol>
+        <symbol id="icon-code" viewBox="0 0 24 24"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14" /></symbol>
+        <symbol id="icon-collapse" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM9 5v14M15 9l-3 3 3 3" /></symbol>
+        <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 20v-2a4 4 0 0 0-3-3.87M16 2.13a4 4 0 0 1 0 7.75" /></symbol>
+        <symbol id="icon-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></symbol>
+        <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01" /></symbol>
+        <symbol id="icon-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></symbol>
+        <symbol id="icon-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></symbol>
+        <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5" /></symbol>
+        <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" /></symbol>
+        <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5" /></symbol>
+        <symbol id="icon-back" viewBox="0 0 24 24"><path d="M19 12H5M10 7l-5 5 5 5" /></symbol>
+      </defs>
+    </svg>
+
+    <div class="app-shell" data-step="mission">
+      <header class="mobile-shell-header">
+        <a href="#" aria-label="HyperCLI home"><img src="../public/logos/hypercli-aurora-icon.svg" alt="" /></a>
+        <span>Launch agent</span>
+        <button type="button" aria-label="Open navigation"><svg aria-hidden="true"><use href="#icon-menu"></use></svg></button>
+      </header>
+      <aside class="sidebar" aria-label="Dashboard navigation">
+        <div class="sidebar-main">
+          <div class="brand"><img src="../public/logos/hypercli-full-blue.svg" alt="HyperCLI" /></div>
+          <div class="sidebar-scroll">
+            <div class="roster-toolbar"><strong>Agents</strong><button type="button" aria-label="Collapse sidebar"><svg class="nav-icon" aria-hidden="true"><use href="#icon-collapse"></use></svg></button></div>
+            <nav class="nav-list">
+              <button class="nav-item" type="button"><svg class="nav-icon" aria-hidden="true"><use href="#icon-home"></use></svg>Home</button>
+              <button class="nav-item" type="button"><svg class="nav-icon" aria-hidden="true"><use href="#icon-book"></use></svg>Knowledge Hub</button>
+            </nav>
+            <div class="agent-list" aria-label="Running agents">
+              <button class="launch-row" type="button"><span class="launch-mark"><svg class="nav-icon" aria-hidden="true"><use href="#icon-plus"></use></svg></span><span><strong>Launch agent</strong><small>Create a new workspace</small></span></button>
+              <button class="agent-item" type="button"><span class="agent-avatar">R</span><span class="agent-copy"><strong>Research</strong><small>Running</small></span></button>
+              <button class="agent-item" type="button"><span class="agent-avatar">W</span><span class="agent-copy"><strong>Writer</strong><small>Running</small></span></button>
+              <button class="agent-item" type="button"><span class="agent-avatar">O</span><span class="agent-copy"><strong>Operations</strong><small>Running</small></span></button>
+            </div>
+            <section class="admin-section" aria-label="Administration"><span>Administration</span><button class="nav-item" type="button"><svg class="nav-icon" aria-hidden="true"><use href="#icon-users"></use></svg>Members</button><button class="nav-item" type="button"><svg class="nav-icon" aria-hidden="true"><use href="#icon-chart"></use></svg>Usage</button></section>
+          </div>
+          <button class="account" type="button" aria-label="Account links"><span class="account-mark">F</span><span><strong>Francisco</strong><small>Account settings</small></span><svg class="account-chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></button>
+        </div>
+        <nav class="workspace-rail" aria-label="Agent workspace">
+          <button class="rail-button" type="button" aria-label="New session"><svg class="rail-icon" aria-hidden="true"><use href="#icon-plus"></use></svg></button>
+          <button class="rail-button" type="button" aria-label="Files"><svg class="rail-icon" aria-hidden="true"><use href="#icon-folder"></use></svg></button>
+          <button class="rail-button" type="button" aria-label="Integrations"><svg class="rail-icon" aria-hidden="true"><use href="#icon-grid"></use></svg></button>
+          <button class="rail-button" type="button" aria-label="Skills"><svg class="rail-icon" aria-hidden="true"><use href="#icon-code"></use></svg></button>
+          <button class="rail-button" type="button" aria-label="Scheduled"><svg class="rail-icon" aria-hidden="true"><use href="#icon-calendar"></use></svg></button>
+          <button class="rail-button" type="button" aria-label="Desktop"><svg class="rail-icon" aria-hidden="true"><use href="#icon-monitor"></use></svg></button>
+          <span class="rail-spacer"></span>
+          <button class="rail-button" type="button" aria-label="Advanced"><svg class="rail-icon" aria-hidden="true"><use href="#icon-code"></use></svg></button>
+        </nav>
+      </aside>
+
+      <main class="wizard">
+        <header class="wizard-header">
+          <div class="header-copy">
+            <h1 id="wizard-title" tabindex="-1">Set up the workspace</h1>
+            <p id="wizard-subtitle">Shape the canonical instructions OpenClaw will read when this agent starts.</p>
+          </div>
+          <button class="close-button" type="button" aria-label="Close agent creation"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg></button>
+        </header>
+
+        <div class="wizard-body" data-wizard-body>
+          <section class="step-screen step-screen--centered" data-step-screen="identity" hidden>
+            <div class="screen-panel identity-panel">
+              <div class="field identity-field">
+                <label class="field-label" for="agent-name">Agent name</label>
+                <input class="text-input" id="agent-name" type="text" value="Avery" maxlength="64" placeholder="e.g. Research Assistant" autocomplete="off" data-agent-name-input />
+              </div>
+              <div class="field identity-field">
+                <span class="field-label">Agent URL</span>
+                <div class="url-preview">
+                  <span class="url-icon"><svg aria-hidden="true"><use href="#icon-globe"></use></svg></span>
+                  <output>calm-lunar-fox</output>
+                  <span class="url-suffix">.hypercli.com</span>
+                </div>
+              </div>
+              <div class="field identity-field">
+                <label class="field-label" for="knowledge-domain">Initial Knowledge Domain</label>
+                <div class="select-wrap">
+                  <select id="knowledge-domain">
+                    <option>General</option>
+                    <option>No Domain</option>
+                  </select>
+                  <svg aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                </div>
+                <p class="field-helper">Assign only the business knowledge this agent needs. You can change Domain access later.</p>
+              </div>
+              <details class="advanced-settings">
+                <summary><svg aria-hidden="true"><use href="#icon-code"></use></svg><span><strong>Advanced</strong><small>Runtime options for this agent</small></span><svg class="advanced-chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+                <div class="advanced-content">
+                  <label><input type="checkbox" /><span><strong>Desktop browser</strong><small>Private browser for visual tasks.</small></span></label>
+                  <label><input type="checkbox" checked /><span><strong>Memory indexing</strong><small>Searchable workspace memory.</small></span></label>
+                </div>
+              </details>
+            </div>
+          </section>
+
+          <section class="step-screen" data-step-screen="mission">
+            <div class="screen-panel browse-panel">
+              <div class="question-heading">
+                <span class="question-number">1</span>
+                <div><h2>What do you want to get done?</h2><p>Give <span data-agent-name>Avery</span> an objective, project, or responsibility. It will figure out how to help make it happen. Be as specific or broad as you like; you can always refine it later.</p></div>
+              </div>
+              <div class="brief-textarea-wrap">
+                <label class="sr-only" for="mission">Role and outcome</label>
+                <textarea class="brief-textarea" id="mission" maxlength="300" data-count-input data-mission-input>Build me a pipeline of qualified enterprise prospects and start conversations with the right decision-makers.</textarea>
+                <span class="character-count" data-count-for="mission">0/300</span>
+              </div>
+              <div class="choice-divider">Or start with an example</div>
+              <div class="mission-grid" data-option-group data-controls="mission">
+                <button class="mission-option" type="button" aria-pressed="false" data-fill-target="mission" data-option-label="Build a product" data-fill="Build a product. Turn an idea into working software."><strong>Build a product</strong><span class="mission-detail">Turn an idea into working software.</span></button>
+                <button class="mission-option" type="button" aria-pressed="true" data-fill-target="mission" data-option-label="Generate pipeline" data-fill="Build me a pipeline of qualified enterprise prospects and start conversations with the right decision-makers."><strong>Generate pipeline</strong><span class="mission-detail">Find prospects and create qualified sales opportunities.</span></button>
+                <button class="mission-option" type="button" aria-pressed="false" data-fill-target="mission" data-option-label="Run operations" data-fill="Run operations. Keep projects, people, and priorities moving."><strong>Run operations</strong><span class="mission-detail">Keep projects, people, and priorities moving.</span></button>
+                <button class="mission-option" type="button" aria-pressed="false" data-fill-target="mission" data-option-label="Grow demand" data-fill="Grow demand. Create campaigns and uncover growth opportunities."><strong>Grow demand</strong><span class="mission-detail">Create campaigns and uncover growth opportunities.</span></button>
+                <button class="mission-option" type="button" aria-pressed="false" data-fill-target="mission" data-option-label="Analyze the business" data-fill="Analyze the business. Turn data and information into insights and decisions."><strong>Analyze the business</strong><span class="mission-detail">Turn data and information into insights and decisions.</span></button>
+                <button class="mission-option" type="button" aria-pressed="false" data-fill-target="mission" data-option-label="Research a market" data-fill="Research a market. Investigate an industry, competitors, and opportunities."><strong>Research a market</strong><span class="mission-detail">Investigate an industry, competitors, and opportunities.</span></button>
+              </div>
+            </div>
+
+          </section>
+
+          <section class="step-screen" data-step-screen="persona" hidden>
+            <div class="screen-panel browse-panel">
+              <div class="question-heading">
+                <span class="question-number">2</span>
+                <div><h2>How should <span data-agent-name>Avery</span> approach the work?</h2><p>Describe how you want your teammate to think, communicate, make decisions, and get things done. Choose the closest starting style; you can always make it your own later.</p></div>
+              </div>
+              <div class="brief-textarea-wrap">
+                <label class="sr-only" for="persona">Working style</label>
+                <textarea class="brief-textarea" id="persona" maxlength="300" data-count-input data-persona-input>Be a relentless operator who moves fast, challenges my assumptions, and does not need much hand-holding.</textarea>
+                <span class="character-count" data-count-for="persona">0/300</span>
+              </div>
+              <div class="choice-divider">Or start with an example</div>
+              <div class="persona-list" data-option-group data-controls="persona">
+                <button class="persona-option" type="button" aria-pressed="false" data-fill-target="persona" data-option-label="The Inventor" data-fill="Be bold, technical, creative, and unconventional."><span class="persona-option-title"><strong>The Inventor</strong></span><span>Bold, technical, creative, and unconventional.</span></button>
+                <button class="persona-option" type="button" aria-pressed="false" data-fill-target="persona" data-option-label="The Detective" data-fill="Be observant, skeptical, and relentless about finding the truth."><span class="persona-option-title"><strong>The Detective</strong></span><span>Observant, skeptical, and relentless about finding the truth.</span></button>
+                <button class="persona-option" type="button" aria-pressed="false" data-fill-target="persona" data-option-label="The Closer" data-fill="Be confident, persuasive, competitive, and outcome-driven."><span class="persona-option-title"><strong>The Closer</strong></span><span>Confident, persuasive, competitive, and outcome-driven.</span></button>
+                <button class="persona-option" type="button" aria-pressed="true" data-fill-target="persona" data-option-label="The Operator" data-fill="Be a relentless operator who moves fast, challenges my assumptions, and does not need much hand-holding."><span class="persona-option-title"><strong>The Operator</strong></span><span>Organized, proactive, and relentless about execution.</span></button>
+                <button class="persona-option" type="button" aria-pressed="false" data-fill-target="persona" data-option-label="The Coach" data-fill="Be positive, patient, motivating, and people-first."><span class="persona-option-title"><strong>The Coach</strong></span><span>Positive, patient, motivating, and people-first.</span></button>
+                <button class="persona-option" type="button" aria-pressed="false" data-fill-target="persona" data-option-label="The Cynic" data-fill="Be brilliant, independent, brutally direct, and skeptical of everything."><span class="persona-option-title"><strong>The Cynic</strong></span><span>Brilliant, independent, brutally direct, and skeptical of everything.</span></button>
+              </div>
+            </div>
+
+          </section>
+
+          <section class="step-screen step-screen--centered" data-step-screen="launch" hidden>
+            <div class="screen-panel launch-panel">
+              <div class="panel-heading">
+                <h2><span data-agent-name>Avery</span> is ready for a first assignment</h2>
+                <p>Review the starting brief. Nothing here is permanent; it simply helps your teammate become useful sooner.</p>
+              </div>
+              <dl class="launch-summary">
+                <div class="summary-row"><dt>Identity</dt><dd><span data-agent-name>Avery</span> - calm-lunar-fox.hypercli.com</dd></div>
+                <div class="summary-row"><dt>Role and outcome</dt><dd data-summary-mission></dd></div>
+                <div class="summary-row"><dt>Working style</dt><dd data-summary-persona></dd></div>
+                <div class="summary-row"><dt>Runtime</dt><dd>OpenClaw - General knowledge domain</dd></div>
+              </dl>
+              <div class="launch-note">This is a starting frame, not a permanent job description. Refine it as the work and relationship evolve.</div>
+              <div class="launch-complete" data-launch-complete hidden><span data-agent-name>Avery</span> has been launched with this starting brief.</div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="wizard-footer">
+          <button class="footer-action footer-action--secondary" type="button" data-back><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-back"></use></svg>Back</button>
+          <div class="progress" role="progressbar" aria-label="Agent creation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="64">
+            <span class="progress-track" aria-hidden="true"><span class="progress-fill"></span></span>
+            <strong data-progress-title>Taking shape</strong>
+            <span data-progress-detail>Define what it should accomplish</span>
+          </div>
+          <button class="footer-action footer-action--primary" type="button" data-next><span data-next-label>Continue</span><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-arrow"></use></svg></button>
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      const shell = document.querySelector(".app-shell");
+      const body = document.querySelector("[data-wizard-body]");
+      const title = document.querySelector("#wizard-title");
+      const subtitle = document.querySelector("#wizard-subtitle");
+      const stepScreens = Array.from(document.querySelectorAll("[data-step-screen]"));
+      const backButton = document.querySelector("[data-back]");
+      const nextButton = document.querySelector("[data-next]");
+      const nextLabel = document.querySelector("[data-next-label]");
+      const progress = document.querySelector(".progress");
+      const progressFill = document.querySelector(".progress-fill");
+      const progressTitle = document.querySelector("[data-progress-title]");
+      const progressDetail = document.querySelector("[data-progress-detail]");
+      const agentNameInput = document.querySelector("[data-agent-name-input]");
+      const agentNameNodes = Array.from(document.querySelectorAll("[data-agent-name]"));
+      const launchComplete = document.querySelector("[data-launch-complete]");
+
+      const steps = ["identity", "mission", "persona", "launch"];
+      const copy = {
+        identity: {
+          title: "Create agent",
+          subtitle: "Give it a display name and choose its initial access. You can change both later.",
+          progress: 48,
+          progressTitle: "Taking shape",
+          progressDetail: "Moments from launch",
+          next: "Continue",
+        },
+        mission: {
+          title: "Set up the workspace",
+          subtitle: "Shape the canonical instructions OpenClaw will read when this agent starts.",
+          progress: 64,
+          progressTitle: "Taking shape",
+          progressDetail: "Define what it should accomplish",
+          next: "Continue",
+        },
+        persona: {
+          title: "Set up the workspace",
+          subtitle: "Shape the canonical instructions OpenClaw will read when this agent starts.",
+          progress: 78,
+          progressTitle: "Looking good!",
+          progressDetail: "Now shape how it works",
+          next: "Continue",
+        },
+        launch: {
+          title: "Review the starting brief",
+          subtitle: "Make sure the role and working style feel useful enough to begin.",
+          progress: 92,
+          progressTitle: "Almost there!",
+          progressDetail: "Review before launch",
+          next: "Launch agent",
+        },
+      };
+
+      let activeStep = "mission";
+      let applyingTemplate = false;
+
+      function updateCount(textarea) {
+        const output = document.querySelector(`[data-count-for="${textarea.id}"]`);
+        if (output) output.textContent = `${textarea.value.length}/${textarea.maxLength}`;
+      }
+
+      function clearGroupSelection(textarea) {
+        const group = document.querySelector(`[data-option-group][data-controls="${textarea.id}"]`);
+        if (!group) return;
+        group.querySelectorAll("[aria-pressed]").forEach((button) => button.setAttribute("aria-pressed", "false"));
+      }
+
+      function syncName() {
+        const name = agentNameInput.value.trim() || "Unnamed agent";
+        agentNameNodes.forEach((node) => { node.textContent = name; });
+        if (activeStep === "launch") nextLabel.textContent = `Launch ${name}`;
+      }
+
+      function activeTextarea(type) {
+        return document.querySelector(`[data-${type}-input]`);
+      }
+
+      function updateLaunchSummary() {
+        const mission = activeTextarea("mission");
+        const persona = activeTextarea("persona");
+        document.querySelector("[data-summary-mission]").textContent = mission?.value.trim() || "Not defined yet";
+        document.querySelector("[data-summary-persona]").textContent = persona?.value.trim() || "Not defined yet";
+      }
+
+      function render() {
+        shell.dataset.step = activeStep;
+        if (activeStep !== "launch") {
+          nextButton.disabled = false;
+          launchComplete.hidden = true;
+        }
+        stepScreens.forEach((screen) => { screen.hidden = screen.dataset.stepScreen !== activeStep; });
+
+        const currentCopy = copy[activeStep];
+        title.textContent = currentCopy.title;
+        subtitle.textContent = currentCopy.subtitle;
+        progress.setAttribute("aria-valuenow", String(currentCopy.progress));
+        progressFill.style.transform = `scaleX(${currentCopy.progress / 100})`;
+        progressTitle.textContent = currentCopy.progressTitle;
+        progressDetail.textContent = currentCopy.progressDetail;
+        nextLabel.textContent = activeStep === "launch" ? `Launch ${agentNameInput.value.trim() || "agent"}` : currentCopy.next;
+        backButton.disabled = activeStep === "identity";
+        if (activeStep === "launch") updateLaunchSummary();
+        body.scrollTop = 0;
+      }
+
+      document.querySelectorAll("[data-fill-target]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = document.getElementById(button.dataset.fillTarget);
+          const group = button.closest("[data-option-group]");
+          if (!target || !group) return;
+          group.querySelectorAll("[aria-pressed]").forEach((option) => option.setAttribute("aria-pressed", String(option === button)));
+          applyingTemplate = true;
+          target.value = button.dataset.fill;
+          updateCount(target);
+          applyingTemplate = false;
+          target.focus({ preventScroll: true });
+        });
+      });
+
+      document.querySelectorAll("[data-count-input]").forEach((textarea) => {
+        updateCount(textarea);
+        textarea.addEventListener("input", () => {
+          updateCount(textarea);
+          if (!applyingTemplate) clearGroupSelection(textarea);
+        });
+      });
+
+      agentNameInput.addEventListener("input", syncName);
+
+      backButton.addEventListener("click", () => {
+        const index = steps.indexOf(activeStep);
+        if (index > 0) {
+          activeStep = steps[index - 1];
+          render();
+          title.focus({ preventScroll: true });
+        }
+      });
+
+      nextButton.addEventListener("click", () => {
+        if (activeStep === "launch") {
+          launchComplete.hidden = false;
+          nextButton.disabled = true;
+          nextLabel.textContent = "Launched";
+          return;
+        }
+        const index = steps.indexOf(activeStep);
+        activeStep = steps[index + 1];
+        render();
+        title.focus({ preventScroll: true });
+      });
+
+      syncName();
+      render();
+    </script>
+  </body>
+</html>

@@ -13,6 +13,7 @@ interface AgentUiMeta {
     image?: string | null;
     icon_index?: number | null;
   } | null;
+  creation_id?: string | null;
   [key: string]: unknown;
 }
 
@@ -30,6 +31,7 @@ const CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGI
 const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS";
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
 export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
+export const AGENT_CREATION_ID_META_KEY = "creation_id";
 const AGENT_CLEANUP_RETRY_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 12_000] as const;
 const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
 const AGENT_NAME_CREATE_ATTEMPTS = 32;
@@ -38,6 +40,12 @@ const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function agentCreationId(value: unknown): string | null {
+  if (!isRecord(value) || !isRecord(value.meta) || !isRecord(value.meta.ui)) return null;
+  const creationId = value.meta.ui[AGENT_CREATION_ID_META_KEY];
+  return typeof creationId === "string" && creationId.trim() ? creationId.trim() : null;
 }
 
 function cloneRecord<T>(value: T): T {
@@ -89,6 +97,31 @@ function errorText(value: unknown): string {
   return [value.message, value.detail, value.error, value.reason]
     .filter((entry): entry is string => typeof entry === "string")
     .join(" ");
+}
+
+function isUnsupportedCreationIdError(value: unknown): boolean {
+  if (!isRecord(value) || value.statusCode !== 422) return false;
+  const detail = errorText(value);
+  const responseText = typeof value.responseText === "string" ? value.responseText : "";
+  const description = `${detail}\n${responseText}`;
+  if (/creation[_\s-]?id/i.test(description)) return true;
+  return !responseText && (!detail || /unprocessable entity/i.test(detail));
+}
+
+function withoutAgentCreationId(options: FrontendOpenClawCreateOptions): FrontendOpenClawCreateOptions {
+  const ui = options.meta?.ui;
+  if (!ui || !(AGENT_CREATION_ID_META_KEY in ui)) return options;
+
+  const nextUi = { ...ui };
+  delete nextUi[AGENT_CREATION_ID_META_KEY];
+  const nextMeta = { ...options.meta };
+  if (Object.keys(nextUi).length > 0) nextMeta.ui = nextUi;
+  else delete nextMeta.ui;
+
+  return {
+    ...options,
+    meta: Object.keys(nextMeta).length > 0 ? nextMeta : undefined,
+  };
 }
 
 export function isAgentCleanupConflictError(value: unknown): boolean {
@@ -401,13 +434,29 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   const canRegenerateName = isGeneratedAgentName(preparedOptions.name);
   const attemptedNames = new Set<string>();
   let candidateOptions = preparedOptions;
+  let retriedWithoutCreationId = false;
 
   if (canRegenerateName && candidateOptions.name) attemptedNames.add(candidateOptions.name);
 
   while (true) {
     try {
       return await create(candidateOptions);
-    } catch (error) {
+    } catch (initialError) {
+      let error = initialError;
+      if (
+        !retriedWithoutCreationId &&
+        agentCreationId(candidateOptions) &&
+        isUnsupportedCreationIdError(error)
+      ) {
+        retriedWithoutCreationId = true;
+        candidateOptions = withoutAgentCreationId(candidateOptions);
+        try {
+          return await create(candidateOptions);
+        } catch (retryError) {
+          error = retryError;
+        }
+      }
+
       if (isAgentCreateSpecVisibilityError(error)) {
         const reconciled = await reconcileCreatedAgentByName(agentClient, candidateOptions.name);
         if (reconciled) return reconciled;

@@ -36,6 +36,7 @@ import {
 } from "@/lib/agent-launch-state";
 import {
   clearFirstAgentSetupDraft,
+  createFirstAgentSetupId,
   readFirstAgentSetupDraft,
   writeFirstAgentSetupDraft,
 } from "@/hooks/useFirstAgentSetupDraft";
@@ -49,17 +50,14 @@ import {
 } from "@/lib/openclaw-bootstrap-pack";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
-import { OpenClawBootstrapStep } from "./OpenClawBootstrapStep";
+import { OpenClawBootstrapStep, type OpenClawBootstrapStage } from "./OpenClawBootstrapStep";
 import {
   createFirstAgentWizardState,
   firstAgentWizardReducer,
 } from "./first-agent-wizard-machine";
-import {
-  createOpenClawBootstrapGenerationState,
-  openClawBootstrapGenerationReducer,
-} from "./openclaw-bootstrap-generation-machine";
 
 export interface FirstAgentSetupCreateParams {
+  creationId?: string;
   name: string;
   handle?: string | null;
   iconIndex: number;
@@ -663,27 +661,31 @@ function WizardButton({
   );
 }
 
-function WizardMomentum({ stage }: { stage: "resume" | "identity" | "workspace" | "capacity" | "checkout" }) {
+function WizardMomentum({ stage }: { stage: "resume" | "identity" | OpenClawBootstrapStage | "capacity" | "checkout" }) {
   const reducedMotion = useReducedMotion();
-  const progress = stage === "checkout" ? 98 : stage === "capacity" ? 92 : stage === "workspace" ? 72 : 48;
+  const progress = stage === "checkout" ? 98 : stage === "capacity" ? 92 : stage === "personality" ? 78 : stage === "objective" ? 64 : 48;
   const status = stage === "checkout"
     ? "One tiny thing..."
     : stage === "capacity"
       ? "Almost there!"
-      : stage === "workspace"
+      : stage === "personality"
         ? "Looking good!"
-        : stage === "resume"
-          ? "Setup saved"
-          : "Taking shape";
+        : stage === "objective"
+          ? "Taking shape"
+          : stage === "resume"
+            ? "Setup saved"
+            : "Taking shape";
   const detail = stage === "checkout"
     ? "Then it's ready to run"
     : stage === "capacity"
       ? "Choose the one that fits best"
-      : stage === "workspace"
-        ? "Now shape its workspace"
-        : stage === "resume"
-          ? "Ready when you are"
-          : "Moments from launch";
+      : stage === "personality"
+        ? "Now shape how it works"
+        : stage === "objective"
+          ? "Define what it should accomplish"
+          : stage === "resume"
+            ? "Ready when you are"
+            : "Moments from launch";
 
   return (
     <div
@@ -697,7 +699,7 @@ function WizardMomentum({ stage }: { stage: "resume" | "identity" | "workspace" 
     >
       <div aria-hidden="true" className="absolute inset-x-0 top-0 h-[2px] overflow-hidden bg-border/70">
         <motion.div
-          initial={reducedMotion ? false : { width: stage === "checkout" ? "92%" : stage === "capacity" ? "72%" : stage === "workspace" ? "48%" : "0%" }}
+          initial={reducedMotion ? false : { width: stage === "checkout" ? "92%" : stage === "capacity" ? "78%" : stage === "personality" ? "64%" : stage === "objective" ? "48%" : "0%" }}
           animate={{ width: `${progress}%` }}
           transition={reducedMotion ? { duration: 0 } : { duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="h-full bg-[var(--selection-accent)] shadow-[0_0_14px_rgb(var(--selection-accent-rgb)_/_0.65)]"
@@ -842,10 +844,11 @@ export function FirstAgentSetupWizard({
   const [restoredDraft] = React.useState(() => {
     const draft = readFirstAgentSetupDraft();
     if (!draft) return null;
-    if (draft.principalId && draftPrincipalId && draft.principalId !== draftPrincipalId) return null;
+    if (draft.principalId && draft.principalId !== draftPrincipalId) return null;
     if (draft.workspaceId && draftWorkspaceId && draft.workspaceId !== draftWorkspaceId) return null;
     return draft;
   });
+  const [setupId] = React.useState(() => restoredDraft?.setupId ?? createFirstAgentSetupId());
   const [draftResumeOpen, setDraftResumeOpen] = React.useState(() => (
     Boolean(restoredDraft && onStartFresh)
   ));
@@ -862,14 +865,10 @@ export function FirstAgentSetupWizard({
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
   const [knowledgeDomainId, setKnowledgeDomainId] = React.useState<string | null>(restoredDraft?.knowledgeDomainId ?? null);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
+  const [workspaceStage, setWorkspaceStage] = React.useState<OpenClawBootstrapStage>(() => restoredDraft ? "personality" : "objective");
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
     restoredDraft?.bootstrapDraft ?? createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
   ));
-  const [bootstrapGeneration, dispatchBootstrapGeneration] = React.useReducer(
-    openClawBootstrapGenerationReducer,
-    undefined,
-    createOpenClawBootstrapGenerationState,
-  );
   const bootstrapGenerationRunRef = React.useRef(0);
   const bootstrapInitialGenerationStartedRef = React.useRef(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
@@ -931,7 +930,9 @@ export function FirstAgentSetupWizard({
       ? "checkout"
       : embeddedCapacityStep
         ? "capacity"
-        : currentStep;
+        : currentStep === "workspace"
+          ? workspaceStage
+          : currentStep;
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const previousFocusStageRef = React.useRef(focusStage);
   const availableLaunchPlan = selectedPlan?.action === "launch" && !selectedPlan.disabled
@@ -970,19 +971,12 @@ export function FirstAgentSetupWizard({
       files: fallbackFiles,
       generationSource: "deterministic",
     });
-    dispatchBootstrapGeneration({ type: "QUEUE", runId, names });
 
-    if (!onGenerateBootstrap) {
-      for (const name of names) {
-        dispatchBootstrapGeneration({ type: "FALL_BACK", runId, name });
-      }
-      return;
-    }
+    if (!onGenerateBootstrap) return;
 
     let completedCount = 0;
     for (const name of names) {
       if (bootstrapGenerationRunRef.current !== runId) return;
-      dispatchBootstrapGeneration({ type: "START", runId, name });
       try {
         const file = await onGenerateBootstrap(name, inputs);
         if (bootstrapGenerationRunRef.current !== runId) return;
@@ -991,16 +985,9 @@ export function FirstAgentSetupWizard({
           files: current.files.map((candidate) => candidate.name === name ? file : candidate),
           generationSource: "mixed",
         }));
-        dispatchBootstrapGeneration({ type: "SUCCEED", runId, name });
         completedCount += 1;
-      } catch (error) {
+      } catch {
         if (bootstrapGenerationRunRef.current !== runId) return;
-        dispatchBootstrapGeneration({
-          type: "FALL_BACK",
-          runId,
-          name,
-          error: error instanceof Error ? error.message : "Assisted generation failed.",
-        });
       }
     }
 
@@ -1016,14 +1003,8 @@ export function FirstAgentSetupWizard({
   }, [bootstrapDraft.version, onGenerateBootstrap, workspaceAgentName]);
 
   const handleBootstrapDraftChange = React.useCallback((nextDraft: OpenClawBootstrapDraft) => {
-    const runId = bootstrapGenerationRunRef.current + 1;
-    bootstrapGenerationRunRef.current = runId;
+    bootstrapGenerationRunRef.current += 1;
     setBootstrapDraft(nextDraft);
-    dispatchBootstrapGeneration({
-      type: "RESET_TO_FALLBACK",
-      runId,
-      names: nextDraft.files.map((file) => file.name),
-    });
   }, []);
 
   React.useEffect(() => {
@@ -1034,14 +1015,15 @@ export function FirstAgentSetupWizard({
   }, [focusStage]);
 
   React.useEffect(() => {
-    if (currentStep !== "workspace" || bootstrapInitialGenerationStartedRef.current) return;
+    if (currentStep !== "workspace" || workspaceStage !== "personality" || bootstrapInitialGenerationStartedRef.current) return;
     bootstrapInitialGenerationStartedRef.current = true;
     void runBootstrapGeneration({ ...bootstrapDraft.inputs, agentName: workspaceAgentName });
-  }, [bootstrapDraft.inputs, currentStep, runBootstrapGeneration, workspaceAgentName]);
+  }, [bootstrapDraft.inputs, currentStep, runBootstrapGeneration, workspaceAgentName, workspaceStage]);
 
   const persistDraft = React.useCallback((plan: LaunchPlanOption | null = null, iconIndex = selectedIconIndex) => {
     const retainedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
     writeFirstAgentSetupDraft({
+      setupId,
       name: deploymentName,
       displayName: agentName.trim(),
       description: `${workspaceAgentName} helps with ${selectedCategory.toLowerCase()} workflows.`,
@@ -1075,6 +1057,7 @@ export function FirstAgentSetupWizard({
     selectedCatalogPlanId,
     selectedCategory,
     selectedIconIndex,
+    setupId,
     workspaceAgentName,
   ]);
 
@@ -1127,6 +1110,7 @@ export function FirstAgentSetupWizard({
   React.useEffect(() => {
     if (!restoredDraft || draftResumeOpen) return;
     const timeout = window.setTimeout(() => {
+      if (directCapacityFlow) setWorkspaceStage("personality");
       dispatchWizard({
         type: "GO_TO_STEP",
         stepIndex: steps.indexOf(directCapacityFlow ? "workspace" : "plan"),
@@ -1224,6 +1208,7 @@ export function FirstAgentSetupWizard({
     dispatchWizard({ type: "CREATE_REQUESTED" });
     try {
       const createdId = await onCreateAgent({
+        creationId: setupId,
         name: deploymentName,
         handle: agentName.trim() ? managedAgentHandleFromDisplayName(agentName) : null,
         iconIndex: creationIconIndex,
@@ -1282,7 +1267,7 @@ export function FirstAgentSetupWizard({
 
   return (
     <div className={cx(
-      "flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden",
+      "flex h-full min-h-0 w-full min-w-0 flex-1 items-center justify-center overflow-hidden",
       largePresentation || embeddedPresentation ? "p-0" : inlinePresentation ? "px-4 py-6 sm:p-2" : "px-3 py-3 sm:px-4 sm:py-4",
     )}>
       <motion.section
@@ -1293,7 +1278,7 @@ export function FirstAgentSetupWizard({
         animate={embeddedPresentation || inlinePresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
         transition={{ duration: embeddedPresentation || inlinePresentation ? 0 : 0.2 }}
         className={cx(
-          "relative flex min-h-0 w-full flex-col overflow-hidden border border-border text-foreground",
+          "relative flex min-h-0 w-full min-w-0 flex-col overflow-hidden border border-border text-foreground",
           embeddedPresentation
             ? "border-0 bg-background shadow-none"
             : inlinePresentation
@@ -1631,6 +1616,7 @@ export function FirstAgentSetupWizard({
                   }
                 }
                 if (saveDraftAsYouGo) persistDraft();
+                setWorkspaceStage("objective");
                 goToStep(1);
               }} large={largePresentation}>Continue</WizardButton>
             </footer>
@@ -1669,30 +1655,43 @@ export function FirstAgentSetupWizard({
               <OpenClawBootstrapStep
                 agentName={workspaceAgentName}
                 draft={bootstrapDraft}
+                stage={workspaceStage}
                 onChange={handleBootstrapDraftChange}
-                generation={bootstrapGeneration}
                 wide={widePresentation}
-                onRegenerate={() => {
-                  void runBootstrapGeneration(bootstrapDraft.inputs);
-                }}
               />
             </div>
             <footer data-slot="agent-setup-footer" className={cx(
               "relative flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low",
               largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
             )}>
-              <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(0)}>
+              <WizardButton
+                large={largePresentation}
+                variant="secondary"
+                onClick={() => {
+                  if (workspaceStage === "personality") {
+                    setWorkspaceStage("objective");
+                    return;
+                  }
+                  goToStep(0);
+                }}
+              >
                 <ChevronLeft className="mr-2 h-4 w-4" />
                 Back
               </WizardButton>
-              {largePresentation ? null : <WizardMomentum stage="workspace" />}
+              {largePresentation ? null : <WizardMomentum stage={workspaceStage} />}
               <WizardButton
                 large={largePresentation}
-                disabled={directCapacityFlow && (!capacityReady || creating || openingCapacity)}
-                busy={directCapacityFlow && (creating || openingCapacity)}
-                onClick={handleWorkspaceAction}
+                disabled={workspaceStage === "personality" && directCapacityFlow && (!capacityReady || creating || openingCapacity)}
+                busy={workspaceStage === "personality" && directCapacityFlow && (creating || openingCapacity)}
+                onClick={() => {
+                  if (workspaceStage === "objective") {
+                    setWorkspaceStage("personality");
+                    return;
+                  }
+                  handleWorkspaceAction();
+                }}
               >
-                {workspaceActionLabel}
+                {workspaceStage === "objective" ? "Continue" : workspaceActionLabel}
               </WizardButton>
             </footer>
           </>

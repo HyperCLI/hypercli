@@ -5,7 +5,6 @@ import {
   GlassCard,
   Header,
   MetricCard,
-  NAV_URLS,
   PricingTierCard,
   TerminalWindow,
   type TerminalLine,
@@ -13,6 +12,7 @@ import {
 import { Database, Images, MessageCircle, Mic, Monitor, Settings2 } from "lucide-react";
 import { PLAN_TIERS } from "@/lib/plans";
 import { GetStartedLink } from "@/components/get-started-link";
+import { agentPlanCtaHref } from "@/lib/agent-links";
 
 export const metadata: Metadata = {
   title: "HyperCLI — Your agent gets a whole machine",
@@ -207,7 +207,7 @@ export default function DevelopersPage() {
                   gaugePercent={tier.gaugePercent}
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
-                  ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
+                  ctaHref={agentPlanCtaHref(tier.id)}
                   ctaNote={tier.ctaNote}
                 />
               ))}

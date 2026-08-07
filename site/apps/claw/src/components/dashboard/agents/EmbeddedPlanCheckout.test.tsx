@@ -112,6 +112,10 @@ describe("EmbeddedPlanCheckout", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Pay $80 USDC" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      checkoutAttemptId: expect.any(String),
+      returnSessionId: expect.stringMatching(/^x402:/),
+    }));
     expect(mocks.hyperAgent.purchaseViaX402WithSigner.mock.calls[0]?.[1]).not.toHaveProperty("bundle");
     expect(screen.getByRole("heading", { name: "Capacity unlocked" })).toBeInTheDocument();
     expect(readPendingPlanCheckout("user-1")).toMatchObject({

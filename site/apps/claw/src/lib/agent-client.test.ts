@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_CLEANUP_START_MESSAGE, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
+import { AGENT_CLEANUP_START_MESSAGE, agentCreationId, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -85,6 +85,11 @@ describe("agent-client", () => {
     expect(agent).toEqual({ marker: "agent-client" });
     expect(httpClientConstructor).toHaveBeenCalledWith("https://api.hypercli.com", "hyper_api_test");
     expect(hyperAgentConstructor).toHaveBeenCalledWith(httpClientInstance, "hyper_api_test", false, "https://api.hypercli.com/agents");
+  });
+
+  it("reads the durable agent creation correlation from public UI metadata", () => {
+    expect(agentCreationId({ meta: { ui: { creation_id: " setup-123 " } } })).toBe("setup-123");
+    expect(agentCreationId({ meta: { ui: {} } })).toBeNull();
   });
 
   it("starts existing OpenClaw agents with their stored launch config and strips stale control UI origin locks by default", async () => {
@@ -355,6 +360,92 @@ describe("agent-client", () => {
     expect(attemptedNames[0]).toBe("bright-atlas-anchor");
     expect(attemptedNames[1]).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
     expect(new Set(attemptedNames).size).toBe(2);
+  });
+
+  it("retries an unused idempotency key after an unrelated generated-name conflict", async () => {
+    const collision = {
+      statusCode: 409,
+      detail: "Agent 'bright-atlas-anchor' already exists",
+    };
+    deploymentsInstance.createOpenClaw
+      .mockRejectedValueOnce(collision)
+      .mockResolvedValueOnce({ id: "agent-123" });
+
+    await expect(createOpenClawAgent("hyper_api_test", {
+      name: "bright-atlas-anchor",
+      start: false,
+      meta: { ui: { creation_id: "setup-123" } },
+    })).resolves.toEqual({ id: "agent-123" });
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(2);
+    expect(deploymentsInstance.createOpenClaw.mock.calls[1]?.[0].meta).toEqual({
+      ui: { creation_id: "setup-123" },
+    });
+  });
+
+  it("retries once without creation metadata when an older backend rejects it", async () => {
+    deploymentsInstance.createOpenClaw
+      .mockRejectedValueOnce({
+        statusCode: 422,
+        detail: "[object Object]",
+        responseText: JSON.stringify({
+          detail: [{ loc: ["body", "meta", "ui", "creation_id"], type: "extra_forbidden" }],
+        }),
+      })
+      .mockResolvedValueOnce({ id: "agent-compat", name: "bright-atlas-anchor" });
+
+    await expect(createOpenClawAgent("hyper_api_test", {
+      name: "bright-atlas-anchor",
+      size: "small",
+      env: { KEEP_ME: "yes" },
+      meta: {
+        ui: {
+          avatar: { image: "/avatars/otter.svg", icon_index: 3 },
+          creation_id: "setup-compat",
+        },
+      },
+    })).resolves.toEqual({ id: "agent-compat", name: "bright-atlas-anchor" });
+
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(2);
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      name: "bright-atlas-anchor",
+      size: "small",
+      env: { KEEP_ME: "yes" },
+      meta: {
+        ui: {
+          avatar: { image: "/avatars/otter.svg", icon_index: 3 },
+          creation_id: "setup-compat",
+        },
+      },
+    }));
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      name: "bright-atlas-anchor",
+      size: "small",
+      env: { KEEP_ME: "yes" },
+      meta: {
+        ui: {
+          avatar: { image: "/avatars/otter.svg", icon_index: 3 },
+        },
+      },
+    }));
+    expect(deploymentsInstance.list).not.toHaveBeenCalled();
+  });
+
+  it("does not retry unrelated validation failures", async () => {
+    const validationError = {
+      statusCode: 422,
+      detail: "Unknown agent size",
+      responseText: JSON.stringify({ detail: "Unknown agent size" }),
+    };
+    deploymentsInstance.createOpenClaw.mockRejectedValue(validationError);
+
+    await expect(createOpenClawAgent("hyper_api_test", {
+      name: "bright-atlas-anchor",
+      size: "invalid",
+      meta: { ui: { creation_id: "setup-validation" } },
+    })).rejects.toBe(validationError);
+
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(1);
+    expect(deploymentsInstance.list).not.toHaveBeenCalled();
   });
 
   it("does not replace a user-entered name when it conflicts", async () => {

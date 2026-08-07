@@ -47,3 +47,19 @@ test("clicking a visible navbar link navigates", async ({ page }) => {
   }
   throw new Error("no clickable internal navbar link found");
 });
+
+test("pricing sends trial and paid plan intents to the canonical agents dashboard", async ({ page }) => {
+  await page.goto("/pricing", { waitUntil: "domcontentloaded" });
+
+  const pricing = page.getByRole("main");
+  const trialLinks = pricing.getByRole("link", { name: /start (your )?free trial/i });
+  await expect(trialLinks.first()).toHaveAttribute("href", /\/dashboard\/agents\?intent=trial&plan=team$/);
+  await expect(pricing.getByRole("link", { name: "Get started" })).toHaveAttribute(
+    "href",
+    /\/dashboard\/agents\?open=agent-launcher&plan=solo$/,
+  );
+  await expect(pricing.getByRole("link", { name: "Go Pro" })).toHaveAttribute(
+    "href",
+    /\/dashboard\/agents\?open=agent-launcher&plan=pro$/,
+  );
+});

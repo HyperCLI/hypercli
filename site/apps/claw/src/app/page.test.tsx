@@ -27,6 +27,7 @@ describe("Claw login page", () => {
   beforeEach(() => {
     mocks.auth = { isLoading: false, isAuthenticated: false };
     mocks.replace.mockReset();
+    window.history.replaceState(null, "", "/");
   });
 
   it("lets authenticated state perform one direct agents redirect", async () => {
@@ -38,6 +39,17 @@ describe("Claw login page", () => {
       expect(mocks.replace).toHaveBeenCalledOnce();
     });
     expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?view=overview");
+  });
+
+  it("preserves a Team trial handoff after authentication", async () => {
+    window.history.replaceState(null, "", "/?intent=trial&plan=team");
+    mocks.auth = { isLoading: false, isAuthenticated: true };
+
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?intent=trial&plan=team");
+    });
   });
 
   it("does not give the login panel a competing redirect", () => {

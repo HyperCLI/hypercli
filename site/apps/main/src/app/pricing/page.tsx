@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Footer, GlassCard, Header, NAV_URLS, PricingTierCard } from "@hypercli/shared-ui";
+import { Footer, GlassCard, Header, PricingTierCard } from "@hypercli/shared-ui";
 import { Check, Users } from "lucide-react";
 import { GetStartedLink } from "@/components/get-started-link";
 import { BEYOND_PRO, NO_PER_SEAT_COPY, OVERAGE_COPY, PLAN_TIERS, POOL_COPY, TRIAL_COPY } from "@/lib/plans";
+import { agentPlanCtaHref } from "@/lib/agent-links";
 
 export const metadata: Metadata = {
   title: "HyperCLI Pricing — Solo, Team, Pro. Flat rate, no meter.",
@@ -60,7 +61,7 @@ export default function PricingPage() {
                   gaugePercent={tier.gaugePercent}
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
-                  ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
+                  ctaHref={agentPlanCtaHref(tier.id)}
                   ctaNote={tier.ctaNote}
                 />
               ))}
@@ -150,6 +151,7 @@ export default function PricingPage() {
               <p className="mb-9 text-lg text-text-secondary">Everything else is included. Card down, agents up.</p>
               <GetStartedLink
                 label="Start your free trial"
+                trial
                 className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
               />
               <p className="mt-7 text-xs text-terminal-muted">{TRIAL_COPY}</p>

@@ -36,7 +36,6 @@ export function DashboardWorkspaceNavigation({
       sessionsFetched={false}
       sessionsUnavailableReason="Open the agent workspace to load sessions."
       selectedSessionKey={null}
-      showDesktop={false}
       onOpenFiles={() => openAgentTab("files")}
       onOpenIntegrations={() => openAgentTab("integrations")}
       onOpenSkills={() => openAgentTab("skills")}
@@ -44,7 +43,7 @@ export function DashboardWorkspaceNavigation({
       onOpenLogs={() => openAgentTab("logs")}
       onOpenShell={() => openAgentTab("shell")}
       onOpenOpenClaw={() => openAgentTab("openclaw")}
-      onOpenSettings={() => router.push(DASHBOARD_VIEW_HREFS.settings)}
+      onOpenSettings={() => router.push(`${DASHBOARD_VIEW_HREFS.settings}&settings=agent`)}
       onUpgrade={() => router.push("/plans")}
     />
   );

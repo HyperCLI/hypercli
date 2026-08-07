@@ -1,10 +1,14 @@
 """
 Tests for HyperAgent SDK client
 """
-import pytest
 import os
-from unittest.mock import Mock, patch, MagicMock
-from hypercli import HyperCLI
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, Mock, patch
+
+import httpx
+import pytest
+
+from hypercli import HyperAgentSubscriptionTrial, HyperCLI
 from hypercli.agent import (
     HyperAgent,
     HyperAgentCanonicalPlanId,
@@ -119,6 +123,184 @@ class TestHyperAgentDataclasses:
         assert current.cancel_at_period_end is True
         assert current.expires_at is not None
         assert current.slot_inventory["large"]["granted"] == 1
+
+    def test_subscription_trial_from_dict_preserves_nullable_fields(self):
+        subscription = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-trial",
+                "status": "TRIALING",
+                "trial": {
+                    "active": True,
+                    "days": 14,
+                    "starts_at": "2030-01-01T00:00:00Z",
+                    "ends_at": "2030-01-15T00:00:00Z",
+                    "seconds_remaining": 1209600,
+                },
+            }
+        )
+
+        assert isinstance(subscription.trial, HyperAgentSubscriptionTrial)
+        assert subscription.trial.active is True
+        assert subscription.trial.days == 14
+        assert subscription.trial.starts_at is not None
+        assert subscription.trial.starts_at.isoformat() == "2030-01-01T00:00:00+00:00"
+        assert subscription.trial.ends_at is not None
+        assert subscription.trial.ends_at.isoformat() == "2030-01-15T00:00:00+00:00"
+        assert subscription.trial.seconds_remaining == 1209600
+
+        nullable = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-no-active-trial",
+                "trial": {
+                    "active": False,
+                    "days": None,
+                    "starts_at": None,
+                    "ends_at": None,
+                    "seconds_remaining": None,
+                },
+            }
+        )
+        assert nullable.trial == HyperAgentSubscriptionTrial(
+            active=False,
+            days=None,
+            starts_at=None,
+            ends_at=None,
+            seconds_remaining=None,
+        )
+        assert HyperAgentSubscription.from_dict({"id": "sub-no-trial", "trial": None}).trial is None
+
+    def test_explicit_subscription_trial_takes_precedence_over_legacy_metadata(self):
+        explicit = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-explicit-trial",
+                "status": "CANCELED",
+                "cancel_at_period_end": True,
+                "meta": {
+                    "trial": True,
+                    "trial_active": False,
+                    "trial_ended_at": "2029-01-15T00:00:00Z",
+                },
+                "trial": {
+                    "active": True,
+                    "days": 14,
+                    "starts_at": "2030-01-01T00:00:00Z",
+                    "ends_at": "2030-01-15T00:00:00Z",
+                    "seconds_remaining": None,
+                },
+            }
+        )
+        explicit_null = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-explicit-no-trial",
+                "status": "ACTIVE",
+                "current_period_end": "2030-01-15T00:00:00Z",
+                "meta": {
+                    "trial": True,
+                    "trial_days": 14,
+                    "trial_started_at": "2030-01-01T00:00:00Z",
+                },
+                "trial": None,
+            }
+        )
+
+        assert explicit.trial is not None
+        assert explicit.trial.active is True
+        assert explicit.trial.seconds_remaining is None
+        assert explicit_null.trial is None
+
+    def test_subscription_trial_legacy_fallback_uses_persisted_timing(self):
+        now = datetime.now(timezone.utc)
+        period_end = now + timedelta(days=5)
+        subscription = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-active-legacy-trial",
+                "status": "ACTIVE",
+                "current_period_end": period_end.isoformat(),
+                "meta": {"trial": "true", "trial_days": "14"},
+                "entitlements": [
+                    {
+                        "id": "ent-active-legacy-trial",
+                        "starts_at": (now - timedelta(days=1)).isoformat(),
+                    }
+                ],
+            }
+        )
+
+        assert subscription.trial is not None
+        assert subscription.trial.active is True
+        assert subscription.trial.days == 14
+        assert subscription.trial.starts_at == period_end - timedelta(days=14)
+        assert subscription.trial.ends_at == period_end
+        assert subscription.trial.seconds_remaining is not None
+        assert 4 * 24 * 60 * 60 < subscription.trial.seconds_remaining <= 5 * 24 * 60 * 60
+
+        metadata_start = now - timedelta(days=1)
+        metadata_end = now + timedelta(days=4)
+        metadata_subscription = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-metadata-legacy-trial",
+                "status": "TRIALING",
+                "meta": {
+                    "trial": True,
+                    "trial_days": 14,
+                    "trial_start": int(metadata_start.timestamp()),
+                    "trial_end": int(metadata_end.timestamp()),
+                },
+            }
+        )
+
+        assert metadata_subscription.trial is not None
+        assert metadata_subscription.trial.starts_at == datetime.fromtimestamp(
+            int(metadata_start.timestamp()), tz=timezone.utc
+        )
+        assert metadata_subscription.trial.ends_at == datetime.fromtimestamp(
+            int(metadata_end.timestamp()), tz=timezone.utc
+        )
+
+    @pytest.mark.parametrize("finalizer", ["canceled", "inactive", "ended", "cancel_scheduled"])
+    def test_subscription_trial_legacy_fallback_rejects_canceled_or_finalized_trials(
+        self, finalizer
+    ):
+        now = datetime.now(timezone.utc)
+        data = {
+            "id": f"sub-{finalizer}-legacy-trial",
+            "status": "ACTIVE",
+            "meta": {
+                "trial": True,
+                "trial_days": 14,
+                "trial_started_at": (now - timedelta(days=1)).isoformat(),
+                "trial_ends_at": (now + timedelta(days=5)).isoformat(),
+            },
+        }
+        if finalizer == "canceled":
+            data["status"] = "CANCELED"
+        elif finalizer == "inactive":
+            data["meta"]["trial_active"] = False
+        elif finalizer == "ended":
+            data["meta"]["trial_ended_at"] = now.isoformat()
+        else:
+            data["cancel_at_period_end"] = True
+
+        assert HyperAgentSubscription.from_dict(data).trial is None
+
+    def test_subscription_trial_legacy_fallback_does_not_revive_converted_trial(self):
+        now = datetime.now(timezone.utc)
+        subscription = HyperAgentSubscription.from_dict(
+            {
+                "id": "sub-converted-legacy-trial",
+                "status": "ACTIVE",
+                "current_period_end": (now + timedelta(days=22)).isoformat(),
+                "meta": {"trial": True, "trial_days": 7},
+                "entitlements": [
+                    {
+                        "id": "ent-converted-legacy-trial",
+                        "starts_at": (now - timedelta(days=8)).isoformat(),
+                    }
+                ],
+            }
+        )
+
+        assert subscription.trial is None
 
     def test_subscription_summary_from_dict(self):
         summary = HyperAgentSubscriptionSummary.from_dict(
@@ -468,6 +650,62 @@ class TestHyperAgentClient:
             agent.update_subscription("sub-1", plan_id="team", quantity=quantity)
 
         mock_http._session.post.assert_not_called()
+
+    def test_create_stripe_trial_checkout_serializes_optional_urls(self, mock_http):
+        mock_http._session.post.return_value.json.return_value = {
+            "checkout_url": "https://checkout.stripe.com/c/pay/cs_trial",
+            "session_id": "cs_trial",
+            "checkout_attempt_id": "attempt-trial",
+        }
+        mock_http._session.post.return_value.raise_for_status = Mock()
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        result = agent.create_stripe_trial_checkout(
+            success_url="https://claw.hypercli.com/plans?trial=success",
+            cancel_url="https://claw.hypercli.com/plans?trial=canceled",
+        )
+
+        assert isinstance(result, HyperAgentStripeCheckoutResponse)
+        assert result.checkout_url == "https://checkout.stripe.com/c/pay/cs_trial"
+        assert result.checkout_session_id == "cs_trial"
+        assert result.checkout_attempt_id == "attempt-trial"
+        mock_http._session.post.assert_called_once_with(
+            "https://api.hypercli.com/agents/stripe/trial",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={
+                "success_url": "https://claw.hypercli.com/plans?trial=success",
+                "cancel_url": "https://claw.hypercli.com/plans?trial=canceled",
+            },
+        )
+
+    def test_create_stripe_trial_checkout_propagates_http_errors(self, mock_http):
+        url = "https://api.hypercli.com/agents/stripe/trial"
+        response = httpx.Response(
+            409,
+            request=httpx.Request("POST", url),
+            json={"detail": "Team trial has already been used"},
+        )
+        mock_http._session.post.return_value = response
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            agent.create_stripe_trial_checkout()
+
+        assert exc_info.value.response.status_code == 409
+        assert exc_info.value.response.json()["detail"] == "Team trial has already been used"
+        mock_http._session.post.assert_called_once_with(
+            url,
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={},
+        )
 
     def test_redeem_grant_code(self, mock_http):
         mock_http._session.post.return_value.json.return_value = {

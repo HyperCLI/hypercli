@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { Switch } from "@hypercli/shared-ui";
 import {
   describeOpenClawConfigNode,
   normalizeOpenClawConfigSchemaNode,
@@ -372,16 +373,15 @@ function ScalarField({
           ))}
         </select>
       ) : type === "boolean" ? (
-        <label className="inline-flex items-center gap-2 text-sm text-foreground">
-          <input
-            type="checkbox"
+        <div className="inline-flex items-center gap-2 text-sm text-foreground">
+          <Switch
             checked={Boolean(currentValue)}
-            onChange={(e) => controls.onUpdatePath(path, e.target.checked)}
+            onCheckedChange={(checked) => controls.onUpdatePath(path, checked)}
             disabled={controls.disabled}
-            className="rounded border-input bg-input-background accent-[var(--button-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={title}
           />
-          Enabled
-        </label>
+          <span>Enabled</span>
+        </div>
       ) : type === "number" || type === "integer" ? (
         <input
           type="number"

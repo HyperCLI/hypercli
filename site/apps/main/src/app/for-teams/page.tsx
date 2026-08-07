@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChatDemo, Footer, GlassCard, Header, NAV_URLS, PricingTierCard } from "@hypercli/shared-ui";
+import { ChatDemo, Footer, GlassCard, Header, PricingTierCard } from "@hypercli/shared-ui";
 import {
   BellRing,
   Check,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { OVERAGE_COPY, PLAN_TIERS } from "@/lib/plans";
 import { GetStartedLink } from "@/components/get-started-link";
+import { agentPlanCtaHref } from "@/lib/agent-links";
 
 export const metadata: Metadata = {
   title: "HyperCLI — The teammate that never clocks out",
@@ -318,7 +319,7 @@ export default function ForTeamsPage() {
                   gaugePercent={tier.gaugePercent}
                   highlighted={tier.highlighted}
                   ctaLabel={tier.cta}
-                  ctaHref={`${NAV_URLS.agents}?plan=${tier.id}`}
+                  ctaHref={agentPlanCtaHref(tier.id)}
                   ctaNote={tier.ctaNote}
                 />
               ))}

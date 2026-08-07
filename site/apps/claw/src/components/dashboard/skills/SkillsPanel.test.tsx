@@ -43,7 +43,7 @@ function providerSkill(overrides: Partial<AgentSkill> = {}): AgentSkill {
     hasScripts: false,
     hasReferences: false,
     hasAssets: false,
-    origin: "built-in",
+    origin: "custom",
     resourcesAvailable: false,
     resourceAccess: "read-only",
     contentLoaded: true,
@@ -89,15 +89,15 @@ describe("SkillsPanel", () => {
     expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
   });
 
-  it("renders built-in skills and opens details", () => {
+  it("renders installed skills and opens details", () => {
     renderPanel({ installedSkills: [providerSkill({ id: "weather", name: "Weather", description: "Weather forecasts.", hasScripts: true, hasReferences: true, hasAssets: true })] });
     expect(screen.getByText("Create Skill")).toBeInTheDocument();
     expect(screen.getByText("Skills are instruction packs that teach your agent how and when to use tools.")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
     expect(screen.getByText("Weather")).toBeInTheDocument();
-    expect(screen.getAllByText("Built-in").length).toBeGreaterThan(0);
+    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeInTheDocument();
     const weatherCard = screen.getByText("Weather").closest("article");
-    expect(weatherCard).not.toHaveTextContent("Built-in");
+    expect(weatherCard).not.toHaveTextContent("My skills");
     expect(weatherCard).not.toHaveTextContent("General");
     expect(weatherCard).not.toHaveTextContent("Scripts");
     expect(weatherCard).not.toHaveTextContent("Active");
@@ -117,6 +117,52 @@ describe("SkillsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /back to skills/i }));
     expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
     expect(screen.getByText("Weather")).toBeInTheDocument();
+  });
+
+  it("defaults to My skills and reveals HyperCLI skills through their filter", () => {
+    renderPanel({
+      installedSkills: [
+        providerSkill({ id: "weather", name: "Weather", origin: "built-in" }),
+        providerSkill({ id: "hypercli", name: "HyperCLI", origin: "built-in" }),
+        providerSkill({ id: "hypercli-voice", name: "HyperCLI Voice", origin: "built-in" }),
+        providerSkill({ id: "notion", name: "Notion", origin: "custom" }),
+      ],
+      requestedSkillId: "weather",
+    });
+
+    expect(screen.queryByText("Weather")).not.toBeInTheDocument();
+    expect(screen.queryByText("HyperCLI", { selector: "h3" })).not.toBeInTheDocument();
+    expect(screen.queryByText("HyperCLI Voice", { selector: "h3" })).not.toBeInTheDocument();
+    expect(screen.getByText("Notion")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /all skills.*3/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeChecked();
+
+    const hyperCliFilter = screen.getByRole("checkbox", { name: /hypercli.*2/i });
+    expect(hyperCliFilter).not.toBeChecked();
+    fireEvent.click(hyperCliFilter);
+    expect(screen.getByText("HyperCLI", { selector: "h3" })).toBeInTheDocument();
+    expect(screen.getByText("HyperCLI Voice", { selector: "h3" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /my skills.*1/i }));
+    expect(screen.queryByText("Notion")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weather")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
+  });
+
+  it("invites the user to create their first skill", () => {
+    renderPanel({
+      installedSkills: [providerSkill({ id: "hypercli", name: "HyperCLI", origin: "built-in" })],
+    });
+
+    expect(screen.getByRole("checkbox", { name: /my skills.*0/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /hypercli.*1/i })).not.toBeChecked();
+    expect(screen.queryByText("HyperCLI", { selector: "h3" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Teach it the way you like things done." })).toBeInTheDocument();
+    expect(screen.getByText(/start with one task you repeat/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Import one I already have" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create my first skill" }));
+    expect(screen.getByRole("dialog", { name: "Create Skill" })).toBeInTheDocument();
   });
 
   it("opens a requested skill from a peer panel", () => {
@@ -176,7 +222,7 @@ describe("SkillsPanel", () => {
     await waitFor(() => expect(onLoadSkillDocument).toHaveBeenCalledTimes(2));
   });
 
-  it("toggles built-in skills through the provider", async () => {
+  it("toggles installed skills through the provider", async () => {
     const onUpdateSkill = vi.fn(async () => undefined);
     renderPanel({
       onUpdateSkill,
@@ -208,14 +254,18 @@ describe("SkillsPanel", () => {
     renderPanel({
       installedSkills: [
         providerSkill({ id: "notion", name: "Notion", category: "Platform", origin: "custom" }),
-        providerSkill({ id: "weather", name: "Weather", category: "Lookups", origin: "built-in", path: "skill:weather", directoryPath: "skill:weather" }),
+        providerSkill({ id: "weather", name: "Weather", category: "Lookups", origin: "extension", path: "skill:weather", directoryPath: "skill:weather" }),
       ],
     });
     const filterCheckboxes = screen.getAllByRole("checkbox");
     expect(filterCheckboxes[0]).toHaveAccessibleName(/all skills.*2/i);
-    expect(filterCheckboxes[0]).toBeChecked();
+    expect(filterCheckboxes[0]).not.toBeChecked();
     expect(filterCheckboxes[1]).toHaveAccessibleName(/my skills.*1/i);
-    fireEvent.click(screen.getByRole("checkbox", { name: /built-in.*1/i }));
+    expect(filterCheckboxes[1]).toBeChecked();
+    expect(screen.getByText("Notion")).toBeInTheDocument();
+    expect(screen.queryByText("Weather")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /extension.*1/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /my skills.*1/i }));
     expect(screen.getByText("Weather")).toBeInTheDocument();
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: /lookups.*1/i }));

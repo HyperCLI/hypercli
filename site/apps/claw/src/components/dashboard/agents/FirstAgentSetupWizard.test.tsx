@@ -94,6 +94,7 @@ function getPlanFooterAction(name: string): HTMLElement {
 function goToPlanStep() {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
 describe("FirstAgentSetupWizard", () => {
@@ -198,9 +199,14 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
+    expect(screen.getByText("Define what it should accomplish")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "64");
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
     expect(screen.getByText("Looking good!")).toBeInTheDocument();
-    expect(screen.getByText("Now shape its workspace")).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "72");
+    expect(screen.getByText("Now shape how it works")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "78");
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -232,6 +238,8 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "background-builder" } });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(onGenerateBootstrap).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(1));
     expect(onGenerateBootstrap.mock.calls.map(([name]) => name)).toEqual([
       "AGENTS.md",
@@ -250,14 +258,8 @@ describe("FirstAgentSetupWizard", () => {
     expect(onGenerateBootstrap.mock.calls[1]?.[0]).toBe("SOUL.md");
 
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    await waitFor(() => {
-      expect(screen.getByText("Generated while the plan step was open.")).toBeInTheDocument();
-    });
-    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Restart generation" })).toBeInTheDocument();
-    expect(screen.queryByText("AGENTS.md ready")).not.toBeInTheDocument();
-    expect(screen.queryByText("Generating SOUL.md")).not.toBeInTheDocument();
-    expect(screen.queryByText("USER.md queued")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /approach the work/ })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Workspace files" })).not.toBeInTheDocument();
   });
 
   it("saves anonymous identity changes for a later launch", async () => {
@@ -467,6 +469,9 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByRole("heading", { name: "Set up the workspace" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What do you want to get done?" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.getByRole("heading", { name: /approach the work/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
@@ -491,6 +496,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
 
@@ -519,6 +525,7 @@ describe("FirstAgentSetupWizard", () => {
     };
     const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
     view.rerender(
@@ -560,6 +567,7 @@ describe("FirstAgentSetupWizard", () => {
     };
     const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
 
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
     view.rerender(
@@ -610,11 +618,67 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "medium" })));
     expect(screen.queryByRole("heading", { name: "Choose your plan" })).not.toBeInTheDocument();
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+  });
+
+  it("launches with the selected objective and personality in the workspace files", async () => {
+    const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-1");
+    const OriginalFile = File;
+    const fileContents = new Map<string, string>();
+    class CapturingFile extends OriginalFile {
+      constructor(parts: BlobPart[], name: string, options?: FilePropertyBag) {
+        super(parts, name, options);
+        fileContents.set(name, parts.filter((part): part is string => typeof part === "string").join(""));
+      }
+    }
+    vi.stubGlobal("File", CapturingFile);
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={vi.fn()}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-team",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Research a market/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: /^The Detective/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledOnce());
+    const files = onCreateAgent.mock.calls[0]?.[0].files ?? [];
+    vi.stubGlobal("File", OriginalFile);
+    expect(files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
+    expect(fileContents.get("AGENTS.md"))
+      .toContain("Research a market. Investigate an industry, competitors, and opportunities.");
+    expect(fileContents.get("SOUL.md"))
+      .toContain("Research a market. Investigate an industry, competitors, and opportunities.");
+    expect(fileContents.get("SOUL.md"))
+      .toContain("Be observant, skeptical, and relentless about finding the truth.");
   });
 
   it("keeps a saved draft inside the main setup shell before resuming", async () => {
@@ -716,6 +780,7 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("Billing data could not be loaded");
     expect(screen.getByRole("button", { name: "Capacity unavailable" })).toBeDisabled();
@@ -769,9 +834,34 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByText(/Reselect brief\.pdf/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText("Agent name")).toHaveValue("restored-agent");
     expect(screen.getByText("Advanced").closest("details")).not.toHaveAttribute("open");
     expect(screen.queryByText("Avatar")).not.toBeInTheDocument();
+  });
+
+  it("does not expose an authenticated account draft in an anonymous wizard", () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      setupId: "setup-private",
+      principalId: "user-1",
+      name: "private-account-agent",
+      iconIndex: 2,
+      category: "Research",
+      plan: "team-launch",
+    }));
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        draftPrincipalId={null}
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(screen.getByLabelText("Agent name")).not.toHaveValue("private-account-agent");
   });
 
   it("maps a restored catalog plan to its active entitlement option", async () => {
@@ -923,7 +1013,10 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
-      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),
+      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
+        creationId: expect.any(String),
+        size: "large",
+      })),
     );
   });
 

@@ -535,12 +535,13 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   expect(metrics!.scrollerScrollHeight).toBeLessThanOrEqual(metrics!.scrollerClientHeight + 1);
 });
 
-test("the personalized empty session accepts a message and remains personalized after navigation", async ({ page }) => {
+test("the personalized empty session accepts a message and matches later new sessions", async ({ page }) => {
   const gatewayTracker = await mockAgentChat(page, { mainOnly: true });
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
   const emptySessionHeading = page.locator("#agent-empty-history-title");
   await expect(emptySessionHeading).toHaveText(/, Franc\?$/);
+  await expect(page.getByRole("button", { name: "Say hello" })).toHaveCount(0);
   const composer = page.getByRole("textbox", { name: "Message agent" });
   await composer.fill("hi");
   await composer.press("Enter");
@@ -550,7 +551,9 @@ test("the personalized empty session accepts a message and remains personalized 
   await expect(page.getByText("hi", { exact: true })).toBeVisible();
 
   await page.locator('[data-workspace-item="new-session"]').click();
+  await expect(emptySessionHeading).toHaveText(/\?$/);
   await expect(emptySessionHeading).toHaveText(/, Franc\?$/);
+  await expect(page.getByRole("button", { name: "Say hello" })).toHaveCount(0);
 });
 
 test("a stale main route starts a named dashboard conversation and hides main history", async ({ page }) => {

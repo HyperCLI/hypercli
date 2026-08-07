@@ -514,11 +514,11 @@ function ThreadRow({
       tabIndex={0}
       aria-label={`Select ${resolvedTitle}`}
       aria-current={selected ? "page" : undefined}
-      className={`agents-roster-agent-row group/row relative flex w-full cursor-pointer items-center text-left transition-colors ${
+      className={`agents-roster-agent-row group/row relative flex w-full cursor-pointer items-center text-left transition-[background-color] duration-200 ease-out ${
         mobileMode ? "gap-2 px-3 py-2.5" : "gap-1 border-r border-border py-2 pl-1 pr-2"
       } ${
         selected
-          ? "bg-surface-low"
+          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.13)]"
           : "hover:bg-surface-low/50"
       }`}
       initial={{ opacity: 0, y: 6 }}

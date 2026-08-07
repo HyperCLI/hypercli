@@ -46,6 +46,7 @@ Use this namespace for:
 - `redeemGrantCode(code)`
 - `updateSubscription(subscriptionId, { planId, quantity })`
 - `cancelSubscription(subscriptionId)`
+- `createStripeTrialCheckout({ successUrl?, cancelUrl? })`
 - `models()`
 - `discoveryHealth()`
 - `discoveryConfig()`
@@ -69,6 +70,12 @@ const summary = await client.agent.subscriptionSummary();
 const entitlements = await client.agent.entitlements();
 const entitlementItems = summary.entitlementItems;
 const subscriptions = await client.agent.subscriptions();
+
+const trialCheckout = await client.agent.createStripeTrialCheckout({
+  successUrl: "https://agents.hypercli.com/dashboard/agents?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+  cancelUrl: "https://agents.hypercli.com/dashboard/agents?checkout=cancelled",
+});
+window.location.assign(trialCheckout.checkoutUrl);
 
 await client.agent.purchaseEntitlementFromBalance("solo", {
   duration: 30 * 24 * 60 * 60,

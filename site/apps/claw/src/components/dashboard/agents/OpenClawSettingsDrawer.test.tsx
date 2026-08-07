@@ -117,6 +117,21 @@ describe("OpenClawSettingsDrawer", () => {
     expect(screen.getByDisplayValue("xoxb-work")).toHaveClass("border-input", "bg-input-background");
   });
 
+  it("uses switches for boolean settings", () => {
+    renderDrawer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+    fireEvent.click(screen.getByRole("button", { name: /2 configured/i }));
+    fireEvent.click(screen.getByRole("button", { name: "work" }));
+
+    const enabledSwitch = screen.getByRole("switch", { name: "Enabled" });
+    expect(enabledSwitch).toBeChecked();
+
+    fireEvent.click(enabledSwitch);
+
+    expect(enabledSwitch).not.toBeChecked();
+  });
+
   it("saves only the active section patch", async () => {
     const { onSaveConfig } = renderDrawer();
 

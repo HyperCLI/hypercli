@@ -640,6 +640,8 @@ export interface AgentUiAvatarMeta {
 
 export interface AgentUiMeta {
   avatar?: AgentUiAvatarMeta | null;
+  /** Stable client-generated key for replaying a saved create request (`start: false`). */
+  creation_id?: string | null;
   [key: string]: any;
 }
 
@@ -1263,6 +1265,7 @@ export interface AgentStateFields {
   entrypoint: string[];
   ports: Record<string, any>[];
   dryRun: boolean;
+  creationReplayed?: boolean;
 }
 
 export interface AgentHydrationData {
@@ -1304,6 +1307,7 @@ export interface AgentHydrationData {
   entrypoint?: string[] | null;
   ports?: Record<string, any>[] | null;
   dry_run?: boolean;
+  creation_replayed?: boolean;
   openclaw_url?: string | null;
   gateway_url?: string | null;
   gateway_token?: string | null;
@@ -1677,8 +1681,12 @@ function execResultFromDict(data: any): AgentExecResult {
 }
 
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
+<<<<<<< HEAD
   const launchConfig = data.launch_config ? structuredClone(data.launch_config) : null;
   if (launchConfig) delete launchConfig.sync_enabled;
+=======
+  const launchConfig = isPlainRecord(data.launch_config) ? data.launch_config : null;
+>>>>>>> 33767e4e (Expand agent onboarding, trials, and extensibility)
   return {
     id: data.id ?? '',
     userId: data.user_id ?? '',
@@ -1713,11 +1721,22 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     updatedAt: parseDate(data.updated_at),
     launchConfig,
     meta: data.meta?.ui ? { ui: structuredClone(data.meta.ui) } : null,
-    routes: data.routes ?? {},
-    command: data.command ?? [],
-    entrypoint: data.entrypoint ?? [],
-    ports: data.ports ?? [],
+    routes: data.routes ?? (
+      isPlainRecord(launchConfig?.routes)
+        ? launchConfig.routes as Record<string, AgentRouteConfig>
+        : {}
+    ),
+    command: data.command ?? (
+      Array.isArray(launchConfig?.command) ? launchConfig.command as string[] : []
+    ),
+    entrypoint: data.entrypoint ?? (
+      Array.isArray(launchConfig?.entrypoint) ? launchConfig.entrypoint as string[] : []
+    ),
+    ports: data.ports ?? (
+      Array.isArray(launchConfig?.ports) ? launchConfig.ports as Record<string, any>[] : []
+    ),
     dryRun: Boolean(data.dry_run),
+    creationReplayed: Boolean(data.creation_replayed),
   };
 }
 
@@ -2140,6 +2159,7 @@ export class Agent {
   public entrypoint: string[];
   public ports: Record<string, any>[];
   public readonly dryRun: boolean;
+  public readonly creationReplayed: boolean;
   _deployments: Deployments | null = null;
 
   constructor(fields: AgentStateFields) {
@@ -2181,6 +2201,7 @@ export class Agent {
     this.entrypoint = [...fields.entrypoint];
     this.ports = [...fields.ports];
     this.dryRun = fields.dryRun;
+    this.creationReplayed = fields.creationReplayed ?? false;
   }
 
   static fromDict(data: AgentHydrationData): Agent {
@@ -3905,13 +3926,21 @@ export class Deployments {
 
     const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
     const agent = this.hydrateAgent(data);
-    if (agent instanceof OpenClawAgent) {
-      agent.gatewayToken = gatewayToken;
+    if (!agent.creationReplayed) {
+      if (agent instanceof OpenClawAgent) {
+        agent.gatewayToken = gatewayToken;
+      }
+      agent.launchConfig = config;
+      agent.command = [...(config.command ?? [])];
+      agent.entrypoint = [...(config.entrypoint ?? [])];
     }
+<<<<<<< HEAD
     agent.launchConfig = structuredClone(config);
     delete agent.launchConfig.sync_enabled;
     agent.command = [...(config.command ?? [])];
     agent.entrypoint = [...(config.entrypoint ?? [])];
+=======
+>>>>>>> 33767e4e (Expand agent onboarding, trials, and extensibility)
     return agent;
   }
 

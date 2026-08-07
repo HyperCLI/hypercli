@@ -53,6 +53,56 @@ describe("billing reflection machine", () => {
     });
   });
 
+  it("uses activation language for a Team trial", () => {
+    const pending = {
+      principalId: "user-1",
+      planId: "team",
+      planName: "Team",
+      ownedCount: 0,
+      startedAt: 1,
+      flow: "team-trial" as const,
+    };
+
+    expect(
+      checkoutSyncBannerFromBillingState(
+        billingReflectionReducer(initialBillingReflectionState, {
+          type: "REFLECTION_RECEIVED",
+          pending,
+          reflectionStatus: "ready",
+        }),
+      ),
+    ).toEqual({
+      status: "success",
+      message: "Team trial is active. Agent slots and limits are ready.",
+    });
+  });
+
+  it("uses trial language when checkout resumes first-agent setup", () => {
+    const pending = {
+      principalId: "user-1",
+      planId: "team",
+      planName: "Team",
+      ownedCount: 0,
+      startedAt: 1,
+      flow: "first-agent-trial" as const,
+      setupId: "setup-1",
+      agentSize: "medium",
+    };
+
+    expect(
+      checkoutSyncBannerFromBillingState(
+        billingReflectionReducer(initialBillingReflectionState, {
+          type: "REFLECTION_RECEIVED",
+          pending,
+          reflectionStatus: "ready",
+        }),
+      ),
+    ).toEqual({
+      status: "success",
+      message: "Team trial is active. Agent slots and limits are ready.",
+    });
+  });
+
   it("models waiting-payment as a pending billing state", () => {
     const pending = { principalId: "user-1", planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
 

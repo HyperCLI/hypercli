@@ -62,6 +62,8 @@ The key split is:
   schedule a recurring Stripe subscription for cancellation at period end
 - `update_subscription()`
   change a recurring subscription to one canonical `plan_id` and `quantity`
+- `create_stripe_trial_checkout()`
+  create the account's one-time Team trial checkout
 - `client.deployments.purchase_entitlement_from_balance()`
   charges Orchestra balance, creates a grant, then creates a new entitlement unless `extend_existing=True` is explicit
 - `redeem_grant_code()`
@@ -78,6 +80,29 @@ Recurring mutations accept one canonical plan ID and a positive quantity.
 They do not accept arbitrary per-tier slot maps; cancellation uses the dedicated
 `cancel_subscription()` method. Use
 `subscription_summary().entitlement_items` for the concrete grants.
+
+### Team Trial Checkout
+
+Start the account's one-time Team trial with a Stripe-hosted checkout:
+
+```python
+checkout = client.agent.create_stripe_trial_checkout(
+    success_url="https://app.example.com/agents?trial=success",
+    cancel_url="https://app.example.com/plans?trial=cancelled",
+)
+
+print(checkout.checkout_url)
+```
+
+Both return URLs are optional. The result is a
+`HyperAgentStripeCheckoutResponse`; direct the customer to its `checkout_url`
+to complete checkout.
+
+Subscriptions expose current trial timing as
+`HyperAgentSubscriptionTrial | None`. The trial object contains `active`,
+`days`, `starts_at`, `ends_at`, and `seconds_remaining`. Timing fields remain
+`None` when the account has no value for them, and a subscription with no
+current trial has `trial=None`.
 
 This namespace also exposes convenience helpers such as:
 

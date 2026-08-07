@@ -301,7 +301,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(document.querySelector(".agent-workspace-shell")).toHaveAttribute("data-collapsed", "false");
     const advancedMenu = document.querySelector<HTMLElement>(".agent-workspace-advanced [role='menu']");
     expect(advancedMenu).toHaveClass("bottom-full", "left-3", "right-3");
-    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "Settings" }));
+    fireEvent.click(within(advancedMenu!).getByRole("menuitem", { name: "Agent Settings" }));
     expect(props.onOpenSettings).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
@@ -310,12 +310,12 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onOpenOpenClaw).toHaveBeenCalledTimes(1);
   });
 
-  it("matches the profile menu active state for account Settings", () => {
+  it("matches the active state for Agent Settings", () => {
     renderAgentWorkspaceSidebar({ settingsActive: true });
 
     fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 
-    expect(screen.getByRole("menuitem", { name: "Settings" })).toHaveClass("bg-surface-low", "text-foreground");
+    expect(screen.getByRole("menuitem", { name: "Agent Settings" })).toHaveClass("bg-surface-low", "text-foreground");
     expect(screen.getByRole("menuitem", { name: "OpenClaw Settings" })).not.toHaveClass("bg-surface-low");
   });
 
@@ -324,8 +324,8 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(screen.getByTestId("hypercli-logo-full")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /current workspace/i })).not.toBeInTheDocument();
-    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52", "justify-center");
-    expect(screen.getByTestId("hypercli-logo-full")).not.toHaveClass("mr-auto");
+    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52", "justify-start");
+    expect(screen.getByTestId("hypercli-logo-full")).toHaveClass("h-[24px]", "w-[124px]");
     expect(document.querySelector(".agent-workspace-shell")).not.toHaveClass("border-r");
     expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Setup")).not.toBeInTheDocument();
@@ -363,8 +363,9 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByRole("button", { name: /shared knowledge/i })).not.toBeInTheDocument();
   });
 
-  it("shows and opens desktop only when the selected agent has desktop", () => {
+  it("opens Desktop when the selected agent has access", () => {
     const props = renderAgentWorkspaceSidebar({
+      desktopAccessAllowed: false,
       selectedAgent: {
         ...agent,
         hasDesktop: true,
@@ -374,12 +375,31 @@ describe("AgentWorkspaceSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
     expect(props.onOpenDesktop).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-1", hasDesktop: true }));
+    expect(props.onUpgrade).not.toHaveBeenCalled();
   });
 
-  it("hides desktop when the selected agent does not have desktop", () => {
-    renderAgentWorkspaceSidebar();
+  it("opens Desktop when the plan allows it before route metadata updates", () => {
+    const props = renderAgentWorkspaceSidebar({
+      desktopAccessAllowed: true,
+      selectedAgent: { ...agent, hasDesktop: false },
+    });
 
-    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
+    expect(props.onOpenDesktop).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-1" }));
+    expect(props.onUpgrade).not.toHaveBeenCalled();
+  });
+
+  it("keeps Desktop visible and opens upgrade when the entitlement denies access", () => {
+    const props = renderAgentWorkspaceSidebar({
+      desktopAccessAllowed: false,
+      selectedAgent: { ...agent, hasDesktop: false },
+    });
+
+    const desktop = screen.getByRole("button", { name: "Desktop" });
+    expect(desktop).toBeEnabled();
+    fireEvent.click(desktop);
+    expect(props.onUpgrade).toHaveBeenCalledOnce();
+    expect(props.onOpenDesktop).not.toHaveBeenCalled();
   });
 
   it("warms the Shell runtime only from Shell-specific navigation intent", () => {
@@ -1463,6 +1483,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /integrations/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /skills/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /scheduled/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeDisabled();
 
     const advanced = screen.getByRole("button", { name: /advanced/i });
     expect(advanced).toBeDisabled();
@@ -1535,7 +1556,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     const newProject = screen.getByRole("button", { name: /new session/i });
     expect(newProject).toBeDisabled();
-    expect(screen.getAllByText("Agent must be running").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeDisabled();
     fireEvent.click(newProject);
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
@@ -1606,5 +1627,38 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
     expect(onStartTrial).toHaveBeenCalledTimes(1);
     expect(props.onUpgrade).not.toHaveBeenCalled();
+  });
+
+  it("keeps the trial action available for an eligible signed-in account", () => {
+    const onStartTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: true,
+      onStartTrial,
+    });
+
+    expect(screen.getByText("7-day free trial on Team")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
+    expect(onStartTrial).toHaveBeenCalledOnce();
+  });
+
+  it("shows and manages an active Team trial", () => {
+    const onManageTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      activeTrial: {
+        subscriptionId: "sub-team",
+        planId: "team",
+        planName: "Team",
+        endsAt: new Date("2026-08-12T12:00:00Z"),
+        totalDays: 7,
+        secondsRemaining: 6 * 86_400,
+        timeRemainingLabel: "6 days left",
+      },
+      onManageTrial,
+    });
+
+    expect(screen.getByText("Team trial · 6 days left")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Manage trial" }));
+    expect(onManageTrial).toHaveBeenCalledOnce();
   });
 });

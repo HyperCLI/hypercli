@@ -1,6 +1,10 @@
 import type {
   HyperAgentCurrentPlan,
+  HyperAgentEntitlement,
   HyperAgentPlan,
+  HyperAgentStripeCheckoutResponse,
+  HyperAgentStripeTrialCheckoutRequest,
+  HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
 import {
@@ -19,9 +23,19 @@ export {
 };
 
 const PENDING_CHECKOUT_KEY = "hyperclaw.pendingPlanCheckout.v1";
+export const TEAM_TRIAL_PLAN_ID = "team";
+const TEAM_TRIAL_PLAN_NAME = "Team";
 
 function pendingCheckoutKey(principalId: string): string {
   return `${PENDING_CHECKOUT_KEY}:${encodeURIComponent(principalId)}`;
+}
+
+function pendingCheckoutCorrelationKey(
+  principalId: string,
+  kind: "attempt" | "session",
+  value: string,
+): string {
+  return `${pendingCheckoutKey(principalId)}:${kind}:${encodeURIComponent(value)}`;
 }
 
 export interface PendingPlanCheckout {
@@ -30,19 +44,164 @@ export interface PendingPlanCheckout {
   planName: string;
   ownedCount: number;
   startedAt: number;
+  checkoutAttemptId?: string;
+  checkoutSessionId?: string;
   returnSessionId?: string;
   bundle?: SlotBundle;
   baselineGrantedSlots?: Record<string, number>;
-  flow?: "first-agent-setup";
+  flow?: "first-agent-setup" | "team-trial" | "first-agent-trial";
   setupId?: string;
   workspaceId?: string;
   knowledgeDomainId?: string | null;
   agentSize?: string;
 }
 
+export interface FirstAgentTrialCheckoutContext {
+  setupId: string;
+  workspaceId?: string;
+  knowledgeDomainId?: string | null;
+  agentSize: string;
+}
+
+export type TeamTrialCheckoutPending = PendingPlanCheckout & {
+  flow: "team-trial" | "first-agent-trial";
+};
+
+export function isTeamTrialCheckoutFlow(
+  pending: PendingPlanCheckout | null | undefined,
+): pending is TeamTrialCheckoutPending {
+  return pending?.flow === "team-trial" || pending?.flow === "first-agent-trial";
+}
+
+export function catalogPlanOffersTeamTrial(
+  planId: string,
+  ownedCount: number,
+  trialAvailable: boolean,
+): boolean {
+  return trialAvailable
+    && planId.trim().toLowerCase() === TEAM_TRIAL_PLAN_ID
+    && Math.max(Number(ownedCount || 0), 0) === 0;
+}
+
+function provisionedSlotBundle(
+  source: Pick<HyperAgentSubscription | HyperAgentEntitlement, "slotGrants" | "agentSlots">,
+): SlotBundle {
+  const slotGrants = compactBundle(source.slotGrants as SlotBundle | null | undefined);
+  if (Object.keys(slotGrants).length > 0) return slotGrants;
+
+  const fromSlots: Record<string, number> = {};
+  for (const slot of source.agentSlots ?? []) {
+    const tier = String(slot.size ?? "").trim().toLowerCase();
+    if (tier) fromSlots[tier] = (fromSlots[tier] ?? 0) + 1;
+  }
+  return compactBundle(fromSlots as SlotBundle);
+}
+
+function provisionedTrialSlotBundle(
+  summary: HyperAgentSubscriptionSummary,
+  subscription: HyperAgentSubscription,
+): SlotBundle {
+  const subscriptionBundle = provisionedSlotBundle(subscription);
+  const entitlementById = new Map<string, HyperAgentEntitlement>();
+  for (const entitlement of subscription.entitlements ?? []) {
+    entitlementById.set(entitlement.id, entitlement);
+  }
+  for (const entitlement of summary.entitlementItems ?? []) {
+    if (entitlement.subscriptionId !== subscription.id) continue;
+    const existing = entitlementById.get(entitlement.id);
+    if (!existing) {
+      entitlementById.set(entitlement.id, entitlement);
+      continue;
+    }
+    const mergedGrants: Record<string, number> = {};
+    for (const bundle of [provisionedSlotBundle(existing), provisionedSlotBundle(entitlement)]) {
+      for (const [tier, count] of Object.entries(bundle)) {
+        mergedGrants[tier] = Math.max(mergedGrants[tier] ?? 0, Number(count ?? 0));
+      }
+    }
+    entitlementById.set(entitlement.id, { ...existing, ...entitlement, slotGrants: mergedGrants });
+  }
+
+  const entitlementBundle: Record<string, number> = {};
+  for (const entitlement of entitlementById.values()) {
+    if (entitlement.status && entitlement.status.toUpperCase() !== "ACTIVE") continue;
+    for (const [tier, count] of Object.entries(provisionedSlotBundle(entitlement))) {
+      entitlementBundle[tier] = (entitlementBundle[tier] ?? 0) + Math.max(Number(count ?? 0), 0);
+    }
+  }
+
+  const combined: Record<string, number> = { ...subscriptionBundle };
+  for (const [tier, count] of Object.entries(entitlementBundle)) {
+    combined[tier] = Math.max(combined[tier] ?? 0, count);
+  }
+  return compactBundle(combined as SlotBundle);
+}
+
+interface TeamTrialCheckoutClient {
+  createStripeTrialCheckout(
+    request?: HyperAgentStripeTrialCheckoutRequest,
+  ): Promise<HyperAgentStripeCheckoutResponse>;
+}
+
+export async function createTeamTrialCheckoutState(
+  client: TeamTrialCheckoutClient,
+  request: HyperAgentStripeTrialCheckoutRequest,
+  options: {
+    principalId: string;
+    summary: HyperAgentSubscriptionSummary | null;
+    catalogProduct?: { name?: string | null; bundle?: SlotBundle | null } | null;
+    firstAgentSetup?: FirstAgentTrialCheckoutContext | null;
+    checkoutAttemptId?: string | null;
+    startedAt?: number;
+  },
+): Promise<{ checkout: HyperAgentStripeCheckoutResponse; pending: PendingPlanCheckout }> {
+  const checkout = await client.createStripeTrialCheckout(request);
+  const checkoutAttemptId = checkout.checkoutAttemptId?.trim()
+    || options.checkoutAttemptId?.trim()
+    || null;
+  const bundle = compactBundle(options.catalogProduct?.bundle);
+  const checkoutPlan = {
+    planId: TEAM_TRIAL_PLAN_ID,
+    ...(Object.keys(bundle).length > 0 ? { bundle } : {}),
+  };
+  return {
+    checkout,
+    pending: {
+      principalId: options.principalId,
+      planId: TEAM_TRIAL_PLAN_ID,
+      planName: options.catalogProduct?.name?.trim() || TEAM_TRIAL_PLAN_NAME,
+      ownedCount: getCheckoutOwnedCountFromSummary(options.summary, checkoutPlan),
+      startedAt: options.startedAt ?? Date.now(),
+      ...(checkoutAttemptId ? { checkoutAttemptId } : {}),
+      ...(checkout.checkoutSessionId ? { checkoutSessionId: checkout.checkoutSessionId } : {}),
+      flow: options.firstAgentSetup ? "first-agent-trial" : "team-trial",
+      ...(Object.keys(bundle).length > 0 ? { bundle } : {}),
+      ...(options.summary
+        ? { baselineGrantedSlots: getGrantedLaunchSlotsByTier(options.summary) }
+        : {}),
+      ...(options.firstAgentSetup
+        ? {
+            setupId: options.firstAgentSetup.setupId,
+            ...(options.firstAgentSetup.workspaceId
+              ? { workspaceId: options.firstAgentSetup.workspaceId }
+              : {}),
+            knowledgeDomainId: options.firstAgentSetup.knowledgeDomainId ?? null,
+            agentSize: options.firstAgentSetup.agentSize,
+          }
+        : {}),
+    },
+  };
+}
+
 export interface StripeCheckoutReturnState {
   status: "success" | "cancelled";
   sessionId: string | null;
+  attemptId: string | null;
+}
+
+export interface PendingCheckoutCorrelation {
+  sessionId?: string | null;
+  attemptId?: string | null;
 }
 
 export type CheckoutReflectionStatus = "waiting-payment" | "waiting-entitlement" | "ready";
@@ -50,17 +209,29 @@ export type CheckoutReflectionStatus = "waiting-payment" | "waiting-entitlement"
 export function writePendingPlanCheckout(checkout: PendingPlanCheckout): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(pendingCheckoutKey(checkout.principalId), JSON.stringify(checkout));
+    const serialized = JSON.stringify(checkout);
+    window.localStorage.setItem(pendingCheckoutKey(checkout.principalId), serialized);
+    if (checkout.checkoutAttemptId) {
+      window.localStorage.setItem(
+        pendingCheckoutCorrelationKey(checkout.principalId, "attempt", checkout.checkoutAttemptId),
+        serialized,
+      );
+    }
+    if (checkout.checkoutSessionId) {
+      window.localStorage.setItem(
+        pendingCheckoutCorrelationKey(checkout.principalId, "session", checkout.checkoutSessionId),
+        serialized,
+      );
+    }
   } catch {}
 }
 
-export function readPendingPlanCheckout(expectedPrincipalId?: string | null): PendingPlanCheckout | null {
-  if (typeof window === "undefined") return null;
+function parsePendingPlanCheckout(
+  raw: string | null,
+  expectedPrincipalId?: string | null,
+): PendingPlanCheckout | null {
+  if (!raw) return null;
   try {
-    const raw = expectedPrincipalId
-      ? window.localStorage.getItem(pendingCheckoutKey(expectedPrincipalId)) ?? window.localStorage.getItem(PENDING_CHECKOUT_KEY)
-      : window.localStorage.getItem(PENDING_CHECKOUT_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PendingPlanCheckout>;
     if (!parsed.principalId || !parsed.planId || !parsed.planName) return null;
     if (expectedPrincipalId && parsed.principalId !== expectedPrincipalId) return null;
@@ -70,6 +241,12 @@ export function readPendingPlanCheckout(expectedPrincipalId?: string | null): Pe
       planName: parsed.planName,
       ownedCount: Number.isFinite(Number(parsed.ownedCount)) ? Number(parsed.ownedCount) : 0,
       startedAt: Number.isFinite(Number(parsed.startedAt)) ? Number(parsed.startedAt) : Date.now(),
+      ...(typeof parsed.checkoutAttemptId === "string" && parsed.checkoutAttemptId.trim()
+        ? { checkoutAttemptId: parsed.checkoutAttemptId.trim().slice(0, 255) }
+        : {}),
+      ...(typeof parsed.checkoutSessionId === "string" && parsed.checkoutSessionId.trim()
+        ? { checkoutSessionId: parsed.checkoutSessionId.trim().slice(0, 255) }
+        : {}),
       ...(typeof parsed.returnSessionId === "string" && parsed.returnSessionId.trim()
         ? { returnSessionId: parsed.returnSessionId.trim() }
         : {}),
@@ -85,14 +262,20 @@ export function readPendingPlanCheckout(expectedPrincipalId?: string | null): Pe
             ),
           }
         : {}),
-      ...(parsed.flow === "first-agent-setup" ? { flow: parsed.flow } : {}),
+      ...(
+        parsed.flow === "first-agent-setup"
+        || parsed.flow === "team-trial"
+        || parsed.flow === "first-agent-trial"
+          ? { flow: parsed.flow }
+          : {}
+      ),
       ...(typeof parsed.setupId === "string" && parsed.setupId.trim()
         ? { setupId: parsed.setupId.trim().slice(0, 100) }
         : {}),
       ...(typeof parsed.workspaceId === "string" && parsed.workspaceId.trim()
         ? { workspaceId: parsed.workspaceId.trim().slice(0, 100) }
         : {}),
-      ...(parsed.flow === "first-agent-setup"
+      ...(parsed.flow === "first-agent-setup" || parsed.flow === "first-agent-trial"
         ? {
             knowledgeDomainId: typeof parsed.knowledgeDomainId === "string" && parsed.knowledgeDomainId.trim()
               ? parsed.knowledgeDomainId.trim().slice(0, 100)
@@ -108,38 +291,195 @@ export function readPendingPlanCheckout(expectedPrincipalId?: string | null): Pe
   }
 }
 
+function pendingMatchesCorrelation(
+  pending: PendingPlanCheckout,
+  correlation?: PendingCheckoutCorrelation,
+): boolean {
+  const sessionId = correlation?.sessionId?.trim() || null;
+  const attemptId = correlation?.attemptId?.trim() || null;
+  if (
+    sessionId
+    && !attemptId
+    && !pending.checkoutSessionId
+    && !pending.checkoutAttemptId
+  ) return true;
+  let matched = !sessionId && !attemptId;
+  if (sessionId && pending.checkoutSessionId) {
+    if (pending.checkoutSessionId !== sessionId) return false;
+    matched = true;
+  }
+  if (attemptId && pending.checkoutAttemptId) {
+    if (pending.checkoutAttemptId !== attemptId) return false;
+    matched = true;
+  }
+  return matched;
+}
+
+function readReturnedPendingPlanCheckout(principalId: string): PendingPlanCheckout | null {
+  const prefix = `${pendingCheckoutKey(principalId)}:`;
+  const returned: PendingPlanCheckout[] = [];
+  const keys = Array.from(
+    { length: window.localStorage.length },
+    (_, index) => window.localStorage.key(index),
+  );
+  for (const key of keys) {
+    if (!key?.startsWith(prefix)) continue;
+    const pending = parsePendingPlanCheckout(window.localStorage.getItem(key), principalId);
+    if (pending?.returnSessionId) returned.push(pending);
+  }
+  return returned.sort((left, right) => right.startedAt - left.startedAt)[0] ?? null;
+}
+
+export function readPendingPlanCheckout(
+  expectedPrincipalId?: string | null,
+  correlation?: PendingCheckoutCorrelation,
+): PendingPlanCheckout | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const candidates: Array<string | null> = [];
+    const sessionId = correlation?.sessionId?.trim();
+    const attemptId = correlation?.attemptId?.trim();
+    if (expectedPrincipalId && !sessionId && !attemptId) {
+      const primary = parsePendingPlanCheckout(
+        window.localStorage.getItem(pendingCheckoutKey(expectedPrincipalId)),
+        expectedPrincipalId,
+      );
+      if (primary?.returnSessionId) return primary;
+      const returned = readReturnedPendingPlanCheckout(expectedPrincipalId);
+      if (returned) return returned;
+    }
+    if (expectedPrincipalId && sessionId) {
+      candidates.push(window.localStorage.getItem(
+        pendingCheckoutCorrelationKey(expectedPrincipalId, "session", sessionId),
+      ));
+    }
+    if (expectedPrincipalId && attemptId) {
+      candidates.push(window.localStorage.getItem(
+        pendingCheckoutCorrelationKey(expectedPrincipalId, "attempt", attemptId),
+      ));
+    }
+    candidates.push(expectedPrincipalId
+      ? window.localStorage.getItem(pendingCheckoutKey(expectedPrincipalId))
+      : null);
+    candidates.push(window.localStorage.getItem(PENDING_CHECKOUT_KEY));
+
+    for (const raw of candidates) {
+      const pending = parsePendingPlanCheckout(raw, expectedPrincipalId);
+      if (pending && pendingMatchesCorrelation(pending, correlation)) return pending;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function markPendingPlanCheckoutReturned(
   principalId: string,
   sessionId: string,
+  attemptId?: string | null,
 ): PendingPlanCheckout | null {
-  const pending = readPendingPlanCheckout(principalId);
   const normalizedSessionId = sessionId.trim();
+  const pending = readPendingPlanCheckout(principalId, {
+    sessionId: normalizedSessionId,
+    attemptId,
+  });
   if (!pending || !normalizedSessionId) return null;
-  const returned = { ...pending, returnSessionId: normalizedSessionId };
-  writePendingPlanCheckout(returned);
+  const returned = {
+    ...pending,
+    returnSessionId: normalizedSessionId,
+    ...(pending.checkoutSessionId ? {} : { checkoutSessionId: normalizedSessionId }),
+  };
+  try {
+    const serialized = JSON.stringify(returned);
+    if (returned.checkoutAttemptId) {
+      window.localStorage.setItem(
+        pendingCheckoutCorrelationKey(principalId, "attempt", returned.checkoutAttemptId),
+        serialized,
+      );
+    }
+    if (returned.checkoutSessionId) {
+      window.localStorage.setItem(
+        pendingCheckoutCorrelationKey(principalId, "session", returned.checkoutSessionId),
+        serialized,
+      );
+    }
+    const primaryKey = pendingCheckoutKey(principalId);
+    const primary = parsePendingPlanCheckout(window.localStorage.getItem(primaryKey), principalId);
+    if (primary && pendingMatchesCorrelation(primary, {
+      sessionId: returned.checkoutSessionId,
+      attemptId: returned.checkoutAttemptId,
+    })) {
+      window.localStorage.setItem(primaryKey, serialized);
+    }
+  } catch {}
   return returned;
 }
 
-export function clearPendingPlanCheckout(expectedPrincipalId?: string | null): void {
+export function clearPendingPlanCheckout(
+  expectedPrincipalId?: string | null,
+  pending?: PendingPlanCheckout | null,
+): void {
   if (typeof window === "undefined") return;
   try {
     if (expectedPrincipalId) {
-      window.localStorage.removeItem(pendingCheckoutKey(expectedPrincipalId));
+      const primaryKey = pendingCheckoutKey(expectedPrincipalId);
+      if (pending) {
+        if (pending.checkoutAttemptId) {
+          window.localStorage.removeItem(
+            pendingCheckoutCorrelationKey(expectedPrincipalId, "attempt", pending.checkoutAttemptId),
+          );
+        }
+        if (pending.checkoutSessionId) {
+          window.localStorage.removeItem(
+            pendingCheckoutCorrelationKey(expectedPrincipalId, "session", pending.checkoutSessionId),
+          );
+        }
+        const primary = parsePendingPlanCheckout(window.localStorage.getItem(primaryKey), expectedPrincipalId);
+        if (primary && pendingMatchesCorrelation(primary, {
+          sessionId: pending.checkoutSessionId,
+          attemptId: pending.checkoutAttemptId,
+        })) {
+          window.localStorage.removeItem(primaryKey);
+        }
+      } else {
+        const prefix = `${primaryKey}:`;
+        const keys = Array.from({ length: window.localStorage.length }, (_, index) => window.localStorage.key(index));
+        for (const key of keys) {
+          if (key?.startsWith(prefix)) window.localStorage.removeItem(key);
+        }
+        window.localStorage.removeItem(primaryKey);
+      }
       const legacy = readPendingPlanCheckout();
-      if (legacy?.principalId === expectedPrincipalId) window.localStorage.removeItem(PENDING_CHECKOUT_KEY);
+      if (
+        legacy?.principalId === expectedPrincipalId
+        && (!pending || pendingMatchesCorrelation(legacy, {
+          sessionId: pending.checkoutSessionId,
+          attemptId: pending.checkoutAttemptId,
+        }))
+      ) window.localStorage.removeItem(PENDING_CHECKOUT_KEY);
       return;
     }
     window.localStorage.removeItem(PENDING_CHECKOUT_KEY);
   } catch {}
 }
 
-export function buildStripeCheckoutReturnUrl(status: "success" | "cancelled"): string {
+export function createPlanCheckoutAttemptId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `checkout-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function buildStripeCheckoutReturnUrl(
+  status: "success" | "cancelled",
+  attemptId?: string | null,
+): string {
   const current = new URL(window.location.href);
   const params = new URLSearchParams(current.search);
   params.delete("checkout");
   params.delete("session_id");
   params.delete("cancelled");
+  params.delete("checkout_attempt");
   params.set("checkout", status);
+  if (attemptId?.trim()) params.set("checkout_attempt", attemptId.trim());
 
   if (status === "success") {
     const query = params.toString();
@@ -155,14 +495,15 @@ export function readStripeCheckoutReturnState(): StripeCheckoutReturnState | nul
 
   const params = new URLSearchParams(window.location.search);
   const checkoutStatus = params.get("checkout");
+  const attemptId = params.get("checkout_attempt")?.trim() || null;
   const cancelled = checkoutStatus === "cancelled" || params.get("cancelled") === "true";
   if (cancelled) {
-    return { status: "cancelled", sessionId: null };
+    return { status: "cancelled", sessionId: null, attemptId };
   }
 
   const sessionId = params.get("session_id");
   if (checkoutStatus === "success" && sessionId) {
-    return { status: "success", sessionId };
+    return { status: "success", sessionId, attemptId };
   }
 
   return null;
@@ -175,6 +516,7 @@ export function clearStripeCheckoutReturnState(): void {
   current.searchParams.delete("checkout");
   current.searchParams.delete("session_id");
   current.searchParams.delete("cancelled");
+  current.searchParams.delete("checkout_attempt");
 
   const nextUrl = `${current.pathname}${current.search}${current.hash}`;
   window.history.replaceState(window.history.state, "", nextUrl);
@@ -263,11 +605,32 @@ export function getCheckoutReflectionStatus(
     0;
   const summaryEffectivePlanId = getEffectivePlanIdFromSummary(summary);
   const effectivePlanId = summaryEffectivePlanId && summaryEffectivePlanId !== "free" ? summaryEffectivePlanId : "";
-  const planReflected = pending
-    ? getCheckoutOwnedCountFromSummary(summary, pending) > pending.ownedCount
-    : activeEntitlementCount > 0 || Boolean(effectivePlanId);
+  const trialSubscription = isTeamTrialCheckoutFlow(pending) ? [
+    ...(summary.activeSubscriptions ?? []),
+    ...(summary.subscriptions ?? []),
+  ].find((subscription) => (
+    subscription.planId.trim().toLowerCase() === pending.planId.trim().toLowerCase()
+    && subscription.trial?.active === true
+  )) : null;
+  const planReflected = isTeamTrialCheckoutFlow(pending)
+    ? Boolean(trialSubscription)
+    : pending
+      ? getCheckoutOwnedCountFromSummary(summary, pending) > pending.ownedCount
+      : activeEntitlementCount > 0 || Boolean(effectivePlanId);
 
   if (!planReflected) return "waiting-payment";
+  if (trialSubscription) {
+    const grantedTrialBundle = provisionedTrialSlotBundle(summary, trialSubscription);
+    const expectedTrialBundle = compactBundle(pending?.bundle);
+    const trialSlotsReady = Object.keys(expectedTrialBundle).length > 0
+      ? Object.entries(expectedTrialBundle).every(([tier, count]) => (
+          Math.max(Number((grantedTrialBundle as Record<string, number>)[tier] ?? 0), 0) >=
+          Math.max(Number(count ?? 0), 0)
+        ))
+      : Object.values(grantedTrialBundle).some((count) => Number(count ?? 0) > 0);
+    if (!trialSlotsReady) return "waiting-entitlement";
+    return "ready";
+  }
   if (pending?.baselineGrantedSlots) {
     const currentGrantedSlots = getGrantedLaunchSlotsByTier(summary);
     const purchasedTiers = Object.entries(compactBundle(pending.bundle));
@@ -281,6 +644,28 @@ export function getCheckoutReflectionStatus(
     if (!slotsReflected) return "waiting-entitlement";
   }
   return hasLaunchEntitlementSlots(summary) ? "ready" : "waiting-entitlement";
+}
+
+export function summaryCanStartTeamTrial(
+  summary: HyperAgentSubscriptionSummary | null | undefined,
+): boolean {
+  if (!summary) return false;
+  return (
+    (summary.subscriptions?.length ?? 0) === 0
+    && (summary.activeSubscriptions?.length ?? 0) === 0
+    && Math.max(summary.activeSubscriptionCount ?? 0, 0) === 0
+  );
+}
+
+export type TeamTrialEligibility = "loading" | "eligible" | "ineligible";
+
+export function getTeamTrialEligibility(
+  principalId: string | null | undefined,
+  billingDataPrincipalId: string | null | undefined,
+  summary: HyperAgentSubscriptionSummary | null | undefined,
+): TeamTrialEligibility {
+  if (!principalId || billingDataPrincipalId !== principalId) return "loading";
+  return summaryCanStartTeamTrial(summary) ? "eligible" : "ineligible";
 }
 
 export function checkoutReflectedInSummary(

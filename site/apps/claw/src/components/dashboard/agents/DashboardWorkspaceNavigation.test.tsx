@@ -21,7 +21,7 @@ vi.mock("./AgentWorkspaceSidebar", () => ({
         <button type="button" onClick={() => (props.onOpenIntegrations as () => void)()}>Integrations</button>
         <button type="button" onClick={() => (props.onOpenSkills as () => void)()}>Skills</button>
         <button type="button" onClick={() => (props.onOpenOpenClaw as () => void)()}>OpenClaw Settings</button>
-        <button type="button" onClick={() => (props.onOpenSettings as () => void)()}>Settings</button>
+        <button type="button" onClick={() => (props.onOpenSettings as () => void)()}>Agent Settings</button>
         <button type="button" onClick={() => (props.onUpgrade as () => void)()}>Upgrade</button>
       </aside>
     );
@@ -80,8 +80,8 @@ describe("DashboardWorkspaceNavigation", () => {
       sessionsFetched: false,
       sessionsUnavailableReason: "Open the agent workspace to load sessions.",
       selectedSessionKey: null,
-      showDesktop: false,
     });
+    expect(mocks.sidebarProps).not.toHaveProperty("showDesktop");
 
     (mocks.sidebarProps?.onCollapsedChange as (collapsed: boolean) => void)(false);
     expect(onAgentRosterCollapsedChange).toHaveBeenCalledWith(true);
@@ -111,7 +111,7 @@ describe("DashboardWorkspaceNavigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     fireEvent.click(screen.getByRole("button", { name: "OpenClaw Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agent Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
 
     expect(mocks.push.mock.calls.map(([href]) => href)).toEqual([
@@ -119,7 +119,7 @@ describe("DashboardWorkspaceNavigation", () => {
       "/dashboard/agents?agentId=agent-1&tab=integrations",
       "/dashboard/agents?agentId=agent-1&tab=skills",
       "/dashboard/agents?agentId=agent-1&tab=openclaw",
-      "/dashboard/agents?view=settings",
+      "/dashboard/agents?view=settings&settings=agent",
       "/plans",
     ]);
   });

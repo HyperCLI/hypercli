@@ -72,4 +72,37 @@ describe("first agent setup draft", () => {
     });
     expect(updated?.bootstrapDraft?.files[0].content).toContain("Keep this exact setup.");
   });
+
+  it("clears persisted account and workspace ownership when explicitly set to null", () => {
+    const input = {
+      knowledgeDomainId: null,
+      name: "Tern",
+      displayName: "",
+      description: "",
+      size: "small",
+      iconIndex: 1,
+      category: "General",
+      plan: "team",
+      enableDesktop: false,
+      enableMemoryIndex: false,
+      enableCustomImage: false,
+      customImage: "",
+    } as const;
+    writeFirstAgentSetupDraft({
+      ...input,
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+    });
+
+    writeFirstAgentSetupDraft({
+      ...input,
+      principalId: null,
+      workspaceId: null,
+    });
+
+    expect(readFirstAgentSetupDraft()).toMatchObject({
+      principalId: null,
+      workspaceId: null,
+    });
+  });
 });

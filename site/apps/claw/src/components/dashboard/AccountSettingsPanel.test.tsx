@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import type { HyperAgentSubscriptionTrial } from "@hypercli.com/sdk/agent";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -140,8 +141,8 @@ vi.mock("@hypercli/shared-ui", async (importOriginal) => {
   Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: () => null,
-  ThemeSelector: ({ "aria-label": ariaLabel }: { "aria-label"?: string }) => (
-    <button type="button" aria-label={ariaLabel}>Theme</button>
+  ThemeSelector: ({ "aria-label": ariaLabel, className }: { "aria-label"?: string; className?: string }) => (
+    <button type="button" aria-label={ariaLabel} className={className}>Theme</button>
   ),
   ConfirmDialog: ({ open, title, message, confirmLabel, onCancel, onConfirm }: {
     open: boolean;
@@ -264,6 +265,7 @@ function buildSubscriptionSummary() {
         canCancel: true,
         isCurrent: true,
         meta: null,
+        trial: null as HyperAgentSubscriptionTrial | null,
         planTpmLimit: 4000,
         planRpmLimit: 120,
         planTpd: 50000,
@@ -408,6 +410,18 @@ describe("AccountSettingsPanel", () => {
     const user = userEvent.setup();
     render(<AccountSettingsPanel />);
 
+    const appearanceCard = screen.getByRole("heading", { name: "Appearance" }).closest('[data-slot="card"]');
+    expect(appearanceCard?.firstElementChild).toHaveClass(
+      "grid",
+      "w-full",
+      "md:grid-cols-[minmax(0,1fr)_auto]",
+      "md:items-center",
+    );
+    expect(screen.getByRole("button", { name: "Appearance theme" })).toHaveClass(
+      "justify-self-start",
+      "md:justify-self-end",
+    );
+
     const startupSwitch = screen.getByRole("switch", { name: "Show helpful loading tips" });
     const loadingScreenCard = screen.getByRole("heading", { name: "Loading screen" }).closest('[data-slot="card"]');
     expect(loadingScreenCard?.firstElementChild).toHaveClass(
@@ -493,6 +507,37 @@ describe("AccountSettingsPanel", () => {
     expect((await screen.findAllByText("USDC wallet payments")).length).toBeGreaterThan(0);
     expect(screen.getByText("No card settings")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /manage card/i })).not.toBeInTheDocument();
+  });
+
+  it("shows authoritative Team trial timing in billing", async () => {
+    const summary = buildSubscriptionSummary();
+    const endsAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    const startsAt = new Date(endsAt.getTime() - 7 * 24 * 60 * 60 * 1000);
+    summary.effectivePlanId = "team";
+    summary.activeSubscriptions[0] = {
+      ...summary.activeSubscriptions[0],
+      planId: "team",
+      planName: "Team",
+      expiresAt: endsAt,
+      trial: {
+        active: true,
+        days: 7,
+        startsAt,
+        endsAt,
+        secondsRemaining: 3 * 86_400,
+      },
+    };
+    billingMocks.hyperAgent.subscriptionSummary.mockResolvedValue(summary);
+
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    expect(await screen.findByText(/Team trial · 3 days left · ends/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Manage" }));
+    expect(screen.getByText(/No charge until the trial ends on/)).toBeInTheDocument();
+    expect(screen.getByText(/7-day trial/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Invoices" }));
+    expect(screen.getByText("Calculated at trial end")).toBeInTheDocument();
   });
 
   it("redeems a promo code from billing without extending an existing entitlement", async () => {

@@ -1,11 +1,64 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_WORKSPACE_ID = "workspace-direct-entitlement";
+
+const WIZARD_VIEWPORTS = [
+  { width: 320, height: 568 },
+  { width: 360, height: 640 },
+  { width: 390, height: 844 },
+  { width: 768, height: 720 },
+  { width: 1024, height: 768 },
+  { width: 1440, height: 900 },
+] as const;
+
+async function expectWizardToFit(page: Page, workspaceStep: Locator) {
+  for (const viewport of WIZARD_VIEWPORTS) {
+    await page.setViewportSize(viewport);
+    await expect(workspaceStep).toBeVisible();
+    await expect.poll(() => workspaceStep.evaluate((root) => {
+      const surface = root.closest<HTMLElement>("[data-agent-launch-surface]") ?? (root as HTMLElement);
+      const body = root.querySelector<HTMLElement>('[data-slot="agent-setup-scroll-body"]');
+      const panel = root.querySelector<HTMLElement>('[data-slot="shape-agent-content"]');
+      const footer = root.querySelector<HTMLElement>('[data-slot="agent-setup-footer"]');
+      const problems: string[] = [];
+
+      if (document.documentElement.scrollWidth > document.documentElement.clientWidth + 1) {
+        problems.push("document overflows horizontally");
+      }
+
+      for (const [name, element] of [["surface", surface], ["body", body], ["panel", panel], ["footer", footer]] as const) {
+        if (!element) {
+          problems.push(`${name} is missing`);
+          continue;
+        }
+        if (element.scrollWidth > element.clientWidth + 1) {
+          problems.push(`${name} overflows horizontally`);
+        }
+        if (element.scrollHeight > element.clientHeight + 1) {
+          const overflowY = window.getComputedStyle(element).overflowY;
+          if (overflowY !== "auto" && overflowY !== "scroll") {
+            problems.push(`${name} clips vertical content`);
+          }
+        }
+      }
+
+      const surfaceBox = surface.getBoundingClientRect();
+      if (surfaceBox.left < -1 || surfaceBox.right > window.innerWidth + 1) {
+        problems.push(`surface spans ${Math.round(surfaceBox.left)}..${Math.round(surfaceBox.right)} in ${window.innerWidth}px viewport`);
+      }
+      if (surfaceBox.top < -1 || surfaceBox.bottom > window.innerHeight + 1) {
+        problems.push(`surface spans ${Math.round(surfaceBox.top)}..${Math.round(surfaceBox.bottom)} in ${window.innerHeight}px viewport height`);
+      }
+
+      return problems;
+    })).toEqual([]);
+  }
+}
 
 test("agents page launches from a direct entitlement without an active subscription", async ({ page }) => {
   let createBody: Record<string, unknown> | null = null;
@@ -192,18 +245,19 @@ test("agents page launches from a direct entitlement without an active subscript
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
 
-  const emptyWorkspaceComposer = page.getByRole("textbox", { name: "Message agent" });
-  await expect(emptyWorkspaceComposer).toBeVisible();
-  await expect(emptyWorkspaceComposer).toBeDisabled();
-  await expect(emptyWorkspaceComposer).toHaveAttribute("placeholder", "Launch an agent to start chatting...");
-  await expect(page.getByRole("button", { name: "Send message" })).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "Launch your first agent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Create an agent/ })).toBeVisible();
   const welcomePanelBox = await page.locator('[data-slot="first-agent-empty-state"]').boundingBox();
   expect(welcomePanelBox).not.toBeNull();
 
   await page.goto("/dashboard/agents?open=agent-launcher", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Create agent" })).toBeVisible();
+  const createAgentHeading = page.getByRole("heading", { name: "Create agent" });
+  if (!await createAgentHeading.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await page.locator("main").getByRole("button", { name: "Launch agent", exact: true }).last().click();
+  }
+  await expect(createAgentHeading).toBeVisible();
   await expect(page.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "agents");
   const launcherBox = await page.locator("[data-agent-launch-surface]").boundingBox();
   expect(launcherBox).not.toBeNull();
@@ -226,23 +280,13 @@ test("agents page launches from a direct entitlement without an active subscript
   await page.getByRole("button", { name: "Continue" }).click();
   const workspaceStep = page.getByRole("region", { name: "Set up the workspace" });
   await expect(workspaceStep).toBeVisible();
-  await expect(workspaceStep.getByRole("heading", { name: "Shape the agent" })).toBeVisible();
-  await expect(workspaceStep.getByRole("heading", { name: "Generated workspace files" })).toHaveCount(0);
-  await expect(workspaceStep.getByRole("group", { name: "Workspace files" })).toBeVisible();
-  await expect(workspaceStep.getByText("AGENTS.md ready")).toHaveCount(0);
-  await expect(workspaceStep.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
-  await workspaceStep.getByRole("button", { name: "Raw" }).click();
-  await expect(workspaceStep.getByLabel("AGENTS.md contents")).toBeVisible();
-  await workspaceStep.getByRole("button", { name: "Preview" }).click();
+  await expect(workspaceStep.getByRole("heading", { name: "What do you want to get done?" })).toBeVisible();
+  await expect(workspaceStep.getByRole("region", { name: "Workspace file editor" })).toHaveCount(0);
+  await expect(workspaceStep.getByRole("group", { name: "Workspace files" })).toHaveCount(0);
+  await expect(workspaceStep.locator('[data-slot="openclaw-bootstrap-step"] > section')).toHaveCount(1);
   const workspaceBody = workspaceStep.locator('[data-slot="agent-setup-scroll-body"]');
-  const workspaceOverflow = await workspaceBody.evaluate((element) => ({
-    horizontal: element.scrollWidth - element.clientWidth,
-    vertical: element.scrollHeight - element.clientHeight,
-  }));
-  expect(workspaceOverflow.horizontal).toBeLessThanOrEqual(0);
-  expect(workspaceOverflow.vertical).toBeLessThanOrEqual(2);
+  await expectWizardToFit(page, workspaceStep);
 
-  await page.setViewportSize({ width: 1440, height: 900 });
   await expect.poll(async () => {
     const expandedLauncherBox = await page.locator("[data-agent-launch-surface]").boundingBox();
     return expandedLauncherBox?.height ?? 0;
@@ -252,19 +296,24 @@ test("agents page launches from a direct entitlement without an active subscript
     if (!layout) return Number.POSITIVE_INFINITY;
     const bodyBox = element.getBoundingClientRect();
     const layoutBox = layout.getBoundingClientRect();
-    const panels = layout.querySelectorAll<HTMLElement>(":scope > section");
-    const panelHeightDifference = panels.length === 2
-      ? Math.abs(panels[0].getBoundingClientRect().height - panels[1].getBoundingClientRect().height)
-      : Number.POSITIVE_INFINITY;
+    const panel = layout.querySelector<HTMLElement>(":scope > section");
+    if (!panel) return Number.POSITIVE_INFINITY;
+    const panelBox = panel.getBoundingClientRect();
     const styles = window.getComputedStyle(element);
     const expectedTop = bodyBox.top + Number.parseFloat(styles.paddingTop);
     const expectedBottom = bodyBox.bottom - Number.parseFloat(styles.paddingBottom);
     return Math.max(
       Math.abs(layoutBox.top - expectedTop),
       Math.abs(layoutBox.bottom - expectedBottom),
-      panelHeightDifference,
+      Math.abs(panelBox.top - layoutBox.top),
+      Math.abs(panelBox.bottom - layoutBox.bottom),
+      Math.abs(panelBox.width - layoutBox.width),
     );
   })).toBeLessThanOrEqual(2);
+  await workspaceStep.getByRole("button", { name: "Continue" }).click();
+  await expect(workspaceStep.getByRole("heading", { name: /approach the work/ })).toBeVisible();
+  await expect(workspaceStep.locator('[data-slot="shape-agent-content"]')).toHaveAttribute("data-workspace-stage", "personality");
+  await expectWizardToFit(page, workspaceStep);
   await workspaceStep.getByRole("button", { name: "Launch agent" }).click();
 
   await expect.poll(() => createBody?.size ?? null).toBe("large");

@@ -86,6 +86,42 @@ describe("PlanCheckoutModal", () => {
     await waitFor(() => expect(mocks.hyperAgent.createStripeCheckout).toHaveBeenCalledOnce());
   });
 
+  it("persists the Stripe session and attempt used by its return URLs", async () => {
+    mocks.hyperAgent.createStripeCheckout.mockResolvedValue({
+      checkoutUrl: `${window.location.href}#stripe-checkout`,
+      checkoutSessionId: "cs_checkout_123",
+      checkoutAttemptId: null,
+    });
+    renderWithClient(
+      <PlanCheckoutModal
+        plan={{
+          id: "catalog-pro",
+          name: "Catalog Pro",
+          price: 123,
+          limits: { tpd: 123_000_000, burstTpm: 456_000, rpm: 789 },
+        }}
+        isOpen
+        principalId="user-1"
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+        getToken={vi.fn().mockResolvedValue("token")}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pay $123 with Card" }));
+
+    await waitFor(() => expect(readPendingPlanCheckout("user-1")).toMatchObject({
+      checkoutSessionId: "cs_checkout_123",
+      checkoutAttemptId: expect.any(String),
+    }));
+    const [request] = mocks.hyperAgent.createStripeCheckout.mock.calls[0];
+    const successAttempt = new URL(request.successUrl).searchParams.get("checkout_attempt");
+    const cancelAttempt = new URL(request.cancelUrl).searchParams.get("checkout_attempt");
+    expect(successAttempt).toBeTruthy();
+    expect(cancelAttempt).toBe(successAttempt);
+    expect(readPendingPlanCheckout("user-1")?.checkoutAttemptId).toBe(successAttempt);
+  });
+
   it("starts entitlement reconciliation immediately after x402 succeeds", async () => {
     const onSuccess = vi.fn();
     Object.defineProperty(window, "ethereum", {
@@ -122,6 +158,10 @@ describe("PlanCheckoutModal", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Pay $123 with USDC" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      checkoutAttemptId: expect.any(String),
+      returnSessionId: expect.stringMatching(/^x402:/),
+    }));
     expect(mocks.hyperAgent.purchaseViaX402WithSigner.mock.calls[0]?.[1]).not.toHaveProperty("bundle");
     expect(readPendingPlanCheckout("user-1")).toMatchObject({
       planId: "catalog-pro",

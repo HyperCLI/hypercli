@@ -42,9 +42,24 @@ const SKILL_ORIGIN_LABELS: Record<SkillListRow["origin"], string> = {
 };
 
 const MY_SKILL_ORIGINS = new Set<SkillListRow["origin"]>(["custom", "created", "imported"]);
+const MY_SKILLS_FILTER_ID = "source:my-skills";
+const HYPERCLI_SKILLS_FILTER_ID = "source:hypercli";
+const SKILL_SOURCE_ORDER = new Map<string, number>([
+  [MY_SKILLS_FILTER_ID, 0],
+  [HYPERCLI_SKILLS_FILTER_ID, 1],
+]);
 
-function skillOriginFilterId(origin: SkillListRow["origin"]): string {
-  return MY_SKILL_ORIGINS.has(origin) ? "origin:my-skills" : `origin:${origin}`;
+function isHyperCliSkill(skill: Pick<AgentSkill, "id">): boolean {
+  return skill.id === "hypercli" || skill.id.startsWith("hypercli-");
+}
+
+function skillSourceFilterId(row: SkillListRow): string {
+  if (isHyperCliSkill(row.skill)) return HYPERCLI_SKILLS_FILTER_ID;
+  return MY_SKILL_ORIGINS.has(row.origin) ? MY_SKILLS_FILTER_ID : `source:${row.origin}`;
+}
+
+function skillSourceFilterLabel(row: SkillListRow): string {
+  return isHyperCliSkill(row.skill) ? "HyperCLI" : SKILL_ORIGIN_LABELS[row.origin];
 }
 
 function generatedSkillToAgentSkill(skill: SkillGeneratedOutput): AgentSkill {
@@ -151,7 +166,7 @@ export function SkillsPanel({
   onTestSkill,
 }: SkillsPanelProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
-  const [selectedFilters, setSelectedFilters] = React.useState<string[]>([]);
+  const [selectedFilters, setSelectedFilters] = React.useState<string[]>([MY_SKILLS_FILTER_ID]);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [recoveryCandidateId, setRecoveryCandidateId] = React.useState<string | null>(null);
@@ -171,9 +186,15 @@ export function SkillsPanel({
     () => installedSkills.map((skill) => installedSkillEdits[skill.id] ?? skill),
     [installedSkillEdits, installedSkills],
   );
+  const visibleInstalledSkills = React.useMemo(
+    () => effectiveInstalledSkills.filter((skill) => (
+      skill.origin !== "built-in" || isHyperCliSkill(skill)
+    )),
+    [effectiveInstalledSkills],
+  );
 
   const skillRows = React.useMemo<SkillListRow[]>(() => [
-    ...effectiveInstalledSkills.map((skill) => {
+    ...visibleInstalledSkills.map((skill) => {
       const entry = getSkillConfigEntry(skill.id, configOverrides);
       return {
         skill,
@@ -189,32 +210,34 @@ export function SkillsPanel({
       status: "preview" as const,
       localPreview: true,
     })),
-  ], [configOverrides, effectiveInstalledSkills, localSkills]);
+  ], [configOverrides, localSkills, visibleInstalledSkills]);
 
   const skillFilterOptions = React.useMemo(() => {
-    const originCounts = new Map<string, { label: string; count: number }>();
+    const sourceCounts = new Map<string, { label: string; count: number }>([
+      [MY_SKILLS_FILTER_ID, { label: "My skills", count: 0 }],
+    ]);
     const categoryCounts = new Map<string, number>();
     skillRows.forEach((row) => {
-      const id = skillOriginFilterId(row.origin);
-      const current = originCounts.get(id);
-      originCounts.set(id, { label: SKILL_ORIGIN_LABELS[row.origin], count: (current?.count ?? 0) + 1 });
+      const id = skillSourceFilterId(row);
+      const current = sourceCounts.get(id);
+      sourceCounts.set(id, { label: skillSourceFilterLabel(row), count: (current?.count ?? 0) + 1 });
       categoryCounts.set(row.skill.category, (categoryCounts.get(row.skill.category) ?? 0) + 1);
     });
-    const origins = Array.from(originCounts, ([id, option]) => ({ id, ...option, group: "Source" }));
+    const sources = Array.from(sourceCounts, ([id, option]) => ({ id, ...option, group: "Source" }));
     const categories = Array.from(categoryCounts, ([category, count]) => ({ id: `category:${category}`, label: category, count, group: "Category" }));
     return [
-      ...origins.sort((a, b) => a.id === "origin:my-skills" ? -1 : b.id === "origin:my-skills" ? 1 : a.label.localeCompare(b.label)),
+      ...sources.sort((a, b) => (SKILL_SOURCE_ORDER.get(a.id) ?? 2) - (SKILL_SOURCE_ORDER.get(b.id) ?? 2) || a.label.localeCompare(b.label)),
       ...categories.sort((a, b) => a.label.localeCompare(b.label)),
     ];
   }, [skillRows]);
 
   const filteredRows = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    const selectedOrigins = selectedFilters.filter((id) => id.startsWith("origin:"));
+    const selectedSources = selectedFilters.filter((id) => id.startsWith("source:"));
     const selectedSkillCategories = selectedFilters.filter((id) => id.startsWith("category:"));
     return skillRows.filter((row) => {
       const { skill } = row;
-      if (selectedOrigins.length > 0 && !selectedOrigins.includes(skillOriginFilterId(row.origin))) return false;
+      if (selectedSources.length > 0 && !selectedSources.includes(skillSourceFilterId(row))) return false;
       if (selectedSkillCategories.length > 0 && !selectedSkillCategories.includes(`category:${skill.category}`)) return false;
       if (!query) return true;
       return (
@@ -228,6 +251,11 @@ export function SkillsPanel({
       );
     });
   }, [searchQuery, selectedFilters, skillRows]);
+  const hasMySkills = skillRows.some((row) => skillSourceFilterId(row) === MY_SKILLS_FILTER_ID);
+  const showFirstSkillInvitation = !hasMySkills
+    && selectedFilters.length === 1
+    && selectedFilters[0] === MY_SKILLS_FILTER_ID
+    && searchQuery.trim().length === 0;
 
   const selectedById = selectedSkillId ? skillRows.find((row) => row.skill.id === selectedSkillId) ?? null : null;
   const selectedByRequest = requestedSkillId && requestedSkillId !== dismissedRequestedSkillId
@@ -236,7 +264,7 @@ export function SkillsPanel({
   const selectedRow = selectedById ?? selectedByRequest;
   const selectedConfig = selectedRow ? getSkillConfigEntry(selectedRow.skill.id, configOverrides) : { env: {} };
   const resetFilters = () => {
-    setSelectedFilters([]);
+    setSelectedFilters([MY_SKILLS_FILTER_ID]);
     setSearchQuery("");
   };
 
@@ -454,6 +482,28 @@ export function SkillsPanel({
             <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />
           ) : error || skillDrafts.error ? (
             <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">{error || skillDrafts.error}</div>
+          ) : showFirstSkillInvitation ? (
+            <section data-slot="skills-first-use" className="flex min-h-[min(520px,58dvh)] items-center justify-center px-3 py-12 text-center sm:px-8 sm:py-16">
+              <div className="w-full max-w-2xl">
+                <h3 className="mx-auto max-w-[19ch] text-balance text-[30px] font-semibold leading-[1.08] tracking-[-0.035em] text-foreground sm:text-[38px]">
+                  Teach it the way you like things done.
+                </h3>
+                <p className="mx-auto mt-4 max-w-[60ch] text-[13px] leading-5 text-text-secondary sm:text-[14px] sm:leading-6">
+                  Start with one task you repeat or one standard you care about. We&apos;ll help turn that know-how into a reusable skill you can refine anytime.
+                </p>
+                <div className="mt-7 flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:items-center">
+                  <Button type="button" size="sm" onClick={() => setCreateOpen(true)} className="min-h-9 justify-center px-4">
+                    Create my first skill
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setImportOpen(true)} className="min-h-9 justify-center px-4 hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high">
+                    Import one I already have
+                  </Button>
+                </div>
+                <p className="mx-auto mt-5 max-w-lg text-[10px] leading-relaxed text-text-muted">
+                  Not sure where to begin? Try meeting follow-ups, a review checklist, or a weekly update. Preview and test it before saving.
+                </p>
+              </div>
+            </section>
           ) : filteredRows.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {filteredRows.map((row) => (
@@ -473,7 +523,7 @@ export function SkillsPanel({
               ))}
             </div>
           ) : (
-            <SkillsEmptyState title={localSkills.length > 0 || effectiveInstalledSkills.length > 0 ? "No skills match your filters." : "No app skills found."} detail={localSkills.length > 0 || effectiveInstalledSkills.length > 0 ? "Try another status, category, or search term." : "Create or import a local preview to get started."} />
+            <SkillsEmptyState title={localSkills.length > 0 || visibleInstalledSkills.length > 0 ? "No skills match your filters." : "No app skills found."} detail={localSkills.length > 0 || visibleInstalledSkills.length > 0 ? "Try another source, category, or search term." : "Create or import a local preview to get started."} />
           )}
         </div>
       </div>

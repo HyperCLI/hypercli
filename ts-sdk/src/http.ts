@@ -139,9 +139,13 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
   return requestWithRetryHandled(options, async (response) => response);
 }
 
-async function responseAPIError(response: Response, method?: string): Promise<APIError> {
+export async function responseAPIError(
+  response: Response,
+  method?: string,
+  requestUrl?: string,
+): Promise<APIError> {
   const fallback = response.statusText || 'Request failed';
-  const url = response.url || undefined;
+  const url = response.url || requestUrl || undefined;
   let text: string;
   try {
     text = await response.text();

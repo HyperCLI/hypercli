@@ -1,0 +1,3387 @@
+<!doctype html>
+<html lang="en" data-theme="aurora-dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent setup question variants</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&amp;display=swap" rel="stylesheet" />
+    <!--
+      THESIS: Preserve the agent-creation shell while making a ready-made template the fastest complete setup path.
+      OWN-WORLD: Claw's Aurora dark palette, compact controls, quiet borders, and blue selection states.
+      STORY: Compare a visual, compact, and plain-language template chooser; custom questions stay secondary.
+      FIRST VIEWPORT: The current dashboard sidebar frames a full-height setup surface with fixed header and footer.
+      FORM: One wizard screen with three header tabs; only one question direction is visible at a time.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --background: #10151f;
+        --surface-low: #1b2331;
+        --surface-mid: #1a2230;
+        --surface-high: #232d3f;
+        --foreground: #e8edf4;
+        --text-secondary: #b9c4d6;
+        --text-muted: #98a6ba;
+        --primary: #3d68e6;
+        --primary-hover: #3157c7;
+        --selection: #9db4ff;
+        --selection-soft: rgba(93, 135, 255, 0.14);
+        --selection-border: #7188c6;
+        --border: rgba(255, 255, 255, 0.12);
+        --border-medium: rgba(255, 255, 255, 0.18);
+        --border-strong: rgba(255, 255, 255, 0.28);
+        --input-border: #6d7b90;
+        --focus: rgba(157, 180, 255, 0.55);
+        --agent-roster-background: #1a2230;
+        --agent-panel-background: #1b2331;
+        --font-ui: "Figtree", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        overflow: hidden;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: var(--font-ui);
+        font-size: 16px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      input,
+      textarea {
+        outline: none;
+      }
+
+      button:focus-visible,
+      textarea:focus-visible {
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      .svg-defs {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+
+      .dashboard-shell {
+        width: 100%;
+        height: 100vh;
+        height: 100svh;
+        min-height: 0;
+        display: flex;
+        overflow: hidden;
+        background: var(--background);
+      }
+
+      .dashboard-sidebar {
+        width: 256px;
+        height: 100%;
+        min-height: 0;
+        flex: 0 0 256px;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--border);
+        background: var(--agent-panel-background);
+      }
+
+      .sidebar-brand {
+        height: 56px;
+        flex: 0 0 56px;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--agent-panel-background);
+      }
+
+      .sidebar-brand img {
+        width: 124px;
+        height: 24px;
+        object-fit: contain;
+        object-position: left center;
+      }
+
+      .sidebar-body {
+        min-height: 0;
+        flex: 1 1 auto;
+        display: flex;
+        padding-top: 8px;
+      }
+
+      .roster-pane {
+        width: 208px;
+        min-width: 0;
+        min-height: 0;
+        flex: 0 0 208px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--agent-panel-background);
+      }
+
+      .roster-scroll {
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        border-top: 1px solid var(--border);
+        border-top-right-radius: 16px;
+        background: var(--agent-roster-background);
+        box-shadow: inset -1px 0 0 var(--border);
+        scrollbar-width: thin;
+        scrollbar-color: var(--border-strong) transparent;
+      }
+
+      .roster-heading {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 12px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .sidebar-icon-button,
+      .rail-button {
+        border: 1px solid transparent;
+        display: grid;
+        place-items: center;
+        background: transparent;
+        color: var(--text-muted);
+      }
+
+      .sidebar-icon-button {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+      }
+
+      .sidebar-icon-button:hover,
+      .rail-button:hover {
+        border-color: var(--border);
+        background: rgba(16, 21, 31, 0.4);
+        color: var(--foreground);
+      }
+
+      .sidebar-icon,
+      .rail-icon {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.8;
+      }
+
+      .roster-nav,
+      .admin-nav {
+        display: grid;
+      }
+
+      .roster-nav-item,
+      .admin-nav-item {
+        width: 100%;
+        height: 36px;
+        min-width: 0;
+        border: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px 0 6px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+        text-align: left;
+      }
+
+      .roster-nav-item:hover,
+      .admin-nav-item:hover,
+      .agent-row:hover {
+        background: rgba(27, 35, 49, 0.6);
+        color: var(--foreground);
+      }
+
+      .nav-icon-wrap {
+        width: 20px;
+        flex: 0 0 20px;
+        display: grid;
+        place-items: center;
+      }
+
+      .agent-list {
+        margin-top: 5px;
+      }
+
+      .agent-row {
+        width: 100%;
+        min-width: 0;
+        min-height: 50px;
+        border: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 9px 6px 6px;
+        background: transparent;
+        color: var(--foreground);
+        text-align: left;
+      }
+
+      .agent-row--launch {
+        color: var(--selection);
+      }
+
+      .agent-avatar {
+        position: relative;
+        width: 26px;
+        height: 26px;
+        flex: 0 0 26px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface-high);
+        color: var(--foreground);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .agent-avatar--launch {
+        border: 1px solid rgba(157, 180, 255, 0.3);
+        background: var(--selection-soft);
+        color: var(--selection);
+      }
+
+      .agent-avatar--mint {
+        background: rgba(108, 232, 196, 0.15);
+        color: #6ce8c4;
+      }
+
+      .agent-avatar--violet {
+        background: rgba(201, 175, 255, 0.15);
+        color: #c9afff;
+      }
+
+      .agent-avatar--amber {
+        background: rgba(255, 215, 106, 0.14);
+        color: #ffd76a;
+      }
+
+      .agent-status {
+        position: absolute;
+        right: -1px;
+        bottom: -1px;
+        width: 7px;
+        height: 7px;
+        border: 1px solid var(--agent-roster-background);
+        border-radius: 50%;
+        background: #6ce8c4;
+      }
+
+      .agent-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .agent-name,
+      .agent-meta {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .agent-name {
+        color: var(--foreground);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 16px;
+      }
+
+      .agent-meta {
+        margin-top: 1px;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 15px;
+      }
+
+      .admin-section {
+        margin-top: 7px;
+      }
+
+      .admin-title {
+        display: block;
+        padding: 7px 10px 5px;
+        color: var(--text-secondary);
+        font-size: 13px;
+        font-weight: 500;
+      }
+
+      .account-row {
+        min-height: 56px;
+        flex: 0 0 auto;
+        border: 0;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: var(--agent-roster-background);
+        color: var(--foreground);
+        text-align: left;
+      }
+
+      .account-avatar {
+        width: 30px;
+        height: 30px;
+        flex: 0 0 30px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--surface-high);
+        color: var(--foreground);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .account-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .account-name,
+      .account-email {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .account-name {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .account-email {
+        color: var(--text-muted);
+        font-size: 10px;
+      }
+
+      .workspace-rail {
+        width: 48px;
+        min-height: 0;
+        flex: 0 0 48px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 12px 6px 8px;
+        background: var(--agent-panel-background);
+      }
+
+      .rail-button {
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        border-radius: 999px;
+      }
+
+      .rail-button--primary {
+        border-color: rgba(157, 180, 255, 0.28);
+        background: var(--selection-soft);
+        color: var(--selection);
+      }
+
+      .rail-divider {
+        width: 28px;
+        height: 1px;
+        margin: 4px 0;
+        background: var(--border);
+      }
+
+      .rail-spacer {
+        min-height: 8px;
+        flex: 1 1 auto;
+      }
+
+      .wizard {
+        width: auto;
+        height: 100%;
+        min-height: 0;
+        min-width: 0;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--background);
+      }
+
+      .wizard-header {
+        position: relative;
+        z-index: 2;
+        flex: 0 0 auto;
+        min-height: 82px;
+        padding: 12px 64px 12px 24px;
+        border-bottom: 1px solid var(--border);
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) minmax(330px, 520px);
+        align-items: center;
+        gap: 18px;
+      }
+
+      .wizard-header-copy {
+        min-width: 0;
+      }
+
+      .dashboard-shell:not([data-flow-step="workspace"]) .wizard-header {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .wizard-header h1 {
+        margin: 0;
+        color: var(--foreground);
+        font-size: 22px;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 1.25;
+      }
+
+      .wizard-header p {
+        max-width: 72ch;
+        margin: 4px 0 0;
+        color: var(--text-muted);
+        font-size: 13px;
+        line-height: 20px;
+        text-wrap: pretty;
+      }
+
+      .close-button {
+        position: absolute;
+        top: 12px;
+        right: 20px;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(16, 21, 31, 0.72);
+        color: var(--text-muted);
+        cursor: default;
+      }
+
+      .close-button svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .wizard-body {
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding: 16px 24px;
+        overscroll-behavior: contain;
+        scrollbar-color: var(--border-strong) transparent;
+      }
+
+      .setup-stage {
+        width: 100%;
+        min-width: 0;
+        min-height: 100%;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .creation-path-switch {
+        width: min(100%, 620px);
+        min-width: 0;
+        margin: 0 auto;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        padding: 5px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--surface-low);
+      }
+
+      .creation-path-button {
+        min-width: 0;
+        min-height: 48px;
+        border: 1px solid transparent;
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 7px 12px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-weight: 650;
+        text-align: center;
+      }
+
+      .creation-path-button:hover {
+        color: var(--foreground);
+      }
+
+      .creation-path-button[aria-pressed="true"] {
+        border-color: var(--selection-border);
+        background: var(--selection-soft);
+        color: var(--foreground);
+      }
+
+      .path-badge {
+        border: 1px solid rgba(108, 232, 196, 0.34);
+        border-radius: 999px;
+        padding: 1px 6px;
+        color: #8ff0d4;
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 1.5;
+      }
+
+      .question-variants {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .template-option {
+        min-height: 148px;
+      }
+
+      .resolution-selector {
+        margin-top: 16px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border);
+      }
+
+      .resolution-selector-intro {
+        display: grid;
+        justify-items: center;
+        gap: 9px;
+        margin-bottom: 12px;
+      }
+
+      .resolution-selector h3 {
+        margin: 0;
+        color: var(--foreground);
+        font-size: 14px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        text-align: center;
+      }
+
+      .matchup-display {
+        --matchup-accent: #e6a0bd;
+        position: relative;
+        width: min(100%, 520px);
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, var(--matchup-accent) 42%, var(--input-border));
+        border-radius: 10px;
+        display: grid;
+        gap: 3px;
+        padding: 7px 10px 8px;
+        background: linear-gradient(105deg, color-mix(in srgb, var(--matchup-accent) 10%, #0d131d) 0%, #0d131d 62%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+
+      .matchup-display::after {
+        position: absolute;
+        inset: auto 0 0;
+        height: 1px;
+        background: linear-gradient(90deg, var(--matchup-accent), var(--selection));
+        content: "";
+        opacity: 0.74;
+      }
+
+      .matchup-label {
+        color: var(--text-muted);
+        font-size: 8px;
+        font-weight: 750;
+        letter-spacing: 0.12em;
+        line-height: 1.2;
+        text-transform: uppercase;
+      }
+
+      .matchup-value {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
+        align-items: center;
+        gap: 7px;
+      }
+
+      .matchup-value strong {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--foreground);
+        font-size: 10.5px;
+        font-weight: 650;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .matchup-value strong:first-child {
+        text-align: right;
+      }
+
+      .matchup-bridge {
+        position: relative;
+        height: 20px;
+        display: grid;
+        place-items: center;
+      }
+
+      .matchup-bridge::before {
+        position: absolute;
+        right: 0;
+        left: 0;
+        height: 1px;
+        background: linear-gradient(90deg, var(--matchup-accent), var(--selection));
+        content: "";
+        opacity: 0.72;
+      }
+
+      .matchup-bridge > span {
+        position: relative;
+        z-index: 1;
+        width: 18px;
+        height: 18px;
+        border: 1px solid color-mix(in srgb, var(--matchup-accent) 58%, var(--selection));
+        border-radius: 5px;
+        display: grid;
+        place-items: center;
+        background: #121a27;
+        color: var(--foreground);
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .resolution-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .resolution-option {
+        position: relative;
+        min-width: 0;
+        min-height: 84px;
+        overflow: hidden;
+        border: 1px solid var(--input-border);
+        border-radius: 11px;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+        padding: 11px 12px;
+        background: #0d131d;
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: border-color 260ms ease, background 260ms ease, box-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .resolution-option::after {
+        position: absolute;
+        top: 0;
+        right: 12px;
+        left: 12px;
+        height: 2px;
+        border-radius: 0 0 2px 2px;
+        background: var(--selection);
+        content: "";
+        opacity: 0;
+        transform: scaleX(0.35);
+        transition: opacity 240ms ease, transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .resolution-option:hover:not(:has(input:checked)) {
+        border-color: var(--border-strong);
+        transform: translateY(-2px);
+      }
+
+      .resolution-option > input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .resolution-option:has(input:checked) {
+        z-index: 1;
+        border-color: var(--selection);
+        background: linear-gradient(145deg, rgba(93, 135, 255, 0.18), rgba(20, 29, 45, 0.94));
+        box-shadow: 0 14px 30px rgba(4, 8, 15, 0.34), inset 0 1px 0 rgba(196, 210, 255, 0.16);
+        transform: translateY(-5px);
+      }
+
+      .resolution-option:has(input:checked)::after {
+        opacity: 0.92;
+        transform: scaleX(1);
+      }
+
+      .resolution-option:has(input:focus-visible) {
+        outline: 2px solid var(--selection);
+        outline-offset: -3px;
+      }
+
+      .resolution-option-head {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 10px;
+      }
+
+      .resolution-option-head strong {
+        color: var(--foreground);
+        font-size: 11.5px;
+        font-weight: 650;
+      }
+
+      .resolution-option-copy {
+        color: var(--text-muted);
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .template-note {
+        margin: 17px 0 0;
+        padding-top: 15px;
+        border-top: 1px solid var(--border);
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.55;
+        text-align: center;
+      }
+
+      .template-panel {
+        min-width: 0;
+      }
+
+      .template-panel--compact {
+        margin-block: auto;
+      }
+
+      .template-kicker {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--selection);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .visual-template-heading {
+        max-width: 68ch;
+        margin-bottom: 14px;
+        display: block;
+      }
+
+      .visual-template-heading-copy {
+        max-width: 68ch;
+      }
+
+      .visual-template-heading h2 {
+        font-size: 21px;
+        letter-spacing: -0.025em;
+      }
+
+      .identity-name-input {
+        width: 100%;
+        min-height: 42px;
+        border: 1px solid var(--border-medium);
+        border-radius: 9px;
+        padding: 9px 11px;
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .identity-name-input:hover {
+        border-color: var(--border-strong);
+      }
+
+      .identity-name-input:focus-visible {
+        border-color: var(--selection);
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      .visual-template-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 0;
+      }
+
+      .visual-template-card,
+      .compact-template-row,
+      .language-template-row {
+        position: relative;
+        min-width: 0;
+        cursor: pointer;
+      }
+
+      .visual-template-card > input,
+      .compact-template-row > input,
+      .language-template-row > input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .visual-template-card {
+        min-height: 282px;
+        --template-accent: #e4a879;
+        overflow: hidden;
+        border: 1px solid var(--input-border);
+        border-radius: 14px;
+        display: flex;
+        flex-direction: column;
+        background: linear-gradient(180deg, #0f1621 0%, #0c121b 100%);
+        transition: border-color 260ms ease, transform 360ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .visual-template-card:hover {
+        transform: translateY(-3px);
+      }
+
+      .visual-template-card::after {
+        position: absolute;
+        right: 16px;
+        bottom: 0;
+        left: 16px;
+        height: 2px;
+        border-radius: 2px 2px 0 0;
+        background: var(--template-accent);
+        content: "";
+        opacity: 0;
+        transform: scaleX(0.4);
+        transform-origin: center;
+        transition: opacity 260ms ease, transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .visual-template-card:has(input:checked) {
+        z-index: 1;
+        border-color: var(--template-accent);
+        background: linear-gradient(160deg, color-mix(in srgb, var(--template-accent) 9%, #101722), #0c121b 72%);
+        box-shadow: 0 22px 44px rgba(0, 0, 0, 0.38), 0 0 24px color-mix(in srgb, var(--template-accent) 12%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--template-accent) 38%, transparent);
+        transform: translateY(-6px);
+      }
+
+      .visual-template-card:has(input:checked)::after {
+        opacity: 0.82;
+        transform: scaleX(1);
+      }
+
+      .visual-template-card--operator {
+        --template-accent: #f0aa72;
+      }
+
+      .visual-template-card--partner {
+        --template-accent: #e6a0bd;
+      }
+
+      .visual-template-card--guide {
+        --template-accent: #e6c17a;
+      }
+
+      .visual-template-card:has(input:focus-visible),
+      .compact-template-row:has(input:focus-visible),
+      .language-template-row:has(input:focus-visible) {
+        outline: 2px solid var(--selection);
+        outline-offset: 2px;
+      }
+
+      .visual-template-art {
+        position: relative;
+        height: 166px;
+        flex: 0 0 166px;
+        overflow: hidden;
+        display: grid;
+        place-items: center;
+        border-bottom: 1px solid var(--border-medium);
+      }
+
+      .visual-template-art::after {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        background: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 4px);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.13), inset 0 -24px 36px rgba(8, 11, 18, 0.14);
+        content: "";
+      }
+
+      .visual-template-art::before {
+        position: absolute;
+        top: 11px;
+        left: 12px;
+        z-index: 2;
+        color: rgba(255, 255, 255, 0.72);
+        content: attr(data-persona-code);
+        font-size: 8px;
+        font-weight: 750;
+        letter-spacing: 0.16em;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+
+      .visual-template-art--operator {
+        background: #4a2933;
+        color: #f5c39d;
+      }
+
+      .visual-template-art--partner {
+        background: #3b283e;
+        color: #efb5c9;
+      }
+
+      .visual-template-art--guide {
+        background: #2e3c32;
+        color: #efd090;
+      }
+
+      .template-illustration {
+        position: relative;
+        z-index: 0;
+        width: 100%;
+        height: 100%;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), filter 280ms ease;
+      }
+
+      @keyframes persona-float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-2px); }
+      }
+
+      @keyframes persona-aura-breathe {
+        0%, 100% { opacity: 0.065; transform: scale(0.985); }
+        50% { opacity: 0.11; transform: scale(1.025); }
+      }
+
+      @keyframes persona-glint-pulse {
+        0%, 100% { opacity: 0.48; transform: scale(0.88) rotate(-4deg); }
+        50% { opacity: 0.92; transform: scale(1.08) rotate(3deg); }
+      }
+
+      .persona-figure,
+      .persona-aura,
+      .persona-glint {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+
+      .persona-figure {
+        transform-origin: center bottom;
+        animation: persona-float 6.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+
+      .persona-aura {
+        animation: persona-aura-breathe 7.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+
+      .persona-glint {
+        animation: persona-glint-pulse 4.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+
+      .visual-template-card--partner .persona-figure,
+      .visual-template-card--partner .persona-glint {
+        animation-delay: -1.7s;
+      }
+
+      .visual-template-card--guide .persona-figure,
+      .visual-template-card--guide .persona-glint {
+        animation-delay: -3.1s;
+      }
+
+      .agent-name-badge {
+        position: absolute;
+        bottom: 24px;
+        left: 61%;
+        z-index: 3;
+        max-width: calc(100% - 24px);
+        height: 22px;
+        transform: translateX(-50%);
+        border: 1px solid rgba(157, 180, 255, 0.58);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 7px 3px 4px;
+        background: rgba(16, 23, 38, 0.94);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        color: #dce5ff;
+        font-size: 7px;
+        font-weight: 750;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+
+      .agent-name-badge img {
+        width: 13px;
+        height: 13px;
+        flex: 0 0 13px;
+      }
+
+      .agent-name-badge span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .visual-template-card:hover .template-illustration,
+      .visual-template-card:has(input:checked) .template-illustration {
+        transform: scale(1.045) translateY(-1px);
+        filter: saturate(1.08);
+      }
+
+      .visual-template-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        padding: 15px 16px 16px;
+      }
+
+      .visual-template-card .personality-name {
+        font-size: 13px;
+      }
+
+      .visual-template-card .personality-description {
+        margin-top: 9px;
+        color: var(--text-secondary);
+        font-size: 11.5px;
+        line-height: 1.6;
+      }
+
+      .question-backup,
+      .back-to-templates {
+        width: max-content;
+        max-width: 100%;
+        border: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .question-backup {
+        margin: 17px auto 0;
+        padding: 7px 9px;
+      }
+
+      .question-backup-action,
+      .back-to-templates {
+        color: var(--text-secondary);
+        font-weight: 650;
+      }
+
+      .question-backup:hover,
+      .back-to-templates:hover {
+        color: var(--foreground);
+      }
+
+      .back-to-templates {
+        margin: 0 0 9px;
+        padding: 5px 2px;
+      }
+
+      .compact-template-layout {
+        display: grid;
+        grid-template-columns: minmax(190px, 0.55fr) minmax(0, 1.45fr);
+        gap: 30px;
+        align-items: center;
+      }
+
+      .compact-template-intro h2 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+      }
+
+      .compact-template-intro p {
+        margin: 7px 0 0;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .compact-template-list,
+      .language-template-list {
+        min-width: 0;
+      }
+
+      .compact-template-row {
+        min-height: 68px;
+        border-bottom: 1px solid var(--border-medium);
+        display: grid;
+        grid-template-columns: 34px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 11px;
+        padding: 10px 4px;
+        color: var(--text-secondary);
+        transition: background 240ms ease, box-shadow 320ms cubic-bezier(0.22, 1, 0.36, 1), transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .compact-template-row:first-of-type {
+        border-top: 1px solid var(--border-medium);
+      }
+
+      .compact-template-row:has(input:checked) {
+        color: var(--foreground);
+        background: rgba(93, 135, 255, 0.12);
+        box-shadow: inset 3px 0 0 var(--selection), 0 9px 20px rgba(4, 8, 15, 0.2);
+        transform: translateY(-2px);
+      }
+
+      .compact-index {
+        color: var(--selection);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .compact-copy {
+        min-width: 0;
+      }
+
+      .compact-copy strong,
+      .compact-copy small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .compact-copy strong {
+        color: var(--foreground);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .compact-copy small,
+      .compact-traits {
+        color: var(--text-muted);
+        font-size: 10px;
+      }
+
+      .compact-copy small {
+        margin-top: 2px;
+      }
+
+      .compact-traits {
+        white-space: nowrap;
+      }
+
+      .template-panel--language {
+        width: min(100%, 880px);
+        margin: auto;
+        border-color: transparent;
+        background: transparent;
+      }
+
+      .language-template-intro {
+        max-width: 56ch;
+      }
+
+      .language-template-list {
+        display: grid;
+      }
+
+      .language-template-row {
+        min-height: 86px;
+        border-bottom: 1px solid var(--border-medium);
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: center;
+        gap: 16px;
+        padding: 13px 2px;
+        transition: background 240ms ease, box-shadow 320ms cubic-bezier(0.22, 1, 0.36, 1), transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .language-template-row:first-of-type {
+        border-top: 1px solid var(--border-medium);
+      }
+
+      .language-template-row:has(input:checked) .language-template-copy strong {
+        color: var(--selection);
+      }
+
+      .language-template-row:has(input:checked) {
+        background: rgba(93, 135, 255, 0.09);
+        box-shadow: inset 3px 0 0 var(--selection), 0 9px 20px rgba(4, 8, 15, 0.18);
+        transform: translateY(-2px);
+      }
+
+      .language-template-copy {
+        min-width: 0;
+      }
+
+      .language-template-copy small,
+      .language-template-copy strong,
+      .language-template-copy > span {
+        display: block;
+      }
+
+      .language-template-copy small {
+        color: var(--text-muted);
+        font-size: 9px;
+        font-weight: 700;
+      }
+
+      .language-template-copy strong {
+        margin-top: 3px;
+        color: var(--foreground);
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+
+      .language-template-copy > span {
+        margin-top: 4px;
+        color: var(--text-muted);
+        font-size: 10px;
+      }
+
+      .flow-strip {
+        width: min(100%, 760px);
+        min-width: 0;
+        margin: 0 auto 12px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+
+      .flow-step {
+        min-width: 0;
+        min-height: 48px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 10px;
+        background: rgba(27, 35, 49, 0.62);
+        color: var(--text-muted);
+        text-align: left;
+      }
+
+      .flow-step:hover {
+        border-color: var(--border-strong);
+        color: var(--foreground);
+      }
+
+      .flow-step[aria-current="step"] {
+        border-color: var(--selection-border);
+        background: var(--selection-soft);
+        color: var(--foreground);
+      }
+
+      .flow-step-number {
+        width: 22px;
+        height: 22px;
+        flex: 0 0 22px;
+        border: 1px solid currentColor;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--selection);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .flow-step-copy {
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+
+      .flow-step-name,
+      .flow-step-value {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .flow-step-name {
+        font-size: 11px;
+        font-weight: 650;
+        line-height: 1.35;
+      }
+
+      .flow-step-value {
+        margin-top: 1px;
+        color: var(--text-muted);
+        font-size: 9px;
+        line-height: 1.35;
+      }
+
+      .step-view {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .readonly-panel,
+      .launch-panel {
+        width: min(100%, 760px);
+        min-width: 0;
+        margin: auto;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--surface-high);
+        padding: 22px;
+      }
+
+      .readonly-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .readonly-field {
+        min-width: 0;
+      }
+
+      .readonly-label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--text-muted);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .readonly-value {
+        min-height: 42px;
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--border-medium);
+        border-radius: 9px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 9px 11px;
+        background: var(--background);
+        color: var(--foreground);
+        font-size: 12px;
+        font-weight: 550;
+        overflow-wrap: anywhere;
+      }
+
+      .readonly-value svg {
+        width: 15px;
+        height: 15px;
+        flex: 0 0 15px;
+        fill: none;
+        stroke: var(--selection);
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.8;
+      }
+
+      .readonly-features {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 18px;
+        padding-top: 17px;
+        border-top: 1px solid var(--border);
+      }
+
+      .readonly-chip {
+        border: 1px solid var(--border-medium);
+        border-radius: 999px;
+        padding: 6px 10px;
+        color: var(--text-secondary);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .summary-list {
+        margin: 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .summary-row {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(120px, 0.55fr) minmax(0, 1.45fr);
+        gap: 20px;
+        align-items: center;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .summary-row:last-child {
+        border-bottom: 0;
+      }
+
+      .summary-row dt {
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .summary-row dd {
+        min-width: 0;
+        margin: 0;
+        color: var(--foreground);
+        font-size: 12px;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+
+      .ready-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid rgba(108, 232, 196, 0.3);
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: rgba(108, 232, 196, 0.08);
+        color: #8ff0d4;
+        font-size: 10px;
+      }
+
+      .ready-pill::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      .initialization-view {
+        min-height: 100%;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .initialization-card {
+        width: min(100%, 620px);
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        color: var(--foreground);
+        text-align: center;
+      }
+
+      .hatch-visual {
+        position: relative;
+        width: 132px;
+        height: 132px;
+      }
+
+      .hatch-ring,
+      .hatch-core,
+      .hatch-halo {
+        position: absolute;
+        border-radius: 50%;
+      }
+
+      .hatch-ring {
+        inset: 15px;
+        border: 2px solid transparent;
+        border-top-color: #4ea7ff;
+        border-right-color: #f0c56c;
+        animation: hatch-spin 2.6s linear infinite;
+      }
+
+      .hatch-ring--middle {
+        inset: 29px;
+        border-width: 2px;
+        border-top-color: #f0c56c;
+        border-left-color: #4ea7ff;
+        animation-direction: reverse;
+        animation-duration: 2.1s;
+      }
+
+      .hatch-ring--inner {
+        inset: 42px;
+        border-width: 1px;
+        animation-duration: 1.7s;
+      }
+
+      .hatch-core {
+        inset: 53px;
+        background: radial-gradient(circle at 45% 35%, #fff, #f0c56c 42%, #4ea7ff 100%);
+        box-shadow: 0 0 24px rgba(78, 167, 255, 0.42);
+      }
+
+      .hatch-halo {
+        inset: 43px;
+        border: 1px solid rgba(240, 197, 108, 0.46);
+        animation: hatch-pulse 1.4s ease-in-out infinite;
+      }
+
+      .initialization-card[data-ready="true"] .hatch-ring {
+        border-top-color: var(--selection);
+        border-right-color: #6ce8c4;
+      }
+
+      .initialization-card[data-ready="true"] .hatch-core {
+        background: radial-gradient(circle at 45% 35%, #fff, var(--selection) 42%, #6ce8c4 100%);
+      }
+
+      .initialization-card h2 {
+        margin: 17px 0 0;
+        font-size: 20px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+
+      .initialization-card [role="status"] > p {
+        max-width: 52ch;
+        margin: 6px 0 0;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .lifecycle-steps {
+        width: min(100%, 460px);
+        margin: 24px 0 0;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .lifecycle-step {
+        border-top: 2px solid var(--border-medium);
+        padding-top: 8px;
+        color: var(--text-muted);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .lifecycle-step[data-state="active"] {
+        border-color: #f0c56c;
+        color: var(--foreground);
+      }
+
+      .lifecycle-step[data-state="complete"] {
+        border-color: #6ce8c4;
+        color: #8ff0d4;
+      }
+
+      .initialization-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 24px;
+      }
+
+      .initialization-actions[hidden] {
+        display: none;
+      }
+
+      .closed-view,
+      .opened-agent-view {
+        min-height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+
+      .closed-card,
+      .opened-agent-card {
+        width: min(100%, 520px);
+        text-align: center;
+      }
+
+      .closed-card h2,
+      .opened-agent-card h2 {
+        margin: 14px 0 0;
+        font-size: 22px;
+        font-weight: 650;
+        letter-spacing: -0.025em;
+      }
+
+      .closed-card p,
+      .opened-agent-card p {
+        margin: 7px auto 0;
+        max-width: 46ch;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .closed-icon,
+      .opened-agent-avatar {
+        width: 62px;
+        height: 62px;
+        margin: auto;
+        border: 1px solid var(--selection-border);
+        border-radius: 18px;
+        display: grid;
+        place-items: center;
+        background: var(--selection-soft);
+        color: var(--selection);
+        font-size: 22px;
+        font-weight: 700;
+      }
+
+      .closed-card .action-button,
+      .opened-agent-card .action-button {
+        margin-top: 20px;
+      }
+
+      .agent-running-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 12px;
+        color: #8ff0d4;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .agent-running-label::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        content: "";
+      }
+
+      .dashboard-shell[data-flow-step="initializing"] .wizard-header,
+      .dashboard-shell[data-flow-step="initializing"] .wizard-footer,
+      .dashboard-shell[data-flow-step="closed"] .wizard-header,
+      .dashboard-shell[data-flow-step="closed"] .wizard-footer,
+      .dashboard-shell[data-flow-step="agent"] .wizard-header,
+      .dashboard-shell[data-flow-step="agent"] .wizard-footer {
+        display: none;
+      }
+
+      .dashboard-shell[data-flow-step="initializing"] .wizard-body,
+      .dashboard-shell[data-flow-step="closed"] .wizard-body,
+      .dashboard-shell[data-flow-step="agent"] .wizard-body {
+        padding: 0;
+      }
+
+      @keyframes hatch-spin {
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes hatch-pulse {
+        0%, 100% { opacity: 0.2; transform: scale(0.9); }
+        50% { opacity: 0.72; transform: scale(1.35); }
+      }
+
+      .variant-switcher {
+        width: 100%;
+        min-width: 0;
+        min-height: 42px;
+        justify-self: end;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        padding: 4px;
+        border: 1px solid var(--border);
+        border-radius: 11px;
+        background: var(--surface-low);
+      }
+
+      .variant-button {
+        min-width: 0;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 6px 9px;
+        background: transparent;
+        color: var(--text-muted);
+        font-size: 12px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .variant-button:hover {
+        color: var(--foreground);
+      }
+
+      .variant-button[aria-pressed="true"] {
+        border-color: var(--selection-border);
+        background: var(--selection-soft);
+        color: var(--foreground);
+      }
+
+      .variant-letter {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        border: 1px solid currentColor;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        color: var(--selection);
+        font-size: 10px;
+        line-height: 1;
+      }
+
+      .setup-panel {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--surface-high);
+        padding: 20px;
+      }
+
+      .panel-intro {
+        max-width: 68ch;
+        margin-bottom: 18px;
+      }
+
+      .panel-intro h2 {
+        margin: 0;
+        color: var(--foreground);
+        font-size: 17px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+        line-height: 1.3;
+      }
+
+      .panel-intro p {
+        margin: 5px 0 0;
+        color: var(--text-muted);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .field + .field {
+        margin-top: 15px;
+      }
+
+      .field {
+        min-width: 0;
+      }
+
+      .field label,
+      .field-title {
+        display: block;
+        color: var(--foreground);
+        font-size: 13px;
+        font-weight: 650;
+        line-height: 1.45;
+      }
+
+      .field-helper {
+        display: block;
+        max-width: 75ch;
+        margin-top: 3px;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 64px;
+        margin-top: 8px;
+        resize: none;
+        border: 1px solid var(--input-border);
+        border-radius: 9px;
+        background: var(--background);
+        color: var(--foreground);
+        padding: 10px 12px;
+        font-size: 12px;
+        line-height: 1.5;
+        transition: border-color 150ms ease, box-shadow 150ms ease;
+      }
+
+      textarea::placeholder {
+        color: var(--text-muted);
+        opacity: 1;
+      }
+
+      textarea:hover,
+      textarea:focus {
+        border-color: var(--border-strong);
+      }
+
+      .textarea--large {
+        min-height: 74px;
+      }
+
+      .split-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 15px;
+      }
+
+      .split-fields .field + .field {
+        margin-top: 0;
+      }
+
+      fieldset {
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      legend {
+        padding: 0;
+      }
+
+      .personality-section {
+        margin-top: 18px;
+        padding-top: 17px;
+        border-top: 1px solid var(--border);
+      }
+
+      .personality-section--first {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: 0;
+      }
+
+      .personality-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 9px;
+        margin-top: 10px;
+      }
+
+      .personality-option {
+        position: relative;
+        min-height: 94px;
+        border: 1px solid var(--border-medium);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        padding: 12px;
+        background: var(--background);
+        cursor: pointer;
+        transition: border-color 150ms ease, background 150ms ease;
+      }
+
+      .personality-option:hover {
+        border-color: var(--border-strong);
+      }
+
+      .personality-option:has(input:checked) {
+        border-color: var(--selection-border);
+        background: var(--selection-soft);
+      }
+
+      .personality-option:has(input:focus-visible) {
+        border-color: var(--selection);
+        box-shadow: 0 0 0 3px var(--focus);
+      }
+
+      .personality-option input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .personality-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .personality-name {
+        min-width: 0;
+        color: var(--foreground);
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .personality-description {
+        margin: 7px 0 0;
+        color: var(--text-muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .optional-context {
+        margin-top: 18px;
+        padding-top: 17px;
+        border-top: 1px solid var(--border);
+      }
+
+      .optional-label {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .optional-badge {
+        border: 1px solid var(--border-medium);
+        border-radius: 999px;
+        padding: 1px 6px;
+        color: var(--text-muted);
+        font-size: 9px;
+        font-weight: 650;
+        line-height: 1.5;
+      }
+
+      .agreement-list {
+        margin-top: 17px;
+        border-top: 1px solid var(--border);
+      }
+
+      .agreement-row {
+        display: grid;
+        grid-template-columns: minmax(220px, 0.72fr) minmax(0, 1.28fr);
+        gap: 20px;
+        align-items: center;
+        padding: 14px 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .agreement-row textarea {
+        min-height: 60px;
+        margin-top: 0;
+      }
+
+      .agreement-row:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+      }
+
+      .wizard-footer {
+        position: relative;
+        z-index: 2;
+        flex: 0 0 72px;
+        min-height: 72px;
+        padding: 14px 24px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        background: var(--surface-low);
+      }
+
+      .action-button {
+        height: 40px;
+        width: max-content;
+        flex: 0 0 auto;
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 0 16px;
+        font-size: 15px;
+        font-weight: 500;
+        cursor: default;
+      }
+
+      .action-button svg {
+        width: 15px;
+        height: 15px;
+      }
+
+      .action-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+
+      .action-button--secondary {
+        border: 1px solid var(--border-medium);
+        background: var(--background);
+        color: var(--foreground);
+      }
+
+      .action-button--primary {
+        border: 1px solid transparent;
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .wizard-momentum {
+        min-width: 0;
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0 8px;
+        text-align: center;
+      }
+
+      .momentum-track {
+        position: absolute;
+        inset: 0 0 auto;
+        height: 2px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .momentum-fill {
+        width: 72%;
+        height: 100%;
+        background: var(--selection);
+        box-shadow: 0 0 14px rgba(157, 180, 255, 0.65);
+      }
+
+      .momentum-status {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--selection);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        line-height: 1.2;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .momentum-status::before {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 8px currentColor;
+        content: "";
+      }
+
+      .momentum-detail {
+        max-width: 100%;
+        margin-top: 2px;
+        overflow: hidden;
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.2;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      @media (min-width: 761px) and (max-width: 1080px) {
+        .visual-template-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .visual-template-card {
+          min-height: 270px;
+          display: grid;
+          grid-template-columns: minmax(170px, 0.75fr) minmax(0, 1.25fr);
+        }
+
+        .visual-template-art {
+          height: 100%;
+          min-height: 270px;
+          border-right: 1px solid var(--border-medium);
+          border-bottom: 0;
+        }
+
+        .visual-template-copy {
+          padding: 18px;
+        }
+      }
+
+      @media (max-width: 920px) {
+        .resolution-selector-intro {
+          align-items: stretch;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .matchup-display {
+          width: 100%;
+        }
+
+        .resolution-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .wizard-header {
+          min-height: 126px;
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          justify-content: center;
+          gap: 9px;
+          padding: 11px 14px;
+        }
+
+        .wizard-header-copy {
+          min-width: 0;
+          padding-right: 42px;
+        }
+
+        .wizard-header p {
+          line-height: 18px;
+        }
+
+        .variant-switcher {
+          position: static;
+          gap: 4px;
+          padding: 4px;
+          background: rgba(27, 35, 49, 0.98);
+        }
+      }
+
+      @media (max-width: 760px) {
+        .wizard-header {
+          min-height: 126px;
+          display: flex;
+          flex-direction: column;
+          align-items: stretch;
+          justify-content: center;
+          gap: 9px;
+          padding: 11px 14px;
+        }
+
+        .wizard-header-copy {
+          min-width: 0;
+          padding-right: 42px;
+        }
+
+        .wizard-header h1 {
+          font-size: 20px;
+        }
+
+        .wizard-header p {
+          font-size: 12px;
+          line-height: 18px;
+          overflow: visible;
+          text-overflow: clip;
+          white-space: normal;
+        }
+
+        .close-button {
+          top: 12px;
+          right: 14px;
+          width: 32px;
+          height: 32px;
+        }
+
+        .wizard-body {
+          padding: 12px;
+        }
+
+        .variant-switcher {
+          position: static;
+          gap: 4px;
+          padding: 4px;
+          background: rgba(27, 35, 49, 0.98);
+        }
+
+        .variant-button {
+          gap: 5px;
+          padding: 7px 5px;
+          font-size: 10px;
+          line-height: 1.2;
+          white-space: normal;
+        }
+
+        .variant-letter {
+          width: 18px;
+          height: 18px;
+          font-size: 9px;
+        }
+
+        .setup-panel {
+          padding: 17px 15px;
+        }
+
+        .split-fields,
+        .personality-grid,
+        .visual-template-grid,
+        .compact-template-layout,
+        .readonly-grid,
+        .agreement-row {
+          grid-template-columns: 1fr;
+        }
+
+        .compact-template-layout {
+          gap: 16px;
+        }
+
+        .compact-template-row {
+          grid-template-columns: 32px minmax(0, 1fr);
+        }
+
+        .compact-traits {
+          display: none;
+        }
+
+        .personality-option {
+          min-height: 0;
+        }
+
+        .agreement-row {
+          gap: 9px;
+          align-items: start;
+        }
+
+        .readonly-panel,
+        .launch-panel {
+          padding: 18px 16px;
+        }
+
+        .summary-row {
+          grid-template-columns: minmax(96px, 0.55fr) minmax(0, 1.45fr);
+          gap: 12px;
+        }
+
+        .wizard-footer {
+          padding: 12px 20px;
+        }
+
+        .action-button {
+          height: 36px;
+          padding: 0 14px;
+          font-size: 14px;
+        }
+
+        .wizard-momentum {
+          padding: 0 4px;
+        }
+
+        .momentum-status {
+          letter-spacing: 0.08em;
+        }
+
+        .momentum-detail {
+          font-size: 10px;
+        }
+      }
+
+      @media (max-width: 460px) {
+        .creation-path-switch {
+          grid-template-columns: 1fr;
+        }
+
+        .flow-step {
+          min-height: 42px;
+          justify-content: center;
+          padding: 6px;
+        }
+
+        .flow-step-copy {
+          flex: 0 1 auto;
+        }
+
+        .flow-step-value {
+          display: none;
+        }
+
+        .summary-row {
+          grid-template-columns: 1fr;
+          gap: 4px;
+        }
+
+        .lifecycle-steps {
+          gap: 4px;
+        }
+
+        .initialization-view {
+          padding: 18px;
+        }
+
+        .visual-template-card {
+          min-height: 300px;
+        }
+
+        .visual-template-art {
+          height: 136px;
+          flex-basis: 136px;
+        }
+
+        .template-panel--language {
+          padding-inline: 4px;
+        }
+      }
+
+      @media (max-width: 639px) {
+        .dashboard-sidebar {
+          display: none;
+        }
+      }
+
+      @media (max-width: 360px) {
+        .variant-letter {
+          display: none;
+        }
+
+        .wizard-footer {
+          padding-inline: 12px;
+        }
+
+        .wizard-momentum {
+          padding-inline: 2px;
+        }
+
+        .momentum-detail {
+          display: none;
+        }
+      }
+
+      @media (forced-colors: active) {
+        button:focus-visible,
+        textarea:focus-visible,
+        .personality-option:has(input:focus-visible) {
+          outline: 2px solid Highlight;
+          outline-offset: 2px;
+          box-shadow: none;
+        }
+
+        .variant-button[aria-pressed="true"],
+        .personality-option:has(input:checked) {
+          outline: 1px solid Highlight;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="svg-defs" aria-hidden="true">
+      <defs>
+        <symbol id="icon-panel-left" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M15 9l-3 3 3 3" /></symbol>
+        <symbol id="icon-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8" /><path d="M5 10v10h14V10M9 20v-6h6v6" /></symbol>
+        <symbol id="icon-library" viewBox="0 0 24 24"><path d="M4 5h5v15H4zM10 4h5v16h-5zM16 6h4v14h-4z" /></symbol>
+        <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+        <symbol id="icon-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></symbol>
+        <symbol id="icon-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></symbol>
+        <symbol id="icon-folder" viewBox="0 0 24 24"><path d="M3 6h7l2 2h9v11H3z" /></symbol>
+        <symbol id="icon-blocks" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M17.5 14v7M14 17.5h7" /></symbol>
+        <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2zM19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8zM5 14l.7 1.8 1.8.7-1.8.7L5 19l-.7-1.8-1.8-.7 1.8-.7z" /></symbol>
+        <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M8 3v4M16 3v4M3 10h18M8 14h3M8 17h6" /></symbol>
+        <symbol id="icon-code" viewBox="0 0 24 24"><path d="m8 9-3 3 3 3M16 9l3 3-3 3M14 5l-4 14" /></symbol>
+      </defs>
+    </svg>
+
+    <div class="dashboard-shell" data-flow-step="workspace" data-creation-path="template">
+      <aside class="dashboard-sidebar" aria-label="Dashboard navigation">
+        <div class="sidebar-brand">
+          <img src="../public/logos/hypercli-full-blue.svg" alt="HyperCLI" />
+        </div>
+        <div class="sidebar-body">
+          <section class="roster-pane" aria-label="Agent roster">
+            <div class="roster-scroll">
+              <div class="roster-heading">
+                <span>Agents</span>
+                <button class="sidebar-icon-button" type="button" aria-label="Collapse agents sidebar">
+                  <svg class="sidebar-icon" aria-hidden="true"><use href="#icon-panel-left"></use></svg>
+                </button>
+              </div>
+
+              <nav class="roster-nav" aria-label="Dashboard sections">
+                <button class="roster-nav-item" type="button">
+                  <span class="nav-icon-wrap"><svg class="sidebar-icon" aria-hidden="true"><use href="#icon-home"></use></svg></span>
+                  <span>Home</span>
+                </button>
+                <button class="roster-nav-item" type="button">
+                  <span class="nav-icon-wrap"><svg class="sidebar-icon" aria-hidden="true"><use href="#icon-library"></use></svg></span>
+                  <span>Knowledge Hub</span>
+                </button>
+              </nav>
+
+              <div class="agent-list" aria-label="My agents">
+                <button class="agent-row agent-row--launch" type="button" data-reopen-setup>
+                  <span class="agent-avatar agent-avatar--launch"><svg class="sidebar-icon" aria-hidden="true"><use href="#icon-plus"></use></svg></span>
+                  <span class="agent-copy">
+                    <span class="agent-name">Launch agent</span>
+                    <span class="agent-meta">Create a new workspace</span>
+                  </span>
+                </button>
+                <button class="agent-row" type="button">
+                  <span class="agent-avatar agent-avatar--mint">R<span class="agent-status"></span></span>
+                  <span class="agent-copy">
+                    <span class="agent-name">Research</span>
+                    <span class="agent-meta">Running</span>
+                  </span>
+                </button>
+                <button class="agent-row" type="button">
+                  <span class="agent-avatar agent-avatar--violet">W<span class="agent-status"></span></span>
+                  <span class="agent-copy">
+                    <span class="agent-name">Writer</span>
+                    <span class="agent-meta">Running</span>
+                  </span>
+                </button>
+                <button class="agent-row" type="button">
+                  <span class="agent-avatar agent-avatar--amber">O<span class="agent-status"></span></span>
+                  <span class="agent-copy">
+                    <span class="agent-name">Operations</span>
+                    <span class="agent-meta">Running</span>
+                  </span>
+                </button>
+              </div>
+
+              <section class="admin-section" aria-label="Administration">
+                <span class="admin-title">Administration</span>
+                <nav class="admin-nav">
+                  <button class="admin-nav-item" type="button">
+                    <span class="nav-icon-wrap"><svg class="sidebar-icon" aria-hidden="true"><use href="#icon-users"></use></svg></span>
+                    <span>Members</span>
+                  </button>
+                  <button class="admin-nav-item" type="button">
+                    <span class="nav-icon-wrap"><svg class="sidebar-icon" aria-hidden="true"><use href="#icon-chart"></use></svg></span>
+                    <span>Usage</span>
+                  </button>
+                </nav>
+              </section>
+            </div>
+
+            <button class="account-row" type="button" aria-label="Account links">
+              <span class="account-avatar">F</span>
+              <span class="account-copy">
+                <span class="account-name">Francisco</span>
+                <span class="account-email">Account settings</span>
+              </span>
+            </button>
+          </section>
+
+          <nav class="workspace-rail" aria-label="Agent workspace">
+            <button class="rail-button rail-button--primary" type="button" aria-label="New session"><svg class="rail-icon" aria-hidden="true"><use href="#icon-plus"></use></svg></button>
+            <button class="rail-button" type="button" aria-label="Files"><svg class="rail-icon" aria-hidden="true"><use href="#icon-folder"></use></svg></button>
+            <button class="rail-button" type="button" aria-label="Integrations"><svg class="rail-icon" aria-hidden="true"><use href="#icon-blocks"></use></svg></button>
+            <button class="rail-button" type="button" aria-label="Skills"><svg class="rail-icon" aria-hidden="true"><use href="#icon-sparkles"></use></svg></button>
+            <button class="rail-button" type="button" aria-label="Scheduled"><svg class="rail-icon" aria-hidden="true"><use href="#icon-calendar"></use></svg></button>
+            <span class="rail-divider" aria-hidden="true"></span>
+            <button class="rail-button" type="button" aria-label="Advanced"><svg class="rail-icon" aria-hidden="true"><use href="#icon-code"></use></svg></button>
+            <span class="rail-spacer"></span>
+            <button class="rail-button" type="button" aria-label="Upgrade"><svg class="rail-icon" aria-hidden="true"><use href="#icon-sparkles"></use></svg></button>
+          </nav>
+        </div>
+      </aside>
+
+      <main class="wizard" aria-labelledby="wizard-title">
+        <header class="wizard-header">
+          <div class="wizard-header-copy">
+            <h1 id="wizard-title" tabindex="-1">Set up the workspace</h1>
+            <p>Shape the canonical instructions OpenClaw will read when this agent starts.</p>
+          </div>
+          <div class="variant-switcher" role="group" aria-label="Question variants" data-workspace-control>
+            <button class="variant-button" id="variant-tab-a" type="button" aria-pressed="false" aria-controls="variant-panel-a" data-variant="a">
+              <span class="variant-letter" aria-hidden="true">A</span>
+              <span>Visual</span>
+            </button>
+            <button class="variant-button" id="variant-tab-b" type="button" aria-pressed="false" aria-controls="variant-panel-b" data-variant="b">
+              <span class="variant-letter" aria-hidden="true">B</span>
+              <span>Compact</span>
+            </button>
+            <button class="variant-button" id="variant-tab-c" type="button" aria-pressed="false" aria-controls="variant-panel-c" data-variant="c">
+              <span class="variant-letter" aria-hidden="true">C</span>
+              <span>Plain language</span>
+            </button>
+          </div>
+          <button class="close-button" type="button" aria-label="Close agent creation" data-close-setup>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
+        </header>
+
+        <div class="wizard-body" data-scroll-body>
+          <section class="step-view readonly-panel" data-step-view="identity" aria-labelledby="identity-step-title" hidden>
+            <div class="panel-intro">
+              <h2 id="identity-step-title">Agent identity</h2>
+              <p>Name the agent first. Its workspace, badge, and URL will update automatically.</p>
+            </div>
+            <div class="readonly-grid">
+              <div class="readonly-field">
+                <label class="readonly-label" for="agent-name">Agent name</label>
+                <input class="identity-name-input" id="agent-name" type="text" value="Avery" maxlength="24" autocomplete="off" data-agent-name-input />
+              </div>
+              <div class="readonly-field">
+                <span class="readonly-label">Agent URL</span>
+                <div class="readonly-value" data-agent-url>avery.hypercli.com</div>
+              </div>
+              <div class="readonly-field">
+                <span class="readonly-label">Initial Knowledge Domain</span>
+                <div class="readonly-value"><svg aria-hidden="true"><use href="#icon-library"></use></svg>General</div>
+              </div>
+              <div class="readonly-field">
+                <span class="readonly-label">Runtime</span>
+                <div class="readonly-value"><svg aria-hidden="true"><use href="#icon-sparkles"></use></svg>OpenClaw</div>
+              </div>
+            </div>
+            <div class="readonly-features" aria-label="Advanced settings">
+              <span class="readonly-chip">Default image</span>
+              <span class="readonly-chip">Desktop browser off</span>
+              <span class="readonly-chip">Memory indexing on</span>
+            </div>
+          </section>
+
+          <div class="setup-stage step-view" data-step-view="workspace">
+            <section class="setup-panel template-panel template-panel--visual" data-template-variant="a" aria-labelledby="visual-template-title">
+              <div class="panel-intro visual-template-heading">
+                <div class="visual-template-heading-copy">
+                  <span class="template-kicker">Pick one. Start ready.</span>
+                  <h2 id="visual-template-title">Who should <span data-agent-name-text>Avery</span> become?</h2>
+                  <p>Choose their personality and problem-solving rhythm separately.</p>
+                </div>
+              </div>
+              <fieldset>
+                <legend class="sr-only">Choose a starting personality</legend>
+                <div class="visual-template-grid">
+                  <label class="visual-template-card visual-template-card--operator">
+                    <input type="radio" name="template-a" data-template-name="Focused operator" />
+                    <span class="visual-template-art visual-template-art--operator" data-persona-code="Executive" aria-hidden="true">
+                      <svg class="template-illustration" viewBox="0 0 360 166" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                          <linearGradient id="operator-bg" x1="18" y1="5" x2="342" y2="161" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4f2d3c" />
+                            <stop offset="0.56" stop-color="#252a3a" />
+                            <stop offset="1" stop-color="#151a26" />
+                          </linearGradient>
+                          <linearGradient id="operator-skin" x1="154" y1="34" x2="209" y2="126" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#d99b74" />
+                            <stop offset="1" stop-color="#a55f49" />
+                          </linearGradient>
+                          <linearGradient id="operator-jacket" x1="98" y1="120" x2="264" y2="170" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#34445c" />
+                            <stop offset="1" stop-color="#172131" />
+                          </linearGradient>
+                          <filter id="operator-shadow" x="67" y="-5" width="228" height="185" filterUnits="userSpaceOnUse">
+                            <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#160a10" flood-opacity="0.32" />
+                          </filter>
+                        </defs>
+                        <rect width="360" height="166" fill="url(#operator-bg)" />
+                        <circle class="persona-aura" cx="185" cy="68" r="92" fill="#f29a68" opacity="0.085" />
+                        <path d="M-8 145 76 61l34 34 81-81 37 37 65-65h67v180H-8Z" fill="#f0a06f" opacity="0.04" />
+                        <path d="M22 27h75M266 25h72M286 42h52" stroke="#ffb476" stroke-width="2" opacity="0.2" />
+                        <g class="persona-figure" filter="url(#operator-shadow)">
+                          <path d="M73 170c7-34 31-53 70-58h77c39 5 64 24 70 58H73Z" fill="url(#operator-jacket)" />
+                          <path d="m145 115 36 43 38-43-16-8h-41l-17 8Z" fill="#f5eadb" />
+                          <path d="M165 96h34v32c-9 9-25 9-34 0V96Z" fill="#a8614d" />
+                          <circle cx="141" cy="75" r="11" fill="#a8614d" />
+                          <circle cx="225" cy="75" r="11" fill="#a8614d" />
+                          <path d="M141 47c3-27 22-42 48-40 27 2 43 20 40 47l-3 30c-2 17-10 31-23 40l-18 8-18-7c-16-10-24-27-25-48l-1-30Z" fill="url(#operator-skin)" />
+                          <path d="M136 60c-2-34 18-55 52-55 31 0 48 21 44 54-16-4-31-14-42-29-11 15-29 25-54 30Z" fill="#161b27" />
+                          <path d="M139 58c3 6 5 14 5 25l-7-7-2-18h4ZM229 56c-3 7-4 17-3 27l7-9 1-18h-5Z" fill="#161b27" />
+                          <path d="M155 68c7-4 14-4 20 0M194 68c7-4 14-4 20 0" stroke="#51352f" stroke-width="3.2" />
+                          <ellipse cx="166" cy="76" rx="3.2" ry="3.8" fill="#1d202a" />
+                          <ellipse cx="204" cy="76" rx="3.2" ry="3.8" fill="#1d202a" />
+                          <path d="M185 78c-1 8-3 13-7 16 4 2 9 2 13 0" stroke="#80483c" stroke-width="2" />
+                          <path d="M171 106c9 3 19 2 28-3" stroke="#643536" stroke-width="2.5" />
+                          <path d="m144 116 37 42-25 12-24-47 12-7ZM219 116l-38 42 26 12 24-47-12-7Z" fill="#26354a" />
+                          <path d="m181 128 8 10-7 28-8-28 7-10Z" fill="#e37754" />
+                          <path d="M242 143h22" stroke="#c9d2df" stroke-width="2" opacity="0.62" />
+                        </g>
+                        <circle cx="47" cy="51" r="4" fill="#ffd39a" opacity="0.86" />
+                        <path class="persona-glint" d="m307 112 5 9 10 3-10 4-5 9-4-9-10-4 10-3 4-9Z" fill="#ef9b68" opacity="0.74" />
+                      </svg>
+                      <span class="agent-name-badge"><img src="../public/logos/hypercli-icon-blue.svg" alt="" /><span data-agent-badge-name>Avery</span></span>
+                    </span>
+                    <span class="visual-template-copy">
+                      <span class="personality-head"><span class="personality-name">Focused operator</span></span>
+                      <span class="personality-description">Decisive and structured without waiting to be managed. They find what matters now and keep momentum visible.</span>
+                    </span>
+                  </label>
+                  <label class="visual-template-card visual-template-card--partner">
+                    <input type="radio" name="template-a" data-template-name="Thoughtful partner" checked />
+                    <span class="visual-template-art visual-template-art--partner" data-persona-code="Technologist" aria-hidden="true">
+                      <svg class="template-illustration" viewBox="0 0 360 166" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                          <linearGradient id="partner-bg" x1="20" y1="5" x2="340" y2="161" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4f3567" />
+                            <stop offset="0.55" stop-color="#302c50" />
+                            <stop offset="1" stop-color="#1c2238" />
+                          </linearGradient>
+                          <linearGradient id="partner-skin" x1="158" y1="39" x2="210" y2="130" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#ffd2b2" />
+                            <stop offset="1" stop-color="#e89d82" />
+                          </linearGradient>
+                          <linearGradient id="partner-shirt" x1="91" y1="119" x2="277" y2="169" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#7778c7" />
+                            <stop offset="1" stop-color="#3f4379" />
+                          </linearGradient>
+                          <filter id="partner-shadow" x="59" y="-4" width="247" height="187" filterUnits="userSpaceOnUse">
+                            <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#160c1c" flood-opacity="0.3" />
+                          </filter>
+                        </defs>
+                        <rect width="360" height="166" fill="url(#partner-bg)" />
+                        <circle class="persona-aura" cx="180" cy="76" r="94" fill="#a896ff" opacity="0.08" />
+                        <path d="M0 126c44-32 87-32 130 0 43 31 86 31 129 0 33-24 67-30 101-17v57H0v-40Z" fill="#b9a5ff" opacity="0.055" />
+                        <circle cx="55" cy="45" r="18" fill="#c6b7ff" opacity="0.1" />
+                        <path d="M28 72V38h42v17h31M277 30h49v26h-23v25M41 119h35v17h30" stroke="#c8bcff" stroke-width="1.5" opacity="0.22" />
+                        <circle cx="101" cy="55" r="3" fill="#e5a8cd" opacity="0.72" />
+                        <circle cx="303" cy="81" r="3" fill="#9fc9ff" opacity="0.72" />
+                        <g class="persona-figure" filter="url(#partner-shadow)">
+                          <path d="M75 170c10-34 37-52 79-55h60c43 3 70 21 80 55H75Z" fill="url(#partner-shirt)" />
+                          <path d="M164 100h38v31c-9 10-29 10-38 0v-31Z" fill="#e69b80" />
+                          <path d="M123 57c2-35 25-55 61-55 37 0 62 25 61 62l-7 60c-13 16-34 24-57 22-27-2-48-16-59-39l1-50Z" fill="#211d39" />
+                          <circle cx="137" cy="54" r="25" fill="#211d39" />
+                          <circle cx="154" cy="28" r="25" fill="#211d39" />
+                          <circle cx="184" cy="19" r="25" fill="#211d39" />
+                          <circle cx="215" cy="30" r="25" fill="#211d39" />
+                          <circle cx="233" cy="56" r="25" fill="#211d39" />
+                          <circle cx="230" cy="87" r="24" fill="#211d39" />
+                          <circle cx="135" cy="87" r="24" fill="#211d39" />
+                          <circle cx="145" cy="72" r="10" fill="#e89d82" />
+                          <circle cx="222" cy="72" r="10" fill="#e89d82" />
+                          <path d="M146 48c9-19 24-28 39-28 24 0 42 19 42 46v16c0 29-18 48-43 48-25 0-42-19-42-48V66c0-6 1-12 4-18Z" fill="url(#partner-skin)" />
+                          <path d="M143 53c15-2 29-10 41-24 7 13 20 21 40 24-3-25-19-39-40-39-22 0-38 15-41 39Z" fill="#211d39" />
+                          <path d="M157 69c6-3 12-3 18 0M194 69c6-3 12-3 18 0" stroke="#6c3c4d" stroke-width="2.8" />
+                          <ellipse cx="167" cy="77" rx="3.2" ry="3.8" fill="#3e2936" />
+                          <ellipse cx="203" cy="77" rx="3.2" ry="3.8" fill="#3e2936" />
+                          <rect x="150" y="65" width="31" height="23" rx="5" fill="#2d3159" fill-opacity="0.35" stroke="#d7c8ff" stroke-width="2.2" />
+                          <rect x="189" y="65" width="31" height="23" rx="5" fill="#2d3159" fill-opacity="0.35" stroke="#d7c8ff" stroke-width="2.2" />
+                          <path d="M181 72h8M220 70l12-5" stroke="#d7c8ff" stroke-width="2.2" />
+                          <circle cx="235" cy="64" r="6" fill="#8ea8ff" stroke="#e3dcff" stroke-width="2" />
+                          <path d="M239 68v20" stroke="#9fc9ff" stroke-width="2" opacity="0.8" />
+                          <path d="M185 79c-1 8-3 13-7 16 4 2 9 2 13 0" stroke="#be745f" stroke-width="2" />
+                          <path d="M171 103c8 2 17 3 25 2" stroke="#96505c" stroke-width="2.5" />
+                          <path d="M231 170c0-18-4-38-12-51-5-8-13-13-18-9-5 5 1 13 5 20l-10 15c-5 7-7 16-7 25h42Z" fill="#f0ad90" />
+                          <path d="M200 111c5 4 9 10 11 17" stroke="#c77d69" stroke-width="2" />
+                          <path d="M145 119c8 17 21 28 39 33 18-5 31-16 39-33M160 133l-3 23M208 133l3 23" stroke="#aeb5ff" stroke-width="2" opacity="0.7" />
+                          <circle cx="157" cy="157" r="3" fill="#d8ccff" />
+                          <circle cx="211" cy="157" r="3" fill="#d8ccff" />
+                        </g>
+                        <circle cx="50" cy="118" r="4" fill="#9fc9ff" opacity="0.8" />
+                        <circle cx="315" cy="38" r="5" fill="#e5a8cd" opacity="0.86" />
+                        <path class="persona-glint" d="m309 113 4 8 9 3-9 3-4 8-4-8-9-3 9-3 4-8Z" fill="#ffd9a5" opacity="0.7" />
+                      </svg>
+                      <span class="agent-name-badge"><img src="../public/logos/hypercli-icon-blue.svg" alt="" /><span data-agent-badge-name>Avery</span></span>
+                    </span>
+                    <span class="visual-template-copy">
+                      <span class="personality-head"><span class="personality-name">Thoughtful partner</span></span>
+                      <span class="personality-description">Curious, perceptive, and comfortable with ambiguity. They listen for missing context and challenge assumptions gently.</span>
+                    </span>
+                  </label>
+                  <label class="visual-template-card visual-template-card--guide">
+                    <input type="radio" name="template-a" data-template-name="Patient guide" />
+                    <span class="visual-template-art visual-template-art--guide" data-persona-code="Creative catalyst" aria-hidden="true">
+                      <svg class="template-illustration" viewBox="0 0 360 166" preserveAspectRatio="xMidYMid slice">
+                        <defs>
+                          <linearGradient id="guide-bg" x1="22" y1="5" x2="338" y2="161" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#455c54" />
+                            <stop offset="0.54" stop-color="#293e3c" />
+                            <stop offset="1" stop-color="#17282d" />
+                          </linearGradient>
+                          <linearGradient id="guide-skin" x1="153" y1="37" x2="211" y2="128" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#dc9675" />
+                            <stop offset="1" stop-color="#b86655" />
+                          </linearGradient>
+                          <linearGradient id="guide-cardigan" x1="87" y1="119" x2="276" y2="171" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#46756f" />
+                            <stop offset="1" stop-color="#203d43" />
+                          </linearGradient>
+                          <filter id="guide-shadow" x="66" y="-5" width="231" height="188" filterUnits="userSpaceOnUse">
+                            <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#101b16" flood-opacity="0.32" />
+                          </filter>
+                        </defs>
+                        <rect width="360" height="166" fill="url(#guide-bg)" />
+                        <circle class="persona-aura" cx="207" cy="69" r="88" fill="#efc875" opacity="0.075" />
+                        <path d="M0 164c18-45 41-76 70-92-7 34-1 65 19 92H0ZM360 166c-16-43-39-75-68-94 7 35 0 66-20 94h88Z" fill="#73a08b" opacity="0.12" />
+                        <path d="M42 31c11 9 17 21 16 37-14-6-23-16-27-31l11-6ZM319 47c-12 7-19 18-21 33 15-4 25-13 31-27l-10-6Z" fill="#d5b66e" opacity="0.35" />
+                        <g class="persona-figure" filter="url(#guide-shadow)">
+                          <path d="M72 170c9-34 36-52 78-56h66c42 4 69 22 78 56H72Z" fill="url(#guide-cardigan)" />
+                          <path d="m143 117 39 45 39-45-17-9h-44l-17 9Z" fill="#e6bd69" />
+                          <path d="M164 99h38v31c-10 10-29 10-38 0V99Z" fill="#b96b57" />
+                          <circle cx="141" cy="74" r="11" fill="#b96b57" />
+                          <circle cx="223" cy="74" r="11" fill="#b96b57" />
+                          <path d="M140 51c0-29 18-46 43-46 27 0 44 19 44 47v25c0 31-18 51-44 51-26 0-43-20-43-51V51Z" fill="url(#guide-skin)" />
+                          <path d="M132 60c3-37 23-59 57-58 17 1 31 8 42 22-19 2-33-3-41-14-7 22-26 39-58 50Z" fill="#c9c2ff" />
+                          <path d="M137 52c-5 13-5 26-1 40l10-12V55l-9-3ZM228 45c6 14 7 28 3 43l-9-11V50l6-5Z" fill="#c9c2ff" />
+                          <path d="M150 63h29l7 8-7 17h-25l-9-8 5-17ZM190 63h29l7 8-7 17h-25l-8-8 4-17Z" fill="#d99c57" fill-opacity="0.25" stroke="#f1ca78" stroke-width="2.5" />
+                          <path d="M184 73h5" stroke="#f1ca78" stroke-width="2.5" />
+                          <ellipse cx="165" cy="77" rx="3" ry="3.6" fill="#362a29" />
+                          <ellipse cx="202" cy="77" rx="3" ry="3.6" fill="#362a29" />
+                          <path d="M184 79c-1 8-3 13-7 16 4 2 9 2 13 0" stroke="#8c4f45" stroke-width="2" />
+                          <path d="M169 106c9 3 19 2 28-2" stroke="#743d3c" stroke-width="2.5" />
+                          <path d="M153 61c7-4 14-4 20 0M194 61c7-4 14-4 20 0" stroke="#8d6653" stroke-width="2.5" />
+                          <path d="m143 117 39 45-28 8-23-45 12-8ZM221 117l-39 45 28 8 23-45-12-8Z" fill="#315b5a" />
+                          <circle cx="227" cy="98" r="7" fill="none" stroke="#efc875" stroke-width="2.5" />
+                          <circle cx="227" cy="98" r="2" fill="#efc875" />
+                          <path d="M151 24c18-12 39-17 61-15M146 34c16-10 31-15 46-17" stroke="#f1eeff" stroke-width="2" opacity="0.68" />
+                        </g>
+                        <path class="persona-glint" d="m61 108 4 8 9 3-9 3-4 8-4-8-9-3 9-3 4-8Z" fill="#f2c675" opacity="0.78" />
+                        <circle cx="309" cy="111" r="4" fill="#e5b86c" opacity="0.7" />
+                      </svg>
+                      <span class="agent-name-badge"><img src="../public/logos/hypercli-icon-blue.svg" alt="" /><span data-agent-badge-name>Avery</span></span>
+                    </span>
+                    <span class="visual-template-copy">
+                      <span class="personality-head"><span class="personality-name">Patient guide</span></span>
+                      <span class="personality-description">Calm, encouraging, and never condescending. They make unfamiliar work manageable and adapt the pace to what you need.</span>
+                    </span>
+                  </label>
+                </div>
+              </fieldset>
+              <section class="resolution-selector" aria-labelledby="resolution-selector-title">
+                <div class="resolution-selector-intro">
+                  <div>
+                    <h3 id="resolution-selector-title">How should they solve things?</h3>
+                  </div>
+                  <div class="matchup-display" data-matchup-display aria-live="polite" aria-atomic="true">
+                    <span class="matchup-label">Current pairing</span>
+                    <span class="matchup-value">
+                      <strong data-matchup-personality>Thoughtful partner</strong>
+                      <span class="matchup-bridge" aria-hidden="true"><span>+</span></span>
+                      <strong data-matchup-resolution>Reason it out together</strong>
+                    </span>
+                  </div>
+                </div>
+                <fieldset>
+                  <legend class="sr-only">Choose a problem-solving approach</legend>
+                  <div class="resolution-grid">
+                    <label class="resolution-option">
+                      <input type="radio" name="resolution-a" data-resolution-name="Drive to an answer" />
+                      <span class="resolution-option-head"><strong>Drive to an answer</strong></span>
+                      <span class="resolution-option-copy">Clarify the outcome, cut distractions, and move the strongest option forward.</span>
+                    </label>
+                    <label class="resolution-option">
+                      <input type="radio" name="resolution-a" data-resolution-name="Reason it out together" checked />
+                      <span class="resolution-option-head"><strong>Reason it out together</strong></span>
+                      <span class="resolution-option-copy">Explore the angles, name the trade-offs, and recommend a grounded choice.</span>
+                    </label>
+                    <label class="resolution-option">
+                      <input type="radio" name="resolution-a" data-resolution-name="Unpack it step by step" />
+                      <span class="resolution-option-head"><strong>Unpack it step by step</strong></span>
+                      <span class="resolution-option-copy">Explain the why, surface unknowns, and move one clear step at a time.</span>
+                    </label>
+                  </div>
+                </fieldset>
+              </section>
+              <button class="question-backup" type="button" data-open-questions><span data-random-template-prompt>None feels right?</span> <span class="question-backup-action">Answer a few questions instead</span> <span aria-hidden="true">→</span></button>
+            </section>
+
+            <section class="setup-panel template-panel template-panel--compact" data-template-variant="b" aria-labelledby="compact-template-title" hidden>
+              <div class="compact-template-layout">
+                <div class="compact-template-intro">
+                  <span class="template-kicker">Quick start</span>
+                  <h2 id="compact-template-title">Choose a working style</h2>
+                  <p>Three practical defaults. Select the closest match and keep moving.</p>
+                </div>
+                <fieldset class="compact-template-list">
+                  <legend class="field-title">Available templates</legend>
+                  <label class="compact-template-row">
+                    <input type="radio" name="template-b" data-template-name="Focused operator" />
+                    <span class="compact-index">FO</span><span class="compact-copy"><strong>Focused operator</strong><small>Plans, prioritizes, follows through</small></span><span class="compact-traits">Direct · concise</span>
+                  </label>
+                  <label class="compact-template-row">
+                    <input type="radio" name="template-b" data-template-name="Thoughtful partner" checked />
+                    <span class="compact-index">TP</span><span class="compact-copy"><strong>Thoughtful partner</strong><small>Researches, reasons, collaborates</small></span><span class="compact-traits">Warm · balanced</span>
+                  </label>
+                  <label class="compact-template-row">
+                    <input type="radio" name="template-b" data-template-name="Patient guide" />
+                    <span class="compact-index">PG</span><span class="compact-copy"><strong>Patient guide</strong><small>Explains, teaches, supports</small></span><span class="compact-traits">Calm · thorough</span>
+                  </label>
+                </fieldset>
+              </div>
+              <button class="question-backup" type="button" data-open-questions>Need something more specific? <span class="question-backup-action">Answer a few questions</span> <span aria-hidden="true">→</span></button>
+            </section>
+
+            <section class="setup-panel template-panel template-panel--language" data-template-variant="c" aria-labelledby="language-template-title" hidden>
+              <div class="panel-intro language-template-intro">
+                <span class="template-kicker">Choose by feel</span>
+                <h2 id="language-template-title">Which sentence sounds most useful?</h2>
+                <p>No traits to decode. Pick the way you want your agent to work with you.</p>
+              </div>
+              <fieldset class="language-template-list">
+                <legend class="field-title">Starting personalities</legend>
+                <label class="language-template-row">
+                  <input type="radio" name="template-c" data-template-name="Focused operator" />
+                  <span class="language-template-copy"><small>Focused operator</small><strong>“Keep me moving and make the next step obvious.”</strong><span>Best when momentum and clarity matter most.</span></span>
+                </label>
+                <label class="language-template-row">
+                  <input type="radio" name="template-c" data-template-name="Thoughtful partner" checked />
+                  <span class="language-template-copy"><small>Thoughtful partner</small><strong>“Think it through with me, then make a clear recommendation.”</strong><span>Best for research, trade-offs, and decisions.</span></span>
+                </label>
+                <label class="language-template-row">
+                  <input type="radio" name="template-c" data-template-name="Patient guide" />
+                  <span class="language-template-copy"><small>Patient guide</small><strong>“Walk me through it without rushing or overcomplicating it.”</strong><span>Best for learning and unfamiliar work.</span></span>
+                </label>
+              </fieldset>
+              <button class="question-backup" type="button" data-open-questions>Want to describe it in your own words? <span class="question-backup-action">Answer a few questions</span> <span aria-hidden="true">→</span></button>
+            </section>
+
+            <div class="question-variants" data-question-view hidden>
+              <button class="back-to-templates" type="button" data-back-to-templates><span aria-hidden="true">←</span> Back to templates</button>
+          <section class="setup-panel" id="variant-panel-a" aria-labelledby="variant-tab-a" data-panel="a">
+            <div class="panel-intro">
+              <h2>Help your agent get to know the job</h2>
+              <p>Two quick answers will give it a useful starting point. You can change these anytime.</p>
+            </div>
+
+            <div class="field">
+              <label for="outcome-help">What would you love this agent to take off your plate?</label>
+              <span class="field-helper" id="outcome-help-note">Share the work, goals, or recurring tasks you want help moving forward.</span>
+              <textarea class="textarea--large" id="outcome-help" aria-describedby="outcome-help-note" placeholder="For example: Turn rough ideas into clear plans, draft client updates, and keep track of what needs to happen next."></textarea>
+            </div>
+
+            <div class="field">
+              <label for="outcome-result">What would a great result look like?</label>
+              <span class="field-helper" id="outcome-result-note">A short example helps it understand the level of detail and outcome you value.</span>
+              <textarea id="outcome-result" aria-describedby="outcome-result-note" placeholder="For example: A concise weekly plan with priorities, owners, and the next decision I need to make."></textarea>
+            </div>
+
+            <div class="field">
+              <label for="outcome-style">How should it feel to work together?</label>
+              <span class="field-helper" id="outcome-style-note">Describe the voice and level of detail that helps you do your best work.</span>
+              <textarea id="outcome-style" aria-describedby="outcome-style-note" placeholder="For example: Warm and collaborative, concise by default, and clear about trade-offs."></textarea>
+            </div>
+
+            <div class="field optional-context">
+              <label class="optional-label" for="outcome-context">
+                <span>Anything helpful for it to know about you or your work?</span>
+                <span class="optional-badge">Optional</span>
+              </label>
+              <span class="field-helper" id="outcome-context-note">Your role, priorities, tools, or team habits are plenty. Never include passwords or secrets.</span>
+              <textarea id="outcome-context" aria-describedby="outcome-context-note" placeholder="For example: I lead a small product team and usually work in Notion, Linear, and Slack."></textarea>
+            </div>
+          </section>
+
+          <section class="setup-panel" id="variant-panel-b" aria-labelledby="variant-tab-b" data-panel="b" hidden>
+            <div class="panel-intro">
+              <h2>Start with a real handoff</h2>
+              <p>Describe the first piece of work you would give a trusted teammate. A real example is enough.</p>
+            </div>
+
+            <div class="field">
+              <label for="handoff-first">What’s the first thing you’d hand this agent?</label>
+              <span class="field-helper" id="handoff-first-note">Include the outcome you need and any details that usually make the work go well.</span>
+              <textarea class="textarea--large" id="handoff-first" aria-describedby="handoff-first-note" placeholder="For example: Review my notes from this week and turn them into a Friday update with progress, blockers, and next steps."></textarea>
+            </div>
+
+            <div class="split-fields">
+              <div class="field">
+                <label for="handoff-ongoing">What should it keep helping with after that?</label>
+                <span class="field-helper" id="handoff-ongoing-note">Add recurring work or responsibilities it should learn over time.</span>
+                <textarea id="handoff-ongoing" aria-describedby="handoff-ongoing-note" placeholder="Weekly updates, meeting follow-ups, and keeping priorities visible."></textarea>
+              </div>
+              <div class="field">
+                <label for="handoff-check">When should it pause and check with you?</label>
+                <span class="field-helper" id="handoff-check-note">Call out decisions or actions where you always want the final say.</span>
+                <textarea id="handoff-check" aria-describedby="handoff-check-note" placeholder="Before sending messages, publishing work, spending money, or changing deadlines."></textarea>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="handoff-style">What working style brings out your best work?</label>
+              <span class="field-helper" id="handoff-style-note">Tell it whether to be brief, explanatory, encouraging, challenging, or something else.</span>
+              <textarea id="handoff-style" aria-describedby="handoff-style-note" placeholder="For example: Be direct and practical, explain the why when it matters, and avoid unnecessary ceremony."></textarea>
+            </div>
+
+            <div class="field optional-context">
+              <label class="optional-label" for="handoff-context">
+                <span>What context would make that work easier?</span>
+                <span class="optional-badge">Optional</span>
+              </label>
+              <span class="field-helper" id="handoff-context-note">Share only the role, tools, priorities, or team habits that are genuinely useful.</span>
+              <textarea id="handoff-context" aria-describedby="handoff-context-note" placeholder="For example: Our launch notes live in Notion, and customer-impacting work always comes first."></textarea>
+            </div>
+          </section>
+
+          <section class="setup-panel" id="variant-panel-c" aria-labelledby="variant-tab-c" data-panel="c" hidden>
+            <div class="panel-intro">
+              <h2>Choose how you’ll work together</h2>
+              <p>Set a simple working agreement so your agent knows when to lead and when to follow your cue.</p>
+            </div>
+
+            <div class="field">
+              <label for="agreement-style">First, what kind of teammate should it be?</label>
+              <span class="field-helper" id="agreement-style-note">Describe the personality and communication style you would trust every day.</span>
+              <textarea id="agreement-style" aria-describedby="agreement-style-note" placeholder="For example: Calm, encouraging, and honest about uncertainty. Guide me step by step without talking down to me."></textarea>
+            </div>
+
+            <div class="agreement-list">
+              <div class="agreement-row">
+                <div>
+                  <label class="field-title" for="agreement-lead">Where would you like it to take the lead?</label>
+                  <span class="field-helper" id="agreement-lead-note">Name the work it can confidently move forward for you.</span>
+                </div>
+                <textarea id="agreement-lead" aria-describedby="agreement-lead-note" placeholder="For example: Research options, organize information, draft plans, and suggest the next practical step."></textarea>
+              </div>
+
+              <div class="agreement-row">
+                <div>
+                  <label class="field-title" for="agreement-hands">What should always stay in your hands?</label>
+                  <span class="field-helper" id="agreement-hands-note">Call out choices or actions it should never make without you.</span>
+                </div>
+                <textarea id="agreement-hands" aria-describedby="agreement-hands-note" placeholder="For example: Final approvals, messages sent in my name, purchases, and anything involving private customer data."></textarea>
+              </div>
+
+              <div class="agreement-row">
+                <div>
+                  <label class="field-title optional-label" for="agreement-context">
+                    <span>What should it understand about your world?</span>
+                    <span class="optional-badge">Optional</span>
+                  </label>
+                  <span class="field-helper" id="agreement-context-note">A little relevant context is enough. Never include passwords or secrets.</span>
+                </div>
+                <textarea id="agreement-context" aria-describedby="agreement-context-note" placeholder="For example: I run operations for a remote team and value calm, practical communication."></textarea>
+              </div>
+            </div>
+          </section>
+            </div>
+        </div>
+
+          <section class="step-view launch-panel" data-step-view="launch" aria-labelledby="launch-step-title" hidden>
+            <div class="panel-intro">
+              <h2 id="launch-step-title"><span data-agent-name-text>Avery</span> is ready to launch</h2>
+              <p>The remaining setup is prefilled for this prototype. Review the handoff, then start the agent.</p>
+            </div>
+            <dl class="summary-list">
+              <div class="summary-row"><dt>Identity</dt><dd><span data-agent-name-text>Avery</span> · <span data-agent-url>avery.hypercli.com</span></dd></div>
+              <div class="summary-row"><dt>Workspace setup</dt><dd data-setup-summary>Thoughtful partner template</dd></div>
+              <div class="summary-row"><dt>Knowledge</dt><dd>General Domain</dd></div>
+              <div class="summary-row"><dt>Runtime</dt><dd>OpenClaw · Default image</dd></div>
+              <div class="summary-row"><dt>Capacity</dt><dd><span class="ready-pill">Slot ready</span></dd></div>
+            </dl>
+          </section>
+
+          <section class="step-view initialization-view" data-step-view="initializing" aria-label="Agent initialization" hidden>
+            <div class="initialization-card" data-initialization-card data-ready="false">
+              <div class="hatch-visual" aria-hidden="true">
+                <span class="hatch-ring"></span>
+                <span class="hatch-ring hatch-ring--middle"></span>
+                <span class="hatch-ring hatch-ring--inner"></span>
+                <span class="hatch-halo"></span>
+                <span class="hatch-core"></span>
+              </div>
+              <div role="status" aria-live="polite" aria-atomic="true">
+                <h2 data-init-title tabindex="-1">Provisioning runtime</h2>
+                <p data-init-detail>Reserving compute and preparing the workspace.</p>
+              </div>
+              <div class="lifecycle-steps" aria-label="Initialization progress">
+                <span class="lifecycle-step" data-lifecycle="runtime" data-state="active">Runtime</span>
+                <span class="lifecycle-step" data-lifecycle="agent">Agent</span>
+                <span class="lifecycle-step" data-lifecycle="complete">Ready</span>
+              </div>
+              <div class="initialization-actions" data-init-actions hidden>
+                <button class="action-button action-button--secondary" type="button" data-replay-setup>Back to setup</button>
+                <button class="action-button action-button--primary" type="button" data-open-agent>Open <span data-agent-name-text>Avery</span></button>
+              </div>
+            </div>
+          </section>
+
+          <section class="step-view closed-view" data-step-view="closed" aria-label="Agent setup closed" hidden>
+            <div class="closed-card">
+              <div class="closed-icon" aria-hidden="true">×</div>
+              <h2 tabindex="-1" data-closed-title>Agent setup closed</h2>
+              <p>Your prototype choices are still here. Reopen the flow whenever you want to continue reviewing.</p>
+              <button class="action-button action-button--primary" type="button" data-reopen-setup>Reopen setup</button>
+            </div>
+          </section>
+
+          <section class="step-view opened-agent-view" data-step-view="agent" aria-label="Avery workspace" data-agent-workspace hidden>
+            <div class="opened-agent-card">
+              <div class="opened-agent-avatar" aria-hidden="true" data-agent-avatar>A</div>
+              <h2 tabindex="-1" data-agent-title data-agent-name-text>Avery</h2>
+              <span class="agent-running-label">Running</span>
+              <p>The agent is initialized and its workspace is ready. This completes the mocked creation handoff.</p>
+              <button class="action-button action-button--secondary" type="button" data-reopen-setup>Review setup again</button>
+            </div>
+          </section>
+      </div>
+
+      <footer class="wizard-footer">
+        <button class="action-button action-button--secondary" type="button" data-flow-back>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>
+          <span data-back-label>Back</span>
+        </button>
+        <div class="wizard-momentum" role="progressbar" aria-label="Agent setup progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="72" aria-valuetext="Looking good. Now shape its workspace.">
+          <span class="momentum-track" aria-hidden="true"><span class="momentum-fill"></span></span>
+          <span class="momentum-status">Looking good!</span>
+          <span class="momentum-detail">Now shape its workspace</span>
+        </div>
+        <button class="action-button action-button--primary" type="button" data-flow-next><span data-next-label>Continue</span></button>
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      const shell = document.querySelector(".dashboard-shell");
+      const variantButtons = Array.from(document.querySelectorAll("[data-variant]"));
+      const questionPanels = Array.from(document.querySelectorAll("[data-panel]"));
+      const templateViews = Array.from(document.querySelectorAll("[data-template-variant]"));
+      const questionView = document.querySelector("[data-question-view]");
+      const openQuestionButtons = Array.from(document.querySelectorAll("[data-open-questions]"));
+      const backToTemplatesButton = document.querySelector("[data-back-to-templates]");
+      const stepButtons = Array.from(document.querySelectorAll("[data-step-target]"));
+      const stepViews = Array.from(document.querySelectorAll("[data-step-view]"));
+      const scrollBody = document.querySelector("[data-scroll-body]");
+      const flowNav = document.querySelector("[data-flow-nav]");
+      const workspaceControl = document.querySelector("[data-workspace-control]");
+      const headerTitle = document.querySelector("#wizard-title");
+      const headerSubtitle = document.querySelector(".wizard-header-copy p");
+      const backButton = document.querySelector("[data-flow-back]");
+      const nextButton = document.querySelector("[data-flow-next]");
+      const backLabel = document.querySelector("[data-back-label]");
+      const nextLabel = document.querySelector("[data-next-label]");
+      const momentum = document.querySelector(".wizard-momentum");
+      const momentumFill = document.querySelector(".momentum-fill");
+      const momentumStatus = document.querySelector(".momentum-status");
+      const momentumDetail = document.querySelector(".momentum-detail");
+      const setupSummary = document.querySelector("[data-setup-summary]");
+      const initializationCard = document.querySelector("[data-initialization-card]");
+      const initializationTitle = document.querySelector("[data-init-title]");
+      const initializationDetail = document.querySelector("[data-init-detail]");
+      const initializationActions = document.querySelector("[data-init-actions]");
+      const lifecycleSteps = Array.from(document.querySelectorAll("[data-lifecycle]"));
+      const templateInputs = Array.from(document.querySelectorAll("input[data-template-name]"));
+      const resolutionInputs = Array.from(document.querySelectorAll("input[data-resolution-name]"));
+      const closeSetupButton = document.querySelector("[data-close-setup]");
+      const reopenSetupButtons = Array.from(document.querySelectorAll("[data-reopen-setup]"));
+      const openAgentButton = document.querySelector("[data-open-agent]");
+      const closedTitle = document.querySelector("[data-closed-title]");
+      const agentTitle = document.querySelector("[data-agent-title]");
+      const randomTemplatePrompt = document.querySelector("[data-random-template-prompt]");
+      const agentNameInput = document.querySelector("[data-agent-name-input]");
+      const agentNameTextNodes = Array.from(document.querySelectorAll("[data-agent-name-text]"));
+      const agentBadgeNames = Array.from(document.querySelectorAll("[data-agent-badge-name]"));
+      const agentUrlNodes = Array.from(document.querySelectorAll("[data-agent-url]"));
+      const agentWorkspace = document.querySelector("[data-agent-workspace]");
+      const agentAvatar = document.querySelector("[data-agent-avatar]");
+      const matchupDisplay = document.querySelector("[data-matchup-display]");
+      const matchupPersonality = document.querySelector("[data-matchup-personality]");
+      const matchupResolution = document.querySelector("[data-matchup-resolution]");
+
+      const templatePromptOptions = [
+        "Not quite your tempo?",
+        "Do you have something else in mind?",
+        "None of these feel quite right?",
+        "Looking for a different rhythm?",
+        "Want something more your style?",
+        "Have another direction in mind?",
+      ];
+
+      if (randomTemplatePrompt) {
+        const promptIndex = Math.floor(Math.random() * templatePromptOptions.length);
+        randomTemplatePrompt.textContent = templatePromptOptions[promptIndex];
+      }
+
+      let activeVariant = "a";
+      let activePath = "template";
+      let activeStep = "workspace";
+      let initializationTimers = [];
+      let agentName = agentNameInput?.value.trim() || "Avery";
+
+      const stepCopy = {
+        identity: {
+          title: "Create agent",
+          subtitle: "Give it a display name and choose its initial access. You can change both later.",
+          progress: 48,
+          status: "Taking shape",
+          detail: "Moments from launch",
+          next: "Continue",
+        },
+        workspace: {
+          title: "Set up the workspace",
+          subtitle: "Shape the canonical instructions OpenClaw will read when this agent starts.",
+          progress: 72,
+          status: "Looking good!",
+          detail: "Now shape its workspace",
+          next: "Continue",
+        },
+        launch: {
+          title: "Ready to launch",
+          subtitle: "Review the setup before the agent starts.",
+          progress: 92,
+          status: "Almost there!",
+          detail: "Everything is ready",
+          next: "Launch agent",
+        },
+      };
+
+      const variantNames = {
+        a: "Custom setup · Outcome-led",
+        b: "Custom setup · Real handoff",
+        c: "Custom setup · Working agreement",
+      };
+
+      const personalityAccents = {
+        "Focused operator": "#f0aa72",
+        "Thoughtful partner": "#e6a0bd",
+        "Patient guide": "#e6c17a",
+      };
+
+      function syncAgentName() {
+        agentName = agentNameInput?.value.trim() || "Unnamed agent";
+        const slug = agentName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") || "agent";
+
+        agentNameTextNodes.forEach((node) => {
+          node.textContent = agentName;
+        });
+        agentBadgeNames.forEach((node) => {
+          node.textContent = agentName;
+        });
+        agentUrlNodes.forEach((node) => {
+          node.textContent = `${slug}.hypercli.com`;
+        });
+        if (agentAvatar) agentAvatar.textContent = agentName.charAt(0).toUpperCase() || "A";
+        if (agentWorkspace) agentWorkspace.setAttribute("aria-label", `${agentName} workspace`);
+
+        stepCopy.launch.subtitle = `Review the setup before ${agentName} starts.`;
+        if (activeStep === "launch" && headerSubtitle) headerSubtitle.textContent = stepCopy.launch.subtitle;
+      }
+
+      function clearInitializationTimers() {
+        initializationTimers.forEach((timer) => window.clearTimeout(timer));
+        initializationTimers = [];
+      }
+
+      function updateMatchup() {
+        const selectedPersonality = document.querySelector('[data-template-variant="a"] input[data-template-name]:checked');
+        const selectedResolution = document.querySelector('input[data-resolution-name]:checked');
+        const personalityLabel = selectedPersonality?.dataset.templateName || "Selected personality";
+        const resolutionLabel = selectedResolution?.dataset.resolutionName || "Selected approach";
+
+        if (matchupPersonality) matchupPersonality.textContent = personalityLabel;
+        if (matchupResolution) matchupResolution.textContent = resolutionLabel;
+        if (matchupDisplay) {
+          matchupDisplay.style.setProperty("--matchup-accent", personalityAccents[personalityLabel] || "#9db4ff");
+          matchupDisplay.setAttribute("aria-label", `Current pairing: ${personalityLabel} with ${resolutionLabel}`);
+        }
+      }
+
+      function updateSetupSummary() {
+        updateMatchup();
+        if (!setupSummary) return;
+        if (activePath === "template") {
+          const selected = document.querySelector(`[data-template-variant="${activeVariant}"] input[data-template-name]:checked`);
+          const label = selected?.dataset.templateName;
+          if (activeVariant === "a") {
+            const selectedResolution = document.querySelector('input[data-resolution-name]:checked');
+            const resolutionLabel = selectedResolution?.dataset.resolutionName;
+            setupSummary.textContent = `${label || "Selected personality"} · ${resolutionLabel || "Selected approach"}`;
+            return;
+          }
+          setupSummary.textContent = `${label || "Selected"} template`;
+          return;
+        }
+        setupSummary.textContent = variantNames[activeVariant];
+      }
+
+      function renderVariant() {
+        variantButtons.forEach((button) => {
+          button.setAttribute("aria-pressed", String(button.dataset.variant === activeVariant));
+        });
+        templateViews.forEach((view) => {
+          view.hidden = activePath !== "template" || view.dataset.templateVariant !== activeVariant;
+        });
+        if (questionView) questionView.hidden = activePath !== "questions";
+        questionPanels.forEach((panel) => {
+          panel.hidden = panel.dataset.panel !== activeVariant;
+        });
+        updateSetupSummary();
+      }
+
+      function activatePath(path) {
+        activePath = path;
+        if (shell) shell.dataset.creationPath = path;
+        renderVariant();
+        if (scrollBody) scrollBody.scrollTop = 0;
+      }
+
+      function activateVariant(button, moveFocus = false) {
+        activeVariant = button.dataset.variant || "a";
+        activatePath("template");
+        if (moveFocus) button.focus();
+      }
+
+      function setLifecycle(stage) {
+        const order = ["runtime", "agent", "complete"];
+        const activeIndex = order.indexOf(stage);
+        lifecycleSteps.forEach((step) => {
+          const index = order.indexOf(step.dataset.lifecycle);
+          step.dataset.state = index < activeIndex ? "complete" : index === activeIndex ? "active" : "";
+        });
+      }
+
+      function startInitialization() {
+        clearInitializationTimers();
+        if (initializationCard) initializationCard.dataset.ready = "false";
+        if (initializationActions) initializationActions.hidden = true;
+
+        const states = [
+          { delay: 0, title: "Provisioning runtime", detail: "Reserving compute and preparing the workspace.", lifecycle: "runtime" },
+          { delay: 1200, title: "Restoring files", detail: "Restoring the agent home directory.", lifecycle: "runtime" },
+          { delay: 2400, title: "Syncing shared knowledge", detail: "Syncing shared knowledge Markdown.", lifecycle: "runtime" },
+          { delay: 3600, title: "Booting agent", detail: "Starting the container and OpenClaw services.", lifecycle: "agent" },
+          { delay: 5000, title: `${agentName} is ready`, detail: "The runtime is ready and the gateway connection is open.", lifecycle: "complete", ready: true },
+        ];
+
+        states.forEach((state) => {
+          const timer = window.setTimeout(() => {
+            if (initializationTitle) initializationTitle.textContent = state.title;
+            if (initializationDetail) initializationDetail.textContent = state.detail;
+            setLifecycle(state.lifecycle);
+            if (state.ready) {
+              if (initializationCard) initializationCard.dataset.ready = "true";
+              if (initializationActions) initializationActions.hidden = false;
+            }
+          }, state.delay);
+          initializationTimers.push(timer);
+        });
+      }
+
+      function activateStep(step, moveFocus = true) {
+        activeStep = step;
+        if (shell) shell.dataset.flowStep = step;
+        stepViews.forEach((view) => {
+          view.hidden = view.dataset.stepView !== step;
+        });
+        stepButtons.forEach((button) => {
+          if (button.dataset.stepTarget === step) button.setAttribute("aria-current", "step");
+          else button.removeAttribute("aria-current");
+        });
+
+        const initializing = step === "initializing";
+        if (flowNav) flowNav.hidden = initializing;
+        if (workspaceControl) workspaceControl.hidden = step !== "workspace";
+        if (scrollBody) scrollBody.scrollTop = 0;
+
+        if (initializing) {
+          startInitialization();
+          if (moveFocus) initializationTitle?.focus({ preventScroll: true });
+          return;
+        }
+
+        if (step === "closed" || step === "agent") {
+          clearInitializationTimers();
+          if (moveFocus) (step === "closed" ? closedTitle : agentTitle)?.focus({ preventScroll: true });
+          return;
+        }
+
+        clearInitializationTimers();
+        const copy = stepCopy[step];
+        if (headerTitle) headerTitle.textContent = copy.title;
+        if (headerSubtitle) headerSubtitle.textContent = copy.subtitle;
+        if (nextLabel) nextLabel.textContent = copy.next;
+        if (backButton) backButton.disabled = step === "identity";
+        if (backLabel) backLabel.textContent = "Back";
+        if (momentum) {
+          momentum.setAttribute("aria-valuenow", String(copy.progress));
+          momentum.setAttribute("aria-valuetext", `${copy.status}. ${copy.detail}.`);
+        }
+        if (momentumFill) momentumFill.style.width = `${copy.progress}%`;
+        if (momentumStatus) momentumStatus.textContent = copy.status;
+        if (momentumDetail) momentumDetail.textContent = copy.detail;
+        updateSetupSummary();
+        if (moveFocus) headerTitle?.focus({ preventScroll: true });
+      }
+
+      variantButtons.forEach((button, index) => {
+        button.addEventListener("click", () => activateVariant(button));
+        button.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const direction = event.key === "ArrowRight" ? 1 : -1;
+          const nextButton = variantButtons[(index + direction + variantButtons.length) % variantButtons.length];
+          activateVariant(nextButton, true);
+        });
+      });
+
+      openQuestionButtons.forEach((button) => button.addEventListener("click", () => activatePath("questions")));
+      backToTemplatesButton?.addEventListener("click", () => activatePath("template"));
+
+      templateInputs.forEach((input) => input.addEventListener("change", updateSetupSummary));
+      resolutionInputs.forEach((input) => input.addEventListener("change", updateSetupSummary));
+      agentNameInput?.addEventListener("input", syncAgentName);
+
+      stepButtons.forEach((button) => {
+        button.addEventListener("click", () => activateStep(button.dataset.stepTarget || "workspace"));
+      });
+
+      backButton?.addEventListener("click", () => {
+        if (activeStep === "launch") activateStep("workspace");
+        else if (activeStep === "workspace") activateStep("identity");
+      });
+
+      nextButton?.addEventListener("click", () => {
+        if (activeStep === "identity") activateStep("workspace");
+        else if (activeStep === "workspace") activateStep("launch");
+        else if (activeStep === "launch") activateStep("initializing");
+      });
+
+      document.querySelector("[data-replay-setup]")?.addEventListener("click", () => activateStep("workspace"));
+      closeSetupButton?.addEventListener("click", () => activateStep("closed"));
+      reopenSetupButtons.forEach((button) => button.addEventListener("click", () => activateStep("workspace")));
+      openAgentButton?.addEventListener("click", () => activateStep("agent"));
+
+      syncAgentName();
+      activatePath("template");
+      activateStep("workspace", false);
+    </script>
+  </body>
+</html>

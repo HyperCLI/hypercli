@@ -21,7 +21,9 @@ import { formatTokens } from "@/lib/format";
 import {
   buildStripeCheckoutReturnUrl,
   clearPendingPlanCheckout,
+  createPlanCheckoutAttemptId,
   writePendingPlanCheckout,
+  type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 
 interface EthereumProvider {
@@ -52,7 +54,7 @@ interface EmbeddedPlanCheckoutProps {
   principalId: string;
   baselineGrantedSlots?: Record<string, number>;
   isPrincipalCurrent?: () => boolean;
-  onSuccess: () => void;
+  onSuccess: (pending: PendingPlanCheckout) => void;
   onComplete: () => void;
   onProcessingChange?: (processing: boolean) => void;
   getToken: () => Promise<string>;
@@ -184,14 +186,20 @@ export function EmbeddedPlanCheckout({
     };
   }, []);
 
-  const writePendingCheckout = (returnSessionId?: string) => {
-    writePendingPlanCheckout({
+  const writePendingCheckout = (
+    returnSessionId?: string,
+    checkoutAttemptId?: string,
+    checkoutSessionId?: string | null,
+  ): PendingPlanCheckout => {
+    const pending = {
       principalId,
       planId: plan.id,
       planName: plan.name,
       ownedCount,
       startedAt: Date.now(),
       ...(returnSessionId ? { returnSessionId } : {}),
+      ...(checkoutAttemptId ? { checkoutAttemptId } : {}),
+      ...(checkoutSessionId ? { checkoutSessionId } : {}),
       ...(planBundle ? { bundle: planBundle } : {}),
       baselineGrantedSlots,
       ...(firstAgentSetup ? {
@@ -201,7 +209,9 @@ export function EmbeddedPlanCheckout({
         knowledgeDomainId: firstAgentSetup.knowledgeDomainId,
         agentSize: firstAgentSetup.size,
       } : {}),
-    });
+    } satisfies PendingPlanCheckout;
+    writePendingPlanCheckout(pending);
+    return pending;
   };
 
   const handleCard = async () => {
@@ -212,13 +222,18 @@ export function EmbeddedPlanCheckout({
       const token = await getToken();
       if (!canContinue()) return;
       const hyperAgent = createHyperAgentClient(token);
+      const checkoutAttemptId = createPlanCheckoutAttemptId();
       const data = await hyperAgent.createStripeCheckout({
         quantity: 1,
-        successUrl: buildStripeCheckoutReturnUrl("success"),
-        cancelUrl: buildStripeCheckoutReturnUrl("cancelled"),
+        successUrl: buildStripeCheckoutReturnUrl("success", checkoutAttemptId),
+        cancelUrl: buildStripeCheckoutReturnUrl("cancelled", checkoutAttemptId),
       }, plan.id);
       if (!canContinue()) return;
-      writePendingCheckout();
+      writePendingCheckout(
+        undefined,
+        data.checkoutAttemptId ?? checkoutAttemptId,
+        data.checkoutSessionId,
+      );
       if (!canContinue()) return;
       window.location.href = data.checkoutUrl;
     } catch (nextError) {
@@ -244,6 +259,7 @@ export function EmbeddedPlanCheckout({
   const handleCrypto = async () => {
     updateProcessing(true);
     setError(null);
+    let pendingCheckout: PendingPlanCheckout | null = null;
     try {
       if (!principalId) throw new Error("Sign in again before starting checkout.");
       const token = await getToken();
@@ -251,17 +267,18 @@ export function EmbeddedPlanCheckout({
       const hyperAgent = createHyperAgentClient(token);
       const wallet = await connectWallet();
       if (!canContinue()) return;
-      writePendingCheckout();
+      const checkoutAttemptId = createPlanCheckoutAttemptId();
+      pendingCheckout = writePendingCheckout(undefined, checkoutAttemptId);
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
         quantity: 1,
         signer: walletClientToX402Signer(wallet.client),
         amountUsd: plan.price,
       });
       notifyBillingPlanChanged();
-      writePendingCheckout(`x402:${Date.now()}`);
+      pendingCheckout = writePendingCheckout(`x402:${checkoutAttemptId}`, checkoutAttemptId);
       const principalCurrent = isPrincipalCurrent ? isPrincipalCurrent() : activeRef.current;
       if (!principalCurrent) return;
-      onSuccess();
+      onSuccess(pendingCheckout);
       if (!activeRef.current) return;
       setSuccess(true);
       successTimerRef.current = setTimeout(() => {
@@ -269,7 +286,7 @@ export function EmbeddedPlanCheckout({
       }, 2000);
     } catch (nextError) {
       if (!canContinue()) return;
-      clearPendingPlanCheckout(principalId);
+      if (pendingCheckout) clearPendingPlanCheckout(principalId, pendingCheckout);
       setError(paymentErrorMessage(nextError));
     } finally {
       if (canContinue()) updateProcessing(false);

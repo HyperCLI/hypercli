@@ -68,6 +68,7 @@ Major methods:
 - `redeem_grant_code(code, extend_existing=None)`
 - `update_subscription(subscription_id, plan_id=..., quantity=1)`
 - `cancel_subscription(subscription_id)`
+- `create_stripe_trial_checkout(*, success_url=None, cancel_url=None)`
 - `models()`
 - `discovery_health()`
 - `discovery_config()`
@@ -76,7 +77,11 @@ Major methods:
 Important account types:
 
 - `HyperAgentSubscription`
-  recurring billing object with `cancel_at_period_end`, `current_period_end`, `plan_agent_tier`, and `slot_grants`
+  recurring billing object with `cancel_at_period_end`, `current_period_end`, `plan_agent_tier`, `slot_grants`, and optional `trial` timing
+- `HyperAgentSubscriptionTrial`
+  current Team trial details with nullable `days`, `starts_at`, `ends_at`, and `seconds_remaining`
+- `HyperAgentStripeCheckoutResponse`
+  Stripe-hosted checkout destination returned by `create_stripe_trial_checkout()`
 - `HyperAgentEntitlements`
   effective account state with `slot_inventory`, `pooled_tpd`, `active_entitlement_count`, and `billing_reset_at`
 - `HyperAgentEntitlement`

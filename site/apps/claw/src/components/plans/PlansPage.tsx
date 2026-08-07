@@ -35,6 +35,7 @@ import {
   markPendingPlanCheckoutReturned,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
+  type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 import { bundleKey, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import type { SdkAgent } from "@/types";
@@ -72,6 +73,7 @@ interface CheckoutPlan {
 type CheckoutSyncState = {
   status: "syncing" | "success" | "pending" | "cancelled";
   message: string;
+  pending?: PendingPlanCheckout | null;
 };
 
 type CatalogPlan = HyperAgentPlan & {
@@ -315,28 +317,34 @@ export default function PlansPage() {
     void refreshPlan();
   }, [refreshPlan]);
 
-  const refreshCheckoutEntitlements = useCallback(async () => {
-    const pending = readPendingPlanCheckout(user?.id);
+  const refreshCheckoutEntitlements = useCallback(async (targetPending?: PendingPlanCheckout | null) => {
+    const principalId = user?.id ?? null;
+    if (!principalId) return;
+    const pending = targetPending ?? readPendingPlanCheckout(principalId);
     setCheckoutSync({
       status: "syncing",
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
+      pending,
     });
     const refreshed = await refreshPlan();
+    if (activePrincipalRef.current !== principalId) return;
     if (!refreshed?.billingReady) {
       setCheckoutSync({
         status: "pending",
         message: "Billing data could not be loaded. Retry before checking checkout status.",
+        pending,
       });
       return;
     }
     const reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
 
     if (reflectionStatus === "ready") {
-      clearPendingPlanCheckout(user?.id);
+      clearPendingPlanCheckout(principalId, pending);
       notifyBillingPlanChanged();
       setCheckoutSync({
         status: "success",
         message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
+        pending,
       });
       return;
     }
@@ -345,6 +353,7 @@ export default function PlansPage() {
       setCheckoutSync({
         status: "pending",
         message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+        pending,
       });
       return;
     }
@@ -352,6 +361,7 @@ export default function PlansPage() {
     setCheckoutSync({
       status: "pending",
       message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+      pending,
     });
   }, [refreshPlan, user?.id]);
 
@@ -361,7 +371,10 @@ export default function PlansPage() {
     if (!checkoutReturn) return;
     const principalId = user?.id;
     if (!principalId) return;
-    let pending = readPendingPlanCheckout(principalId);
+    let pending = readPendingPlanCheckout(principalId, {
+      sessionId: checkoutReturn.sessionId,
+      attemptId: checkoutReturn.attemptId,
+    });
     if (!pending) {
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
@@ -370,10 +383,11 @@ export default function PlansPage() {
 
     if (checkoutReturn.status === "cancelled") {
       checkoutReturnHandledRef.current = true;
-      clearPendingPlanCheckout(principalId);
+      clearPendingPlanCheckout(principalId, pending);
       setCheckoutSync({
         status: "cancelled",
         message: "Checkout cancelled. No plan changes were made.",
+        pending,
       });
       clearStripeCheckoutReturnState();
       return;
@@ -383,11 +397,16 @@ export default function PlansPage() {
       setCheckoutSync({
         status: billingError ? "pending" : "syncing",
         message: billingError ?? `Loading billing data for ${pending.planName}...`,
+        pending,
       });
       return;
     }
 
-    pending = markPendingPlanCheckoutReturned(principalId, checkoutReturn.sessionId ?? "");
+    pending = markPendingPlanCheckoutReturned(
+      principalId,
+      checkoutReturn.sessionId ?? "",
+      checkoutReturn.attemptId,
+    );
     if (!pending) {
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
@@ -398,6 +417,7 @@ export default function PlansPage() {
     setCheckoutSync({
       status: "syncing",
       message: `Payment received. Finalizing ${planLabel} setup...`,
+      pending,
     });
 
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -423,21 +443,24 @@ export default function PlansPage() {
       if (!active) return;
 
       if (reflectionStatus === "ready") {
-        clearPendingPlanCheckout(principalId);
+        clearPendingPlanCheckout(principalId, pending);
         notifyBillingPlanChanged();
         setCheckoutSync({
           status: "success",
           message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
+          pending,
         });
       } else if (reflectionStatus === "waiting-entitlement") {
         setCheckoutSync({
           status: "pending",
           message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+          pending,
         });
       } else {
         setCheckoutSync({
           status: "pending",
           message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+          pending,
         });
       }
 
@@ -462,21 +485,24 @@ export default function PlansPage() {
     if (!pending?.returnSessionId) return;
     const reflectionStatus = getCheckoutReflectionStatus(summary, pending);
     if (reflectionStatus === "ready") {
-      clearPendingPlanCheckout(user.id);
+      clearPendingPlanCheckout(user.id, pending);
       notifyBillingPlanChanged();
       setCheckoutSync({
         status: "success",
         message: `${pending.planName} is active. Agent slots and limits are updated.`,
+        pending,
       });
     } else if (reflectionStatus === "waiting-entitlement") {
       setCheckoutSync({
         status: "pending",
         message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+        pending,
       });
     } else {
       setCheckoutSync({
         status: "pending",
         message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+        pending,
       });
     }
   }, [loading, summary, user?.id]);
@@ -692,7 +718,7 @@ export default function PlansPage() {
             {checkoutSync.status === "pending" && (
               <button
                 type="button"
-                onClick={() => { void refreshCheckoutEntitlements(); }}
+                onClick={() => { void refreshCheckoutEntitlements(checkoutSync.pending); }}
                 className="text-xs font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
               >
                 Refresh
@@ -1032,7 +1058,7 @@ export default function PlansPage() {
           }
           isOpen={!!checkoutPlan}
           onClose={() => setCheckoutPlan(null)}
-          onSuccess={() => { void refreshCheckoutEntitlements(); }}
+          onSuccess={(pending) => { void refreshCheckoutEntitlements(pending); }}
           getToken={getToken}
         />
       )}

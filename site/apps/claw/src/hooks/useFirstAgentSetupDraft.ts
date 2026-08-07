@@ -46,7 +46,7 @@ function normalizeOptionalString(value: unknown, maxLength: number): string | nu
   return normalized || null;
 }
 
-function createFirstAgentSetupId(): string {
+export function createFirstAgentSetupId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
@@ -147,8 +147,12 @@ export function writeFirstAgentSetupDraft(input: FirstAgentSetupDraftInput): voi
   const raw = JSON.stringify({
     ...input,
     setupId: normalizeOptionalString(input.setupId, 100) ?? existing?.setupId ?? createFirstAgentSetupId(),
-    principalId: normalizeOptionalString(input.principalId, 100) ?? existing?.principalId ?? null,
-    workspaceId: normalizeOptionalString(input.workspaceId, 100) ?? existing?.workspaceId ?? null,
+    principalId: "principalId" in input
+      ? normalizeOptionalString(input.principalId, 100)
+      : existing?.principalId ?? null,
+    workspaceId: "workspaceId" in input
+      ? normalizeOptionalString(input.workspaceId, 100)
+      : existing?.workspaceId ?? null,
     bootstrapDraft: input.bootstrapDraft ?? existing?.bootstrapDraft ?? null,
     source: "first-agent-setup",
     updatedAt: Date.now(),

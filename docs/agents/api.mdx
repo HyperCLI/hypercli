@@ -93,6 +93,33 @@ curl -X POST https://api.hypercli.com/agents/stripe/solo \
   }'
 ```
 
+### Team Trial Checkout
+
+Endpoint: `POST /agents/stripe/trial`
+
+This authenticated endpoint creates or resumes the account's one-time Team
+trial checkout. It requires a card, grants seven days of Team access, and
+starts the recurring Team subscription when the trial ends unless it is
+cancelled.
+
+```bash
+curl -X POST https://api.hypercli.com/agents/stripe/trial \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "success_url": "https://agents.hypercli.com/dashboard/agents?checkout=success&session_id={CHECKOUT_SESSION_ID}",
+    "cancel_url": "https://agents.hypercli.com/dashboard/agents?checkout=cancelled"
+  }'
+```
+
+`GET /agents/subscriptions/summary` returns trial timing on the matching
+subscription. Use `trial.active`, `trial.ends_at`, and
+`trial.seconds_remaining` for presentation; the backend remains authoritative
+for access and expiration. An active trial is a fixed Team contract, so plan or
+quantity updates return `409` until the trial converts or ends. Cancellation
+remains available and immediately makes `trial.active` false while access stays
+bounded by the original trial end.
+
 ### Update Or Cancel A Stripe Subscription
 
 Update endpoint: `POST /agents/subscriptions/{subscription_id}/update`

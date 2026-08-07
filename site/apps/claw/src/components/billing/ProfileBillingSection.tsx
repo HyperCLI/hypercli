@@ -60,6 +60,7 @@ import {
   type AgentPayment,
 } from "@/lib/billing";
 import { formatTokens } from "@/lib/format";
+import { getActiveAgentTrial, type ActiveAgentTrial } from "@/lib/agent-trial";
 import type { SdkAgent } from "@/types";
 import {
   createPaymentMethodUpdatePortalUrl,
@@ -231,6 +232,9 @@ function getActiveBundleRenewal(
 }
 
 function describeSubscriptionDate(subscription: HyperAgentSubscription): string {
+  if (subscription.trial?.active && subscription.trial.endsAt) {
+    return `Trial ends ${formatBillingDate(subscription.trial.endsAt) ?? "at the scheduled time"}`;
+  }
   if (!subscription.expiresAt) {
     return subscription.cancelAtPeriodEnd ? "Ends at period end" : "Renewal unavailable";
   }
@@ -239,6 +243,15 @@ function describeSubscriptionDate(subscription: HyperAgentSubscription): string 
 }
 
 function describeCancellationDetail(subscription: HyperAgentSubscription): string {
+  if (subscription.trial?.active && subscription.trial.endsAt) {
+    const trialEndDate = formatBillingDate(subscription.trial.endsAt);
+    if (subscription.cancelAtPeriodEnd) {
+      return trialEndDate ? `Trial access ends on ${trialEndDate}.` : "Trial access ends at the scheduled time.";
+    }
+    return trialEndDate
+      ? `No charge until the trial ends on ${trialEndDate}. Cancel before then to avoid renewal.`
+      : "No charge until the trial ends. Cancel before then to avoid renewal.";
+  }
   const endDate = formatBillingDate(subscription.expiresAt);
   if (subscription.cancelAtPeriodEnd) {
     return endDate ? `Access ends on ${endDate}.` : "Access ends at the end of the current billing period.";
@@ -441,6 +454,7 @@ function formatTimeUntilUtcReset(timestamp: number): string {
 function buildInvoiceRows(
   receipts: ReceiptRecord[],
   currentSubscription: HyperAgentSubscription | null,
+  activeTrial: ActiveAgentTrial | null,
 ): BillingInvoiceRow[] {
   const sortedReceipts = [...receipts].sort((left, right) => receiptTimestamp(right) - receiptTimestamp(left));
   const rows: BillingInvoiceRow[] = [];
@@ -456,14 +470,21 @@ function buildInvoiceRows(
       String(receipt.meta?.payment_method || "").toLowerCase() === "stripe"
       && receipt.status.toLowerCase() === "completed"
     ));
+    const upcomingDate = activeTrial?.subscriptionId === currentSubscription.id
+      ? activeTrial.endsAt
+      : currentSubscription.expiresAt;
     rows.push({
       id: `upcoming-${currentSubscription.id}`,
-      dueDate: formatBillingDate(currentSubscription.expiresAt) ?? "Unavailable",
+      dueDate: formatBillingDate(upcomingDate) ?? "Unavailable",
       receipt: matchingReceipt
         ? compactReceiptId(matchingReceipt.id)
         : compactReceiptId(currentSubscription.stripeSubscriptionId || currentSubscription.id),
       status: "Upcoming",
-      total: matchingReceipt ? formatAgentsAmount(matchingReceipt) : "Calculated at renewal",
+      total: activeTrial?.subscriptionId === currentSubscription.id
+        ? "Calculated at trial end"
+        : matchingReceipt
+          ? formatAgentsAmount(matchingReceipt)
+          : "Calculated at renewal",
     });
   }
   for (const receipt of sortedReceipts) {
@@ -599,6 +620,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   const [agentsById, setAgentsById] = useState<Record<string, string>>({});
   const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
   const [loadedAt, setLoadedAt] = useState(0);
+  const [trialClock, setTrialClock] = useState(() => Date.now());
   const [loading, setLoading] = useState(true);
   const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [managementOpen, setManagementOpen] = useState(false);
@@ -673,9 +695,18 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   const subscriptions = useMemo(() => getBillingSubscriptions(summary), [summary]);
   const currentSubscription = useMemo(() => getCurrentBillingSubscription(summary), [summary]);
   const capacityRows = useMemo(() => buildAgentCapacityRows(summary), [summary]);
-  const invoiceRows = useMemo(() => buildInvoiceRows(receipts, currentSubscription), [currentSubscription, receipts]);
+  const activeTrial = useMemo(
+    () => getActiveAgentTrial(summary, trialClock, loadedAt || trialClock),
+    [loadedAt, summary, trialClock],
+  );
+  const invoiceRows = useMemo(
+    () => buildInvoiceRows(receipts, currentSubscription, activeTrial),
+    [activeTrial, currentSubscription, receipts],
+  );
   const effectivePlanName = currentSubscription?.planName || humanizePlanId(summary?.effectivePlanId);
-  const billingCadence = describeBillingCadence(currentSubscription);
+  const billingCadence = activeTrial && activeTrial.subscriptionId === currentSubscription?.id
+    ? `${activeTrial.totalDays ? `${activeTrial.totalDays}-day ` : ""}trial`
+    : describeBillingCadence(currentSubscription);
   const paymentMethodSummary = describePaymentMethod(currentSubscription, receipts);
   const showManageCardAction = canManageStripePaymentMethod(currentSubscription);
   const bundleRenewal = getActiveBundleRenewal(summary, currentSubscription);
@@ -687,6 +718,12 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
     (totals, row) => ({ used: totals.used + row.used, available: totals.available + row.available }),
     { used: 0, available: 0 },
   );
+
+  useEffect(() => {
+    if (!activeTrial) return;
+    const interval = window.setInterval(() => setTrialClock(Date.now()), 60_000);
+    return () => window.clearInterval(interval);
+  }, [activeTrial]);
 
   const handleManagePaymentMethod = async () => {
     setPaymentMethodOpening(true);
@@ -817,7 +854,11 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                 <CardHeader className="gap-1.5 p-5 pb-0 text-left">
                   <h2 id="active-bundles-heading" className="text-[0.9375rem] font-semibold leading-5 tracking-tight text-foreground">Active Bundles</h2>
                   <CardDescription className="text-xs leading-4 text-text-muted">
-                    {bundleRenewal ? `Renews ${formatLongBillingDate(bundleRenewal)}` : "No recurring renewal"}
+                    {activeTrial
+                      ? `${activeTrial.planName} trial · ${activeTrial.timeRemainingLabel} · ends ${formatLongBillingDate(activeTrial.endsAt)}`
+                      : bundleRenewal
+                        ? `Renews ${formatLongBillingDate(bundleRenewal)}`
+                        : "No recurring renewal"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="p-5">
