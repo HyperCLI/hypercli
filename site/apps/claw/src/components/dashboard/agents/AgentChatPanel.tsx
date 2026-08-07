@@ -431,7 +431,7 @@ function shouldHideIntegrationSetupMessage(message: ChatSession["messages"][numb
 function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center text-text-muted">
-      <div className="agent-empty-history-frame flex min-h-0 w-full flex-1 self-stretch items-center justify-center">
+      <div data-testid="agent-empty-history-frame" className="agent-empty-history-frame flex min-h-0 w-full flex-1 self-stretch items-center justify-center">
         {children}
       </div>
     </div>
@@ -1285,6 +1285,7 @@ export function AgentChatPanel({
           ref={bindTranscriptScrollElement}
           onScroll={handleTranscriptScroll}
           aria-busy={chat.historyPhase === "loading"}
+          data-testid="agent-chat-transcript"
           className="h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto"
         >
           <div
@@ -1653,6 +1654,7 @@ export function AgentChatPanel({
                 <AgentChatComposerShell
                     inputRef={textareaRef}
                     aria-label="Message agent"
+                    data-testid="agent-chat-composer"
                     value={chat.input}
                     onChange={(e) => {
                       resetPromptHistoryNavigation();
@@ -1921,7 +1923,7 @@ export function AgentChatPanel({
                         </TooltipHint>
                       ) : null}
                       <TooltipHint label="Send message" disabled={!canSendChatDraft}>
-                        <button aria-label="Send message" onClick={submitCurrentChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
+                        <button data-testid="agent-chat-send" aria-label="Send message" onClick={submitCurrentChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center">
                           <Send className="w-3.5 h-3.5" />
                         </button>
                       </TooltipHint>

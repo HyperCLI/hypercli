@@ -60,7 +60,7 @@ export function AgentDisplayNameEditor({
   };
 
   return (
-    <div className={`relative flex min-w-0 max-w-full justify-center text-center ${className ?? ""}`}>
+    <div data-testid="agent-display-name-editor" className={`relative flex min-w-0 max-w-full justify-center text-center ${className ?? ""}`}>
       {editing ? (
         <form
           className="flex h-8 w-full max-w-72 min-w-0 items-center justify-center gap-1"
@@ -72,6 +72,7 @@ export function AgentDisplayNameEditor({
           <input
             autoFocus
             aria-label="Agent display name"
+            data-testid="agent-display-name-input"
             aria-invalid={Boolean(error)}
             aria-describedby={error ? errorId : undefined}
             value={draft}
@@ -93,6 +94,7 @@ export function AgentDisplayNameEditor({
           <button
             type="submit"
             aria-label="Save agent display name"
+            data-testid="agent-display-name-save"
             disabled={saving || !draft.trim() || draft.trim() === displayName}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.12)] disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -101,6 +103,7 @@ export function AgentDisplayNameEditor({
           <button
             type="button"
             aria-label="Cancel editing agent display name"
+            data-testid="agent-display-name-cancel"
             disabled={saving}
             onClick={cancelEditing}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-40"
@@ -113,6 +116,7 @@ export function AgentDisplayNameEditor({
           <button
             type="button"
             aria-label="Edit agent display name"
+            data-testid="agent-display-name-edit"
             onClick={beginEditing}
             className="group relative grid h-8 max-w-full min-w-0 place-items-center rounded-full px-7 text-sm font-medium text-foreground transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
           >

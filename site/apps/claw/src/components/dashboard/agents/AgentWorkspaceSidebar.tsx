@@ -314,6 +314,7 @@ function SessionMenuButton({
 }
 
 function RecentSessionRow({
+  sessionKey,
   title,
   sourceChannel,
   active,
@@ -330,6 +331,7 @@ function RecentSessionRow({
   thinking = false,
   provisional = false,
 }: {
+  sessionKey: string;
   title: string;
   sourceChannel?: SessionSourceChannel | null;
   active: boolean;
@@ -378,6 +380,7 @@ function RecentSessionRow({
       }}
       data-session-pinned={pinned ? "true" : "false"}
       data-session-provisional={provisional ? "true" : undefined}
+      data-session-key={sessionKey}
       className={`group/session relative isolate flex w-full min-w-0 items-center ${menuOpen ? "z-40" : "z-0"}`}
     >
       <AnimatePresence initial={false}>
@@ -401,6 +404,7 @@ function RecentSessionRow({
       >
         <button
           type="button"
+          data-testid="agent-session-select"
           onClick={disabled ? undefined : onSelect}
           disabled={disabled}
           aria-label={title}
@@ -490,6 +494,7 @@ function RecentSessionRow({
           <TooltipHint label={disabledReason ?? `Session options for ${title}`} disabled={disabled} side="right">
             <button
               type="button"
+              data-testid="agent-session-options"
               onClick={(event) => {
                 event.stopPropagation();
                 if (disabled) return;
@@ -1475,6 +1480,7 @@ export function AgentWorkspaceSidebar({
                       return (
                         <RecentSessionRow
                           key={session.key}
+                          sessionKey={session.key}
                           title={title}
                           sourceChannel={sourceChannel}
                           active={isSessionActive(session, selectedSessionKey, sortedSessions)}

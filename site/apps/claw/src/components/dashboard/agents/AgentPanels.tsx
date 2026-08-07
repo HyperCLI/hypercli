@@ -3029,6 +3029,7 @@ export function AgentList({
                             selectRosterAgent(a.id);
                             if (!renderMobileNavigation) setSidebarCollapsed(false);
                           }}
+                          data-roster-id={a.id}
                           aria-label={`Select ${agentName}`}
                           className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)]" : ""}`}
                           style={{ backgroundColor: av.bgColor }}

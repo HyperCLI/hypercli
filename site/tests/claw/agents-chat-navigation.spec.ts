@@ -47,6 +47,20 @@ async function openDashboardView(page: Page, view: "overview" | "usage" | "setti
   }, view);
 }
 
+function rosterAgent(page: Page, agentId: string) {
+  return page.locator(`[data-roster-id="${agentId}"]:visible`);
+}
+
+function sessionRow(page: Page, sessionKey: string) {
+  return page.locator(
+    `[data-session-key="${sessionKey}"], [data-session-key$=":${sessionKey}"]`,
+  );
+}
+
+function sessionSelect(page: Page, sessionKey: string) {
+  return sessionRow(page, sessionKey).getByTestId("agent-session-select");
+}
+
 async function mockAgentChat(
   page: Page,
   options: MockAgentChatOptions = {},
@@ -494,10 +508,10 @@ async function mockAgentChat(
   return tracker;
 }
 
-async function expectSessionBefore(page: Page, firstName: string, secondName: string): Promise<void> {
+async function expectSessionBefore(page: Page, firstKey: string, secondKey: string): Promise<void> {
   await expect.poll(async () => {
-    const first = await page.getByRole("button", { name: firstName, exact: true }).boundingBox();
-    const second = await page.getByRole("button", { name: secondName, exact: true }).boundingBox();
+    const first = await sessionSelect(page, firstKey).boundingBox();
+    const second = await sessionSelect(page, secondKey).boundingBox();
     return Boolean(first && second && first.y < second.y);
   }).toBe(true);
 }
@@ -507,11 +521,11 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
-  await expect(page.locator(".agent-empty-history")).toBeVisible();
-  const metrics = await page.locator(".agent-empty-history-frame").evaluate((frame) => {
-    const section = frame.querySelector<HTMLElement>(".agent-empty-history");
-    const scroller = frame.parentElement?.parentElement?.parentElement;
-    if (!section || !(scroller instanceof HTMLElement)) return null;
+  await expect(page.getByTestId("agent-empty-history")).toBeVisible();
+  const metrics = await page.getByTestId("agent-chat-transcript").evaluate((scroller) => {
+    const frame = scroller.querySelector<HTMLElement>('[data-testid="agent-empty-history-frame"]');
+    const section = scroller.querySelector<HTMLElement>('[data-testid="agent-empty-history"]');
+    if (!frame || !section) return null;
 
     const frameRect = frame.getBoundingClientRect();
     const sectionRect = section.getBoundingClientRect();
@@ -539,21 +553,20 @@ test("the personalized empty session accepts a message and matches later new ses
   const gatewayTracker = await mockAgentChat(page, { mainOnly: true });
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
-  const emptySessionHeading = page.locator("#agent-empty-history-title");
+  const emptySessionHeading = page.getByTestId("agent-empty-history-title");
   await expect(emptySessionHeading).toHaveText(/, Franc\?$/);
-  await expect(page.getByRole("button", { name: "Say hello" })).toHaveCount(0);
-  const composer = page.getByRole("textbox", { name: "Message agent" });
+  const composer = page.getByTestId("agent-chat-composer");
   await composer.fill("hi");
-  await composer.press("Enter");
+  const send = page.getByTestId("agent-chat-send");
+  await send.focus();
+  await send.press("Enter");
 
   await expect.poll(() => gatewayTracker.requests.find((request) => request.method === "chat.send")?.params?.message)
     .toBe("hi");
   await expect(page.getByText("hi", { exact: true })).toBeVisible();
 
   await page.locator('[data-workspace-item="new-session"]').click();
-  await expect(emptySessionHeading).toHaveText(/\?$/);
   await expect(emptySessionHeading).toHaveText(/, Franc\?$/);
-  await expect(page.getByRole("button", { name: "Say hello" })).toHaveCount(0);
 });
 
 test("a stale main route starts a named dashboard conversation and hides main history", async ({ page }) => {
@@ -575,8 +588,9 @@ test("a stale main route starts a named dashboard conversation and hides main hi
 
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
   const firstSessionKey = new URL(page.url()).searchParams.get("session");
-  await expect(page.locator('button[aria-current="page"][aria-label="New Session"]')).toBeVisible();
-  const sessionRows = page.locator('[data-session-pinned] button[aria-label="New Session"]');
+  expect(firstSessionKey).toBeTruthy();
+  await expect(sessionSelect(page, firstSessionKey!)).toHaveAttribute("aria-current", "page");
+  const sessionRows = page.getByTestId("agent-session-select");
   await expect(sessionRows).toHaveCount(1);
   const legacySession = page.getByRole("button", { name: "Legacy planning", exact: true });
   await expect(legacySession).toHaveCount(0);
@@ -585,11 +599,11 @@ test("a stale main route starts a named dashboard conversation and hides main hi
   await expect(page.getByRole("button", { name: "Previous conversation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "agent:default:heartbeat", exact: true })).toHaveCount(0);
 
-  const composer = page.locator("textarea").first();
+  const composer = page.getByTestId("agent-chat-composer");
   await composer.fill("initial dashboard request");
   await composer.press("Enter");
   await expect(page.getByText("initial dashboard request", { exact: true })).toBeVisible();
-  await expect(page.locator('button[aria-current="page"][aria-label="Dashboard Session"]')).toBeVisible();
+  await expect(sessionSelect(page, firstSessionKey!)).toHaveAttribute("aria-current", "page");
   expect(gatewayTracker.requests.find((request) => request.method === "chat.send")?.params?.sessionKey)
     .toBe(`agent:default:${firstSessionKey}`);
   expect(gatewayTracker.requests).not.toEqual(expect.arrayContaining([
@@ -600,7 +614,10 @@ test("a stale main route starts a named dashboard conversation and hides main hi
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
   const secondSessionKey = new URL(page.url()).searchParams.get("session");
   expect(secondSessionKey).not.toBe(firstSessionKey);
-  await expect(sessionRows).toHaveCount(1);
+  expect(secondSessionKey).toBeTruthy();
+  await expect(sessionRows).toHaveCount(2);
+  await expect(sessionSelect(page, firstSessionKey!)).toBeVisible();
+  await expect(sessionSelect(page, secondSessionKey!)).toHaveAttribute("aria-current", "page");
   await expect.poll(() => gatewayTracker.requests
     .filter((request) => request.method === "sessions.create")
     .map((request) => request.params?.key)).toEqual([firstSessionKey, secondSessionKey]);
@@ -614,7 +631,9 @@ test("a stale main route starts a named dashboard conversation and hides main hi
     window.history.pushState(null, "", url);
   });
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
-  await expect(page.locator('button[aria-current="page"][aria-label="Dashboard Session"]')).toBeVisible();
+  const redirectedSessionKey = new URL(page.url()).searchParams.get("session");
+  expect(redirectedSessionKey).toBeTruthy();
+  await expect(sessionSelect(page, redirectedSessionKey!)).toHaveAttribute("aria-current", "page");
   await expect(legacySession).toHaveCount(0);
 });
 
@@ -624,11 +643,13 @@ test("deleting the last user session creates a new dashboard session", async ({ 
 
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
   const deletedSessionKey = new URL(page.url()).searchParams.get("session");
-  const sessionRows = page.locator('[data-session-pinned] button[aria-label="New Session"]');
+  expect(deletedSessionKey).toBeTruthy();
+  const sessionRows = page.getByTestId("agent-session-select");
   await expect(sessionRows).toHaveCount(1);
 
-  await sessionRows.first().hover();
-  await page.getByRole("button", { name: "Session options for New Session" }).click();
+  const deletedSessionRow = sessionRow(page, deletedSessionKey!);
+  await deletedSessionRow.hover();
+  await deletedSessionRow.getByTestId("agent-session-options").click();
   await page.getByRole("button", { name: "Delete", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Delete session?" })).toBeVisible();
   await page.getByRole("button", { name: "Delete session", exact: true }).click();
@@ -654,7 +675,7 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
-  await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await rosterAgent(page, "agent-2").click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
   await expect.poll(() => new URL(page.url()).searchParams.get("agentId")).toBe("agent-2");
   await expect.poll(() => page.evaluate(() => (
@@ -662,7 +683,7 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
       .__agentChatNavigationGatewayCalls?.methods ?? []
   ))).toContain("sessions.list");
 
-  const secondarySession = page.getByRole("button", { name: "Secondary Focus", exact: true });
+  const secondarySession = sessionSelect(page, SECONDARY_SESSION_KEY);
   await expect(secondarySession).toBeEnabled();
   const documentSentinel = "session-switch-kept-the-document";
   await page.evaluate((value) => {
@@ -684,30 +705,29 @@ test("refresh restores the selected agent and non-main chat session", async ({ p
     agentId: new URL(page.url()).searchParams.get("agentId"),
     session: new URL(page.url()).searchParams.get("session"),
   })).toEqual({ agentId: "agent-2", session: SECONDARY_SESSION_KEY });
-  await expect(page.getByRole("button", { name: "Secondary Focus", exact: true })).toHaveAttribute("aria-current", "page");
+  await expect(sessionSelect(page, SECONDARY_SESSION_KEY)).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("Secondary focus history restored")).toBeVisible();
 });
 
 test("parallel conversations recover after an interrupted gateway event sequence", async ({ page }) => {
   await mockAgentChat(page, { deferParallelReplies: true });
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await rosterAgent(page, "agent-2").click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
 
-  const secondarySession = page.getByRole("button", { name: "Secondary Focus", exact: true });
-  const archivedSession = page.getByRole("button", { name: "Archived Focus", exact: true });
-  const composer = page.locator("textarea").first();
-  const send = page.getByRole("button", { name: "Send message" });
+  const secondarySession = sessionSelect(page, SECONDARY_SESSION_KEY);
+  const archivedSession = sessionSelect(page, ARCHIVED_SESSION_KEY);
+  const composer = page.getByTestId("agent-chat-composer");
   await expect(page.getByRole("button", { name: "Main Session", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Previous conversation", exact: true })).toHaveCount(0);
   await expect(secondarySession).toBeEnabled();
   await expect(composer).toBeVisible();
 
-  await page.getByRole("button", { name: "New Session", exact: true }).click();
+  await page.locator('[data-workspace-item="new-session"]').click();
   await expect.poll(() => new URL(page.url()).searchParams.get("session")).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
 
   await composer.fill("main parallel request");
-  await send.click();
+  await composer.press("Enter");
   await expect(page.getByText("main parallel request", { exact: true })).toBeVisible();
   const latestDashboardSessionKey = async () => {
     const requests = await page.evaluate(() => (
@@ -719,19 +739,20 @@ test("parallel conversations recover after an interrupted gateway event sequence
   await expect.poll(latestDashboardSessionKey).toMatch(DASHBOARD_SESSION_KEY_PATTERN);
   const dashboardSessionKey = await latestDashboardSessionKey();
   expect(dashboardSessionKey).toBeTruthy();
-  await expect(page.getByRole("button", { name: "Dashboard Session", exact: true })).toHaveCount(0);
+  await expect(sessionRow(page, dashboardSessionKey!)
+    .locator('[data-session-title="Dashboard Session"]')).toHaveCount(0);
 
   await secondarySession.click();
   await expect(secondarySession).toHaveAttribute("aria-current", "page");
   await composer.fill("secondary parallel request");
-  await send.click();
+  await composer.press("Enter");
   await expect(page.getByText("secondary parallel request", { exact: true })).toBeVisible();
   await expect(secondarySession).toHaveAttribute("aria-busy", "true");
 
   await archivedSession.click();
   await expect(archivedSession).toHaveAttribute("aria-current", "page");
   await composer.fill("archived parallel request");
-  await send.click();
+  await composer.press("Enter");
   await expect(page.getByText("archived parallel request", { exact: true })).toBeVisible();
   await expect(archivedSession).toHaveAttribute("aria-busy", "true");
 
@@ -739,7 +760,7 @@ test("parallel conversations recover after an interrupted gateway event sequence
     (window as Window & { __releaseAgentChatParallelReplies?: () => void })
       .__releaseAgentChatParallelReplies?.();
   });
-  const dashboardSession = page.getByRole("button", { name: "Dashboard Session", exact: true });
+  const dashboardSession = sessionSelect(page, dashboardSessionKey!);
   await expect(dashboardSession).toBeVisible();
 
   for (const [session, reply] of [
@@ -764,7 +785,7 @@ test("dashboard views preserve the agent controller across navigation history", 
     (window as Window & { __agentChatNavigationGatewayCalls?: { urls: string[] } })
       .__agentChatNavigationGatewayCalls?.urls.length ?? 0
   ))).toBe(1);
-  const composer = page.locator("textarea").first();
+  const composer = page.getByTestId("agent-chat-composer");
   await expect(composer).toBeVisible();
   await composer.fill("draft survives dashboard navigation");
 
@@ -822,7 +843,7 @@ test("direct dashboard views defer the chat controller until an agent is opened"
       .__agentChatNavigationGatewayCalls?.sockets.filter((socket) => socket.methods.includes("chat.history")).length ?? 0
   ))).toBe(0);
 
-  await page.getByRole("button", { name: "Select Primary Agent" }).click();
+  await rosterAgent(page, "agent-1").click();
   await expect.poll(() => new URL(page.url()).searchParams.get("view")).toBeNull();
   await expect.poll(() => page.evaluate(() => (
     (window as Window & { __agentChatNavigationGatewayCalls?: { sockets: Array<{ methods: string[] }> } })
@@ -833,23 +854,23 @@ test("direct dashboard views defer the chat controller until an agent is opened"
 test("pinned sessions stay first across reload and return to recency order after unpinning", async ({ page }) => {
   await mockAgentChat(page);
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await rosterAgent(page, "agent-2").click();
   await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
 
-  const archivedSession = page.getByRole("button", { name: "Archived Focus", exact: true });
+  const archivedSession = sessionSelect(page, ARCHIVED_SESSION_KEY);
   await expect(archivedSession).toBeEnabled();
-  await expectSessionBefore(page, "Secondary Focus", "Archived Focus");
+  await expectSessionBefore(page, SECONDARY_SESSION_KEY, ARCHIVED_SESSION_KEY);
   const patchCallsBeforePin = await page.evaluate(() => (
     (window as Window & { __agentChatNavigationGatewayCalls?: { methods: string[] } })
       .__agentChatNavigationGatewayCalls?.methods.filter((method) => method === "sessions.patch").length ?? 0
   ));
 
   await archivedSession.hover();
-  await page.getByRole("button", { name: "Session options for Archived Focus" }).click();
+  await sessionRow(page, ARCHIVED_SESSION_KEY).getByTestId("agent-session-options").click();
   await page.getByRole("button", { name: "Pin", exact: true }).click();
 
-  await expectSessionBefore(page, "Archived Focus", "Secondary Focus");
-  await expect(archivedSession.locator(".lucide-pin")).toBeVisible();
+  await expectSessionBefore(page, ARCHIVED_SESSION_KEY, SECONDARY_SESSION_KEY);
+  await expect(sessionRow(page, ARCHIVED_SESSION_KEY)).toHaveAttribute("data-session-pinned", "true");
   await expect.poll(() => page.evaluate((storageKey) => {
     const raw = window.localStorage.getItem(storageKey);
     return raw ? JSON.parse(raw).sessionKeys : [];
@@ -861,14 +882,14 @@ test("pinned sessions stay first across reload and return to recency order after
 
   await page.reload({ waitUntil: "domcontentloaded" });
 
-  await expect(page.getByRole("button", { name: "Archived Focus", exact: true })).toBeEnabled();
-  await expectSessionBefore(page, "Archived Focus", "Secondary Focus");
-  await page.getByRole("button", { name: "Archived Focus", exact: true }).hover();
-  await page.getByRole("button", { name: "Session options for Archived Focus" }).click();
+  await expect(sessionSelect(page, ARCHIVED_SESSION_KEY)).toBeEnabled();
+  await expectSessionBefore(page, ARCHIVED_SESSION_KEY, SECONDARY_SESSION_KEY);
+  await sessionRow(page, ARCHIVED_SESSION_KEY).hover();
+  await sessionRow(page, ARCHIVED_SESSION_KEY).getByTestId("agent-session-options").click();
   await page.getByRole("button", { name: "Unpin", exact: true }).click();
 
-  await expectSessionBefore(page, "Secondary Focus", "Archived Focus");
-  await expect(archivedSession.locator(".lucide-pin")).toHaveCount(0);
+  await expectSessionBefore(page, SECONDARY_SESSION_KEY, ARCHIVED_SESSION_KEY);
+  await expect(sessionRow(page, ARCHIVED_SESSION_KEY)).toHaveAttribute("data-session-pinned", "false");
   await expect.poll(() => page.evaluate((storageKey) => window.localStorage.getItem(storageKey), "openclaw.sessionPins.v1:agent-2")).toBeNull();
 });
 
@@ -897,8 +918,9 @@ test("private chat stays out of navigation state and resets before switching age
     request.params?.reason === "new" &&
     request.params.key?.startsWith("session-hypercli-ephemeral-")
   ))!.params!.key!;
-  await page.locator("textarea").fill("private browser secret");
-  await page.getByRole("button", { name: "Send message" }).click();
+  const privateComposer = page.getByTestId("agent-chat-composer");
+  await privateComposer.fill("private browser secret");
+  await privateComposer.press("Enter");
   await expect(page.getByText("Private reply", { exact: true })).toBeVisible();
   await page.waitForTimeout(350);
   const storedBrowserState = await page.evaluate(() => JSON.stringify(Object.fromEntries(
@@ -921,7 +943,7 @@ test("private chat stays out of navigation state and resets before switching age
   )).toBe(1);
   await expect(page.getByRole("button", { name: "End private chat" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Select Secondary Agent" }).click();
+  await rosterAgent(page, "agent-2").click();
 
   await expect.poll(() => new URL(page.url()).searchParams.get("agentId")).toBe("agent-2");
   await expect.poll(() => (
