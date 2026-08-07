@@ -80,7 +80,7 @@ Start a persistent agents E2E container:
 ```bash
 cd ~/dev/hypercli
 mkdir -p .e2e-artifacts-local-live
-docker run --init --name hypercli-e2e-agents-debug \
+docker run --init --dns-search=. --name hypercli-e2e-agents-debug \
   --env-file .env.agents \
   -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
   -e E2E_ARTIFACTS_DIR=/artifacts \
@@ -101,6 +101,9 @@ Notes:
   can take time to propagate through DNS; keep polling the real hostname with a
   bounded readiness wait and inspect the gateway/route state before changing
   test coverage.
+- Disable Docker DNS search domains with `--dns-search=.` for live agent E2E.
+  Otherwise an as-yet-unpublished agent hostname can resolve through a runner's
+  search suffix and cache an unrelated host instead of waiting for public DNS.
 - When `BACKEND_API_KEY` is present, Claw specs use
   the backend admin login path instead of OTP. Only `login.spec.ts` forces the
   real Privy OTP flow, so the console and agents suites can run in parallel.

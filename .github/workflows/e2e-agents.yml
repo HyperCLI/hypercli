@@ -59,7 +59,7 @@ jobs:
           ARTIFACTS_DIR="${PLAYWRIGHT_ARTIFACTS_DIR}"
           rm -rf "${ARTIFACTS_DIR}"
           mkdir -p "${ARTIFACTS_DIR}"
-          docker run --rm --init \
+          docker run --rm --init --dns-search=. \
             -e CI=true \
             -e TEST_HOSTNAME \
             -e BACKEND_API_KEY \

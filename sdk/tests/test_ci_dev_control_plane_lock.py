@@ -50,6 +50,9 @@ def test_frontend_and_desktop_live_agent_workflows_share_the_dev_rollout_lock() 
     ):
         _assert_shared(_run(agent_job, step))
 
+    agent_e2e = _run(agent_job, "Run dockerized Playwright tests")
+    assert "--dns-search=." in agent_e2e
+
     buzz_job = _jobs("desktop-buzz-e2e.yml")["dev-relay"]
     for step in (
         "Bootstrap isolated Buzz E2E user with slots",
