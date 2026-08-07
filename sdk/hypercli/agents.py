@@ -1150,7 +1150,9 @@ def _deep_merge_config(base: dict[str, Any], patch: dict[str, Any]) -> dict[str,
 
 def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
-    launch_config = data.get("launch_config") if isinstance(data.get("launch_config"), dict) else None
+    launch_config = copy.deepcopy(data["launch_config"]) if isinstance(data.get("launch_config"), dict) else None
+    if launch_config is not None:
+        launch_config.pop("sync_enabled", None)
     is_launchable = data.get("is_launchable")
     if is_launchable is None:
         is_launchable = data.get("managed", True) is not False
@@ -1186,19 +1188,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "restore_state": str(data["restore_state"]) if data.get("restore_state") is not None else None,
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
-<<<<<<< HEAD
-        "launch_config": (
-            {
-                key: copy.deepcopy(value)
-                for key, value in data["launch_config"].items()
-                if key != "sync_enabled"
-            }
-            if isinstance(data.get("launch_config"), dict)
-            else data.get("launch_config")
-        ),
-=======
         "launch_config": launch_config,
->>>>>>> 33767e4e (Expand agent onboarding, trials, and extensibility)
         "meta_ui": copy.deepcopy(meta.get("ui")) if isinstance(meta.get("ui"), dict) else None,
         "routes": data.get("routes") or (launch_config or {}).get("routes") or {},
         "command": data.get("command") or (launch_config or {}).get("command") or [],
@@ -3131,34 +3121,21 @@ class Deployments:
             body["tags"] = list(tags)
         data = self._post(AGENTS_API_PREFIX, json=body)
         agent = self._hydrate_agent(data)
-<<<<<<< HEAD
-        if isinstance(agent, OpenClawAgent):
-            agent.gateway_token = effective_gateway_token
-        if isinstance(agent, HermesAgent):
-            agent.api_server_key = effective_api_server_key
-        agent.launch_config = {
-            key: copy.deepcopy(value)
-            for key, value in launch_payload.items()
-            if key != "sync_enabled"
-        }
-        if isinstance(agent, HermesAgent) and isinstance(agent.launch_config.get("env"), dict):
-            agent.launch_config = copy.deepcopy(agent.launch_config)
-            agent.launch_config["env"].pop("API_SERVER_KEY", None)
-        agent.command = list(launch_payload.get("command") or [])
-        agent.entrypoint = list(launch_payload.get("entrypoint") or [])
-=======
         if not agent.creation_replayed:
             if isinstance(agent, OpenClawAgent):
                 agent.gateway_token = effective_gateway_token
             if isinstance(agent, HermesAgent):
                 agent.api_server_key = effective_api_server_key
-            agent.launch_config = launch_payload
+            agent.launch_config = {
+                key: copy.deepcopy(value)
+                for key, value in launch_payload.items()
+                if key != "sync_enabled"
+            }
             if isinstance(agent, HermesAgent) and isinstance(agent.launch_config.get("env"), dict):
                 agent.launch_config = copy.deepcopy(agent.launch_config)
                 agent.launch_config["env"].pop("API_SERVER_KEY", None)
             agent.command = list(launch_payload.get("command") or [])
             agent.entrypoint = list(launch_payload.get("entrypoint") or [])
->>>>>>> 33767e4e (Expand agent onboarding, trials, and extensibility)
         return agent
 
     def create_openclaw(

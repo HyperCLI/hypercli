@@ -1067,6 +1067,7 @@ describe('HyperClaw agents SDK', () => {
       launch_config: {
         env: { OPENCLAW_GATEWAY_TOKEN: 'original-token' },
         command: ['original-command'],
+        sync_enabled: true,
       },
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     });
@@ -1086,6 +1087,7 @@ describe('HyperClaw agents SDK', () => {
 
     expect(agent.creationReplayed).toBe(true);
     expect(agent.launchConfig?.env?.OPENCLAW_GATEWAY_TOKEN).toBe('original-token');
+    expect(agent.launchConfig).not.toHaveProperty('sync_enabled');
     expect(agent.command).toEqual(['original-command']);
   });
 

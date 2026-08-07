@@ -1681,12 +1681,8 @@ function execResultFromDict(data: any): AgentExecResult {
 }
 
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
-<<<<<<< HEAD
-  const launchConfig = data.launch_config ? structuredClone(data.launch_config) : null;
+  const launchConfig = isPlainRecord(data.launch_config) ? structuredClone(data.launch_config) : null;
   if (launchConfig) delete launchConfig.sync_enabled;
-=======
-  const launchConfig = isPlainRecord(data.launch_config) ? data.launch_config : null;
->>>>>>> 33767e4e (Expand agent onboarding, trials, and extensibility)
   return {
     id: data.id ?? '',
     userId: data.user_id ?? '',
@@ -3930,17 +3926,11 @@ export class Deployments {
       if (agent instanceof OpenClawAgent) {
         agent.gatewayToken = gatewayToken;
       }
-      agent.launchConfig = config;
+      agent.launchConfig = structuredClone(config);
+      delete agent.launchConfig.sync_enabled;
       agent.command = [...(config.command ?? [])];
       agent.entrypoint = [...(config.entrypoint ?? [])];
     }
-<<<<<<< HEAD
-    agent.launchConfig = structuredClone(config);
-    delete agent.launchConfig.sync_enabled;
-    agent.command = [...(config.command ?? [])];
-    agent.entrypoint = [...(config.entrypoint ?? [])];
-=======
->>>>>>> 33767e4e (Expand agent onboarding, trials, and extensibility)
     return agent;
   }
 

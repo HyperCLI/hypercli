@@ -1513,6 +1513,7 @@ def test_agents_create_preserves_backend_contract_on_idempotent_replay(agents_cl
                 "env": {"OPENCLAW_GATEWAY_TOKEN": "original-token"},
                 "command": ["original-command"],
                 "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
+                "sync_enabled": True,
             },
         }
         mock_client.post.return_value = mock_response
@@ -1530,6 +1531,7 @@ def test_agents_create_preserves_backend_contract_on_idempotent_replay(agents_cl
 
         assert agent.creation_replayed is True
         assert agent.launch_config["env"]["OPENCLAW_GATEWAY_TOKEN"] == "original-token"
+        assert "sync_enabled" not in agent.launch_config
         assert agent.command == ["original-command"]
 
 
