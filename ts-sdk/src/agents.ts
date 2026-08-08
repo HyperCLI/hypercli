@@ -1216,6 +1216,10 @@ export interface DeploymentEvent {
   type: 'deployment.transition' | 'deployments.changed';
   deployment_id?: string;
   state?: AgentState;
+  stage?: string | null;
+  reason?: string | null;
+  error?: string | null;
+  message?: string | null;
   placement_epoch?: number;
   runtime_generation?: number;
   finalize_epoch?: number;
@@ -1251,11 +1255,12 @@ export interface AgentStateFields {
   startedAt?: Date | null;
   stoppedAt?: Date | null;
   stage?: string | null;
+  reason?: string | null;
   error?: string | null;
   message?: string | null;
   /** @deprecated Use error/message. Accepted during the rollout only. */
   lastError?: string | null;
-  /** @deprecated Use stage/error/message. Accepted during the rollout only. */
+  /** @deprecated Use stage/reason/error/message. Accepted during the rollout only. */
   runtimeStatus?: AgentRuntimeStatus | null;
   placementEpoch?: number;
   runtimeGeneration?: number;
@@ -1307,6 +1312,7 @@ export interface AgentHydrationData {
   started_at?: string | null;
   stopped_at?: string | null;
   stage?: string | null;
+  reason?: string | null;
   error?: string | null;
   message?: string | null;
   /** @deprecated Accepted from older Backend deployments during rollout. */
@@ -1728,6 +1734,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
     stage: data.stage ?? null,
+    reason: data.reason ?? null,
     error: data.error ?? data.last_error ?? null,
     message: data.message ?? null,
     lastError: data.last_error ?? data.error ?? null,
@@ -2165,11 +2172,12 @@ export class Agent {
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
   public readonly stage: string | null;
+  public readonly reason: string | null;
   public readonly error: string | null;
   public readonly message: string | null;
   /** @deprecated Use error/message. */
   public readonly lastError: string | null;
-  /** @deprecated Use stage/error/message. */
+  /** @deprecated Use stage/reason/error/message. */
   public readonly runtimeStatus: AgentRuntimeStatus | null;
   public readonly placementEpoch: number;
   public readonly runtimeGeneration: number;
@@ -2213,6 +2221,7 @@ export class Agent {
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
     this.stage = fields.stage ?? null;
+    this.reason = fields.reason ?? null;
     this.error = fields.error ?? fields.lastError ?? null;
     this.message = fields.message ?? null;
     this.lastError = fields.lastError ?? fields.error ?? null;
@@ -4408,6 +4417,7 @@ export class Deployments {
       if (!agent) return '';
       const details: string[] = [];
       if (agent.stage) details.push(`stage=${JSON.stringify(agent.stage)}`);
+      if (agent.reason) details.push(`reason=${JSON.stringify(agent.reason)}`);
       if (agent.error) details.push(`error=${JSON.stringify(agent.error)}`);
       if (agent.message) details.push(`message=${JSON.stringify(agent.message)}`);
       if (agent.updatedAt && !Number.isNaN(agent.updatedAt.getTime())) {

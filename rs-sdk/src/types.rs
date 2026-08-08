@@ -943,13 +943,15 @@ pub struct Deployment {
     #[serde(default)]
     pub stage: Option<String>,
     #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
     pub error: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
     /// Deprecated rollout compatibility alias; use `error`/`message`.
     #[serde(default)]
     pub last_error: Option<String>,
-    /// Deprecated rollout compatibility alias; use `stage`/`error`/`message`.
+    /// Deprecated rollout compatibility alias; use `stage`/`reason`/`error`/`message`.
     #[serde(default)]
     pub runtime_status: Option<AgentRuntimeStatus>,
     #[serde(default)]
@@ -976,6 +978,14 @@ pub struct DeploymentEvent {
     pub deployment_id: Option<String>,
     #[serde(default)]
     pub state: Option<String>,
+    #[serde(default)]
+    pub stage: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
     #[serde(default)]
     pub placement_epoch: Option<u64>,
     #[serde(default)]
@@ -1402,6 +1412,7 @@ mod tests {
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
             stage: None,
+            reason: None,
             error: None,
             message: None,
             last_error: None,
@@ -1458,6 +1469,7 @@ mod tests {
                 "id": "agent-1",
                 "state": state,
                 "stage": expected_stage,
+                "reason": if state == "STOPPED" { "runtime_exit" } else { "start" },
                 "error": (state == "FAILED").then_some("ExampleError"),
                 "message": expected_message,
             }))
@@ -1465,6 +1477,14 @@ mod tests {
 
             assert_eq!(deployment.state, state);
             assert_eq!(deployment.stage.as_deref(), Some(expected_stage.as_str()));
+            assert_eq!(
+                deployment.reason.as_deref(),
+                Some(if state == "STOPPED" {
+                    "runtime_exit"
+                } else {
+                    "start"
+                })
+            );
             assert_eq!(
                 deployment.error.as_deref(),
                 (state == "FAILED").then_some("ExampleError")
@@ -1474,6 +1494,26 @@ mod tests {
                 Some(expected_message.as_str())
             );
         }
+    }
+
+    #[test]
+    fn deployment_keeps_lifecycle_reason_independent_from_error_and_message() {
+        let deployment: Deployment = serde_json::from_value(serde_json::json!({
+            "id": "agent-1",
+            "state": "STOPPED",
+            "stage": "stopped",
+            "reason": "api_stop",
+            "error": null,
+            "message": "Agent stopped normally",
+        }))
+        .unwrap();
+
+        assert_eq!(deployment.reason.as_deref(), Some("api_stop"));
+        assert_eq!(deployment.error, None);
+        assert_eq!(
+            deployment.message.as_deref(),
+            Some("Agent stopped normally")
+        );
     }
 
     #[test]

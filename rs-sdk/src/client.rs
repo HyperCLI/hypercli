@@ -383,6 +383,10 @@ impl HyperCliClient {
                 event_type: "deployments.changed".to_owned(),
                 deployment_id: None,
                 state: None,
+                stage: None,
+                reason: None,
+                error: None,
+                message: None,
                 placement_epoch: None,
                 runtime_generation: None,
                 finalize_epoch: None,
@@ -1423,6 +1427,10 @@ mod tests {
                         "type": "deployment.transition",
                         "deployment_id": "deployment-1",
                         "state": "RUNNING",
+                        "stage": "running",
+                        "reason": "start",
+                        "error": null,
+                        "message": "Agent is running",
                         "placement_epoch": 8,
                         "runtime_generation": 3
                     })
@@ -1480,6 +1488,10 @@ mod tests {
             let received = received.lock().unwrap();
             assert_eq!(received[0].event_type, "deployments.changed");
             assert_eq!(received[1].deployment_id.as_deref(), Some("deployment-1"));
+            assert_eq!(received[1].stage.as_deref(), Some("running"));
+            assert_eq!(received[1].reason.as_deref(), Some("start"));
+            assert_eq!(received[1].error, None);
+            assert_eq!(received[1].message.as_deref(), Some("Agent is running"));
             assert_eq!(received[1].runtime_generation, Some(3));
         }
         list.assert_async().await;

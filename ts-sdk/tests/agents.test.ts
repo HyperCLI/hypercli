@@ -5,6 +5,7 @@ import {
   buildAgentConfig,
   buildBrowserDesktopUrl,
   DEFAULT_AGENT_RUNTIME_SCOPES,
+  type DeploymentEvent,
   Deployments,
   flattenLaunchConfig,
   launchConfigHasDesktop,
@@ -158,7 +159,7 @@ describe('Agents SDK', () => {
     const http = { get, post } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const controller = new AbortController();
-    const received: string[] = [];
+    const received: DeploymentEvent[] = [];
 
     class FakeWebSocket extends EventTarget {
       static OPEN = 1;
@@ -176,6 +177,10 @@ describe('Agents SDK', () => {
             type: 'deployment.transition',
             deployment_id: 'agent-123',
             state: 'RUNNING',
+            stage: 'running',
+            reason: 'start',
+            error: null,
+            message: 'Agent is running',
             placement_epoch: 8,
           },
         ]) {
@@ -193,7 +198,7 @@ describe('Agents SDK', () => {
     vi.stubGlobal('WebSocket', FakeWebSocket);
 
     await deployments.subscribe((event) => {
-      received.push(event.type);
+      received.push(event);
       if (event.type === 'deployment.transition') controller.abort();
     }, { signal: controller.signal });
 
@@ -203,7 +208,13 @@ describe('Agents SDK', () => {
       undefined,
       { signal: controller.signal },
     );
-    expect(received).toEqual(['deployments.changed', 'deployment.transition']);
+    expect(received.map((event) => event.type)).toEqual(['deployments.changed', 'deployment.transition']);
+    expect(received[1]).toMatchObject({
+      stage: 'running',
+      reason: 'start',
+      error: null,
+      message: 'Agent is running',
+    });
   });
 
   it('passes cancellation through initial REST hydration', async () => {
@@ -701,6 +712,7 @@ describe('Agents SDK', () => {
         user_id: 'user-456',
         state,
         stage: state.toLowerCase(),
+        reason: state === 'STOPPED' ? 'runtime_exit' : 'start',
         error: state === 'FAILED' ? 'ExampleError' : null,
         message: `Lifecycle state is ${state}`,
       }),
@@ -711,8 +723,30 @@ describe('Agents SDK', () => {
 
     expect(agent.state).toBe(state);
     expect(agent.stage).toBe(state.toLowerCase());
+    expect(agent.reason).toBe(state === 'STOPPED' ? 'runtime_exit' : 'start');
     expect(agent.error).toBe(state === 'FAILED' ? 'ExampleError' : null);
     expect(agent.message).toBe(`Lifecycle state is ${state}`);
+  });
+
+  it('keeps lifecycle reason independent from error and message', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        state: 'STOPPED',
+        stage: 'stopped',
+        reason: 'api_stop',
+        error: null,
+        message: 'Agent stopped normally',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.get('agent-123');
+
+    expect(agent.reason).toBe('api_stop');
+    expect(agent.error).toBeNull();
+    expect(agent.message).toBe('Agent stopped normally');
   });
 
   it.each(['CREATING', 'PENDING', 'DOWNLOADING', 'RESTORING', 'SYNCING', 'STOPPING'] as const)(
@@ -759,6 +793,7 @@ describe('Agents SDK', () => {
           pod_name: 'pod-789',
           state,
           stage: 'syncing',
+          reason: 'runtime_exit',
           error: 'WorkspaceSyncFailed',
           message: 'workspace sync failed',
           updated_at: '2026-07-27T12:00:00Z',
@@ -768,7 +803,7 @@ describe('Agents SDK', () => {
       const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
       await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
-        `Agent entered ${state} while waiting for RUNNING, stage="syncing", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
+        `Agent entered ${state} while waiting for RUNNING, stage="syncing", reason="runtime_exit", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
       );
     },
   );

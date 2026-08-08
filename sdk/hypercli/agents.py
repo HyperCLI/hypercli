@@ -1199,9 +1199,10 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
         "stage": data.get("stage"),
+        "reason": data.get("reason"),
         "error": data.get("error", data.get("last_error")),
         "message": data.get("message"),
-        # Rollout-only compatibility aliases. New APIs use stage/error/message.
+        # Rollout-only compatibility aliases. New APIs use stage/reason/error/message.
         "last_error": data.get("last_error", data.get("error")),
         "runtime_status": (
             copy.deepcopy(data.get("runtime_status"))
@@ -1813,6 +1814,10 @@ class DeploymentEvent:
     type: str
     deployment_id: str | None = None
     state: str | None = None
+    stage: str | None = None
+    reason: str | None = None
+    error: str | None = None
+    message: str | None = None
     placement_epoch: int | None = None
     runtime_generation: int | None = None
     finalize_epoch: int | None = None
@@ -1824,6 +1829,10 @@ class DeploymentEvent:
             type=str(data.get("type") or ""),
             deployment_id=str(data["deployment_id"]) if data.get("deployment_id") else None,
             state=str(data["state"]) if data.get("state") else None,
+            stage=str(data["stage"]) if data.get("stage") else None,
+            reason=str(data["reason"]) if data.get("reason") else None,
+            error=str(data["error"]) if data.get("error") else None,
+            message=str(data["message"]) if data.get("message") else None,
             placement_epoch=int(data["placement_epoch"]) if data.get("placement_epoch") is not None else None,
             runtime_generation=int(data["runtime_generation"]) if data.get("runtime_generation") is not None else None,
             finalize_epoch=int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
@@ -1876,9 +1885,10 @@ class Agent:
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     stage: Optional[str] = None
+    reason: Optional[str] = None
     error: Optional[str] = None
     message: Optional[str] = None
-    # Deprecated rollout compatibility aliases; use stage/error/message.
+    # Deprecated rollout compatibility aliases; use stage/reason/error/message.
     last_error: Optional[str] = None
     runtime_status: Optional[dict] = None
     placement_epoch: int = 0

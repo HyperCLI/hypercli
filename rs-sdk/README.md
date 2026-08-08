@@ -60,6 +60,8 @@ channel—and let the consumer call `get_deployment()` or
 `list_deployments_with_capacity()`. The SDK performs REST hydration before the
 socket, authenticates, waits for `ready`, resyncs REST, and repeats that process
 after reconnect. There is no client ACK or durable client outbox.
+Transition events carry the transition-time `stage`, `reason`, `error`, and
+`message`, but remain invalidations rather than authoritative snapshots.
 
 `Deployment.state` and `restore_state` remain open strings so future server
 states continue to parse. Placement, runtime, and optional finalize epochs are
@@ -69,7 +71,10 @@ Canonical deployment lifecycle snapshots currently use `CREATING`, `PENDING`,
 `DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and
 `FAILED`. `CREATING` means the control plane is establishing the agent
 namespace. Consumers should display and wait on these values, not reproduce
-the server lifecycle machine.
+the server lifecycle machine. Lifecycle `stage` and `reason` are also open
+strings: `reason` is a stable transition cause such as `start`, `api_stop`,
+`runtime_exit`, `timeout`, or `delete`; `error` is a failure code when present,
+and `message` is human-readable context.
 
 Restart sync policy is deliberately tri-state. A default
 `StartDeploymentRequest` omits the fields and inherits the saved policy;

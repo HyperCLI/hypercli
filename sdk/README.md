@@ -156,14 +156,20 @@ stop = asyncio.Event()
 await client.deployments.subscribe(changed, stop_event=stop)
 ```
 
-The SDK owns authentication, ready/resync, and reconnect. Events are not
-resource snapshots and may be duplicated or coalesced.
+The SDK owns authentication, ready/resync, and reconnect. Transition events
+carry the transition-time `stage`, `reason`, `error`, and `message`, but are not
+resource snapshots and may be duplicated or coalesced; refresh REST for
+authority.
 
 Managed-agent lifecycle snapshots currently use `CREATING`, `PENDING`,
 `DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and
 `FAILED`. `CREATING` means the control plane is establishing the agent
 namespace. State values remain open strings; use REST as authority instead of
-recreating the server lifecycle machine in the client.
+recreating the server lifecycle machine in the client. Each snapshot may also
+carry open-string lifecycle diagnostics: `stage` is the current step, `reason`
+is the stable cause such as `start`, `api_stop`, `runtime_exit`, `timeout`, or
+`delete`, `error` is a failure code when the transition failed, and `message`
+is human-readable context.
 
 Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 

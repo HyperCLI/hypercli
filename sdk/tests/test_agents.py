@@ -111,6 +111,10 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
         "type": "deployment.transition",
         "deployment_id": "agent-123",
         "state": "RUNNING",
+        "stage": "running",
+        "reason": "start",
+        "error": None,
+        "message": "Agent is running",
         "placement_epoch": 7,
         "runtime_generation": 4,
     }
@@ -153,6 +157,10 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
 
     assert calls[:4] == ["rest", "/deployments/events/token", "auth", "rest"]
     assert [event.type for event in received] == ["deployments.changed", "deployment.transition"]
+    assert received[-1].stage == "running"
+    assert received[-1].reason == "start"
+    assert received[-1].error is None
+    assert received[-1].message == "Agent is running"
     assert received[-1].runtime_generation == 4
 
 
@@ -778,6 +786,7 @@ def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
             "id": "agent-123",
             "state": state,
             "stage": state.lower(),
+            "reason": "runtime_exit" if state == "STOPPED" else "start",
             "error": "ExampleError" if state == "FAILED" else None,
             "message": f"Lifecycle state is {state}",
         }
@@ -785,8 +794,26 @@ def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
 
     assert agent.state == state
     assert agent.stage == state.lower()
+    assert agent.reason == ("runtime_exit" if state == "STOPPED" else "start")
     assert agent.error == ("ExampleError" if state == "FAILED" else None)
     assert agent.message == f"Lifecycle state is {state}"
+
+
+def test_agent_lifecycle_reason_is_independent_from_error_and_message():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "state": "STOPPED",
+            "stage": "stopped",
+            "reason": "api_stop",
+            "error": None,
+            "message": "Agent stopped normally",
+        }
+    )
+
+    assert agent.reason == "api_stop"
+    assert agent.error is None
+    assert agent.message == "Agent stopped normally"
 
 
 def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():

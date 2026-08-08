@@ -173,6 +173,12 @@ for (const slot of capacity.agentSlots) {
 full deployment response: saved/running account limits, pooled TPD, aggregate
 slot inventory, and individual entitlement-backed agent slots.
 
+Deployment lifecycle snapshots use open-string `state`, `stage`, and `reason`
+fields. `reason` is the stable cause of a transition, such as `start`,
+`api_stop`, `runtime_exit`, `timeout`, or `delete`; `error` is populated for a
+failed transition, while `message` is human-readable context. Consumers should
+not bind these strings to a closed client-side enum.
+
 For a long-lived UI, subscribe to thin invalidations and refresh REST in the
 handler:
 
@@ -188,7 +194,9 @@ await subscription;
 ```
 
 Abort during teardown. The SDK owns authentication, ready/resync, and
-reconnect; events are not snapshots and may be duplicated or coalesced.
+reconnect. Transition events carry the transition-time `stage`, `reason`,
+`error`, and `message`, but are not snapshots and may be duplicated or
+coalesced; refresh REST for authority.
 
 Use `createOpenClawPro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
