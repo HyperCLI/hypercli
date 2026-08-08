@@ -450,9 +450,11 @@ await subscription;
 ```
 
 The subscription runs until aborted or a permanent authentication error
-occurs. Events are thin, best-effort hints, not snapshots. The SDK reconnects
-with backoff and completes a full REST resync before delivering further
-invalidations. `AgentState` is intentionally open to future server states.
+occurs. Events are thin, best-effort hints with `agent_id` for local filtering,
+not snapshots. The SDK reconnects
+with backoff, authenticates the user stream first, then reads the full REST
+snapshot before delivering further invalidations. `AgentState` is intentionally
+open to future server states.
 
 ## `Agent`
 

@@ -1267,7 +1267,7 @@ export function isAgentRuntimeInactiveState(state: string): boolean {
 export interface DeploymentEvent {
   version: number;
   type: 'deployment.transition' | 'deployments.changed';
-  deployment_id?: string;
+  agent_id?: string;
   state?: AgentState;
   stage?: string | null;
   reason?: string | null;
@@ -4370,7 +4370,6 @@ export class Deployments {
     handler: (event: DeploymentEvent) => void | Promise<void>,
     options: DeploymentSubscribeOptions = {},
   ): Promise<void> {
-    await this.list({ signal: options.signal });
     let retryDelay = 250;
     const waitBeforeReconnect = async () => {
       let abortRetry: () => void = () => {};
@@ -4471,7 +4470,7 @@ export class Deployments {
     let subscriptionError: unknown;
     const controller = new AbortController();
     const subscription = this.subscribe((event) => {
-      if (!event.deployment_id || event.deployment_id === agentId) {
+      if (!event.agent_id || event.agent_id === agentId) {
         wakePending = true;
         wake?.();
       }

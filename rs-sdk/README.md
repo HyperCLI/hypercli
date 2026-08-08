@@ -57,10 +57,10 @@ request; it does not perform a DNS probe or keep a backend transaction open.
 `subscribe_deployments()` provides flat, best-effort invalidations. Keep its
 synchronous callback small—for example, send the event into an application
 channel—and let the consumer call `get_deployment()` or
-`list_deployments_with_capacity()`. The SDK performs REST hydration before the
-socket, authenticates, waits for `ready`, resyncs REST, and repeats that process
+`list_deployments_with_capacity()`. The SDK connects and authenticates the user
+socket, waits for `ready`, then reads the REST snapshot, and repeats that order
 after reconnect. There is no client ACK or durable client outbox.
-Transition events carry the transition-time `stage`, `reason`, `error`, and
+Transition events carry `agent_id` for local filtering plus the transition-time `stage`, `reason`, `error`, and
 `message`, but remain invalidations rather than authoritative snapshots.
 
 `Deployment.state` and `restore_state` remain open strings so future server

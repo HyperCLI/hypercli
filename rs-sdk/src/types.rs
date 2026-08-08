@@ -1028,7 +1028,7 @@ pub struct DeploymentEvent {
     #[serde(rename = "type")]
     pub event_type: String,
     #[serde(default)]
-    pub deployment_id: Option<String>,
+    pub agent_id: Option<String>,
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
@@ -1540,7 +1540,7 @@ mod tests {
         let event: DeploymentEvent = serde_json::from_value(serde_json::json!({
             "version": 1,
             "type": "deployment.transition",
-            "deployment_id": "agent-1",
+            "agent_id": "agent-1",
             "state": "ARCHIVING",
             "stage": "archiving",
             "reason": "archive_request"

@@ -105,7 +105,7 @@ def test_agent_from_dict_hydrates_downloading_runtime_status():
 
 
 @pytest.mark.asyncio
-async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(monkeypatch):
+async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
@@ -114,7 +114,7 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
     transition = {
         "version": 1,
         "type": "deployment.transition",
-        "deployment_id": "agent-123",
+        "agent_id": "agent-123",
         "state": "ARCHIVING",
         "stage": "archiving",
         "reason": "archive_request",
@@ -160,8 +160,9 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
 
     await deployments.subscribe(handler, stop_event=stop)
 
-    assert calls[:4] == ["rest", "/deployments/events/token", "auth", "rest"]
+    assert calls[:3] == ["/deployments/events/token", "auth", "rest"]
     assert [event.type for event in received] == ["deployments.changed", "deployment.transition"]
+    assert received[-1].agent_id == "agent-123"
     assert received[-1].state == "ARCHIVING"
     assert received[-1].stage == "archiving"
     assert received[-1].reason == "archive_request"
@@ -180,7 +181,7 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
     transition = {
         "version": 1,
         "type": "deployment.transition",
-        "deployment_id": "agent-123",
+        "agent_id": "agent-123",
         "state": "RUNNING",
     }
 
@@ -242,7 +243,6 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
     assert connection_count == 2
     assert stop.waits == 1
     assert calls == [
-        "rest",
         "/deployments/events/token",
         "auth",
         "rest",
@@ -294,7 +294,7 @@ async def test_wait_running_async_accepts_every_canonical_boot_state(monkeypatch
     )
 
     async def subscribe(handler, **_kwargs):
-        handler(DeploymentEvent(version=1, type="deployment.transition", deployment_id="agent-123"))
+        handler(DeploymentEvent(version=1, type="deployment.transition", agent_id="agent-123"))
         await asyncio.Event().wait()
 
     monkeypatch.setattr(deployments, "subscribe", subscribe)

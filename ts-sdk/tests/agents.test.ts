@@ -180,7 +180,7 @@ describe('Agents SDK', () => {
           {
             version: 1,
             type: 'deployment.transition',
-            deployment_id: 'agent-123',
+            agent_id: 'agent-123',
             state: 'ARCHIVING',
             stage: 'archiving',
             reason: 'archive_request',
@@ -207,7 +207,7 @@ describe('Agents SDK', () => {
       if (event.type === 'deployment.transition') controller.abort();
     }, { signal: controller.signal });
 
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith(
       '/deployments/events/token',
       undefined,
@@ -215,6 +215,7 @@ describe('Agents SDK', () => {
     );
     expect(received.map((event) => event.type)).toEqual(['deployments.changed', 'deployment.transition']);
     expect(received[1]).toMatchObject({
+      agent_id: 'agent-123',
       state: 'ARCHIVING',
       stage: 'archiving',
       reason: 'archive_request',
@@ -223,21 +224,22 @@ describe('Agents SDK', () => {
     });
   });
 
-  it('passes cancellation through initial REST hydration', async () => {
+  it('passes cancellation through event-token admission', async () => {
     const controller = new AbortController();
-    const get = vi.fn((_path: string, _params: unknown, requestOptions: { signal: AbortSignal }) => (
+    const post = vi.fn((_path: string, _body: unknown, requestOptions: { signal: AbortSignal }) => (
       new Promise((_resolve, reject) => {
         requestOptions.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
       })
     ));
-    const http = { get } as unknown as HTTPClient;
+    const http = { post } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     const subscription = deployments.subscribe(() => undefined, { signal: controller.signal });
+    await Promise.resolve();
     controller.abort();
 
-    await expect(subscription).rejects.toThrow('aborted');
-    expect(get.mock.calls[0]?.[2]?.signal).toBe(controller.signal);
+    await expect(subscription).resolves.toBeUndefined();
+    expect(post.mock.calls[0]?.[2]?.signal).toBe(controller.signal);
   });
 
   it.each([401, 403])('treats deployment event token HTTP %i as terminal', async (statusCode) => {
@@ -252,7 +254,7 @@ describe('Agents SDK', () => {
 
     await expect(deployments.subscribe(() => undefined)).rejects.toBe(failure);
 
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).not.toHaveBeenCalled();
     expect(post).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith(
       '/deployments/events/token',
@@ -312,14 +314,14 @@ describe('Agents SDK', () => {
 
     await vi.advanceTimersByTimeAsync(0);
     expect(post).toHaveBeenCalledTimes(1);
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(249);
     expect(post).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     await subscription;
 
     expect(post).toHaveBeenCalledTimes(2);
-    expect(get).toHaveBeenCalledTimes(3);
+    expect(get).toHaveBeenCalledTimes(2);
     expect(resyncs).toBe(2);
   });
 

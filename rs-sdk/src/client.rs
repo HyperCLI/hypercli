@@ -366,7 +366,6 @@ impl HyperCliClient {
     where
         F: FnMut(DeploymentEvent),
     {
-        self.async_get_json::<AgentCapacity>("deployments").await?;
         let mut retry_delay = Duration::from_millis(250);
         loop {
             let mut socket = match self.connect_deployment_events().await {
@@ -381,7 +380,7 @@ impl HyperCliClient {
             handler(DeploymentEvent {
                 version: 1,
                 event_type: "deployments.changed".to_owned(),
-                deployment_id: None,
+                agent_id: None,
                 state: None,
                 stage: None,
                 reason: None,
@@ -496,8 +495,8 @@ impl HyperCliClient {
                         break;
                     };
                     if event.version != 1
-                        || (event.deployment_id.as_deref().is_some()
-                            && event.deployment_id.as_deref() != Some(deployment_id))
+                        || (event.agent_id.as_deref().is_some()
+                            && event.agent_id.as_deref() != Some(deployment_id))
                     {
                         continue;
                     }
@@ -1330,7 +1329,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body("{}")
-            .expect(2)
+            .expect(1)
             .create_async()
             .await;
         let missing_token_route = server
@@ -1430,7 +1429,7 @@ mod tests {
                     json!({
                         "version": 1,
                         "type": "deployment.transition",
-                        "deployment_id": "deployment-1",
+                        "agent_id": "deployment-1",
                         "state": "RUNNING",
                         "stage": "running",
                         "reason": "start",
@@ -1455,7 +1454,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body("{}")
-            .expect_at_least(2)
+            .expect(1)
             .create_async()
             .await;
         let token = server
@@ -1492,7 +1491,7 @@ mod tests {
         {
             let received = received.lock().unwrap();
             assert_eq!(received[0].event_type, "deployments.changed");
-            assert_eq!(received[1].deployment_id.as_deref(), Some("deployment-1"));
+            assert_eq!(received[1].agent_id.as_deref(), Some("deployment-1"));
             assert_eq!(received[1].stage.as_deref(), Some("running"));
             assert_eq!(received[1].reason.as_deref(), Some("start"));
             assert_eq!(received[1].error, None);
@@ -1542,7 +1541,7 @@ mod tests {
                         json!({
                             "version": 1,
                             "type": "deployment.transition",
-                            "deployment_id": "deployment-1",
+                            "agent_id": "deployment-1",
                             "state": "RUNNING",
                             "placement_epoch": 8,
                             "runtime_generation": 3
@@ -1563,7 +1562,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body("{}")
-            .expect(3)
+            .expect(2)
             .create_async()
             .await;
         let token = server
@@ -1667,7 +1666,7 @@ mod tests {
                     json!({
                         "version": 1,
                         "type": "deployment.transition",
-                        "deployment_id": "deployment-1",
+                        "agent_id": "deployment-1",
                         "state": "RUNNING",
                         "placement_epoch": 8,
                         "runtime_generation": 3

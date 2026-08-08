@@ -156,8 +156,10 @@ stop = asyncio.Event()
 await client.deployments.subscribe(changed, stop_event=stop)
 ```
 
-The SDK owns authentication, ready/resync, and reconnect. Transition events
-carry the transition-time `stage`, `reason`, `error`, and `message`, but are not
+The SDK connects and authenticates the user stream first, then reads the REST
+snapshot; it repeats that order after reconnect so no transition can slip
+between snapshot and subscription. Transition events carry `agent_id` for
+local filtering plus the transition-time `stage`, `reason`, `error`, and `message`, but are not
 resource snapshots and may be duplicated or coalesced; refresh REST for
 authority.
 

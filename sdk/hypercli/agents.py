@@ -1864,7 +1864,7 @@ class DeploymentEvent:
 
     version: int
     type: str
-    deployment_id: str | None = None
+    agent_id: str | None = None
     state: str | None = None
     stage: str | None = None
     reason: str | None = None
@@ -1879,7 +1879,7 @@ class DeploymentEvent:
         return cls(
             version=int(data.get("version", 0) or 0),
             type=str(data.get("type") or ""),
-            deployment_id=str(data["deployment_id"]) if data.get("deployment_id") else None,
+            agent_id=str(data["agent_id"]) if data.get("agent_id") else None,
             state=str(data["state"]) if data.get("state") else None,
             stage=str(data["stage"]) if data.get("stage") else None,
             reason=str(data["reason"]) if data.get("reason") else None,
@@ -3860,7 +3860,6 @@ class Deployments:
         """Subscribe to flat deployment invalidations until cancelled."""
         import websockets
 
-        await asyncio.to_thread(self.list)
         retry_delay = 0.25
         while stop_event is None or not stop_event.is_set():
             try:
@@ -3953,7 +3952,7 @@ class Deployments:
             return initial
 
         def on_event(event: DeploymentEvent) -> None:
-            if event.deployment_id in {None, agent_id}:
+            if event.agent_id in {None, agent_id}:
                 wake.set()
 
         subscription = asyncio.create_task(self.subscribe(on_event))

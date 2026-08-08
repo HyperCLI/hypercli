@@ -508,9 +508,10 @@ await client.deployments.subscribe(refresh, stop_event=stop)
 ```
 
 `subscribe()` runs until cancelled or a permanent authentication error occurs.
-Events are thin, best-effort hints and may be duplicated or coalesced; REST is
-the snapshot. On reconnect the SDK authenticates a new stream and performs a
-full REST resync before delivering further invalidations.
+Events are thin, best-effort hints and may be duplicated or coalesced; each
+transition carries `agent_id` for local filtering, while REST is the snapshot.
+On reconnect the SDK authenticates the user stream first, then
+performs a full REST resync before delivering further invalidations.
 
 ## `Agent` Object
 
