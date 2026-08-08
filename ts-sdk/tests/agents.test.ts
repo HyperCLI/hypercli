@@ -685,6 +685,7 @@ describe('Agents SDK', () => {
   });
 
   it.each([
+    'CREATING',
     'PENDING',
     'DOWNLOADING',
     'RESTORING',
@@ -714,7 +715,7 @@ describe('Agents SDK', () => {
     expect(agent.message).toBe(`Lifecycle state is ${state}`);
   });
 
-  it.each(['PENDING', 'DOWNLOADING', 'RESTORING', 'SYNCING', 'STOPPING'] as const)(
+  it.each(['CREATING', 'PENDING', 'DOWNLOADING', 'RESTORING', 'SYNCING', 'STOPPING'] as const)(
     'waitForState treats boot state %s as a valid intermediate observation',
     async (state) => {
       const http = {

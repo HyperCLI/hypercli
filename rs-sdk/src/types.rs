@@ -1442,6 +1442,7 @@ mod tests {
     #[test]
     fn deployment_deserializes_every_canonical_lifecycle_state_and_diagnostics() {
         for state in [
+            "CREATING",
             "PENDING",
             "DOWNLOADING",
             "RESTORING",

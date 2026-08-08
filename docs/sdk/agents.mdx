@@ -428,6 +428,13 @@ agent = client.deployments.create(
 
 ## Lifecycle
 
+Canonical lifecycle snapshots use `CREATING`, `PENDING`, `DOWNLOADING`,
+`RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and `FAILED`.
+`CREATING` means the control plane is establishing the agent namespace. These
+values remain forward-compatible strings; clients should render them and wait
+for authoritative transitions rather than reproducing the server state
+machine.
+
 ```python
 agents = client.deployments.list()
 current = client.deployments.get(agent.id)

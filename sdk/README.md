@@ -159,6 +159,12 @@ await client.deployments.subscribe(changed, stop_event=stop)
 The SDK owns authentication, ready/resync, and reconnect. Events are not
 resource snapshots and may be duplicated or coalesced.
 
+Managed-agent lifecycle snapshots currently use `CREATING`, `PENDING`,
+`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and
+`FAILED`. `CREATING` means the control plane is establishing the agent
+namespace. State values remain open strings; use REST as authority instead of
+recreating the server lifecycle machine in the client.
+
 Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
 `heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat={"every": "1h", "target": "last"}`.

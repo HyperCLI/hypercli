@@ -59,19 +59,26 @@ Current auth split:
 Agents move through these states:
 
 ```
-create → pending → starting → running → stopping → stopped → deleted
+CREATING → PENDING → DOWNLOADING / RESTORING / SYNCING → RUNNING → STOPPING → STOPPED
 ```
 
-| State      | Description                                                   |
-|------------|---------------------------------------------------------------|
-| `pending`  | Created, waiting for managed-runtime placement                 |
-| `starting` | Runtime placed and initializing                               |
-| `running`  | Runtime healthy and endpoints accessible                      |
-| `stopping` | Runtime cleanup accepted but still in progress                 |
-| `stopped`  | Cleanup confirmed, configuration preserved, slot freed         |
-| `deleted`  | Fully removed                                                  |
+| State         | Description                                                |
+|---------------|------------------------------------------------------------|
+| `CREATING`    | Control plane is establishing the agent namespace          |
+| `PENDING`     | Runtime resources admitted and awaiting scheduling         |
+| `DOWNLOADING` | Runtime container image is being pulled                    |
+| `RESTORING`   | Durable agent data is being restored                       |
+| `SYNCING`     | Agent workspace is being synchronized                      |
+| `RUNNING`     | Runtime healthy and endpoints accessible                   |
+| `STOPPING`    | Runtime cleanup accepted but still in progress              |
+| `STOPPED`     | Cleanup confirmed, configuration preserved, slot freed      |
+| `FAILED`      | Lifecycle operation failed with diagnostics                |
 
-Do not treat `stopping` as stopped: cleanup is still active and its deployment
+Boot stages can branch based on whether the runtime is warm, needs an image
+pull, or has durable data to restore. Do not infer a strict sequence beyond
+the authoritative snapshots.
+
+Do not treat `STOPPING` as stopped: cleanup is still active and its deployment
 slot remains occupied. Stopped agents retain their configuration
 and can be restarted. Deleted agents are gone permanently.
 

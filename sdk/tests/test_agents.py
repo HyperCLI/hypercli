@@ -265,7 +265,7 @@ async def test_subscribe_surfaces_permanent_auth_failure(monkeypatch, status_cod
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "boot_state",
-    ["PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STOPPING"],
+    ["CREATING", "PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STOPPING"],
 )
 async def test_wait_running_async_accepts_every_canonical_boot_state(monkeypatch, boot_state):
     http = MagicMock(spec=HTTPClient)
@@ -731,6 +731,7 @@ def test_agent_running_state_is_case_insensitive(state, expected):
 @pytest.mark.parametrize(
     "state",
     [
+        "CREATING",
         "PENDING",
         "DOWNLOADING",
         "RESTORING",

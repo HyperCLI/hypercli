@@ -65,6 +65,12 @@ after reconnect. There is no client ACK or durable client outbox.
 states continue to parse. Placement, runtime, and optional finalize epochs are
 opaque correlation hints; REST is the snapshot.
 
+Canonical deployment lifecycle snapshots currently use `CREATING`, `PENDING`,
+`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and
+`FAILED`. `CREATING` means the control plane is establishing the agent
+namespace. Consumers should display and wait on these values, not reproduce
+the server lifecycle machine.
+
 Restart sync policy is deliberately tri-state. A default
 `StartDeploymentRequest` omits the fields and inherits the saved policy;
 `set_sync_policy(None, None)` emits explicit `null/null` and selects the full

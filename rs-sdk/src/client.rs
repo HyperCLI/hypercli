@@ -1787,7 +1787,14 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn wait_deployment_state_accepts_every_canonical_boot_state() {
-        for state in ["PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STOPPING"] {
+        for state in [
+            "CREATING",
+            "PENDING",
+            "DOWNLOADING",
+            "RESTORING",
+            "SYNCING",
+            "STOPPING",
+        ] {
             let mut server = Server::new_async().await;
             let observed = server
                 .mock("GET", "/agents/deployments/deployment-1")

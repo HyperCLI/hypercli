@@ -1200,6 +1200,7 @@ export interface AgentDirectoryListing {
 }
 
 export type AgentState =
+  | 'CREATING'
   | 'PENDING'
   | 'DOWNLOADING'
   | 'RESTORING'

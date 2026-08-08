@@ -552,12 +552,14 @@ fn agent_actions(state: &str) -> AgentActions {
             restart: true,
             delete: false,
         },
-        "pending" | "downloading" | "restoring" | "syncing" | "starting" => AgentActions {
-            start: false,
-            stop: true,
-            restart: false,
-            delete: false,
-        },
+        "creating" | "pending" | "downloading" | "restoring" | "syncing" | "starting" => {
+            AgentActions {
+                start: false,
+                stop: true,
+                restart: false,
+                delete: false,
+            }
+        }
         "restore_failed" | "sync_failed" | "failed" | "crashed" | "error" => AgentActions {
             start: false,
             stop: false,
@@ -3475,7 +3477,14 @@ mod tests {
                 delete: false,
             }
         );
-        for state in ["PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STARTING"] {
+        for state in [
+            "CREATING",
+            "PENDING",
+            "DOWNLOADING",
+            "RESTORING",
+            "SYNCING",
+            "STARTING",
+        ] {
             assert_eq!(
                 agent_actions(state),
                 AgentActions {
