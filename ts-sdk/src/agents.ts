@@ -1206,6 +1206,8 @@ export type AgentState =
   | 'RESTORING'
   | 'SYNCING'
   | 'RUNNING'
+  | 'COMPLETED'
+  | 'CRASHED'
   | 'STOPPING'
   | 'STOPPED'
   | 'ARCHIVING'
@@ -1222,6 +1224,8 @@ export const CANONICAL_AGENT_STATES = [
   'RESTORING',
   'SYNCING',
   'RUNNING',
+  'COMPLETED',
+  'CRASHED',
   'STOPPING',
   'STOPPED',
   'ARCHIVING',
@@ -1236,11 +1240,15 @@ export const AGENT_TRANSITIONAL_STATES: ReadonlySet<AgentState> = new Set([
   'DOWNLOADING',
   'RESTORING',
   'SYNCING',
+  'COMPLETED',
+  'CRASHED',
   'STOPPING',
   'ARCHIVING',
 ]);
 
 export const AGENT_RUNTIME_INACTIVE_STATES: ReadonlySet<AgentState> = new Set([
+  'COMPLETED',
+  'CRASHED',
   'STOPPED',
   'ARCHIVING',
   'ARCHIVED',

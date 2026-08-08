@@ -928,6 +928,8 @@ pub const CANONICAL_AGENT_STATES: &[&str] = &[
     "RESTORING",
     "SYNCING",
     "RUNNING",
+    "COMPLETED",
+    "CRASHED",
     "STOPPING",
     "STOPPED",
     "ARCHIVING",
@@ -942,12 +944,21 @@ pub const AGENT_TRANSITIONAL_STATES: &[&str] = &[
     "DOWNLOADING",
     "RESTORING",
     "SYNCING",
+    "COMPLETED",
+    "CRASHED",
     "STOPPING",
     "ARCHIVING",
 ];
 
-pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] =
-    &["STOPPED", "ARCHIVING", "ARCHIVED", "DELETED", "FAILED"];
+pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] = &[
+    "COMPLETED",
+    "CRASHED",
+    "STOPPED",
+    "ARCHIVING",
+    "ARCHIVED",
+    "DELETED",
+    "FAILED",
+];
 
 pub fn is_agent_transitional_state(state: &str) -> bool {
     AGENT_TRANSITIONAL_STATES
@@ -1488,9 +1499,13 @@ mod tests {
     #[test]
     fn deployment_classifies_archive_and_delete_states_without_closing_strings() {
         assert!(CANONICAL_AGENT_STATES.contains(&"ARCHIVING"));
+        assert!(CANONICAL_AGENT_STATES.contains(&"COMPLETED"));
+        assert!(CANONICAL_AGENT_STATES.contains(&"CRASHED"));
         assert!(CANONICAL_AGENT_STATES.contains(&"ARCHIVED"));
         assert!(CANONICAL_AGENT_STATES.contains(&"DELETED"));
         assert!(is_agent_transitional_state("archiving"));
+        assert!(is_agent_transitional_state("completed"));
+        assert!(is_agent_transitional_state("crashed"));
         assert!(is_agent_runtime_inactive_state("archived"));
         assert!(!is_agent_transitional_state("future_server_state"));
 

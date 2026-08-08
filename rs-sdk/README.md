@@ -69,7 +69,9 @@ opaque correlation hints; REST is the snapshot.
 
 Canonical deployment lifecycle snapshots currently use `CREATING`, `PENDING`,
 `DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`,
-`ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`. `CREATING` means the control
+`COMPLETED`, `CRASHED`, `ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`.
+`COMPLETED` and `CRASHED` expose the runtime-exit boundary before cleanup or
+relaunch. `CREATING` means the control
 plane is establishing the agent namespace. `STOPPED` is warm and `ARCHIVING`
 is transitional. `ARCHIVED` is the Backend-persisted cold-restorable terminal
 projection after Lagoon drops its agent task, namespace, PVC, and local S3

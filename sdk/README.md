@@ -163,7 +163,9 @@ authority.
 
 Managed-agent lifecycle snapshots currently use `CREATING`, `PENDING`,
 `DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`,
-`ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`. `CREATING` means the control
+`COMPLETED`, `CRASHED`, `ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`.
+`COMPLETED` and `CRASHED` are observable runtime-exit boundaries before
+cleanup/restart; `CREATING` means the control
 plane is establishing the agent namespace. `STOPPED` retains warm local
 storage. `ARCHIVING` is the public transition to verified cold storage.
 `ARCHIVED` is the Backend-persisted cold-restorable terminal projection after

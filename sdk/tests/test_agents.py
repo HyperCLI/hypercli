@@ -781,6 +781,8 @@ def test_agent_running_state_is_case_insensitive(state, expected):
         "RESTORING",
         "SYNCING",
         "RUNNING",
+        "COMPLETED",
+        "CRASHED",
         "STOPPING",
         "STOPPED",
         "ARCHIVING",
@@ -809,9 +811,9 @@ def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
 
 
 def test_agent_lifecycle_state_classification_is_forward_open():
-    assert {"ARCHIVING", "ARCHIVED", "DELETED"}.issubset(CANONICAL_AGENT_STATES)
-    assert "ARCHIVING" in AGENT_TRANSITIONAL_STATES
-    assert {"ARCHIVING", "ARCHIVED", "DELETED"}.issubset(AGENT_RUNTIME_INACTIVE_STATES)
+    assert {"COMPLETED", "CRASHED", "ARCHIVING", "ARCHIVED", "DELETED"}.issubset(CANONICAL_AGENT_STATES)
+    assert {"COMPLETED", "CRASHED", "ARCHIVING"}.issubset(AGENT_TRANSITIONAL_STATES)
+    assert {"COMPLETED", "CRASHED", "ARCHIVING", "ARCHIVED", "DELETED"}.issubset(AGENT_RUNTIME_INACTIVE_STATES)
     assert is_agent_transitional_state("archiving") is True
     assert is_agent_runtime_inactive_state("archived") is True
     assert is_agent_transitional_state("future_server_state") is False

@@ -726,6 +726,8 @@ describe('Agents SDK', () => {
     'RESTORING',
     'SYNCING',
     'RUNNING',
+    'COMPLETED',
+    'CRASHED',
     'STOPPING',
     'STOPPED',
     'ARCHIVING',
@@ -756,7 +758,9 @@ describe('Agents SDK', () => {
   });
 
   it('classifies archive and deletion states without closing AgentState', () => {
-    expect(CANONICAL_AGENT_STATES).toEqual(expect.arrayContaining(['ARCHIVING', 'ARCHIVED', 'DELETED']));
+    expect(CANONICAL_AGENT_STATES).toEqual(expect.arrayContaining(['COMPLETED', 'CRASHED', 'ARCHIVING', 'ARCHIVED', 'DELETED']));
+    expect(AGENT_TRANSITIONAL_STATES.has('COMPLETED')).toBe(true);
+    expect(AGENT_TRANSITIONAL_STATES.has('CRASHED')).toBe(true);
     expect(AGENT_TRANSITIONAL_STATES.has('ARCHIVING')).toBe(true);
     expect(AGENT_RUNTIME_INACTIVE_STATES.has('ARCHIVING')).toBe(true);
     expect(isAgentTransitionalState('archiving')).toBe(true);
