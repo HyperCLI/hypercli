@@ -143,7 +143,7 @@ AGENT_RUNTIME_INACTIVE_STATES = frozenset(
     {"COMPLETED", "CRASHED", "STOPPED", "ARCHIVING", "ARCHIVED", "DELETED", "FAILED"}
 )
 AGENT_WAIT_RUNNING_FAILURE_STATES = frozenset(
-    {"STOPPED", "ARCHIVED", "DELETED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"}
+    {"STOPPED", "ARCHIVED", "DELETED", "FAILED"}
 )
 
 
@@ -4013,8 +4013,6 @@ class Deployments:
             {"running"},
             timeout=timeout,
             # Stable runtime-free states cannot satisfy this invocation's goal.
-            # Keep the former failure names as input-only rollout aliases so
-            # older deployments also fail promptly.
             failure_states=set(AGENT_WAIT_RUNNING_FAILURE_STATES),
         )
 

@@ -653,7 +653,7 @@ async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
 
 @pytest.mark.parametrize(
     "failed_state",
-    ["STOPPED", "ARCHIVED", "DELETED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"],
+    ["STOPPED", "ARCHIVED", "DELETED", "FAILED"],
 )
 def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
     http = MagicMock(spec=HTTPClient)
