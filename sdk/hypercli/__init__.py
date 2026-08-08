@@ -40,6 +40,7 @@ from .renders import Render, RenderStatus
 from .voice import VoiceAPI
 from .voice_stream import VoiceChunk, VoiceSession, VoiceStreamError
 from .models import Model, ModelsAPI
+from .keys import ApiKey, KeysAPI, issue_api_key_from_jwt
 from .workspaces import (
     DownloadUrl,
     Workspace,
@@ -170,6 +171,9 @@ __all__ = [
     "get_agents_api_base_url",
     "get_agents_ws_url",
     "APIError",
+    "ApiKey",
+    "KeysAPI",
+    "issue_api_key_from_jwt",
     # Images
     "GHCR_IMAGES",
     "COMFYUI_IMAGE",

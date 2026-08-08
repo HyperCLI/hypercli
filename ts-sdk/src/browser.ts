@@ -35,8 +35,12 @@ import { VoiceAPI } from './voice.js';
 import { WorkspacesAPI } from './workspaces.js';
 export {
   API_KEY_BASELINE_FAMILIES,
+  issueApiKeyFromJwt,
+  type ApiKey,
   type ApiKeyBaselineFamily,
   type ApiKeyBaselineValue,
+  type CreateApiKeyOptions,
+  type IssueApiKeyFromJwtOptions,
 } from './keys.js';
 
 export interface BrowserHyperCLIOptions {

@@ -611,8 +611,8 @@ def wallet_login(
     1. hyper wallet create
     2. hyper wallet login
     """
-    import httpx
     require_wallet_deps()
+    from hypercli import issue_api_key_from_jwt
     from hypercli.config import get_api_url, configure
 
     base_url = (api_url or get_api_url()).rstrip("/")
@@ -624,30 +624,27 @@ def wallet_login(
     jwt_token = get_wallet_auth_token(api_url=base_url, passphrase=passphrase)
     console.print("[green]✓[/green] Authenticated\n")
 
-    # Step 5: Create API key using JWT
+    # Step 5: Exchange the short-lived JWT for a scoped API key.
     console.print(f"[bold]Creating API key '{name}'...[/bold]")
-    with httpx.Client(timeout=15) as client:
-        resp = client.post(
-            f"{base_url}/api/keys",
-            json={
-                "name": name,
-                "duration": DESKTOP_API_KEY_DURATION,
-                "tags": DESKTOP_API_KEY_TAGS,
-            },
-            headers={"Authorization": f"Bearer {jwt_token}"},
+    try:
+        issued_key = issue_api_key_from_jwt(
+            jwt_token,
+            api_url=base_url,
+            name=name,
+            tags=DESKTOP_API_KEY_TAGS,
+            duration=DESKTOP_API_KEY_DURATION,
         )
-        if resp.status_code != 200:
-            console.print(f"[red]❌ Key creation failed: {resp.text}[/red]")
-            raise typer.Exit(1)
-        key_data = resp.json()
+    except Exception as exc:
+        console.print(f"[red]❌ Key creation failed: {exc}[/red]")
+        raise typer.Exit(1)
 
-    api_key = key_data["api_key"]
+    api_key = issued_key.api_key
 
     # Step 6: Save to config
     configure(api_key, api_url)
 
     console.print(f"[green]✓[/green] API key created and saved!\n")
-    console.print(f"  Name:    {key_data['name']}")
+    console.print(f"  Name:    {issued_key.name}")
     console.print(f"  Key:     [bold]{api_key}[/bold]")
     console.print(f"  Saved:   ~/.hypercli/config")
     console.print(f"\n[green]You're all set! Try:[/green] hyper keys list\n")

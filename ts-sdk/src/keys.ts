@@ -1,7 +1,8 @@
 /**
  * API Keys management
  */
-import type { HTTPClient } from './http.js';
+import { getApiUrl } from './config.js';
+import { HTTPClient } from './http.js';
 
 export type ApiKeyBaselineValue = 'none' | 'self' | '*';
 
@@ -40,6 +41,13 @@ export interface ApiKey {
 export interface CreateApiKeyOptions {
   duration?: string;
   expiresAt?: string;
+}
+
+export interface IssueApiKeyFromJwtOptions extends CreateApiKeyOptions {
+  tags: string[];
+  name?: string;
+  apiUrl?: string;
+  timeout?: number;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -148,4 +156,30 @@ export class KeysAPI {
     const data = await this.http.patch(`/api/keys/${keyId}`, { name });
     return apiKeyFromDict(data);
   }
+}
+
+/**
+ * Issue a scoped API key for the user represented by an app JWT.
+ *
+ * The JWT authenticates only this key-creation request. Use the returned
+ * `apiKey` for subsequent SDK operations.
+ */
+export async function issueApiKeyFromJwt(
+  jwt: string,
+  options: IssueApiKeyFromJwtOptions,
+): Promise<ApiKey> {
+  const token = jwt.trim();
+  if (!token) {
+    throw new Error('JWT required');
+  }
+
+  const http = new HTTPClient(options.apiUrl ?? getApiUrl(), token, options.timeout ?? 30000);
+  const issued = await new KeysAPI(http).create(options.name ?? 'default', options.tags, {
+    duration: options.duration,
+    expiresAt: options.expiresAt,
+  });
+  if (!issued.apiKey) {
+    throw new Error('API key issue response did not include the key secret');
+  }
+  return issued;
 }

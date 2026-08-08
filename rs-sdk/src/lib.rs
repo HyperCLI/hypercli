@@ -6,6 +6,7 @@
 mod client;
 mod config;
 mod hermes;
+mod keys;
 mod runtime_auth;
 mod types;
 
@@ -24,19 +25,19 @@ pub use hermes::{
     HermesSession, HermesSessionCreateRequest, HermesSessionForkRequest, HermesSessionList,
     HermesSessionPatchRequest, HermesSseEvent, HERMES_AGENT_IMAGE, HERMES_API_PORT,
 };
+pub use keys::{issue_api_key_from_jwt, IssueApiKeyError, IssueApiKeyFromJwtOptions};
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginChallenge, RuntimeLoginResult,
     RuntimeLoginSession, RuntimeShellToken,
 };
 pub use types::{
-    canonical_deployment_name, AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey,
-    AgentRuntimeStatus, AuthMe, BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest,
+    canonical_deployment_name, AgentCapacity, AgentRuntimeStatus, AgentSize, AgentSlot,
+    AgentSlotInventory, ApiKey, AuthMe, BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest,
     CreateDeploymentRequest, DeleteDeploymentResponse, Deployment, DeploymentEvent,
-    DeploymentFileWriteResponse,
-    DeploymentLaunchConfig, DeploymentListFilters, DeploymentProfileImageResponse,
-    DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse,
-    HyperAgentCanonicalPlanId, HyperAgentCurrentPlan, HyperAgentEntitlement,
-    HyperAgentEntitlementsSummary, HyperAgentPlan, HyperAgentPlanResources,
+    DeploymentFileWriteResponse, DeploymentLaunchConfig, DeploymentListFilters,
+    DeploymentProfileImageResponse, DeploymentRoutes, EntitlementsSummary, ExecDeploymentRequest,
+    ExecDeploymentResponse, HyperAgentCanonicalPlanId, HyperAgentCurrentPlan,
+    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan, HyperAgentPlanResources,
     HyperAgentSubscriptionSummary, ManagedRuntime, Nullable, RouteConfig,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest, BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG,

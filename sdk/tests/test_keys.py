@@ -1,4 +1,6 @@
-from hypercli.keys import KeysAPI
+import pytest
+
+from hypercli.keys import KeysAPI, issue_api_key_from_jwt
 from hypercli.user import UserAPI
 
 
@@ -74,6 +76,75 @@ def test_keys_create_includes_tags():
     assert created.tags == ["jobs:self", "team=dev"]
     assert created.api_key == "hyper_api_live"
     assert http.calls[0] == ("post", "/api/keys", {"name": "team-dev", "tags": ["jobs:self", "team=dev"]})
+
+
+def test_issue_api_key_from_jwt_uses_jwt_only_for_key_creation(monkeypatch):
+    clients = []
+
+    class DummyJWTHTTP(DummyHTTP):
+        def __init__(self, base_url, api_key, timeout):
+            super().__init__()
+            self.base_url = base_url
+            self.api_key = api_key
+            self.timeout = timeout
+            self.closed = False
+            clients.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr("hypercli.http.HTTPClient", DummyJWTHTTP)
+
+    issued = issue_api_key_from_jwt(
+        " user-jwt ",
+        api_url="https://api.example.test",
+        name="job-key",
+        tags=["agents:*"],
+        duration="1h",
+        timeout=12,
+    )
+
+    assert issued.api_key == "hyper_api_live"
+    assert len(clients) == 1
+    assert clients[0].api_key == "user-jwt"
+    assert clients[0].calls == [
+        (
+            "post",
+            "/api/keys",
+            {"name": "job-key", "tags": ["agents:*"], "duration": "1h"},
+        )
+    ]
+    assert clients[0].closed is True
+
+
+def test_issue_api_key_from_jwt_rejects_empty_token():
+    with pytest.raises(ValueError, match="JWT required"):
+        issue_api_key_from_jwt("   ", tags=["agents:*"])
+
+
+def test_issue_api_key_from_jwt_rejects_response_without_secret(monkeypatch):
+    class DummyJWTHTTP(DummyHTTP):
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def post(self, _path, json=None):
+            return {
+                "key_id": "key-123",
+                "name": json["name"],
+                "tags": json["tags"],
+                "api_key": None,
+                "is_active": True,
+                "created_at": "2026-04-02T00:00:00Z",
+                "last_used_at": None,
+            }
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("hypercli.http.HTTPClient", DummyJWTHTTP)
+
+    with pytest.raises(RuntimeError, match="did not include the key secret"):
+        issue_api_key_from_jwt("user-jwt", tags=["agents:*"])
 
 
 def test_keys_create_includes_duration_and_expiry():

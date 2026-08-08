@@ -1,8 +1,73 @@
-import { describe, expect, it, vi } from 'vitest';
-import { KeysAPI } from '../src/keys.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { issueApiKeyFromJwt, KeysAPI } from '../src/keys.js';
 import type { HTTPClient } from '../src/http.js';
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('Keys SDK', () => {
+  it('issues a scoped key with the JWT used only for canonical key creation', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      key_id: 'key-issued',
+      name: 'job-key',
+      tags: ['jobs:self'],
+      api_key: 'hyper_api_issued',
+      is_active: true,
+      created_at: '2026-08-08T00:00:00Z',
+      expires_at: '2026-08-09T00:00:00Z',
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetch);
+
+    const issued = await issueApiKeyFromJwt(' user-jwt ', {
+      apiUrl: 'https://api.example.test/',
+      name: 'job-key',
+      tags: ['jobs:self'],
+      duration: '1h',
+      expiresAt: '2026-08-09T00:00:00Z',
+      timeout: 12000,
+    });
+
+    expect(issued.apiKey).toBe('hyper_api_issued');
+    expect(issued.tags).toEqual(['jobs:self']);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.test/api/keys');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({
+      Authorization: 'Bearer user-jwt',
+      'Content-Type': 'application/json',
+    });
+    expect(JSON.parse(String(init.body))).toEqual({
+      name: 'job-key',
+      tags: ['jobs:self'],
+      duration: '1h',
+      expires_at: '2026-08-09T00:00:00Z',
+    });
+  });
+
+  it('rejects an empty JWT before issuing a request', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(issueApiKeyFromJwt('   ', { tags: ['jobs:self'] })).rejects.toThrow('JWT required');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an issuance response without the key secret', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      key_id: 'key-masked',
+      name: 'job-key',
+      tags: ['jobs:self'],
+      is_active: true,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+
+    await expect(issueApiKeyFromJwt('user-jwt', {
+      apiUrl: 'https://api.example.test',
+      tags: ['jobs:self'],
+    })).rejects.toThrow('API key issue response did not include the key secret');
+  });
+
   it('creates tagged API keys', async () => {
     const http = {
       post: vi.fn().mockResolvedValue({

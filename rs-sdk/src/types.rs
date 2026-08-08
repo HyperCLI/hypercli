@@ -1108,6 +1108,12 @@ pub struct ApiKey {
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
+    pub api_key_preview: Option<String>,
+    #[serde(default)]
+    pub last4: Option<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
     pub is_active: bool,
     /// Unix timestamps in fractional seconds. Deserialized tolerantly:
     /// JSON numbers and numeric strings both accepted.

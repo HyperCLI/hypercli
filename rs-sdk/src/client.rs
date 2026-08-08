@@ -98,12 +98,19 @@ fn permanent_deployment_event_error(error: &HyperCliError) -> bool {
 
 impl HyperCliClient {
     pub fn new(config: ClientConfig) -> Result<Self, HyperCliError> {
+        Self::new_with_timeout(config, std::time::Duration::from_secs(30))
+    }
+
+    pub fn new_with_timeout(
+        config: ClientConfig,
+        timeout: std::time::Duration,
+    ) -> Result<Self, HyperCliError> {
         let http = HttpClient::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(timeout)
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         let async_http = AsyncHttpClient::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(timeout)
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         Ok(Self {

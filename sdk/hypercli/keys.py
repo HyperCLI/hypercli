@@ -79,3 +79,40 @@ class KeysAPI:
         """Rename an API key"""
         data = self._http.patch(f"/api/keys/{key_id}", json={"name": name})
         return ApiKey.from_dict(data)
+
+
+def issue_api_key_from_jwt(
+    jwt: str,
+    *,
+    tags: list[str],
+    name: str = "default",
+    duration: str | None = None,
+    expires_at: str | None = None,
+    api_url: str | None = None,
+    timeout: float = 30.0,
+) -> ApiKey:
+    """Issue a scoped API key for the user represented by an app JWT.
+
+    The JWT authenticates only the key-creation request. Use the returned API
+    key for subsequent SDK operations.
+    """
+    token = jwt.strip()
+    if not token:
+        raise ValueError("JWT required")
+
+    from .config import get_api_url
+    from .http import HTTPClient
+
+    http = HTTPClient(api_url or get_api_url(), token, timeout=timeout)
+    try:
+        issued = KeysAPI(http).create(
+            name=name,
+            tags=tags,
+            duration=duration,
+            expires_at=expires_at,
+        )
+    finally:
+        http.close()
+    if not issued.api_key:
+        raise RuntimeError("API key issue response did not include the key secret")
+    return issued

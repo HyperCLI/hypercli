@@ -13,7 +13,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli import HyperCLI
+from hypercli import HyperCLI, issue_api_key_from_jwt
 from hypercli.agents import Agent as DeploymentAgent, Deployments
 from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base
 from hypercli.http import HTTPClient
@@ -940,37 +940,21 @@ def login(
     team_id = login_data.get("team_id", "")
     wallet_addr = login_data.get("wallet_address", account.address)
 
-    # Step 5: Create an agent API key using the JWT
+    # Step 5: Exchange the short-lived JWT for a scoped API key.
     console.print("[bold]Creating API key...[/bold]")
-    with httpx.Client(timeout=15) as client:
-        resp = client.post(
-            f"{base_url}/api/keys",
-            json={
-                "name": "agent-cli",
-                "duration": DESKTOP_API_KEY_DURATION,
-                "tags": DESKTOP_API_KEY_TAGS,
-            },
-            headers={"Authorization": f"Bearer {jwt_token}"},
+    try:
+        issued_key = issue_api_key_from_jwt(
+            jwt_token,
+            api_url=base_url,
+            name="agent-cli",
+            tags=DESKTOP_API_KEY_TAGS,
+            duration=DESKTOP_API_KEY_DURATION,
         )
-        if resp.status_code != 200:
-            # Save JWT anyway so user can still auth
-            jwt_path = HYPERCLI_DIR / "agent-jwt.json"
-            HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
-            with open(jwt_path, "w") as f:
-                json.dump(
-                    {"token": jwt_token, "user_id": user_id, "team_id": team_id},
-                    f,
-                    indent=2,
-                )
-            console.print(f"[yellow]⚠ Key creation failed: {resp.text}[/yellow]")
-            console.print(
-                f"[green]✓[/green] JWT saved to {jwt_path} (use for direct auth)"
-            )
-            raise typer.Exit(1)
+    except Exception as exc:
+        console.print(f"[red]❌ Key creation failed: {exc}[/red]")
+        raise typer.Exit(1)
 
-        key_data = resp.json()
-
-    api_key = key_data.get("api_key", key_data.get("key", ""))
+    api_key = issued_key.api_key or ""
 
     # Step 6: Save as agent key
     HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
@@ -982,7 +966,7 @@ def login(
         "wallet_address": wallet_addr,
         "tpm_limit": 0,
         "rpm_limit": 0,
-        "expires_at": key_data.get("expires_at") or "",
+        "expires_at": issued_key.expires_at or "",
     }
     with open(AGENT_KEY_PATH, "w") as f:
         json.dump(agent_key_data, f, indent=2)

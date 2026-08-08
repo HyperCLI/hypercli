@@ -59,7 +59,7 @@ def _set_temp_wallet_paths(monkeypatch, tmp_path):
     wallet_path = wallet_dir / "wallet.json"
     passphrase_path = wallet_dir / "wallet.passphrase"
     monkeypatch.setattr(wallet_mod, "WALLET_AVAILABLE", True)
-    monkeypatch.setattr(wallet_mod, "Account", FakeAccountAPI)
+    monkeypatch.setattr(wallet_mod, "Account", FakeAccountAPI, raising=False)
     monkeypatch.setattr(wallet_mod, "WALLET_DIR", wallet_dir)
     monkeypatch.setattr(wallet_mod, "WALLET_PATH", wallet_path)
     monkeypatch.setattr(wallet_mod, "WALLET_PASSPHRASE_PATH", passphrase_path)
@@ -186,7 +186,7 @@ def test_wallet_balance_passes_explicit_passphrase(monkeypatch, tmp_path):
         return SimpleNamespace(address="0xabc")
 
     monkeypatch.setattr(wallet_mod, "load_wallet", _fake_load_wallet)
-    monkeypatch.setattr(wallet_mod, "Web3", _FakeWeb3)
+    monkeypatch.setattr(wallet_mod, "Web3", _FakeWeb3, raising=False)
 
     result = runner.invoke(app, ["wallet", "balance", "--passphrase", "secret"])
 
@@ -199,7 +199,7 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
     _set_temp_wallet_paths(monkeypatch, tmp_path)
     load_calls: list[str | None] = []
     auth_calls: list[str | None] = []
-    post_calls = []
+    issue_calls = []
 
     def _fake_load_wallet(*, passphrase=None):
         load_calls.append(passphrase)
@@ -209,27 +209,13 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
         auth_calls.append(passphrase)
         return "jwt-token"
 
-    class _FakeHttpxClient:
-        def __init__(self, timeout=None):
-            self.timeout = timeout
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def post(self, url, json=None, headers=None):
-            post_calls.append({"url": url, "json": json, "headers": headers})
-            return SimpleNamespace(
-                status_code=200,
-                json=lambda: {"api_key": "hyper_api_test", "name": json["name"]},
-                text="ok",
-            )
+    def _fake_issue(jwt, **kwargs):
+        issue_calls.append((jwt, kwargs))
+        return SimpleNamespace(api_key="hyper_api_test", name=kwargs["name"])
 
     monkeypatch.setattr(wallet_mod, "load_wallet", _fake_load_wallet)
     monkeypatch.setattr(wallet_mod, "get_wallet_auth_token", _fake_get_wallet_auth_token)
-    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=_FakeHttpxClient))
+    monkeypatch.setattr(sys.modules["hypercli"], "issue_api_key_from_jwt", _fake_issue)
     monkeypatch.setattr(
         sys.modules["hypercli.config"],
         "configure",
@@ -246,7 +232,9 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert load_calls == ["secret"]
     assert auth_calls == ["secret"]
-    assert post_calls[0]["json"] == {
+    assert issue_calls[0][0] == "jwt-token"
+    assert issue_calls[0][1] == {
+        "api_url": "https://api.example.com",
         "name": "cli",
         "duration": "180d",
         "tags": ["*:*", "key_type=desktop"],
@@ -256,6 +244,8 @@ def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
 def test_agent_login_creates_180_day_desktop_key(monkeypatch, tmp_path):
     from hypercli_cli import agent as agent_mod
     import hypercli_cli.wallet as wallet_module
+
+    issue_calls = []
 
     class _FakeAccount:
         address = "0xabc"
@@ -312,13 +302,26 @@ def test_agent_login_creates_180_day_desktop_key(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "eth_account", SimpleNamespace(Account=object()))
     monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=_FakeHttpxClient))
     monkeypatch.setattr(wallet_module, "load_wallet", lambda: _FakeAccount())
+    monkeypatch.setattr(
+        agent_mod,
+        "issue_api_key_from_jwt",
+        lambda jwt, **kwargs: (
+            issue_calls.append((jwt, kwargs))
+            or SimpleNamespace(
+                api_key="hyper_api_test",
+                expires_at="2026-10-01T00:00:00Z",
+            )
+        ),
+    )
     monkeypatch.setattr(agent_mod, "HYPERCLI_DIR", tmp_path / ".hypercli")
     monkeypatch.setattr(agent_mod, "AGENT_KEY_PATH", tmp_path / ".hypercli" / "agent-key.json")
 
     result = runner.invoke(app, ["agent", "login"])
 
     assert result.exit_code == 0
-    assert _FakeHttpxClient.posts[-1]["json"] == {
+    assert issue_calls[0][0] == "jwt-token"
+    assert issue_calls[0][1] == {
+        "api_url": "https://api.hypercli.com",
         "name": "agent-cli",
         "duration": "180d",
         "tags": ["*:*", "key_type=desktop"],
@@ -406,7 +409,7 @@ def test_wallet_topup_passes_explicit_passphrase(monkeypatch, tmp_path):
         return SimpleNamespace(address="0xabc")
 
     monkeypatch.setattr(wallet_mod, "load_wallet", _fake_load_wallet)
-    monkeypatch.setattr(wallet_mod, "Web3", _FakeWeb3)
+    monkeypatch.setattr(wallet_mod, "Web3", _FakeWeb3, raising=False)
     monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=_FakeHttpxClient))
     monkeypatch.setattr(sys.modules["hypercli.config"], "get_api_key", lambda: "hyper_api_test")
     monkeypatch.setattr(sys.modules["hypercli.config"], "get_api_url", lambda: "https://api.example.com")

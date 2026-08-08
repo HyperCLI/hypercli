@@ -111,7 +111,10 @@ export {
 // Keys API
 export {
   KeysAPI,
+  issueApiKeyFromJwt,
   type ApiKey,
+  type CreateApiKeyOptions,
+  type IssueApiKeyFromJwtOptions,
   type ApiKeyBaselineValue,
   type ApiKeyBaselineFamily,
   API_KEY_BASELINE_FAMILIES,
