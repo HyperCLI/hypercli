@@ -1869,8 +1869,7 @@ export function buildAgentConfig(
   if (options.command !== undefined && options.command !== null) prepared.command = options.command;
   if (options.entrypoint !== undefined && options.entrypoint !== null) prepared.entrypoint = options.entrypoint;
   if (options.image !== undefined && options.image !== null) prepared.image = options.image;
-  prepared.sync_enabled = options.syncRoot !== undefined && options.syncRoot !== null;
-  if (prepared.sync_enabled) prepared.sync_root = options.syncRoot;
+  if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
   if (options.syncInclude !== undefined) {
     prepared.sync_include = options.syncInclude === null ? null : [...options.syncInclude];
   }

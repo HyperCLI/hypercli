@@ -71,16 +71,12 @@ impl HyperCliError {
     }
 }
 
-fn deployment_request_body<T: Serialize>(
-    request: &T,
-    sync_root: Option<&str>,
-) -> Result<Value, HyperCliError> {
+fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliError> {
     let mut body = serde_json::to_value(request)
         .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
     let object = body.as_object_mut().ok_or_else(|| {
         HyperCliError::InvalidResponse("deployment request must serialize as an object".to_owned())
     })?;
-    object.insert("sync_enabled".to_owned(), Value::Bool(sync_root.is_some()));
     if object
         .get("sync_include")
         .is_some_and(|value| !value.is_null())
@@ -530,7 +526,7 @@ impl HyperCliClient {
         request: &CreateDeploymentRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint("deployments");
-        let request_body = deployment_request_body(request, request.sync_root.as_deref())?;
+        let request_body = deployment_request_body(request)?;
         let request_trace = Some(request_body.clone());
         let started = Instant::now();
         let response = match self
@@ -687,7 +683,7 @@ impl HyperCliClient {
         request: &StartDeploymentRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/start"));
-        let request_body = deployment_request_body(request, request.sync_root.as_deref())?;
+        let request_body = deployment_request_body(request)?;
         let request_trace = Some(request_body.clone());
         let started = Instant::now();
         let response = match self
@@ -1832,18 +1828,30 @@ mod tests {
     }
 
     #[test]
-    fn deployment_wire_derives_sync_state_and_normalizes_filter_precedence() {
+    fn deployment_wire_omits_legacy_sync_state_and_normalizes_filter_precedence() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Codex);
-        let disabled = deployment_request_body(&request, request.sync_root.as_deref()).unwrap();
-        assert_eq!(disabled["sync_enabled"], serde_json::json!(false));
+        let without_root = deployment_request_body(&request).unwrap();
+        assert!(without_root.get("sync_enabled").is_none());
 
         request.sync_root = Some("/home/node".to_owned());
         request.sync_include = Some(vec![".codex".to_owned()]);
         request.sync_exclude = Some(vec!["tmp".to_owned()]);
-        let enabled = deployment_request_body(&request, request.sync_root.as_deref()).unwrap();
-        assert_eq!(enabled["sync_enabled"], serde_json::json!(true));
-        assert_eq!(enabled["sync_include"], serde_json::json!([".codex"]));
-        assert!(enabled["sync_exclude"].is_null());
+        let create = deployment_request_body(&request).unwrap();
+        assert!(create.get("sync_enabled").is_none());
+        assert_eq!(create["sync_root"], serde_json::json!("/home/node"));
+        assert_eq!(create["sync_include"], serde_json::json!([".codex"]));
+        assert!(create["sync_exclude"].is_null());
+
+        let mut request = StartDeploymentRequest {
+            sync_root: Some("/workspace".to_owned()),
+            ..StartDeploymentRequest::default()
+        };
+        request.set_sync_policy(Some(vec!["src".to_owned()]), Some(vec!["tmp".to_owned()]));
+        let start = deployment_request_body(&request).unwrap();
+        assert!(start.get("sync_enabled").is_none());
+        assert_eq!(start["sync_root"], serde_json::json!("/workspace"));
+        assert_eq!(start["sync_include"], serde_json::json!(["src"]));
+        assert!(start["sync_exclude"].is_null());
     }
 
     #[test]
@@ -1857,8 +1865,7 @@ mod tests {
                     "runtime": "opencode",
                     "size": "small",
                     "command": ["/usr/local/bin/buzz-acp"],
-                    "sync_root": "/home/node",
-                    "sync_enabled": true
+                    "sync_root": "/home/node"
                 })
                 .to_string(),
             ))

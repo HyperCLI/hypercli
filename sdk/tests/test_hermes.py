@@ -62,7 +62,7 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert body["runtime"] == "hermes-agent"
     assert body["image"] == DEFAULT_HERMES_AGENT_IMAGE
     assert body["sync_root"] == "/opt/data"
-    assert body["sync_enabled"] is True
+    assert "sync_enabled" not in body
     assert "sync_include" not in body
     assert "sync_exclude" not in body
     assert body["sync_uid"] == 10000

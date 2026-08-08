@@ -170,7 +170,7 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type, s
     assert posted["image"] == image
     assert posted["routes"] == {}
     assert posted["sync_root"] == "/home/node"
-    assert posted["sync_enabled"] is True
+    assert "sync_enabled" not in posted
     assert posted["sync_include"] == sync_include
     assert "sync_exclude" not in posted
     assert posted["sync_uid"] == 1000

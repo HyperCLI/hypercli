@@ -123,7 +123,6 @@ describe('coding agents', () => {
       image,
       routes: {},
       sync_root: '/home/node',
-      sync_enabled: true,
       sync_include: syncInclude,
       sync_uid: 1000,
       sync_gid: 1000,

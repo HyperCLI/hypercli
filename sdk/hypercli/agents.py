@@ -940,7 +940,6 @@ def _build_agent_launch(
         launch["entrypoint"] = entrypoint
     if image is not None:
         launch["image"] = image
-    launch["sync_enabled"] = sync_root is not None
     if sync_root is not None:
         launch["sync_root"] = sync_root
     if sync_include is not _UNSET:

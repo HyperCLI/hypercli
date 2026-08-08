@@ -91,7 +91,7 @@ describe('Agents SDK', () => {
     expect(disabled.restart).toBe(false);
   });
 
-  it('preserves omitted, null, and empty sync policy fields', () => {
+  it('preserves sync root and mutually exclusive sync policy fields', () => {
     const omitted = buildAgentConfig({}, { injectGatewayToken: false }).config;
     const includeAll = buildAgentConfig({}, {
       injectGatewayToken: false,
@@ -105,13 +105,20 @@ describe('Agents SDK', () => {
       injectGatewayToken: false,
       syncInclude: [],
     }).config;
+    const includeWins = buildAgentConfig({}, {
+      injectGatewayToken: false,
+      syncRoot: '/workspace',
+      syncInclude: ['src'],
+      syncExclude: ['tmp'],
+    }).config;
 
     expect(omitted).not.toHaveProperty('sync_include');
     expect(omitted).not.toHaveProperty('sync_exclude');
-    expect(omitted).toHaveProperty('sync_enabled', false);
-    expect(includeAll).toEqual({ sync_enabled: false, sync_include: null });
-    expect(excludeAll).toEqual({ sync_enabled: false, sync_exclude: null });
-    expect(syncNothing).toEqual({ sync_enabled: false, sync_include: [] });
+    expect(omitted).not.toHaveProperty('sync_enabled');
+    expect(includeAll).toEqual({ sync_include: null });
+    expect(excludeAll).toEqual({ sync_exclude: null });
+    expect(syncNothing).toEqual({ sync_include: [] });
+    expect(includeWins).toEqual({ sync_root: '/workspace', sync_include: ['src'] });
   });
 
   it('serializes runtime scopes as a top-level launch field', () => {
@@ -1066,13 +1073,14 @@ describe('Agents SDK', () => {
 
     await deployments.startOpenClaw(
       '11111111-1111-4111-8111-111111111111',
-      { syncInclude: null },
+      { syncInclude: ['src'], syncExclude: ['tmp'] },
     );
 
     expect(post.mock.calls[0][1]).toMatchObject({
       sync_root: '/home/node',
-      sync_enabled: true,
+      sync_include: ['src'],
     });
+    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_enabled');
     expect(post.mock.calls[0][1]).not.toHaveProperty('sync_exclude');
   });
 

@@ -36,7 +36,6 @@ describe('Hermes deployment lifecycle', () => {
       runtime: string;
       image: string;
       sync_root: string;
-      sync_enabled: boolean;
       sync_uid: number;
       sync_gid: number;
       routes: Record<string, Record<string, unknown>>;
@@ -48,7 +47,7 @@ describe('Hermes deployment lifecycle', () => {
     expect(body.runtime).toBe('hermes-agent');
     expect(body.image).toBe(DEFAULT_HERMES_AGENT_IMAGE);
     expect(body.sync_root).toBe('/opt/data');
-    expect(body.sync_enabled).toBe(true);
+    expect(body).not.toHaveProperty('sync_enabled');
     expect(body.sync_uid).toBe(10000);
     expect(body.sync_gid).toBe(10000);
     expect(body.routes).toEqual({ hermes: { port: 8642, auth: false, prefix: '' } });

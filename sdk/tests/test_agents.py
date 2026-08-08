@@ -1290,13 +1290,13 @@ def test_build_agent_launch_omits_unspecified_restart():
 @pytest.mark.parametrize(
     ("kwargs", "expected"),
     [
-        ({}, {"sync_enabled": False}),
-        ({"sync_include": None}, {"sync_enabled": False, "sync_include": None}),
-        ({"sync_exclude": None}, {"sync_enabled": False, "sync_exclude": None}),
-        ({"sync_include": []}, {"sync_enabled": False, "sync_include": []}),
+        ({}, {}),
+        ({"sync_include": None}, {"sync_include": None}),
+        ({"sync_exclude": None}, {"sync_exclude": None}),
+        ({"sync_include": []}, {"sync_include": []}),
         (
             {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
-            {"sync_enabled": False, "sync_include": ["workspace"]},
+            {"sync_include": ["workspace"]},
         ),
     ],
 )
@@ -1737,7 +1737,7 @@ def test_create_openclaw_defaults_sync_root(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["sync_root"] == "/home/node"
-        assert posted_json["sync_enabled"] is True
+        assert "sync_enabled" not in posted_json
         assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert "HOME" not in posted_json["env"]
 
@@ -1765,7 +1765,7 @@ def test_start_openclaw_defaults_sync_root(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["sync_root"] == "/home/node"
-        assert posted_json["sync_enabled"] is True
+        assert "sync_enabled" not in posted_json
         assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
         assert "HOME" not in posted_json["env"]
 
@@ -2238,7 +2238,6 @@ def test_agents_start_stop_delete(agents_client):
             "command": ["echo", "hello"],
             "entrypoint": ["/bin/sh", "-c"],
             "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
-            "sync_enabled": False,
         }
 
         mock_response.json.return_value["state"] = "stopping"
@@ -2374,7 +2373,7 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["command"] == ["sh", "-c", "python -m http.server 80"]
         assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
         assert posted_json["sync_root"] == "/workspace"
-        assert posted_json["sync_enabled"] is True
+        assert "sync_enabled" not in posted_json
         assert posted_json["sync_uid"] == 2000
         assert posted_json["sync_gid"] == 2001
         assert posted_json["restart"] is False
