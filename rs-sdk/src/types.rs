@@ -919,6 +919,48 @@ pub struct AgentRuntimeStatus {
     pub message: Option<String>,
 }
 
+/// Canonical public lifecycle states understood by this SDK. Deployment state
+/// remains a `String` so future server values continue to round-trip.
+pub const CANONICAL_AGENT_STATES: &[&str] = &[
+    "CREATING",
+    "PENDING",
+    "DOWNLOADING",
+    "RESTORING",
+    "SYNCING",
+    "RUNNING",
+    "STOPPING",
+    "STOPPED",
+    "ARCHIVING",
+    "ARCHIVED",
+    "DELETED",
+    "FAILED",
+];
+
+pub const AGENT_TRANSITIONAL_STATES: &[&str] = &[
+    "CREATING",
+    "PENDING",
+    "DOWNLOADING",
+    "RESTORING",
+    "SYNCING",
+    "STOPPING",
+    "ARCHIVING",
+];
+
+pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] =
+    &["STOPPED", "ARCHIVING", "ARCHIVED", "DELETED", "FAILED"];
+
+pub fn is_agent_transitional_state(state: &str) -> bool {
+    AGENT_TRANSITIONAL_STATES
+        .iter()
+        .any(|known| state.eq_ignore_ascii_case(known))
+}
+
+pub fn is_agent_runtime_inactive_state(state: &str) -> bool {
+    AGENT_RUNTIME_INACTIVE_STATES
+        .iter()
+        .any(|known| state.eq_ignore_ascii_case(known))
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,
@@ -1001,6 +1043,20 @@ impl Deployment {
         self.tags
             .iter()
             .any(|tag| tag == BUZZ_DEPLOYMENT_TAG || tag.starts_with("buzz_agent="))
+    }
+
+    pub fn is_transitioning(&self) -> bool {
+        is_agent_transitional_state(&self.state)
+    }
+
+    /// True when this deployment is cold-restorable from its verified archive.
+    pub fn is_archived(&self) -> bool {
+        self.state.eq_ignore_ascii_case("ARCHIVED")
+    }
+
+    /// True only for an explicitly included deletion tombstone.
+    pub fn is_deleted(&self) -> bool {
+        self.state.eq_ignore_ascii_case("DELETED")
     }
 }
 
@@ -1430,6 +1486,56 @@ mod tests {
     }
 
     #[test]
+    fn deployment_classifies_archive_and_delete_states_without_closing_strings() {
+        assert!(CANONICAL_AGENT_STATES.contains(&"ARCHIVING"));
+        assert!(CANONICAL_AGENT_STATES.contains(&"ARCHIVED"));
+        assert!(CANONICAL_AGENT_STATES.contains(&"DELETED"));
+        assert!(is_agent_transitional_state("archiving"));
+        assert!(is_agent_runtime_inactive_state("archived"));
+        assert!(!is_agent_transitional_state("future_server_state"));
+
+        let deployment = |state: &str| Deployment {
+            id: "agent-1".to_owned(),
+            name: "Archive test".to_owned(),
+            handle: None,
+            avatar_url: None,
+            runtime: None,
+            state: state.to_owned(),
+            pod_id: None,
+            hostname: None,
+            tags: Vec::new(),
+            requested_size: None,
+            stage: None,
+            reason: None,
+            error: None,
+            message: None,
+            last_error: None,
+            runtime_status: None,
+            placement_epoch: 0,
+            runtime_generation: 0,
+            finalize_epoch: None,
+            restore_state: None,
+            launch_config: Default::default(),
+        };
+
+        assert!(deployment("ARCHIVING").is_transitioning());
+        assert!(deployment("ARCHIVED").is_archived());
+        assert!(deployment("DELETED").is_deleted());
+
+        let event: DeploymentEvent = serde_json::from_value(serde_json::json!({
+            "version": 1,
+            "type": "deployment.transition",
+            "deployment_id": "agent-1",
+            "state": "ARCHIVING",
+            "stage": "archiving",
+            "reason": "archive_request"
+        }))
+        .unwrap();
+        assert_eq!(event.state.as_deref(), Some("ARCHIVING"));
+        assert_eq!(event.stage.as_deref(), Some("archiving"));
+    }
+
+    #[test]
     fn deployment_deserializes_downloading_runtime_status() {
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "agent-1",
@@ -1461,6 +1567,9 @@ mod tests {
             "RUNNING",
             "STOPPING",
             "STOPPED",
+            "ARCHIVING",
+            "ARCHIVED",
+            "DELETED",
             "FAILED",
         ] {
             let expected_stage = state.to_ascii_lowercase();

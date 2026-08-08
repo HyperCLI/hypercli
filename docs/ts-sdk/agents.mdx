@@ -416,10 +416,18 @@ const running = await client.deployments.waitForState(
 ```
 
 Canonical lifecycle snapshots use `CREATING`, `PENDING`, `DOWNLOADING`,
-`RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and `FAILED`.
+`RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, `ARCHIVING`,
+`ARCHIVED`, `DELETED`, and `FAILED`.
 `CREATING` means the control plane is establishing the agent namespace.
 `AgentState` remains forward-compatible so clients can display future server
 states without implementing their own lifecycle machine.
+
+`STOPPED` is warm and retains local storage. `ARCHIVING` is transitional while
+an exact cold archive is verified. `ARCHIVED` is the Backend-persisted
+cold-restorable terminal projection after Lagoon drops its agent task,
+namespace, PVC, and local S3 copy; starting it is a fresh admission that
+restores the archive. `DELETED` is terminal and normally hidden from user
+reads.
 
 `stop()` returns the accepted lifecycle state, normally `stopping`. Cleanup is
 asynchronous; use `waitForState()` before restarting it or treating its slot as

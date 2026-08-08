@@ -304,6 +304,11 @@ export {
   type StartAgentOptions,
   type AgentExecOptions,
   type AgentState,
+  AGENT_RUNTIME_INACTIVE_STATES,
+  AGENT_TRANSITIONAL_STATES,
+  CANONICAL_AGENT_STATES,
+  isAgentRuntimeInactiveState,
+  isAgentTransitionalState,
   type DeploymentEvent,
   type DeploymentSubscribeOptions,
 } from './agents.js';

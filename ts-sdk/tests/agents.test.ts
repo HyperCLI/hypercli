@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  AGENT_RUNTIME_INACTIVE_STATES,
+  AGENT_TRANSITIONAL_STATES,
   Agent,
+  CANONICAL_AGENT_STATES,
   agentConfigHasDesktop,
   buildAgentConfig,
   buildBrowserDesktopUrl,
@@ -13,6 +16,8 @@ import {
   OpenClawProAgent,
   attachSlackRelayAgent,
   getSlackInstallStatus,
+  isAgentRuntimeInactiveState,
+  isAgentTransitionalState,
   listSlackDirectoryConversations,
   listSlackDirectoryUsers,
   startSlackOAuth,
@@ -176,11 +181,11 @@ describe('Agents SDK', () => {
             version: 1,
             type: 'deployment.transition',
             deployment_id: 'agent-123',
-            state: 'RUNNING',
-            stage: 'running',
-            reason: 'start',
+            state: 'ARCHIVING',
+            stage: 'archiving',
+            reason: 'archive_request',
             error: null,
-            message: 'Agent is running',
+            message: 'Agent archive is being finalized',
             placement_epoch: 8,
           },
         ]) {
@@ -210,10 +215,11 @@ describe('Agents SDK', () => {
     );
     expect(received.map((event) => event.type)).toEqual(['deployments.changed', 'deployment.transition']);
     expect(received[1]).toMatchObject({
-      stage: 'running',
-      reason: 'start',
+      state: 'ARCHIVING',
+      stage: 'archiving',
+      reason: 'archive_request',
       error: null,
-      message: 'Agent is running',
+      message: 'Agent archive is being finalized',
     });
   });
 
@@ -371,6 +377,24 @@ describe('Agents SDK', () => {
     expect(capacity.agentSlots[0]?.planId).toBe('pro');
     expect(capacity.agentSlots[0]?.expiresAt?.toISOString()).toBe('2026-09-01T00:00:00.000Z');
     expect(capacity.pooledTpd).toBe(100_000_000);
+  });
+
+  it('excludes archive and delete states from the capacity fallback', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        items: [
+          { id: 'running', state: 'RUNNING' },
+          { id: 'archiving', state: 'ARCHIVING' },
+          { id: 'archived', state: 'ARCHIVED' },
+          { id: 'deleted', state: 'DELETED' },
+        ],
+      }),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const capacity = await deployments.listWithCapacity();
+
+    expect(capacity.runningAgents).toBe(1);
   });
 
   it('preserves the transitional stopping state returned by stop', async () => {
@@ -704,6 +728,9 @@ describe('Agents SDK', () => {
     'RUNNING',
     'STOPPING',
     'STOPPED',
+    'ARCHIVING',
+    'ARCHIVED',
+    'DELETED',
     'FAILED',
   ] as const)('hydrates canonical lifecycle state %s and diagnostics', async (state) => {
     const http = {
@@ -726,6 +753,32 @@ describe('Agents SDK', () => {
     expect(agent.reason).toBe(state === 'STOPPED' ? 'runtime_exit' : 'start');
     expect(agent.error).toBe(state === 'FAILED' ? 'ExampleError' : null);
     expect(agent.message).toBe(`Lifecycle state is ${state}`);
+  });
+
+  it('classifies archive and deletion states without closing AgentState', () => {
+    expect(CANONICAL_AGENT_STATES).toEqual(expect.arrayContaining(['ARCHIVING', 'ARCHIVED', 'DELETED']));
+    expect(AGENT_TRANSITIONAL_STATES.has('ARCHIVING')).toBe(true);
+    expect(AGENT_RUNTIME_INACTIVE_STATES.has('ARCHIVING')).toBe(true);
+    expect(isAgentTransitionalState('archiving')).toBe(true);
+    expect(isAgentRuntimeInactiveState('archived')).toBe(true);
+    expect(isAgentTransitionalState('FUTURE_SERVER_STATE')).toBe(false);
+  });
+
+  it.each([
+    ['ARCHIVING', true, false, false],
+    ['ARCHIVED', false, true, false],
+    ['DELETED', false, false, true],
+  ] as const)('exposes public lifecycle semantics for %s', async (state, transitioning, archived, deleted) => {
+    const http = {
+      get: vi.fn().mockResolvedValue({ id: 'agent-123', user_id: 'user-456', state }),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    const agent = await deployments.get('agent-123');
+
+    expect(agent.isTransitioning).toBe(transitioning);
+    expect(agent.isArchived).toBe(archived);
+    expect(agent.isDeleted).toBe(deleted);
   });
 
   it('keeps lifecycle reason independent from error and message', async () => {
@@ -782,7 +835,7 @@ describe('Agents SDK', () => {
     expect(agent.message).toBe('Pulling runtime image');
   });
 
-  it.each(['STOPPED', 'FAILED'] as const)(
+  it.each(['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'] as const)(
     'fails waitRunning promptly on terminal state %s with structured diagnostics',
     async (state) => {
       const http = {

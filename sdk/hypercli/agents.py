@@ -107,6 +107,54 @@ _UNSET = object()
 _T = TypeVar("_T")
 
 
+# Public lifecycle values remain strings so newer server states continue to
+# round-trip through older clients. These collections only classify the
+# canonical states the SDK understands today; they are not a client-side FSM.
+CANONICAL_AGENT_STATES: tuple[str, ...] = (
+    "CREATING",
+    "PENDING",
+    "DOWNLOADING",
+    "RESTORING",
+    "SYNCING",
+    "RUNNING",
+    "STOPPING",
+    "STOPPED",
+    "ARCHIVING",
+    "ARCHIVED",
+    "DELETED",
+    "FAILED",
+)
+AGENT_TRANSITIONAL_STATES = frozenset(
+    {
+        "CREATING",
+        "PENDING",
+        "DOWNLOADING",
+        "RESTORING",
+        "SYNCING",
+        "STOPPING",
+        "ARCHIVING",
+    }
+)
+AGENT_RUNTIME_INACTIVE_STATES = frozenset(
+    {"STOPPED", "ARCHIVING", "ARCHIVED", "DELETED", "FAILED"}
+)
+AGENT_WAIT_RUNNING_FAILURE_STATES = frozenset(
+    {"STOPPED", "ARCHIVED", "DELETED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"}
+)
+
+
+def is_agent_transitional_state(state: str) -> bool:
+    """Return whether a known public state represents work in progress."""
+
+    return str(state or "").upper() in AGENT_TRANSITIONAL_STATES
+
+
+def is_agent_runtime_inactive_state(state: str) -> bool:
+    """Return whether a known public state has no live runtime slot."""
+
+    return str(state or "").upper() in AGENT_RUNTIME_INACTIVE_STATES
+
+
 def _run_sync(
     operation: Callable[[], Awaitable[_T]],
     *,
@@ -1966,6 +2014,22 @@ class Agent:
         return str(self.state or "").lower() == "running"
 
     @property
+    def is_transitioning(self) -> bool:
+        return is_agent_transitional_state(self.state)
+
+    @property
+    def is_archived(self) -> bool:
+        """Whether this agent is cold-restorable from its verified archive."""
+
+        return str(self.state or "").upper() == "ARCHIVED"
+
+    @property
+    def is_deleted(self) -> bool:
+        """Whether an explicitly included tombstone reports deletion."""
+
+        return str(self.state or "").upper() == "DELETED"
+
+    @property
     def has_desktop(self) -> bool:
         return agent_config_has_desktop(
             {
@@ -3594,7 +3658,7 @@ class Deployments:
         data = self._get(AGENTS_API_PREFIX, params={key: value for key, value in params.items() if value is not None})
         payload = data if isinstance(data, dict) else {"items": data}
         items = [self._hydrate_agent(item) for item in payload.get("items", [])]
-        running_fallback = sum(agent.state.upper() not in {"STOPPED", "FAILED"} for agent in items)
+        running_fallback = sum(not is_agent_runtime_inactive_state(agent.state) for agent in items)
         return AgentCapacity(
             items=items,
             total_agents=int(payload.get("total_agents", len(items)) or 0),
@@ -3924,10 +3988,10 @@ class Deployments:
             agent_id_or_name,
             {"running"},
             timeout=timeout,
-            # STOPPED and FAILED are terminal for a wait whose goal is RUNNING.
-            # Keep the two former failure names as input-only rollout aliases
-            # so older deployments also fail promptly.
-            failure_states={"stopped", "failed", "restore_failed", "sync_failed"},
+            # Stable runtime-free states cannot satisfy this invocation's goal.
+            # Keep the former failure names as input-only rollout aliases so
+            # older deployments also fail promptly.
+            failure_states=set(AGENT_WAIT_RUNNING_FAILURE_STATES),
         )
 
     def wait_for_state(

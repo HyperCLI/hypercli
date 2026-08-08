@@ -59,7 +59,7 @@ Current auth split:
 Agents move through these states:
 
 ```
-CREATING → PENDING → DOWNLOADING / RESTORING / SYNCING → RUNNING → STOPPING → STOPPED
+CREATING → PENDING → DOWNLOADING / RESTORING / SYNCING → RUNNING → STOPPING → STOPPED → ARCHIVING → ARCHIVED
 ```
 
 | State         | Description                                                |
@@ -72,6 +72,9 @@ CREATING → PENDING → DOWNLOADING / RESTORING / SYNCING → RUNNING → STOPP
 | `RUNNING`     | Runtime healthy and endpoints accessible                   |
 | `STOPPING`    | Runtime cleanup accepted but still in progress              |
 | `STOPPED`     | Cleanup confirmed, configuration preserved, slot freed      |
+| `ARCHIVING`   | Warm storage is being finalized into an exact cold archive  |
+| `ARCHIVED`    | Backend terminal projection; cold-restorable, zero Lagoon resources |
+| `DELETED`     | Terminal deletion tombstone, normally hidden from reads      |
 | `FAILED`      | Lifecycle operation failed with diagnostics                |
 
 Boot stages can branch based on whether the runtime is warm, needs an image
@@ -79,8 +82,10 @@ pull, or has durable data to restore. Do not infer a strict sequence beyond
 the authoritative snapshots.
 
 Do not treat `STOPPING` as stopped: cleanup is still active and its deployment
-slot remains occupied. Stopped agents retain their configuration
-and can be restarted. Deleted agents are gone permanently.
+slot remains occupied. Stopped agents retain warm local storage and can be
+restarted. Archived agents retain a Backend projection; a later start is a
+fresh admission that restores into a new namespace and PVC from cold storage.
+Deleted agents are gone permanently.
 
 ## Health Monitoring
 

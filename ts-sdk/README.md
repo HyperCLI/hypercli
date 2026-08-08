@@ -179,6 +179,13 @@ fields. `reason` is the stable cause of a transition, such as `start`,
 failed transition, while `message` is human-readable context. Consumers should
 not bind these strings to a closed client-side enum.
 
+Canonical states include `ARCHIVING`, `ARCHIVED`, and `DELETED`. `STOPPED` is
+warm and `ARCHIVING` is transitional. `ARCHIVED` is the Backend-persisted,
+cold-restorable terminal projection after Lagoon drops its agent task,
+namespace, PVC, and local S3 copy. Starting it is a fresh admission that
+restores from the verified archive. `DELETED` is terminal and normally absent
+from user reads.
+
 For a long-lived UI, subscribe to thin invalidations and refresh REST in the
 handler:
 

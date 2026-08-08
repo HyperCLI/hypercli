@@ -68,11 +68,15 @@ states continue to parse. Placement, runtime, and optional finalize epochs are
 opaque correlation hints; REST is the snapshot.
 
 Canonical deployment lifecycle snapshots currently use `CREATING`, `PENDING`,
-`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and
-`FAILED`. `CREATING` means the control plane is establishing the agent
-namespace. Consumers should display and wait on these values, not reproduce
-the server lifecycle machine. Lifecycle `stage` and `reason` are also open
-strings: `reason` is a stable transition cause such as `start`, `api_stop`,
+`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`,
+`ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`. `CREATING` means the control
+plane is establishing the agent namespace. `STOPPED` is warm and `ARCHIVING`
+is transitional. `ARCHIVED` is the Backend-persisted cold-restorable terminal
+projection after Lagoon drops its agent task, namespace, PVC, and local S3
+copy; a later start is a fresh admission. `DELETED` is terminal and normally
+hidden from user reads. Consumers should display and wait on these values, not
+reproduce the server lifecycle machine. Lifecycle `stage` and `reason` are
+also open strings: `reason` is a stable transition cause such as `start`, `api_stop`,
 `runtime_exit`, `timeout`, or `delete`; `error` is a failure code when present,
 and `message` is human-readable context.
 

@@ -162,9 +162,14 @@ resource snapshots and may be duplicated or coalesced; refresh REST for
 authority.
 
 Managed-agent lifecycle snapshots currently use `CREATING`, `PENDING`,
-`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and
-`FAILED`. `CREATING` means the control plane is establishing the agent
-namespace. State values remain open strings; use REST as authority instead of
+`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`,
+`ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`. `CREATING` means the control
+plane is establishing the agent namespace. `STOPPED` retains warm local
+storage. `ARCHIVING` is the public transition to verified cold storage.
+`ARCHIVED` is the Backend-persisted cold-restorable terminal projection after
+Lagoon drops its agent task, namespace, PVC, and local S3 copy; a later start
+is a fresh admission. `DELETED` is terminal and normally hidden from user
+lists. State values remain open strings; use REST as authority instead of
 recreating the server lifecycle machine in the client. Each snapshot may also
 carry open-string lifecycle diagnostics: `stage` is the current step, `reason`
 is the stable cause such as `start`, `api_stop`, `runtime_exit`, `timeout`, or

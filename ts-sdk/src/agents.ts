@@ -1208,8 +1208,53 @@ export type AgentState =
   | 'RUNNING'
   | 'STOPPING'
   | 'STOPPED'
+  | 'ARCHIVING'
+  | 'ARCHIVED'
+  | 'DELETED'
   | 'FAILED'
   | (string & {});
+
+/** Canonical states understood by this SDK. AgentState remains forward-open. */
+export const CANONICAL_AGENT_STATES = [
+  'CREATING',
+  'PENDING',
+  'DOWNLOADING',
+  'RESTORING',
+  'SYNCING',
+  'RUNNING',
+  'STOPPING',
+  'STOPPED',
+  'ARCHIVING',
+  'ARCHIVED',
+  'DELETED',
+  'FAILED',
+] as const satisfies readonly AgentState[];
+
+export const AGENT_TRANSITIONAL_STATES: ReadonlySet<AgentState> = new Set([
+  'CREATING',
+  'PENDING',
+  'DOWNLOADING',
+  'RESTORING',
+  'SYNCING',
+  'STOPPING',
+  'ARCHIVING',
+]);
+
+export const AGENT_RUNTIME_INACTIVE_STATES: ReadonlySet<AgentState> = new Set([
+  'STOPPED',
+  'ARCHIVING',
+  'ARCHIVED',
+  'DELETED',
+  'FAILED',
+]);
+
+export function isAgentTransitionalState(state: string): boolean {
+  return AGENT_TRANSITIONAL_STATES.has(state.toUpperCase());
+}
+
+export function isAgentRuntimeInactiveState(state: string): boolean {
+  return AGENT_RUNTIME_INACTIVE_STATES.has(state.toUpperCase());
+}
 
 export interface DeploymentEvent {
   version: number;
@@ -2289,6 +2334,20 @@ export class Agent {
 
   get isRunning(): boolean {
     return this.state.toLowerCase() === 'running';
+  }
+
+  get isTransitioning(): boolean {
+    return isAgentTransitionalState(this.state);
+  }
+
+  /** True when the agent is cold-restorable from its verified archive. */
+  get isArchived(): boolean {
+    return this.state.toUpperCase() === 'ARCHIVED';
+  }
+
+  /** True only for an explicitly included deletion tombstone. */
+  get isDeleted(): boolean {
+    return this.state.toUpperCase() === 'DELETED';
   }
 
   get hasDesktop(): boolean {
@@ -4193,7 +4252,9 @@ export class Deployments {
     );
     const payload = Array.isArray(data) ? { items: data } : data;
     const items = (payload.items ?? []).map((item: AgentHydrationData) => this.hydrateAgent(item));
-    const runningFallback = items.filter((agent: Agent) => !['STOPPED', 'FAILED'].includes(agent.state.toUpperCase())).length;
+    const runningFallback = items.filter(
+      (agent: Agent) => !isAgentRuntimeInactiveState(agent.state),
+    ).length;
     return {
       items,
       totalAgents: Number(payload.total_agents ?? items.length),
@@ -4462,7 +4523,7 @@ export class Deployments {
       agentIdOrName,
       ['RUNNING'],
       timeoutMs,
-      ['STOPPED', 'FAILED'],
+      ['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'],
     );
   }
 

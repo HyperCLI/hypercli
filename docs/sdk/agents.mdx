@@ -429,11 +429,19 @@ agent = client.deployments.create(
 ## Lifecycle
 
 Canonical lifecycle snapshots use `CREATING`, `PENDING`, `DOWNLOADING`,
-`RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, and `FAILED`.
+`RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`, `ARCHIVING`,
+`ARCHIVED`, `DELETED`, and `FAILED`.
 `CREATING` means the control plane is establishing the agent namespace. These
 values remain forward-compatible strings; clients should render them and wait
 for authoritative transitions rather than reproducing the server state
 machine.
+
+`STOPPED` is warm and retains local storage. `ARCHIVING` is transitional while
+the service creates and verifies an exact archive. `ARCHIVED` is the
+Backend-persisted cold-restorable terminal projection after Lagoon drops its
+agent task, namespace, PVC, and local S3 copy; starting it is a fresh admission
+that restores the archive. `DELETED` is terminal and is normally absent from
+user reads.
 
 ```python
 agents = client.deployments.list()
@@ -546,6 +554,9 @@ Important computed properties:
 - `route_url(route_name, default_prefix=None)`
 - `route_requires_auth(route_name)`
 - `is_running`
+- `is_transitioning`
+- `is_archived`
+- `is_deleted`
 
 ## Exec, Files, Copy
 

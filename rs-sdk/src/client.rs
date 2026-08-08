@@ -522,8 +522,13 @@ impl HyperCliClient {
         deployment_id: &str,
         timeout: Duration,
     ) -> Result<Deployment, HyperCliError> {
-        self.wait_deployment_state(deployment_id, &["running"], &["stopped", "failed"], timeout)
-            .await
+        self.wait_deployment_state(
+            deployment_id,
+            &["running"],
+            &["stopped", "archived", "deleted", "failed"],
+            timeout,
+        )
+        .await
     }
 
     /// Wait for RUNNING, then allow a newly issued hostname to settle locally.

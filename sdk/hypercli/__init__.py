@@ -59,6 +59,9 @@ from .user import AuthMe, RuntimeIdentity, User, UserAPI
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import (
+    AGENT_RUNTIME_INACTIVE_STATES,
+    AGENT_TRANSITIONAL_STATES,
+    AGENT_WAIT_RUNNING_FAILURE_STATES,
     Agent,
     AgentCapacity,
     AgentFileSource,
@@ -68,6 +71,7 @@ from .agents import (
     AgentSlotInventory,
     BuzzAgent,
     BuzzLaunchConfig,
+    CANONICAL_AGENT_STATES,
     ClaudeCodeAgent,
     CodingAgent,
     CodexAgent,
@@ -98,6 +102,8 @@ from .agents import (
     build_openclaw_memory_index_env,
     build_openclaw_routes,
     build_openclaw_workspaces_sync_env,
+    is_agent_runtime_inactive_state,
+    is_agent_transitional_state,
 )
 from .hermes import (
     HermesAPIError,
@@ -253,6 +259,12 @@ __all__ = [
     "stream_logs",
     "fetch_logs",
     # Agents (Reef Pods)
+    "CANONICAL_AGENT_STATES",
+    "AGENT_TRANSITIONAL_STATES",
+    "AGENT_RUNTIME_INACTIVE_STATES",
+    "AGENT_WAIT_RUNNING_FAILURE_STATES",
+    "is_agent_transitional_state",
+    "is_agent_runtime_inactive_state",
     "Deployments",
     "DeploymentEvent",
     "Agent",

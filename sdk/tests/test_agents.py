@@ -11,6 +11,9 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from hypercli.agents import (
+    AGENT_RUNTIME_INACTIVE_STATES,
+    AGENT_TRANSITIONAL_STATES,
+    CANONICAL_AGENT_STATES,
     AGENT_FILE_MAX_BYTES,
     AGENT_FILE_OPERATION_TIMEOUT_SECONDS,
     AGENT_FILE_TRANSFER_CHUNK_BYTES,
@@ -30,6 +33,8 @@ from hypercli.agents import (
     build_openclaw_routes,
     flatten_launch_config,
     launch_config_has_desktop,
+    is_agent_runtime_inactive_state,
+    is_agent_transitional_state,
 )
 from hypercli.http import APIError, HTTPClient
 
@@ -110,11 +115,11 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
         "version": 1,
         "type": "deployment.transition",
         "deployment_id": "agent-123",
-        "state": "RUNNING",
-        "stage": "running",
-        "reason": "start",
+        "state": "ARCHIVING",
+        "stage": "archiving",
+        "reason": "archive_request",
         "error": None,
-        "message": "Agent is running",
+        "message": "Agent archive is being finalized",
         "placement_epoch": 7,
         "runtime_generation": 4,
     }
@@ -157,10 +162,11 @@ async def test_subscribe_hydrates_rest_before_socket_and_resyncs_after_ready(mon
 
     assert calls[:4] == ["rest", "/deployments/events/token", "auth", "rest"]
     assert [event.type for event in received] == ["deployments.changed", "deployment.transition"]
-    assert received[-1].stage == "running"
-    assert received[-1].reason == "start"
+    assert received[-1].state == "ARCHIVING"
+    assert received[-1].stage == "archiving"
+    assert received[-1].reason == "archive_request"
     assert received[-1].error is None
-    assert received[-1].message == "Agent is running"
+    assert received[-1].message == "Agent archive is being finalized"
     assert received[-1].runtime_generation == 4
 
 
@@ -646,7 +652,7 @@ async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
 
 @pytest.mark.parametrize(
     "failed_state",
-    ["STOPPED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"],
+    ["STOPPED", "ARCHIVED", "DELETED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"],
 )
 def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
     http = MagicMock(spec=HTTPClient)
@@ -777,6 +783,9 @@ def test_agent_running_state_is_case_insensitive(state, expected):
         "RUNNING",
         "STOPPING",
         "STOPPED",
+        "ARCHIVING",
+        "ARCHIVED",
+        "DELETED",
         "FAILED",
     ],
 )
@@ -797,6 +806,33 @@ def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
     assert agent.reason == ("runtime_exit" if state == "STOPPED" else "start")
     assert agent.error == ("ExampleError" if state == "FAILED" else None)
     assert agent.message == f"Lifecycle state is {state}"
+
+
+def test_agent_lifecycle_state_classification_is_forward_open():
+    assert {"ARCHIVING", "ARCHIVED", "DELETED"}.issubset(CANONICAL_AGENT_STATES)
+    assert "ARCHIVING" in AGENT_TRANSITIONAL_STATES
+    assert {"ARCHIVING", "ARCHIVED", "DELETED"}.issubset(AGENT_RUNTIME_INACTIVE_STATES)
+    assert is_agent_transitional_state("archiving") is True
+    assert is_agent_runtime_inactive_state("archived") is True
+    assert is_agent_transitional_state("future_server_state") is False
+
+
+@pytest.mark.parametrize(
+    ("state", "is_transitioning", "is_archived", "is_deleted"),
+    [
+        ("ARCHIVING", True, False, False),
+        ("ARCHIVED", False, True, False),
+        ("DELETED", False, False, True),
+    ],
+)
+def test_agent_exposes_archive_and_delete_state_semantics(
+    state, is_transitioning, is_archived, is_deleted
+):
+    agent = Agent.from_dict({"id": "agent-123", "state": state})
+
+    assert agent.is_transitioning is is_transitioning
+    assert agent.is_archived is is_archived
+    assert agent.is_deleted is is_deleted
 
 
 def test_agent_lifecycle_reason_is_independent_from_error_and_message():
@@ -2117,6 +2153,26 @@ def test_agents_list_with_capacity_preserves_envelope(agents_client):
     assert capacity.agent_slots[0].plan_id == "pro"
     assert capacity.agent_slots[0].expires_at is not None
     assert capacity.pooled_tpd == 100_000_000
+
+
+def test_agents_capacity_fallback_excludes_archive_and_delete_states(agents_client):
+    payload = {
+        "items": [
+            {"id": "running", "state": "RUNNING"},
+            {"id": "archiving", "state": "ARCHIVING"},
+            {"id": "archived", "state": "ARCHIVED"},
+            {"id": "deleted", "state": "DELETED"},
+        ]
+    }
+    with patch("httpx.Client") as client_cls:
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = payload
+        client_cls.return_value.__enter__.return_value.get.return_value = response
+
+        capacity = agents_client.list_with_capacity()
+
+    assert capacity.running_agents == 1
 
 
 def test_agents_list_passes_filters(agents_client):
