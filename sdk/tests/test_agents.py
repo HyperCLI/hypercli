@@ -666,6 +666,36 @@ def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
         deployments.wait_running("agent-123", timeout=1, poll_interval=0)
 
 
+def test_sync_wait_does_not_chain_missing_loop_probe(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+
+    async def fail_wait(*_args, **_kwargs):
+        raise TimeoutError("authoritative timeout")
+
+    monkeypatch.setattr(deployments, "wait_for_state_async", fail_wait)
+
+    with pytest.raises(TimeoutError, match="authoritative timeout") as exc_info:
+        deployments.wait_for_state("agent-123", {"stopped"}, timeout=1)
+
+    assert exc_info.value.__context__ is None
+
+
+@pytest.mark.asyncio
+async def test_sync_wait_rejects_running_loop_without_creating_coroutine(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    wait_async = Mock(side_effect=AssertionError("async operation must not be created"))
+    monkeypatch.setattr(deployments, "wait_for_state_async", wait_async)
+
+    with pytest.raises(RuntimeError, match="use wait_for_state_async"):
+        deployments.wait_for_state("agent-123", {"stopped"}, timeout=1)
+
+    wait_async.assert_not_called()
+
+
 def test_agent_from_dict_hydrates_only_meta_ui():
     agent = Agent.from_dict(
         {

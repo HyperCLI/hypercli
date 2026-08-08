@@ -21,7 +21,7 @@ import re
 import secrets
 import shlex
 import time
-from typing import TYPE_CHECKING, Callable, ClassVar, Literal, Optional, Any, AsyncIterator, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Awaitable, Callable, ClassVar, Literal, Optional, Any, AsyncIterator, NotRequired, TypeVar, TypedDict
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
@@ -104,6 +104,23 @@ AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
 _UNSET = object()
+_T = TypeVar("_T")
+
+
+def _run_sync(
+    operation: Callable[[], Awaitable[_T]],
+    *,
+    running_loop_error: str,
+) -> _T:
+    """Run an async operation from sync code without leaking loop probes."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError(running_loop_error)
+
+    return asyncio.run(operation())
 
 ManagedAgentRuntime = Literal[
     "generic",
@@ -2324,22 +2341,18 @@ class OpenClawAgent(Agent):
 
     def _with_gateway(self, op: Callable[["GatewayClient"], Any]) -> Any:
         """Run an async gateway op from the sync file API (connect → op → close)."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-        else:
-            raise RuntimeError(
-                "gateway file operations are synchronous and cannot run inside an "
-                "active event loop; call them from sync code or use the async "
-                "file_get/file_set/workspace_files helpers."
-            )
-
         async def _invoke() -> Any:
             async with self.connect() as gw:
                 return await op(gw)
 
-        return asyncio.run(_invoke())
+        return _run_sync(
+            _invoke,
+            running_loop_error=(
+                "gateway file operations are synchronous and cannot run inside an "
+                "active event loop; call them from sync code or use the async "
+                "file_get/file_set/workspace_files helpers."
+            ),
+        )
 
     # The in-gateway agent id for `agents.files.*` — NOT the deployment id. A
     # deployment's gateway hosts an agent named "main" (or a named agent);
@@ -3916,27 +3929,27 @@ class Deployments:
         failure_states: set[str] | None = None,
     ) -> Agent:
         """Synchronous event-assisted state wait; use the async variant in an event loop."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(
-                self.wait_for_state_async(
+        return _run_sync(
+            lambda: self.wait_for_state_async(
                     agent_id_or_name,
                     states,
                     timeout=timeout,
                     failure_states=failure_states,
-                )
-            )
-        raise RuntimeError("wait_for_state() cannot run inside an event loop; use wait_for_state_async()")
+            ),
+            running_loop_error=(
+                "wait_for_state() cannot run inside an event loop; use wait_for_state_async()"
+            ),
+        )
 
     def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
         """Wait for RUNNING via deployment events; ``poll_interval`` is deprecated."""
         del poll_interval
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.wait_running_async(agent_id_or_name, timeout=timeout))
-        raise RuntimeError("wait_running() cannot run inside an event loop; use wait_running_async()")
+        return _run_sync(
+            lambda: self.wait_running_async(agent_id_or_name, timeout=timeout),
+            running_loop_error=(
+                "wait_running() cannot run inside an event loop; use wait_running_async()"
+            ),
+        )
 
     def start(
         self,
