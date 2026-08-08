@@ -195,15 +195,18 @@ handler:
 const controller = new AbortController();
 const subscription = client.deployments.subscribe(async () => {
   render(await client.deployments.list());
-}, { signal: controller.signal });
+}, {
+  signal: controller.signal,
+  onReady: async () => render(await client.deployments.list()),
+});
 
 // During application teardown:
 controller.abort();
 await subscription;
 ```
 
-Abort during teardown. The SDK connects and authenticates the user stream
-first, then reads the REST snapshot; it repeats that order after reconnect.
+Abort during teardown. `onReady` runs after user-stream authentication and
+before event frames are read; it repeats that order after reconnect.
 Transition events carry `agent_id` for local filtering plus the transition-time `stage`, `reason`,
 `error`, and `message`, but are not snapshots and may be duplicated or
 coalesced; refresh REST for authority.

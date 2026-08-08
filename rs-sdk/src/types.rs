@@ -1024,11 +1024,9 @@ pub struct Deployment {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeploymentEvent {
-    pub version: u32,
     #[serde(rename = "type")]
     pub event_type: String,
-    #[serde(default)]
-    pub agent_id: Option<String>,
+    pub agent_id: String,
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
@@ -1538,7 +1536,6 @@ mod tests {
         assert!(deployment("DELETED").is_deleted());
 
         let event: DeploymentEvent = serde_json::from_value(serde_json::json!({
-            "version": 1,
             "type": "deployment.transition",
             "agent_id": "agent-1",
             "state": "ARCHIVING",

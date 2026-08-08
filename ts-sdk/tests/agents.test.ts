@@ -27,6 +27,16 @@ import { APIError } from '../src/errors.js';
 import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
+  const installReadySubscription = (deployments: Deployments) => {
+    vi.spyOn(deployments, 'subscribe').mockImplementation(async (_handler, options = {}) => {
+      await options.onReady?.();
+      if (options.signal?.aborted) return;
+      await new Promise<void>((resolve) => {
+        options.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    });
+  };
+
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
@@ -154,10 +164,9 @@ describe('Agents SDK', () => {
     expect(agent.restoreState).toBe('FUTURE_RESTORE');
   });
 
-  it('hydrates REST before subscribing and resyncs after ready', async () => {
+  it('authenticates before the REST snapshot and delivers persisted transitions', async () => {
     const get = vi.fn().mockResolvedValue({ items: [] });
     const post = vi.fn().mockResolvedValue({
-      version: 1,
       token: 'event-token',
       ws_url: 'wss://events.test/ws/deployments',
     });
@@ -174,11 +183,10 @@ describe('Agents SDK', () => {
         queueMicrotask(() => this.dispatchEvent(new Event('open')));
       }
       send(payload: string) {
-        expect(JSON.parse(payload)).toEqual({ version: 1, type: 'auth', token: 'event-token' });
+        expect(JSON.parse(payload)).toEqual({ type: 'auth', token: 'event-token' });
         for (const frame of [
-          { version: 1, type: 'ready' },
+          { type: 'ready' },
           {
-            version: 1,
             type: 'deployment.transition',
             agent_id: 'agent-123',
             state: 'ARCHIVING',
@@ -205,7 +213,10 @@ describe('Agents SDK', () => {
     await deployments.subscribe((event) => {
       received.push(event);
       if (event.type === 'deployment.transition') controller.abort();
-    }, { signal: controller.signal });
+    }, {
+      signal: controller.signal,
+      onReady: () => deployments.list({ signal: controller.signal }),
+    });
 
     expect(get).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledWith(
@@ -213,8 +224,8 @@ describe('Agents SDK', () => {
       undefined,
       { signal: controller.signal },
     );
-    expect(received.map((event) => event.type)).toEqual(['deployments.changed', 'deployment.transition']);
-    expect(received[1]).toMatchObject({
+    expect(received.map((event) => event.type)).toEqual(['deployment.transition']);
+    expect(received[0]).toMatchObject({
       agent_id: 'agent-123',
       state: 'ARCHIVING',
       stage: 'archiving',
@@ -267,7 +278,6 @@ describe('Agents SDK', () => {
     vi.useFakeTimers();
     const get = vi.fn().mockResolvedValue({ items: [] });
     const post = vi.fn().mockResolvedValue({
-      version: 1,
       token: 'event-token',
       ws_url: 'wss://events.test/ws/deployments',
     });
@@ -293,7 +303,7 @@ describe('Agents SDK', () => {
         queueMicrotask(() => {
           const event = new Event('message');
           Object.defineProperty(event, 'data', {
-            value: JSON.stringify({ version: 1, type: 'ready' }),
+            value: JSON.stringify({ type: 'ready' }),
           });
           this.dispatchEvent(event);
         });
@@ -307,10 +317,14 @@ describe('Agents SDK', () => {
     }
     vi.stubGlobal('WebSocket', ClosingWebSocket);
 
-    const subscription = deployments.subscribe(() => {
-      resyncs += 1;
-      if (resyncs === 2) controller.abort();
-    }, { signal: controller.signal });
+    const subscription = deployments.subscribe(() => undefined, {
+      signal: controller.signal,
+      onReady: async () => {
+        await deployments.list({ signal: controller.signal });
+        resyncs += 1;
+        if (resyncs === 2) controller.abort();
+      },
+    });
 
     await vi.advanceTimersByTimeAsync(0);
     expect(post).toHaveBeenCalledTimes(1);
@@ -815,6 +829,7 @@ describe('Agents SDK', () => {
         get: vi.fn().mockResolvedValue({ id: 'agent-123', user_id: 'user-456', state }),
       } as unknown as HTTPClient;
       const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+      installReadySubscription(deployments);
 
       await expect(deployments.waitForState('agent-123', [state], 100)).resolves.toMatchObject({ state });
     },
@@ -860,6 +875,7 @@ describe('Agents SDK', () => {
       } as unknown as HTTPClient;
 
       const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+      installReadySubscription(deployments);
 
       await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
         `Agent entered ${state} while waiting for RUNNING, stage="syncing", reason="runtime_exit", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
@@ -884,6 +900,7 @@ describe('Agents SDK', () => {
     } as unknown as HTTPClient;
 
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    installReadySubscription(deployments);
 
     const assertion = expect(deployments.waitRunning('agent-123', 1_000, 100)).rejects.toThrow(
       'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, stage="restoring", message="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',

@@ -112,7 +112,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     calls: list[str] = []
     stop = asyncio.Event()
     transition = {
-        "version": 1,
         "type": "deployment.transition",
         "agent_id": "agent-123",
         "state": "ARCHIVING",
@@ -124,7 +123,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         "runtime_generation": 4,
     }
 
-    monkeypatch.setattr(deployments, "list", lambda: calls.append("rest") or [])
     monkeypatch.setattr(
         deployments,
         "_post",
@@ -133,7 +131,7 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
 
     class FakeSocket:
         def __init__(self):
-            self.messages = iter((json.dumps({"version": 1, "type": "ready"}), json.dumps(transition)))
+            self.messages = iter((json.dumps({"type": "ready"}), json.dumps(transition)))
 
         async def send(self, payload):
             calls.append(json.loads(payload)["type"])
@@ -158,10 +156,14 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         if event.type == "deployment.transition":
             stop.set()
 
-    await deployments.subscribe(handler, stop_event=stop)
+    await deployments.subscribe(
+        handler,
+        stop_event=stop,
+        on_ready=lambda: calls.append("rest"),
+    )
 
     assert calls[:3] == ["/deployments/events/token", "auth", "rest"]
-    assert [event.type for event in received] == ["deployments.changed", "deployment.transition"]
+    assert [event.type for event in received] == ["deployment.transition"]
     assert received[-1].agent_id == "agent-123"
     assert received[-1].state == "ARCHIVING"
     assert received[-1].stage == "archiving"
@@ -179,7 +181,6 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
     calls: list[str] = []
     connection_count = 0
     transition = {
-        "version": 1,
         "type": "deployment.transition",
         "agent_id": "agent-123",
         "state": "RUNNING",
@@ -195,7 +196,6 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
             raise asyncio.TimeoutError
 
     stop = FastStopEvent()
-    monkeypatch.setattr(deployments, "list", lambda: calls.append("rest") or [])
     monkeypatch.setattr(
         deployments,
         "_post",
@@ -205,7 +205,7 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
 
     class FakeSocket:
         def __init__(self, ordinal):
-            messages = [json.dumps({"version": 1, "type": "ready"})]
+            messages = [json.dumps({"type": "ready"})]
             if ordinal == 2:
                 messages.append(json.dumps(transition))
             self.messages = iter(messages)
@@ -238,7 +238,11 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
         if event.type == "deployment.transition":
             stop.set()
 
-    await deployments.subscribe(handler, stop_event=stop)
+    await deployments.subscribe(
+        handler,
+        stop_event=stop,
+        on_ready=lambda: calls.append("rest"),
+    )
 
     assert connection_count == 2
     assert stop.waits == 1
@@ -250,11 +254,7 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
         "auth",
         "rest",
     ]
-    assert [event.type for event in received] == [
-        "deployments.changed",
-        "deployments.changed",
-        "deployment.transition",
-    ]
+    assert [event.type for event in received] == ["deployment.transition"]
 
 
 @pytest.mark.asyncio
@@ -293,8 +293,9 @@ async def test_wait_running_async_accepts_every_canonical_boot_state(monkeypatch
         lambda _value: Agent.from_dict({"id": "agent-123", "state": next(states)}),
     )
 
-    async def subscribe(handler, **_kwargs):
-        handler(DeploymentEvent(version=1, type="deployment.transition", agent_id="agent-123"))
+    async def subscribe(handler, **kwargs):
+        await kwargs["on_ready"]()
+        handler(DeploymentEvent(type="deployment.transition", agent_id="agent-123"))
         await asyncio.Event().wait()
 
     monkeypatch.setattr(deployments, "subscribe", subscribe)
@@ -675,6 +676,12 @@ def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
             }
         ),
     )
+
+    async def subscribe(_handler, **kwargs):
+        await kwargs["on_ready"]()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(deployments, "subscribe", subscribe)
 
     with pytest.raises(RuntimeError, match=failed_state):
         deployments.wait_running("agent-123", timeout=1, poll_interval=0)

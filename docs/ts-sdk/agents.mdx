@@ -442,7 +442,10 @@ const controller = new AbortController();
 const subscription = client.deployments.subscribe(async () => {
   const agents = await client.deployments.list();
   render(agents);
-}, { signal: controller.signal });
+}, {
+  signal: controller.signal,
+  onReady: async () => render(await client.deployments.list()),
+});
 
 // During application teardown:
 controller.abort();
@@ -451,9 +454,8 @@ await subscription;
 
 The subscription runs until aborted or a permanent authentication error
 occurs. Events are thin, best-effort hints with `agent_id` for local filtering,
-not snapshots. The SDK reconnects
-with backoff, authenticates the user stream first, then reads the full REST
-snapshot before delivering further invalidations. `AgentState` is intentionally
+not snapshots. The SDK reconnects with backoff; `onReady` runs after
+authentication and before transition frames are read. `AgentState` is intentionally
 open to future server states.
 
 ## `Agent`

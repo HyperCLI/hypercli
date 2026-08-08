@@ -152,12 +152,16 @@ async def changed(_event):
     agents = await asyncio.to_thread(client.deployments.list)
     render(agents)
 
+async def snapshot():
+    agents = await asyncio.to_thread(client.deployments.list)
+    render(agents)
+
 stop = asyncio.Event()
-await client.deployments.subscribe(changed, stop_event=stop)
+await client.deployments.subscribe(changed, stop_event=stop, on_ready=snapshot)
 ```
 
-The SDK connects and authenticates the user stream first, then reads the REST
-snapshot; it repeats that order after reconnect so no transition can slip
+The `on_ready` callback runs after user-stream authentication and before event
+frames are read; it repeats after reconnect so no transition can slip
 between snapshot and subscription. Transition events carry `agent_id` for
 local filtering plus the transition-time `stage`, `reason`, `error`, and `message`, but are not
 resource snapshots and may be duplicated or coalesced; refresh REST for

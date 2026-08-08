@@ -1860,11 +1860,10 @@ class AgentSlot:
 
 @dataclass(frozen=True)
 class DeploymentEvent:
-    """Flat v1 deployment invalidation received from Backend."""
+    """One persisted deployment transition received from Backend."""
 
-    version: int
     type: str
-    agent_id: str | None = None
+    agent_id: str
     state: str | None = None
     stage: str | None = None
     reason: str | None = None
@@ -1877,9 +1876,8 @@ class DeploymentEvent:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DeploymentEvent":
         return cls(
-            version=int(data.get("version", 0) or 0),
             type=str(data.get("type") or ""),
-            agent_id=str(data["agent_id"]) if data.get("agent_id") else None,
+            agent_id=str(data.get("agent_id") or ""),
             state=str(data["state"]) if data.get("state") else None,
             stage=str(data["stage"]) if data.get("stage") else None,
             reason=str(data["reason"]) if data.get("reason") else None,
@@ -3856,8 +3854,9 @@ class Deployments:
         handler: Callable[[DeploymentEvent], Any],
         *,
         stop_event: asyncio.Event | None = None,
+        on_ready: Callable[[], Any] | None = None,
     ) -> None:
-        """Subscribe to flat deployment invalidations until cancelled."""
+        """Subscribe to persisted deployment transitions until cancelled."""
         import websockets
 
         retry_delay = 0.25
@@ -3869,14 +3868,14 @@ class Deployments:
                 if not ws_url or not token:
                     raise RuntimeError("Deployment event token response is incomplete")
                 async with websockets.connect(ws_url, ping_interval=20, ping_timeout=20) as websocket:
-                    await websocket.send(json.dumps({"version": 1, "type": "auth", "token": token}))
+                    await websocket.send(json.dumps({"type": "auth", "token": token}))
                     ready = json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
-                    if ready != {"version": 1, "type": "ready"}:
+                    if ready != {"type": "ready"}:
                         raise RuntimeError("Deployment event socket did not send ready")
-                    await asyncio.to_thread(self.list)
-                    result = handler(DeploymentEvent(version=1, type="deployments.changed"))
-                    if inspect.isawaitable(result):
-                        await result
+                    if on_ready is not None:
+                        result = on_ready()
+                        if inspect.isawaitable(result):
+                            await result
                     retry_delay = 0.25
                     while stop_event is None or not stop_event.is_set():
                         try:
@@ -3886,10 +3885,7 @@ class Deployments:
                         except asyncio.TimeoutError:
                             continue
                         event = DeploymentEvent.from_dict(json.loads(raw))
-                        if event.version != 1 or event.type not in {
-                            "deployment.transition",
-                            "deployments.changed",
-                        }:
+                        if event.type != "deployment.transition" or not event.agent_id:
                             continue
                         result = handler(event)
                         if inspect.isawaitable(result):
@@ -3947,16 +3943,41 @@ class Deployments:
                 )
             return None
 
-        initial = check(await asyncio.to_thread(self.get, agent_id))
-        if initial is not None:
-            return initial
-
         def on_event(event: DeploymentEvent) -> None:
-            if event.agent_id in {None, agent_id}:
+            if event.agent_id == agent_id:
                 wake.set()
 
-        subscription = asyncio.create_task(self.subscribe(on_event))
+        ready = asyncio.Event()
+        ready_result: Agent | None = None
+        ready_error: BaseException | None = None
+
+        async def on_ready() -> None:
+            nonlocal ready_result, ready_error
+            try:
+                ready_result = check(await asyncio.to_thread(self.get, agent_id))
+            except BaseException as exc:
+                ready_error = exc
+            finally:
+                ready.set()
+
+        subscription = asyncio.create_task(self.subscribe(on_event, on_ready=on_ready))
         try:
+            ready_waiter = asyncio.create_task(ready.wait())
+            done, _ = await asyncio.wait(
+                {ready_waiter, subscription},
+                timeout=max(deadline - asyncio.get_running_loop().time(), 0),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if subscription in done:
+                await subscription
+                raise RuntimeError("Deployment event subscription ended unexpectedly")
+            if ready_waiter not in done:
+                ready_waiter.cancel()
+                raise TimeoutError(f"Timed out waiting for deployment event subscription for {agent_id}")
+            if ready_error is not None:
+                raise ready_error
+            if ready_result is not None:
+                return ready_result
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
                 waiter = asyncio.create_task(wake.wait())
                 done, _ = await asyncio.wait(

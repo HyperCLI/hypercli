@@ -54,12 +54,13 @@ the API state and then applies the bounded
 `DEFAULT_HOSTNAME_SETTLE_DELAY` (15 seconds) locally before the first health
 request; it does not perform a DNS probe or keep a backend transaction open.
 
-`subscribe_deployments()` provides flat, best-effort invalidations. Keep its
+`subscribe_deployments()` provides flat, best-effort transition hints. Keep its
 synchronous callback small—for example, send the event into an application
 channel—and let the consumer call `get_deployment()` or
 `list_deployments_with_capacity()`. The SDK connects and authenticates the user
-socket, waits for `ready`, then reads the REST snapshot, and repeats that order
-after reconnect. There is no client ACK or durable client outbox.
+socket and waits for `ready` before delivering transitions. The state waiters
+open that socket before their authoritative REST snapshot. There is no client
+ACK or durable client outbox.
 Transition events carry `agent_id` for local filtering plus the transition-time `stage`, `reason`, `error`, and
 `message`, but remain invalidations rather than authoritative snapshots.
 

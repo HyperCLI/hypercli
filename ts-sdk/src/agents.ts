@@ -1265,9 +1265,8 @@ export function isAgentRuntimeInactiveState(state: string): boolean {
 }
 
 export interface DeploymentEvent {
-  version: number;
-  type: 'deployment.transition' | 'deployments.changed';
-  agent_id?: string;
+  type: 'deployment.transition';
+  agent_id: string;
   state?: AgentState;
   stage?: string | null;
   reason?: string | null;
@@ -1280,6 +1279,8 @@ export interface DeploymentEvent {
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
+  /** Runs after socket authentication and before transition frames are read. */
+  onReady?: () => void | Promise<void>;
 }
 
 export interface AgentStateFields {
@@ -4390,7 +4391,6 @@ export class Deployments {
     while (!options.signal?.aborted) {
       try {
         const token = await this.agentHttp.post<{
-          version: number;
           token: string;
           ws_url: string;
         }>(`${DEPLOYMENTS_API_PREFIX}/events/token`, undefined, { signal: options.signal });
@@ -4408,25 +4408,25 @@ export class Deployments {
           options.signal?.addEventListener('abort', abort, { once: true });
           ws.addEventListener('open', () => {
             opened = true;
-            ws.send(JSON.stringify({ version: 1, type: 'auth', token: token.token }));
+            ws.send(JSON.stringify({ type: 'auth', token: token.token }));
           });
           ws.addEventListener('message', (message) => {
             processing = processing.then(async () => {
               const frame = JSON.parse(await websocketMessageText(message.data)) as Record<string, unknown>;
               if (!ready) {
-                if (frame.version !== 1 || frame.type !== 'ready') {
+                if (frame.type !== 'ready') {
                   throw new Error('Deployment event socket did not send ready');
                 }
                 ready = true;
                 clearTimeout(readyTimer);
-                await this.list({ signal: options.signal });
-                await handler({ version: 1, type: 'deployments.changed' });
+                await options.onReady?.();
                 retryDelay = 250;
                 return;
               }
               if (
-                frame.version === 1
-                && (frame.type === 'deployment.transition' || frame.type === 'deployments.changed')
+                frame.type === 'deployment.transition'
+                && typeof frame.agent_id === 'string'
+                && frame.agent_id.length > 0
               ) {
                 await handler(frame as unknown as DeploymentEvent);
               }
@@ -4465,19 +4465,10 @@ export class Deployments {
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
     let lastAgent: Agent | null = null;
-    let wakePending = true;
+    let wakePending = false;
     let wake: (() => void) | null = null;
     let subscriptionError: unknown;
     const controller = new AbortController();
-    const subscription = this.subscribe((event) => {
-      if (!event.agent_id || event.agent_id === agentId) {
-        wakePending = true;
-        wake?.();
-      }
-    }, { signal: controller.signal }).catch((error) => {
-      subscriptionError = error;
-      wake?.();
-    });
     const desired = new Set(states.map((state) => state.toLowerCase()));
     const failures = new Set(failureStates.map((state) => state.toLowerCase()));
     const stateLabel = states.join(', ');
@@ -4493,17 +4484,62 @@ export class Deployments {
       }
       return details.length ? `, ${details.join(', ')}` : '';
     };
+    let readyResolve: (() => void) | null = null;
+    let readyReject: ((error: unknown) => void) | null = null;
+    const ready = new Promise<void>((resolve, reject) => {
+      readyResolve = resolve;
+      readyReject = reject;
+    });
+    const refresh = async (): Promise<Agent | null> => {
+      const agent = await this.get(agentId);
+      lastAgent = agent;
+      lastState = String(agent.state || '');
+      if (desired.has(lastState.toLowerCase())) return agent;
+      if (failures.has(lastState.toLowerCase())) {
+        throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}${diagnostics(agent)}`);
+      }
+      return null;
+    };
+    let readyAgent: Agent | null = null;
+    const subscription = this.subscribe((event) => {
+      if (event.agent_id === agentId) {
+        wakePending = true;
+        wake?.();
+      }
+    }, {
+      signal: controller.signal,
+      onReady: async () => {
+        try {
+          readyAgent = await refresh();
+          readyResolve?.();
+          readyResolve = null;
+          wakePending = true;
+          wake?.();
+        } catch (error) {
+          readyReject?.(error);
+          readyReject = null;
+          throw error;
+        }
+      },
+    }).catch((error) => {
+      subscriptionError = error;
+      readyReject?.(error);
+      readyReject = null;
+      wake?.();
+    });
     try {
+      await Promise.race([
+        ready,
+        sleep(Math.max(deadline - Date.now(), 0)).then(() => {
+          throw new Error(`Timed out waiting for deployment event subscription for ${agentId}`);
+        }),
+      ]);
+      if (readyAgent) return readyAgent;
       while (Date.now() < deadline) {
         if (wakePending) {
           wakePending = false;
-          const agent = await this.get(agentId);
-          lastAgent = agent;
-          lastState = String(agent.state || '');
-          if (desired.has(lastState.toLowerCase())) return agent;
-          if (failures.has(lastState.toLowerCase())) {
-            throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}${diagnostics(agent)}`);
-          }
+          const agent = await refresh();
+          if (agent) return agent;
           continue;
         }
         if (subscriptionError) throw subscriptionError;

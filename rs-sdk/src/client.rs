@@ -330,7 +330,6 @@ impl HyperCliClient {
         socket
             .send(Message::Text(
                 serde_json::to_string(&json!({
-                    "version": 1,
                     "type": "auth",
                     "token": token.token,
                 }))
@@ -351,12 +350,11 @@ impl HyperCliClient {
         };
         let ready: Value = serde_json::from_str(ready.as_ref())
             .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
-        if ready != json!({"version": 1, "type": "ready"}) {
+        if ready != json!({"type": "ready"}) {
             return Err(HyperCliError::InvalidResponse(
                 "deployment event socket did not send ready".to_owned(),
             ));
         }
-        self.async_get_json::<AgentCapacity>("deployments").await?;
         Ok(socket)
     }
 
@@ -377,19 +375,6 @@ impl HyperCliClient {
                     continue;
                 }
             };
-            handler(DeploymentEvent {
-                version: 1,
-                event_type: "deployments.changed".to_owned(),
-                agent_id: None,
-                state: None,
-                stage: None,
-                reason: None,
-                error: None,
-                message: None,
-                placement_epoch: None,
-                runtime_generation: None,
-                finalize_epoch: None,
-            });
             retry_delay = Duration::from_millis(250);
             while let Some(message) = socket.next().await {
                 match message {
@@ -398,11 +383,7 @@ impl HyperCliClient {
                         else {
                             break;
                         };
-                        if event.version == 1
-                            && matches!(
-                                event.event_type.as_str(),
-                                "deployment.transition" | "deployments.changed"
-                            )
+                        if event.event_type == "deployment.transition" && !event.agent_id.is_empty()
                         {
                             handler(event);
                         }
@@ -453,12 +434,6 @@ impl HyperCliClient {
                 }
                 Ok(None)
             };
-            if let Some(deployment) = check(
-                self.async_get_json(&format!("deployments/{deployment_id}"))
-                    .await?,
-            )? {
-                return Ok(deployment);
-            }
             let mut retry_delay = Duration::from_millis(250);
             loop {
                 let mut socket = match self.connect_deployment_events().await {
@@ -494,9 +469,8 @@ impl HyperCliClient {
                     let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref()) else {
                         break;
                     };
-                    if event.version != 1
-                        || (event.agent_id.as_deref().is_some()
-                            && event.agent_id.as_deref() != Some(deployment_id))
+                    if event.event_type != "deployment.transition"
+                        || event.agent_id != deployment_id
                     {
                         continue;
                     }
@@ -1311,11 +1285,21 @@ mod tests {
             };
             assert_eq!(
                 serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                json!({"version": 1, "type": "auth", "token": "event-token"})
+                json!({"type": "auth", "token": "event-token"})
             );
             socket
+                .send(Message::Text(json!({"type": "ready"}).to_string().into()))
+                .await
+                .unwrap();
+            socket
                 .send(Message::Text(
-                    json!({"version": 1, "type": "ready"}).to_string().into(),
+                    json!({
+                        "type": "deployment.transition",
+                        "agent_id": "deployment-1",
+                        "state": "RUNNING"
+                    })
+                    .to_string()
+                    .into(),
                 ))
                 .await
                 .unwrap();
@@ -1323,15 +1307,6 @@ mod tests {
         });
 
         let mut server = Server::new_async().await;
-        let list = server
-            .mock("GET", "/agents/deployments")
-            .match_header("authorization", "Bearer test-credential")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("{}")
-            .expect(1)
-            .create_async()
-            .await;
         let missing_token_route = server
             .mock("POST", "/agents/deployments/events/token")
             .match_header("authorization", "Bearer test-credential")
@@ -1344,7 +1319,7 @@ mod tests {
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(json!({"version": 1, "token": "event-token", "ws_url": ws_url}).to_string())
+            .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
             .expect(1)
             .create_async()
             .await;
@@ -1389,10 +1364,8 @@ mod tests {
         );
         websocket.abort();
         let _ = websocket.await;
-        list.assert_async().await;
         missing_token_route.assert_async().await;
         token.assert_async().await;
-        drop(list);
         drop(missing_token_route);
         drop(token);
         tokio::task::spawn_blocking(move || {
@@ -1404,7 +1377,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn deployment_subscription_sends_auth_ready_resync_and_flat_transition() {
+    async fn deployment_subscription_sends_auth_and_delivers_flat_transition() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
@@ -1416,18 +1389,15 @@ mod tests {
             };
             assert_eq!(
                 serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                json!({"version": 1, "type": "auth", "token": "event-token"})
+                json!({"type": "auth", "token": "event-token"})
             );
             socket
-                .send(Message::Text(
-                    json!({"version": 1, "type": "ready"}).to_string().into(),
-                ))
+                .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
                 .unwrap();
             socket
                 .send(Message::Text(
                     json!({
-                        "version": 1,
                         "type": "deployment.transition",
                         "agent_id": "deployment-1",
                         "state": "RUNNING",
@@ -1448,21 +1418,12 @@ mod tests {
         });
 
         let mut server = Server::new_async().await;
-        let list = server
-            .mock("GET", "/agents/deployments")
-            .match_header("authorization", "Bearer test-credential")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("{}")
-            .expect(1)
-            .create_async()
-            .await;
         let token = server
             .mock("POST", "/agents/deployments/events/token")
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(json!({"version": 1, "token": "event-token", "ws_url": ws_url}).to_string())
+            .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
             .create_async()
             .await;
         let received = Arc::new(Mutex::new(Vec::new()));
@@ -1490,17 +1451,14 @@ mod tests {
         websocket.await.unwrap();
         {
             let received = received.lock().unwrap();
-            assert_eq!(received[0].event_type, "deployments.changed");
-            assert_eq!(received[1].agent_id.as_deref(), Some("deployment-1"));
-            assert_eq!(received[1].stage.as_deref(), Some("running"));
-            assert_eq!(received[1].reason.as_deref(), Some("start"));
-            assert_eq!(received[1].error, None);
-            assert_eq!(received[1].message.as_deref(), Some("Agent is running"));
-            assert_eq!(received[1].runtime_generation, Some(3));
+            assert_eq!(received[0].agent_id, "deployment-1");
+            assert_eq!(received[0].stage.as_deref(), Some("running"));
+            assert_eq!(received[0].reason.as_deref(), Some("start"));
+            assert_eq!(received[0].error, None);
+            assert_eq!(received[0].message.as_deref(), Some("Agent is running"));
+            assert_eq!(received[0].runtime_generation, Some(3));
         }
-        list.assert_async().await;
         token.assert_async().await;
-        drop(list);
         drop(token);
         tokio::task::spawn_blocking(move || {
             drop(event_client);
@@ -1511,7 +1469,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn deployment_subscription_clean_close_backs_off_reconnects_and_resyncs() {
+    async fn deployment_subscription_clean_close_backs_off_before_reconnect() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
@@ -1524,12 +1482,10 @@ mod tests {
                 };
                 assert_eq!(
                     serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                    json!({"version": 1, "type": "auth", "token": "event-token"})
+                    json!({"type": "auth", "token": "event-token"})
                 );
                 socket
-                    .send(Message::Text(
-                        json!({"version": 1, "type": "ready"}).to_string().into(),
-                    ))
+                    .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                     .await
                     .unwrap();
                 if attempt == 0 {
@@ -1539,7 +1495,6 @@ mod tests {
                 socket
                     .send(Message::Text(
                         json!({
-                            "version": 1,
                             "type": "deployment.transition",
                             "agent_id": "deployment-1",
                             "state": "RUNNING",
@@ -1556,21 +1511,12 @@ mod tests {
         });
 
         let mut server = Server::new_async().await;
-        let list = server
-            .mock("GET", "/agents/deployments")
-            .match_header("authorization", "Bearer test-credential")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("{}")
-            .expect(2)
-            .create_async()
-            .await;
         let token = server
             .mock("POST", "/agents/deployments/events/token")
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(json!({"version": 1, "token": "event-token", "ws_url": ws_url}).to_string())
+            .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
             .expect(2)
             .create_async()
             .await;
@@ -1588,6 +1534,7 @@ mod tests {
         .await
         .unwrap();
         {
+            let started_at = Instant::now();
             let subscription = event_client.subscribe_deployments(move |event| {
                 captured.lock().unwrap().push((event, Instant::now()));
             });
@@ -1599,7 +1546,7 @@ mod tests {
                         result = &mut subscription => panic!("subscription ended unexpectedly: {result:?}"),
                         _ = tokio::time::sleep(Duration::from_millis(10)) => {}
                     }
-                    if received.lock().unwrap().len() >= 3 {
+                    if !received.lock().unwrap().is_empty() {
                         break;
                     }
                 }
@@ -1608,19 +1555,15 @@ mod tests {
             .expect("subscription did not reconnect after clean close");
 
             let received = received.lock().unwrap();
-            assert_eq!(received[0].0.event_type, "deployments.changed");
-            assert_eq!(received[1].0.event_type, "deployments.changed");
-            assert_eq!(received[2].0.event_type, "deployment.transition");
+            assert_eq!(received[0].0.event_type, "deployment.transition");
             assert!(
-                received[1].1.duration_since(received[0].1) >= Duration::from_millis(200),
+                received[0].1.duration_since(started_at) >= Duration::from_millis(200),
                 "clean close reconnected without backoff"
             );
         }
         websocket.abort();
         let _ = websocket.await;
-        list.assert_async().await;
         token.assert_async().await;
-        drop(list);
         drop(token);
         tokio::task::spawn_blocking(move || {
             drop(event_client);
@@ -1643,12 +1586,10 @@ mod tests {
             };
             assert_eq!(
                 serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                json!({"version": 1, "type": "auth", "token": "event-token"})
+                json!({"type": "auth", "token": "event-token"})
             );
             socket
-                .send(Message::Text(
-                    json!({"version": 1, "type": "ready"}).to_string().into(),
-                ))
+                .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
                 .unwrap();
             socket
@@ -1664,7 +1605,6 @@ mod tests {
             socket
                 .send(Message::Text(
                     json!({
-                        "version": 1,
                         "type": "deployment.transition",
                         "agent_id": "deployment-1",
                         "state": "RUNNING",
@@ -1686,7 +1626,7 @@ mod tests {
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(json!({"id": "deployment-1", "state": "PENDING"}).to_string())
-            .expect(2)
+            .expect(1)
             .create_async()
             .await;
         let running_state = server
@@ -1697,20 +1637,12 @@ mod tests {
             .with_body(json!({"id": "deployment-1", "state": "RUNNING"}).to_string())
             .create_async()
             .await;
-        let list = server
-            .mock("GET", "/agents/deployments")
-            .match_header("authorization", "Bearer test-credential")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("{}")
-            .create_async()
-            .await;
         let token = server
             .mock("POST", "/agents/deployments/events/token")
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(json!({"version": 1, "token": "event-token", "ws_url": ws_url}).to_string())
+            .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
             .create_async()
             .await;
         let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
@@ -1739,11 +1671,9 @@ mod tests {
         websocket.await.unwrap();
         initial_state.assert_async().await;
         running_state.assert_async().await;
-        list.assert_async().await;
         token.assert_async().await;
         drop(initial_state);
         drop(running_state);
-        drop(list);
         drop(token);
         tokio::task::spawn_blocking(move || {
             drop(event_client);
@@ -1755,6 +1685,17 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn wait_deployment_running_fails_promptly_when_already_stopped() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
+        let websocket = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let _auth = socket.next().await.unwrap().unwrap();
+            socket
+                .send(Message::Text(json!({"type": "ready"}).to_string().into()))
+                .await
+                .unwrap();
+        });
         let mut server = Server::new_async().await;
         let stopped = server
             .mock("GET", "/agents/deployments/deployment-1")
@@ -1770,6 +1711,15 @@ mod tests {
                 })
                 .to_string(),
             )
+            .expect(1)
+            .create_async()
+            .await;
+        let token = server
+            .mock("POST", "/agents/deployments/events/token")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
             .expect(1)
             .create_async()
             .await;
@@ -1791,8 +1741,11 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("entered STOPPED"));
+        websocket.await.unwrap();
         stopped.assert_async().await;
+        token.assert_async().await;
         drop(stopped);
+        drop(token);
         tokio::task::spawn_blocking(move || {
             drop(event_client);
             drop(server);
@@ -1811,6 +1764,17 @@ mod tests {
             "SYNCING",
             "STOPPING",
         ] {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
+            let websocket = tokio::spawn(async move {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut socket = accept_async(stream).await.unwrap();
+                let _auth = socket.next().await.unwrap().unwrap();
+                socket
+                    .send(Message::Text(json!({"type": "ready"}).to_string().into()))
+                    .await
+                    .unwrap();
+            });
             let mut server = Server::new_async().await;
             let observed = server
                 .mock("GET", "/agents/deployments/deployment-1")
@@ -1818,6 +1782,15 @@ mod tests {
                 .with_status(200)
                 .with_header("content-type", "application/json")
                 .with_body(json!({"id": "deployment-1", "state": state}).to_string())
+                .expect(1)
+                .create_async()
+                .await;
+            let token = server
+                .mock("POST", "/agents/deployments/events/token")
+                .match_header("authorization", "Bearer test-credential")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
                 .expect(1)
                 .create_async()
                 .await;
@@ -1844,8 +1817,11 @@ mod tests {
                 .unwrap();
 
             assert_eq!(deployment.state, state);
+            websocket.await.unwrap();
             observed.assert_async().await;
+            token.assert_async().await;
             drop(observed);
+            drop(token);
             tokio::task::spawn_blocking(move || {
                 drop(event_client);
                 drop(server);
