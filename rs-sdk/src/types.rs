@@ -1013,7 +1013,6 @@ pub struct Deployment {
     pub runtime_generation: u64,
     #[serde(default)]
     pub finalize_epoch: Option<u64>,
-    #[serde(default)]
     /// Persisted launch settings. This can contain runtime credentials, so its
     /// `Debug` implementation is always redacted even though authenticated
     /// clients may inspect and patch individual fields deliberately.
