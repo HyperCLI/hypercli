@@ -2318,9 +2318,12 @@ fn create_buzz_deployment_blocking(
         .map(|value| value.trim().to_owned())
         .collect();
     buzz.display_name = Some(input.name.trim().to_owned());
-    buzz.sync_all = input.sync_all.unwrap_or(false);
     buzz.apply_to(&mut request, Some(input.name.trim()))
         .map_err(|error| error.to_string())?;
+    if input.sync_all.unwrap_or(false) {
+        request.sync_include = None;
+        request.sync_exclude = None;
+    }
     request.size = Some(requested_size);
     // Keep the runtime stopped until its durable avatar, Buzz profile, and
     // local ownership record have all been installed.
@@ -3531,7 +3534,12 @@ mod tests {
             hostname: Some("maverick.hypercli.app".to_owned()),
             tags: vec!["buzz_agent=public-key".to_owned()],
             requested_size: Some("large".to_owned()),
+            stage: None,
+            reason: None,
+            error: None,
+            message: None,
             last_error: None,
+            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
@@ -3566,7 +3574,12 @@ mod tests {
                 "buzz_agent=79be667ef9dcbbac".to_owned(),
             ],
             requested_size: Some("large".to_owned()),
+            stage: None,
+            reason: None,
+            error: None,
+            message: None,
             last_error: None,
+            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
