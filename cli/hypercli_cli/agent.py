@@ -157,14 +157,13 @@ def _print_agent_lifecycle_result(action: str, agent: DeploymentAgent, *, json_o
                     "name": agent.name,
                     "state": agent.state,
                     "hostname": agent.hostname,
-                    "pod_name": agent.pod_name,
                     "launch_config": agent.launch_config,
                 },
                 default=str,
             )
         )
         return
-    label = agent.name or agent.pod_name or agent.id
+    label = agent.name or agent.id
     color = "yellow" if str(agent.state or "").lower() == "stopping" else "green"
     console.print(f"[{color}]✓[/{color}] Agent {action}: [bold]{label}[/bold]")
     console.print(f"  ID:    {agent.id}")
@@ -653,7 +652,7 @@ def subscription_summary(
 
 @app.command("start")
 def start_agent(
-    agent: str = typer.Argument(..., help="Agent ID, unique name, pod name, or prefix"),
+    agent: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     dev: bool = typer.Option(False, "--dev", help="Use dev agents API"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting"),
     wait: bool = typer.Option(False, "--wait", help="Wait for RUNNING after starting"),
@@ -666,7 +665,17 @@ def start_agent(
         resolved = deployments.get(agent)
         started = _start_deployment_agent(deployments, resolved, dry_run=dry_run)
         if wait and not dry_run:
-            started = deployments.wait_running(started.id, timeout=timeout)
+            generation = int(getattr(started, "runtime_generation", 0) or 0)
+            wait_kwargs = (
+                {"minimum_runtime_generation": generation}
+                if generation > 0
+                else {}
+            )
+            started = deployments.wait_running(
+                started.id,
+                timeout=timeout,
+                **wait_kwargs,
+            )
     except Exception as exc:
         console.print(f"[red]❌ Failed to start agent: {exc}[/red]")
         raise typer.Exit(1)
@@ -686,7 +695,7 @@ def stop_agent(
     deployments = _get_deployments_client(dev)
     try:
         resolved = deployments.get(agent)
-        label = resolved.name or resolved.pod_name or resolved.id
+        label = resolved.name or resolved.id
         if not force and not typer.confirm(f"Stop agent {label}?"):
             raise typer.Exit(0)
         stopped = deployments.stop(resolved.id)
@@ -703,7 +712,7 @@ def stop_agent(
 
 @app.command("enable")
 def enable_agent(
-    agent: str = typer.Argument(..., help="Agent ID, unique name, pod name, or prefix"),
+    agent: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     dev: bool = typer.Option(False, "--dev", help="Use dev agents API and dev Slack relay"),
     relay_base_url: str = typer.Option(None, "--relay-base-url", help="Hosted Slack relay base URL override"),
     restart: bool = typer.Option(False, "--restart", help="Stop/start the agent after enabling Slack"),
@@ -724,7 +733,17 @@ def enable_agent(
                 _wait_agent_state(deployments, resolved.id, {"stopped"}, timeout=timeout)
             restarted = _start_deployment_agent(deployments, resolved)
             if wait:
-                restarted = deployments.wait_running(restarted.id, timeout=timeout)
+                generation = int(getattr(restarted, "runtime_generation", 0) or 0)
+                wait_kwargs = (
+                    {"minimum_runtime_generation": generation}
+                    if generation > 0
+                    else {}
+                )
+                restarted = deployments.wait_running(
+                    restarted.id,
+                    timeout=timeout,
+                    **wait_kwargs,
+                )
     except Exception as exc:
         console.print(f"[red]❌ Failed to enable agent: {exc}[/red]")
         raise typer.Exit(1)
@@ -735,12 +754,11 @@ def enable_agent(
             "name": restarted.name,
             "state": restarted.state,
             "hostname": restarted.hostname,
-            "pod_name": restarted.pod_name,
         }}
         console.print_json(json.dumps(payload, default=str))
         return
 
-    label = resolved.name or resolved.pod_name or resolved.id
+    label = resolved.name or resolved.id
     console.print(f"[green]✓[/green] Slack enabled for [bold]{label}[/bold]")
     console.print(f"  Relay:      {relay_base}")
     console.print(f"  Gateway ID: {attach.get('gateway_id') or ''}")

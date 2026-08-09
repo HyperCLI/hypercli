@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pytest
-from typer import BadParameter
 from hypercli.agents import (
     AGENT_FILE_MAX_BYTES,
     DEFAULT_HERMES_AGENT_IMAGE,
@@ -195,11 +193,6 @@ def test_agents_logs_defaults_to_websocket_and_forwards_no_follow(monkeypatch):
 
     monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda _agent_id: "resolved-agent")
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr(
-        "hypercli_cli.agents._get_pod_with_token",
-        lambda _agent_id: (_ for _ in ()).throw(AssertionError("legacy executor selected")),
-    )
-
     result = runner.invoke(
         app,
         ["agents", "logs", "fizz4", "--no-follow", "--lines", "7"],
@@ -214,37 +207,6 @@ def test_agents_logs_defaults_to_websocket_and_forwards_no_follow(monkeypatch):
     }
 
 
-def test_agents_logs_executor_selects_legacy_stream(monkeypatch):
-    called = {}
-    pod = SimpleNamespace(id="resolved-agent")
-
-    class FakeDeployments:
-        def logs_stream(self, selected_pod, lines=100, follow=True):
-            called.update(
-                pod=selected_pod,
-                lines=lines,
-                follow=follow,
-            )
-            yield "legacy line"
-
-    monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda _agent_id: "resolved-agent")
-    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr("hypercli_cli.agents._get_pod_with_token", lambda _agent_id: pod)
-
-    result = runner.invoke(
-        app,
-        ["agents", "logs", "fizz4", "--executor", "--no-follow", "-n", "3"],
-    )
-
-    assert result.exit_code == 0
-    assert "legacy line" in result.stdout
-    assert called == {
-        "pod": pod,
-        "lines": 3,
-        "follow": False,
-    }
-
-
 def test_agents_create_disables_desktop_by_default(monkeypatch):
     captured = {}
 
@@ -253,7 +215,6 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
-                pod_name="agent-dryrun",
                 name="agent-dryrun",
                 cpu=2,
                 memory=2,
@@ -282,7 +243,6 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
-                pod_name="agent-dryrun",
                 name="agent-dryrun",
                 cpu=2,
                 memory=2,
@@ -312,7 +272,6 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
-                pod_name="agent-dryrun",
                 name="agent-dryrun",
                 cpu=2,
                 memory=2,
@@ -343,7 +302,6 @@ def test_agents_create_accepts_memory_index_flags(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
-                pod_name="agent-dryrun",
                 name="agent-dryrun",
                 cpu=2,
                 memory=2,
@@ -390,7 +348,6 @@ def test_agents_create_sync_include_is_repeatable_and_wins_over_exclude(monkeypa
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
-                pod_name="agent-dryrun",
                 name="agent-dryrun",
                 cpu=2,
                 memory=2,
@@ -437,7 +394,6 @@ def test_agents_create_rejects_removed_sync_all_option(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-dryrun",
-                pod_name="agent-dryrun",
                 name="agent-dryrun",
                 cpu=2,
                 memory=2,
@@ -464,7 +420,6 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id="agent-hermes-dryrun",
-                pod_name="agent-hermes-dryrun",
                 name="agent-hermes-dryrun",
                 cpu=2,
                 memory=2,
@@ -550,7 +505,6 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
             captured.update(kwargs)
             return SimpleNamespace(
                 id=agent_id_arg,
-                pod_name="agent-pod",
                 dry_run=True,
                 vnc_url=None,
             )
@@ -600,7 +554,6 @@ def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
             captured.update(kwargs)
             return SimpleNamespace(
                 id=agent_id_arg,
-                pod_name="agent-pod",
                 dry_run=True,
                 vnc_url=None,
             )
@@ -647,7 +600,6 @@ def test_agents_start_omits_policy_to_inherit_saved_selective_policy(monkeypatch
             captured.update(kwargs)
             return SimpleNamespace(
                 id=agent_id_arg,
-                pod_name="agent-pod",
                 dry_run=True,
                 vnc_url=None,
             )
@@ -687,7 +639,7 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
         def start_openclaw(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured.update(kwargs)
-            return SimpleNamespace(id=agent_id_arg, pod_name="agent-pod", dry_run=True, vnc_url=None)
+            return SimpleNamespace(id=agent_id_arg, name="agent", dry_run=True, vnc_url=None)
 
     monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: saved_state)
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
@@ -734,7 +686,7 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
         def start_hermes_agent(self, agent_id_arg, **kwargs):
             captured["agent_id"] = agent_id_arg
             captured.update(kwargs)
-            return SimpleNamespace(id=agent_id_arg, pod_name="hermes-pod", dry_run=True, api_url=None)
+            return SimpleNamespace(id=agent_id_arg, name="hermes", dry_run=True, api_url=None)
 
     monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: saved_state)
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
@@ -847,7 +799,7 @@ def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
             raise ValueError("Path is a directory: .openclaw. Use files_list(path) instead.")
 
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr("hypercli_cli.agents._get_pod_with_token", lambda agent_id: SimpleNamespace(id=agent_id))
+    monkeypatch.setattr("hypercli_cli.agents._get_agent_with_token", lambda agent_id: SimpleNamespace(id=agent_id))
 
     result = runner.invoke(app, ["agents", "cp", "agent-xyz:.openclaw", str(tmp_path / "download")])
 
@@ -891,7 +843,7 @@ def test_agents_stop_reports_cleanup_in_progress(monkeypatch):
 
     monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr(agents_module, "_save_pod_state", lambda _pod: None)
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
 
     result = runner.invoke(app, ["agents", "stop", "agent-123", "--force"])
 
@@ -916,7 +868,7 @@ def test_agents_stop_waits_for_stopped(monkeypatch):
 
     monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr(agents_module, "_save_pod_state", lambda _pod: None)
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
     monkeypatch.setattr(agents_module.time, "sleep", lambda _seconds: None)
 
     result = runner.invoke(

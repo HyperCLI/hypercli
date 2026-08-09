@@ -3530,7 +3530,6 @@ mod tests {
             avatar_url: None,
             runtime: Some(hypercli_sdk::ManagedRuntime::ClaudeCode),
             state: "RUNNING".to_owned(),
-            pod_id: Some("pod-secret-not-rendered".to_owned()),
             hostname: Some("maverick.hypercli.app".to_owned()),
             tags: vec!["buzz_agent=public-key".to_owned()],
             requested_size: Some("large".to_owned()),
@@ -3550,7 +3549,6 @@ mod tests {
         assert_eq!(serialized["is_buzz"], true);
         assert_eq!(serialized["can_restart"], true);
         assert_eq!(serialized["runtime"], "claude-code");
-        assert!(serialized.get("pod_id").is_none());
     }
 
     #[test]
@@ -3567,7 +3565,6 @@ mod tests {
             avatar_url: None,
             runtime: Some(hypercli_sdk::ManagedRuntime::BuzzAgent),
             state: "RUNNING".to_owned(),
-            pod_id: None,
             hostname: None,
             tags: vec![
                 "app=buzz".to_owned(),

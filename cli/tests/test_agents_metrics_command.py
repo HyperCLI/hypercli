@@ -16,8 +16,8 @@ def test_agents_metrics_prints_container_usage(monkeypatch):
         def metrics(self, agent_id):
             calls.append(agent_id)
             return {
-                "pod_id": "pod-123",
-                "pod_name": "reef-demo",
+                "agent_id": "agent-123",
+                "name": "reef-demo",
                 "containers": {
                     "reef": {"cpu": "25m", "memory": "128Mi"},
                     "sync": {"cpu": "1000000n", "memory": "32768Ki"},
@@ -40,8 +40,6 @@ def test_agents_metrics_prints_container_usage(monkeypatch):
 
 def test_agents_metrics_supports_json_output(monkeypatch):
     payload = {
-        "pod_id": "pod-123",
-        "pod_name": "reef-demo",
         "containers": {"reef": {"cpu": "25m", "memory": "128Mi"}},
         "timestamp": "2026-07-31T12:00:00Z",
     }
@@ -62,8 +60,6 @@ def test_agents_metrics_fails_for_embedded_metrics_error(monkeypatch):
     class FakeDeployments:
         def metrics(self, agent_id):
             return {
-                "pod_id": "pod-123",
-                "pod_name": "reef-demo",
                 "error": "metrics.k8s.io is unavailable",
             }
 

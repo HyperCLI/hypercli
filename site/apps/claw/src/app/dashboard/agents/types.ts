@@ -41,8 +41,6 @@ export interface Agent {
   runtime?: string | null;
   gatewayId?: string | null;
   user_id: string;
-  pod_id: string | null;
-  pod_name: string | null;
   state: AgentState;
   cpu_millicores: number;
   memory_mib: number;
@@ -56,7 +54,9 @@ export interface Agent {
   placementEpoch: number;
   runtimeGeneration: number;
   finalizeEpoch: number | null;
-  restoreState: string | null;
+  revision: number;
+  resourcesExist: boolean;
+  namespaceExists: boolean;
   launchConfig?: Record<string, unknown> | null;
   gatewayToken?: string | null;
   hasDesktop?: boolean;
@@ -71,7 +71,6 @@ export interface AgentBudget {
 
 export interface AgentDesktopTokenResponse {
   agent_id: string;
-  pod_id: string;
   token: string;
   expires_at: string | null;
 }

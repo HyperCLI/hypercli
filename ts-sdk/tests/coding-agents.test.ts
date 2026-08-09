@@ -62,8 +62,6 @@ function response(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' |
   return {
     id: `${runtime}-1`,
     user_id: 'user-1',
-    pod_id: 'pod-1',
-    pod_name: 'pod-1',
     state: 'RUNNING',
     runtime,
   };

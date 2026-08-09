@@ -130,7 +130,7 @@ def test_agents_exec(monkeypatch):
     monkeypatch.setattr("hypercli.agents.httpx.Client", FakeClient)
 
     agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
-    pod = Agent(id="agent-1", user_id="u1", pod_id="p1", pod_name="pod", state="running")
+    pod = Agent(id="agent-1", user_id="u1", state="RUNNING")
 
     result = agents.exec(pod, "ls", timeout=10, dry_run=True)
     assert result.exit_code == 0

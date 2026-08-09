@@ -128,7 +128,6 @@ export type KnowledgeHubAgent = {
   id: string;
   name?: string | null;
   displayName?: string | null;
-  pod_name?: string | null;
   state?: string | null;
   avatarUrl?: string | null;
 };
@@ -154,7 +153,7 @@ type KnowledgeHubProps = {
 };
 
 function agentName(agent: KnowledgeHubAgent): string {
-  return agent.displayName?.trim() || agent.name?.trim() || agent.pod_name || agent.id;
+  return agent.displayName?.trim() || agent.name?.trim() || agent.id;
 }
 
 function initials(value: string): string {

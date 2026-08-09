@@ -167,8 +167,6 @@ const agent: Agent = {
   name: "Test Agent",
   managed: true,
   user_id: "user-1",
-  pod_id: "pod-1",
-  pod_name: "agent-1",
   state: "RUNNING",
   cpu_millicores: 4000,
   memory_mib: 4096,
@@ -181,7 +179,9 @@ const agent: Agent = {
   placementEpoch: 0,
   runtimeGeneration: 0,
   finalizeEpoch: null,
-  restoreState: null,
+  revision: 0,
+  resourcesExist: true,
+  namespaceExists: true,
   launchConfig: {
     image: "ghcr.io/hypercli/hypercli-openclaw:prod",
     env: {
@@ -1209,7 +1209,7 @@ describe("AgentSettingsPanel", () => {
       const onStartAgent = vi.fn();
       const onStopAgent = vi.fn();
       renderAgentSettingsPanel({
-        agent: { ...agent, state, pod_id: "failed-pod" },
+        agent: { ...agent, state, resourcesExist: true },
         onStartAgent,
         onStopAgent,
       });
@@ -1228,7 +1228,7 @@ describe("AgentSettingsPanel", () => {
   it("allows restart for a failed runtime after cleanup clears its pod binding", () => {
     const onStartAgent = vi.fn();
     renderAgentSettingsPanel({
-      agent: { ...agent, state: "SYNC_FAILED", pod_id: null },
+      agent: { ...agent, state: "SYNC_FAILED", resourcesExist: false },
       onStartAgent,
     });
 

@@ -16,8 +16,6 @@ def make_deployments(monkeypatch):
             Agent(
                 id="11111111-1111-4111-8111-111111111111",
                 user_id="user-456",
-                pod_id="pod-789",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 handle="coder",
                 state="STOPPED",
@@ -30,8 +28,6 @@ def make_deployments(monkeypatch):
         lambda agent_id: Agent(
             id=agent_id,
             user_id="user-456",
-            pod_id="pod-789",
-            pod_name="clear-window-works",
             name="clear-window-works",
             handle="coder",
             state="STOPPED",
@@ -62,8 +58,6 @@ def test_get_accepts_unique_agent_name_or_handle_without_uuid_route(monkeypatch,
         return Agent(
             id=agent_id,
             user_id="user-456",
-            pod_id="pod-789",
-            pod_name="clear-window-works",
             name="clear-window-works",
             handle="coder",
             state="STOPPED",

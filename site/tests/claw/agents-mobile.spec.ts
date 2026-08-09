@@ -15,8 +15,6 @@ const README_CONTENT = "# Mobile workspace\n\nThis file verifies that the mobile
 const mobileAgent = {
   id: AGENT_ID,
   user_id: "user-mobile",
-  pod_id: "pod-mobile",
-  pod_name: "agent-mobile-layout",
   name: "Mobile Regression Agent",
   state: "RUNNING",
   cpu: 4,
@@ -40,8 +38,6 @@ const mobileAgent = {
 const offlineMobileAgent = {
   ...mobileAgent,
   id: "agent-mobile-offline",
-  pod_id: "pod-mobile-offline",
-  pod_name: "agent-mobile-offline",
   name: "Offline Mobile Agent",
   state: "STOPPED",
   hostname: null,
@@ -52,8 +48,6 @@ const offlineMobileAgent = {
 const secondMobileAgent = {
   ...mobileAgent,
   id: "agent-mobile-support",
-  pod_id: "pod-mobile-support",
-  pod_name: "agent-mobile-support",
   name: "Mobile Support Agent",
   hostname: "mobile-support-agent.hypercli.test",
 };

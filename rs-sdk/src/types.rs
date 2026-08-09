@@ -976,8 +976,6 @@ pub struct Deployment {
     #[serde(default)]
     pub state: String,
     #[serde(default)]
-    pub pod_id: Option<String>,
-    #[serde(default)]
     pub storage_cluster_id: Option<String>,
     #[serde(default)]
     pub hostname: Option<String>,
@@ -1013,6 +1011,12 @@ pub struct Deployment {
     pub agent_version: u64,
     #[serde(default)]
     pub finalize_epoch: Option<u64>,
+    #[serde(default)]
+    pub revision: u64,
+    #[serde(default)]
+    pub resources_exist: bool,
+    #[serde(default)]
+    pub namespace_exists: bool,
     /// Persisted launch settings. This can contain runtime credentials, so its
     /// `Debug` implementation is always redacted even though authenticated
     /// clients may inspect and patch individual fields deliberately.
@@ -1476,7 +1480,6 @@ mod tests {
             avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "RUNNING".to_owned(),
-            pod_id: None,
             storage_cluster_id: None,
             hostname: None,
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
@@ -1494,6 +1497,9 @@ mod tests {
             runtime_generation: 0,
             agent_version: 0,
             finalize_epoch: None,
+            revision: 0,
+            resources_exist: false,
+            namespace_exists: false,
             launch_config: Default::default(),
         };
 
@@ -1538,7 +1544,6 @@ mod tests {
             avatar_url: None,
             runtime: None,
             state: state.to_owned(),
-            pod_id: None,
             storage_cluster_id: None,
             hostname: None,
             tags: Vec::new(),
@@ -1556,6 +1561,9 @@ mod tests {
             runtime_generation: 0,
             agent_version: 0,
             finalize_epoch: None,
+            revision: 0,
+            resources_exist: false,
+            namespace_exists: false,
             launch_config: Default::default(),
         };
 

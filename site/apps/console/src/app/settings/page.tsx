@@ -42,11 +42,11 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-interface AgentPod {
-  pod_id: string;
-  pod_name: string;
-  status: string;
-  openclaw_url: string;
+interface AgentRecord {
+  id: string;
+  name: string;
+  state: string;
+  gateway_url?: string | null;
   vnc_url: string;
   hostname: string;
 }
@@ -65,8 +65,8 @@ interface GatewayState {
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
-  const [pods, setPods] = useState<AgentPod[]>([]);
-  const [selectedPod, setSelectedPod] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentRecord[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [gwState, setGwState] = useState<GatewayState>({
@@ -80,29 +80,29 @@ export default function SettingsPage() {
   const gwRef = useRef<GatewayClient | null>(null);
   const connectAttemptRef = useRef(0);
 
-  // Load pods
+  // Load agents
   useEffect(() => {
     (async () => {
       try {
         const token = getAuthCookieToken();
         if (!token) return;
-        const res = await fetch(`${getAuthBackendUrl()}/lagoon/pods`, {
+        const res = await fetch(`${getAuthBackendUrl()}/agents/deployments`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) throw new Error("Failed to load pods");
+        if (!res.ok) throw new Error("Failed to load agents");
         const data = await res.json();
-        setPods(data);
-        if (data.length > 0) setSelectedPod((current) => current ?? data[0].pod_id);
+        setAgents(data);
+        if (data.length > 0) setSelectedAgent((current) => current ?? data[0].id);
       } catch (e: any) {
-        console.error("Failed to load pods:", e);
+        console.error("Failed to load agents:", e);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  // Connect gateway when pod changes
-  const connectGateway = useCallback(async (podId: string) => {
+  // Connect gateway when the selected agent changes
+  const connectGateway = useCallback(async (agentId: string) => {
     const attemptId = connectAttemptRef.current + 1;
     connectAttemptRef.current = attemptId;
     // Disconnect previous
@@ -113,16 +113,14 @@ export default function SettingsPage() {
     try {
       const token = getAuthCookieToken();
       if (!token) throw new Error("Not authenticated");
-      // Get JWT for pod
-      const tokenRes = await fetch(`${getAuthBackendUrl()}/lagoon/pods/${podId}/token/refresh`, {
-        method: "POST",
+      const tokenRes = await fetch(`${getAuthBackendUrl()}/agents/deployments/${agentId}/token`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!tokenRes.ok) throw new Error("Failed to get pod token");
+      if (!tokenRes.ok) throw new Error("Failed to get agent token");
       const { token: jwt } = await tokenRes.json();
 
-      const pod = pods.find((p) => p.pod_id === podId);
-      const wsUrl = pod?.openclaw_url ?? `wss://${podId}.hypercli.com`;
+      const agent = agents.find((candidate) => candidate.id === agentId);
+      const wsUrl = agent?.gateway_url ?? `wss://${agent?.hostname}`;
 
       const gw = new GatewayClient({
         url: wsUrl,
@@ -162,16 +160,16 @@ export default function SettingsPage() {
         error: e.message,
       }));
     }
-  }, [pods]);
+  }, [agents]);
 
   useEffect(() => {
-    if (selectedPod) connectGateway(selectedPod);
+    if (selectedAgent) connectGateway(selectedAgent);
     return () => {
       connectAttemptRef.current += 1;
       gwRef.current?.close();
       gwRef.current = null;
     };
-  }, [connectGateway, selectedPod]);
+  }, [connectGateway, selectedAgent]);
 
   // Save config
   const saveConfig = async (patch: Record<string, any>) => {
@@ -240,26 +238,26 @@ export default function SettingsPage() {
           )}
         </div>
 
-        {/* Pod Selector */}
+        {/* Agent selector */}
         <div className="mb-6">
           <Label className="text-sm text-muted-foreground mb-2 block">Agent</Label>
           <div className="flex gap-2 flex-wrap">
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            ) : pods.length === 0 ? (
+            ) : agents.length === 0 ? (
               <p className="text-sm text-muted-foreground">No agents found. Create one first.</p>
             ) : (
-              pods
-                .filter((p) => p.status === "running")
-                .map((pod) => (
+              agents
+                .filter((agent) => agent.state === "RUNNING")
+                .map((agent) => (
                   <Button
-                    key={pod.pod_id}
-                    variant={selectedPod === pod.pod_id ? "default" : "outline"}
+                    key={agent.id}
+                    variant={selectedAgent === agent.id ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setSelectedPod(pod.pod_id)}
+                    onClick={() => setSelectedAgent(agent.id)}
                   >
                     <Bot className="h-3.5 w-3.5 mr-1.5" />
-                    {pod.pod_name}
+                    {agent.name || agent.id}
                   </Button>
                 ))
             )}

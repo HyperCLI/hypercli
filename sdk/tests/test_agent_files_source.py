@@ -59,8 +59,6 @@ def make_agent():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         gateway_url="wss://gw",
         gateway_token="t",

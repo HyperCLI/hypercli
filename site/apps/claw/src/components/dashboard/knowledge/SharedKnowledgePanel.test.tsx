@@ -16,8 +16,8 @@ import { renderWithClient } from "@/test/utils";
 import { SharedKnowledgePanel, type SharedKnowledgeAgent } from "./SharedKnowledgePanel";
 
 const agents: SharedKnowledgeAgent[] = [
-  { id: "agent-docs", name: "Docs Agent", displayName: "Docs Pilot", pod_name: "docs-agent", state: "RUNNING", meta: null },
-  { id: "agent-brand", name: "Brand Agent", pod_name: "brand-agent", state: "STOPPED", meta: null },
+  { id: "agent-docs", name: "Docs Agent", displayName: "Docs Pilot", state: "RUNNING", meta: null },
+  { id: "agent-brand", name: "Brand Agent", state: "STOPPED", meta: null },
 ];
 
 function workspace(overrides: Record<string, unknown> = {}) {

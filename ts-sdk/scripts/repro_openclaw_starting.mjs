@@ -64,7 +64,6 @@ function summarize(agent) {
     name: agent.name,
     state: agent.state,
     clusterId: agent.clusterId ?? null,
-    podId: agent.podId ?? null,
     hostname: agent.hostname ?? null,
     startedAt: agent.startedAt ? agent.startedAt.toISOString() : null,
     updatedAt: agent.updatedAt ? agent.updatedAt.toISOString() : null,

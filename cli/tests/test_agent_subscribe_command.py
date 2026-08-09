@@ -249,8 +249,6 @@ def test_agent_enable_attaches_slack_relay_without_restart(monkeypatch):
             return Agent(
                 id="11111111-1111-4111-8111-111111111111",
                 user_id="user-1",
-                pod_id="pod-1",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state="RUNNING",
             )
@@ -286,8 +284,6 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
             return Agent(
                 id="11111111-1111-4111-8111-111111111111",
                 user_id="user-1",
-                pod_id="pod-1",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state="STOPPED",
             )
@@ -297,20 +293,33 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
             return Agent(
                 id=agent_id,
                 user_id="user-1",
-                pod_id="pod-1",
-                pod_name="clear-window-works",
                 name="clear-window-works",
-                state="PENDING",
+                state="STARTING",
+                runtime_generation=10,
+            )
+
+        def wait_running(self, agent_id, *, timeout, minimum_runtime_generation):
+            calls.append(("wait_running", (agent_id, timeout, minimum_runtime_generation)))
+            return Agent(
+                id=agent_id,
+                user_id="user-1",
+                name="clear-window-works",
+                state="RUNNING",
+                runtime_generation=10,
             )
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
 
-    result = runner.invoke(app, ["agent", "start", "clear-window-works"])
+    result = runner.invoke(app, ["agent", "start", "clear-window-works", "--wait"])
 
     assert result.exit_code == 0
     assert calls == [
         ("get", "clear-window-works"),
         ("start", ("11111111-1111-4111-8111-111111111111", False)),
+        (
+            "wait_running",
+            ("11111111-1111-4111-8111-111111111111", 900.0, 10),
+        ),
     ]
     assert "Agent starting" in result.output
 
@@ -324,8 +333,6 @@ def test_agent_stop_alias_stops_by_name(monkeypatch):
             return Agent(
                 id="11111111-1111-4111-8111-111111111111",
                 user_id="user-1",
-                pod_id="pod-1",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state="RUNNING",
             )
@@ -335,8 +342,6 @@ def test_agent_stop_alias_stops_by_name(monkeypatch):
             return Agent(
                 id=agent_id,
                 user_id="user-1",
-                pod_id="pod-1",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state="STOPPING",
             )
@@ -364,8 +369,6 @@ def test_agent_stop_waits_for_cleanup_before_reporting_stopped(monkeypatch):
             return Agent(
                 id="11111111-1111-4111-8111-111111111111",
                 user_id="user-1",
-                pod_id="pod-1" if state == "RUNNING" else "",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state=state,
             )
@@ -375,8 +378,6 @@ def test_agent_stop_waits_for_cleanup_before_reporting_stopped(monkeypatch):
             return Agent(
                 id=agent_id,
                 user_id="user-1",
-                pod_id="pod-1",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state="STOPPING",
             )
@@ -386,8 +387,6 @@ def test_agent_stop_waits_for_cleanup_before_reporting_stopped(monkeypatch):
             return Agent(
                 id=agent_id,
                 user_id="user-1",
-                pod_id="",
-                pod_name="clear-window-works",
                 name="clear-window-works",
                 state="STOPPED",
             )

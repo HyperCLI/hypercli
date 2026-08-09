@@ -75,8 +75,6 @@ export function buildSdkAgent(overrides: Partial<SdkAgent> = {}): SdkAgent {
   return {
     id: "agent-1",
     userId: "user-1",
-    podId: "pod-1",
-    podName: "agent-1",
     state: "RUNNING",
     name: "Test Agent",
     managed: true,

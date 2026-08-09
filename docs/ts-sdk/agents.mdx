@@ -463,8 +463,6 @@ Important fields:
 
 - `id`
 - `userId`
-- `podId`
-- `podName`
 - `state`
 - `placementEpoch`
 - `runtimeGeneration`
@@ -488,7 +486,6 @@ Important properties:
 - `desktopUrl`
 - `vncUrl`
 - `shellUrl`
-- `executorUrl`
 - `isRunning`
 
 Important methods:
@@ -536,7 +533,7 @@ These use:
 - backend `/ws/logs/{agent_id}`
 - backend `/ws/shell/{agent_id}`
 
-Prefer these over direct executor-era HTTP assumptions.
+These are the canonical shell and log transports.
 
 ## `OpenClawAgent`
 

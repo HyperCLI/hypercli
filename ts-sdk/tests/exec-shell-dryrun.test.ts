@@ -134,8 +134,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
       hostname: 'agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
@@ -171,8 +169,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
     });
     const deployments = new Deployments(
@@ -204,8 +200,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
       launch_config: {
         image: DEFAULT_OPENCLAW_PRO_IMAGE,
@@ -248,8 +242,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
       launch_config: {
         env: {},
@@ -288,8 +280,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
     });
     const deployments = new Deployments(
@@ -320,8 +310,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
     });
     const deployments = new Deployments(
@@ -346,8 +334,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
     });
     const deployments = new Deployments(
@@ -369,8 +355,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-1',
       state: 'starting',
       hostname: 'agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
@@ -406,8 +390,6 @@ describe('HyperClaw agents SDK', () => {
     const generic = Agent.fromDict({
       id: 'agent-1',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-name',
       state: 'running',
       hostname: 'agent.dev.hyperclaw.app',
     });
@@ -415,8 +397,6 @@ describe('HyperClaw agents SDK', () => {
     const openclaw = OpenClawAgent.fromDict({
       id: 'agent-2',
       user_id: 'user-1',
-      pod_id: 'pod-2',
-      pod_name: 'pod-name-2',
       state: 'running',
       hostname: 'openclaw-agent2.dev.hyperclaw.app',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
@@ -439,8 +419,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-root',
       user_id: 'user-1',
-      pod_id: 'pod-root',
-      pod_name: 'pod-root',
       state: 'running',
       hostname: 'agent-root.dev.hyperclaw.app',
     });
@@ -462,8 +440,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-ctx',
       user_id: 'user-1',
-      pod_id: 'pod-ctx',
-      pod_name: 'pod-ctx',
       state: 'running',
       jwt_token: 'jwt-ctx',
       hostname: 'openclaw-agent.dev.hypercli.com',
@@ -497,8 +473,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-jwtless',
       user_id: 'user-1',
-      pod_id: 'pod-jwtless',
-      pod_name: 'pod-jwtless',
       state: 'running',
       hostname: 'openclaw-agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false } },
@@ -516,8 +490,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-helpers',
       user_id: 'user-1',
-      pod_id: 'pod-helpers',
-      pod_name: 'pod-helpers',
       state: 'running',
       openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
       gateway_token: 'gw-helpers',
@@ -613,8 +585,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-provider-matrix',
       user_id: 'user-1',
-      pod_id: 'pod-provider-matrix',
-      pod_name: 'pod-provider-matrix',
       state: 'running',
       openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
       gateway_token: 'gw-provider-matrix',
@@ -772,8 +742,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
-      pod_id: 'pod-ready',
-      pod_name: 'pod-ready',
       state: 'running',
       hostname: 'openclaw-agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false } },
@@ -800,8 +768,6 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-gateway-helpers',
       user_id: 'user-1',
-      pod_id: 'pod-gateway-helpers',
-      pod_name: 'pod-gateway-helpers',
       state: 'running',
       openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
       gateway_token: 'gw-helpers',
@@ -904,8 +870,6 @@ describe('HyperClaw agents SDK', () => {
     const ready = OpenClawAgent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
-      pod_id: 'pod-ready',
-      pod_name: 'pod-ready',
       state: 'running',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       hostname: 'agent-ready.hypercli.app',
@@ -915,9 +879,8 @@ describe('HyperClaw agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
-      pod_id: 'pod-pending',
-      pod_name: 'pod-pending',
       state: 'starting',
+      runtime_generation: 10,
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       hostname: 'agent-ready.hypercli.app',
     });
@@ -926,7 +889,7 @@ describe('HyperClaw agents SDK', () => {
 
     const result = await agent.waitRunning(42_000, 250);
 
-    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250);
+    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250, 10);
     expect(gateway).not.toHaveBeenCalled();
     expect(result).toBe(ready);
   });
@@ -940,8 +903,6 @@ describe('HyperClaw agents SDK', () => {
     const ready = Agent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
-      pod_id: 'pod-ready',
-      pod_name: 'pod-ready',
       state: 'running',
     });
     vi.spyOn(deployments, 'waitRunning').mockResolvedValue(ready);
@@ -949,15 +910,14 @@ describe('HyperClaw agents SDK', () => {
     const agent = Agent.fromDict({
       id: 'agent-ready',
       user_id: 'user-1',
-      pod_id: 'pod-pending',
-      pod_name: 'pod-pending',
-      state: 'pending',
+      state: 'STARTING',
+      runtime_generation: 10,
     });
     (agent as any)._deployments = deployments;
 
     const result = await agent.waitRunning(42_000, 250);
 
-    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250);
+    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250, 10);
     expect(result).toBe(ready);
   });
 
@@ -965,8 +925,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-1',
       user_id: 'user-1',
-      pod_id: 'pod-1',
-      pod_name: 'pod-name',
       state: 'starting',
       hostname: 'openclaw-pod-name.dev.hyperclaw.app',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
@@ -1005,8 +963,6 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-2',
       user_id: 'user-1',
-      pod_id: 'pod-2',
-      pod_name: 'pod-name-2',
       state: 'starting',
       hostname: 'openclaw-pod-name-2.dev.hyperclaw.app',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
@@ -1108,8 +1064,6 @@ describe('HyperClaw agents SDK', () => {
         {
           id: 'agent-1',
           user_id: 'user-1',
-          pod_id: 'pod-1',
-          pod_name: 'pod-name',
           state: 'running',
         },
       ],

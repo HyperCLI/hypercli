@@ -28,8 +28,6 @@ def _deployment_payload(state: str = "starting") -> dict:
     return {
         "id": "agent-123",
         "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "hermes-pod",
         "state": state,
         "runtime": "hermes-agent",
         "hostname": "hermes.example.test",

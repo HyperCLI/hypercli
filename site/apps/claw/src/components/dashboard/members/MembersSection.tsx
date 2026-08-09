@@ -47,7 +47,6 @@ export type MembersSectionAgent = {
   name?: string | null;
   displayName?: string | null;
   handle?: string | null;
-  pod_name?: string | null;
 };
 
 type MembersSectionProps = {
@@ -124,7 +123,7 @@ function localDateTimeToIso(value: string): string | undefined {
 }
 
 function agentName(agent: MembersSectionAgent): string {
-  return agent.displayName?.trim() || agent.name?.trim() || agent.pod_name?.trim() || agent.id;
+  return agent.displayName?.trim() || agent.name?.trim() || agent.id;
 }
 
 function subjectKey(subjectType: string, subjectId: string): string {

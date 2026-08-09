@@ -584,7 +584,7 @@ function profileInitials(name: string, email?: string): string {
 }
 
 function agentSettingsName(agent: Agent | null): string {
-  return agent?.name || agent?.pod_name || agent?.id || "";
+  return agent?.name || agent?.id || "";
 }
 
 function agentSettingsDisplayName(agent: Agent | null): string {
@@ -1200,8 +1200,8 @@ function AgentSectionSettingsContent({
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
-  const failedRuntimeNeedsCleanup = isAgentFailureState(agent.state) && Boolean(agent.pod_id);
-  const canStartAgent = agent.state === "STOPPED" || (isAgentFailureState(agent.state) && !agent.pod_id);
+  const failedRuntimeNeedsCleanup = isAgentFailureState(agent.state) && agent.resourcesExist;
+  const canStartAgent = agent.state === "STOPPED" || (isAgentFailureState(agent.state) && !agent.resourcesExist);
   const canStopAgent = agent.state === "RUNNING" || failedRuntimeNeedsCleanup;
   const stopping = Boolean(agentStopping || agent.state === "STOPPING");
   const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping));

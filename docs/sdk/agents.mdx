@@ -522,8 +522,6 @@ A hydrated `Agent` contains:
 
 - `id`
 - `user_id`
-- `pod_id`
-- `pod_name`
 - `state`
 - `placement_epoch`
 - `runtime_generation`
@@ -552,8 +550,6 @@ Important computed properties:
   - alias of `desktop_url`
 - `shell_url`
   - only if an explicit `shell` route exists
-- `executor_url`
-  - alias of `shell_url`
 - `route_url(route_name, default_prefix=None)`
 - `route_requires_auth(route_name)`
 - `is_running`
@@ -602,7 +598,7 @@ These use:
 - backend `/ws/logs/{agent_id}`
 - backend `/ws/shell/{agent_id}`
 
-Prefer these over legacy direct executor-style methods.
+These are the canonical shell and log transports.
 
 ## `OpenClawAgent`
 

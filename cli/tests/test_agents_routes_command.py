@@ -137,7 +137,6 @@ def test_status_and_stop_pass_self_without_local_resolution(monkeypatch):
         avatar_url=None,
         runtime="opencode",
         runtime_key_alias="runtime-key-1",
-        pod_name="self-agent-pod",
         cpu=4,
         memory=16,
         state="running",
@@ -149,7 +148,6 @@ def test_status_and_stop_pass_self_without_local_resolution(monkeypatch):
         jwt_expires_at=None,
         last_error=None,
         is_running=False,
-        executor_url=None,
     )
 
     class FakeDeployments:
@@ -163,7 +161,7 @@ def test_status_and_stop_pass_self_without_local_resolution(monkeypatch):
             return agent
 
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr(agents_module, "_save_pod_state", lambda _agent: None)
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
 
     status_result = runner.invoke(app, ["agents", "status", "self"])
     stop_result = runner.invoke(app, ["agents", "stop", "self", "--force"])
@@ -177,7 +175,6 @@ def test_start_self_uses_only_the_stored_backend_launch(monkeypatch):
     captured = {}
     started = SimpleNamespace(
         id="agent-123",
-        pod_name="self-agent-pod",
     )
 
     class FakeDeployments:
@@ -186,7 +183,7 @@ def test_start_self_uses_only_the_stored_backend_launch(monkeypatch):
             return started
 
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
-    monkeypatch.setattr(agents_module, "_save_pod_state", lambda _agent: None)
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
 
     result = runner.invoke(app, ["agents", "start", "self"])
 

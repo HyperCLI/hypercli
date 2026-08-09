@@ -248,7 +248,6 @@ export interface AgentExecResult {
 
 export interface AgentTokenResponse {
   agent_id?: string;
-  pod_id?: string;
   token?: string;
   jwt?: string;
   expires_at?: string | null;
@@ -1285,8 +1284,6 @@ export interface DeploymentSubscribeOptions {
 export interface AgentStateFields {
   id: string;
   userId: string;
-  podId: string;
-  podName: string;
   state: AgentState;
   name?: string | null;
   handle?: string | null;
@@ -1323,6 +1320,9 @@ export interface AgentStateFields {
   runtimeGeneration?: number;
   agentVersion?: number;
   finalizeEpoch?: number | null;
+  revision?: number;
+  resourcesExist?: boolean;
+  namespaceExists?: boolean;
   createdAt?: Date | null;
   updatedAt?: Date | null;
   launchConfig?: Record<string, any> | null;
@@ -1346,8 +1346,6 @@ export interface AgentRuntimeStatus {
 export interface AgentHydrationData {
   id?: string;
   user_id?: string;
-  pod_id?: string;
-  pod_name?: string;
   state?: AgentState;
   name?: string | null;
   handle?: string | null;
@@ -1384,6 +1382,9 @@ export interface AgentHydrationData {
   runtime_generation?: number;
   agent_version?: number;
   finalize_epoch?: number | null;
+  revision?: number;
+  resources_exist?: boolean;
+  namespace_exists?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
@@ -1772,8 +1773,6 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   return {
     id: data.id ?? '',
     userId: data.user_id ?? '',
-    podId: data.pod_id ?? '',
-    podName: data.pod_name ?? '',
     state: data.state ?? 'unknown',
     name: data.name ?? null,
     handle: data.handle ?? null,
@@ -1808,6 +1807,9 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     runtimeGeneration: data.runtime_generation ?? 0,
     agentVersion: data.agent_version ?? 0,
     finalizeEpoch: data.finalize_epoch ?? null,
+    revision: data.revision ?? 0,
+    resourcesExist: data.resources_exist ?? false,
+    namespaceExists: data.namespace_exists ?? false,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig,
@@ -2210,8 +2212,6 @@ function bindAgent<T extends Agent>(agent: T, deployments: Deployments): T {
 export class Agent {
   public readonly id: string;
   public readonly userId: string;
-  public readonly podId: string;
-  public readonly podName: string;
   public readonly state: string;
   public readonly name: string | null;
   public readonly handle: string | null;
@@ -2248,6 +2248,9 @@ export class Agent {
   public readonly runtimeGeneration: number;
   public readonly agentVersion: number;
   public readonly finalizeEpoch: number | null;
+  public readonly revision: number;
+  public readonly resourcesExist: boolean;
+  public readonly namespaceExists: boolean;
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
   public launchConfig: Record<string, any> | null;
@@ -2263,8 +2266,6 @@ export class Agent {
   constructor(fields: AgentStateFields) {
     this.id = fields.id;
     this.userId = fields.userId;
-    this.podId = fields.podId;
-    this.podName = fields.podName;
     this.state = fields.state;
     this.name = fields.name ?? null;
     this.handle = fields.handle ?? null;
@@ -2299,6 +2300,9 @@ export class Agent {
     this.runtimeGeneration = fields.runtimeGeneration ?? 0;
     this.agentVersion = fields.agentVersion ?? 0;
     this.finalizeEpoch = fields.finalizeEpoch ?? null;
+    this.revision = fields.revision ?? 0;
+    this.resourcesExist = fields.resourcesExist ?? false;
+    this.namespaceExists = fields.namespaceExists ?? false;
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
     this.launchConfig = fields.launchConfig ?? null;
@@ -2352,10 +2356,6 @@ export class Agent {
     return this.routeUrl('shell');
   }
 
-  get executorUrl(): string | null {
-    return this.shellUrl;
-  }
-
   get isRunning(): boolean {
     return this.state.toLowerCase() === 'running';
   }
@@ -2405,7 +2405,12 @@ export class Agent {
   }
 
   async waitRunning(timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
-    return this.requireDeployments().waitRunning(this.id, timeoutMs, pollIntervalMs);
+    return this.requireDeployments().waitRunning(
+      this.id,
+      timeoutMs,
+      pollIntervalMs,
+      this.runtimeGeneration > 0 ? this.runtimeGeneration : undefined,
+    );
   }
 
   async update(options: UpdateAgentOptions): Promise<Agent> {
@@ -2423,10 +2428,6 @@ export class Agent {
 
   async exec(command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
     return this.requireDeployments().exec(this, command, options);
-  }
-
-  async health(): Promise<Record<string, any>> {
-    return this.requireDeployments().health(this);
   }
 
   /**
@@ -3962,7 +3963,7 @@ export class Deployments {
 
     const matches: Agent[] = [];
     for (const agent of await this.list(requestOptions)) {
-      const values = [agent.id, agent.name, agent.handle, agent.podName, agent.hostname];
+      const values = [agent.id, agent.name, agent.handle, agent.hostname];
       if (values.some((value) => String(value || '') === raw)) {
         matches.push(agent);
         continue;
@@ -4483,8 +4484,12 @@ export class Deployments {
     states: readonly AgentState[],
     timeoutMs = 300_000,
     failureStates: readonly AgentState[] = [],
+    minimumRuntimeGeneration?: number,
   ): Promise<Agent> {
     if (!states.length) throw new Error('states must not be empty');
+    if (minimumRuntimeGeneration !== undefined && minimumRuntimeGeneration < 0) {
+      throw new Error('minimumRuntimeGeneration must be non-negative');
+    }
     const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
@@ -4517,6 +4522,10 @@ export class Deployments {
       const agent = await this.get(agentId);
       lastAgent = agent;
       lastState = String(agent.state || '');
+      if (
+        minimumRuntimeGeneration !== undefined
+        && agent.runtimeGeneration < minimumRuntimeGeneration
+      ) return null;
       if (desired.has(lastState.toLowerCase())) return agent;
       if (failures.has(lastState.toLowerCase())) {
         throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}${diagnostics(agent)}`);
@@ -4583,13 +4592,19 @@ export class Deployments {
     );
   }
 
-  async waitRunning(agentIdOrName: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+  async waitRunning(
+    agentIdOrName: string,
+    timeoutMs = 300_000,
+    pollIntervalMs = 5_000,
+    minimumRuntimeGeneration?: number,
+  ): Promise<Agent> {
     void pollIntervalMs;
     return this.waitForState(
       agentIdOrName,
       ['RUNNING'],
       timeoutMs,
       ['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'],
+      minimumRuntimeGeneration,
     );
   }
 
@@ -4846,24 +4861,6 @@ export class Deployments {
     if (options.dryRun) payload.dry_run = true;
     const data = await this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/exec`, payload);
     return execResultFromDict(data);
-  }
-
-  async health(target: Agent): Promise<Record<string, any>> {
-    if (!target.executorUrl) {
-      throw new Error('Agent has no executor URL');
-    }
-
-    const headers: Record<string, string> = {};
-    if (target.jwtToken) {
-      headers.Authorization = `Bearer ${target.jwtToken}`;
-      headers.Cookie = `${target.podName}-token=${target.jwtToken}`;
-    }
-
-    const response = await fetch(`${target.executorUrl}/health`, { headers });
-    if (!response.ok) {
-      throw new Error(`Agent health failed: ${response.status} ${response.statusText}`);
-    }
-    return (await response.json()) as Record<string, any>;
   }
 
   async filesList(target: Agent | string, path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {

@@ -147,8 +147,6 @@ test("dashboard refreshes the gateway token before sdk reconnect", async ({ page
             id: "agent-1",
             name: "Reconnect Test",
             user_id: "user-1",
-            pod_id: "pod-1",
-            pod_name: "pod-1",
             state: "RUNNING",
             cpu: 1,
             memory: 1,

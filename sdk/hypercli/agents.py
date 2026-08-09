@@ -1229,8 +1229,6 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     return {
         "id": data.get("id", ""),
         "user_id": data.get("user_id", ""),
-        "pod_id": data.get("pod_id", ""),
-        "pod_name": data.get("pod_name", ""),
         "state": data.get("state", "unknown"),
         "name": data.get("name"),
         "handle": data.get("handle"),
@@ -1270,6 +1268,9 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "runtime_generation": int(data.get("runtime_generation", 0) or 0),
         "agent_version": int(data.get("agent_version", 0) or 0),
         "finalize_epoch": int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
+        "revision": int(data.get("revision", 0) or 0),
+        "resources_exist": bool(data.get("resources_exist", False)),
+        "namespace_exists": bool(data.get("namespace_exists", False)),
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": launch_config,
@@ -1923,8 +1924,6 @@ class Agent:
     """Generic agent returned by the HyperClaw backend."""
     id: str  # Agent UUID from backend
     user_id: str
-    pod_id: str
-    pod_name: str
     state: str
     name: Optional[str] = None
     handle: Optional[str] = None
@@ -1960,6 +1959,9 @@ class Agent:
     runtime_generation: int = 0
     agent_version: int = 0
     finalize_epoch: int | None = None
+    revision: int = 0
+    resources_exist: bool = False
+    namespace_exists: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
@@ -2023,10 +2025,6 @@ class Agent:
         return self.route_url("shell")
 
     @property
-    def executor_url(self) -> Optional[str]:
-        return self.shell_url
-
-    @property
     def is_running(self) -> bool:
         return str(self.state or "").lower() == "running"
 
@@ -2074,7 +2072,15 @@ class Agent:
         return data
 
     def wait_running(self, timeout: float = 300.0, poll_interval: float = 5.0) -> "Agent":
-        agent = self._require_deployments().wait_running(self.id, timeout=timeout, poll_interval=poll_interval)
+        wait_kwargs: dict[str, int] = {}
+        if self.runtime_generation > 0:
+            wait_kwargs["minimum_runtime_generation"] = self.runtime_generation
+        agent = self._require_deployments().wait_running(
+            self.id,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            **wait_kwargs,
+        )
         self.__dict__.update(agent.__dict__)
         self._deployments = agent._deployments
         return self
@@ -2112,9 +2118,6 @@ class Agent:
 
     def exec(self, command: str, timeout: int = 30, dry_run: bool = False) -> "ExecResult":
         return self._require_deployments().exec(self, command, timeout=timeout, dry_run=dry_run)
-
-    def health(self) -> dict:
-        return self._require_deployments().health(self)
 
     def _gateway_file_hooks(self) -> AgentFilesGatewayHooks | None:
         """
@@ -2162,9 +2165,6 @@ class Agent:
 
     def cp_from(self, remote_path: str, local_path: str | Path) -> Path:
         return self._require_deployments().cp_from(self, remote_path, local_path)
-
-    def logs_stream(self, lines: int = 100, follow: bool = True):
-        return self._require_deployments().logs_stream(self, lines=lines, follow=follow)
 
     async def logs_stream_ws(
         self,
@@ -3092,7 +3092,7 @@ class Deployments:
         return self._hydrate_agent(data)
 
     def resolve_agent(self, agent_id_or_name: str) -> Agent:
-        """Resolve an agent UUID, unique name, pod name, or hostname to an Agent."""
+        """Resolve an agent UUID, unique name, handle, or hostname to an Agent."""
         raw = str(agent_id_or_name or "").strip()
         if not raw:
             raise ValueError("agent_id_or_name is required")
@@ -3103,7 +3103,7 @@ class Deployments:
 
         matches: list[Agent] = []
         for agent in self.list():
-            values = [agent.id, agent.name, agent.handle, agent.pod_name, agent.hostname]
+            values = [agent.id, agent.name, agent.handle, agent.hostname]
             if any(str(value or "") == raw for value in values):
                 matches.append(agent)
                 continue
@@ -3141,7 +3141,7 @@ class Deployments:
     def _detect_shell(self, agent_id: str) -> str:
         probe = "if command -v bash >/dev/null 2>&1; then printf /bin/bash; else printf /bin/sh; fi"
         try:
-            result = self.exec(Agent(id=agent_id, user_id="", pod_id="", pod_name="", state="running"), probe, timeout=15)
+            result = self.exec(Agent(id=agent_id, user_id="", state="RUNNING"), probe, timeout=15)
         except Exception:
             return "/bin/sh"
         shell = (result.stdout or "").strip()
@@ -3697,7 +3697,7 @@ class Deployments:
         """Get agent details by UUID or unique name.
 
         Args:
-            agent_id_or_name: Agent UUID, unique name, pod name, or hostname.
+            agent_id_or_name: Agent UUID, unique name, handle, or hostname.
 
         Returns:
             Agent with current status.
@@ -4033,7 +4033,13 @@ class Deployments:
             f"{', '.join(sorted(states))} (last={last_state})"
         )
 
-    async def wait_running_async(self, agent_id_or_name: str, timeout: float = 300.0) -> Agent:
+    async def wait_running_async(
+        self,
+        agent_id_or_name: str,
+        timeout: float = 300.0,
+        *,
+        minimum_runtime_generation: int | None = None,
+    ) -> Agent:
         """Wait for RUNNING using WebSocket wakeups and REST confirmation."""
         return await self.wait_for_state_async(
             agent_id_or_name,
@@ -4041,6 +4047,7 @@ class Deployments:
             timeout=timeout,
             # Stable runtime-free states cannot satisfy this invocation's goal.
             failure_states=set(AGENT_WAIT_RUNNING_FAILURE_STATES),
+            minimum_runtime_generation=minimum_runtime_generation,
         )
 
     def wait_for_state(
@@ -4066,11 +4073,22 @@ class Deployments:
             ),
         )
 
-    def wait_running(self, agent_id_or_name: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
+    def wait_running(
+        self,
+        agent_id_or_name: str,
+        timeout: float = 300.0,
+        poll_interval: float = 5.0,
+        *,
+        minimum_runtime_generation: int | None = None,
+    ) -> Agent:
         """Wait for RUNNING via deployment events; ``poll_interval`` is deprecated."""
         del poll_interval
         return _run_sync(
-            lambda: self.wait_running_async(agent_id_or_name, timeout=timeout),
+            lambda: self.wait_running_async(
+                agent_id_or_name,
+                timeout=timeout,
+                minimum_runtime_generation=minimum_runtime_generation,
+            ),
             running_loop_error=(
                 "wait_running() cannot run inside an event loop; use wait_running_async()"
             ),
@@ -4106,7 +4124,7 @@ class Deployments:
             agent_id: Agent UUID.
 
         Returns:
-            Agent with new pod details.
+            Updated Agent snapshot.
         """
         if _is_self_agent_ref(agent_id):
             overrides = {
@@ -4493,7 +4511,7 @@ class Deployments:
             agent_id: Agent UUID.
 
         Returns:
-            Dict with agent_id, pod_id, token, expires_at.
+            Dict with agent_id, token, expires_at, and runtime generation.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/token")
@@ -4593,17 +4611,6 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env")
 
-    # -----------------------------------------------------------------------
-    # Legacy direct executor API helpers. Current shell/exec flows are backend-mediated.
-    # -----------------------------------------------------------------------
-
-    def _executor_headers(self, pod: Agent) -> dict:
-        h = {}
-        if pod.jwt_token:
-            h["Authorization"] = f"Bearer {pod.jwt_token}"
-            h["Cookie"] = f"{pod.pod_name}-token={pod.jwt_token}"
-        return h
-
     def exec(self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
         """Execute a one-shot command on a running agent via the backend exec API.
 
@@ -4629,19 +4636,6 @@ class Deployments:
                 detail = resp.text
             raise APIError(resp.status_code, detail)
         return ExecResult.from_dict(resp.json())
-
-    def health(self, pod: Agent) -> dict:
-        """Check executor health on a pod."""
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL")
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(
-                f"{pod.executor_url}/health",
-                headers=self._executor_headers(pod),
-            )
-        if resp.status_code >= 400:
-            raise APIError(resp.status_code, resp.text)
-        return resp.json()
 
     def files_list(self, pod: Agent | str, path: str = "", source: str = "auto") -> list[dict]:
         """List files on an agent via the backend file API."""
@@ -4761,73 +4755,6 @@ class Deployments:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(self.file_read_bytes(pod, remote_path))
         return dest
-
-    def chat_stream(self, pod: OpenClawAgent, messages: list[dict], model: str = "hyperclaw/kimi-k2.5"):
-        """Stream chat completions from the pod's OpenClaw gateway via executor proxy.
-
-        Yields content delta strings as they arrive.
-        """
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL")
-
-        body = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-        }
-
-        with httpx.Client(timeout=300) as client:
-            with client.stream(
-                "POST",
-                f"{pod.executor_url}/chat",
-                headers=self._executor_headers(pod),
-                json=body,
-            ) as resp:
-                if resp.status_code >= 400:
-                    raise APIError(resp.status_code, resp.read().decode())
-                for line in resp.iter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data == "[DONE]":
-                        break
-                    try:
-                        import json
-                        chunk = json.loads(data)
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        content = delta.get("content")
-                        if content:
-                            yield content
-                    except (json.JSONDecodeError, IndexError, KeyError):
-                        continue
-
-    def logs_stream(self, pod: Agent, lines: int = 100, follow: bool = True):
-        """Stream logs from the pod via executor SSE.
-
-        Yields log lines as they arrive.
-        """
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL")
-
-        params = {"lines": lines, "follow": "true" if follow else "false"}
-
-        with httpx.Client(timeout=None) as client:
-            with client.stream(
-                "GET",
-                f"{pod.executor_url}/logs",
-                headers=self._executor_headers(pod),
-                params=params,
-            ) as resp:
-                if resp.status_code >= 400:
-                    raise APIError(resp.status_code, resp.read().decode())
-                for line in resp.iter_lines():
-                    line = line.strip()
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[keepalive]":
-                            continue
-                        yield data
 
     # -----------------------------------------------------------------------
     # WebSocket API (via HyperClaw backend)

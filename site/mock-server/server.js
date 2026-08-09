@@ -39,8 +39,6 @@ function generateAgent(overrides = {}) {
     id,
     name: overrides.name || faker.commerce.productName(),
     user_id: 'mock-user',
-    pod_id: state === 'RUNNING' ? `pod-${id.slice(0, 8)}` : null,
-    pod_name: state === 'RUNNING' ? `agent-${id.slice(0, 8)}` : null,
     state,
     cpu: preset.cpu,
     memory: preset.memory,

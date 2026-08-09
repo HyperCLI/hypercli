@@ -40,7 +40,6 @@ export type SharedKnowledgeAgent = {
   displayName?: string | null;
   avatarUrl?: string | null;
   displayIdentity?: unknown;
-  pod_name?: string | null;
   state?: string | null;
   meta?: AgentMeta | null;
 };
@@ -78,7 +77,7 @@ type PendingPathDelete = {
 };
 
 function agentDisplayName(agent: SharedKnowledgeAgent): string {
-  return agent.displayName?.trim() || agent.name || agent.pod_name || agent.id;
+  return agent.displayName?.trim() || agent.name || agent.id;
 }
 
 function normalizeAgentState(state?: string | null): string {

@@ -36,19 +36,17 @@ describe("agentViewModel", () => {
     expect(toAgentViewModel(buildSdkAgent({ launchConfig })).launchConfig).toEqual(launchConfig);
   });
 
-  it("preserves read-only deployment epochs and restore state", () => {
+  it("preserves read-only deployment epochs", () => {
     const mapped = toAgentViewModel(buildSdkAgent({
       placementEpoch: 4,
       runtimeGeneration: 7,
       finalizeEpoch: 3,
-      restoreState: "RESTORED",
     }));
 
     expect(mapped).toMatchObject({
       placementEpoch: 4,
       runtimeGeneration: 7,
       finalizeEpoch: 3,
-      restoreState: "RESTORED",
     });
   });
 
@@ -143,7 +141,6 @@ describe("agentViewModel", () => {
   it("does not cross display-name fields between agent provenances", () => {
     const managed = toAgentViewModel(buildSdkAgent({
       name: null,
-      podName: "managed-pod",
       handle: null,
       displayName: "external-only-name",
       managed: true,
@@ -155,12 +152,11 @@ describe("agentViewModel", () => {
       managed: false,
     }));
 
-    expect(managed.displayName).toBe("managed-pod");
-    expect(agentDisplayLabel(managed)).toBe("managed-pod");
+    expect(managed.displayName).toBe("agent-1");
+    expect(agentDisplayLabel(managed)).toBe("agent-1");
     expect(agentDisplayLabel({
       id: "raw-managed",
       name: "canonical-managed",
-      pod_name: null,
       handle: null,
       displayName: "external-only-name",
       managed: null,

@@ -135,8 +135,6 @@ describe('Agents SDK', () => {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
         state: 'running',
         tags: ['team=dev'],
       }),
@@ -158,6 +156,9 @@ describe('Agents SDK', () => {
         runtime_generation: 3,
         agent_version: 2,
         finalize_epoch: 2,
+        revision: 11,
+        resources_exist: true,
+        namespace_exists: true,
         storage_cluster_id: 'cluster-current',
         archived_at: '2026-08-09T12:00:00Z',
         archived_cluster_id: 'cluster-archive',
@@ -174,6 +175,9 @@ describe('Agents SDK', () => {
     expect(agent.runtimeGeneration).toBe(3);
     expect(agent.agentVersion).toBe(2);
     expect(agent.finalizeEpoch).toBe(2);
+    expect(agent.revision).toBe(11);
+    expect(agent.resourcesExist).toBe(true);
+    expect(agent.namespaceExists).toBe(true);
     expect(agent.storageClusterId).toBe('cluster-current');
     expect(agent.archivedAt?.toISOString()).toBe('2026-08-09T12:00:00.000Z');
     expect(agent.archivedClusterId).toBe('cluster-archive');
@@ -441,15 +445,11 @@ describe('Agents SDK', () => {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
         state: 'running',
       }),
       post: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
         state: 'stopping',
       }),
     } as unknown as HTTPClient;
@@ -465,8 +465,6 @@ describe('Agents SDK', () => {
     const agentResponse = {
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
     };
     const routesResponse = {
@@ -605,8 +603,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'RUNNING',
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
@@ -633,8 +629,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'RUNNING',
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
@@ -665,8 +659,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'RUNNING',
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
@@ -710,8 +702,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'RUNNING',
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
@@ -738,8 +728,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'RUNNING',
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
@@ -898,8 +886,6 @@ describe('Agents SDK', () => {
         get: vi.fn().mockResolvedValue({
           id: 'agent-123',
           user_id: 'user-456',
-          pod_id: 'pod-789',
-          pod_name: 'pod-789',
           state,
           reason: 'runtime_exit',
           error: 'WorkspaceSyncFailed',
@@ -917,14 +903,50 @@ describe('Agents SDK', () => {
     },
   );
 
+  it('ignores an archived snapshot from an older accepted runtime generation', async () => {
+    const get = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'agent-123',
+        state: 'ARCHIVED',
+        runtime_generation: 9,
+      })
+      .mockResolvedValueOnce({
+        id: 'agent-123',
+        state: 'RUNNING',
+        runtime_generation: 10,
+      });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'subscribe').mockImplementation(async (handler, options = {}) => {
+      await options.onReady?.();
+      await handler({
+        type: 'deployment.transition',
+        agent_id: 'agent-123',
+        state: 'RUNNING',
+        runtime_generation: 10,
+      });
+      if (!options.signal?.aborted) {
+        await new Promise<void>((resolve) => {
+          options.signal?.addEventListener('abort', () => resolve(), { once: true });
+        });
+      }
+    });
+
+    const agent = await deployments.waitRunning('agent-123', 1_000, 0, 10);
+
+    expect(agent.state).toBe('RUNNING');
+    expect(agent.runtimeGeneration).toBe(10);
+  });
+
   it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
     vi.useFakeTimers();
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
         state: 'RESTORING',
         error: null,
         message: 'restore init container is still waiting',
@@ -947,8 +969,6 @@ describe('Agents SDK', () => {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: 'pod-789',
-        pod_name: 'pod-789',
         state: 'running',
         meta: {
           ui: {
@@ -1003,8 +1023,6 @@ describe('Agents SDK', () => {
           items: [{
             id: '11111111-1111-4111-8111-111111111111',
             user_id: 'user-456',
-            pod_id: 'pod-789',
-            pod_name: 'clear-window-works',
             name: 'clear-window-works',
             handle: 'coder',
             state: 'STOPPED',
@@ -1015,8 +1033,6 @@ describe('Agents SDK', () => {
         return {
           id: '11111111-1111-4111-8111-111111111111',
           user_id: 'user-456',
-          pod_id: 'pod-789',
-          pod_name: 'clear-window-works',
           name: 'clear-window-works',
           handle: 'coder',
           state: 'STOPPED',
@@ -1027,8 +1043,6 @@ describe('Agents SDK', () => {
     const post = vi.fn(async () => ({
       id: '11111111-1111-4111-8111-111111111111',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'clear-window-works',
       name: 'clear-window-works',
       handle: 'coder',
       state: 'STARTING',
@@ -1063,8 +1077,6 @@ describe('Agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-pro',
       user_id: 'user-456',
-      pod_id: 'pod-pro',
-      pod_name: 'pro',
       state: 'STARTING',
       runtime: 'openclaw-pro',
     });
@@ -1086,8 +1098,6 @@ describe('Agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-sync-all',
       user_id: 'user-456',
-      pod_id: 'pod-sync-all',
-      pod_name: 'sync-all',
       state: 'STARTING',
       runtime: 'openclaw',
     });
@@ -1147,8 +1157,6 @@ describe('Agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: '11111111-1111-4111-8111-111111111111',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'buzz-agent',
       state: 'STARTING',
       runtime: 'opencode',
       launch_config: persistedLaunchConfig,
@@ -1197,8 +1205,6 @@ describe('Agents SDK', () => {
       patch: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: null,
-        pod_name: null,
         state: 'stopped',
         cpu: 4,
         memory: 4,
@@ -1543,8 +1549,6 @@ describe('Agents SDK', () => {
             items: [{
               id: '11111111-1111-4111-8111-111111111111',
               user_id: 'user-456',
-              pod_id: 'pod-789',
-              pod_name: 'clear-window-works',
               name: 'clear-window-works',
               state: 'STOPPED',
             }],
@@ -1554,8 +1558,6 @@ describe('Agents SDK', () => {
           return {
             id: '11111111-1111-4111-8111-111111111111',
             user_id: 'user-456',
-            pod_id: 'pod-789',
-            pod_name: 'clear-window-works',
             name: 'clear-window-works',
             state: 'STOPPED',
           };
@@ -1615,8 +1617,6 @@ describe('Agents SDK', () => {
     const agent = Agent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       hostname: 'agent.hypercli.com',
       routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } },
@@ -1636,8 +1636,6 @@ describe('Agents SDK', () => {
     const agent = Agent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'external_ready',
       name: 'Legacy name',
       handle: 'claw',
@@ -1677,8 +1675,6 @@ describe('Agents SDK', () => {
     const legacy = Agent.fromDict({
       id: 'agent-456',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'external_ready',
       image_url: 'https://cdn.example/legacy.png',
       managed: false,
@@ -1764,8 +1760,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: '11111111-1111-1111-1111-111111111111',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       routes: { openclaw: { port: 18789 } },
       gateway_id: 'agent:11111111-1111-1111-1111-111111111111',
@@ -1787,8 +1781,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       routes: { openclaw: { port: 18789 } },
       gateway_token: 'gw-token',
@@ -1823,8 +1815,6 @@ describe('Agents SDK', () => {
     const agent = Agent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       hostname: 'agent.hypercli.com',
     });
@@ -1837,8 +1827,6 @@ describe('Agents SDK', () => {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: null,
-        pod_name: null,
         state: 'stopped',
         cpu: 2,
         memory: 2,
@@ -1846,8 +1834,6 @@ describe('Agents SDK', () => {
       patch: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        pod_id: null,
-        pod_name: null,
         state: 'stopped',
         cpu: 4,
         memory: 4,
@@ -1912,8 +1898,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       hostname: 'openclaw-test.hypercli.com',
       gateway_token: 'gw-inline',
@@ -1921,8 +1905,6 @@ describe('Agents SDK', () => {
     const proAgent = OpenClawProAgent.fromDict({
       id: 'agent-pro',
       user_id: 'user-456',
-      pod_id: 'pod-pro',
-      pod_name: 'pod-pro',
       state: 'running',
       hostname: 'openclaw-pro.hypercli.com',
       gateway_token: 'gw-pro',
@@ -1953,8 +1935,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       hostname: 'openclaw-test.hypercli.com',
     });
@@ -1975,8 +1955,6 @@ describe('Agents SDK', () => {
         .mockResolvedValue(OpenClawAgent.fromDict({
           id: 'agent-123',
           user_id: 'user-456',
-          pod_id: 'pod-789',
-          pod_name: 'pod-789',
           state: 'running',
           hostname: 'openclaw-test.hypercli.com',
         })),
@@ -1985,8 +1963,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       gateway_token: 'gw-inline',
     });
@@ -2016,8 +1992,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
     });
     agent._deployments = deployments;
@@ -2029,8 +2003,6 @@ describe('Agents SDK', () => {
     resolveDeployment(OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
       hostname: 'openclaw-test.hypercli.com',
     }));
@@ -2047,16 +2019,12 @@ describe('Agents SDK', () => {
         .mockResolvedValueOnce(OpenClawAgent.fromDict({
           id: 'agent-123',
           user_id: 'user-456',
-          pod_id: 'pod-789',
-          pod_name: 'pod-789',
           state: 'running',
           hostname: null,
         }))
         .mockResolvedValueOnce(OpenClawAgent.fromDict({
           id: 'agent-123',
           user_id: 'user-456',
-          pod_id: 'pod-789',
-          pod_name: 'pod-789',
           state: 'running',
           hostname: 'openclaw-test.hypercli.com',
         })),
@@ -2068,8 +2036,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
     });
     agent._deployments = deployments;
@@ -2093,8 +2059,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
     });
     agent._deployments = deployments;
@@ -2117,8 +2081,6 @@ describe('Agents SDK', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
-      pod_id: 'pod-789',
-      pod_name: 'pod-789',
       state: 'running',
     });
     agent._deployments = deployments;

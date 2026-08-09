@@ -199,16 +199,6 @@ Preferred helpers:
 
 These connect to the root agent host, not `openclaw-<host>`.
 
-### Treat direct executor helpers as legacy
-
-The SDK still contains some direct executor-era helpers:
-
-- `health()`
-- `chat_stream()`
-- `logs_stream()`
-
-They only make sense if you have explicitly created an executor-style route. For current OpenClaw agents, prefer backend `/ws/*` and gateway RPC instead.
-
 ## Next Pages
 
 - [Keys SDK](/sdk/keys)

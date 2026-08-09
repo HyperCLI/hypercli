@@ -144,6 +144,11 @@ def _sync_policy_kwargs(
     return {}
 
 
+def _runtime_generation_wait_kwargs(agent: object) -> dict[str, int]:
+    generation = int(getattr(agent, "runtime_generation", 0) or 0)
+    return {"minimum_runtime_generation": generation} if generation > 0 else {}
+
+
 def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
     env_dict = dict(env or {})
     if force or "OPENCLAW_DESKTOP_ENABLED" not in env_dict:
@@ -220,27 +225,26 @@ def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
     return Deployments(http, api_key=api_key, api_base=api_base, agents_ws_url=resolved_agents_ws_url)
 
 
-def _save_pod_state(pod: Agent):
-    """Save pod info locally for quick reference."""
+def _save_agent_state(agent: Agent):
+    """Save agent info locally for quick reference."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = _load_state()
-    existing = state.get(pod.id, {})
-    state[pod.id] = {
-        "id": pod.id,
-        "pod_id": pod.pod_id,
-        "pod_name": pod.pod_name,
-        "user_id": pod.user_id,
-        "hostname": pod.hostname,
-        "jwt_token": pod.jwt_token or existing.get("jwt_token"),
+    existing = state.get(agent.id, {})
+    state[agent.id] = {
+        "id": agent.id,
+        "name": agent.name,
+        "user_id": agent.user_id,
+        "hostname": agent.hostname,
+        "jwt_token": agent.jwt_token or existing.get("jwt_token"),
         "gateway_token": (
-            pod.gateway_token if isinstance(pod, OpenClawAgent) else existing.get("gateway_token")
+            agent.gateway_token if isinstance(agent, OpenClawAgent) else existing.get("gateway_token")
         ),
         "api_server_key": (
-            pod.api_server_key if isinstance(pod, HermesAgent) else existing.get("api_server_key")
+            agent.api_server_key if isinstance(agent, HermesAgent) else existing.get("api_server_key")
         ),
-        "runtime": pod.runtime or existing.get("runtime"),
-        "launch_config": pod.launch_config if pod.launch_config is not None else existing.get("launch_config"),
-        "state": pod.state,
+        "runtime": agent.runtime or existing.get("runtime"),
+        "launch_config": agent.launch_config if agent.launch_config is not None else existing.get("launch_config"),
+        "state": agent.state,
     }
     with open(AGENTS_STATE, "w") as f:
         json.dump(state, f, indent=2, default=str)
@@ -253,7 +257,7 @@ def _load_state() -> dict:
     return {}
 
 
-def _remove_pod_state(agent_id: str):
+def _remove_agent_state(agent_id: str):
     state = _load_state()
     state.pop(agent_id, None)
     with open(AGENTS_STATE, "w") as f:
@@ -272,12 +276,12 @@ def _resolve_agent(agent_id: str) -> str:
         console.print(f"[yellow]Ambiguous ID prefix '{agent_id}'. Matches:[/yellow]")
         for m in matches:
             s = state[m]
-            console.print(f"  {m[:12]}  {s.get('pod_name', '')}  {s.get('state', '')}")
+            console.print(f"  {m[:12]}  {s.get('name', '')}  {s.get('state', '')}")
         raise typer.Exit(1)
     return agent_id
 
 
-def _get_pod_with_token(agent_id: str) -> Agent:
+def _get_agent_with_token(agent_id: str) -> Agent:
     """Get an agent, filling JWT from local state if needed."""
     resolved_agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
@@ -567,11 +571,11 @@ def create(
     sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
     api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent or pod"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent"),
     no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
-    wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
+    wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for the agent to be running"),
 ):
-    """Create a new managed agent pod."""
+    """Create a new managed agent."""
     runtime = _managed_runtime(runtime)
     agents = _get_deployments_client()
     env_dict = _parse_env_vars(env)
@@ -611,7 +615,7 @@ def create(
             index_interval_minutes=index_interval_minutes,
         )
 
-    console.print("\n[bold]Creating agent pod...[/bold]")
+    console.print("\n[bold]Creating agent...[/bold]")
 
     try:
         common = {
@@ -649,10 +653,10 @@ def create(
         raise typer.Exit(1)
 
     if not pod.dry_run:
-        _save_pod_state(pod)
+        _save_agent_state(pod)
 
     console.print(f"[green]✓[/green] {'Agent launch validated' if pod.dry_run else 'Agent created'}: [bold]{pod.id[:12]}[/bold]")
-    console.print(f"  Name:     {pod.name or pod.pod_name}")
+    console.print(f"  Name:     {getattr(pod, 'name', None) or pod.id}")
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
     if runtime == "hermes-agent":
@@ -666,19 +670,24 @@ def create(
         console.print(f"  Port {p.get('port')}:  {_port_url(pod, p)} ({auth_text})")
 
     if wait and not pod.dry_run:
-        console.print("\n[dim]Waiting for pod to start...[/dim]")
+        console.print("\n[dim]Waiting for agent to start...[/dim]")
         try:
-            pod = agents.wait_running(pod.id, timeout=300, poll_interval=5)
-            _save_pod_state(pod)
+            pod = agents.wait_running(
+                pod.id,
+                timeout=300,
+                poll_interval=5,
+                **_runtime_generation_wait_kwargs(pod),
+            )
+            _save_agent_state(pod)
             console.print(f"[green]✅ Agent is running![/green]")
         except RuntimeError as e:
             console.print(f"[red]❌ Agent failed: {e}[/red]")
             raise typer.Exit(1)
         except TimeoutError:
-            console.print("[yellow]⚠ Timed out (5 min). Pod may still be starting.[/yellow]")
+            console.print("[yellow]⚠ Timed out (5 min). Agent may still be starting.[/yellow]")
 
     if pod.dry_run:
-        console.print("\n[dim]Dry run only. No agent or pod was created.[/dim]")
+        console.print("\n[dim]Dry run only. No agent was created.[/dim]")
     else:
         console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
@@ -700,7 +709,7 @@ def wait_agent(
 ):
     """Wait for an agent to reach RUNNING."""
     agents = _get_deployments_client()
-    pod = _get_pod_with_token(agent_id)
+    pod = _get_agent_with_token(agent_id)
 
     try:
         pod = agents.wait_running(pod.id, timeout=timeout, poll_interval=poll_interval)
@@ -711,9 +720,9 @@ def wait_agent(
         console.print(f"[yellow]⚠ {e}[/yellow]")
         raise typer.Exit(1)
 
-    _save_pod_state(pod)
+    _save_agent_state(pod)
     console.print(f"[green]✅ Agent is running:[/green] [bold]{pod.id[:12]}[/bold]")
-    console.print(f"  Name:     {pod.name or pod.pod_name}")
+    console.print(f"  Name:     {getattr(pod, 'name', None) or pod.id}")
     console.print(f"  State:    {pod.state}")
     console.print(f"  Desktop:  {pod.vnc_url}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
@@ -743,10 +752,10 @@ def list_agents(
     state: str | None = typer.Option(None, "--state", "-s", help="Filter by lifecycle state"),
     handle: str | None = typer.Option(None, "--handle", help="Filter by exact agent handle"),
     name: str | None = typer.Option(None, "--name", "-n", help="Filter by exact agent name"),
-    query: str | None = typer.Option(None, "--query", "-q", help="Search IDs, names, handles, pods, and hostnames"),
+    query: str | None = typer.Option(None, "--query", "-q", help="Search IDs, names, handles, and hostnames"),
     include_deleted: bool = typer.Option(False, "--include-deleted", help="Include deleted agents"),
 ):
-    """List all agent pods."""
+    """List all agents."""
     agents = _get_deployments_client()
 
     try:
@@ -768,7 +777,7 @@ def list_agents(
             "runtime": getattr(p, "runtime", None), "is_launchable": getattr(p, "is_launchable", True),
             "runtime_key_alias": getattr(p, "runtime_key_alias", None),
             "launch_config": getattr(p, "launch_config", None), "gateway_id": getattr(p, "gateway_id", None),
-            "pod_name": p.pod_name, "state": p.state,
+            "name": p.name, "state": p.state,
             "hostname": p.hostname, "vnc_url": p.vnc_url,
             "ports": p.ports,
         } for p in pods], indent=2, default=str))
@@ -797,7 +806,7 @@ def list_agents(
         size_str = f"{pod.cpu}c/{pod.memory}G" if pod.cpu else ""
         row = [
             pod.id[:12],
-            getattr(pod, "display_name", None) or pod.name or pod.pod_name or "",
+            getattr(pod, "display_name", None) or getattr(pod, "name", None) or pod.id,
             getattr(pod, "handle", None) or "",
             size_str,
             f"[{style}]{pod.state}[/{style}]",
@@ -808,7 +817,7 @@ def list_agents(
             row.append(ports_text)
         row.append(created)
         table.add_row(*row)
-        _save_pod_state(pod)
+        _save_agent_state(pod)
 
     console.print()
     console.print(table)
@@ -935,10 +944,10 @@ def status(
         console.print(f"[red]❌ Failed to get agent: {e}[/red]")
         raise typer.Exit(1)
 
-    _save_pod_state(pod)
+    _save_agent_state(pod)
 
     console.print(f"\n[bold]Agent {pod.id[:12]}[/bold]")
-    console.print(f"  Name:       {pod.name or pod.pod_name}")
+    console.print(f"  Name:       {getattr(pod, 'name', None) or pod.id}")
     if getattr(pod, "handle", None):
         console.print(f"  Handle:     @{pod.handle}")
     if getattr(pod, "display_name", None):
@@ -949,7 +958,6 @@ def status(
         console.print(f"  Runtime:    {pod.runtime}")
     if getattr(pod, "runtime_key_alias", None):
         console.print(f"  Key Ref:    {pod.runtime_key_alias}")
-    console.print(f"  Pod:        {pod.pod_name}")
     console.print(f"  Size:       {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:      {pod.state}")
     console.print(f"  Desktop:    {pod.vnc_url}")
@@ -964,22 +972,12 @@ def status(
     if pod.last_error:
         console.print(f"  Error:      [red]{pod.last_error}[/red]")
 
-    if pod.is_running and pod.executor_url:
-        try:
-            health = agents.health(pod)
-            console.print(f"\n[bold]Executor:[/bold]")
-            console.print(f"  Status:    {health.get('status', 'unknown')}")
-            console.print(f"  Disk Free: {health.get('disk_free_mb', '?')} MB")
-        except Exception as e:
-            console.print(f"\n[dim]Executor not reachable: {e}[/dim]")
-
-
 def _print_agent_metrics(data: dict) -> None:
-    pod_name = str(data.get("pod_name") or data.get("pod_id") or "")
+    agent_name = str(data.get("name") or data.get("agent_id") or "")
     timestamp = str(data.get("timestamp") or "")
     title = "Agent Metrics"
-    if pod_name:
-        title = f"{title} — {pod_name}"
+    if agent_name:
+        title = f"{title} — {agent_name}"
 
     table = Table(title=title)
     table.add_column("Container", style="cyan")
@@ -1113,8 +1111,8 @@ def start(
         except Exception as e:
             console.print(f"[red]❌ Failed to start agent: {e}[/red]")
             raise typer.Exit(1)
-        _save_pod_state(pod)
-        console.print(f"[green]✓[/green] Agent starting: {pod.pod_name}")
+        _save_agent_state(pod)
+        console.print(f"[green]✓[/green] Agent starting: {getattr(pod, 'name', None) or pod.id}")
         return
 
     try:
@@ -1233,10 +1231,10 @@ def start(
         raise typer.Exit(1)
 
     if not pod.dry_run:
-        _save_pod_state(pod)
-    console.print(f"[green]✓[/green] {'Agent start validated' if pod.dry_run else 'Agent starting'}: {pod.pod_name}")
+        _save_agent_state(pod)
+    console.print(f"[green]✓[/green] {'Agent start validated' if pod.dry_run else 'Agent starting'}: {getattr(pod, 'name', None) or pod.id}")
     if pod.dry_run:
-        console.print("  No pod was created.")
+        console.print("  No agent was created.")
     else:
         if is_hermes:
             console.print(f"  API: {pod.api_url or 'pending route assignment'}")
@@ -1269,7 +1267,7 @@ def stop(
         console.print(f"[red]❌ Failed to stop agent: {e}[/red]")
         raise typer.Exit(1)
 
-    _save_pod_state(pod)
+    _save_agent_state(pod)
     if str(pod.state or "").lower() == "stopped":
         console.print("[green]✅ Agent stopped[/green]")
         console.print(f"Restart with: [bold]hyper agents start {agent_id[:8]}[/bold]")
@@ -1303,7 +1301,7 @@ def delete(
         console.print(f"[red]❌ Failed to delete agent: {e}[/red]")
         raise typer.Exit(1)
 
-    _remove_pod_state(agent_id)
+    _remove_agent_state(agent_id)
     console.print(f"[green]✅ Agent {agent_id[:12]} deleted[/green]")
 
 
@@ -1317,7 +1315,7 @@ def exec_cmd(
     agent_id = _resolve_agent(agent_id)
 
     try:
-        pod = _get_pod_with_token(agent_id)
+        pod = _get_agent_with_token(agent_id)
     except Exception as e:
         console.print(f"[red]❌ Failed to get agent: {e}[/red]")
         raise typer.Exit(1)
@@ -1361,11 +1359,11 @@ def cp(
             local_size = Path(src_path).stat().st_size
             if local_size > AGENT_FILE_MAX_BYTES:
                 raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
-            pod = _get_pod_with_token(dst_agent_id)
+            pod = _get_agent_with_token(dst_agent_id)
             agents.cp_to(pod, src_path, dst_path)
             console.print(f"[green]✓[/green] Copied [bold]{src_path}[/bold] to [bold]{dst_agent_id[:12]}:{dst_path}[/bold]")
         else:
-            pod = _get_pod_with_token(src_agent_id)
+            pod = _get_agent_with_token(src_agent_id)
             local_path = agents.cp_from(pod, src_path, dst_path)
             console.print(f"[green]✓[/green] Copied [bold]{src_agent_id[:12]}:{src_path}[/bold] to [bold]{local_path}[/bold]")
     except Exception as e:
@@ -1468,113 +1466,30 @@ def logs(
         "-f",
         help="Follow log output",
     ),
-    ws: bool = typer.Option(
-        True,
-        "--ws/--executor",
-        help="Use the backend WebSocket (default) or the legacy public executor route",
-    ),
 ):
-    """Stream logs from an agent pod."""
+    """Stream logs from an agent."""
     agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
+    import asyncio
 
-    if ws:
-        # WebSocket mode via backend
-        import asyncio
-
-        async def _stream_ws():
-            try:
-                async for line in agents.logs_stream_ws(
-                    agent_id,
-                    tail_lines=lines,
-                    follow=follow,
-                ):
-                    console.print(line, markup=False, highlight=False, soft_wrap=True)
-            except KeyboardInterrupt:
-                pass
-            except Exception as e:
-                console.print(f"[red]❌ Logs failed: {e}[/red]")
-                raise typer.Exit(1)
-
+    async def _stream_ws():
         try:
-            asyncio.run(_stream_ws())
-        except KeyboardInterrupt:
-            pass
-    else:
-        # SSE mode via executor (legacy)
-        try:
-            pod = _get_pod_with_token(agent_id)
-        except Exception as e:
-            console.print(f"[red]❌ Failed to get agent: {e}[/red]")
-            raise typer.Exit(1)
-
-        try:
-            for line in agents.logs_stream(pod, lines=lines, follow=follow):
-                console.print(line)
+            async for line in agents.logs_stream_ws(
+                agent_id,
+                tail_lines=lines,
+                follow=follow,
+            ):
+                console.print(line, markup=False, highlight=False, soft_wrap=True)
         except KeyboardInterrupt:
             pass
         except Exception as e:
             console.print(f"[red]❌ Logs failed: {e}[/red]")
             raise typer.Exit(1)
 
-
-@app.command("chat")
-def chat(
-    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
-    model: str = typer.Option("hypercli/kimi-k2.5", "--model", "-m", help="Model to use"),
-):
-    """Interactive chat with an agent's OpenClaw instance.
-
-    Connects to the OpenClaw gateway running inside the agent pod.
-    Type your messages, get streaming responses. Ctrl+C or 'exit' to quit.
-    """
-    agent_id = _resolve_agent(agent_id)
-
     try:
-        pod = _get_pod_with_token(agent_id)
-    except Exception as e:
-        console.print(f"[red]❌ Failed to get agent: {e}[/red]")
-        raise typer.Exit(1)
-
-    agents = _get_deployments_client()
-    messages = []
-
-    console.print(f"\n[bold]Chat with agent {pod.pod_name}[/bold] (model: {model})")
-    console.print("[dim]Type your message. 'exit' or Ctrl+C to quit.[/dim]\n")
-
-    while True:
-        try:
-            user_input = console.input("[bold cyan]> [/bold cyan]")
-        except (EOFError, KeyboardInterrupt):
-            console.print("\n[dim]Bye.[/dim]")
-            break
-
-        user_input = user_input.strip()
-        if not user_input:
-            continue
-        if user_input.lower() in ("exit", "quit", "/exit", "/quit"):
-            console.print("[dim]Bye.[/dim]")
-            break
-
-        messages.append({"role": "user", "content": user_input})
-
-        try:
-            full_response = ""
-            for chunk in agents.chat_stream(pod, messages, model=model):
-                sys.stdout.write(chunk)
-                sys.stdout.flush()
-                full_response += chunk
-            sys.stdout.write("\n\n")
-            sys.stdout.flush()
-
-            messages.append({"role": "assistant", "content": full_response})
-        except KeyboardInterrupt:
-            sys.stdout.write("\n")
-            continue
-        except Exception as e:
-            console.print(f"\n[red]Error: {e}[/red]\n")
-            # Remove failed user message
-            messages.pop()
+        asyncio.run(_stream_ws())
+    except KeyboardInterrupt:
+        pass
 
 
 @app.command("token")
@@ -1622,7 +1537,7 @@ def gateway_config(
     schema: bool = typer.Option(False, "--schema", help="Show config schema instead of current config"),
 ):
     """Get the OpenClaw gateway config for an agent."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         result = await (pod.config_schema() if schema else pod.config_get())
@@ -1637,7 +1552,7 @@ def gateway_config_patch(
     patch: str = typer.Argument(..., help="JSON patch to apply"),
 ):
     """Patch the OpenClaw gateway config (merges with existing). Restarts gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
     patch_data = json.loads(patch)
 
     async def _run():
@@ -1652,7 +1567,7 @@ def gateway_models(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),
 ):
     """List available models on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         models = await pod.models_list()
@@ -1673,7 +1588,7 @@ def gateway_files(
     set_file: str = typer.Option(None, "--set", help="Write a file (name=content)"),
 ):
     """List or read/write workspace files on an agent via Gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         if get:
@@ -1705,7 +1620,7 @@ def gateway_sessions(
     limit: int = typer.Option(20, "--limit", "-n"),
 ):
     """List chat sessions on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         sessions = await pod.sessions_list(limit=limit)
@@ -1723,7 +1638,7 @@ def gateway_cron(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),
 ):
     """List cron jobs on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         jobs = await pod.cron_list()
@@ -1743,7 +1658,7 @@ def gateway_cron_add(
     job_json: str = typer.Argument(..., help='Cron job JSON, e.g. \'{"name":"backup","schedule":"0 * * * *","command":"echo hi"}\''),
 ):
     """Add a cron job to an agent's gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
     try:
         job_data = json.loads(job_json)
     except json.JSONDecodeError as e:
@@ -1764,7 +1679,7 @@ def gateway_cron_remove(
     job_id: str = typer.Argument(..., help="Cron job ID to remove"),
 ):
     """Remove a cron job from an agent's gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         await pod.cron_remove(job_id)
@@ -1779,7 +1694,7 @@ def gateway_cron_run(
     job_id: str = typer.Argument(..., help="Cron job ID to trigger"),
 ):
     """Manually trigger a cron job on an agent's gateway."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         result = await pod.cron_run(job_id)
@@ -1797,7 +1712,7 @@ def gateway_chat(
     session_key: str = typer.Option("main", "--session-key", help="Gateway chat session key"),
 ):
     """Send a chat message to an agent via the Gateway and stream the response."""
-    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    pod = _require_openclaw_agent(_get_agent_with_token(agent_id))
 
     async def _run():
         async for event in pod.chat_send(message, session_key=session_key):

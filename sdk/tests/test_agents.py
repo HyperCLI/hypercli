@@ -45,8 +45,6 @@ def test_agent_from_dict_minimal():
         {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "pending",
         }
     )
@@ -68,6 +66,9 @@ def test_agent_from_dict_hydrates_transition_epochs_and_future_state():
             "placement_epoch": 7,
             "runtime_generation": 4,
             "finalize_epoch": 2,
+            "revision": 11,
+            "resources_exist": True,
+            "namespace_exists": True,
         }
     )
 
@@ -75,6 +76,9 @@ def test_agent_from_dict_hydrates_transition_epochs_and_future_state():
     assert agent.placement_epoch == 7
     assert agent.runtime_generation == 4
     assert agent.finalize_epoch == 2
+    assert agent.revision == 11
+    assert agent.resources_exist is True
+    assert agent.namespace_exists is True
 
 
 def test_agent_from_dict_hydrates_starting_runtime_status():
@@ -313,7 +317,7 @@ async def test_wait_running_async_accepts_every_canonical_transitional_state(
 
 
 @pytest.mark.asyncio
-async def test_wait_for_state_ignores_terminal_snapshot_from_older_runtime(monkeypatch):
+async def test_wait_running_ignores_terminal_snapshot_from_older_runtime(monkeypatch):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
@@ -337,11 +341,9 @@ async def test_wait_for_state_ignores_terminal_snapshot_from_older_runtime(monke
 
     monkeypatch.setattr(deployments, "subscribe", subscribe)
 
-    agent = await deployments.wait_for_state_async(
+    agent = await deployments.wait_running_async(
         "agent-123",
-        {"running"},
         timeout=1,
-        failure_states={"failed"},
         minimum_runtime_generation=10,
     )
 
@@ -405,8 +407,6 @@ def test_self_selector_is_limited_to_status_lifecycle_and_routes():
     response = {
         "id": "agent-123",
         "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "pod-789",
         "state": "running",
     }
 
@@ -439,8 +439,6 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
         {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "external_ready",
             "name": "Legacy name",
             "handle": "claw",
@@ -482,8 +480,6 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
         {
             "id": "agent-456",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "external_ready",
             "image_url": "https://cdn.example/legacy.png",
             "managed": False,
@@ -583,8 +579,6 @@ async def test_openclaw_agent_configure_slack_relay_uses_gateway_id(monkeypatch)
     agent = OpenClawAgent(
         id="11111111-1111-1111-1111-111111111111",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="pod-789",
         state="running",
         gateway_id="agent:11111111-1111-1111-1111-111111111111",
     )
@@ -624,8 +618,6 @@ async def test_openclaw_agent_configure_slack_socket_delegates(monkeypatch):
     agent = OpenClawAgent(
         id="11111111-1111-1111-1111-111111111111",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="pod-789",
         state="running",
     )
     seen = []
@@ -669,8 +661,6 @@ async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
     agent = OpenClawAgent(
         id="11111111-1111-1111-1111-111111111111",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="pod-789",
         state="running",
     )
     seen = []
@@ -711,8 +701,6 @@ def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
             {
                 "id": "agent-123",
                 "user_id": "user-456",
-                "pod_id": "pod-789",
-                "pod_name": "pod-789",
                 "state": failed_state,
                 "error": "WorkspaceSyncFailed",
                 "message": "workspace sync failed",
@@ -765,8 +753,6 @@ def test_agent_from_dict_hydrates_only_meta_ui():
         {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "pending",
             "meta": {
                 "ui": {
@@ -794,8 +780,6 @@ def test_agent_urls_and_running_state():
     agent = Agent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         hostname="test.hypercli.com",
     )
@@ -808,7 +792,6 @@ def test_agent_urls_and_running_state():
         == "https://desktop-test.hypercli.com/_jwt_auth?jwt=jwt-123&redirect=vnc.html%3Fresize%3Dscale"
     )
     assert agent.shell_url is None
-    assert agent.executor_url is None
     assert agent.is_running is True
 
 
@@ -927,8 +910,6 @@ def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():
     agent = Agent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         hostname="test.hypercli.com",
     )
@@ -963,8 +944,6 @@ def test_flatten_launch_config_and_agent_has_desktop():
         {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "running",
             "hostname": "agent.hypercli.com",
             "routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}},
@@ -980,8 +959,6 @@ def test_openclaw_agent_from_dict():
         {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "running",
             "hostname": "test.hypercli.com",
             "gateway_token": "gw123",
@@ -1013,8 +990,6 @@ def test_openclaw_agent_from_dict_does_not_guess_gateway_url_from_hostname():
         {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "running",
             "hostname": "test.hypercli.com",
         }
@@ -1027,8 +1002,6 @@ def test_openclaw_agent_gateway_requires_url():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
     )
     with pytest.raises(ValueError, match="Deployments client"):
@@ -1041,8 +1014,6 @@ def test_openclaw_agent_gateway_allows_jwtless_when_route_auth_disabled():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
@@ -1063,8 +1034,6 @@ def test_openclaw_agent_gateway_ignores_jwt_and_uses_bound_tokens():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
@@ -1087,8 +1056,6 @@ def test_openclaw_agent_wait_running_still_delegates_to_deployments():
     ready = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-ready",
-        pod_name="ready-pod",
         state="running",
         hostname="ready.hypercli.com",
     )
@@ -1098,8 +1065,6 @@ def test_openclaw_agent_wait_running_still_delegates_to_deployments():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-pending",
-        pod_name="pending-pod",
         state="starting",
         hostname="ready.hypercli.com",
         _deployments=manager,
@@ -1112,7 +1077,6 @@ def test_openclaw_agent_wait_running_still_delegates_to_deployments():
     agent.wait_for_gateway_context.assert_not_called()
     assert result is agent
     assert agent.state == "running"
-    assert agent.pod_id == "pod-ready"
 
 
 def test_agent_wait_running_delegates_to_deployments():
@@ -1120,8 +1084,6 @@ def test_agent_wait_running_delegates_to_deployments():
     ready = Agent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-ready",
-        pod_name="ready-pod",
         state="running",
         hostname="ready.hypercli.com",
     )
@@ -1131,18 +1093,21 @@ def test_agent_wait_running_delegates_to_deployments():
     agent = Agent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-pending",
-        pod_name="pending-pod",
-        state="pending",
+        state="STARTING",
+        runtime_generation=10,
         _deployments=manager,
     )
 
     result = agent.wait_running(timeout=42, poll_interval=1.5)
 
-    manager.wait_running.assert_called_once_with("agent-123", timeout=42, poll_interval=1.5)
+    manager.wait_running.assert_called_once_with(
+        "agent-123",
+        timeout=42,
+        poll_interval=1.5,
+        minimum_runtime_generation=10,
+    )
     assert result is agent
     assert agent.state == "running"
-    assert agent.pod_id == "pod-ready"
     assert agent.hostname == "ready.hypercli.com"
 
 
@@ -1151,8 +1116,6 @@ async def test_openclaw_agent_wait_ready_uses_gateway_client():
     agent = OpenClawAgent(
         id="agent-ready",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
@@ -1184,8 +1147,6 @@ async def test_openclaw_agent_helper_methods_mutate_config():
     agent = OpenClawAgent(
         id="agent-helpers",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
@@ -1299,8 +1260,6 @@ def test_bound_agent_methods_delegate_to_agents(tmp_path):
     agent = Agent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         _deployments=manager,
     )
@@ -1418,8 +1377,6 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "hostname": "test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
@@ -1451,8 +1408,6 @@ def test_create_openclaw_respects_explicit_empty_routes(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
         }
         mock_client.post.return_value = mock_response
@@ -1475,8 +1430,6 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "launch_config": {
                 "image": DEFAULT_OPENCLAW_PRO_IMAGE,
@@ -1517,8 +1470,6 @@ def test_create_openclaw_allows_hyper_api_base_override(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
         }
         mock_client.post.return_value = mock_response
@@ -1543,8 +1494,6 @@ def test_create_openclaw_accepts_memory_index_options(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "launch_config": {
                 "env": {},
@@ -1586,8 +1535,6 @@ def test_create_openclaw_accepts_workspaces_sync_options(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
         }
         mock_client.post.return_value = mock_response
@@ -1626,8 +1573,6 @@ def test_create_openclaw_can_disable_workspaces_sync(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
         }
         mock_client.post.return_value = mock_response
@@ -1651,8 +1596,6 @@ def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
         }
         mock_client.post.return_value = mock_response
@@ -1691,8 +1634,6 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "cpu": 2,
             "memory": 8,
@@ -1793,8 +1734,6 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "hostname": "openclaw-test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
@@ -1821,8 +1760,6 @@ def test_start_openclaw_defaults_sync_root(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "hostname": "openclaw-test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
@@ -1849,8 +1786,6 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "hostname": "buzz-test.hypercli.com",
         }
@@ -1884,8 +1819,6 @@ def test_start_openclaw_pro_defaults_runtime_scopes(agents_client):
         return {
             "id": "11111111-1111-4111-8111-111111111111",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "runtime": "openclaw-pro",
         }
@@ -2001,8 +1934,6 @@ def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "running",
             "hostname": "test.hypercli.com",
         }
@@ -2114,7 +2045,7 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             return FakeResponse(json_data={"status": "ok"})
 
     with patch("hypercli.agents.httpx.Client", FakeClient):
-        agent = Agent(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
+        agent = Agent(id="agent-123", user_id="user-456", state="RUNNING")
 
         entries = agents_client.files_list(agent, "workspace")
         hidden_entries = agents_client.files_list(agent, ".openclaw")
@@ -2168,15 +2099,11 @@ def test_agents_list(agents_client):
                 {
                     "id": "agent-1",
                     "user_id": "user-456",
-                    "pod_id": "pod-1",
-                    "pod_name": "pod-1",
                     "state": "running",
                 },
                 {
                     "id": "agent-2",
                     "user_id": "user-456",
-                    "pod_id": "pod-2",
-                    "pod_name": "pod-2",
                     "state": "stopped",
                 },
             ]
@@ -2200,8 +2127,6 @@ def test_agents_list_with_capacity_preserves_envelope(agents_client):
             {
                 "id": "agent-1",
                 "user_id": "user-456",
-                "pod_id": "pod-1",
-                "pod_name": "pod-1",
                 "state": "RUNNING",
             }
         ],
@@ -2285,8 +2210,6 @@ def test_agents_start_stop_delete(agents_client):
         mock_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "starting",
             "hostname": "openclaw-test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
@@ -2330,8 +2253,6 @@ def test_agents_update_and_resize(agents_client):
         return {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": None,
-            "pod_name": None,
             "state": "stopped",
             "cpu": 4,
             "memory": 4,
@@ -2375,8 +2296,6 @@ def test_bound_agent_resize_delegates_to_deployments(agents_client):
         return {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": None,
-            "pod_name": None,
             "state": "stopped",
             "cpu": 4,
             "memory": 4,
@@ -2391,8 +2310,6 @@ def test_bound_agent_resize_delegates_to_deployments(agents_client):
         get_response.json.return_value = {
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": None,
-            "pod_name": None,
             "state": "stopped",
             "cpu": 2,
             "memory": 2,
@@ -2417,8 +2334,6 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         mock_response.json.return_value = {
             "id": "agent-456",
             "user_id": "user-456",
-            "pod_id": "pod-456",
-            "pod_name": "generic-pod",
             "state": "starting",
             "hostname": "generic.hypercli.com",
         }
@@ -2488,8 +2403,6 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
         mock_response.json.return_value = {
             "id": "11111111-1111-4111-8111-111111111111",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "buzz-agent",
             "state": "starting",
             "runtime": "opencode",
             "launch_config": {
@@ -2578,7 +2491,6 @@ def test_agents_refresh_token(agents_client):
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "agent_id": "agent-123",
-            "pod_id": "pod-789",
             "token": "jwt-new-token",
             "expires_at": "2026-03-01T12:00:00Z",
         }
@@ -2710,8 +2622,6 @@ def test_openclaw_agent_resolve_gateway_token_uses_env_route():
     manager.get.return_value = OpenClawAgent.from_dict({
         "id": "agent-123",
         "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "test-pod",
         "state": "running",
         "hostname": "openclaw-test.hypercli.com",
         "routes": {"openclaw": {"port": 18789, "auth": False}},
@@ -2720,8 +2630,6 @@ def test_openclaw_agent_resolve_gateway_token_uses_env_route():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         _deployments=manager,
     )
@@ -2741,8 +2649,6 @@ def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch
         OpenClawAgent.from_dict({
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "running",
             "hostname": None,
             "routes": {"openclaw": {"port": 18789, "auth": False}},
@@ -2750,8 +2656,6 @@ def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch
         OpenClawAgent.from_dict({
             "id": "agent-123",
             "user_id": "user-456",
-            "pod_id": "pod-789",
-            "pod_name": "test-pod",
             "state": "running",
             "hostname": "openclaw-test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False}},
@@ -2764,8 +2668,6 @@ def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         _deployments=manager,
     )
@@ -2788,8 +2690,6 @@ def test_openclaw_agent_gateway_resolves_missing_url_via_env_route():
     manager.get.return_value = OpenClawAgent.from_dict({
         "id": "agent-123",
         "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "test-pod",
         "state": "running",
         "hostname": "openclaw-test.hypercli.com",
         "routes": {"openclaw": {"port": 18789, "auth": False}},
@@ -2798,8 +2698,6 @@ def test_openclaw_agent_gateway_resolves_missing_url_via_env_route():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
         state="running",
         gateway_token="gw-inline",
         _deployments=manager,

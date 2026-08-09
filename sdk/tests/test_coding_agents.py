@@ -109,8 +109,6 @@ def _agent_payload(runtime: str) -> dict:
     return {
         "id": f"{runtime}-1",
         "user_id": "user-1",
-        "pod_id": "pod-1",
-        "pod_name": f"{runtime}-pod",
         "state": "starting",
         "runtime": runtime,
     }

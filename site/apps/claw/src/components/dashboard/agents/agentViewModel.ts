@@ -23,8 +23,8 @@ export function normalizeAgentState(state: unknown): AgentState {
   return normalized;
 }
 
-export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | "displayName" | "managed" | "pod_name">): string {
-  const canonicalName = agent.name?.trim() || agent.pod_name?.trim() || agent.id;
+export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | "displayName" | "managed">): string {
+  const canonicalName = agent.name?.trim() || agent.id;
   const handle = agent.handle?.trim();
   return agent.managed === false
     ? agent.displayName?.trim() || canonicalName
@@ -42,7 +42,7 @@ export function didAnyAgentFinishStopping(
 
 export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | null): Agent {
   const managed = agent.managed ?? null;
-  const canonicalName = agent.name?.trim() || agent.podName?.trim() || agent.id;
+  const canonicalName = agent.name?.trim() || agent.id;
   return {
     id: agent.id,
     name: canonicalName,
@@ -58,8 +58,6 @@ export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | n
     runtime: agent.runtime ?? null,
     gatewayId: agent.gatewayId ?? null,
     user_id: agent.userId,
-    pod_id: agent.podId || null,
-    pod_name: agent.podName || null,
     state: normalizeAgentState(agent.state),
     cpu_millicores: Math.round((agent.cpu || 0) * 1000),
     memory_mib: Math.round((agent.memory || 0) * 1024),
@@ -73,7 +71,9 @@ export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | n
     placementEpoch: agent.placementEpoch,
     runtimeGeneration: agent.runtimeGeneration,
     finalizeEpoch: agent.finalizeEpoch,
-    restoreState: agent.restoreState,
+    revision: agent.revision,
+    resourcesExist: agent.resourcesExist,
+    namespaceExists: agent.namespaceExists,
     launchConfig: agent.launchConfig ?? null,
     hasDesktop: agent.hasDesktop,
     meta: agent.meta ?? null,

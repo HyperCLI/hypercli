@@ -144,8 +144,6 @@ test("dev agents retries a failed event refresh and resyncs after reconnect", as
           id: "agent-1",
           name: agentName,
           user_id: "user-1",
-          pod_id: null,
-          pod_name: null,
           state: "STOPPED",
           cpu: 1,
           memory: 2,

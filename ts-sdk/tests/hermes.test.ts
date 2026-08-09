@@ -13,8 +13,6 @@ function deployment(runtime = 'hermes-agent') {
   return {
     id: 'agent-hermes',
     user_id: 'user-1',
-    pod_id: 'pod-1',
-    pod_name: 'hermes',
     state: 'STARTING',
     runtime,
     hostname: 'hermes-agent.example.test',

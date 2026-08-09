@@ -18,7 +18,6 @@ type AgentState = "PENDING" | "RESTORING" | "RESTORE_FAILED" | "SYNCING" | "SYNC
 interface SidebarAgent {
   id: string;
   name: string;
-  pod_name: string | null;
   state: AgentState;
   cpu_millicores: number;
   memory_mib: number;
@@ -210,7 +209,7 @@ export function LegacyAgentSidebar({
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.pod_name || agent.id}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.id}</p>
                       <motion.span
                         className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${stateClass(agent.state)}`}
                         animate={isTransitioning ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
