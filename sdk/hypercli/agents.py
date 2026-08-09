@@ -3931,8 +3931,9 @@ class Deployments:
         *,
         timeout: float = 300.0,
         failure_states: set[str] | None = None,
+        minimum_runtime_generation: int | None = None,
     ) -> Agent:
-        """Wait for one of ``states`` using WebSocket wakeups and REST confirmation."""
+        """Wait for one state in the requested runtime incarnation."""
         agent_id = await asyncio.to_thread(self.resolve_agent_id, agent_id_or_name)
         deadline = asyncio.get_running_loop().time() + timeout
         wake = asyncio.Event()
@@ -3941,10 +3942,17 @@ class Deployments:
         failures = {state.lower() for state in (failure_states or set())}
         if not desired:
             raise ValueError("states must not be empty")
+        if minimum_runtime_generation is not None and minimum_runtime_generation < 0:
+            raise ValueError("minimum_runtime_generation must be non-negative")
 
         def check(agent: Agent) -> Agent | None:
             nonlocal last_agent
             last_agent = agent
+            if (
+                minimum_runtime_generation is not None
+                and int(agent.runtime_generation or 0) < minimum_runtime_generation
+            ):
+                return None
             state = str(agent.state or "")
             if state.lower() in desired:
                 return agent
@@ -4034,6 +4042,7 @@ class Deployments:
         *,
         timeout: float = 300.0,
         failure_states: set[str] | None = None,
+        minimum_runtime_generation: int | None = None,
     ) -> Agent:
         """Synchronous event-assisted state wait; use the async variant in an event loop."""
         return _run_sync(
@@ -4042,6 +4051,7 @@ class Deployments:
                     states,
                     timeout=timeout,
                     failure_states=failure_states,
+                    minimum_runtime_generation=minimum_runtime_generation,
             ),
             running_loop_error=(
                 "wait_for_state() cannot run inside an event loop; use wait_for_state_async()"

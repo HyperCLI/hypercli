@@ -304,6 +304,43 @@ async def test_wait_running_async_accepts_every_canonical_boot_state(monkeypatch
     assert agent.state == "RUNNING"
 
 
+@pytest.mark.asyncio
+async def test_wait_for_state_ignores_terminal_snapshot_from_older_runtime(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    snapshots = iter(
+        (
+            {"id": "agent-123", "state": "FAILED", "runtime_generation": 9},
+            {"id": "agent-123", "state": "RUNNING", "runtime_generation": 10},
+        )
+    )
+    monkeypatch.setattr(deployments, "resolve_agent_id", lambda _value: "agent-123")
+    monkeypatch.setattr(
+        deployments,
+        "get",
+        lambda _value: Agent.from_dict(next(snapshots)),
+    )
+
+    async def subscribe(handler, **kwargs):
+        await kwargs["on_ready"]()
+        handler(DeploymentEvent(type="deployment.transition", agent_id="agent-123"))
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(deployments, "subscribe", subscribe)
+
+    agent = await deployments.wait_for_state_async(
+        "agent-123",
+        {"running"},
+        timeout=1,
+        failure_states={"failed"},
+        minimum_runtime_generation=10,
+    )
+
+    assert agent.state == "RUNNING"
+    assert agent.runtime_generation == 10
+
+
 def _routes_response(**overrides):
     response = {
         "agent_id": "agent-123",
