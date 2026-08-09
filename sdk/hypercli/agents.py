@@ -123,35 +123,27 @@ _T = TypeVar("_T")
 # canonical states the SDK understands today; they are not a client-side FSM.
 CANONICAL_AGENT_STATES: tuple[str, ...] = (
     "CREATING",
-    "PENDING",
-    "DOWNLOADING",
+    "STARTING",
     "RESTORING",
-    "SYNCING",
     "RUNNING",
-    "COMPLETED",
-    "CRASHED",
     "STOPPING",
     "STOPPED",
     "ARCHIVING",
     "ARCHIVED",
-    "DELETED",
     "FAILED",
+    "DELETED",
 )
 AGENT_TRANSITIONAL_STATES = frozenset(
     {
         "CREATING",
-        "PENDING",
-        "DOWNLOADING",
+        "STARTING",
         "RESTORING",
-        "SYNCING",
-        "COMPLETED",
-        "CRASHED",
         "STOPPING",
         "ARCHIVING",
     }
 )
 AGENT_RUNTIME_INACTIVE_STATES = frozenset(
-    {"COMPLETED", "CRASHED", "STOPPED", "ARCHIVING", "ARCHIVED", "DELETED", "FAILED"}
+    {"STOPPED", "ARCHIVING", "ARCHIVED", "DELETED", "FAILED"}
 )
 AGENT_WAIT_RUNNING_FAILURE_STATES = frozenset(
     {"STOPPED", "ARCHIVED", "DELETED", "FAILED"}
@@ -1263,7 +1255,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "reason": data.get("reason"),
         "error": data.get("error", data.get("last_error")),
         "message": data.get("message"),
-        # Rollout-only compatibility aliases. New APIs use stage/reason/error/message.
+        # Rollout-only compatibility aliases. New APIs use reason/error/message.
         "last_error": data.get("last_error", data.get("error")),
         "runtime_status": (
             copy.deepcopy(data.get("runtime_status"))
@@ -1946,7 +1938,7 @@ class Agent:
     reason: Optional[str] = None
     error: Optional[str] = None
     message: Optional[str] = None
-    # Deprecated rollout compatibility aliases; use stage/reason/error/message.
+    # Deprecated rollout compatibility aliases; use reason/error/message.
     last_error: Optional[str] = None
     runtime_status: Optional[dict] = None
     placement_epoch: int = 0

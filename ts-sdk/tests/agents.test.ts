@@ -195,7 +195,6 @@ describe('Agents SDK', () => {
             type: 'deployment.transition',
             agent_id: 'agent-123',
             state: 'ARCHIVING',
-            stage: 'archiving',
             reason: 'archive_request',
             error: null,
             message: 'Agent archive is being finalized',
@@ -233,7 +232,6 @@ describe('Agents SDK', () => {
     expect(received[0]).toMatchObject({
       agent_id: 'agent-123',
       state: 'ARCHIVING',
-      stage: 'archiving',
       reason: 'archive_request',
       error: null,
       message: 'Agent archive is being finalized',
@@ -742,13 +740,9 @@ describe('Agents SDK', () => {
 
   it.each([
     'CREATING',
-    'PENDING',
-    'DOWNLOADING',
+    'STARTING',
     'RESTORING',
-    'SYNCING',
     'RUNNING',
-    'COMPLETED',
-    'CRASHED',
     'STOPPING',
     'STOPPED',
     'ARCHIVING',
@@ -761,7 +755,6 @@ describe('Agents SDK', () => {
         id: 'agent-123',
         user_id: 'user-456',
         state,
-        stage: state.toLowerCase(),
         reason: state === 'STOPPED' ? 'runtime_exit' : 'start',
         error: state === 'FAILED' ? 'ExampleError' : null,
         message: `Lifecycle state is ${state}`,
@@ -772,18 +765,38 @@ describe('Agents SDK', () => {
     const agent = await deployments.get('agent-123');
 
     expect(agent.state).toBe(state);
-    expect(agent.stage).toBe(state.toLowerCase());
     expect(agent.reason).toBe(state === 'STOPPED' ? 'runtime_exit' : 'start');
     expect(agent.error).toBe(state === 'FAILED' ? 'ExampleError' : null);
     expect(agent.message).toBe(`Lifecycle state is ${state}`);
   });
 
   it('classifies archive and deletion states without closing AgentState', () => {
-    expect(CANONICAL_AGENT_STATES).toEqual(expect.arrayContaining(['COMPLETED', 'CRASHED', 'ARCHIVING', 'ARCHIVED', 'DELETED']));
-    expect(AGENT_TRANSITIONAL_STATES.has('COMPLETED')).toBe(true);
-    expect(AGENT_TRANSITIONAL_STATES.has('CRASHED')).toBe(true);
-    expect(AGENT_TRANSITIONAL_STATES.has('ARCHIVING')).toBe(true);
-    expect(AGENT_RUNTIME_INACTIVE_STATES.has('ARCHIVING')).toBe(true);
+    expect(CANONICAL_AGENT_STATES).toEqual([
+      'CREATING',
+      'STARTING',
+      'RESTORING',
+      'RUNNING',
+      'STOPPING',
+      'STOPPED',
+      'ARCHIVING',
+      'ARCHIVED',
+      'FAILED',
+      'DELETED',
+    ]);
+    expect([...AGENT_TRANSITIONAL_STATES]).toEqual([
+      'CREATING',
+      'STARTING',
+      'RESTORING',
+      'STOPPING',
+      'ARCHIVING',
+    ]);
+    expect([...AGENT_RUNTIME_INACTIVE_STATES]).toEqual([
+      'STOPPED',
+      'ARCHIVING',
+      'ARCHIVED',
+      'FAILED',
+      'DELETED',
+    ]);
     expect(isAgentTransitionalState('archiving')).toBe(true);
     expect(isAgentRuntimeInactiveState('archived')).toBe(true);
     expect(isAgentTransitionalState('FUTURE_SERVER_STATE')).toBe(false);
@@ -812,7 +825,6 @@ describe('Agents SDK', () => {
         id: 'agent-123',
         user_id: 'user-456',
         state: 'STOPPED',
-        stage: 'stopped',
         reason: 'api_stop',
         error: null,
         message: 'Agent stopped normally',
@@ -827,8 +839,8 @@ describe('Agents SDK', () => {
     expect(agent.message).toBe('Agent stopped normally');
   });
 
-  it.each(['CREATING', 'PENDING', 'DOWNLOADING', 'RESTORING', 'SYNCING', 'STOPPING'] as const)(
-    'waitForState treats boot state %s as a valid intermediate observation',
+  it.each(['CREATING', 'STARTING', 'RESTORING', 'STOPPING', 'ARCHIVING'] as const)(
+    'waitForState treats transitional state %s as a valid intermediate observation',
     async (state) => {
       const http = {
         get: vi.fn().mockResolvedValue({ id: 'agent-123', user_id: 'user-456', state }),
@@ -840,13 +852,12 @@ describe('Agents SDK', () => {
     },
   );
 
-  it('hydrates canonical downloading diagnostics', async () => {
+  it('hydrates canonical starting state and diagnostics', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
-        state: 'DOWNLOADING',
-        stage: 'downloading',
+        state: 'STARTING',
         error: null,
         message: 'Pulling runtime image',
       }),
@@ -855,8 +866,7 @@ describe('Agents SDK', () => {
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const agent = await deployments.get('agent-123');
 
-    expect(agent.state).toBe('DOWNLOADING');
-    expect(agent.stage).toBe('downloading');
+    expect(agent.state).toBe('STARTING');
     expect(agent.error).toBeNull();
     expect(agent.message).toBe('Pulling runtime image');
   });
@@ -871,7 +881,6 @@ describe('Agents SDK', () => {
           pod_id: 'pod-789',
           pod_name: 'pod-789',
           state,
-          stage: 'syncing',
           reason: 'runtime_exit',
           error: 'WorkspaceSyncFailed',
           message: 'workspace sync failed',
@@ -883,7 +892,7 @@ describe('Agents SDK', () => {
       installReadySubscription(deployments);
 
       await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
-        `Agent entered ${state} while waiting for RUNNING, stage="syncing", reason="runtime_exit", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
+        `Agent entered ${state} while waiting for RUNNING, reason="runtime_exit", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
       );
     },
   );
@@ -897,7 +906,6 @@ describe('Agents SDK', () => {
         pod_id: 'pod-789',
         pod_name: 'pod-789',
         state: 'RESTORING',
-        stage: 'restoring',
         error: null,
         message: 'restore init container is still waiting',
         updated_at: '2026-07-27T12:00:00Z',
@@ -908,7 +916,7 @@ describe('Agents SDK', () => {
     installReadySubscription(deployments);
 
     const assertion = expect(deployments.waitRunning('agent-123', 1_000, 100)).rejects.toThrow(
-      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, stage="restoring", message="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',
+      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, message="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',
     );
     await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
@@ -1003,7 +1011,7 @@ describe('Agents SDK', () => {
       pod_name: 'clear-window-works',
       name: 'clear-window-works',
       handle: 'coder',
-      state: 'PENDING',
+      state: 'STARTING',
     }));
     const http = { get, post } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
@@ -1037,7 +1045,7 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       pod_id: 'pod-pro',
       pod_name: 'pro',
-      state: 'PENDING',
+      state: 'STARTING',
       runtime: 'openclaw-pro',
     });
     const deployments = new Deployments(
@@ -1060,7 +1068,7 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       pod_id: 'pod-sync-all',
       pod_name: 'sync-all',
-      state: 'PENDING',
+      state: 'STARTING',
       runtime: 'openclaw',
     });
     const deployments = new Deployments(
@@ -1086,7 +1094,7 @@ describe('Agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-sync-presence',
       user_id: 'user-456',
-      state: 'PENDING',
+      state: 'STARTING',
     });
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -1121,7 +1129,7 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       pod_id: 'pod-789',
       pod_name: 'buzz-agent',
-      state: 'PENDING',
+      state: 'STARTING',
       runtime: 'opencode',
       launch_config: persistedLaunchConfig,
     });

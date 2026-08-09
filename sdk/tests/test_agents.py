@@ -77,11 +77,11 @@ def test_agent_from_dict_hydrates_transition_epochs_and_future_state():
     assert agent.finalize_epoch == 2
 
 
-def test_agent_from_dict_hydrates_downloading_runtime_status():
+def test_agent_from_dict_hydrates_starting_runtime_status():
     agent = Agent.from_dict(
         {
             "id": "agent-123",
-            "state": "DOWNLOADING",
+            "state": "STARTING",
             "last_error": "ErrImagePull; unauthorized",
             "runtime_status": {
                 "pod_phase": "Pending",
@@ -93,7 +93,7 @@ def test_agent_from_dict_hydrates_downloading_runtime_status():
         }
     )
 
-    assert agent.state == "DOWNLOADING"
+    assert agent.state == "STARTING"
     assert agent.runtime_status == {
         "pod_phase": "Pending",
         "container_name": "reef",
@@ -114,7 +114,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         "type": "deployment.transition",
         "agent_id": "agent-123",
         "state": "ARCHIVING",
-        "stage": "archiving",
         "reason": "archive_request",
         "error": None,
         "message": "Agent archive is being finalized",
@@ -165,7 +164,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     assert [event.type for event in received] == ["deployment.transition"]
     assert received[-1].agent_id == "agent-123"
     assert received[-1].state == "ARCHIVING"
-    assert received[-1].stage == "archiving"
     assert received[-1].reason == "archive_request"
     assert received[-1].error is None
     assert received[-1].message == "Agent archive is being finalized"
@@ -278,9 +276,11 @@ async def test_subscribe_surfaces_permanent_auth_failure(monkeypatch, status_cod
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "boot_state",
-    ["CREATING", "PENDING", "DOWNLOADING", "RESTORING", "SYNCING", "STOPPING"],
+    ["CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"],
 )
-async def test_wait_running_async_accepts_every_canonical_boot_state(monkeypatch, boot_state):
+async def test_wait_running_async_accepts_every_canonical_transitional_state(
+    monkeypatch, boot_state
+):
     http = MagicMock(spec=HTTPClient)
     http.api_key = "hyper_api_test"
     deployments = Deployments(http)
@@ -706,7 +706,6 @@ def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
                 "pod_id": "pod-789",
                 "pod_name": "pod-789",
                 "state": failed_state,
-                "stage": "syncing",
                 "error": "WorkspaceSyncFailed",
                 "message": "workspace sync failed",
             }
@@ -817,29 +816,13 @@ def test_agent_running_state_is_case_insensitive(state, expected):
 
 @pytest.mark.parametrize(
     "state",
-    [
-        "CREATING",
-        "PENDING",
-        "DOWNLOADING",
-        "RESTORING",
-        "SYNCING",
-        "RUNNING",
-        "COMPLETED",
-        "CRASHED",
-        "STOPPING",
-        "STOPPED",
-        "ARCHIVING",
-        "ARCHIVED",
-        "DELETED",
-        "FAILED",
-    ],
+    CANONICAL_AGENT_STATES,
 )
-def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
+def test_agent_hydrates_canonical_lifecycle_state_and_diagnostics(state):
     agent = Agent.from_dict(
         {
             "id": "agent-123",
             "state": state,
-            "stage": state.lower(),
             "reason": "runtime_exit" if state == "STOPPED" else "start",
             "error": "ExampleError" if state == "FAILED" else None,
             "message": f"Lifecycle state is {state}",
@@ -847,16 +830,30 @@ def test_agent_hydrates_canonical_lifecycle_diagnostics(state):
     )
 
     assert agent.state == state
-    assert agent.stage == state.lower()
     assert agent.reason == ("runtime_exit" if state == "STOPPED" else "start")
     assert agent.error == ("ExampleError" if state == "FAILED" else None)
     assert agent.message == f"Lifecycle state is {state}"
 
 
 def test_agent_lifecycle_state_classification_is_forward_open():
-    assert {"COMPLETED", "CRASHED", "ARCHIVING", "ARCHIVED", "DELETED"}.issubset(CANONICAL_AGENT_STATES)
-    assert {"COMPLETED", "CRASHED", "ARCHIVING"}.issubset(AGENT_TRANSITIONAL_STATES)
-    assert {"COMPLETED", "CRASHED", "ARCHIVING", "ARCHIVED", "DELETED"}.issubset(AGENT_RUNTIME_INACTIVE_STATES)
+    assert CANONICAL_AGENT_STATES == (
+        "CREATING",
+        "STARTING",
+        "RESTORING",
+        "RUNNING",
+        "STOPPING",
+        "STOPPED",
+        "ARCHIVING",
+        "ARCHIVED",
+        "FAILED",
+        "DELETED",
+    )
+    assert AGENT_TRANSITIONAL_STATES == frozenset(
+        {"CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"}
+    )
+    assert AGENT_RUNTIME_INACTIVE_STATES == frozenset(
+        {"STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "DELETED"}
+    )
     assert is_agent_transitional_state("archiving") is True
     assert is_agent_runtime_inactive_state("archived") is True
     assert is_agent_transitional_state("future_server_state") is False
@@ -885,7 +882,6 @@ def test_agent_lifecycle_reason_is_independent_from_error_and_message():
         {
             "id": "agent-123",
             "state": "STOPPED",
-            "stage": "stopped",
             "reason": "api_stop",
             "error": None,
             "message": "Agent stopped normally",
@@ -1952,7 +1948,7 @@ def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agen
         return {
             "id": "11111111-1111-4111-8111-111111111111",
             "user_id": "user-456",
-            "state": "PENDING",
+            "state": "STARTING",
             "runtime": "openclaw",
         }
 
@@ -2441,7 +2437,7 @@ def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expe
         return {
             "id": "11111111-1111-4111-8111-111111111111",
             "user_id": "user-456",
-            "state": "PENDING",
+            "state": "STARTING",
         }
 
     agents_client._post = fake_post

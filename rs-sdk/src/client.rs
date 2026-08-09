@@ -1397,7 +1397,6 @@ mod tests {
                         "type": "deployment.transition",
                         "agent_id": "deployment-1",
                         "state": "RUNNING",
-                        "stage": "running",
                         "reason": "start",
                         "error": null,
                         "message": "Agent is running",
@@ -1448,7 +1447,6 @@ mod tests {
         {
             let received = received.lock().unwrap();
             assert_eq!(received[0].agent_id, "deployment-1");
-            assert_eq!(received[0].stage.as_deref(), Some("running"));
             assert_eq!(received[0].reason.as_deref(), Some("start"));
             assert_eq!(received[0].error, None);
             assert_eq!(received[0].message.as_deref(), Some("Agent is running"));
@@ -1621,7 +1619,7 @@ mod tests {
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(json!({"id": "deployment-1", "state": "PENDING"}).to_string())
+            .with_body(json!({"id": "deployment-1", "state": "STARTING"}).to_string())
             .expect(1)
             .create_async()
             .await;
@@ -1702,7 +1700,6 @@ mod tests {
                 json!({
                     "id": "deployment-1",
                     "state": "STOPPED",
-                    "stage": "stopped",
                     "message": "Runtime stopped before becoming ready"
                 })
                 .to_string(),
@@ -1751,14 +1748,13 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn wait_deployment_state_accepts_every_canonical_boot_state() {
+    async fn wait_deployment_state_accepts_every_canonical_transitional_state() {
         for state in [
             "CREATING",
-            "PENDING",
-            "DOWNLOADING",
+            "STARTING",
             "RESTORING",
-            "SYNCING",
             "STOPPING",
+            "ARCHIVING",
         ] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());

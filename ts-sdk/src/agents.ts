@@ -1211,59 +1211,45 @@ export interface AgentDirectoryListing {
 
 export type AgentState =
   | 'CREATING'
-  | 'PENDING'
-  | 'DOWNLOADING'
+  | 'STARTING'
   | 'RESTORING'
-  | 'SYNCING'
   | 'RUNNING'
-  | 'COMPLETED'
-  | 'CRASHED'
   | 'STOPPING'
   | 'STOPPED'
   | 'ARCHIVING'
   | 'ARCHIVED'
-  | 'DELETED'
   | 'FAILED'
+  | 'DELETED'
   | (string & {});
 
 /** Canonical states understood by this SDK. AgentState remains forward-open. */
 export const CANONICAL_AGENT_STATES = [
   'CREATING',
-  'PENDING',
-  'DOWNLOADING',
+  'STARTING',
   'RESTORING',
-  'SYNCING',
   'RUNNING',
-  'COMPLETED',
-  'CRASHED',
   'STOPPING',
   'STOPPED',
   'ARCHIVING',
   'ARCHIVED',
-  'DELETED',
   'FAILED',
+  'DELETED',
 ] as const satisfies readonly AgentState[];
 
 export const AGENT_TRANSITIONAL_STATES: ReadonlySet<AgentState> = new Set([
   'CREATING',
-  'PENDING',
-  'DOWNLOADING',
+  'STARTING',
   'RESTORING',
-  'SYNCING',
-  'COMPLETED',
-  'CRASHED',
   'STOPPING',
   'ARCHIVING',
 ]);
 
 export const AGENT_RUNTIME_INACTIVE_STATES: ReadonlySet<AgentState> = new Set([
-  'COMPLETED',
-  'CRASHED',
   'STOPPED',
   'ARCHIVING',
   'ARCHIVED',
-  'DELETED',
   'FAILED',
+  'DELETED',
 ]);
 
 export function isAgentTransitionalState(state: string): boolean {
@@ -1324,7 +1310,7 @@ export interface AgentStateFields {
   message?: string | null;
   /** @deprecated Use error/message. Accepted during the rollout only. */
   lastError?: string | null;
-  /** @deprecated Use stage/reason/error/message. Accepted during the rollout only. */
+  /** @deprecated Use reason/error/message. Accepted during the rollout only. */
   runtimeStatus?: AgentRuntimeStatus | null;
   placementEpoch?: number;
   runtimeGeneration?: number;
@@ -2234,7 +2220,7 @@ export class Agent {
   public readonly message: string | null;
   /** @deprecated Use error/message. */
   public readonly lastError: string | null;
-  /** @deprecated Use stage/reason/error/message. */
+  /** @deprecated Use reason/error/message. */
   public readonly runtimeStatus: AgentRuntimeStatus | null;
   public readonly placementEpoch: number;
   public readonly runtimeGeneration: number;

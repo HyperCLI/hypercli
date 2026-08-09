@@ -61,25 +61,24 @@ channel—and let the consumer call `get_deployment()` or
 socket and waits for `ready` before delivering transitions. The state waiters
 open that socket before their authoritative REST snapshot. There is no client
 ACK or durable client outbox.
-Transition events carry `agent_id` for local filtering plus the transition-time `stage`, `reason`, `error`, and
+Transition events carry `agent_id` for local filtering plus `state`, `reason`, `error`, and
 `message`, but remain invalidations rather than authoritative snapshots.
 
 `Deployment.state` remains an open string so future server states continue to
 parse. Placement, runtime, and optional finalize epochs are
 opaque correlation hints; REST is the snapshot.
 
-Canonical deployment lifecycle snapshots currently use `CREATING`, `PENDING`,
-`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`,
-`COMPLETED`, `CRASHED`, `ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`.
-`COMPLETED` and `CRASHED` expose the runtime-exit boundary before cleanup or
-relaunch. `CREATING` means the control
-plane is establishing the agent namespace. `STOPPED` is warm and `ARCHIVING`
-is transitional. `ARCHIVED` is the Backend-persisted cold-restorable terminal
-projection after Lagoon drops its agent task, namespace, PVC, and local S3
-copy; a later start is a fresh admission. `DELETED` is terminal and normally
-hidden from user reads. Consumers should display and wait on these values, not
-reproduce the server lifecycle machine. Lifecycle `stage` and `reason` are
-also open strings: `reason` is a stable transition cause such as `start`, `api_stop`,
+Canonical deployment lifecycle snapshots currently use `CREATING`, `STARTING`,
+`RESTORING`, `RUNNING`, `STOPPING`, `STOPPED`, `ARCHIVING`, `ARCHIVED`,
+`FAILED`, and `DELETED`. `CREATING` is fresh admission, `STARTING` resumes a
+warm retained agent, and `RESTORING` hydrates a cold agent from its exact
+archive checkpoint. `STOPPED` is warm and
+`ARCHIVING` is transitional. `ARCHIVED` is the Backend-persisted,
+cold-restorable terminal projection after Lagoon drops its agent task,
+namespace, PVC, and local S3 copy. `DELETED` is Backend-only, terminal, and
+normally hidden from user reads. Consumers should display and wait on these
+values, not reproduce the server lifecycle machine. `reason` is an open string with a
+stable transition cause such as `start`, `api_stop`,
 `runtime_exit`, `timeout`, or `delete`; `error` is a failure code when present,
 and `message` is human-readable context.
 

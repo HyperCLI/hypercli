@@ -923,41 +923,31 @@ pub struct AgentRuntimeStatus {
 /// remains a `String` so future server values continue to round-trip.
 pub const CANONICAL_AGENT_STATES: &[&str] = &[
     "CREATING",
-    "PENDING",
-    "DOWNLOADING",
+    "STARTING",
     "RESTORING",
-    "SYNCING",
     "RUNNING",
-    "COMPLETED",
-    "CRASHED",
     "STOPPING",
     "STOPPED",
     "ARCHIVING",
     "ARCHIVED",
-    "DELETED",
     "FAILED",
+    "DELETED",
 ];
 
 pub const AGENT_TRANSITIONAL_STATES: &[&str] = &[
     "CREATING",
-    "PENDING",
-    "DOWNLOADING",
+    "STARTING",
     "RESTORING",
-    "SYNCING",
-    "COMPLETED",
-    "CRASHED",
     "STOPPING",
     "ARCHIVING",
 ];
 
 pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] = &[
-    "COMPLETED",
-    "CRASHED",
     "STOPPED",
     "ARCHIVING",
     "ARCHIVED",
-    "DELETED",
     "FAILED",
+    "DELETED",
 ];
 
 pub fn is_agent_transitional_state(state: &str) -> bool {
@@ -1004,7 +994,7 @@ pub struct Deployment {
     /// Deprecated rollout compatibility alias; use `error`/`message`.
     #[serde(default)]
     pub last_error: Option<String>,
-    /// Deprecated rollout compatibility alias; use `stage`/`reason`/`error`/`message`.
+    /// Deprecated rollout compatibility alias; use `reason`/`error`/`message`.
     #[serde(default)]
     pub runtime_status: Option<AgentRuntimeStatus>,
     #[serde(default)]
@@ -1493,14 +1483,30 @@ mod tests {
 
     #[test]
     fn deployment_classifies_archive_and_delete_states_without_closing_strings() {
-        assert!(CANONICAL_AGENT_STATES.contains(&"ARCHIVING"));
-        assert!(CANONICAL_AGENT_STATES.contains(&"COMPLETED"));
-        assert!(CANONICAL_AGENT_STATES.contains(&"CRASHED"));
-        assert!(CANONICAL_AGENT_STATES.contains(&"ARCHIVED"));
-        assert!(CANONICAL_AGENT_STATES.contains(&"DELETED"));
+        assert_eq!(
+            CANONICAL_AGENT_STATES,
+            &[
+                "CREATING",
+                "STARTING",
+                "RESTORING",
+                "RUNNING",
+                "STOPPING",
+                "STOPPED",
+                "ARCHIVING",
+                "ARCHIVED",
+                "FAILED",
+                "DELETED",
+            ]
+        );
+        assert_eq!(
+            AGENT_TRANSITIONAL_STATES,
+            &["CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"]
+        );
+        assert_eq!(
+            AGENT_RUNTIME_INACTIVE_STATES,
+            &["STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "DELETED"]
+        );
         assert!(is_agent_transitional_state("archiving"));
-        assert!(is_agent_transitional_state("completed"));
-        assert!(is_agent_transitional_state("crashed"));
         assert!(is_agent_runtime_inactive_state("archived"));
         assert!(!is_agent_transitional_state("future_server_state"));
 
@@ -1535,19 +1541,17 @@ mod tests {
             "type": "deployment.transition",
             "agent_id": "agent-1",
             "state": "ARCHIVING",
-            "stage": "archiving",
             "reason": "archive_request"
         }))
         .unwrap();
         assert_eq!(event.state.as_deref(), Some("ARCHIVING"));
-        assert_eq!(event.stage.as_deref(), Some("archiving"));
     }
 
     #[test]
-    fn deployment_deserializes_downloading_runtime_status() {
+    fn deployment_deserializes_starting_runtime_status() {
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "agent-1",
-            "state": "DOWNLOADING",
+            "state": "STARTING",
             "runtime_status": {
                 "pod_phase": "Pending",
                 "container_name": "reef",
@@ -1559,7 +1563,7 @@ mod tests {
         .unwrap();
 
         let status = deployment.runtime_status.unwrap();
-        assert_eq!(deployment.state, "DOWNLOADING");
+        assert_eq!(deployment.state, "STARTING");
         assert_eq!(status.reason.as_deref(), Some("ImagePullBackOff"));
         assert_eq!(status.message.as_deref(), Some("back-off pulling image"));
     }
@@ -1568,10 +1572,8 @@ mod tests {
     fn deployment_deserializes_every_canonical_lifecycle_state_and_diagnostics() {
         for state in [
             "CREATING",
-            "PENDING",
-            "DOWNLOADING",
+            "STARTING",
             "RESTORING",
-            "SYNCING",
             "RUNNING",
             "STOPPING",
             "STOPPED",
@@ -1580,12 +1582,10 @@ mod tests {
             "DELETED",
             "FAILED",
         ] {
-            let expected_stage = state.to_ascii_lowercase();
             let expected_message = format!("Lifecycle state is {state}");
             let deployment: Deployment = serde_json::from_value(serde_json::json!({
                 "id": "agent-1",
                 "state": state,
-                "stage": expected_stage,
                 "reason": if state == "STOPPED" { "runtime_exit" } else { "start" },
                 "error": (state == "FAILED").then_some("ExampleError"),
                 "message": expected_message,
@@ -1593,7 +1593,6 @@ mod tests {
             .unwrap();
 
             assert_eq!(deployment.state, state);
-            assert_eq!(deployment.stage.as_deref(), Some(expected_stage.as_str()));
             assert_eq!(
                 deployment.reason.as_deref(),
                 Some(if state == "STOPPED" {
@@ -1618,7 +1617,6 @@ mod tests {
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "agent-1",
             "state": "STOPPED",
-            "stage": "stopped",
             "reason": "api_stop",
             "error": null,
             "message": "Agent stopped normally",

@@ -173,20 +173,20 @@ for (const slot of capacity.agentSlots) {
 full deployment response: saved/running account limits, pooled TPD, aggregate
 slot inventory, and individual entitlement-backed agent slots.
 
-Deployment lifecycle snapshots use open-string `state`, `stage`, and `reason`
-fields. `reason` is the stable cause of a transition, such as `start`,
+Deployment lifecycle snapshots use an open-string `state`. `reason` is the
+stable cause of a transition, such as `start`,
 `api_stop`, `runtime_exit`, `timeout`, or `delete`; `error` is populated for a
 failed transition, while `message` is human-readable context. Consumers should
 not bind these strings to a closed client-side enum.
 
-Canonical states include `COMPLETED`, `CRASHED`, `ARCHIVING`, `ARCHIVED`, and
-`DELETED`. Runtime exit is observable as `COMPLETED` or `CRASHED` before the
-Agent owner cleans up or relaunches. `STOPPED` is
-warm and `ARCHIVING` is transitional. `ARCHIVED` is the Backend-persisted,
-cold-restorable terminal projection after Lagoon drops its agent task,
-namespace, PVC, and local S3 copy. Starting it is a fresh admission that
-restores from the verified archive. `DELETED` is terminal and normally absent
-from user reads.
+Canonical states are `CREATING`, `STARTING`, `RESTORING`, `RUNNING`, `STOPPING`,
+`STOPPED`, `ARCHIVING`, `ARCHIVED`, `FAILED`, and `DELETED`. `CREATING` is fresh
+admission, `STARTING` resumes a warm retained agent, and `RESTORING` hydrates a
+cold agent from its exact archive checkpoint.
+`STOPPED` is warm and `ARCHIVING` is transitional. `ARCHIVED` is the
+Backend-persisted, cold-restorable terminal projection after Lagoon drops its
+agent task, namespace, PVC, and local S3 copy. `DELETED` is a Backend-only
+terminal state and normally absent from user reads.
 
 For a long-lived UI, subscribe to thin invalidations and refresh REST in the
 handler:
@@ -207,7 +207,7 @@ await subscription;
 
 Abort during teardown. `onReady` runs after user-stream authentication and
 before event frames are read; it repeats that order after reconnect.
-Transition events carry `agent_id` for local filtering plus the transition-time `stage`, `reason`,
+Transition events carry `agent_id` for local filtering plus `state`, `reason`,
 `error`, and `message`, but are not snapshots and may be duplicated or
 coalesced; refresh REST for authority.
 

@@ -163,26 +163,24 @@ await client.deployments.subscribe(changed, stop_event=stop, on_ready=snapshot)
 The `on_ready` callback runs after user-stream authentication and before event
 frames are read; it repeats after reconnect so no transition can slip
 between snapshot and subscription. Transition events carry `agent_id` for
-local filtering plus the transition-time `stage`, `reason`, `error`, and `message`, but are not
+local filtering plus `state`, `reason`, `error`, and `message`, but are not
 resource snapshots and may be duplicated or coalesced; refresh REST for
 authority.
 
-Managed-agent lifecycle snapshots currently use `CREATING`, `PENDING`,
-`DOWNLOADING`, `RESTORING`, `SYNCING`, `RUNNING`, `STOPPING`, `STOPPED`,
-`COMPLETED`, `CRASHED`, `ARCHIVING`, `ARCHIVED`, `DELETED`, and `FAILED`.
-`COMPLETED` and `CRASHED` are observable runtime-exit boundaries before
-cleanup/restart; `CREATING` means the control
-plane is establishing the agent namespace. `STOPPED` retains warm local
-storage. `ARCHIVING` is the public transition to verified cold storage.
+Managed-agent lifecycle snapshots currently use `CREATING`, `STARTING`,
+`RESTORING`, `RUNNING`, `STOPPING`, `STOPPED`, `ARCHIVING`, `ARCHIVED`,
+`FAILED`, and `DELETED`. `CREATING` is fresh admission, `STARTING` resumes a
+warm retained agent, and `RESTORING` hydrates a cold agent from its exact
+archive checkpoint. `STOPPED` retains warm local storage. `ARCHIVING` is the
+public transition to verified cold storage.
 `ARCHIVED` is the Backend-persisted cold-restorable terminal projection after
-Lagoon drops its agent task, namespace, PVC, and local S3 copy; a later start
-is a fresh admission. `DELETED` is terminal and normally hidden from user
-lists. State values remain open strings; use REST as authority instead of
+Lagoon drops its agent task, namespace, PVC, and local S3 copy. `DELETED` is a
+Backend-only terminal state and normally hidden from user lists. State values
+remain open strings; use REST as authority instead of
 recreating the server lifecycle machine in the client. Each snapshot may also
-carry open-string lifecycle diagnostics: `stage` is the current step, `reason`
-is the stable cause such as `start`, `api_stop`, `runtime_exit`, `timeout`, or
-`delete`, `error` is a failure code when the transition failed, and `message`
-is human-readable context.
+carry open-string diagnostics: `reason` is the stable cause such as `start`,
+`api_stop`, `runtime_exit`, `timeout`, or `delete`, `error` is a failure code
+when the transition failed, and `message` is human-readable context.
 
 Use `create_openclaw_pro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
