@@ -978,13 +978,21 @@ pub struct Deployment {
     #[serde(default)]
     pub pod_id: Option<String>,
     #[serde(default)]
+    pub storage_cluster_id: Option<String>,
+    #[serde(default)]
     pub hostname: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
     pub requested_size: Option<String>,
     #[serde(default)]
-    pub stage: Option<String>,
+    pub archived_at: Option<String>,
+    #[serde(default)]
+    pub archived_cluster_id: Option<String>,
+    #[serde(default)]
+    pub archived_cluster_name: Option<String>,
+    #[serde(default)]
+    pub archived_path: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
     #[serde(default)]
@@ -1002,6 +1010,8 @@ pub struct Deployment {
     #[serde(default)]
     pub runtime_generation: u64,
     #[serde(default)]
+    pub agent_version: u64,
+    #[serde(default)]
     pub finalize_epoch: Option<u64>,
     /// Persisted launch settings. This can contain runtime credentials, so its
     /// `Debug` implementation is always redacted even though authenticated
@@ -1018,8 +1028,6 @@ pub struct DeploymentEvent {
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
-    pub stage: Option<String>,
-    #[serde(default)]
     pub reason: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
@@ -1030,7 +1038,15 @@ pub struct DeploymentEvent {
     #[serde(default)]
     pub runtime_generation: Option<u64>,
     #[serde(default)]
+    pub agent_version: Option<u64>,
+    #[serde(default)]
     pub finalize_epoch: Option<u64>,
+    #[serde(default)]
+    pub revision: Option<u64>,
+    #[serde(default)]
+    pub resources_exist: Option<bool>,
+    #[serde(default)]
+    pub namespace_exists: Option<bool>,
 }
 
 impl Deployment {
@@ -1461,10 +1477,14 @@ mod tests {
             runtime: Some(ManagedRuntime::Opencode),
             state: "RUNNING".to_owned(),
             pod_id: None,
+            storage_cluster_id: None,
             hostname: None,
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
-            stage: None,
+            archived_at: None,
+            archived_cluster_id: None,
+            archived_cluster_name: None,
+            archived_path: None,
             reason: None,
             error: None,
             message: None,
@@ -1472,6 +1492,7 @@ mod tests {
             runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
+            agent_version: 0,
             finalize_epoch: None,
             launch_config: Default::default(),
         };
@@ -1518,10 +1539,14 @@ mod tests {
             runtime: None,
             state: state.to_owned(),
             pod_id: None,
+            storage_cluster_id: None,
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
-            stage: None,
+            archived_at: None,
+            archived_cluster_id: None,
+            archived_cluster_name: None,
+            archived_path: None,
             reason: None,
             error: None,
             message: None,
@@ -1529,6 +1554,7 @@ mod tests {
             runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
+            agent_version: 0,
             finalize_epoch: None,
             launch_config: Default::default(),
         };
@@ -1541,10 +1567,55 @@ mod tests {
             "type": "deployment.transition",
             "agent_id": "agent-1",
             "state": "ARCHIVING",
-            "reason": "archive_request"
+            "reason": "archive_request",
+            "agent_version": 1,
+            "revision": 9,
+            "resources_exist": true,
+            "namespace_exists": true
         }))
         .unwrap();
         assert_eq!(event.state.as_deref(), Some("ARCHIVING"));
+        assert_eq!(event.agent_version, Some(1));
+        assert_eq!(event.revision, Some(9));
+        assert_eq!(event.resources_exist, Some(true));
+        assert_eq!(event.namespace_exists, Some(true));
+    }
+
+    #[test]
+    fn deployment_deserializes_storage_and_archive_projection() {
+        let deployment: Deployment = serde_json::from_value(serde_json::json!({
+            "id": "agent-1",
+            "state": "ARCHIVED",
+            "storage_cluster_id": "cluster-current",
+            "agent_version": 2,
+            "archived_at": "2026-08-09T12:00:00Z",
+            "archived_cluster_id": "cluster-archive",
+            "archived_cluster_name": "dev01",
+            "archived_path": "s3://archive/dev01/agent-1/checkpoint"
+        }))
+        .unwrap();
+
+        assert_eq!(
+            deployment.storage_cluster_id.as_deref(),
+            Some("cluster-current")
+        );
+        assert_eq!(deployment.agent_version, 2);
+        assert_eq!(
+            deployment.archived_at.as_deref(),
+            Some("2026-08-09T12:00:00Z")
+        );
+        assert_eq!(
+            deployment.archived_cluster_id.as_deref(),
+            Some("cluster-archive")
+        );
+        assert_eq!(
+            deployment.archived_cluster_name.as_deref(),
+            Some("dev01")
+        );
+        assert_eq!(
+            deployment.archived_path.as_deref(),
+            Some("s3://archive/dev01/agent-1/checkpoint")
+        );
     }
 
     #[test]

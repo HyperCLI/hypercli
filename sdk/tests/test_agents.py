@@ -5,7 +5,7 @@ import copy
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -119,6 +119,10 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         "message": "Agent archive is being finalized",
         "placement_epoch": 7,
         "runtime_generation": 4,
+        "agent_version": 1,
+        "revision": 9,
+        "resources_exist": True,
+        "namespace_exists": True,
     }
 
     monkeypatch.setattr(
@@ -168,6 +172,10 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     assert received[-1].error is None
     assert received[-1].message == "Agent archive is being finalized"
     assert received[-1].runtime_generation == 4
+    assert received[-1].agent_version == 1
+    assert received[-1].revision == 9
+    assert received[-1].resources_exist is True
+    assert received[-1].namespace_exists is True
 
 
 @pytest.mark.asyncio
@@ -833,6 +841,28 @@ def test_agent_hydrates_canonical_lifecycle_state_and_diagnostics(state):
     assert agent.reason == ("runtime_exit" if state == "STOPPED" else "start")
     assert agent.error == ("ExampleError" if state == "FAILED" else None)
     assert agent.message == f"Lifecycle state is {state}"
+
+
+def test_agent_hydrates_storage_and_archive_projection():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "state": "ARCHIVED",
+            "storage_cluster_id": "cluster-current",
+            "agent_version": 2,
+            "archived_at": "2026-08-09T12:00:00Z",
+            "archived_cluster_id": "cluster-archive",
+            "archived_cluster_name": "dev01",
+            "archived_path": "s3://archive/dev01/agent-123/checkpoint",
+        }
+    )
+
+    assert agent.storage_cluster_id == "cluster-current"
+    assert agent.agent_version == 2
+    assert agent.archived_at == datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
+    assert agent.archived_cluster_id == "cluster-archive"
+    assert agent.archived_cluster_name == "dev01"
+    assert agent.archived_path == "s3://archive/dev01/agent-123/checkpoint"
 
 
 def test_agent_lifecycle_state_classification_is_forward_open():

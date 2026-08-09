@@ -1264,13 +1264,16 @@ export interface DeploymentEvent {
   type: 'deployment.transition';
   agent_id: string;
   state?: AgentState;
-  stage?: string | null;
   reason?: string | null;
   error?: string | null;
   message?: string | null;
   placement_epoch?: number;
   runtime_generation?: number;
+  agent_version?: number;
   finalize_epoch?: number;
+  revision?: number;
+  resources_exist?: boolean;
+  namespace_exists?: boolean;
 }
 
 export interface DeploymentSubscribeOptions {
@@ -1304,7 +1307,11 @@ export interface AgentStateFields {
   jwtExpiresAt?: Date | null;
   startedAt?: Date | null;
   stoppedAt?: Date | null;
-  stage?: string | null;
+  archivedAt?: Date | null;
+  storageClusterId?: string | null;
+  archivedClusterId?: string | null;
+  archivedClusterName?: string | null;
+  archivedPath?: string | null;
   reason?: string | null;
   error?: string | null;
   message?: string | null;
@@ -1314,6 +1321,7 @@ export interface AgentStateFields {
   runtimeStatus?: AgentRuntimeStatus | null;
   placementEpoch?: number;
   runtimeGeneration?: number;
+  agentVersion?: number;
   finalizeEpoch?: number | null;
   createdAt?: Date | null;
   updatedAt?: Date | null;
@@ -1360,7 +1368,11 @@ export interface AgentHydrationData {
   jwt_expires_at?: string | null;
   started_at?: string | null;
   stopped_at?: string | null;
-  stage?: string | null;
+  archived_at?: string | null;
+  storage_cluster_id?: string | null;
+  archived_cluster_id?: string | null;
+  archived_cluster_name?: string | null;
+  archived_path?: string | null;
   reason?: string | null;
   error?: string | null;
   message?: string | null;
@@ -1370,6 +1382,7 @@ export interface AgentHydrationData {
   runtime_status?: AgentRuntimeStatus | null;
   placement_epoch?: number;
   runtime_generation?: number;
+  agent_version?: number;
   finalize_epoch?: number | null;
   created_at?: string | null;
   updated_at?: string | null;
@@ -1781,7 +1794,11 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     jwtExpiresAt: parseDate(data.jwt_expires_at),
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
-    stage: data.stage ?? null,
+    archivedAt: parseDate(data.archived_at),
+    storageClusterId: data.storage_cluster_id ?? null,
+    archivedClusterId: data.archived_cluster_id ?? null,
+    archivedClusterName: data.archived_cluster_name ?? null,
+    archivedPath: data.archived_path ?? null,
     reason: data.reason ?? null,
     error: data.error ?? data.last_error ?? null,
     message: data.message ?? null,
@@ -1789,6 +1806,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     runtimeStatus: data.runtime_status ? structuredClone(data.runtime_status) : null,
     placementEpoch: data.placement_epoch ?? 0,
     runtimeGeneration: data.runtime_generation ?? 0,
+    agentVersion: data.agent_version ?? 0,
     finalizeEpoch: data.finalize_epoch ?? null,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
@@ -2214,7 +2232,11 @@ export class Agent {
   public jwtExpiresAt: Date | null;
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
-  public readonly stage: string | null;
+  public readonly archivedAt: Date | null;
+  public readonly storageClusterId: string | null;
+  public readonly archivedClusterId: string | null;
+  public readonly archivedClusterName: string | null;
+  public readonly archivedPath: string | null;
   public readonly reason: string | null;
   public readonly error: string | null;
   public readonly message: string | null;
@@ -2224,6 +2246,7 @@ export class Agent {
   public readonly runtimeStatus: AgentRuntimeStatus | null;
   public readonly placementEpoch: number;
   public readonly runtimeGeneration: number;
+  public readonly agentVersion: number;
   public readonly finalizeEpoch: number | null;
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
@@ -2262,7 +2285,11 @@ export class Agent {
     this.jwtExpiresAt = fields.jwtExpiresAt ?? null;
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
-    this.stage = fields.stage ?? null;
+    this.archivedAt = fields.archivedAt ?? null;
+    this.storageClusterId = fields.storageClusterId ?? null;
+    this.archivedClusterId = fields.archivedClusterId ?? null;
+    this.archivedClusterName = fields.archivedClusterName ?? null;
+    this.archivedPath = fields.archivedPath ?? null;
     this.reason = fields.reason ?? null;
     this.error = fields.error ?? fields.lastError ?? null;
     this.message = fields.message ?? null;
@@ -2270,6 +2297,7 @@ export class Agent {
     this.runtimeStatus = fields.runtimeStatus ? structuredClone(fields.runtimeStatus) : null;
     this.placementEpoch = fields.placementEpoch ?? 0;
     this.runtimeGeneration = fields.runtimeGeneration ?? 0;
+    this.agentVersion = fields.agentVersion ?? 0;
     this.finalizeEpoch = fields.finalizeEpoch ?? null;
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
@@ -4471,7 +4499,6 @@ export class Deployments {
     const diagnostics = (agent: Agent | null): string => {
       if (!agent) return '';
       const details: string[] = [];
-      if (agent.stage) details.push(`stage=${JSON.stringify(agent.stage)}`);
       if (agent.reason) details.push(`reason=${JSON.stringify(agent.reason)}`);
       if (agent.error) details.push(`error=${JSON.stringify(agent.error)}`);
       if (agent.message) details.push(`message=${JSON.stringify(agent.message)}`);

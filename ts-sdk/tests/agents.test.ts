@@ -156,7 +156,13 @@ describe('Agents SDK', () => {
         state: 'FUTURE_STATE',
         placement_epoch: 8,
         runtime_generation: 3,
+        agent_version: 2,
         finalize_epoch: 2,
+        storage_cluster_id: 'cluster-current',
+        archived_at: '2026-08-09T12:00:00Z',
+        archived_cluster_id: 'cluster-archive',
+        archived_cluster_name: 'dev01',
+        archived_path: 's3://archive/dev01/agent-123/checkpoint',
       }),
     } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
@@ -166,7 +172,13 @@ describe('Agents SDK', () => {
     expect(agent.state).toBe('FUTURE_STATE');
     expect(agent.placementEpoch).toBe(8);
     expect(agent.runtimeGeneration).toBe(3);
+    expect(agent.agentVersion).toBe(2);
     expect(agent.finalizeEpoch).toBe(2);
+    expect(agent.storageClusterId).toBe('cluster-current');
+    expect(agent.archivedAt?.toISOString()).toBe('2026-08-09T12:00:00.000Z');
+    expect(agent.archivedClusterId).toBe('cluster-archive');
+    expect(agent.archivedClusterName).toBe('dev01');
+    expect(agent.archivedPath).toBe('s3://archive/dev01/agent-123/checkpoint');
   });
 
   it('authenticates before the REST snapshot and delivers persisted transitions', async () => {
@@ -199,6 +211,10 @@ describe('Agents SDK', () => {
             error: null,
             message: 'Agent archive is being finalized',
             placement_epoch: 8,
+            agent_version: 1,
+            revision: 9,
+            resources_exist: true,
+            namespace_exists: true,
           },
         ]) {
           queueMicrotask(() => {
@@ -235,6 +251,10 @@ describe('Agents SDK', () => {
       reason: 'archive_request',
       error: null,
       message: 'Agent archive is being finalized',
+      agent_version: 1,
+      revision: 9,
+      resources_exist: true,
+      namespace_exists: true,
     });
   });
 

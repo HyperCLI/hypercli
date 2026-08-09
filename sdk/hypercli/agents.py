@@ -1251,7 +1251,11 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "jwt_expires_at": _parse_dt(data.get("jwt_expires_at")),
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
-        "stage": data.get("stage"),
+        "archived_at": _parse_dt(data.get("archived_at")),
+        "storage_cluster_id": data.get("storage_cluster_id"),
+        "archived_cluster_id": data.get("archived_cluster_id"),
+        "archived_cluster_name": data.get("archived_cluster_name"),
+        "archived_path": data.get("archived_path"),
         "reason": data.get("reason"),
         "error": data.get("error", data.get("last_error")),
         "message": data.get("message"),
@@ -1264,6 +1268,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         ),
         "placement_epoch": int(data.get("placement_epoch", 0) or 0),
         "runtime_generation": int(data.get("runtime_generation", 0) or 0),
+        "agent_version": int(data.get("agent_version", 0) or 0),
         "finalize_epoch": int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
@@ -1865,13 +1870,16 @@ class DeploymentEvent:
     type: str
     agent_id: str
     state: str | None = None
-    stage: str | None = None
     reason: str | None = None
     error: str | None = None
     message: str | None = None
     placement_epoch: int | None = None
     runtime_generation: int | None = None
+    agent_version: int | None = None
     finalize_epoch: int | None = None
+    revision: int | None = None
+    resources_exist: bool | None = None
+    namespace_exists: bool | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DeploymentEvent":
@@ -1879,13 +1887,16 @@ class DeploymentEvent:
             type=str(data.get("type") or ""),
             agent_id=str(data.get("agent_id") or ""),
             state=str(data["state"]) if data.get("state") else None,
-            stage=str(data["stage"]) if data.get("stage") else None,
             reason=str(data["reason"]) if data.get("reason") else None,
             error=str(data["error"]) if data.get("error") else None,
             message=str(data["message"]) if data.get("message") else None,
             placement_epoch=int(data["placement_epoch"]) if data.get("placement_epoch") is not None else None,
             runtime_generation=int(data["runtime_generation"]) if data.get("runtime_generation") is not None else None,
+            agent_version=int(data["agent_version"]) if data.get("agent_version") is not None else None,
             finalize_epoch=int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
+            revision=int(data["revision"]) if data.get("revision") is not None else None,
+            resources_exist=bool(data["resources_exist"]) if data.get("resources_exist") is not None else None,
+            namespace_exists=bool(data["namespace_exists"]) if data.get("namespace_exists") is not None else None,
         )
 
 
@@ -1934,7 +1945,11 @@ class Agent:
     jwt_expires_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
-    stage: Optional[str] = None
+    archived_at: Optional[datetime] = None
+    storage_cluster_id: Optional[str] = None
+    archived_cluster_id: Optional[str] = None
+    archived_cluster_name: Optional[str] = None
+    archived_path: Optional[str] = None
     reason: Optional[str] = None
     error: Optional[str] = None
     message: Optional[str] = None
@@ -1943,6 +1958,7 @@ class Agent:
     runtime_status: Optional[dict] = None
     placement_epoch: int = 0
     runtime_generation: int = 0
+    agent_version: int = 0
     finalize_epoch: int | None = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
