@@ -505,7 +505,6 @@ type MemoryIndexSettings = {
 type WorkspacesSyncSettings = {
   enabled: boolean;
   readyOnly: boolean;
-  outputDir: string;
   workspace: string;
 };
 
@@ -521,7 +520,6 @@ const DEFAULT_MEMORY_INDEX_SETTINGS: MemoryIndexSettings = {
 const DEFAULT_WORKSPACES_SYNC_SETTINGS: WorkspacesSyncSettings = {
   enabled: true,
   readyOnly: true,
-  outputDir: "/home/node/workspaces",
   workspace: "",
 };
 
@@ -690,7 +688,11 @@ function additionalEnvTextFromAgent(agent: Agent | null): string {
 
 function managedHyperEnvTextFromAgent(agent: Agent | null): string {
   return Object.entries(launchConfigEnv(agent))
-    .filter(([key]) => key.startsWith("HYPER_") && isManagedLaunchEnvKey(key))
+    .filter(([key]) => (
+      key.startsWith("HYPER_")
+      && isManagedLaunchEnvKey(key)
+      && key !== "HYPER_WORKSPACES_DIR"
+    ))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
@@ -707,6 +709,9 @@ function parseManagedHyperEnvText(value: string): Record<string, string> {
       throw new Error(`Managed HYPER env line ${index + 1} must use KEY=value.`);
     }
     const key = line.slice(0, separatorIndex).trim();
+    if (key === "HYPER_WORKSPACES_DIR") {
+      throw new Error("HYPER_WORKSPACES_DIR is fixed at $HOME/shared.");
+    }
     if (!key.startsWith("HYPER_") || !isManagedLaunchEnvKey(key)) {
       throw new Error(`${key} is not an editable managed HYPER_* variable.`);
     }
@@ -722,7 +727,6 @@ function workspacesSyncSettingsFromManagedEnv(
   const env = parseManagedHyperEnvText(managedHyperEnvText);
   return {
     enabled: envBooleanFromString(env.HYPER_WORKSPACES_BOOT_SYNC, fallback.enabled),
-    outputDir: env.HYPER_WORKSPACES_DIR || fallback.outputDir,
     readyOnly: envBooleanFromString(env.HYPER_WORKSPACES_SYNC_READY_ONLY, fallback.readyOnly),
     workspace: (env.HYPER_WORKSPACES_SYNC_WORKSPACE ?? fallback.workspace.trim()) || "",
   };
@@ -784,7 +788,6 @@ function buildUpdatedLaunchConfig(
     : workspacesSyncSettingsFromManagedEnv(managedHyperEnvText, workspacesSync);
   const workspaceOptions: OpenClawWorkspacesSyncOptions = {
     enabled: resolvedWorkspacesSync.enabled,
-    outputDir: resolvedWorkspacesSync.outputDir,
     readyOnly: resolvedWorkspacesSync.readyOnly,
     workspace: resolvedWorkspacesSync.workspace.trim() || null,
   };
@@ -798,6 +801,11 @@ function buildUpdatedLaunchConfig(
     ...buildOpenClawWorkspacesSyncEnv(workspaceOptions),
     ...parseAdditionalEnvText(additionalEnvText),
   };
+  if (workspaceOptions.enabled) {
+    launchConfig.env.HYPER_WORKSPACES_DIR = "/home/node/shared";
+  } else {
+    delete launchConfig.env.HYPER_WORKSPACES_DIR;
+  }
   launchConfig.workspacesSync = workspaceOptions;
   return launchConfig;
 }
@@ -842,9 +850,6 @@ function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings 
       launchWorkspaces.readyOnly,
       envBooleanFromString(env.HYPER_WORKSPACES_SYNC_READY_ONLY, DEFAULT_WORKSPACES_SYNC_SETTINGS.readyOnly),
     ),
-    outputDir: typeof launchWorkspaces.outputDir === "string" && launchWorkspaces.outputDir.trim()
-      ? launchWorkspaces.outputDir
-      : env.HYPER_WORKSPACES_DIR || DEFAULT_WORKSPACES_SYNC_SETTINGS.outputDir,
     workspace: typeof launchWorkspaces.workspace === "string"
       ? launchWorkspaces.workspace
       : env.HYPER_WORKSPACES_SYNC_WORKSPACE || DEFAULT_WORKSPACES_SYNC_SETTINGS.workspace,
@@ -854,7 +859,6 @@ function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings 
 function workspacesSyncSettingsEqual(left: WorkspacesSyncSettings, right: WorkspacesSyncSettings): boolean {
   return left.enabled === right.enabled
     && left.readyOnly === right.readyOnly
-    && left.outputDir === right.outputDir
     && left.workspace === right.workspace;
 }
 
@@ -1385,7 +1389,7 @@ function AgentSectionSettingsContent({
 
           <AgentProfileSettingsRow label="Shared knowledge" description="Sync shared knowledge Markdown before OpenClaw starts.">
             <div className="space-y-3">
-              <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex h-9 items-center gap-2">
                   <Switch
                     id="agent-shared-knowledge-sync"
@@ -1395,14 +1399,7 @@ function AgentSectionSettingsContent({
                   />
                   <label htmlFor="agent-shared-knowledge-sync" className="text-sm font-medium text-foreground">Boot sync</label>
                 </div>
-                <input
-                  value={workspacesSync.outputDir}
-                  onChange={(event) => onWorkspacesSyncChange({ ...workspacesSync, outputDir: event.target.value })}
-                  disabled={!workspacesSync.enabled}
-                  placeholder="/home/node/workspaces"
-                  aria-label="Shared knowledge sync directory"
-                  className={SETTINGS_FIELD_CLASS}
-                />
+                <span className="text-xs text-text-muted">$HOME/shared</span>
               </div>
               <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
                 <div className="flex h-9 items-center gap-2">

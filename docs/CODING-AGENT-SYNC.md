@@ -13,8 +13,8 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Give every coding runtime a visible SDK-owned default include policy.
   Buzz Agent deliberately defaults to an empty include because its identity
   and inference credentials are environment-owned.
-- [x] Derive `sync_enabled` from `sync_root`; clients no longer expose an
-  independent `sync_all` or `sync_enabled` launch knob.
+- [x] Make `sync_root` the sole persistence switch; clients do not expose or
+  serialize `sync_all` or `sync_enabled`.
 - [x] Pin cross-language serialization/default tests. Deep restore, sync,
   finalization, eviction, and archive validation remains with the Backend /
   Lagoon / Reef implementation workstream.
@@ -29,9 +29,9 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Document every coding runtime and OpenClaw's full-root behavior in
   `docs/agents/coding-runtimes.mdx`.
 
-The wire contract stays flat. A present `sync_root` emits `sync_enabled=true`;
-an absent root emits `sync_enabled=false`. Supplying a root with neither filter
-selects the complete sync root. Omitting both filter fields is different:
+The wire contract stays flat. A nonblank `sync_root` enables persistence; a
+blank or absent root disables it. No `sync_enabled` field is serialized.
+Supplying a root with neither filter selects the complete sync root. Omitting both filter fields is different:
 on restart or edit it inherits the stored policy. An omitted create override
 receives the runtime subclass default; a custom include or exclude replaces
 that default, and a non-null include wins when both custom policies are

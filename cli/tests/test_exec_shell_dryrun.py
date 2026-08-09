@@ -525,7 +525,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
                 "config": {"agents": {"defaults": {"mode": "normal"}}},
                 "env": {
                     "HYPER_WORKSPACES_BOOT_SYNC": "1",
-                    "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
+                    "HYPER_WORKSPACES_DIR": "/home/node/shared",
                     "OPENCLAW_DESKTOP_ENABLED": "0",
                 },
                 "image": "git.nedos.co/hypercli/hypercli-openclaw:untested",
@@ -567,7 +567,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert captured["agent_id"] == agent_id
     assert captured["config"] == {"agents": {"defaults": {"mode": "normal"}}}
     assert captured["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
-    assert captured["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/workspaces"
+    assert captured["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
     assert captured["env"]["HYPER_WORKSPACES_SYNC_WORKSPACE"] == "docs"
     assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:untested"
     assert captured["routes"] == {"openclaw": {"port": 4096, "auth": True, "prefix": ""}}

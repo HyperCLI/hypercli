@@ -644,7 +644,7 @@ describe('Workspaces SDK', () => {
             workspace_name: 'Demo Workspace',
             workspace_slug: 'demo',
             snapshot_id: 'snapshot-1',
-            base_path: '/home/node/workspaces/demo',
+            base_path: '/home/node/shared/demo',
             markdown_files: [
               {
                 file_id: 'file-1',
@@ -857,7 +857,7 @@ describe('Workspaces SDK', () => {
           workspace_name: 'Demo Workspace',
           workspace_slug: 'demo',
           snapshot_id: 'snapshot-1',
-          base_path: '/home/node/workspaces/demo',
+          base_path: '/home/node/shared/demo',
             markdown_files: [
               {
                 file_id: 'file-1',

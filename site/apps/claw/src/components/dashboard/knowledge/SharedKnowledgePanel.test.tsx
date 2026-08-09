@@ -73,7 +73,7 @@ function workspaceManifest() {
     workspaceName: "Team knowledge",
     workspaceSlug: "team-knowledge",
     snapshotId: "snapshot-1",
-    basePath: "/home/node/workspaces/team-knowledge",
+    basePath: "/home/node/shared/team-knowledge",
     markdownFiles: [{ file_id: "file-1", path: "docs/brief.md", state: "processed" }],
   };
 }

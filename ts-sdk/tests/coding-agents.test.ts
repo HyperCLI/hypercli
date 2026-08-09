@@ -130,7 +130,7 @@ describe('coding agents', () => {
       env: {
         HYPER_API_BASE: 'https://api.test.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       },
     });

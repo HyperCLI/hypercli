@@ -320,7 +320,7 @@ test("agents page launches from a direct entitlement without an active subscript
   expect(String(createBody?.image ?? "")).toMatch(/^ghcr\.io\/hypercli\/hypercli-openclaw:pro-/);
   expect(createBody?.env).toMatchObject({
     HYPER_WORKSPACES_BOOT_SYNC: "1",
-    HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+    HYPER_WORKSPACES_DIR: "/home/node/shared",
     HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
     OPENCLAW_DESKTOP_ENABLED: "1",
   });

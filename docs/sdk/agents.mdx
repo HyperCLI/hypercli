@@ -277,8 +277,8 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   defaults to the standard `openclaw` and `desktop` routes when omitted
 - `sync_root`
   defaults to `/home/node`
-- `sync_enabled`
-  is derived on the wire from the presence of `sync_root`
+- no separate sync boolean is serialized; normalized `sync_root` is the sole
+  persistence switch
 - `heartbeat`
   maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
 
@@ -385,7 +385,7 @@ A typed Buzz launch:
 - derives the selected runtime's ACP child command and Buzz MCP command;
 - selects the matching `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`
   image, with Claude using `hypercli-buzz-claude`;
-- keeps `sync_root=/home/node` and reserves `/home/node/workspaces` for
+- keeps `sync_root=/home/node` and reserves `/home/node/shared` for
   Workspace projections;
 - runs from the image-managed `/home/node/.buzz` nest.
 
@@ -529,7 +529,6 @@ A hydrated `Agent` contains:
 - `placement_epoch`
 - `runtime_generation`
 - `finalize_epoch`
-- `restore_state`
 - `name`
 - `hostname`
 - `tags`

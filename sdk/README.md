@@ -121,7 +121,7 @@ state; treat it as unknown rather than as no plan.
 
 ## OpenClaw Agents
 
-OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, and `sync_root` are generic deployment options; `sync_enabled` is derived from whether `sync_root` is present. The OpenClaw helpers add defaults such as routes, image, and `sync_root=/home/node`.
+OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, and `sync_root` are generic deployment options. A nonblank `sync_root` enables Reef persistence; no separate `sync_enabled` field is serialized. The OpenClaw helpers add defaults such as routes, image, and `sync_root=/home/node`.
 
 ```python
 agent = client.deployments.create_openclaw(
@@ -258,7 +258,7 @@ runtime. Do not copy an account API key into the launch environment.
 
 The SDK selects `/usr/local/bin/buzz-acp`, the runtime-specific child ACP
 command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
-observation, and persistent `/home/node` settings. `/home/node/workspaces`
+observation, and persistent `/home/node` settings. `/home/node/shared`
 remains reserved for Workspace projections; the specialized image reconciles
 the Buzz nest after the home mount and runs the harness from
 `/home/node/.buzz`. OpenCode and Codex read its canonical `AGENTS.md`, while

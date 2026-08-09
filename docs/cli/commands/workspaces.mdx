@@ -5,7 +5,7 @@ description: Manage shared Workspaces, uploaded originals, Markdown projections,
 
 ## Overview
 
-`hyper workspaces` manages durable shared Workspaces. A Workspace stores versioned original files, generates deterministic `.tomd` Markdown projections, injects frontmatter when projections are accessed, supports search, and can be granted to agents for sync into `/home/node/workspaces`.
+`hyper workspaces` manages durable shared Workspaces. A Workspace stores versioned original files, generates deterministic `.tomd` Markdown projections, injects frontmatter when projections are accessed, supports search, and can be granted to agents for sync into `/home/node/shared`.
 
 For the storage and agent-access model, see [Workspaces](/agents/workspaces).
 
@@ -89,22 +89,22 @@ Then use `wait-until-processed` before consuming the refreshed projection.
 Sync one Workspace's Markdown projections:
 
 ```bash
-hyper workspaces sync team-knowledge --output-dir ~/workspaces
+hyper workspaces sync team-knowledge --output-dir ~/shared
 ```
 
 Sync every Workspace accessible to the current subject:
 
 ```bash
-hyper workspaces sync --all --ready-only --output-dir ~/workspaces --json
+hyper workspaces sync --all --ready-only --output-dir ~/shared --json
 ```
 
 The synced layout is deterministic:
 
 ```text
-~/workspaces/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
+~/shared/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
 ```
 
-OpenClaw agents use `/home/node/workspaces` as the default boot-sync root. Boot sync is enabled by `HYPER_WORKSPACES_BOOT_SYNC=1`; `HYPER_WORKSPACES_DIR`, `HYPER_WORKSPACES_SYNC_READY_ONLY`, and `HYPER_WORKSPACES_SYNC_WORKSPACE` can adjust the local root, ready-only behavior, or selected Workspace.
+OpenClaw agents always project Workspaces into `/home/node/shared`. Boot sync is enabled by `HYPER_WORKSPACES_BOOT_SYNC=1`; `HYPER_WORKSPACES_SYNC_READY_ONLY` and `HYPER_WORKSPACES_SYNC_WORKSPACE` adjust ready-only behavior or select one Workspace. `HYPER_WORKSPACES_DIR` is managed and fixed for OpenClaw agents.
 
 ## Search
 

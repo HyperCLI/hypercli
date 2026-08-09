@@ -22,7 +22,7 @@ Claw combines managed agent runtimes with durable private workspaces and separat
 
 ## Operating Context
 
-Users work with an account-level agent roster and one or more Knowledge Domains such as Finance, Sales, Engineering, or Marketing. A Domain groups one business area's durable knowledge and assigned agents behind one grant boundary. Users upload documents, review conversion health, inspect source or generated content, edit metadata, and assign agents. OpenClaw agents can materialize accessible projections under `/home/node/workspaces` during startup while retaining private files under `/home/node/.openclaw/workspace`.
+Users work with an account-level agent roster and one or more Knowledge Domains such as Finance, Sales, Engineering, or Marketing. A Domain groups one business area's durable knowledge and assigned agents behind one grant boundary. Users upload documents, review conversion health, inspect source or generated content, edit metadata, and assign agents. OpenClaw agents can materialize accessible projections under `/home/node/shared` during startup while retaining private files under `/home/node/.openclaw/workspace`.
 
 Home is the account-level operating brief. It joins deployment state with recent conversations from reachable OpenClaw gateways, known direct Domain access, and the next occurrence of configured scheduled jobs. It is not a persistent audit log.
 

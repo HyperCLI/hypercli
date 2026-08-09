@@ -201,9 +201,20 @@ export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 } as const;
 export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_BOOT_SYNC: '1',
-  HYPER_WORKSPACES_DIR: '/home/node/workspaces',
+  HYPER_WORKSPACES_DIR: '/home/node/shared',
   HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
 } as const;
+const DEFAULT_OPENCLAW_SYNC_EXCLUDE = [
+  'shared/**',
+  '.openclaw/npm/**/node_modules/**',
+  '.openclaw/agents/**/agent/*.sqlite.memory-reindex-*',
+  '.openclaw/agents/**/agent/*.sqlite.reindex-lock.sqlite*',
+  '.openclaw/browser/**/Code Cache/**',
+  '.openclaw/browser/**/GPUCache/**',
+  '.openclaw/browser/**/ShaderCache/**',
+  '.openclaw/browser/**/GrShaderCache/**',
+  '.openclaw/browser/**/optimization_guide_model_store/**',
+] as const;
 const LAUNCH_CONFIG_KEYS = new Set([
   'image',
   'env',
@@ -608,7 +619,6 @@ export interface OpenClawMemoryIndexOptions {
 
 export interface OpenClawWorkspacesSyncOptions {
   enabled?: boolean | null;
-  outputDir?: string | null;
   readyOnly?: boolean | null;
   workspace?: string | null;
 }
@@ -1319,7 +1329,6 @@ export interface AgentStateFields {
   placementEpoch?: number;
   runtimeGeneration?: number;
   finalizeEpoch?: number | null;
-  restoreState?: string | null;
   createdAt?: Date | null;
   updatedAt?: Date | null;
   launchConfig?: Record<string, any> | null;
@@ -1376,7 +1385,6 @@ export interface AgentHydrationData {
   placement_epoch?: number;
   runtime_generation?: number;
   finalize_epoch?: number | null;
-  restore_state?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
@@ -1796,7 +1804,6 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     placementEpoch: data.placement_epoch ?? 0,
     runtimeGeneration: data.runtime_generation ?? 0,
     finalizeEpoch: data.finalize_epoch ?? null,
-    restoreState: data.restore_state ?? null,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig,
@@ -2178,9 +2185,6 @@ export function buildOpenClawWorkspacesSyncEnv(
   if (options.enabled !== undefined && options.enabled !== null) {
     env.HYPER_WORKSPACES_BOOT_SYNC = envBool(options.enabled);
   }
-  if (options.outputDir) {
-    env.HYPER_WORKSPACES_DIR = options.outputDir;
-  }
   if (options.readyOnly !== undefined && options.readyOnly !== null) {
     env.HYPER_WORKSPACES_SYNC_READY_ONLY = envBool(options.readyOnly);
   }
@@ -2235,7 +2239,6 @@ export class Agent {
   public readonly placementEpoch: number;
   public readonly runtimeGeneration: number;
   public readonly finalizeEpoch: number | null;
-  public readonly restoreState: string | null;
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
   public launchConfig: Record<string, any> | null;
@@ -2282,7 +2285,6 @@ export class Agent {
     this.placementEpoch = fields.placementEpoch ?? 0;
     this.runtimeGeneration = fields.runtimeGeneration ?? 0;
     this.finalizeEpoch = fields.finalizeEpoch ?? null;
-    this.restoreState = fields.restoreState ?? null;
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
     this.launchConfig = fields.launchConfig ?? null;
@@ -4051,11 +4053,17 @@ export class Deployments {
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),
     };
+    if (effectiveOptions.env.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
+      effectiveOptions.env.HYPER_WORKSPACES_DIR = '/home/node/shared';
+    }
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
+    if (options.syncInclude === undefined && options.syncExclude === undefined) {
+      effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
+    }
     return this.create(effectiveOptions);
   }
 
@@ -4125,6 +4133,9 @@ export class Deployments {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...(options.env ?? {}),
     };
+    if (effectiveEnv.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
+      effectiveEnv.HYPER_WORKSPACES_DIR = '/home/node/shared';
+    }
     if (options.buzz) {
       for (const key of BUZZ_RESERVED_ENV_KEYS) delete effectiveEnv[key];
       Object.assign(
@@ -4605,11 +4616,17 @@ export class Deployments {
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),
     };
+    if (effectiveOptions.env.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
+      effectiveOptions.env.HYPER_WORKSPACES_DIR = '/home/node/shared';
+    }
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
+    if (options.syncInclude === undefined && options.syncExclude === undefined) {
+      effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
+    }
     return this.start(agentIdOrName, effectiveOptions);
   }
 

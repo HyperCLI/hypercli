@@ -55,8 +55,8 @@ hyper workspaces download team-knowledge projects/example/report.pdf --raw --out
 Sync generated Markdown projections locally:
 
 ```bash
-hyper workspaces sync team-knowledge --output-dir ~/workspaces
-hyper workspaces sync --all --ready-only --output-dir ~/workspaces
+hyper workspaces sync team-knowledge --output-dir ~/shared
+hyper workspaces sync --all --ready-only --output-dir ~/shared
 ```
 
 Prepare an enrichment payload from generated Markdown files:
@@ -67,14 +67,14 @@ hyper workspaces enrich team-knowledge/projects/example/report.pdf --dir ./gener
 
 ## OpenClaw Sync
 
-OpenClaw agents sync accessible Workspace projections into `/home/node/workspaces` by default. For the default `node` user, `~/workspaces` resolves to that same local root.
+OpenClaw agents sync accessible Workspace projections into the fixed `/home/node/shared` directory. For the `node` user, `~/shared` resolves to that same projection root.
 
 Boot sync is controlled by:
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync during startup |
-| `HYPER_WORKSPACES_DIR` | `/home/node/workspaces` | Local sync root |
+| `HYPER_WORKSPACES_DIR` | `/home/node/shared` | Managed, fixed projection root |
 | `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
 | `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID |
 

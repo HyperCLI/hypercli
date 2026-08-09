@@ -281,7 +281,7 @@ whose runtime image is already `hypercli-buzz-agent`. An explicit `image`
 continues to override either default.
 
 Buzz launches keep `/home/node` as the persistent Files API and credential
-root, reserve `/home/node/workspaces` for Workspace projections, and run
+root, reserve `/home/node/shared` for Workspace projections, and run
 `buzz-acp` from the specialized `/home/node/.buzz` nest. The image reconciles
 the nest after the home mount. OpenCode and Codex consume its canonical
 `AGENTS.md`; Claude Code receives `CLAUDE.md -> AGENTS.md`.

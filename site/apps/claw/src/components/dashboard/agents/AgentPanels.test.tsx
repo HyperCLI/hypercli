@@ -189,7 +189,7 @@ const agent: Agent = {
       OPENCLAW_DESKTOP_ENABLED: "0",
       HYPER_API_BASE: "https://api.hypercli.com",
       HYPER_WORKSPACES_BOOT_SYNC: "1",
-      HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+      HYPER_WORKSPACES_DIR: "/home/node/shared",
       HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
       OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
       FOO: "bar",
@@ -1675,14 +1675,12 @@ describe("AgentSettingsPanel", () => {
     expect(savedHyperEnv).toHaveValue(
       "HYPER_API_BASE=https://api.hypercli.com\n"
       + "HYPER_WORKSPACES_BOOT_SYNC=1\n"
-      + "HYPER_WORKSPACES_DIR=/home/node/workspaces\n"
       + "HYPER_WORKSPACES_SYNC_READY_ONLY=1",
     );
     fireEvent.change(savedHyperEnv, {
       target: {
         value: "HYPER_API_BASE=https://api.dev.hypercli.com\n"
           + "HYPER_WORKSPACES_BOOT_SYNC=1\n"
-          + "HYPER_WORKSPACES_DIR=/home/node/workspaces\n"
           + "HYPER_WORKSPACES_SYNC_READY_ONLY=1",
       },
     });
@@ -1703,7 +1701,7 @@ describe("AgentSettingsPanel", () => {
           OPENCLAW_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
-          HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+          HYPER_WORKSPACES_DIR: "/home/node/shared",
           HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
           OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: "0",
           FOO: "baz",
@@ -1717,7 +1715,6 @@ describe("AgentSettingsPanel", () => {
         sync_enabled: true,
         workspacesSync: {
           enabled: true,
-          outputDir: "/home/node/workspaces",
           readyOnly: true,
           workspace: null,
         },
@@ -1842,9 +1839,6 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.click(screen.getByRole("switch", { name: "Enable desktop route" }));
     fireEvent.click(screen.getByRole("switch", { name: "Ready files only" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Shared knowledge sync directory" }), {
-      target: { value: "/home/node/TeamWorkspaces" },
-    });
     fireEvent.change(screen.getByRole("textbox", { name: "Shared knowledge sync selection" }), {
       target: { value: "team-docs" },
     });
@@ -1855,7 +1849,7 @@ describe("AgentSettingsPanel", () => {
         env: expect.objectContaining({
           OPENCLAW_DESKTOP_ENABLED: "1",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
-          HYPER_WORKSPACES_DIR: "/home/node/TeamWorkspaces",
+          HYPER_WORKSPACES_DIR: "/home/node/shared",
           HYPER_WORKSPACES_SYNC_READY_ONLY: "0",
           HYPER_WORKSPACES_SYNC_WORKSPACE: "team-docs",
         }),
@@ -1865,7 +1859,6 @@ describe("AgentSettingsPanel", () => {
         }),
         workspacesSync: {
           enabled: true,
-          outputDir: "/home/node/TeamWorkspaces",
           readyOnly: false,
           workspace: "team-docs",
         },
@@ -2042,7 +2035,7 @@ describe("AgentSettingsPanel", () => {
         OPENCLAW_DESKTOP_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_MEMORY_SEARCH_ENABLED: "1",
         OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1",
@@ -2060,7 +2053,6 @@ describe("AgentSettingsPanel", () => {
       sync_enabled: true,
       workspacesSync: {
         enabled: true,
-        outputDir: "/home/node/workspaces",
         readyOnly: true,
         workspace: null,
       },

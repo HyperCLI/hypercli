@@ -157,7 +157,6 @@ describe('Agents SDK', () => {
         placement_epoch: 8,
         runtime_generation: 3,
         finalize_epoch: 2,
-        restore_state: 'FUTURE_RESTORE',
       }),
     } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
@@ -168,7 +167,6 @@ describe('Agents SDK', () => {
     expect(agent.placementEpoch).toBe(8);
     expect(agent.runtimeGeneration).toBe(3);
     expect(agent.finalizeEpoch).toBe(2);
-    expect(agent.restoreState).toBe('FUTURE_RESTORE');
   });
 
   it('authenticates before the REST snapshot and delivers persisted transitions', async () => {

@@ -360,7 +360,7 @@ A typed Buzz launch:
 - derives the selected runtime's ACP child command and Buzz MCP command;
 - selects the matching `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`
   image, with Claude using `hypercli-buzz-claude`;
-- keeps `syncRoot: "/home/node"` and reserves `/home/node/workspaces` for
+- keeps `syncRoot: "/home/node"` and reserves `/home/node/shared` for
   Workspace projections;
 - runs from the image-managed `/home/node/.buzz` nest.
 
@@ -470,7 +470,6 @@ Important fields:
 - `placementEpoch`
 - `runtimeGeneration`
 - `finalizeEpoch`
-- `restoreState`
 - `name`
 - `hostname`
 - `tags`

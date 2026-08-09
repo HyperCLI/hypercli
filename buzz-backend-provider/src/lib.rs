@@ -644,9 +644,8 @@ fn restart_if_stopped(
         runtime_scopes: create.runtime_scopes.clone(),
         dry_run: false,
     };
-    // The Rust SDK derives the compatibility sync_enabled wire field from
-    // sync_root. Keep the include/exclude filters omitted here so a relaunch
-    // does not overwrite the backend's stored filter policy.
+    // Keep include/exclude filters omitted so a relaunch does not overwrite
+    // the backend's stored filter policy.
     client
         .start_deployment(&deployment.id, &start)
         .map_err(ProviderError::HyperCli)
@@ -918,7 +917,7 @@ fn build_launch_request_with_inference_base(
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
     env.insert(
         "HYPER_WORKSPACES_DIR".to_owned(),
-        "/home/node/workspaces".to_owned(),
+        "/home/node/shared".to_owned(),
     );
     env.insert(
         "HYPER_WORKSPACES_SYNC_READY_ONLY".to_owned(),
@@ -1740,7 +1739,7 @@ mod tests {
         );
         assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "acp,--profile,hosted");
         assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], "");
-        assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
+        assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/shared");
     }
 
     #[test]
@@ -2014,7 +2013,7 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Wrong");
             assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "queue");
             assert_eq!(request.env["BUZZ_ACP_DEDUP"], "drop");
-            assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/workspaces");
+            assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/shared");
             assert_eq!(
                 request.env["RUST_LOG"],
                 "buzz_acp=info,pool::prompt=info,acp::stream=off"
@@ -2440,7 +2439,6 @@ mod tests {
                     "restart": false,
                     "command": ["/usr/local/bin/buzz-acp"],
                     "sync_root": "/home/node",
-                    "sync_enabled": true,
                     "sync_uid": 1000,
                     "sync_gid": 1000,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
@@ -2454,7 +2452,7 @@ mod tests {
                         "PORTABLE_TIER": "launch",
                         "PORTABLE_ONLY": "preserved",
                         "HYPER_WORKSPACES_BOOT_SYNC": "1",
-                        "HYPER_WORKSPACES_DIR": "/home/node/workspaces"
+                        "HYPER_WORKSPACES_DIR": "/home/node/shared"
                     }
                 })
                 .to_string(),
@@ -2499,14 +2497,11 @@ mod tests {
     }
 
     #[test]
-    fn stopped_agent_relaunch_without_sync_root_disables_sync() {
+    fn stopped_agent_relaunch_without_sync_root_omits_persistence_fields() {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({
-                "sync_enabled": false,
-                "dry_run": false
-            })))
+            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
@@ -2526,14 +2521,11 @@ mod tests {
     }
 
     #[test]
-    fn stopped_agent_relaunch_filter_does_not_enable_sync_without_root() {
+    fn stopped_agent_relaunch_filter_does_not_add_persistence_fields_without_root() {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({
-                "sync_enabled": false,
-                "dry_run": false
-            })))
+            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
@@ -3042,7 +3034,6 @@ mod tests {
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
-            restore_state: None,
             launch_config: Default::default(),
         };
 
@@ -3090,7 +3081,6 @@ mod tests {
                 placement_epoch: 0,
                 runtime_generation: 0,
                 finalize_epoch: None,
-                restore_state: None,
                 launch_config: Default::default(),
             };
 
@@ -3140,7 +3130,6 @@ mod tests {
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
-            restore_state: None,
             launch_config: Default::default(),
         };
 

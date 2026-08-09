@@ -3535,7 +3535,6 @@ mod tests {
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
-            restore_state: None,
             launch_config: Default::default(),
         });
         let serialized = serde_json::to_value(view).unwrap();
@@ -3571,7 +3570,6 @@ mod tests {
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
-            restore_state: None,
             launch_config: DeploymentLaunchConfig::from_map(launch_config),
         });
 

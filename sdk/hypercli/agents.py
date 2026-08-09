@@ -75,9 +75,20 @@ OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 }
 OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
     "HYPER_WORKSPACES_BOOT_SYNC": "1",
-    "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
+    "HYPER_WORKSPACES_DIR": "/home/node/shared",
     "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
 }
+DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
+    "shared/**",
+    ".openclaw/npm/**/node_modules/**",
+    ".openclaw/agents/**/agent/*.sqlite.memory-reindex-*",
+    ".openclaw/agents/**/agent/*.sqlite.reindex-lock.sqlite*",
+    ".openclaw/browser/**/Code Cache/**",
+    ".openclaw/browser/**/GPUCache/**",
+    ".openclaw/browser/**/ShaderCache/**",
+    ".openclaw/browser/**/GrShaderCache/**",
+    ".openclaw/browser/**/optimization_guide_model_store/**",
+)
 LAUNCH_CONFIG_KEYS = frozenset(
     {
         "image",
@@ -752,12 +763,11 @@ def build_openclaw_workspaces_sync_env(workspaces_sync: dict | bool | None = Non
     options = {} if workspaces_sync is None or workspaces_sync is True else dict(workspaces_sync or {})
     if options.get("enabled") is False:
         return {"HYPER_WORKSPACES_BOOT_SYNC": "0"}
+    if options.get("output_dir") is not None or options.get("dir") is not None:
+        raise ValueError("OpenClaw Workspaces always sync to $HOME/shared")
     env = dict(OPENCLAW_WORKSPACES_ENV_DEFAULTS)
     if options.get("enabled") is not None:
         env["HYPER_WORKSPACES_BOOT_SYNC"] = _env_bool(options["enabled"])
-    output_dir = options.get("output_dir") or options.get("dir")
-    if output_dir is not None:
-        env["HYPER_WORKSPACES_DIR"] = str(output_dir)
     if options.get("ready_only") is not None:
         env["HYPER_WORKSPACES_SYNC_READY_ONLY"] = _env_bool(options["ready_only"])
     workspace = options.get("workspace") or options.get("workspace_ref")
@@ -1045,7 +1055,7 @@ def _resolve_openclaw_sync_policy(
         return (None if sync_include is None else list(sync_include)), _UNSET
     if sync_exclude is not _UNSET:
         return _UNSET, (None if sync_exclude is None else list(sync_exclude))
-    return _UNSET, _UNSET
+    return _UNSET, list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
 
 
 def _default_openclaw_pro_image(image: str | None) -> str | None:
@@ -1263,7 +1273,6 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "placement_epoch": int(data.get("placement_epoch", 0) or 0),
         "runtime_generation": int(data.get("runtime_generation", 0) or 0),
         "finalize_epoch": int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
-        "restore_state": str(data["restore_state"]) if data.get("restore_state") is not None else None,
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": launch_config,
@@ -1943,7 +1952,6 @@ class Agent:
     placement_epoch: int = 0
     runtime_generation: int = 0
     finalize_epoch: int | None = None
-    restore_state: str | None = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
@@ -3282,6 +3290,8 @@ class Deployments:
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
         }
+        if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
+            effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
         return self.create(
             name=name,
             handle=handle,
@@ -3499,6 +3509,8 @@ class Deployments:
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **dict(env or {}),
         }
+        if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
+            effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
         if buzz is not None:
             for key in BUZZ_RESERVED_ENV_KEYS:
                 effective_env.pop(key, None)
@@ -4258,6 +4270,8 @@ class Deployments:
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
         }
+        if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
+            effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
         return self.start(
             agent_id,
             config=config,

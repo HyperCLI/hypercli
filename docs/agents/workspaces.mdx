@@ -17,7 +17,7 @@ A Workspace contains:
 - deterministic `.tomd` projection paths
 - compact metadata for frontmatter, keywords, and search
 
-Agents can sync accessible Markdown projections before a session starts. In OpenClaw, the local sync root is `/home/node/workspaces`; shell paths such as `~/workspaces` resolve to the same root for the default `node` user.
+Agents can sync accessible Markdown projections before a session starts. In OpenClaw, the local sync root is `/home/node/shared`; shell paths such as `~/shared` resolve to the same root for the default `node` user.
 
 ## Workspaces vs Files
 
@@ -27,7 +27,7 @@ Workspaces are separate from task-scoped HyperCLI Files and from an agent's edit
 | --- | --- | --- |
 | HyperCLI Files | Render or workflow assets referenced by file ID or URL | Not automatically mounted |
 | OpenClaw workspace files | Temporary or editable files for one agent session | Agent working directory |
-| Workspaces | Shared durable knowledge with generated Markdown projections | `/home/node/workspaces/<workspace-slug>` |
+| Workspaces | Shared durable knowledge with generated Markdown projections | `/home/node/shared/<workspace-slug>` |
 
 ## Files, Versions, And Projections
 
@@ -84,22 +84,22 @@ Projection frontmatter includes provenance for the original file and a `download
 Sync copies finished Markdown projections into a local directory:
 
 ```bash
-hyper workspaces sync team-knowledge --output-dir ~/workspaces
-hyper workspaces sync --all --ready-only --output-dir ~/workspaces
+hyper workspaces sync team-knowledge --output-dir ~/shared
+hyper workspaces sync --all --ready-only --output-dir ~/shared
 ```
 
 The synced layout is:
 
 ```text
-~/workspaces/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
+~/shared/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
 ```
 
-OpenClaw boot sync uses `/home/node/workspaces` by default and runs before the gateway starts when boot sync is enabled.
+OpenClaw boot sync always projects into `/home/node/shared` and runs before the gateway starts when boot sync is enabled.
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync during OpenClaw startup |
-| `HYPER_WORKSPACES_DIR` | `/home/node/workspaces` | Local sync root |
+| `HYPER_WORKSPACES_DIR` | `/home/node/shared` | Managed, fixed projection root |
 | `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
 | `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID |
 

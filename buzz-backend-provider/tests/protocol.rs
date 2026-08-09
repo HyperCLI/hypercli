@@ -323,14 +323,13 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "BUZZ_ACP_DEDUP": "queue",
                 "RUST_LOG": "debug",
                 "HYPER_WORKSPACES_BOOT_SYNC": "1",
-                "HYPER_WORKSPACES_DIR": "/home/node/workspaces",
+                "HYPER_WORKSPACES_DIR": "/home/node/shared",
                 "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
                 "HYPER_WORKSPACES_SYNC_WORKSPACE": "fixture-workspace"
             },
             "command": common["command"].clone(),
             "image": image,
             "sync_root": common["sync_root"].clone(),
-            "sync_enabled": common["sync_enabled"].clone(),
             "sync_uid": common["sync_uid"].clone(),
             "sync_gid": common["sync_gid"].clone(),
             // Deployment creation has no prior policy to inherit. Each coding

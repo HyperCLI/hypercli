@@ -14,7 +14,7 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "0",
       },
@@ -29,7 +29,7 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
@@ -63,7 +63,7 @@ describe("buildOpenClawLaunchOptions", () => {
       image: "ghcr.io/acme/openclaw:desktop",
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
@@ -108,19 +108,17 @@ describe("buildOpenClawLaunchOptions", () => {
     expect(buildOpenClawLaunchOptions({
       desktopEnabled: false,
       workspacesSync: {
-        outputDir: "/home/node/CustomWorkspaces",
         readyOnly: false,
         workspace: "team-knowledge",
       },
     })).toMatchObject({
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
-        HYPER_WORKSPACES_DIR: "/home/node/CustomWorkspaces",
+        HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "0",
         HYPER_WORKSPACES_SYNC_WORKSPACE: "team-knowledge",
       },
       workspacesSync: {
-        outputDir: "/home/node/CustomWorkspaces",
         readyOnly: false,
         workspace: "team-knowledge",
       },

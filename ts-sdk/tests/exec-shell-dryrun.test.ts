@@ -151,11 +151,14 @@ describe('HyperClaw agents SDK', () => {
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
-      sync_enabled: true,
+      sync_exclude: expect.arrayContaining([
+        'shared/**',
+        '.openclaw/npm/**/node_modules/**',
+      ]),
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {
@@ -183,11 +186,14 @@ describe('HyperClaw agents SDK', () => {
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
-      sync_enabled: true,
+      sync_exclude: expect.arrayContaining([
+        'shared/**',
+        '.openclaw/npm/**/node_modules/**',
+      ]),
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {},
@@ -218,12 +224,15 @@ describe('HyperClaw agents SDK', () => {
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_PRO_IMAGE,
       sync_root: '/home/node',
-      sync_enabled: true,
+      sync_exclude: expect.arrayContaining([
+        'shared/**',
+        '.openclaw/npm/**/node_modules/**',
+      ]),
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
         OPENCLAW_DESKTOP_ENABLED: '1',
       }),
@@ -292,7 +301,6 @@ describe('HyperClaw agents SDK', () => {
     await deployments.createOpenClaw({
       name: 'test-agent',
       workspacesSync: {
-        outputDir: '/home/node/CustomWorkspaces',
         readyOnly: false,
         workspace: 'team-knowledge',
       },
@@ -301,7 +309,7 @@ describe('HyperClaw agents SDK', () => {
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/CustomWorkspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '0',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'team-knowledge',
       }),
@@ -378,11 +386,14 @@ describe('HyperClaw agents SDK', () => {
     expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
       sync_root: '/home/node',
-      sync_enabled: true,
+      sync_exclude: expect.arrayContaining([
+        'shared/**',
+        '.openclaw/npm/**/node_modules/**',
+      ]),
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/workspaces',
+        HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {

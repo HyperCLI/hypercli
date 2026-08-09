@@ -64,8 +64,8 @@ ACK or durable client outbox.
 Transition events carry `agent_id` for local filtering plus the transition-time `stage`, `reason`, `error`, and
 `message`, but remain invalidations rather than authoritative snapshots.
 
-`Deployment.state` and `restore_state` remain open strings so future server
-states continue to parse. Placement, runtime, and optional finalize epochs are
+`Deployment.state` remains an open string so future server states continue to
+parse. Placement, runtime, and optional finalize epochs are
 opaque correlation hints; REST is the snapshot.
 
 Canonical deployment lifecycle snapshots currently use `CREATING`, `PENDING`,
@@ -170,7 +170,7 @@ start, stop, and delete lifecycle calls; callers must keep delete limited to
 the backend's `stopped` state.
 
 `/home/node` remains the persistence and Files API root, and
-`/home/node/workspaces` remains reserved for Workspace projections. The
+`/home/node/shared` remains reserved for Workspace projections. The
 Buzz-specialized images reconcile their nest after mount and run the harness
 from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
 Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into

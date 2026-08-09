@@ -1014,7 +1014,6 @@ pub struct Deployment {
     #[serde(default)]
     pub finalize_epoch: Option<u64>,
     #[serde(default)]
-    pub restore_state: Option<String>,
     /// Persisted launch settings. This can contain runtime credentials, so its
     /// `Debug` implementation is always redacted even though authenticated
     /// clients may inspect and patch individual fields deliberately.
@@ -1485,7 +1484,6 @@ mod tests {
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
-            restore_state: None,
             launch_config: Default::default(),
         };
 
@@ -1527,7 +1525,6 @@ mod tests {
             placement_epoch: 0,
             runtime_generation: 0,
             finalize_epoch: None,
-            restore_state: None,
             launch_config: Default::default(),
         };
 

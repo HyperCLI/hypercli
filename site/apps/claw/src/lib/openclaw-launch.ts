@@ -15,7 +15,6 @@ export type OpenClawMemoryIndexOptions = {
 
 export type OpenClawWorkspacesSyncOptions = {
   enabled?: boolean | null;
-  outputDir?: string | null;
   readyOnly?: boolean | null;
   workspace?: string | null;
 };
@@ -36,7 +35,7 @@ const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
 
 const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_BOOT_SYNC: "1",
-  HYPER_WORKSPACES_DIR: "/home/node/workspaces",
+  HYPER_WORKSPACES_DIR: "/home/node/shared",
   HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
 };
 
@@ -115,9 +114,6 @@ export function buildOpenClawWorkspacesSyncEnv(workspacesSync: OpenClawWorkspace
   const env: Record<string, string> = { ...OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS };
   if (options.enabled !== undefined && options.enabled !== null) {
     env.HYPER_WORKSPACES_BOOT_SYNC = envBool(options.enabled);
-  }
-  if (options.outputDir) {
-    env.HYPER_WORKSPACES_DIR = options.outputDir;
   }
   if (options.readyOnly !== undefined && options.readyOnly !== null) {
     env.HYPER_WORKSPACES_SYNC_READY_ONLY = envBool(options.readyOnly);
