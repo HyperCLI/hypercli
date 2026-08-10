@@ -72,7 +72,6 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
         "hermes": {"port": 8642, "auth": False, "prefix": ""}
     }
     assert body["env"] == {
-        "HYPER_API_BASE": "https://api.test",
         "API_SERVER_ENABLED": "true",
         "API_SERVER_HOST": "0.0.0.0",
         "API_SERVER_KEY": "h" * 43,

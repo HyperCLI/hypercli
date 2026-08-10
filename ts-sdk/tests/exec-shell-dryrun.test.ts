@@ -155,7 +155,6 @@ describe('HyperClaw agents SDK', () => {
         '.openclaw/npm/**/node_modules/**',
       ]),
       env: expect.objectContaining({
-        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -164,6 +163,7 @@ describe('HyperClaw agents SDK', () => {
         openclaw: { port: 18789, auth: false, prefix: '' },
       },
     }));
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
   it('createOpenClaw respects explicit empty routes', async () => {
@@ -188,7 +188,6 @@ describe('HyperClaw agents SDK', () => {
         '.openclaw/npm/**/node_modules/**',
       ]),
       env: expect.objectContaining({
-        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -225,7 +224,6 @@ describe('HyperClaw agents SDK', () => {
       ]),
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: expect.objectContaining({
-        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -376,7 +374,6 @@ describe('HyperClaw agents SDK', () => {
         '.openclaw/npm/**/node_modules/**',
       ]),
       env: expect.objectContaining({
-        HYPER_API_BASE: 'https://api.dev.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
@@ -385,6 +382,7 @@ describe('HyperClaw agents SDK', () => {
         openclaw: { port: 18789, auth: false, prefix: '' },
       },
     }));
+    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
   it('hydrates generic and OpenClaw agents correctly', () => {

@@ -107,7 +107,11 @@ export class HyperCLI {
   constructor(options: HyperCLIOptions = {}) {
     // Handle explicit undefined vs explicitly passed empty string
     const productApiKey = options.apiKey !== undefined ? options.apiKey : (getApiKey() || '');
-    const resolvedAgentApiKey = options.agentApiKey !== undefined ? options.agentApiKey : (getAgentApiKey() || '');
+    const resolvedAgentApiKey = options.agentApiKey !== undefined
+      ? options.agentApiKey
+      : options.apiKey !== undefined
+        ? options.apiKey
+        : (getAgentApiKey() || '');
     this._apiKey = productApiKey || resolvedAgentApiKey;
     
     if (!this._apiKey) {

@@ -1950,12 +1950,6 @@ function resolveHermesApiServerKey(explicit: string | null | undefined, env: Rec
   return key;
 }
 
-function productApiBaseFromAgentsApiBase(apiBase: string): string {
-  const normalized = apiBase.replace(/\/+$/, '');
-  const agentsSuffix = '/agents';
-  return normalized.endsWith(agentsSuffix) ? normalized.slice(0, -agentsSuffix.length) : normalized;
-}
-
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
   const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
   if (!relayBaseUrl) throw new Error('Slack relay base URL is required');
@@ -4081,7 +4075,6 @@ export class Deployments {
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: CreateAgentOptions = { ...options, runtime: options.runtime ?? 'openclaw' };
     effectiveOptions.env = {
-      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),
@@ -4103,7 +4096,6 @@ export class Deployments {
   async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
     const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env);
     const env: Record<string, string> = {
-      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...(options.env ?? {}),
       API_SERVER_ENABLED: 'true',
       API_SERVER_HOST: '0.0.0.0',
@@ -4162,7 +4154,6 @@ export class Deployments {
       throw new Error("Buzz coding agents require size='large'");
     }
     const effectiveEnv: Record<string, string> = {
-      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...(options.env ?? {}),
     };
@@ -4669,7 +4660,6 @@ export class Deployments {
   async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: StartAgentOptions = { ...options };
     effectiveOptions.env = {
-      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),
@@ -4691,7 +4681,6 @@ export class Deployments {
   async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions = {}): Promise<HermesAgent> {
     const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env);
     const env: Record<string, string> = {
-      HYPER_API_BASE: productApiBaseFromAgentsApiBase(this.apiBase),
       ...(options.env ?? {}),
       API_SERVER_ENABLED: 'true',
       API_SERVER_HOST: '0.0.0.0',

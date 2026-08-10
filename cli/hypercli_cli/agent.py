@@ -817,7 +817,7 @@ def models(
     import httpx
 
     api_base = DEV_API_BASE if dev else PROD_API_BASE
-    key = os.getenv("HYPER_API_KEY")
+    key = get_agent_api_key()
     headers = {"Authorization": f"Bearer {key}"} if key else {}
 
     # Prefer OpenAI-compatible endpoint, then fallback to legacy.
@@ -838,7 +838,7 @@ def models(
     if payload is None:
         console.print(
             f"[red]❌ Failed to fetch models from {urls[0]} or {urls[1]} "
-            "(set HYPER_API_KEY if endpoint requires auth)[/red]"
+            "(configure a HyperCLI API key if the endpoint requires auth)[/red]"
         )
         raise typer.Exit(1)
 
@@ -1231,9 +1231,12 @@ def openclaw_setup(
 
 
 def _resolve_api_key(key: str | None) -> str:
-    """Resolve API key from --key flag or ~/.hypercli/agent-key.json."""
+    """Resolve API key from explicit input, canonical config, then subscription file."""
     if key:
         return key
+    configured = (get_agent_api_key() or "").strip()
+    if configured:
+        return configured
     if AGENT_KEY_PATH.exists():
         with open(AGENT_KEY_PATH) as f:
             k = json.load(f).get("key", "")

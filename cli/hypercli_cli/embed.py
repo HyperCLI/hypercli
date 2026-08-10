@@ -1,11 +1,12 @@
 """HyperCLI Embed — text embeddings via HyperCLI API."""
 import json
-import os
 from pathlib import Path
 
 import httpx
 import typer
 from rich.console import Console
+
+from hypercli.config import get_agent_api_key
 
 app = typer.Typer(help="Text embeddings via HyperCLI API (qwen3-embedding-4b)")
 console = Console()
@@ -17,12 +18,12 @@ DEV_API_BASE = "https://api.dev.hypercli.com"
 
 
 def _get_api_key(key: str | None) -> str:
-    """Resolve API key: --key flag > env HYPER_API_KEY > agent-key.json."""
+    """Resolve API key from explicit input, canonical config, then subscription file."""
     if key:
         return key
-    env_key = os.environ.get("HYPER_API_KEY", "").strip()
-    if env_key:
-        return env_key
+    configured = (get_agent_api_key() or "").strip()
+    if configured:
+        return configured
     if AGENT_KEY_PATH.exists():
         with open(AGENT_KEY_PATH) as f:
             k = json.load(f).get("key", "")

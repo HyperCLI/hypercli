@@ -59,28 +59,30 @@ describe('HyperCLI Client', () => {
   });
 
   it('should construct client with explicit API key', () => {
+    process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
     const client = new HyperCLI({ apiKey: 'hyper_api_explicit_test_key' });
     expect(client).toBeDefined();
+    expect((client.deployments as any).agentApiKey).toBe('hyper_api_explicit_test_key');
   });
 
   it('should throw error with empty API key', () => {
     expect(() => new HyperCLI({ apiKey: '', agentApiKey: '' })).toThrow();
   });
 
-  it('should use agent env for deployments while keeping product auth for platform APIs', () => {
-    process.env.HYPER_AGENTS_API_KEY = 'sk-agent';
+  it('should use product auth for deployments before the managed agent fallback', () => {
+    process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
     process.env.AGENTS_API_BASE_URL = 'https://api.agents.dev.hypercli.com';
 
     const client = new HyperCLI();
     expect(client.apiKey).toBe('hyper_api_test_key');
-    expect((client.deployments as any).agentApiKey).toBe('sk-agent');
+    expect((client.deployments as any).agentApiKey).toBe('hyper_api_test_key');
     expect((client.deployments as any).agentApiBase).toBe('https://api.dev.hypercli.com/agents');
   });
 
   it('should derive agent endpoints from an explicit product apiUrl', () => {
     const client = new HyperCLI({
       apiKey: 'hyper_api_test_key',
-      agentApiKey: 'sk-agent',
+      agentApiKey: 'hyper_api_agent',
       apiUrl: 'https://api.dev.hypercli.com',
     });
 

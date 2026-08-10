@@ -1,9 +1,8 @@
 import importlib
 import json
-from pathlib import Path
 
 
-def test_agents_cli_prefers_agent_key_env(monkeypatch):
+def test_agents_cli_prefers_product_key_env(monkeypatch):
     monkeypatch.setenv("HYPER_API_KEY", "hyper_api_product")
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
 
@@ -11,7 +10,7 @@ def test_agents_cli_prefers_agent_key_env(monkeypatch):
 
     importlib.reload(agents)
 
-    assert agents._get_agent_api_key() == "hyper_api_agent"
+    assert agents._get_agent_api_key() == "hyper_api_product"
 
 
 def test_agents_cli_uses_config_without_legacy_agent_key(monkeypatch, tmp_path):
@@ -50,6 +49,21 @@ def test_agent_activate_uses_config_without_legacy_agent_key(monkeypatch, tmp_pa
     monkeypatch.setattr(agent, "AGENT_KEY_PATH", tmp_path / "missing-agent-key.json")
 
     assert agent._resolve_agent_query_key() == "hyper_api_config"
+
+
+def test_agent_config_and_embed_use_the_canonical_key_resolver(
+    monkeypatch, tmp_path
+):
+    import hypercli_cli.agent as agent
+    import hypercli_cli.embed as embed
+
+    monkeypatch.setattr(agent, "get_agent_api_key", lambda: "hyper_api_config")
+    monkeypatch.setattr(embed, "get_agent_api_key", lambda: "hyper_api_config")
+    monkeypatch.setattr(agent, "AGENT_KEY_PATH", tmp_path / "missing-agent-key.json")
+    monkeypatch.setattr(embed, "AGENT_KEY_PATH", tmp_path / "missing-agent-key.json")
+
+    assert agent._resolve_api_key(None) == "hyper_api_config"
+    assert embed._get_api_key(None) == "hyper_api_config"
 
 
 def test_agents_cli_prefers_agent_base_env(monkeypatch):

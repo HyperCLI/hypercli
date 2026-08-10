@@ -50,7 +50,7 @@ describe('Hermes deployment lifecycle', () => {
     expect(body.sync_gid).toBe(10000);
     expect(body.routes).toEqual({ hermes: { port: 8642, auth: false, prefix: '' } });
     expect(body.runtime_scopes).toEqual(DEFAULT_AGENT_RUNTIME_SCOPES);
-    expect(body.env.HYPER_API_BASE).toBe('https://api.test.hypercli.com');
+    expect(body.env.HYPER_API_BASE).toBeUndefined();
     expect(body.env.API_SERVER_ENABLED).toBe('true');
     expect(body.env.API_SERVER_HOST).toBe('0.0.0.0');
     expect(body.env.API_SERVER_KEY).toMatch(/^[0-9a-f]{64}$/);

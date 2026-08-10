@@ -33,16 +33,32 @@ def test_agents_urls_use_env_overrides(monkeypatch):
     assert config.get_agents_ws_url() == "wss://api.agents.dev.hypercli.com/ws"
 
 
-def test_agent_key_prefers_agent_env_then_product_env(monkeypatch):
-    monkeypatch.setenv("HYPER_API_KEY", "sk-product")
-    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "sk-agent")
+def test_agent_key_prefers_product_env_then_managed_agent_env(monkeypatch):
+    monkeypatch.setenv("HYPER_API_KEY", "hyper_api_product")
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
 
     import hypercli.config as config
 
     importlib.reload(config)
 
-    assert config.get_agent_api_key() == "sk-agent"
-    assert config.get_api_key() == "sk-product"
+    assert config.get_agent_api_key() == "hyper_api_product"
+    assert config.get_api_key() == "hyper_api_product"
+
+
+def test_agent_key_prefers_product_config_before_managed_agent_env(
+    monkeypatch, tmp_path
+):
+    config_path = tmp_path / "config"
+    config_path.write_text("HYPER_API_KEY=hyper_api_configured\n")
+    monkeypatch.delenv("HYPER_API_KEY", raising=False)
+    monkeypatch.delenv("HYPERCLI_API_KEY", raising=False)
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
+
+    import hypercli.config as config
+
+    monkeypatch.setattr(config, "CONFIG_FILE", config_path)
+
+    assert config.get_agent_api_key() == "hyper_api_configured"
 
 
 def test_agents_base_prefers_direct_agents_base(monkeypatch):

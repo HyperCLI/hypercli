@@ -936,16 +936,26 @@ def test_hypercli_dev_client_defaults_agents_urls():
     assert client.agent._base_url == "https://api.agents.dev.hypercli.com/v1"
 
 
-def test_hypercli_uses_agent_env_for_agent_clients(monkeypatch):
-    monkeypatch.setenv("HYPER_API_KEY", "sk-product")
-    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "sk-agent")
+def test_explicit_product_key_is_used_for_agent_clients(monkeypatch):
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
+
+    client = HyperCLI(api_key="hyper_api_explicit")
+
+    assert client._api_key == "hyper_api_explicit"
+    assert client.deployments._api_key == "hyper_api_explicit"
+    assert client.agent._api_key == "hyper_api_explicit"
+
+
+def test_hypercli_uses_product_env_before_agent_fallback(monkeypatch):
+    monkeypatch.setenv("HYPER_API_KEY", "hyper_api_product")
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_agent")
     monkeypatch.setenv("AGENTS_API_BASE_URL", "https://api.agents.dev.hypercli.com")
 
     client = HyperCLI()
 
-    assert client._api_key == "sk-product"
-    assert client.deployments._api_key == "sk-agent"
-    assert client.agent._api_key == "sk-agent"
+    assert client._api_key == "hyper_api_product"
+    assert client.deployments._api_key == "hyper_api_product"
+    assert client.agent._api_key == "hyper_api_product"
     assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"
 
 
@@ -956,8 +966,8 @@ def test_hypercli_derives_agent_urls_from_explicit_api_url(monkeypatch):
     monkeypatch.delenv("HYPERCLI_API_URL", raising=False)
 
     client = HyperCLI(
-        api_key="sk-product",
-        agent_api_key="sk-agent",
+        api_key="hyper_api_product",
+        agent_api_key="hyper_api_agent",
         api_url="https://api.dev.hypercli.com",
     )
 

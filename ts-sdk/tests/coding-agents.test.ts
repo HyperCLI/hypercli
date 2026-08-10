@@ -126,7 +126,6 @@ describe('coding agents', () => {
       sync_gid: 1000,
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: {
-        HYPER_API_BASE: 'https://api.test.hypercli.com',
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',

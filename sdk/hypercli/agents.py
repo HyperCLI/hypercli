@@ -1081,12 +1081,6 @@ def _default_openclaw_pro_image(image: str | None) -> str | None:
     return DEFAULT_OPENCLAW_PRO_IMAGE
 
 
-def _product_api_base_from_agents_api_base(api_base: str) -> str:
-    normalized = _normalize_agents_api_base(api_base).rstrip("/")
-    suffix = "/agents"
-    return normalized[: -len(suffix)] if normalized.endswith(suffix) else normalized
-
-
 def _truthy_env(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
@@ -3307,7 +3301,6 @@ class Deployments:
             sync_exclude=sync_exclude,
         )
         effective_env = {
-            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
@@ -3380,7 +3373,6 @@ class Deployments:
     ) -> HermesAgent:
         """Create a first-class Hermes Agent runtime."""
         effective_env = {
-            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             "API_SERVER_ENABLED": "true",
             "API_SERVER_HOST": "0.0.0.0",
             **dict(env or {}),
@@ -3533,7 +3525,6 @@ class Deployments:
         if buzz_launch and size not in (None, "large"):
             raise ValueError("Buzz coding agents require size='large'")
         effective_env = {
-            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **dict(env or {}),
         }
@@ -4264,7 +4255,6 @@ class Deployments:
     ) -> HermesAgent:
         """Start a Hermes runtime with a fresh write-only API Server key."""
         effective_env = {
-            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             "API_SERVER_ENABLED": "true",
             "API_SERVER_HOST": "0.0.0.0",
             **dict(env or {}),
@@ -4337,7 +4327,6 @@ class Deployments:
             sync_exclude=sync_exclude,
         )
         effective_env = {
-            "HYPER_API_BASE": _product_api_base_from_agents_api_base(self._api_base),
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),

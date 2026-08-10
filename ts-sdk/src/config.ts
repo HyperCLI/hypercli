@@ -160,10 +160,10 @@ export function getApiKey(): string | undefined {
 }
 
 /**
- * Get agent API key, preferring the restricted agent token.
+ * Get the user-selected key, falling back to the managed runtime token.
  */
 export function getAgentApiKey(): string | undefined {
-  return getConfigValue('HYPER_AGENTS_API_KEY') || getApiKey();
+  return getApiKey() || getConfigValue('HYPER_AGENTS_API_KEY');
 }
 
 /**

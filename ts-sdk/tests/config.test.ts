@@ -67,10 +67,16 @@ describe('Config', () => {
     expect(key).toMatch(/^hyper_api_/);
   });
 
-  it('should prefer agent API key for agent surfaces', () => {
-    process.env.HYPER_AGENTS_API_KEY = 'sk-agent';
-    expect(getAgentApiKey()).toBe('sk-agent');
+  it('should prefer the product key before the managed agent fallback', () => {
+    process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
+    expect(getAgentApiKey()).toBe('hyper_api_test_key');
     expect(getApiKey()).toBe('hyper_api_test_key');
+  });
+
+  it('should use the managed agent key when no product key is selected', () => {
+    delete process.env.HYPER_API_KEY;
+    process.env.HYPER_AGENTS_API_KEY = 'hyper_api_agent';
+    expect(getAgentApiKey()).toBe('hyper_api_agent');
   });
 
   it('should return default API URL', () => {

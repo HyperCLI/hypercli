@@ -9,7 +9,7 @@ from hypercli_cli.cli import app
 runner = CliRunner()
 
 
-def _configure_stale_restored_key(monkeypatch, tmp_path: Path) -> None:
+def _configure_product_key_and_managed_fallback(monkeypatch, tmp_path: Path) -> None:
     import hypercli.config as config_mod
 
     config_path = tmp_path / ".hypercli" / "config"
@@ -21,21 +21,23 @@ def _configure_stale_restored_key(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_fresh_runtime")
 
 
-def test_workspaces_prefers_runtime_key_over_restored_product_key(monkeypatch, tmp_path):
+def test_workspaces_prefers_configured_product_key_over_runtime_key(
+    monkeypatch, tmp_path
+):
     import hypercli_cli.workspaces as workspaces_mod
 
-    _configure_stale_restored_key(monkeypatch, tmp_path)
+    _configure_product_key_and_managed_fallback(monkeypatch, tmp_path)
 
-    assert workspaces_mod._get_workspaces().api_key == "hyper_api_fresh_runtime"
+    assert workspaces_mod._get_workspaces().api_key == "hyper_api_stale_restored"
 
 
-def test_workspaces_explicit_runtime_key_beats_explicit_product_key(monkeypatch):
+def test_workspaces_explicit_product_key_beats_runtime_key(monkeypatch):
     import hypercli_cli.workspaces as workspaces_mod
 
     monkeypatch.setenv("HYPER_AGENTS_API_KEY", "hyper_api_fresh_runtime")
     monkeypatch.setenv("HYPER_API_KEY", "hyper_api_explicit_product")
 
-    assert workspaces_mod._workspace_api_key() == "hyper_api_fresh_runtime"
+    assert workspaces_mod._workspace_api_key() == "hyper_api_explicit_product"
 
 
 def test_workspaces_explicit_product_key_beats_configured_agent_key(monkeypatch, tmp_path):
@@ -67,10 +69,12 @@ def test_workspaces_without_runtime_key_retains_product_config(monkeypatch, tmp_
     assert workspaces_mod._workspace_api_key() == "hyper_api_product_config"
 
 
-def test_workspaces_auth_subject_prefers_runtime_key_over_restored_product_key(monkeypatch, tmp_path):
+def test_workspaces_auth_subject_prefers_product_config_over_runtime_key(
+    monkeypatch, tmp_path
+):
     import hypercli_cli.workspaces as workspaces_mod
 
-    _configure_stale_restored_key(monkeypatch, tmp_path)
+    _configure_product_key_and_managed_fallback(monkeypatch, tmp_path)
     captured = {}
 
     class _AuthMe:
@@ -89,8 +93,8 @@ def test_workspaces_auth_subject_prefers_runtime_key_over_restored_product_key(m
 
     assert workspaces_mod._resolve_auth_subject(None, None) == (None, "agent-runtime")
     assert captured == {
-        "api_key": "hyper_api_fresh_runtime",
-        "agent_api_key": "hyper_api_fresh_runtime",
+        "api_key": "hyper_api_stale_restored",
+        "agent_api_key": "hyper_api_stale_restored",
     }
 
 

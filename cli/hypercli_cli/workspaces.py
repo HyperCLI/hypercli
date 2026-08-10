@@ -21,11 +21,8 @@ console = Console()
 
 
 def _workspace_api_key() -> str | None:
-    # Managed agents receive a fresh runtime-scoped key in the environment.
-    # Prefer it over a product key that may have been restored from the agent's
-    # persistent ~/.hypercli/config.  A configured (rather than injected)
-    # agent key must not outrank an explicit product key in a local shell.
-    return os.getenv("HYPER_AGENTS_API_KEY") or get_api_key() or get_agent_api_key()
+    # Explicit/configured product credentials outrank the managed runtime fallback.
+    return get_api_key() or get_agent_api_key()
 
 
 def _get_workspaces():

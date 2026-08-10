@@ -48,11 +48,10 @@ def get_api_key() -> Optional[str]:
 
 
 def get_agent_api_key() -> Optional[str]:
-    """Get agent-scoped API key, falling back to the full product key."""
+    """Get the user-selected key, falling back to the managed runtime key."""
     return (
-        get_config_value("HYPER_AGENTS_API_KEY")
-        or get_config_value("HYPER_API_KEY")
-        or get_config_value("HYPERCLI_API_KEY")
+        get_api_key()
+        or get_config_value("HYPER_AGENTS_API_KEY")
     )
 
 

@@ -69,7 +69,7 @@ class HyperCLI:
         timeout: float = None,
     ):
         resolved_product_api_key = api_key or get_api_key()
-        resolved_agent_api_key = agent_api_key or get_agent_api_key()
+        resolved_agent_api_key = agent_api_key or api_key or get_agent_api_key()
         self._api_key = resolved_product_api_key or resolved_agent_api_key
         if not self._api_key:
             raise ValueError(

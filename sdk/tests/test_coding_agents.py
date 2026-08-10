@@ -175,7 +175,6 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type, s
     assert posted["sync_gid"] == 1000
     assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
     assert posted["env"] == {
-        "HYPER_API_BASE": "https://api.test.hypercli.com",
         "HYPER_WORKSPACES_BOOT_SYNC": "1",
         "HYPER_WORKSPACES_DIR": "/home/node/shared",
         "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",

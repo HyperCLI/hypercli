@@ -1445,7 +1445,7 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
-        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
+        assert "HYPER_API_BASE" not in posted_json["env"]
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
@@ -1502,7 +1502,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["runtime"] == "openclaw-pro"
         assert posted_json["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
-        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
+        assert "HYPER_API_BASE" not in posted_json["env"]
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
@@ -1801,7 +1801,7 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["sync_root"] == "/home/node"
         assert "sync_enabled" not in posted_json
-        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
+        assert "HYPER_API_BASE" not in posted_json["env"]
         assert "HOME" not in posted_json["env"]
 
 
@@ -1827,7 +1827,7 @@ def test_start_openclaw_defaults_sync_root(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["sync_root"] == "/home/node"
         assert "sync_enabled" not in posted_json
-        assert posted_json["env"]["HYPER_API_BASE"] == "https://api.test.hypercli.com"
+        assert "HYPER_API_BASE" not in posted_json["env"]
         assert "HOME" not in posted_json["env"]
 
 
