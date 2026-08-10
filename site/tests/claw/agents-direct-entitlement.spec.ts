@@ -62,6 +62,7 @@ async function expectWizardToFit(page: Page, workspaceStep: Locator) {
 
 test("agents page launches from a direct entitlement without an active subscription", async ({ page }) => {
   let createBody: Record<string, unknown> | null = null;
+  let createdAgent: Record<string, unknown> | null = null;
 
   await page.context().addCookies([
     {
@@ -110,27 +111,59 @@ test("agents page launches from a direct entitlement without an active subscript
     const method = route.request().method();
 
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
-      await route.fulfill({ status: 200, contentType: "application/json", body: "[]" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(createdAgent ? [createdAgent] : []),
+      });
       return;
     }
 
     if (pathName.endsWith("/agents/deployments") && method === "POST") {
       createBody = route.request().postDataJSON();
+      createdAgent = {
+        id: "agent-direct-entitlement",
+        name: "Direct Entitlement Agent",
+        user_id: "user-1",
+        state: "STOPPED",
+        cpu: 4,
+        memory: 4,
+        hostname: null,
+        launch_epoch: 0,
+        agent_version: 1,
+        resources_exist: false,
+        namespace_exists: false,
+        created_at: "2026-05-17T00:00:00Z",
+        updated_at: "2026-05-17T00:00:00Z",
+      };
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          id: "agent-direct-entitlement",
-          name: "Direct Entitlement Agent",
-          user_id: "user-1",
-          state: "STARTING",
-          cpu: 4,
-          memory: 4,
-          hostname: "direct-entitlement-agent.hypercli.app",
-          created_at: "2026-05-17T00:00:00Z",
-          updated_at: "2026-05-17T00:00:00Z",
-        }),
+        body: JSON.stringify(createdAgent),
       });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/deployments/agent-direct-entitlement/start") && method === "POST") {
+      if (!createdAgent) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Agent not found" }) });
+        return;
+      }
+      createdAgent = {
+        ...createdAgent,
+        state: "CREATING",
+        launch_epoch: 1,
+        agent_version: 2,
+        resources_exist: true,
+        namespace_exists: true,
+        updated_at: "2026-05-17T00:01:00Z",
+      };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/deployments/agent-direct-entitlement") && method === "GET" && createdAgent) {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
     }
 
@@ -315,6 +348,13 @@ test("agents page launches from a direct entitlement without an active subscript
   await expect(workspaceStep.locator('[data-slot="shape-agent-content"]')).toHaveAttribute("data-workspace-stage", "personality");
   await expectWizardToFit(page, workspaceStep);
   await workspaceStep.getByRole("button", { name: "Launch agent" }).click();
+
+  await expect(workspaceStep).toHaveCount(0);
+  const startup = page.getByRole("region", { name: "Agent startup" });
+  await expect(startup).toBeVisible();
+  await expect(startup.getByText("Creating agent")).toBeVisible();
+  await expect(startup.getByText("Preparing persistent storage and admitting the runtime.")).toBeVisible();
+  await expect(startup.getByRole("button", { name: "Stop agent" })).toBeVisible();
 
   await expect.poll(() => createBody?.size ?? null).toBe("large");
   expect(String(createBody?.image ?? "")).toMatch(/^ghcr\.io\/hypercli\/hypercli-openclaw:pro-/);

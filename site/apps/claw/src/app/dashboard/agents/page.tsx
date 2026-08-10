@@ -4183,7 +4183,7 @@ function AgentsPageContent() {
     customImage = null,
     knowledgeDomainId,
     creationId,
-  }: AgentCreationSetupCreateParams) => {
+  }: AgentCreationSetupCreateParams, onLaunchAccepted?: (accepted: SdkAgent) => void) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
       return null;
@@ -4275,6 +4275,7 @@ function AgentsPageContent() {
               if (generation === agentDataGenerationRef.current) {
                 applyAgentMutationResult(accepted);
                 invalidateAgentCapacity();
+                onLaunchAccepted?.(accepted);
               }
             });
             if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
@@ -5720,7 +5721,14 @@ function AgentsPageContent() {
   };
   const createAgentFromLauncher = async (params: AgentCreationSetupCreateParams) => {
     try {
-      const createdId = await handleCreateFirstAgent(params);
+      const createdId = await handleCreateFirstAgent(params, (accepted) => {
+        agentLauncherReturnHrefRef.current = null;
+        setOpenclawSettingsOpen(false);
+        setMainTab("chat");
+        setMobileShowChat(true);
+        setAgentLauncherOpen(false);
+        void selectAgent(accepted.id, true);
+      });
       if (createdId) {
         const principalId = user?.id ?? null;
         const pending = principalId ? readPendingPlanCheckout(principalId) : null;
