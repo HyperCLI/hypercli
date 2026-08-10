@@ -1749,13 +1749,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn wait_deployment_state_accepts_every_canonical_transitional_state() {
-        for state in [
-            "CREATING",
-            "STARTING",
-            "RESTORING",
-            "STOPPING",
-            "ARCHIVING",
-        ] {
+        for state in ["CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"] {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
             let websocket = tokio::spawn(async move {
@@ -1872,7 +1866,7 @@ mod tests {
                     "id": "deployment-1",
                     "name": "buzz-agent",
                     "runtime": "opencode",
-                    "state": "pending"
+                    "state": "CREATING"
                 })
                 .to_string(),
             )

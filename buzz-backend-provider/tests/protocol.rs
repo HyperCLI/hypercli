@@ -219,7 +219,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "id":"fixture-deployment",
                 "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                 "runtime":"goose",
-                "state":"pending"
+                "state":"creating"
             })
             .to_string(),
         )
@@ -384,7 +384,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 serde_json::json!({
                     "id": format!("dry-run-{runtime}"),
                     "runtime": runtime,
-                    "state": "pending"
+                    "state": "creating"
                 })
                 .to_string(),
             )

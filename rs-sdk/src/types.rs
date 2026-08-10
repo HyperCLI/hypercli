@@ -908,17 +908,6 @@ pub struct DeploymentListFilters {
     pub include_deleted: Option<bool>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct AgentRuntimeStatus {
-    pub pod_phase: String,
-    pub container_name: String,
-    pub state: String,
-    #[serde(default)]
-    pub reason: Option<String>,
-    #[serde(default)]
-    pub message: Option<String>,
-}
-
 /// Canonical public lifecycle states understood by this SDK. Deployment state
 /// remains a `String` so future server values continue to round-trip.
 pub const CANONICAL_AGENT_STATES: &[&str] = &[
@@ -934,21 +923,11 @@ pub const CANONICAL_AGENT_STATES: &[&str] = &[
     "DELETED",
 ];
 
-pub const AGENT_TRANSITIONAL_STATES: &[&str] = &[
-    "CREATING",
-    "STARTING",
-    "RESTORING",
-    "STOPPING",
-    "ARCHIVING",
-];
+pub const AGENT_TRANSITIONAL_STATES: &[&str] =
+    &["CREATING", "STARTING", "RESTORING", "STOPPING", "ARCHIVING"];
 
-pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] = &[
-    "STOPPED",
-    "ARCHIVING",
-    "ARCHIVED",
-    "FAILED",
-    "DELETED",
-];
+pub const AGENT_RUNTIME_INACTIVE_STATES: &[&str] =
+    &["STOPPED", "ARCHIVING", "ARCHIVED", "FAILED", "DELETED"];
 
 pub fn is_agent_transitional_state(state: &str) -> bool {
     AGENT_TRANSITIONAL_STATES
@@ -997,12 +976,6 @@ pub struct Deployment {
     pub error: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
-    /// Deprecated rollout compatibility alias; use `error`/`message`.
-    #[serde(default)]
-    pub last_error: Option<String>,
-    /// Deprecated rollout compatibility alias; use `reason`/`error`/`message`.
-    #[serde(default)]
-    pub runtime_status: Option<AgentRuntimeStatus>,
     #[serde(default)]
     pub placement_epoch: u64,
     #[serde(default)]
@@ -1491,8 +1464,6 @@ mod tests {
             reason: None,
             error: None,
             message: None,
-            last_error: None,
-            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             agent_version: 0,
@@ -1555,8 +1526,6 @@ mod tests {
             reason: None,
             error: None,
             message: None,
-            last_error: None,
-            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
             agent_version: 0,
@@ -1616,35 +1585,11 @@ mod tests {
             deployment.archived_cluster_id.as_deref(),
             Some("cluster-archive")
         );
-        assert_eq!(
-            deployment.archived_cluster_name.as_deref(),
-            Some("dev01")
-        );
+        assert_eq!(deployment.archived_cluster_name.as_deref(), Some("dev01"));
         assert_eq!(
             deployment.archived_path.as_deref(),
             Some("s3://archive/dev01/agent-1/checkpoint")
         );
-    }
-
-    #[test]
-    fn deployment_deserializes_starting_runtime_status() {
-        let deployment: Deployment = serde_json::from_value(serde_json::json!({
-            "id": "agent-1",
-            "state": "STARTING",
-            "runtime_status": {
-                "pod_phase": "Pending",
-                "container_name": "reef",
-                "state": "waiting",
-                "reason": "ImagePullBackOff",
-                "message": "back-off pulling image"
-            }
-        }))
-        .unwrap();
-
-        let status = deployment.runtime_status.unwrap();
-        assert_eq!(deployment.state, "STARTING");
-        assert_eq!(status.reason.as_deref(), Some("ImagePullBackOff"));
-        assert_eq!(status.message.as_deref(), Some("back-off pulling image"));
     }
 
     #[test]

@@ -148,11 +148,10 @@ idempotent; a changed request fails clearly until the agent is stopped. Once
 stopped, changed launch settings or a changed runtime replace the old
 deployment so Buzz's “changes apply next spawn” contract remains true. Legacy
 same-runtime deployments without a fingerprint retain the compatible restart
-path. For `failed`, `restore_failed`, or `sync_failed`, let the no-restart
-cleanup reach `stopped` (or stop the deployment with authenticated HyperCLI
-tooling), then deploy again; the provider never starts through an uncleared
-runtime. It emits exactly one JSON response and writes no protocol diagnostics
-to stderr.
+path. For `failed`, let cleanup reach `stopped` (or stop the deployment with
+authenticated HyperCLI tooling), then deploy again; the provider never starts
+through an uncleared runtime. It emits exactly one JSON response and writes no
+protocol diagnostics to stderr.
 
 Stock v0.5.2 sends `idle_timeout_seconds`, legacy
 `turn_timeout_seconds`, `max_turn_duration_seconds`, `respond_to`, and

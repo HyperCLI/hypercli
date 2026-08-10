@@ -662,17 +662,14 @@ fn wait_until_running(
         let state = deployment.state.trim().to_ascii_lowercase();
         match state.as_str() {
             "running" => return Ok(deployment),
-            // `starting` is accepted only as a rollout compatibility alias;
-            // canonical deployments progress through DOWNLOADING before
-            // RESTORING/SYNCING and then RUNNING.
-            "pending" | "downloading" | "restoring" | "syncing" | "starting" => {}
-            "stopping" => {
+            "creating" | "restoring" | "starting" => {}
+            "stopping" | "archiving" => {
                 return Err(ProviderError::DeploymentBusy {
                     deployment_id: deployment.id,
                     state,
                 });
             }
-            "restore_failed" | "sync_failed" | "failed" | "stopped" => {
+            "failed" | "stopped" | "archived" | "deleted" => {
                 return Err(ProviderError::DeploymentTerminalState {
                     deployment_id: deployment.id,
                     state,
@@ -2284,7 +2281,7 @@ mod tests {
                     "id":"deployment-1",
                     "handle": format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"pending"
+                    "state":"creating"
                 })
                 .to_string(),
             )
@@ -2362,7 +2359,7 @@ mod tests {
                     "id": "deployment-medium",
                     "handle": handle,
                     "runtime": "opencode",
-                    "state": "pending"
+                    "state": "creating"
                 })
                 .to_string(),
             )
@@ -2464,7 +2461,7 @@ mod tests {
                     "id":"existing",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"pending"
+                    "state":"creating"
                 })
                 .to_string(),
             )
@@ -2504,7 +2501,7 @@ mod tests {
             .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"creating"}"#)
             .create();
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "existing",
@@ -2528,7 +2525,7 @@ mod tests {
             .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"existing","runtime":"opencode","state":"pending"}"#)
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"creating"}"#)
             .create();
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "existing",
@@ -2585,7 +2582,7 @@ mod tests {
                     "id":"new-runtime",
                     "handle":handle,
                     "runtime":"opencode",
-                    "state":"pending"
+                    "state":"creating"
                 })
                 .to_string(),
             )
@@ -2705,7 +2702,7 @@ mod tests {
                     "id":"existing",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"pending"
+                    "state":"creating"
                 })
                 .to_string(),
             )
@@ -2766,7 +2763,7 @@ mod tests {
                         "id":"shared",
                         "handle":handle,
                         "runtime":"opencode",
-                        "state":"pending"
+                        "state":"creating"
                     }]
                 })
                 .to_string(),
@@ -2782,7 +2779,7 @@ mod tests {
                     "id":"shared",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"pending"
+                    "state":"creating"
                 })
                 .to_string(),
             )
@@ -2880,42 +2877,44 @@ mod tests {
     }
 
     #[test]
-    fn deploy_does_not_restart_agent_while_backend_cleanup_is_stopping() {
-        let mut server = Server::new();
-        let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
-        let lookup = server
-            .mock("GET", "/agents/deployments")
-            .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "items": [{
-                        "id":"existing",
-                        "handle":handle,
-                        "runtime":"opencode",
-                        "state":"stopping"
-                    }]
-                })
-                .to_string(),
+    fn deploy_does_not_restart_agent_during_destructive_transitions() {
+        for lifecycle_state in ["stopping", "archiving"] {
+            let mut server = Server::new();
+            let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+            let lookup = server
+                .mock("GET", "/agents/deployments")
+                .match_query(Matcher::UrlEncoded("handle".into(), handle.clone()))
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    serde_json::json!({
+                        "items": [{
+                            "id":"existing",
+                            "handle":handle,
+                            "runtime":"opencode",
+                            "state":lifecycle_state
+                        }]
+                    })
+                    .to_string(),
+                )
+                .create();
+
+            let error = deploy(
+                &client(&server),
+                test_agent(),
+                serde_json::json!({"runtime":"opencode"}),
             )
-            .create();
+            .unwrap_err();
 
-        let error = deploy(
-            &client(&server),
-            test_agent(),
-            serde_json::json!({"runtime":"opencode"}),
-        )
-        .unwrap_err();
-
-        assert!(matches!(
-            error,
-            ProviderError::DeploymentBusy {
-                deployment_id,
-                state
-            } if deployment_id == "existing" && state == "stopping"
-        ));
-        lookup.assert();
+            assert!(matches!(
+                error,
+                ProviderError::DeploymentBusy {
+                    deployment_id,
+                    state
+                } if deployment_id == "existing" && state == lifecycle_state
+            ));
+            lookup.assert();
+        }
     }
 
     #[test]
@@ -2977,27 +2976,13 @@ mod tests {
     }
 
     #[test]
-    fn readiness_wait_accepts_every_booting_state_before_running() {
+    fn readiness_wait_accepts_canonical_launch_states_before_running() {
         let mut server = Server::new();
-        let downloading = server
-            .mock("GET", "/agents/deployments/deployment-1")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"downloading"}"#)
-            .expect(1)
-            .create();
         let restoring = server
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"restoring"}"#)
-            .expect(1)
-            .create();
-        let syncing = server
-            .mock("GET", "/agents/deployments/deployment-1")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"syncing"}"#)
             .expect(1)
             .create();
         let starting = server
@@ -3020,19 +3005,25 @@ mod tests {
             handle: None,
             avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
-            state: "pending".to_owned(),
+            state: "creating".to_owned(),
+            storage_cluster_id: None,
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
-            stage: None,
+            archived_at: None,
+            archived_cluster_id: None,
+            archived_cluster_name: None,
+            archived_path: None,
             reason: None,
             error: None,
             message: None,
-            last_error: None,
-            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
+            agent_version: 0,
             finalize_epoch: None,
+            revision: 0,
+            resources_exist: false,
+            namespace_exists: false,
             launch_config: Default::default(),
         };
 
@@ -3045,16 +3036,14 @@ mod tests {
         .unwrap();
 
         assert_eq!(ready.state, "running");
-        downloading.assert();
         restoring.assert();
-        syncing.assert();
         starting.assert();
         running.assert();
     }
 
     #[test]
     fn readiness_wait_fails_immediately_for_terminal_states() {
-        for state in ["restore_failed", "sync_failed", "failed", "stopped"] {
+        for state in ["failed", "stopped", "archived", "deleted"] {
             let mut server = Server::new();
             let poll = server
                 .mock("GET", "/agents/deployments/deployment-1")
@@ -3067,18 +3056,24 @@ mod tests {
                 avatar_url: None,
                 runtime: Some(ManagedRuntime::Opencode),
                 state: state.to_owned(),
+                storage_cluster_id: None,
                 hostname: None,
                 tags: Vec::new(),
                 requested_size: None,
-                stage: None,
+                archived_at: None,
+                archived_cluster_id: None,
+                archived_cluster_name: None,
+                archived_path: None,
                 reason: None,
                 error: None,
                 message: None,
-                last_error: None,
-                runtime_status: None,
                 placement_epoch: 0,
                 runtime_generation: 0,
+                agent_version: 0,
                 finalize_epoch: None,
+                revision: 0,
+                resources_exist: false,
+                namespace_exists: false,
                 launch_config: Default::default(),
             };
 
@@ -3115,18 +3110,24 @@ mod tests {
             avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "starting".to_owned(),
+            storage_cluster_id: None,
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
-            stage: None,
+            archived_at: None,
+            archived_cluster_id: None,
+            archived_cluster_name: None,
+            archived_path: None,
             reason: None,
             error: None,
             message: None,
-            last_error: None,
-            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
+            agent_version: 0,
             finalize_epoch: None,
+            revision: 0,
+            resources_exist: false,
+            namespace_exists: false,
             launch_config: Default::default(),
         };
 
@@ -3200,7 +3201,7 @@ mod tests {
                     serde_json::json!({
                         "id": format!("dry-run-{state}"),
                         "runtime": "opencode",
-                        "state": "pending"
+                        "state": "creating"
                     })
                     .to_string(),
                 )

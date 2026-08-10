@@ -552,7 +552,7 @@ fn agent_actions(state: &str) -> AgentActions {
             restart: true,
             delete: false,
         },
-        "creating" | "pending" | "downloading" | "restoring" | "syncing" | "starting" => {
+        "creating" | "restoring" | "starting" => {
             AgentActions {
                 start: false,
                 stop: true,
@@ -560,7 +560,7 @@ fn agent_actions(state: &str) -> AgentActions {
                 delete: false,
             }
         }
-        "restore_failed" | "sync_failed" | "failed" | "crashed" | "error" => AgentActions {
+        "failed" => AgentActions {
             start: false,
             stop: false,
             restart: true,
@@ -620,7 +620,7 @@ impl From<Deployment> for DesktopAgent {
             tags: deployment.tags,
             hostname: deployment.hostname,
             requested_size: deployment.requested_size,
-            last_error: deployment.last_error,
+            last_error: deployment.error,
             is_buzz,
             agent_public_key,
             native_auth_runtime,
@@ -3480,14 +3480,7 @@ mod tests {
                 delete: false,
             }
         );
-        for state in [
-            "CREATING",
-            "PENDING",
-            "DOWNLOADING",
-            "RESTORING",
-            "SYNCING",
-            "STARTING",
-        ] {
+        for state in ["CREATING", "RESTORING", "STARTING"] {
             assert_eq!(
                 agent_actions(state),
                 AgentActions {
@@ -3498,7 +3491,7 @@ mod tests {
                 }
             );
         }
-        for state in ["FAILED", "RESTORE_FAILED", "SYNC_FAILED"] {
+        for state in ["FAILED"] {
             assert_eq!(
                 agent_actions(state),
                 AgentActions {
@@ -3530,18 +3523,24 @@ mod tests {
             avatar_url: None,
             runtime: Some(hypercli_sdk::ManagedRuntime::ClaudeCode),
             state: "RUNNING".to_owned(),
+            storage_cluster_id: None,
             hostname: Some("maverick.hypercli.app".to_owned()),
             tags: vec!["buzz_agent=public-key".to_owned()],
             requested_size: Some("large".to_owned()),
-            stage: None,
+            archived_at: None,
+            archived_cluster_id: None,
+            archived_cluster_name: None,
+            archived_path: None,
             reason: None,
             error: None,
             message: None,
-            last_error: None,
-            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
+            agent_version: 0,
             finalize_epoch: None,
+            revision: 0,
+            resources_exist: false,
+            namespace_exists: false,
             launch_config: Default::default(),
         });
         let serialized = serde_json::to_value(view).unwrap();
@@ -3565,21 +3564,27 @@ mod tests {
             avatar_url: None,
             runtime: Some(hypercli_sdk::ManagedRuntime::BuzzAgent),
             state: "RUNNING".to_owned(),
+            storage_cluster_id: None,
             hostname: None,
             tags: vec![
                 "app=buzz".to_owned(),
                 "buzz_agent=79be667ef9dcbbac".to_owned(),
             ],
             requested_size: Some("large".to_owned()),
-            stage: None,
+            archived_at: None,
+            archived_cluster_id: None,
+            archived_cluster_name: None,
+            archived_path: None,
             reason: None,
             error: None,
             message: None,
-            last_error: None,
-            runtime_status: None,
             placement_epoch: 0,
             runtime_generation: 0,
+            agent_version: 0,
             finalize_epoch: None,
+            revision: 0,
+            resources_exist: false,
+            namespace_exists: false,
             launch_config: DeploymentLaunchConfig::from_map(launch_config),
         });
 
