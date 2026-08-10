@@ -3489,17 +3489,15 @@ mod tests {
                 }
             );
         }
-        for state in ["FAILED"] {
-            assert_eq!(
-                agent_actions(state),
-                AgentActions {
-                    start: false,
-                    stop: false,
-                    restart: true,
-                    delete: false,
-                }
-            );
-        }
+        assert_eq!(
+            agent_actions("FAILED"),
+            AgentActions {
+                start: false,
+                stop: false,
+                restart: true,
+                delete: false,
+            }
+        );
         assert_eq!(
             agent_actions("stopping"),
             AgentActions {
