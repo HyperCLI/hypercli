@@ -731,17 +731,16 @@ def wait_agent(
 def _agent_state_style(state: object) -> str:
     normalized_state = str(state or "").lower()
     return {
-        "running": "green",
-        "pending": "yellow",
-        "restoring": "yellow",
-        "syncing": "yellow",
+        "creating": "yellow",
         "starting": "yellow",
-        "downloading": "yellow",
+        "restoring": "yellow",
+        "running": "green",
         "stopping": "yellow",
+        "archiving": "yellow",
         "stopped": "dim",
+        "archived": "dim",
         "failed": "red",
-        "restore_failed": "red",
-        "sync_failed": "red",
+        "deleted": "dim",
     }.get(normalized_state, "white")
 
 

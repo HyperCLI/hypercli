@@ -28,7 +28,7 @@ function generateUser() {
 
 function generateAgent(overrides = {}) {
   const id = overrides.id || uuidv4();
-  const states = ['STOPPED', 'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'FAILED'];
+  const states = ['CREATING', 'STARTING', 'RESTORING', 'RUNNING', 'STOPPING', 'STOPPED', 'ARCHIVING', 'ARCHIVED', 'FAILED'];
   const state = overrides.state || faker.helpers.arrayElement(states);
   const tier = overrides.type || faker.helpers.arrayElement(['small', 'medium', 'large']);
   const tierPresets = { small: { cpu: 1, memory: 1 }, medium: { cpu: 2, memory: 2 }, large: { cpu: 4, memory: 4 } };
@@ -330,7 +330,7 @@ app.get('/agents/deployments/budget', (req, res) => {
   // Count used slots per tier from running/transitioning agents
   const tierUsage = { small: 0, medium: 0, large: 0 };
   agents.forEach((a) => {
-    if (['RUNNING', 'STARTING', 'PENDING', 'STOPPING'].includes(a.state)) {
+    if (['CREATING', 'STARTING', 'RESTORING', 'RUNNING', 'STOPPING', 'ARCHIVING'].includes(a.state)) {
       const tier = a.type || 'small';
       if (tierUsage[tier] !== undefined) tierUsage[tier] += 1;
     }
@@ -351,16 +351,16 @@ app.get('/agents/deployments/budget', (req, res) => {
   });
 });
 
-app.get('/agents/deployments/:id/env', (req, res) => {
+app.get('/agents/deployments/:id/gateway', (req, res) => {
   const agent = mockData.agents.get(req.params.id);
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
   res.json({
-    env: agent.env || {
-      NODE_ENV: 'production',
-      LOG_LEVEL: 'info',
-    },
+    agent_id: agent.id,
+    gateway_url: `wss://${agent.hostname}`,
+    gateway_token: agent.gateway_token || 'mock-gateway-token',
+    runtime_generation: agent.runtime_generation || 1,
   });
 });
 
@@ -459,19 +459,6 @@ app.get('/api/agents/:id', (req, res) => {
     return res.status(404).json({ error: 'Agent not found' });
   }
   res.json(agent);
-});
-
-app.get('/api/agents/:id/env', (req, res) => {
-  const agent = mockData.agents.get(req.params.id);
-  if (!agent) {
-    return res.status(404).json({ error: 'Agent not found' });
-  }
-  res.json({
-    env: agent.env || {
-      NODE_ENV: 'production',
-      LOG_LEVEL: 'info',
-    },
-  });
 });
 
 app.post('/api/agents', (req, res) => {

@@ -129,8 +129,8 @@ async function main() {
       console.log(JSON.stringify({ phase: 'poll', agent: summarize(last) }, null, 2));
       if (String(last.state).toUpperCase() === 'RUNNING') {
         const dns = await tryDns(last.hostname ?? null);
-        const envPayload = await deployments.env(last.id).catch((error) => ({ error: String(error) }));
-        console.log(JSON.stringify({ phase: 'running', agent: summarize(last), dns, envPayload }, null, 2));
+        const gatewayContext = await deployments.gatewayContext(last.id).catch((error) => ({ error: String(error) }));
+        console.log(JSON.stringify({ phase: 'running', agent: summarize(last), dns, gatewayContext }, null, 2));
         if (holdSeconds > 0) {
           await sleep(holdSeconds * 1000);
         }
@@ -144,11 +144,10 @@ async function main() {
 
     const fresh = await deployments.get(created.id);
     const dns = await tryDns(fresh.hostname ?? null);
-    const envPayload = await deployments.env(fresh.id).catch((error) => ({ error: String(error) }));
     const gatewayContext = typeof fresh.waitForGatewayContext === 'function'
       ? await fresh.waitForGatewayContext({ timeoutMs: 10_000, retryIntervalMs: 1_000 }).catch((error) => ({ error: String(error) }))
       : { skipped: 'not-openclaw-agent' };
-    console.error(JSON.stringify({ phase: 'stuck', agent: summarize(fresh), dns, envPayload, gatewayContext }, null, 2));
+    console.error(JSON.stringify({ phase: 'stuck', agent: summarize(fresh), dns, gatewayContext }, null, 2));
     process.exitCode = 1;
   } finally {
     if (created && !noDelete) {
