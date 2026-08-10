@@ -205,6 +205,7 @@ describe("AccountOperationsHome", () => {
   });
 
   it("ranks regular agents and gently surfaces agents quiet for a week", () => {
+    const rankedAt = Date.now();
     const regularSdkAgent = buildSdkAgent({ id: "agent-2", name: "Daily Copilot", state: "RUNNING" });
     const quietSdkAgent = buildSdkAgent({ id: "agent-3", name: "Archive Scout", state: "RUNNING" });
     const regularAgent = toAgentViewModel(regularSdkAgent);
@@ -219,15 +220,15 @@ describe("AccountOperationsHome", () => {
             key: "research",
             clientMode: "web",
             clientDisplayName: "Market research",
-            createdAt: capturedAt - 7_200_000,
-            lastMessageAt: capturedAt - 3_600_000,
+            createdAt: rankedAt - 7_200_000,
+            lastMessageAt: rankedAt - 3_600_000,
             title: "Market research",
             messageCount: 8,
             raw: {},
           }],
           cronJobs: [],
           failures: {},
-          capturedAt,
+          capturedAt: rankedAt,
         },
         "agent-2": {
           agentId: "agent-2",
@@ -236,15 +237,15 @@ describe("AccountOperationsHome", () => {
             key: "daily",
             clientMode: "web",
             clientDisplayName: "Daily planning",
-            createdAt: capturedAt - 7_200_000,
-            lastMessageAt: capturedAt - 1_800_000,
+            createdAt: rankedAt - 7_200_000,
+            lastMessageAt: rankedAt - 1_800_000,
             title: "Daily planning",
             messageCount: 34,
             raw: {},
           }],
           cronJobs: [],
           failures: {},
-          capturedAt,
+          capturedAt: rankedAt,
         },
         "agent-3": {
           agentId: "agent-3",
@@ -253,15 +254,15 @@ describe("AccountOperationsHome", () => {
             key: "archive",
             clientMode: "web",
             clientDisplayName: "Archive review",
-            createdAt: capturedAt - 12 * 86_400_000,
-            lastMessageAt: capturedAt - 10 * 86_400_000,
+            createdAt: rankedAt - 12 * 86_400_000,
+            lastMessageAt: rankedAt - 10 * 86_400_000,
             title: "Archive review",
             messageCount: 1,
             raw: {},
           }],
           cronJobs: [],
           failures: {},
-          capturedAt,
+          capturedAt: rankedAt,
         },
       },
     });

@@ -2,7 +2,12 @@ import { NAV_URLS } from "@hypercli/shared-ui";
 
 const AGENTS_DASHBOARD_URL = `${NAV_URLS.clawDashboard}/agents`;
 
-export const TEAM_TRIAL_HREF = `${AGENTS_DASHBOARD_URL}?intent=trial&plan=team`;
+export function agentTrialHref(planId: string): string {
+  const params = new URLSearchParams({ intent: "trial", plan: planId.trim().toLowerCase() });
+  return `${AGENTS_DASHBOARD_URL}?${params.toString()}`;
+}
+
+export const TEAM_TRIAL_HREF = agentTrialHref("team");
 
 export function agentLauncherHref(planId?: string | null): string {
   const params = new URLSearchParams({ open: "agent-launcher" });
@@ -12,7 +17,8 @@ export function agentLauncherHref(planId?: string | null): string {
 }
 
 export function agentPlanCtaHref(planId: string): string {
-  return planId.trim().toLowerCase() === "team"
-    ? TEAM_TRIAL_HREF
-    : agentLauncherHref(planId);
+  const normalizedPlanId = planId.trim().toLowerCase();
+  return normalizedPlanId === "team"
+    ? agentTrialHref(normalizedPlanId)
+    : agentLauncherHref(normalizedPlanId);
 }

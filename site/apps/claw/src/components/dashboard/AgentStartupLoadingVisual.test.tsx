@@ -52,6 +52,16 @@ describe("AgentStartupTipsVisual", () => {
     expect(screen.getByText("Restoring your connection and recent conversation.")).toBeInTheDocument();
   });
 
+  it("exposes an available startup action", () => {
+    const onStop = vi.fn();
+    renderWithClient(
+      <AgentStartupTipsVisual actionLabel="Stop agent" onAction={onStop} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    expect(onStop).toHaveBeenCalledOnce();
+  });
+
   it("rotates tips every five seconds without a playback control", () => {
     vi.useFakeTimers();
     renderWithClient(<AgentStartupTipsVisual />);

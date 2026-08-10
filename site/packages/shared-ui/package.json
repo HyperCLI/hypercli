@@ -6,6 +6,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./marketing": "./src/marketing/index.ts",
     "./files": "./src/files/index.ts",
     "./skills": "./src/skills/index.tsx",
     "./files/file-types": "./src/files/file-types.ts",
@@ -17,6 +18,7 @@
   },
   "scripts": {
     "lint": "eslint",
+    "test": "vitest run",
     "clean": "rm -rf dist"
   },
   "dependencies": {
@@ -86,6 +88,7 @@
     "@types/react-dom": "*",
     "eslint": "*",
     "eslint-config-next": "*",
-    "typescript": "*"
+    "typescript": "*",
+    "vitest": "^4.1.4"
   }
 }

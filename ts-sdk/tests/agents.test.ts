@@ -947,6 +947,44 @@ describe('Agents SDK', () => {
     expect(agent.launchEpoch).toBe(10);
   });
 
+  it('reconciles authoritative state when a transition event is missed', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    installReadySubscription(deployments);
+
+    const waiting = deployments.waitRunning('agent-123', 1_000, 100, 10);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('performs a final authoritative read at the timeout boundary', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    installReadySubscription(deployments);
+
+    const waiting = deployments.waitRunning('agent-123', 100, 1_000, 10);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
   it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
     vi.useFakeTimers();
     const http = {

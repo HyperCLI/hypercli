@@ -33,7 +33,20 @@ describe("getAgentChatBootStatus", () => {
     });
   });
 
-  it("shows restore and shared knowledge sync phases before gateway readiness", () => {
+  it("shows creation and restore phases before gateway readiness", () => {
+    expect(getAgentChatBootStatus({
+      ...baseInput,
+      agentState: "CREATING",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+    })).toMatchObject({
+      status: "loading",
+      phase: "creating",
+      title: "Creating agent",
+      stage: "runtime",
+    });
+
     expect(getAgentChatBootStatus({
       ...baseInput,
       agentState: "RESTORING",
@@ -47,37 +60,16 @@ describe("getAgentChatBootStatus", () => {
       stage: "runtime",
     });
 
-    expect(getAgentChatBootStatus({
-      ...baseInput,
-      agentState: "SYNCING",
-      gatewayConnected: true,
-      ready: true,
-      connected: true,
-    })).toMatchObject({
-      status: "loading",
-      phase: "syncing",
-      title: "Syncing shared knowledge",
-      stage: "runtime",
-    });
   });
 
-  it("shows init-container failure states directly", () => {
+  it("shows the canonical failure state directly", () => {
     expect(getAgentChatBootStatus({
       ...baseInput,
-      agentState: "RESTORE_FAILED",
+      agentState: "FAILED",
       isSelectedRunning: false,
     })).toMatchObject({
       status: "error",
-      title: "Restore failed",
-    });
-
-    expect(getAgentChatBootStatus({
-      ...baseInput,
-      agentState: "SYNC_FAILED",
-      isSelectedRunning: false,
-    })).toMatchObject({
-      status: "error",
-      title: "Sync failed",
+      title: "Agent failed",
     });
   });
 

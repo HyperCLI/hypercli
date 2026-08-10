@@ -94,7 +94,10 @@ const sdkMocks = vi.hoisted(() => ({
 }));
 
 const agentClientMocks = vi.hoisted(() => ({
-  createAgentClient: vi.fn(() => ({ fileWriteBytes: vi.fn(async () => undefined), startOpenClaw: vi.fn(async () => undefined) })),
+  createAgentClient: vi.fn(() => ({
+    fileWriteBytes: vi.fn(async () => undefined),
+    start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
+  })),
 }));
 
 vi.mock("@hypercli.com/sdk/browser", () => ({
@@ -124,7 +127,7 @@ vi.mock("@/lib/agent-client", () => ({
   })),
 }));
 
-import { AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
+import { AgentEmptyState, AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -159,7 +162,10 @@ beforeEach(() => {
     avatarUrl: null,
     s3Key: null,
   });
-  agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes: vi.fn(async () => undefined), startOpenClaw: vi.fn(async () => undefined) });
+  agentClientMocks.createAgentClient.mockReturnValue({
+    fileWriteBytes: vi.fn(async () => undefined),
+    start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
+  });
 });
 
 const agent: Agent = {
@@ -196,7 +202,8 @@ const agent: Agent = {
       openclaw: { port: 18789, auth: false, prefix: "" },
     },
     sync_root: "/home/node",
-    sync_enabled: true,
+    sync_uid: 1000,
+    sync_gid: 1000,
   },
   meta: null,
 };
@@ -411,6 +418,18 @@ describe("LaunchFirstAgentEmptyState", () => {
       "Launch an agent to start chatting...",
     );
     expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+});
+
+describe("AgentEmptyState", () => {
+  it("uses comfortable mobile spacing inside a scroll-safe empty-state boundary", () => {
+    render(<AgentEmptyState onCreate={vi.fn()} launchLabel="Launch agent" onLaunchAction={vi.fn()} />);
+
+    expect(screen.getByTestId("agent-launch-empty-state")).toHaveClass("min-h-0", "overflow-x-hidden", "overflow-y-auto");
+    expect(screen.getByRole("heading", { name: "Your business, one chat" })).toHaveClass("text-[30px]", "md:text-[38px]", "break-words");
+    expect(document.querySelectorAll('[data-slot="agent-feature-empty-state-example"]')).toHaveLength(3);
+    expect(screen.getByText(/Ask questions across Slack/).parentElement).toHaveClass("min-h-16", "items-center", "text-[13px]", "text-left", "md:flex-col", "md:min-h-[118px]");
+    expect(screen.getByRole("button", { name: "Launch agent" })).toHaveClass("h-12", "md:h-10");
   });
 });
 
@@ -639,7 +658,7 @@ describe("AgentList", () => {
 
     await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
     expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-domain-1");
-    expect(operations).toEqual(["create", "associate", "refresh"]);
+    expect(operations).toEqual(["create", "refresh", "associate", "refresh"]);
   });
 
   it("does not select an agent when Workspace association fails", async () => {
@@ -1199,13 +1218,11 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
-  it.each(["RESTORE_FAILED", "SYNC_FAILED", "FAILED"] as const)(
-    "offers cleanup instead of restart for a bound %s runtime",
-    (state) => {
+  it("offers cleanup instead of restart for a bound failed runtime", () => {
       const onStartAgent = vi.fn();
       const onStopAgent = vi.fn();
       renderAgentSettingsPanel({
-        agent: { ...agent, state, resourcesExist: true },
+        agent: { ...agent, state: "FAILED", resourcesExist: true },
         onStartAgent,
         onStopAgent,
       });
@@ -1218,13 +1235,12 @@ describe("AgentSettingsPanel", () => {
       fireEvent.click(cleanupButton);
       expect(onStopAgent).toHaveBeenCalledTimes(1);
       expect(onStartAgent).not.toHaveBeenCalled();
-    },
-  );
+  });
 
   it("allows restart for a failed runtime after cleanup clears its pod binding", () => {
     const onStartAgent = vi.fn();
     renderAgentSettingsPanel({
-      agent: { ...agent, state: "SYNC_FAILED", resourcesExist: false },
+      agent: { ...agent, state: "FAILED", resourcesExist: false },
       onStartAgent,
     });
 
@@ -1235,9 +1251,20 @@ describe("AgentSettingsPanel", () => {
     expect(screen.queryByRole("button", { name: "Clean up failed launch" })).not.toBeInTheDocument();
   });
 
+  it("renders archiving as cleanup rather than startup", () => {
+    renderAgentSettingsPanel({ agent: { ...agent, state: "ARCHIVING" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    expect(screen.getByText("Agent is archiving")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archiving agent" })).toBeDisabled();
+    expect(screen.getByText("Archiving...")).toBeInTheDocument();
+    expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
+  });
+
   it("opens the delete confirmation from agent settings", () => {
     const onDeleteAgent = vi.fn();
-    renderAgentSettingsPanel({ onDeleteAgent });
+    renderAgentSettingsPanel({ agent: { ...agent, state: "STOPPED" }, onDeleteAgent });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete agent" }));
@@ -1693,7 +1720,6 @@ describe("AgentSettingsPanel", () => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
         image: "ghcr.io/hypercli/hypercli-openclaw:custom",
         env: {
-          OPENCLAW_GATEWAY_TOKEN: "gateway-token",
           OPENCLAW_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -1708,7 +1734,8 @@ describe("AgentSettingsPanel", () => {
           openclaw: { port: 18789, auth: false, prefix: "" },
         },
         sync_root: "/home/node",
-        sync_enabled: true,
+        sync_uid: 1000,
+        sync_gid: 1000,
         workspacesSync: {
           enabled: true,
           readyOnly: true,
@@ -1827,6 +1854,24 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Agent is stopping")).toBeInTheDocument();
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
+
+  it.each(["CREATING", "STARTING", "RESTORING"] as const)(
+    "allows %s startup to be cancelled",
+    (state) => {
+      const onStopAgent = vi.fn();
+      renderAgentSettingsPanel({
+        agent: { ...agent, state },
+        agentStarting: true,
+        onStopAgent,
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+      const stopButton = screen.getByRole("button", { name: "Stop agent" });
+      expect(stopButton).toBeEnabled();
+      fireEvent.click(stopButton);
+      expect(onStopAgent).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("saves desktop and workspace launch settings as managed config", async () => {
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
@@ -2027,7 +2072,6 @@ describe("AgentSettingsPanel", () => {
     expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "gateway-token",
         OPENCLAW_DESKTOP_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",
         HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -2046,7 +2090,8 @@ describe("AgentSettingsPanel", () => {
         openclaw: { port: 18789, auth: false, prefix: "" },
       },
       sync_root: "/home/node",
-      sync_enabled: true,
+      sync_uid: 1000,
+      sync_gid: 1000,
       workspacesSync: {
         enabled: true,
         readyOnly: true,

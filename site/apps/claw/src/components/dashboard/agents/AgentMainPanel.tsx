@@ -4,7 +4,7 @@ import React from "react";
 import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
-import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentStartable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -82,6 +82,7 @@ interface AgentMainPanelProps {
   onShowInspector: () => void;
   showInspectorButton?: boolean;
   onStart: () => void;
+  onStop?: () => void;
   onReconnect: () => void;
 }
 
@@ -135,32 +136,19 @@ export function AgentMainPanel({
   onShowInspector,
   showInspectorButton = true,
   onStart,
+  onStop,
   onReconnect,
 }: AgentMainPanelProps) {
   const selectedAgentState = selectedAgent?.state ?? null;
   const selectedAgentDisplayName = selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent";
   const isLifecycleBusy = isAgentTransitionalState(selectedAgentState);
-  const isStartable = selectedAgentState === "STOPPED" || isAgentFailureState(selectedAgentState);
+  const isStartable = Boolean(selectedAgent && isAgentStartable(selectedAgent));
   const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
     if (!selectedAgent) return null;
     if (selectedAgent.state === "FAILED") {
       return {
         label: "Failed",
         detail: selectedAgent.error || "Needs attention before it can run.",
-        tone: "failed",
-      };
-    }
-    if (selectedAgent.state === "RESTORE_FAILED") {
-      return {
-        label: "Restore failed",
-        detail: selectedAgent.error || "File restore failed before the agent could boot.",
-        tone: "failed",
-      };
-    }
-    if (selectedAgent.state === "SYNC_FAILED") {
-      return {
-        label: "Sync failed",
-        detail: selectedAgent.error?.replace(/\bworkspaces?\b/gi, "shared knowledge") || "Shared knowledge sync failed before the agent could boot.",
         tone: "failed",
       };
     }
@@ -171,10 +159,17 @@ export function AgentMainPanel({
         tone: "stopped",
       };
     }
-    if (selectedAgent.state === "PENDING") {
+    if (selectedAgent.state === "ARCHIVED") {
       return {
-        label: "Provisioning",
-        detail: "Reserving compute and preparing the workspace.",
+        label: "Archived",
+        detail: "Start the agent to restore its verified archive.",
+        tone: "stopped",
+      };
+    }
+    if (selectedAgent.state === "CREATING") {
+      return {
+        label: "Creating",
+        detail: "Preparing persistent storage and admitting the runtime.",
         tone: "starting",
         loading: true,
       };
@@ -183,14 +178,6 @@ export function AgentMainPanel({
       return {
         label: "Restoring files",
         detail: "Restoring the agent home directory before boot.",
-        tone: "starting",
-        loading: true,
-      };
-    }
-    if (selectedAgent.state === "SYNCING") {
-      return {
-        label: "Syncing shared knowledge",
-        detail: "Syncing shared knowledge Markdown before boot.",
         tone: "starting",
         loading: true,
       };
@@ -207,6 +194,14 @@ export function AgentMainPanel({
       return {
         label: "Stopping",
         detail: "Stopping the runtime and cleaning up the workspace.",
+        tone: "stopping",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "ARCHIVING") {
+      return {
+        label: "Archiving",
+        detail: "Verifying the cold archive before releasing runtime resources.",
         tone: "stopping",
         loading: true,
       };
@@ -232,9 +227,8 @@ export function AgentMainPanel({
   const effectiveAgentStatus = agentStatus ?? lifecycleAgentStatus ?? connectionAgentStatus;
   const legacyConnectionStatus = activeConnectionStatus ?? null;
   const isStartupState =
-    selectedAgentState === "PENDING" ||
+    selectedAgentState === "CREATING" ||
     selectedAgentState === "RESTORING" ||
-    selectedAgentState === "SYNCING" ||
     selectedAgentState === "STARTING";
   const shouldShowStartupAnimation =
     isStartupState ||
@@ -261,14 +255,14 @@ export function AgentMainPanel({
     onOpenPlanCatalog,
     preferredPlanId,
     pendingSlotReleases,
-    launchLabel: "Start agent",
+    launchLabel: selectedAgent?.state === "ARCHIVED" ? "Restore agent" : "Start agent",
     launching: stoppedLaunchBusy,
     launchBlocked: stoppedLaunchBlocked,
     launchBlockedReason: stoppedLaunchBlockedReason,
     onLaunchAction: onStart,
   };
   const stoppedPanelContent = (() => {
-    if (selectedAgent?.state !== "STOPPED") return null;
+    if (!isStartable) return null;
     if (currentPanel === "chat") {
       return <AgentEmptyState {...stoppedEmptyStateProps} />;
     }
@@ -300,11 +294,13 @@ export function AgentMainPanel({
       return panelContent;
     }
 
-    if (selectedAgentState === "STOPPING") {
+    if (selectedAgentState === "STOPPING" || selectedAgentState === "ARCHIVING") {
       return (
         <AgentLoadingState
-          title="Stopping agent"
-          detail="Stopping the runtime and cleaning up the workspace."
+          title={selectedAgentState === "ARCHIVING" ? "Archiving agent" : "Stopping agent"}
+          detail={selectedAgentState === "ARCHIVING"
+            ? "Verifying the cold archive before releasing runtime resources."
+            : "Stopping the runtime and cleaning up the workspace."}
           tone="loading"
           stage="complete"
         />
@@ -313,22 +309,16 @@ export function AgentMainPanel({
 
     if (shouldShowStartupAnimation) {
       const startupCopy =
-        activeAgent.state === "PENDING"
+        activeAgent.state === "CREATING"
           ? {
-              title: "Provisioning runtime",
-              detail: "Reserving compute and preparing the workspace.",
+              title: "Creating agent",
+              detail: "Preparing persistent storage and admitting the runtime.",
               stage: "runtime" as const,
             }
           : activeAgent.state === "RESTORING"
             ? {
                 title: "Restoring files",
                 detail: "Restoring the agent home directory before boot.",
-                stage: "runtime" as const,
-              }
-          : activeAgent.state === "SYNCING"
-            ? {
-                title: "Syncing shared knowledge",
-                detail: "Syncing shared knowledge Markdown before boot.",
                 stage: "runtime" as const,
               }
           : activeAgent.state === "STARTING"
@@ -350,6 +340,8 @@ export function AgentMainPanel({
           tone="starting"
           stage={startupCopy.stage}
           guided
+          actionLabel={onStop ? "Stop agent" : undefined}
+          onAction={onStop}
         />
       );
     }

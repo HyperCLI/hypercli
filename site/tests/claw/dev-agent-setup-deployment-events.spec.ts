@@ -69,9 +69,9 @@ test("dev agents retries a failed event refresh and resyncs after reconnect", as
 
       send(raw: string) {
         const frame = JSON.parse(raw);
-        if (frame.version === 1 && frame.type === "auth") {
+        if (frame.type === "auth") {
           state.ready = true;
-          this.emit({ version: 1, type: "ready" });
+          this.emit({ type: "ready" });
         }
       }
 
@@ -118,7 +118,6 @@ test("dev agents retries a failed event refresh and resyncs after reconnect", as
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          version: 1,
           token: "deployment-events-token",
           ws_url: "ws://events.example.test/ws/deployments",
         }),
@@ -168,9 +167,8 @@ test("dev agents retries a failed event refresh and resyncs after reconnect", as
   listFailuresRemaining = 1;
   await page.evaluate(() => {
     (window as any).__devDeploymentEventTest.emit({
-      version: 1,
       type: "deployment.transition",
-      deployment_id: "agent-1",
+      agent_id: "agent-1",
       state: "STOPPED",
       launch_epoch: 2,
     });

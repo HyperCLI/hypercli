@@ -3974,6 +3974,7 @@ class Deployments:
         states: set[str],
         *,
         timeout: float = 300.0,
+        poll_interval: float = 5.0,
         failure_states: set[str] | None = None,
         minimum_launch_epoch: int | None = None,
     ) -> Agent:
@@ -3984,6 +3985,7 @@ class Deployments:
         last_agent: Agent | None = None
         desired = {state.lower() for state in states}
         failures = {state.lower() for state in (failure_states or set())}
+        effective_poll_interval = max(float(poll_interval), 0.001)
         if not desired:
             raise ValueError("states must not be empty")
         if minimum_launch_epoch is not None and minimum_launch_epoch < 0:
@@ -4044,15 +4046,20 @@ class Deployments:
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
                 waiter = asyncio.create_task(wake.wait())
                 done, _ = await asyncio.wait(
-                    {waiter, subscription}, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                    {waiter, subscription},
+                    timeout=min(remaining, effective_poll_interval),
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
                 if subscription in done:
                     await subscription
                     raise RuntimeError("Deployment event subscription ended unexpectedly")
                 if waiter not in done:
                     waiter.cancel()
-                    break
-                wake.clear()
+                    await asyncio.gather(waiter, return_exceptions=True)
+                    if asyncio.get_running_loop().time() >= deadline:
+                        break
+                else:
+                    wake.clear()
                 current = check(await asyncio.to_thread(self.get, agent_id))
                 if current is not None:
                     return current
@@ -4074,6 +4081,7 @@ class Deployments:
         agent_id_or_name: str,
         timeout: float = 300.0,
         *,
+        poll_interval: float = 5.0,
         minimum_launch_epoch: int | None = None,
     ) -> Agent:
         """Wait for RUNNING using WebSocket wakeups and REST confirmation."""
@@ -4081,6 +4089,7 @@ class Deployments:
             agent_id_or_name,
             {"running"},
             timeout=timeout,
+            poll_interval=poll_interval,
             # Stable runtime-free states cannot satisfy this invocation's goal.
             failure_states=set(AGENT_WAIT_RUNNING_FAILURE_STATES),
             minimum_launch_epoch=minimum_launch_epoch,
@@ -4092,17 +4101,19 @@ class Deployments:
         states: set[str],
         *,
         timeout: float = 300.0,
+        poll_interval: float = 5.0,
         failure_states: set[str] | None = None,
         minimum_launch_epoch: int | None = None,
     ) -> Agent:
         """Synchronous event-assisted state wait; use the async variant in an event loop."""
         return _run_sync(
             lambda: self.wait_for_state_async(
-                    agent_id_or_name,
-                    states,
-                    timeout=timeout,
-                    failure_states=failure_states,
-                    minimum_launch_epoch=minimum_launch_epoch,
+                agent_id_or_name,
+                states,
+                timeout=timeout,
+                poll_interval=poll_interval,
+                failure_states=failure_states,
+                minimum_launch_epoch=minimum_launch_epoch,
             ),
             running_loop_error=(
                 "wait_for_state() cannot run inside an event loop; use wait_for_state_async()"
@@ -4117,12 +4128,12 @@ class Deployments:
         *,
         minimum_launch_epoch: int | None = None,
     ) -> Agent:
-        """Wait for RUNNING via deployment events; ``poll_interval`` is deprecated."""
-        del poll_interval
+        """Wait for RUNNING via deployment events and REST reconciliation."""
         return _run_sync(
             lambda: self.wait_running_async(
                 agent_id_or_name,
                 timeout=timeout,
+                poll_interval=poll_interval,
                 minimum_launch_epoch=minimum_launch_epoch,
             ),
             running_loop_error=(

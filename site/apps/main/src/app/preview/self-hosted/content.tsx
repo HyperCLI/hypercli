@@ -80,8 +80,8 @@ export function SelfHostedContent() {
       <HeroSection
         headline="Your AI. Your Servers. Your Control."
         subheadline="Deploy a complete, private AI platform on your own infrastructure in 30 minutes. No data leaves your network. Ever."
-        primaryCTA={{ label: "View Deployment Guide", href: "#" }}
-        secondaryCTA={{ label: "Schedule Technical Demo", href: "#" }}
+        primaryCTA={{ label: "Explore Self-Hosted", href: "/self-hosted" }}
+        secondaryCTA={{ label: "Schedule Technical Demo", source: "preview-self-hosted-hero-technical-demo" }}
         trustBadges={["SOC 2", "GDPR", "HIPAA", "ITAR", "Air-Gap"]}
       />
 
@@ -247,8 +247,8 @@ export function SelfHostedContent() {
       <CTASection
         headline="Deploy Private AI in 30 Minutes."
         body="Get a complete AI infrastructure — LLMs, agents, RAG, media generation — running on your own servers with full compliance coverage."
-        primaryCTA={{ label: "View Deployment Guide", href: "#" }}
-        secondaryCTA={{ label: "Schedule Technical Demo", href: "#" }}
+        primaryCTA={{ label: "Explore Self-Hosted", href: "/self-hosted" }}
+        secondaryCTA={{ label: "Schedule Technical Demo", source: "preview-self-hosted-final-technical-demo" }}
       />
     </>
   )

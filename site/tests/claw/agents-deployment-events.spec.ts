@@ -67,9 +67,9 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
 
       send(raw: string) {
         const frame = JSON.parse(raw);
-        if (frame.version === 1 && frame.type === "auth") {
+        if (frame.type === "auth") {
           state.ready = true;
-          this.emit({ version: 1, type: "ready" });
+          this.emit({ type: "ready" });
         }
       }
 
@@ -115,7 +115,6 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          version: 1,
           token: "deployment-events-token",
           ws_url: "ws://events.example.test/ws/deployments",
         }),
@@ -175,7 +174,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
   await expect(page.getByText("Before Event", { exact: true }).first()).toBeVisible();
   await page.waitForFunction(() => Boolean((window as any).__deploymentEventTest?.ready));
-  await expect.poll(() => deploymentListGets).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => deploymentListGets).toBeGreaterThanOrEqual(2);
   await page.waitForTimeout(100);
   const beforeEvent = deploymentListGets;
   const beforeTransitionEnrichment = enrichmentGets;
@@ -183,9 +182,8 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
   agentName = "After Event";
   await page.evaluate(() => {
     (window as any).__deploymentEventTest.emit({
-      version: 1,
       type: "deployment.transition",
-      deployment_id: "agent-1",
+      agent_id: "agent-1",
       state: "STOPPED",
       launch_epoch: 2,
     });
@@ -195,17 +193,6 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
   await expect(page.getByText("After Event", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Before Event", { exact: true })).toHaveCount(0);
   await page.waitForTimeout(100);
-  expect(enrichmentGets).toBe(beforeTransitionEnrichment);
-
-  const beforeCollectionEvent = deploymentListGets;
-  await page.evaluate(() => {
-    (window as any).__deploymentEventTest.emit({
-      version: 1,
-      type: "deployments.changed",
-    });
-  });
-
-  await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeCollectionEvent);
   await expect.poll(() => enrichmentGets).toBeGreaterThan(beforeTransitionEnrichment);
 
   const beforeFailedRefresh = deploymentListGets;
@@ -213,9 +200,8 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
   listFailuresRemaining = 1;
   await page.evaluate(() => {
     (window as any).__deploymentEventTest.emit({
-      version: 1,
       type: "deployment.transition",
-      deployment_id: "agent-1",
+      agent_id: "agent-1",
       state: "STOPPED",
       launch_epoch: 3,
     });

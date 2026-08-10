@@ -18,9 +18,8 @@ import {
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 type DeploymentTransitionFrame = {
-  version?: unknown;
   type?: unknown;
-  deployment_id?: unknown;
+  agent_id?: unknown;
   [key: string]: unknown;
 };
 
@@ -326,7 +325,7 @@ test.describe.serial("Agents subscription", () => {
               intervals: [250, 500, 1_000, 2_000],
             })
             .toBeGreaterThan(0);
-          expect(deploymentSocket.readyFrames.at(-1)).toEqual({ version: 1, type: "ready" });
+          expect(deploymentSocket.readyFrames.at(-1)).toEqual({ type: "ready" });
         },
       });
       createdAgentId = createdAgent.id;
@@ -334,33 +333,36 @@ test.describe.serial("Agents subscription", () => {
       expect(createdAgent.memory).toBe(4);
 
       await expect
-        .poll(() => deploymentSocket.transitions.some((frame) => frame.deployment_id === createdAgentId), {
+        .poll(() => deploymentSocket.transitions.some((frame) => frame.agent_id === createdAgentId), {
           timeout: 30_000,
           intervals: [250, 500, 1_000, 2_000],
         })
         .toBe(true);
-      const transition = deploymentSocket.transitions.find((frame) => frame.deployment_id === createdAgentId)!;
-      expect(transition.version).toBe(1);
+      const transition = deploymentSocket.transitions.find((frame) => frame.agent_id === createdAgentId)!;
       expect(transition.type).toBe("deployment.transition");
       expect(typeof transition.state).toBe("string");
       expect(String(transition.state).length).toBeGreaterThan(0);
       expect(Number.isInteger(transition.launch_epoch)).toBe(true);
       expect(Number(transition.launch_epoch)).toBeGreaterThanOrEqual(0);
-      expect(Object.values(transition).every((value) => value !== null && typeof value !== "object")).toBe(true);
+      expect(Object.values(transition).every((value) => value === null || typeof value !== "object")).toBe(true);
 
       const allowedKeys = new Set([
-        "version",
         "type",
-        "deployment_id",
+        "agent_id",
         "state",
+        "reason",
+        "error",
+        "message",
         "launch_epoch",
+        "agent_version",
+        "resources_exist",
+        "namespace_exists",
       ]);
       expect(Object.keys(transition).every((key) => allowedKeys.has(key))).toBe(true);
       expect(Object.keys(transition)).toEqual(
         expect.arrayContaining([
-          "version",
           "type",
-          "deployment_id",
+          "agent_id",
           "state",
           "launch_epoch",
         ])

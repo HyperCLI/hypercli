@@ -111,6 +111,10 @@ materialize_env_file apps/main/.env.local
 materialize_env_file apps/console/.env.local
 materialize_env_file apps/claw/.env.local
 
+echo "::group::Test shared UI"
+npm run test --workspace @hypercli/shared-ui
+echo "::endgroup::"
+
 build_site() {
   local name="$1"
   local workspace="$2"

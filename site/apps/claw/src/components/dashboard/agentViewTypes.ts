@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ConversationThread } from "./AgentsChannelsSidebar";
 import type { AgentMeta } from "@/lib/avatar";
+import type { AgentState } from "@hypercli.com/sdk/agents";
 
 // ── Core types ──
 
@@ -30,7 +31,7 @@ export interface ActivityEntry {
 }
 
 export interface AgentStatus {
-  state: "RUNNING" | "STOPPED" | "STARTING" | "STOPPING";
+  state: AgentState;
   uptime: number;
   cpu: number;
   memory: { used: number; total: number };
@@ -177,6 +178,8 @@ export interface AgentViewProps {
   agentStarting?: boolean;
   /** Loading flag for stop. */
   agentStopping?: boolean;
+  /** The failed runtime still owns resources and must be cleaned up before restart. */
+  agentCleanupRequired?: boolean;
   /** When true, the start button is disabled (e.g. tier capacity exhausted). */
   agentStartBlocked?: boolean;
   /** Tooltip text for the disabled-start state. */

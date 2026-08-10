@@ -5,8 +5,7 @@ import { Sheet, SheetContent } from "@hypercli/shared-ui";
 
 import { AgentView } from "@/components/dashboard/AgentView";
 import type { AgentViewProps } from "@/components/dashboard/agentViewTypes";
-import type { Agent } from "@/app/dashboard/agents/types";
-import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentStartable, isAgentStoppable, type Agent } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
 
@@ -24,40 +23,26 @@ interface AgentInspectorProps {
 export function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): AgentViewProps["agentStatus"] {
   if (isSelectedRunning) {
     return {
-      state: selectedAgent.state as "RUNNING",
+      state: selectedAgent.state,
       uptime: selectedAgent.started_at ? Date.now() - new Date(selectedAgent.started_at).getTime() : 0,
       cpu: selectedAgent.cpu_millicores / 10,
       memory: { used: selectedAgent.memory_mib, total: selectedAgent.memory_mib },
     };
   }
 
-  if (selectedAgent.state === "STOPPED") {
-    return {
-      state: "STOPPED",
-      uptime: 0,
-      cpu: 0,
-      memory: { used: 0, total: selectedAgent.memory_mib },
-    };
-  }
-
-  if (selectedAgent.state === "STOPPING") {
-    return {
-      state: "STOPPING",
-      uptime: 0,
-      cpu: 0,
-      memory: { used: 0, total: selectedAgent.memory_mib },
-    };
-  }
-
   return {
-    state: (isAgentTransitionalState(selectedAgent.state)
-      ? "STARTING"
-      : isAgentFailureState(selectedAgent.state)
-        ? "STOPPED"
-      : selectedAgent.state) as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
+    state: selectedAgent.state,
     uptime: 0,
     cpu: 0,
     memory: { used: 0, total: selectedAgent.memory_mib },
+  };
+}
+
+export function buildAgentInspectorActionState(selectedAgent: Agent) {
+  return {
+    canStart: isAgentStartable(selectedAgent),
+    canStop: isAgentStoppable(selectedAgent),
+    cleanupRequired: selectedAgent.state === "FAILED" && selectedAgent.resourcesExist,
   };
 }
 
@@ -72,6 +57,7 @@ export function AgentInspector({
   viewProps,
 }: AgentInspectorProps) {
   if (!selectedAgent) return null;
+  const { canStart, canStop, cleanupRequired } = buildAgentInspectorActionState(selectedAgent);
 
   const inspector = (
     <AgentView
@@ -82,6 +68,11 @@ export function AgentInspector({
       activeTab={activeTab}
       onTabChange={onTabChange}
       agentStatus={buildAgentStatus(selectedAgent, isSelectedRunning)}
+      onAgentStart={canStart ? viewProps.onAgentStart : undefined}
+      onAgentStop={canStop ? viewProps.onAgentStop : undefined}
+      agentCleanupRequired={cleanupRequired}
+      agentStartBlocked={!canStart || viewProps.agentStartBlocked}
+      agentStartBlockedReason={!canStart ? "The agent is not ready to start." : viewProps.agentStartBlockedReason}
     />
   );
 

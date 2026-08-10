@@ -72,6 +72,33 @@ describe("agent profile updates", () => {
     ]);
   });
 
+  it("accepts a newer authoritative lifecycle snapshot despite a concurrent local mutation", () => {
+    const versionsAtRequest = new Map([["agent-1", 1]]);
+    const currentVersions = new Map([["agent-1", 2]]);
+
+    expect(mergeAgentListAfterMutations(
+      [{ id: "agent-1", state: "STARTING", agentVersion: 4 }],
+      [{ id: "agent-1", state: "RUNNING", agentVersion: 5 }],
+      versionsAtRequest,
+      currentVersions,
+    )).toEqual([
+      { id: "agent-1", state: "RUNNING", agentVersion: 5 },
+    ]);
+  });
+
+  it("does not regress to an older authoritative lifecycle snapshot", () => {
+    const versions = new Map([["agent-1", 1]]);
+
+    expect(mergeAgentListAfterMutations(
+      [{ id: "agent-1", state: "RUNNING", agentVersion: 5 }],
+      [{ id: "agent-1", state: "STARTING", agentVersion: 4 }],
+      versions,
+      versions,
+    )).toEqual([
+      { id: "agent-1", state: "RUNNING", agentVersion: 5 },
+    ]);
+  });
+
   it("routes canonical names by explicit external provenance", async () => {
     const client = updateClient();
 

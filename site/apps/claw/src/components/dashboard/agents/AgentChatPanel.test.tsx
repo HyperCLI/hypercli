@@ -928,21 +928,89 @@ describe("AgentChatPanel", () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the composer out of the provisioning stage", () => {
-    const selectedAgent = buildAgent("PENDING");
+  it("keeps the composer out of the creating stage", () => {
+    const selectedAgent = buildAgent("CREATING");
     renderAgentChatPanel({
       selectedAgent,
       isSelectedRunning: false,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
-    expect(screen.getByText("Reserving compute and preparing the workspace.")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
+    expect(screen.getByText("Preparing persistent storage and admitting the runtime.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("shows the authoritative lifecycle diagnostic for a failed agent", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({
+      state: "FAILED",
+      error: "Persistent storage could not be attached.",
+    }));
+    renderAgentChatPanel({
+      selectedAgent,
+      isSelectedRunning: false,
+      chat: buildChat({ error: "Stale gateway error" }),
+    });
+
+    expect(screen.getByText("Agent failed")).toBeInTheDocument();
+    expect(screen.getByText("Persistent storage could not be attached.")).toBeInTheDocument();
+    expect(screen.queryByText("Stale gateway error")).not.toBeInTheDocument();
+  });
+
+  it("offers failed-resource cleanup instead of retrying the gateway", () => {
+    const onStopAgent = vi.fn();
+    renderAgentChatPanel({
+      selectedAgent: toAgentViewModel(buildSdkAgent({
+        state: "FAILED",
+        resourcesExist: true,
+        error: "Launch failed after resources were created.",
+      })),
+      isSelectedRunning: false,
+      slashCommandActions: { onStopAgent },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Clean up failed launch" }));
+    expect(onStopAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers restart after failed-launch cleanup is complete", () => {
+    const onStartAgent = vi.fn();
+    renderAgentChatPanel({
+      selectedAgent: toAgentViewModel(buildSdkAgent({
+        state: "FAILED",
+        resourcesExist: false,
+        error: "Launch failed.",
+      })),
+      isSelectedRunning: false,
+      slashCommandActions: { onStartAgent },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(onStartAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render a blank recovery action when failed lifecycle controls are unavailable", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({
+      state: "FAILED",
+      resourcesExist: false,
+      isLaunchable: false,
+      error: "This runtime cannot be relaunched.",
+    }));
+    renderAgentChatPanel({
+      selectedAgent,
+      isSelectedRunning: false,
+      chat: buildChat({
+        messages: [{ role: "assistant", content: "Saved answer", renderId: "saved-answer" }],
+      }),
+    });
+
+    const alert = screen.getByText("This runtime cannot be relaunched.").closest('[role="alert"]');
+    expect(alert).not.toBeNull();
+    expect(alert?.querySelector("button")).toBeNull();
   });
 
   it("keeps the startup experience through gateway connection after lifecycle startup", async () => {
     window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
-    const pendingAgent = buildAgent("PENDING");
+    const pendingAgent = buildAgent("CREATING");
     const props = buildAgentChatPanelProps({
       selectedAgent: pendingAgent,
       isSelectedRunning: false,
@@ -2813,9 +2881,29 @@ describe("AgentChatPanel", () => {
       fireEvent.click(startCommand);
     });
 
-    expect(screen.getAllByText("Agent cleanup is still in progress.")).toHaveLength(2);
+    expect(screen.getAllByText("Agent lifecycle work is still in progress.")).toHaveLength(2);
     expect(onStartAgent).not.toHaveBeenCalled();
     expect(agentLifecycleLabel("STOPPING", false)).toBe("stopping");
+  });
+
+  it("does not expose start for a failed agent while resources still exist", async () => {
+    const onStartAgent = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({ input: "/" }),
+      selectedAgent: toAgentViewModel(buildSdkAgent({ state: "FAILED", resourcesExist: true })),
+      isSelectedRunning: false,
+      slashCommandActions: { onStartAgent },
+    });
+
+    const startCommand = screen.getByRole("option", { name: /\/start/i });
+    expect(startCommand).toHaveAttribute("aria-disabled", "true");
+
+    await act(async () => {
+      fireEvent.click(startCommand);
+    });
+
+    expect(screen.getAllByText("Start action is unavailable here.")).toHaveLength(2);
+    expect(onStartAgent).not.toHaveBeenCalled();
   });
 
   it("opens scheduled work from the slash command menu", async () => {

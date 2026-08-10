@@ -6,7 +6,6 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_BASE_URL = process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003";
-const MOBILE_VIEWPORT = { width: 390, height: 844 };
 const AGENT_ID = "agent-mobile-layout";
 const TEST_WORKSPACE_ID = "workspace-mobile-layout";
 const README_PATH = ".openclaw/workspace/README.md";
@@ -131,12 +130,12 @@ async function seedAuth(page: Page): Promise<void> {
   }, TEST_JWT);
 }
 
-async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
+async function mockAuthenticatedMobileAgent(page: Page, primaryAgent = mobileAgent): Promise<void> {
   await seedAuth(page);
 
   await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
     const pathName = new URL(route.request().url()).pathname;
-    const agentIds = [mobileAgent.id, secondMobileAgent.id, offlineMobileAgent.id];
+    const agentIds = [primaryAgent.id, secondMobileAgent.id, offlineMobileAgent.id];
 
     if (pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/agents`)) {
       await route.fulfill(json(agentIds.map((agentId) => ({
@@ -239,12 +238,12 @@ async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
     }
 
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
-      await route.fulfill(json([mobileAgent, secondMobileAgent, offlineMobileAgent]));
+      await route.fulfill(json([primaryAgent, secondMobileAgent, offlineMobileAgent]));
       return;
     }
 
     if (pathName.endsWith(`/agents/deployments/${AGENT_ID}`) && method === "GET") {
-      await route.fulfill(json(mobileAgent));
+      await route.fulfill(json(primaryAgent));
       return;
     }
 
@@ -337,10 +336,13 @@ async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
   });
 }
 
-async function openMobileAgentsDashboard(page: Page): Promise<void> {
-  await page.setViewportSize(MOBILE_VIEWPORT);
-  await mockAuthenticatedMobileAgent(page);
+async function openMobileAgentsDashboard(page: Page, primaryAgent = mobileAgent): Promise<void> {
+  await mockAuthenticatedMobileAgent(page, primaryAgent);
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+    "content",
+    /width=device-width.*interactive-widget=resizes-visual/,
+  );
   await expect.poll(async () => page.evaluate(() => ({
     e2eConnected: window.localStorage.getItem("claw_e2e_openclaw_connected"),
     webdriver: window.navigator.webdriver,
@@ -443,7 +445,96 @@ async function expectVisibleBox(locator: Locator): Promise<NonNullable<Awaited<R
   return box!;
 }
 
+async function expectFeatureEmptyStateContained(emptyState: Locator, allowVerticalScroll = false): Promise<void> {
+  await expect(emptyState).toBeVisible({ timeout: 20_000 });
+  await emptyState.evaluate((element) => { element.scrollTop = 0; });
+  const metrics = await emptyState.evaluate((element) => {
+    const stateBox = element.getBoundingClientRect();
+    const title = element.querySelector<HTMLElement>("h1");
+    const action = element.querySelector<HTMLElement>("button");
+    const examples = Array.from(element.querySelectorAll<HTMLElement>('[data-slot="agent-feature-empty-state-example"]'));
+    if (!title || !action || examples.length !== 3) throw new Error("Missing feature empty-state content");
+    const titleBox = title.getBoundingClientRect();
+    const actionBox = action.getBoundingClientRect();
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      titleTop: titleBox.top,
+      actionBottom: actionBox.bottom,
+      stateTop: stateBox.top,
+      stateBottom: stateBox.bottom,
+    };
+  });
+
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+  expect(metrics.titleTop).toBeGreaterThanOrEqual(metrics.stateTop - 1);
+
+  if (!allowVerticalScroll) {
+    expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.clientHeight + 1);
+    expect(metrics.actionBottom).toBeLessThanOrEqual(metrics.stateBottom + 1);
+    return;
+  }
+
+  await emptyState.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const endMetrics = await emptyState.evaluate((element) => {
+    const stateBox = element.getBoundingClientRect();
+    const action = element.querySelector<HTMLElement>("button");
+    if (!action) throw new Error("Missing feature empty-state action");
+    const actionBox = action.getBoundingClientRect();
+    return {
+      actionTop: actionBox.top,
+      actionBottom: actionBox.bottom,
+      stateTop: stateBox.top,
+      stateBottom: stateBox.bottom,
+      scrollTop: element.scrollTop,
+      maxScrollTop: element.scrollHeight - element.clientHeight,
+    };
+  });
+
+  expect(endMetrics.scrollTop).toBeGreaterThanOrEqual(endMetrics.maxScrollTop - 1);
+  expect(endMetrics.actionTop).toBeGreaterThanOrEqual(endMetrics.stateTop - 1);
+  expect(endMetrics.actionBottom).toBeLessThanOrEqual(endMetrics.stateBottom + 1);
+}
+
 test.describe("Agents mobile layout", () => {
+  test("uses the shared Schedule preview for a stopped agent", async ({ page }) => {
+    await openMobileAgentsDashboard(page, { ...mobileAgent, state: "STOPPED" });
+    await openMobileNavigation(page);
+    await page.getByRole("button", { name: "Scheduled", exact: true }).click();
+    await expectMobileNavigationClosed(page);
+
+    const emptyState = page.getByTestId("agent-scheduled-empty-state");
+    await expect(page.getByRole("heading", { name: "Work that keeps moving" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "Start agent", exact: true })).toBeVisible();
+    await expectFeatureEmptyStateContained(emptyState);
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.waitForTimeout(250);
+    await expectFeatureEmptyStateContained(emptyState, true);
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test("keeps the Schedule empty state aligned and contained", async ({ page }) => {
+    await openMobileAgentsDashboard(page);
+    await openMobileNavigation(page);
+    await page.getByRole("button", { name: "Scheduled", exact: true }).click();
+    await expectMobileNavigationClosed(page);
+
+    const emptyState = page.getByTestId("agent-scheduled-empty-state");
+    await expect(page.getByRole("heading", { name: "Your work, on autopilot" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "New Scheduled Job" })).toBeVisible();
+    await expectFeatureEmptyStateContained(emptyState);
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 320, height: 568 });
+    await page.waitForTimeout(250);
+    await expectFeatureEmptyStateContained(emptyState, true);
+    await expectNoHorizontalOverflow(page);
+  });
+
   test("keeps mobile navigation, settings, and billing within the viewport", async ({ page }) => {
     await openMobileAgentsDashboard(page);
 

@@ -1,6 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChatDemo, Footer, GlassCard, Header, PricingTierCard } from "@hypercli/shared-ui";
+import { ChatDemo, Footer, GlassCard, Header } from "@hypercli/shared-ui";
+import {
+  AuroraFinalCta,
+  AuroraHero,
+  AuroraHeroHeading,
+  AuroraHeroLead,
+  MarketingActionGroup,
+  MarketingBand,
+  MarketingContainer,
+  MarketingEyebrow,
+  MarketingShell,
+  marketingCtaClassName,
+} from "@hypercli/shared-ui/marketing";
 import {
   BellRing,
   Check,
@@ -15,7 +27,7 @@ import {
 } from "lucide-react";
 import { OVERAGE_COPY, PLAN_TIERS } from "@/lib/plans";
 import { GetStartedLink } from "@/components/get-started-link";
-import { agentPlanCtaHref } from "@/lib/agent-links";
+import { PlanTierCard } from "@/components/plan-tier-card";
 
 export const metadata: Metadata = {
   title: "HyperCLI — The teammate that never clocks out",
@@ -131,257 +143,220 @@ const ALL_PLAN_CHIPS = [
   { star: false, text: "Cancel anytime" },
 ];
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="mb-4 text-sm font-semibold uppercase tracking-[0.13em] text-primary">{children}</p>
-  );
-}
-
 export default function ForTeamsPage() {
   return (
-    <div className="min-h-screen bg-background overflow-x-hidden">
-      <Header />
-      <main>
-        {/* Hero */}
-        <section className="relative px-6 pb-18 pt-26 text-center">
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -top-[6%] left-[8%] h-[440px] w-[440px] rounded-full bg-primary/15 blur-[110px]" />
-            <div className="absolute top-[2%] right-[9%] h-[360px] w-[360px] rounded-full bg-success/15 blur-[110px]" />
-            <div className="absolute -bottom-[18%] left-[16%] h-[380px] w-[380px] rounded-full bg-chart-3/15 blur-[110px]" />
-          </div>
-          <div className="relative mx-auto max-w-5xl">
-            <Eyebrow>For founders and small teams</Eyebrow>
-            <h1 className="mb-6 text-5xl font-extrabold leading-[1.06] tracking-tight text-foreground sm:text-6xl lg:text-7xl">
-              The teammate that
-              <br />
-              <span className="gradient-text-primary">never clocks out.</span>
-            </h1>
-            <p className="mx-auto mb-9 max-w-2xl text-lg leading-relaxed text-text-secondary">
-              Add it to Slack or Teams. Hand it real work — research, content, follow-ups, reports. It gets done while
-              you run the business. No code, no IT, no new tab to check.
-            </p>
-            <div className="mb-12 flex flex-wrap justify-center gap-3.5">
-              <GetStartedLink
-                label="Add to Slack"
-                className="btn-primary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              />
-              <GetStartedLink
-                label="Add to Teams"
-                className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              />
-            </div>
-            <ChatDemo channel="Slack" agentName="Aria" messages={CHAT_MESSAGES} className="mx-auto max-w-xl text-left" />
-            <p className="mt-5 text-sm text-text-muted">It worked while Jamie slept. That's the whole product.</p>
-          </div>
-        </section>
+    <MarketingShell header={<Header />} footer={<Footer />} headerClearance="section-nav">
+      {/* Hero */}
+      <AuroraHero backdropVariant="balanced">
+        <MarketingEyebrow>For founders and small teams</MarketingEyebrow>
+        <AuroraHeroHeading className="leading-[1.06]">
+          The teammate that
+          <br />
+          <span className="gradient-text-primary">never clocks out.</span>
+        </AuroraHeroHeading>
+        <AuroraHeroLead className="mb-9">
+          Add it to Slack or Teams. Hand it real work — research, content, follow-ups, reports. It gets done while you
+          run the business. No code, no IT, no new tab to check.
+        </AuroraHeroLead>
+        <MarketingActionGroup className="mb-12">
+          <GetStartedLink label="Add to Slack" className={marketingCtaClassName()} />
+          <GetStartedLink
+            label="Add to Teams"
+            className={marketingCtaClassName({ variant: "secondary" })}
+          />
+        </MarketingActionGroup>
+        <ChatDemo channel="Slack" agentName="Aria" messages={CHAT_MESSAGES} className="mx-auto max-w-xl text-left" />
+        <p className="mt-5 text-sm text-text-muted">It worked while Jamie slept. That&apos;s the whole product.</p>
+      </AuroraHero>
 
-        {/* What you can hand it */}
-        <section className="border-t border-border px-6 py-24">
-          <div className="mx-auto max-w-6xl text-center">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              What you can <span className="text-primary">hand it.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              Real delegation — not prompts. If you'd give it to a sharp new hire, give it to your agent.
-            </p>
-            <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
-              {JOBS.map((job) => (
-                <GlassCard key={job.title} interactive className="p-7">
-                  <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-                    <job.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                  </div>
-                  <h3 className="mb-2 text-lg font-bold tracking-tight text-foreground">{job.title}</h3>
-                  <p className="text-sm leading-relaxed text-text-secondary">{job.body}</p>
-                </GlassCard>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Works with your tools */}
-        <section className="px-6 py-6">
-          <div className="mx-auto max-w-6xl rounded-3xl bg-surface-low px-6 py-16 text-center sm:px-12">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Works with your tools. <span className="text-primary">And everything else.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              Other assistants stop where their integration list ends. Yours has a computer.
-            </p>
-            <div className="grid gap-5 text-left md:grid-cols-2">
-              <GlassCard className="p-8">
-                <h3 className="mb-2 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
-                  <Plug className="h-5 w-5 text-primary" aria-hidden="true" />
-                  3,000+ integrations
-                </h3>
-                <p className="mb-5 text-sm leading-relaxed text-text-secondary">
-                  Native connections to the tools your business already runs on — reads, writes, and acts with your
-                  permission.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {INTEGRATION_CHIPS.map((chip) => (
-                    <span
-                      key={chip}
-                      className="rounded-full border border-border bg-surface px-3.5 py-1.5 text-xs text-text-secondary"
-                    >
-                      {chip}
-                    </span>
-                  ))}
-                  <span className="rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-xs font-semibold text-primary">
-                    +3,000 more
-                  </span>
+      {/* What you can hand it */}
+      <MarketingBand bordered>
+        <MarketingContainer className="text-center">
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            What you can <span className="text-primary">hand it.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            Real delegation — not prompts. If you&apos;d give it to a sharp new hire, give it to your agent.
+          </p>
+          <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
+            {JOBS.map((job) => (
+              <GlassCard key={job.title} interactive className="p-7">
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+                  <job.icon className="h-5 w-5 text-primary" aria-hidden="true" />
                 </div>
+                <h3 className="mb-2 text-lg font-bold tracking-tight text-foreground">{job.title}</h3>
+                <p className="text-sm leading-relaxed text-text-secondary">{job.body}</p>
               </GlassCard>
-              <GlassCard highlighted className="p-8">
-                <h3 className="mb-2 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
-                  <Laptop className="h-5 w-5 text-primary" aria-hidden="true" />A computer for everything else
-                </h3>
-                <p className="mb-5 text-sm leading-relaxed text-text-secondary">
-                  No integration? No problem. It opens the website and does the work the way you would — sign in,
-                  click, type, download.
-                </p>
-                <ul className="space-y-2.5">
-                  {LONG_TAIL.map((item) => (
-                    <li key={item} className="flex items-center gap-2.5 text-sm text-text-secondary">
-                      <Check className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </GlassCard>
-            </div>
-            <p className="mt-8 text-base font-semibold text-foreground">
-              If you can do it on a computer, you can delegate it.
-            </p>
+            ))}
           </div>
-        </section>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* Onboarding steps */}
-        <section className="border-t border-border px-6 py-24">
-          <div className="mx-auto max-w-4xl text-center">
-            <h2 className="mb-10 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Up and running before <span className="text-primary">your coffee's done.</span>
-            </h2>
-            <div className="mx-auto grid max-w-xl gap-4 text-left">
-              {STEPS.map((step, index) => (
-                <GlassCard key={step.title} className="flex items-start gap-4.5 p-6">
-                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                    {index + 1}
-                  </span>
-                  <p className="text-sm leading-relaxed text-text-secondary">
-                    <b className="font-semibold text-foreground">{step.title}</b> {step.body}
-                  </p>
-                </GlassCard>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Why this one's different */}
-        <section className="px-6 py-6">
-          <div className="mx-auto max-w-6xl rounded-3xl bg-surface-low px-6 py-16 sm:px-12">
-            <h2 className="mb-10 text-center text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Why this one's <span className="text-primary">different.</span>
-            </h2>
-            <div className="mx-auto grid max-w-4xl gap-x-10 gap-y-8 sm:grid-cols-2">
-              {DIFFS.map((diff) => (
-                <div key={diff.title} className="flex items-start gap-4">
-                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                    <diff.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                  </div>
-                  <p className="text-sm leading-relaxed text-text-secondary">
-                    <b className="font-semibold text-foreground">{diff.title}</b> {diff.body}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Plans */}
-        <section id="plans" className="border-t border-border px-6 py-24">
-          <div className="mx-auto max-w-6xl text-center">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Pick your <span className="text-primary">agents.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              Flat rate. Daily tokens pooled across your agents — and your API key draws from the same pool. No meter,
-              ever.
-            </p>
-            <div className="grid items-stretch gap-4 text-left sm:grid-cols-2 lg:grid-cols-3">
-              {PLAN_TIERS.map((tier) => (
-                <PricingTierCard
-                  key={tier.id}
-                  name={tier.name}
-                  tagline={tier.tagline}
-                  price={`$${tier.price}`}
-                  specs={[tier.agents, `${tier.memory} memory`, tier.tokensPerDay, "API access — same pool"]}
-                  models={tier.models}
-                  gaugePercent={tier.gaugePercent}
-                  highlighted={tier.highlighted}
-                  ctaLabel={tier.cta}
-                  ctaHref={agentPlanCtaHref(tier.id)}
-                  ctaNote={tier.ctaNote}
-                />
-              ))}
-            </div>
-            <div className="mt-8 flex flex-wrap justify-center gap-2.5">
-              {ALL_PLAN_CHIPS.map((chip) => (
-                <span
-                  key={chip.text}
-                  className={
-                    chip.star
-                      ? "flex items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-4 py-2 text-xs font-semibold text-primary"
-                      : "flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-2 text-xs text-text-secondary"
-                  }
-                >
-                  {chip.star ? (
-                    <Users className="h-3.5 w-3.5" aria-hidden="true" />
-                  ) : (
-                    <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
-                  )}
-                  {chip.text}
-                </span>
-              ))}
-            </div>
-            <p className="mx-auto mt-6 max-w-xl text-sm text-text-secondary">{OVERAGE_COPY}</p>
-            <p className="mt-6 text-sm text-text-muted">
-              Need more agents, more security, or full control?{" "}
-              <Link href="/pricing" className="font-semibold text-primary">
-                See full pricing →
-              </Link>
-            </p>
-          </div>
-        </section>
-
-        {/* Closer */}
-        <section className="px-6 pb-18 pt-4">
-          <div className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-terminal-background px-8 py-20 text-center">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_70%_at_22%_0%,rgb(var(--button-primary-rgb)_/_0.24),transparent_60%),radial-gradient(50%_65%_at_82%_12%,rgb(108_232_196_/_0.15),transparent_60%),radial-gradient(45%_60%_at_55%_100%,rgb(169_126_255_/_0.15),transparent_65%)]"
-            />
-            <div className="relative">
-              <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-terminal-foreground sm:text-5xl">
-                Your first hire that starts today.
-              </h2>
-              <p className="mb-9 text-lg text-text-secondary">
-                Add it to Slack, hand it something real, and see what comes back by morning.
+      {/* Works with your tools */}
+      <MarketingBand spacing="tight">
+        <MarketingContainer className="rounded-3xl bg-surface-low px-6 py-16 text-center sm:px-12">
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Works with your tools. <span className="text-primary">And everything else.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            Other assistants stop where their integration list ends. Yours has a computer.
+          </p>
+          <div className="grid gap-5 text-left md:grid-cols-2">
+            <GlassCard className="p-8">
+              <h3 className="mb-2 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
+                <Plug className="h-5 w-5 text-primary" aria-hidden="true" />
+                3,000+ integrations
+              </h3>
+              <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+                Native connections to the tools your business already runs on — reads, writes, and acts with your
+                permission.
               </p>
-              <div className="flex flex-wrap justify-center gap-3.5">
-                <GetStartedLink
-                  label="Add to Slack"
-                  className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-                />
-                <GetStartedLink
-                  label="Add to Teams"
-                  className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                />
+              <div className="flex flex-wrap gap-2">
+                {INTEGRATION_CHIPS.map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full border border-border bg-surface px-3.5 py-1.5 text-xs text-text-secondary"
+                  >
+                    {chip}
+                  </span>
+                ))}
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-3.5 py-1.5 text-xs font-semibold text-primary">
+                  +3,000 more
+                </span>
               </div>
-            </div>
+            </GlassCard>
+            <GlassCard highlighted className="p-8">
+              <h3 className="mb-2 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
+                <Laptop className="h-5 w-5 text-primary" aria-hidden="true" />A computer for everything else
+              </h3>
+              <p className="mb-5 text-sm leading-relaxed text-text-secondary">
+                No integration? No problem. It opens the website and does the work the way you would — sign in, click,
+                type, download.
+              </p>
+              <ul className="space-y-2.5">
+                {LONG_TAIL.map((item) => (
+                  <li key={item} className="flex items-center gap-2.5 text-sm text-text-secondary">
+                    <Check className="h-4 w-4 flex-shrink-0 text-primary" aria-hidden="true" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </GlassCard>
           </div>
-        </section>
-      </main>
-      <Footer />
-    </div>
+          <p className="mt-8 text-base font-semibold text-foreground">
+            If you can do it on a computer, you can delegate it.
+          </p>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Onboarding steps */}
+      <MarketingBand bordered>
+        <MarketingContainer width="4xl" className="text-center">
+          <h2 className="mb-10 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Up and running before <span className="text-primary">your coffee&apos;s done.</span>
+          </h2>
+          <div className="mx-auto grid max-w-xl gap-4 text-left">
+            {STEPS.map((step, index) => (
+              <GlassCard key={step.title} className="flex items-start gap-4.5 p-6">
+                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                  {index + 1}
+                </span>
+                <p className="text-sm leading-relaxed text-text-secondary">
+                  <b className="font-semibold text-foreground">{step.title}</b> {step.body}
+                </p>
+              </GlassCard>
+            ))}
+          </div>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Why this one's different */}
+      <MarketingBand spacing="tight">
+        <MarketingContainer className="rounded-3xl bg-surface-low px-6 py-16 sm:px-12">
+          <h2 className="mb-10 text-center text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Why this one&apos;s <span className="text-primary">different.</span>
+          </h2>
+          <div className="mx-auto grid max-w-4xl gap-x-10 gap-y-8 sm:grid-cols-2">
+            {DIFFS.map((diff) => (
+              <div key={diff.title} className="flex items-start gap-4">
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <diff.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                </div>
+                <p className="text-sm leading-relaxed text-text-secondary">
+                  <b className="font-semibold text-foreground">{diff.title}</b> {diff.body}
+                </p>
+              </div>
+            ))}
+          </div>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Plans */}
+      <MarketingBand id="plans" bordered>
+        <MarketingContainer className="text-center">
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Pick your <span className="text-primary">agents.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            Flat rate. Daily tokens pooled across your agents — and your API key draws from the same pool. No meter,
+            ever.
+          </p>
+          <div className="grid items-stretch gap-4 text-left sm:grid-cols-2 lg:grid-cols-3">
+            {PLAN_TIERS.map((tier) => (
+              <PlanTierCard
+                key={tier.id}
+                tier={tier}
+                specs={[tier.agents, `${tier.memory} memory`, tier.tokensPerDay, "API access — same pool"]}
+                source="teams-plan"
+              />
+            ))}
+          </div>
+          <div className="mt-8 flex flex-wrap justify-center gap-2.5">
+            {ALL_PLAN_CHIPS.map((chip) => (
+              <span
+                key={chip.text}
+                className={
+                  chip.star
+                    ? "flex items-center gap-1.5 rounded-full border border-primary bg-primary/10 px-4 py-2 text-xs font-semibold text-primary"
+                    : "flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-2 text-xs text-text-secondary"
+                }
+              >
+                {chip.star ? (
+                  <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                )}
+                {chip.text}
+              </span>
+            ))}
+          </div>
+          <p className="mx-auto mt-6 max-w-xl text-sm text-text-secondary">{OVERAGE_COPY}</p>
+          <p className="mt-6 text-sm text-text-muted">
+            Need more agents, more security, or full control?{" "}
+            <Link href="/pricing" className="font-semibold text-primary">
+              See full pricing →
+            </Link>
+          </p>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Closer */}
+      <AuroraFinalCta
+        heading="Your first hire that starts today."
+        description="Add it to Slack, hand it something real, and see what comes back by morning."
+        actions={
+          <MarketingActionGroup>
+            <GetStartedLink
+              label="Add to Slack"
+              className={marketingCtaClassName({ size: "final" })}
+            />
+            <GetStartedLink
+              label="Add to Teams"
+              className={marketingCtaClassName({ variant: "terminal-secondary", size: "final" })}
+            />
+          </MarketingActionGroup>
+        }
+      />
+    </MarketingShell>
   );
 }

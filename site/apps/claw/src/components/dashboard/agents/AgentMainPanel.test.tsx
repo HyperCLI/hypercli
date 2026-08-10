@@ -498,7 +498,7 @@ describe("AgentMainPanel", () => {
   });
 
   it("lets the chat panel own startup boot stages", () => {
-    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
       isSelectedTransitioning: true,
@@ -508,12 +508,12 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.getByText("Chat-owned boot state")).toBeInTheDocument();
-    expect(screen.queryByText("Provisioning runtime")).not.toBeInTheDocument();
+    expect(screen.queryByText("Creating agent")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 
   it("keeps non-chat panels covered by the outer startup stage", () => {
-    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
       isSelectedTransitioning: true,
@@ -523,12 +523,29 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Files panel</div>,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
     expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
   });
 
-  it("keeps pending agents covered when the transition flag is stale", () => {
-    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+  it("allows startup to be stopped from the outer loading stage", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STARTING" }));
+    const onStop = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedTransitioning: true,
+      isSelectedRunning: false,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+      panelContent: <div>Files panel</div>,
+      onStop,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps creating agents covered when the transition flag is stale", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
       isSelectedTransitioning: false,
@@ -538,13 +555,13 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Files panel</div>,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
     expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 
-  it("does not let scheduled content show a start CTA while pending", () => {
-    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+  it("does not let scheduled content show a start CTA while creating", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
       isSelectedTransitioning: false,
@@ -554,7 +571,7 @@ describe("AgentMainPanel", () => {
       panelContent: <button type="button">Start agent</button>,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 

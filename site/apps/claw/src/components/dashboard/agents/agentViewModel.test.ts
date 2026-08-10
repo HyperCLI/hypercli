@@ -2,25 +2,26 @@ import { describe, expect, it } from "vitest";
 
 import { isAgentOffline } from "@/app/dashboard/agents/types";
 import { buildSdkAgent } from "@/test/factories";
-import { agentDisplayLabel, didAnyAgentFinishStopping, normalizeAgentState, toAgentViewModel } from "./agentViewModel";
+import { agentDisplayLabel, didAnyAgentFinishCleanup, normalizeAgentState, toAgentViewModel } from "./agentViewModel";
 
 describe("agentViewModel", () => {
-  it("maps legacy ERROR agent state to FAILED", () => {
-    expect(normalizeAgentState("ERROR")).toBe("FAILED");
-    expect(toAgentViewModel(buildSdkAgent({ state: "ERROR" as never })).state).toBe("FAILED");
+  it("does not translate backend lifecycle states", () => {
+    expect(normalizeAgentState("ERROR")).toBe("ERROR");
+    expect(toAgentViewModel(buildSdkAgent({ state: "ERROR" as never })).state).toBe("ERROR");
   });
 
   it("preserves unknown future string states", () => {
     expect(normalizeAgentState("draining")).toBe("DRAINING");
   });
 
-  it("keeps missing state as STOPPED", () => {
-    expect(normalizeAgentState(null)).toBe("STOPPED");
+  it("does not treat a missing state as stopped", () => {
+    expect(normalizeAgentState(null)).toBe("UNKNOWN");
   });
 
-  it("classifies only stopped agents as offline", () => {
+  it("classifies stopped and archived agents as offline", () => {
     expect(isAgentOffline("STOPPED")).toBe(true);
     expect(isAgentOffline("stopped")).toBe(true);
+    expect(isAgentOffline("ARCHIVED")).toBe(true);
     expect(isAgentOffline("RUNNING")).toBe(false);
     expect(isAgentOffline("STARTING")).toBe(false);
     expect(isAgentOffline("FAILED")).toBe(false);
@@ -62,20 +63,30 @@ describe("agentViewModel", () => {
     expect(gatewayAgent.gatewayId).toBe("gateway-1");
   });
 
-  it("detects STOPPING to STOPPED completion for slot enrichment refresh", () => {
+  it("detects completed resource cleanup for slot enrichment refresh", () => {
     const previous = new Map([
-      ["agent-1", "STOPPING" as const],
-      ["agent-2", "RUNNING" as const],
+      ["agent-1", { state: "STOPPING" as const, resourcesExist: true }],
+      ["agent-2", { state: "RUNNING" as const, resourcesExist: true }],
     ]);
 
-    expect(didAnyAgentFinishStopping(previous, [
-      { id: "agent-1", state: "STOPPED" },
-      { id: "agent-2", state: "RUNNING" },
+    expect(didAnyAgentFinishCleanup(previous, [
+      { id: "agent-1", state: "STOPPED", resourcesExist: false },
+      { id: "agent-2", state: "RUNNING", resourcesExist: true },
     ])).toBe(true);
-    expect(didAnyAgentFinishStopping(previous, [
-      { id: "agent-1", state: "STOPPING" },
-      { id: "agent-2", state: "RUNNING" },
+    expect(didAnyAgentFinishCleanup(previous, [
+      { id: "agent-1", state: "STOPPING", resourcesExist: true },
+      { id: "agent-2", state: "RUNNING", resourcesExist: true },
     ])).toBe(false);
+  });
+
+  it("detects coalesced failed-launch cleanup from resource existence", () => {
+    const previous = new Map([
+      ["agent-1", { state: "FAILED" as const, resourcesExist: true }],
+    ]);
+
+    expect(didAnyAgentFinishCleanup(previous, [
+      { id: "agent-1", state: "FAILED", resourcesExist: false },
+    ])).toBe(true);
   });
 
   it("applies presentation avatar overrides without changing the SDK agent", () => {

@@ -10,6 +10,7 @@ import type { CronJob } from "@/components/dashboard/agentViewTypes";
 import { buildCronJobInput, type CronJobInput } from "@/lib/cron-jobs";
 import { humanizeCronSchedule, isValidCronExpression, nextCronOccurrences } from "@/lib/cron-schedule";
 import { fallbackOpenClawSessionDisplayName, sameOpenClawSelectableSessionKey } from "@/lib/openclaw-session-sdk-surface";
+import { AgentFeatureEmptyState } from "./AgentFeatureEmptyState";
 
 export interface ScheduledSessionOption {
   key: string;
@@ -477,21 +478,22 @@ export function AgentScheduledPanel({
 
   if (!isSelectedRunning) {
     return (
-      <section aria-label="Scheduled work" className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
-        <div className="w-full max-w-[560px] rounded-xl border border-border bg-surface-low p-6 text-center shadow-sm">
-          <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-background text-text-muted">
-            <CalendarClock className="h-5 w-5" />
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">Start {agentName} to manage scheduled work</h1>
-          <p className="mt-3 text-sm leading-6 text-text-muted">
-            Scheduled jobs are managed through the agent gateway. Start the agent, then create recurring work or run existing jobs.
-          </p>
-          {onStartAgent ? (
-            <button type="button" onClick={() => { void onStartAgent(); }} className="mt-5 inline-flex h-9 items-center justify-center rounded-lg bg-[var(--button-primary)] px-4 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)]">
-              Start agent
-            </button>
-          ) : null}
-        </div>
+      <section aria-label="Scheduled work" className="flex h-full min-h-0 flex-1 overflow-hidden bg-background">
+        <AgentFeatureEmptyState
+          icon={CalendarClock}
+          title="Work that keeps moving"
+          description="Schedule recurring jobs and one-off tasks so your agent can keep projects moving without waiting for the next prompt."
+          examples={[
+            "Run recurring research, reporting, and follow-up work on a dependable schedule",
+            "Send each task to the right conversation with the context it needs",
+            "Review upcoming runs and adjust schedules as priorities change",
+          ]}
+          actionLabel="Start agent"
+          actionDisabled={!onStartAgent}
+          actionDisabledReason="This agent cannot be started right now."
+          onAction={() => { void onStartAgent?.(); }}
+          testId="agent-scheduled-empty-state"
+        />
       </section>
     );
   }
@@ -717,6 +719,27 @@ export function AgentScheduledPanel({
     );
   }
 
+  if (jobs.length === 0) {
+    return (
+      <section aria-label="Scheduled work" className="flex h-full min-h-0 flex-1 overflow-hidden bg-background">
+        <AgentFeatureEmptyState
+          icon={CalendarClock}
+          title="Your work, on autopilot"
+          description="Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows automatically on schedules without waiting for someone to ask."
+          examples={[
+            "Run recurring research, reporting, and follow-up work on a dependable schedule",
+            "Send each task to the right conversation with the context it needs",
+            "Review upcoming runs and adjust schedules as priorities change",
+          ]}
+          actionLabel="New Scheduled Job"
+          actionIcon={<Plus className="h-4 w-4" />}
+          onAction={() => openCreate(newDraftFromCommand(SCHEDULE_EXAMPLES[0], defaultTargetSessionKey))}
+          testId="agent-scheduled-empty-state"
+        />
+      </section>
+    );
+  }
+
   return (
     <section aria-label="Scheduled work" className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background">
       <div className="flex shrink-0 flex-col gap-3 border-b border-border bg-background px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
@@ -740,21 +763,8 @@ export function AgentScheduledPanel({
       {formError ? <div role="alert" className="mx-4 mt-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:mx-6">{formError}</div> : null}
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6">
-        {jobs.length === 0 ? (
-          <div className="mx-auto flex min-h-[420px] max-w-[680px] flex-col items-center justify-center rounded-xl border border-border bg-surface p-6 text-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-low text-text-muted">
-              <Clock className="h-6 w-6" />
-            </div>
-            <h2 className="text-xl font-semibold text-foreground">No scheduled jobs</h2>
-            <p className="mt-3 max-w-[500px] text-sm leading-6 text-text-muted">Run your agent on a cron or natural-language schedule. Try &quot;Every weekday at 9am&quot; to start.</p>
-            <button type="button" onClick={() => openCreate(newDraftFromCommand(SCHEDULE_EXAMPLES[0], defaultTargetSessionKey))} className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--button-primary)] px-4 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)]">
-              <Plus className="h-4 w-4" />
-              Schedule a job
-            </button>
-          </div>
-        ) : (
-          <div className="mx-auto flex w-full max-w-[840px] flex-col gap-2">
-            {jobs.map((job) => {
+        <div className="mx-auto flex w-full max-w-[840px] flex-col gap-2">
+          {jobs.map((job) => {
               const title = jobTitle(job);
               const command = jobCommand(job);
               const lastRun = formatLastRun(job.lastRun);
@@ -817,9 +827,8 @@ export function AgentScheduledPanel({
                   </div>
                 </article>
               );
-            })}
-          </div>
-        )}
+          })}
+        </div>
       </div>
 
       <ConfirmDialog

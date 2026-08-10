@@ -42,7 +42,7 @@ export function PricingTierCard({
   );
 
   return (
-    <GlassCard highlighted={highlighted} className={cn("relative flex flex-col p-6", className)}>
+    <GlassCard data-slot="pricing-tier-card" highlighted={highlighted} className={cn("relative flex flex-col p-6", className)}>
       {highlighted && (
         <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
           Most popular

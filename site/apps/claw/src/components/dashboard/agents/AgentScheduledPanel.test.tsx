@@ -27,13 +27,21 @@ function renderPanel(overrides: Partial<ComponentProps<typeof AgentScheduledPane
 }
 
 describe("AgentScheduledPanel", () => {
-  it("asks the user to start the agent before managing schedules", () => {
+  it("uses the shared Schedule preview before starting the agent", () => {
     const onStartAgent = vi.fn();
     renderPanel({ isSelectedRunning: false, connected: false, onStartAgent });
 
-    expect(screen.getByText("Start Ada to manage scheduled work")).toBeInTheDocument();
+    const emptyState = screen.getByTestId("agent-scheduled-empty-state");
+    expect(screen.getByRole("heading", { name: "Work that keeps moving" })).toBeInTheDocument();
+    expect(emptyState.querySelectorAll('[data-slot="agent-feature-empty-state-example"]')).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: /start agent/i }));
     expect(onStartAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables start when the selected lifecycle snapshot is not launchable", () => {
+    renderPanel({ isSelectedRunning: false, connected: false, onStartAgent: undefined });
+
+    expect(screen.getByRole("button", { name: /start agent/i })).toBeDisabled();
   });
 
   it("renders a disconnected gateway error without a loading animation", () => {
@@ -43,11 +51,21 @@ describe("AgentScheduledPanel", () => {
     expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
+  it("uses the shared feature empty state for an agent without scheduled work", () => {
+    renderPanel();
+
+    const emptyState = screen.getByTestId("agent-scheduled-empty-state");
+    expect(emptyState).toHaveClass("min-h-0", "overflow-x-hidden", "overflow-y-auto");
+    expect(screen.getByRole("heading", { name: "Your work, on autopilot" })).toHaveClass("text-[30px]", "md:text-[38px]");
+    expect(emptyState.querySelectorAll('[data-slot="agent-feature-empty-state-example"]')).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "New Scheduled Job" })).toHaveClass("h-12", "md:h-10");
+  });
+
   it("creates a recurring cron job from the prototype-style plain English form", async () => {
     const onCreate = vi.fn(async () => undefined);
     renderPanel({ onCreate });
 
-    fireEvent.click(screen.getByRole("button", { name: /schedule a job/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new scheduled job/i }));
     fireEvent.change(screen.getByLabelText(/what should this job do/i), {
       target: { value: "Every weekday at 9am, summarize unread Slack from #engineering and post a 5-bullet digest to #standup" },
     });
@@ -76,7 +94,7 @@ describe("AgentScheduledPanel", () => {
       ],
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /^schedule$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new scheduled job/i }));
     expect(screen.getByLabelText(/^session$/i)).toHaveTextContent("Main Session");
 
     fireEvent.click(screen.getByLabelText(/^session$/i));
@@ -132,7 +150,7 @@ describe("AgentScheduledPanel", () => {
   it("marks unparsed natural-language input without treating the default cron as parsed", () => {
     renderPanel();
 
-    fireEvent.click(screen.getByRole("button", { name: /schedule a job/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new scheduled job/i }));
     fireEvent.change(screen.getByLabelText(/what should this job do/i), {
       target: { value: "Summarize unread Slack and send a digest" },
     });
@@ -241,7 +259,15 @@ describe("AgentScheduledPanel", () => {
   });
 
   it("surfaces refresh errors", async () => {
-    renderPanel({ onRefresh: vi.fn(async () => { throw new Error("Cron list failed"); }) });
+    renderPanel({
+      jobs: [{
+        id: "job-1",
+        schedule: "0 9 * * 1-5",
+        command: "Summarize engineering updates.",
+        enabled: true,
+      }],
+      onRefresh: vi.fn(async () => { throw new Error("Cron list failed"); }),
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
 

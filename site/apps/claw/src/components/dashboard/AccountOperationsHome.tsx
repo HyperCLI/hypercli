@@ -8,7 +8,7 @@
  * FORM: A simple operating brief shaped directly inside the established Claw product world; no concept seed was needed.
  */
 
-import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
+import { isAgentTransitionalState, type Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 import type { Workspace, WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { useEffect, useState } from "react";
 import {
@@ -103,7 +103,7 @@ function stateLabel(value: string): string {
 function stateDotClass(value: string): string {
   const normalized = value.toUpperCase();
   if (normalized === "RUNNING") return "bg-success";
-  if (["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"].includes(normalized)) return "bg-warning";
+  if (isAgentTransitionalState(normalized)) return "bg-warning";
   if (normalized.includes("FAIL") || normalized.includes("ERROR")) return "bg-destructive";
   return "bg-text-muted";
 }

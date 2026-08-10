@@ -120,9 +120,9 @@ describe("AgentLoadingState", () => {
       <AgentLoadingState
         bootStatus={{
           status: "loading",
-          phase: "provisioning",
-          title: "Provisioning runtime",
-          detail: "Reserving compute and preparing the workspace.",
+          phase: "creating",
+          title: "Creating agent",
+          detail: "Preparing persistent storage and admitting the runtime.",
           tone: "starting",
           stage: "runtime",
         }}

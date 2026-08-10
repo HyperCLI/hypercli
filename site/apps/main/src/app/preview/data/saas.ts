@@ -10,7 +10,7 @@ export const saasData: IndustryData = {
     headline: "Stop Shipping Your Customer's Data to OpenAI.",
     subheadline: "Add AI features to your SaaS product without the liability. Your customers' data stays in your infrastructure. SOC 2 and GDPR compliant by default.",
     primaryCTA: { label: "See SaaS Architecture", href: "/preview/self-hosted" },
-    secondaryCTA: { label: "Schedule Technical Review", href: "/preview/cloud" },
+    secondaryCTA: { label: "Schedule Technical Review", source: "preview-saas-technical-review" },
     trustBadges: ["SOC 2 Type II", "GDPR Compliant", "Multi-Tenant Ready", "White-Label Capable"],
   },
   risk: {

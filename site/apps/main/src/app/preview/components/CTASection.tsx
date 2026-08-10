@@ -1,8 +1,8 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { CTAButtonGroup } from "@hypercli/shared-ui"
 import type { CTA } from "../types"
+import { ContactCtaButtonGroup } from "./ContactCtaButtonGroup"
 
 type CTASectionProps = {
   headline: string
@@ -34,13 +34,11 @@ export function CTASection({
             {body}
           </p>
 
-          <CTAButtonGroup
+          <ContactCtaButtonGroup
             align="left"
             className="flex-wrap"
-            actions={[
-              { label: primaryCTA.label, href: primaryCTA.href, variant: "primary", showArrow: true },
-              { label: secondaryCTA.label, href: secondaryCTA.href, variant: "secondary" },
-            ]}
+            primaryCTA={primaryCTA}
+            secondaryCTA={secondaryCTA}
           />
         </motion.div>
       </div>

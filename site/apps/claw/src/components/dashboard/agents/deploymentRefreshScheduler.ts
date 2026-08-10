@@ -19,10 +19,16 @@ export interface DeploymentSubscriptionRecoveryOptions {
   maxDelayMs?: number;
 }
 
+export interface DeploymentSubscriptionRefreshOptions {
+  includeEnrichmentOnReady?: boolean;
+  includeEnrichmentOnTransition?: boolean;
+}
+
 /**
  * Recover one rejected event credential immediately, then bound repeated
  * token/socket failures with exponential backoff. State survives replacement
- * Deployments clients and resets only after an event or principal change.
+ * Deployments clients and resets after a ready handshake, event, or principal
+ * change.
  */
 export function createDeploymentSubscriptionRecovery(
   options: DeploymentSubscriptionRecoveryOptions = {},
@@ -135,5 +141,21 @@ export function createDeploymentRefreshScheduler(
       enrichmentPending = false;
       clearRetryTimer();
     },
+  };
+}
+
+export function createDeploymentSubscriptionRefreshHandlers(
+  scheduler: DeploymentRefreshScheduler,
+  recovery: DeploymentSubscriptionRecovery,
+  options: DeploymentSubscriptionRefreshOptions = {},
+) {
+  const invalidate = (includeEnrichment: boolean) => {
+    recovery.markHealthy();
+    scheduler.invalidate(includeEnrichment);
+  };
+
+  return {
+    onReady: () => invalidate(options.includeEnrichmentOnReady ?? false),
+    onTransition: () => invalidate(options.includeEnrichmentOnTransition ?? false),
   };
 }

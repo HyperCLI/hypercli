@@ -9,38 +9,17 @@ export type {
   AgentDirectoryListing,
   AgentExecResult,
   AgentRouteConfig,
+  AgentState,
   CreateAgentOptions,
   StartAgentOptions,
   OpenClawCreateAgentOptions,
   OpenClawStartAgentOptions,
 } from "@hypercli.com/sdk/agents";
-
-
 export type {
   HyperAgentPlan,
   HyperAgentCurrentPlan,
   HyperAgentModel,
 } from "@hypercli.com/sdk/agent";
-
-// ── Frontend agent state (matches API snake_case responses) ──
-
-export type AgentState =
-  | "PENDING"
-  | "RESTORING"
-  | "RESTORE_FAILED"
-  | "SYNCING"
-  | "SYNC_FAILED"
-  | "STARTING"
-  | "RUNNING"
-  | "STOPPING"
-  | "STOPPED"
-  | "FAILED";
-
-export const TRANSITIONAL_STATES: AgentState[] = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"];
-
-export function isTransitionalState(state: string): boolean {
-  return TRANSITIONAL_STATES.includes(state as AgentState);
-}
 
 // ── Usage types ──
 

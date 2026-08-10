@@ -51,19 +51,17 @@ export type AgentStatusTone = "ready" | "starting" | "stopping" | "connecting" |
 export interface AgentStatusChipModel {
   label:
     | "Ready"
-    | "Provisioning"
+    | "Creating"
     | "Restoring files"
-    | "Syncing shared knowledge"
     | "Booting"
-    | "Starting"
     | "Stopping"
+    | "Archiving"
     | "Connecting"
     | "Reconnecting"
     | "Disconnected"
     | "Stopped"
-    | "Failed"
-    | "Restore failed"
-    | "Sync failed";
+    | "Archived"
+    | "Failed";
   detail: string;
   tone: AgentStatusTone;
   loading?: boolean;
@@ -194,9 +192,8 @@ export function AgentLoadingState({
   const resolvedStage = bootStatus?.stage ?? stage;
   const resolvedStatus = bootStatus?.status ?? "loading";
   const bootPhaseIsStartup = bootStatus?.status === "loading" && (
-    bootStatus.phase === "provisioning" ||
+    bootStatus.phase === "creating" ||
     bootStatus.phase === "restoring" ||
-    bootStatus.phase === "syncing" ||
     bootStatus.phase === "booting"
   );
   const showGuidedExperience = guided ?? bootPhaseIsStartup;

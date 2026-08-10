@@ -34,6 +34,8 @@ function generateAgent(overrides = {}) {
   const tierPresets = { small: { cpu: 1, memory: 1 }, medium: { cpu: 2, memory: 2 }, large: { cpu: 4, memory: 4 } };
   const preset = tierPresets[tier] || tierPresets.small;
   const startedAt = state === 'RUNNING' ? faker.date.recent({ days: 2 }).toISOString() : null;
+  const resourcesExist = ['CREATING', 'STARTING', 'RESTORING', 'RUNNING', 'STOPPING', 'ARCHIVING'].includes(state);
+  const namespaceExists = state !== 'ARCHIVED' && state !== 'DELETED';
 
   return {
     id,
@@ -48,7 +50,10 @@ function generateAgent(overrides = {}) {
     openclaw_url: state === 'RUNNING' ? `ws://localhost:8000/gateway/${id}` : null,
     started_at: startedAt,
     stopped_at: state === 'STOPPED' ? faker.date.recent({ days: 1 }).toISOString() : null,
+    archived_at: state === 'ARCHIVED' ? faker.date.recent({ days: 1 }).toISOString() : null,
+    reason: null,
     error: null,
+    message: null,
     type: tier,
     created_at: faker.date.past().toISOString(),
     updated_at: faker.date.recent().toISOString(),
@@ -63,6 +68,10 @@ function generateAgent(overrides = {}) {
       OPENCLAW_GATEWAY_TOKEN: 'mock-gateway-token',
     },
     launch_epoch: 1,
+    agent_version: 1,
+    resources_exist: resourcesExist,
+    namespace_exists: namespaceExists,
+    is_launchable: true,
     meta: null,
     ...overrides,
   };
@@ -71,6 +80,38 @@ function generateAgent(overrides = {}) {
 function publicAgent(agent) {
   const { env: _env, secrets: _secrets, ...publicFields } = agent;
   return publicFields;
+}
+
+function sanitizeLaunchConfig(value) {
+  const launchConfig = value && typeof value === 'object' ? { ...value } : {};
+  for (const key of ['secrets', 'sync_enabled', 'syncEnabled', 'sync_all', 'syncAll']) {
+    delete launchConfig[key];
+  }
+  if (launchConfig.env && typeof launchConfig.env === 'object') {
+    launchConfig.env = { ...launchConfig.env };
+    delete launchConfig.env.OPENCLAW_GATEWAY_TOKEN;
+  }
+  return launchConfig;
+}
+
+const deploymentEventConnections = new Set();
+
+function broadcastDeploymentTransition(agent) {
+  const frame = JSON.stringify({
+    type: 'deployment.transition',
+    agent_id: agent.id,
+    state: agent.state,
+    reason: agent.reason ?? null,
+    error: agent.error ?? null,
+    message: agent.message ?? null,
+    launch_epoch: agent.launch_epoch || 0,
+    agent_version: agent.agent_version || 0,
+    resources_exist: Boolean(agent.resources_exist),
+    namespace_exists: Boolean(agent.namespace_exists),
+  });
+  for (const connection of deploymentEventConnections) {
+    if (connection.readyState === 1) connection.send(frame);
+  }
 }
 
 function generateApiKey() {
@@ -334,12 +375,60 @@ app.get('/agents/deployments', (req, res) => {
   res.json(agents);
 });
 
+app.post('/agents/deployments', (req, res) => {
+  const {
+    name,
+    handle,
+    size,
+    start = true,
+    dry_run: _dryRun,
+    meta,
+    tags,
+    runtime,
+    secrets,
+    ...rawLaunchConfig
+  } = req.body || {};
+  const launchConfig = sanitizeLaunchConfig(rawLaunchConfig);
+  const agent = generateAgent({
+    ...(typeof name === 'string' && name.trim() ? { name } : {}),
+    handle: handle ?? null,
+    type: size || 'small',
+    state: start ? 'STARTING' : 'STOPPED',
+    runtime: runtime || 'openclaw',
+    meta: meta ?? null,
+    tags: Array.isArray(tags) ? tags : [],
+    launch_config: launchConfig,
+    env: launchConfig.env && typeof launchConfig.env === 'object' ? { ...launchConfig.env } : {},
+    ...(typeof launchConfig.image === 'string' ? { image: launchConfig.image } : {}),
+    secrets: secrets && typeof secrets === 'object' ? { ...secrets } : {},
+    launch_epoch: start ? 1 : 0,
+    resources_exist: Boolean(start),
+    namespace_exists: true,
+  });
+  mockData.agents.set(agent.id, agent);
+  broadcastDeploymentTransition(agent);
+  if (start) {
+    const acceptedLaunchEpoch = agent.launch_epoch;
+    setTimeout(() => {
+      if (agent.launch_epoch !== acceptedLaunchEpoch || agent.state !== 'STARTING') return;
+      agent.state = 'RUNNING';
+      agent.agent_version += 1;
+      agent.hostname = `localhost:${PORT}`;
+      agent.openclaw_url = `ws://localhost:${PORT}/gateway/${agent.id}`;
+      agent.started_at = new Date().toISOString();
+      agent.updated_at = new Date().toISOString();
+      broadcastDeploymentTransition(agent);
+    }, 2000);
+  }
+  res.status(201).json(publicAgent(agent));
+});
+
 app.get('/agents/deployments/budget', (req, res) => {
   const agents = Array.from(mockData.agents.values());
   // Count used slots per tier from running/transitioning agents
   const tierUsage = { small: 0, medium: 0, large: 0 };
   agents.forEach((a) => {
-    if (['CREATING', 'STARTING', 'RESTORING', 'RUNNING', 'STOPPING', 'ARCHIVING'].includes(a.state)) {
+    if (['CREATING', 'STARTING', 'RESTORING', 'RUNNING', 'STOPPING'].includes(a.state)) {
       const tier = a.type || 'small';
       if (tierUsage[tier] !== undefined) tierUsage[tier] += 1;
     }
@@ -368,7 +457,7 @@ app.get('/agents/deployments/:id/env', (req, res) => {
   res.json({
     agent_id: agent.id,
     env: agent.env || {},
-    launch_epoch: agent.launch_epoch || 1,
+    launch_epoch: agent.launch_epoch ?? 0,
   });
 });
 
@@ -380,7 +469,7 @@ app.get('/agents/deployments/:id/secrets', (req, res) => {
   res.json({
     agent_id: agent.id,
     names: Object.keys(agent.secrets || {}),
-    launch_epoch: agent.launch_epoch || 1,
+    launch_epoch: agent.launch_epoch ?? 0,
   });
 });
 
@@ -397,7 +486,7 @@ app.get('/agents/deployments/:id/secrets/:key', (req, res) => {
     agent_id: agent.id,
     key: req.params.key,
     value,
-    launch_epoch: agent.launch_epoch || 1,
+    launch_epoch: agent.launch_epoch ?? 0,
   });
 });
 
@@ -407,6 +496,33 @@ app.get('/agents/deployments/:id', (req, res) => {
     return res.status(404).json({ error: 'Agent not found' });
   }
   res.json(publicAgent(agent));
+});
+
+app.patch('/agents/deployments/:id', (req, res) => {
+  const agent = mockData.agents.get(req.params.id);
+  if (!agent) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+  const update = req.body || {};
+  if (update.name !== undefined) agent.name = update.name;
+  if (update.handle !== undefined) agent.handle = update.handle;
+  if (update.size !== undefined) agent.type = update.size;
+  if (update.launch_config !== undefined) {
+    const launchConfig = sanitizeLaunchConfig(update.launch_config);
+    agent.launch_config = launchConfig;
+    agent.env = launchConfig.env && typeof launchConfig.env === 'object' ? { ...launchConfig.env } : {};
+    if (typeof launchConfig.image === 'string') agent.image = launchConfig.image;
+  }
+  agent.agent_version = (agent.agent_version || 0) + 1;
+  agent.updated_at = new Date().toISOString();
+  res.json(publicAgent(agent));
+});
+
+app.post('/agents/deployments/events/token', (req, res) => {
+  res.json({
+    token: `deploy_${faker.string.alphanumeric(40)}`,
+    ws_url: `ws://localhost:${PORT}/ws/deployments`,
+  });
 });
 
 app.get('/agents/deployments/:id/token', (req, res) => {
@@ -449,14 +565,39 @@ app.post('/agents/deployments/:id/start', (req, res) => {
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
-  if (Object.prototype.hasOwnProperty.call(req.body, 'env')) agent.env = { ...req.body.env };
-  if (Object.prototype.hasOwnProperty.call(req.body, 'secrets')) agent.secrets = { ...req.body.secrets };
+  const canStart = agent.is_launchable !== false && (
+    agent.state === 'STOPPED' ||
+    agent.state === 'ARCHIVED' ||
+    (agent.state === 'FAILED' && !agent.resources_exist)
+  );
+  if (!canStart) {
+    return res.status(409).json({ error: `Agent cannot start from ${agent.state}` });
+  }
+  const startOptions = req.body || {};
+  if (Object.prototype.hasOwnProperty.call(startOptions, 'env')) agent.env = { ...startOptions.env };
+  if (Object.prototype.hasOwnProperty.call(startOptions, 'secrets')) agent.secrets = { ...startOptions.secrets };
+  if (Object.keys(startOptions).length > 0) {
+    const launchConfig = sanitizeLaunchConfig({ ...(agent.launch_config || {}), ...startOptions });
+    agent.launch_config = launchConfig;
+  }
   agent.launch_epoch = (agent.launch_epoch || 0) + 1;
+  agent.agent_version = (agent.agent_version || 0) + 1;
   agent.state = 'STARTING';
+  agent.resources_exist = true;
+  agent.namespace_exists = true;
+  agent.updated_at = new Date().toISOString();
+  broadcastDeploymentTransition(agent);
+  const acceptedLaunchEpoch = agent.launch_epoch;
   setTimeout(() => {
+    if (agent.launch_epoch !== acceptedLaunchEpoch || agent.state !== 'STARTING') return;
     agent.state = 'RUNNING';
-    agent.hostname = `localhost:8000`;
-    agent.openclaw_url = `ws://localhost:8000/gateway/${agent.id}`;
+    agent.agent_version += 1;
+    agent.hostname = `localhost:${PORT}`;
+    agent.openclaw_url = `ws://localhost:${PORT}/gateway/${agent.id}`;
+    agent.started_at = new Date().toISOString();
+    agent.stopped_at = null;
+    agent.updated_at = new Date().toISOString();
+    broadcastDeploymentTransition(agent);
   }, 2000);
   res.json(publicAgent(agent));
 });
@@ -466,11 +607,24 @@ app.post('/agents/deployments/:id/stop', (req, res) => {
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
+  if (!['CREATING', 'STARTING', 'RESTORING', 'RUNNING'].includes(agent.state) && !(agent.state === 'FAILED' && agent.resources_exist)) {
+    return res.status(409).json({ error: `Agent cannot stop from ${agent.state}` });
+  }
+  agent.agent_version = (agent.agent_version || 0) + 1;
   agent.state = 'STOPPING';
+  agent.updated_at = new Date().toISOString();
+  broadcastDeploymentTransition(agent);
   setTimeout(() => {
+    if (agent.state !== 'STOPPING') return;
     agent.state = 'STOPPED';
+    agent.agent_version += 1;
+    agent.resources_exist = false;
+    agent.namespace_exists = true;
     agent.hostname = null;
     agent.openclaw_url = null;
+    agent.stopped_at = new Date().toISOString();
+    agent.updated_at = new Date().toISOString();
+    broadcastDeploymentTransition(agent);
   }, 2000);
   res.json(publicAgent(agent));
 });
@@ -480,6 +634,13 @@ app.delete('/agents/deployments/:id', (req, res) => {
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
+  if (agent.state !== 'STOPPED') {
+    return res.status(409).json({ error: 'Agent must be stopped before deletion' });
+  }
+  agent.state = 'DELETED';
+  agent.agent_version = (agent.agent_version || 0) + 1;
+  agent.updated_at = new Date().toISOString();
+  broadcastDeploymentTransition(agent);
   mockData.agents.delete(req.params.id);
   res.json({ success: true });
 });
@@ -1755,6 +1916,26 @@ function simulateChatResponse(ws, userContent) {
 wss.on('connection', (ws, req) => {
   const urlObj = new URL(req.url, `http://${req.headers.host}`);
   const pathParts = urlObj.pathname.split('/').filter(Boolean);
+
+  if (urlObj.pathname === '/ws/deployments') {
+    ws.on('message', (data) => {
+      let message;
+      try {
+        message = JSON.parse(data.toString());
+      } catch {
+        ws.close(4002, 'invalid deployment event auth');
+        return;
+      }
+      if (message.type !== 'auth' || typeof message.token !== 'string') {
+        ws.close(4001, 'deployment event auth required');
+        return;
+      }
+      deploymentEventConnections.add(ws);
+      ws.send(JSON.stringify({ type: 'ready' }));
+    });
+    ws.on('close', () => deploymentEventConnections.delete(ws));
+    return;
+  }
 
   if (pathParts[0] !== 'gateway') {
     ws.close(1002, 'unknown endpoint');

@@ -4,7 +4,7 @@ import { useId } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AgentLifecycleSteps } from "@/components/dashboard/AgentLifecycleSteps";
 
-type HatchState = "PENDING" | "RESTORING" | "SYNCING" | "STARTING" | "RUNNING";
+type HatchState = "CREATING" | "RESTORING" | "STARTING" | "RUNNING";
 
 interface AgentHatchAnimationProps {
   state: HatchState;
@@ -13,17 +13,13 @@ interface AgentHatchAnimationProps {
 }
 
 const STATUS_TEXT: Record<HatchState, { title: string; detail: string }> = {
-  PENDING: {
+  CREATING: {
     title: "Provisioning runtime",
     detail: "Reserving compute and preparing the workspace.",
   },
   RESTORING: {
     title: "Restoring files",
     detail: "Restoring the agent home directory.",
-  },
-  SYNCING: {
-    title: "Syncing shared knowledge",
-    detail: "Syncing shared knowledge Markdown.",
   },
   STARTING: {
     title: "Booting agent",
@@ -39,18 +35,18 @@ const STATUS_TEXT: Record<HatchState, { title: string; detail: string }> = {
  * "Energy Coalescing" animation for agent startup.
  *
  * 3 concentric SVG ring segments using stroke-dasharray + rotation.
- * PENDING  -> outer ring spins slowly, inner rings dim, tiny pulsing core
+ * CREATING -> outer ring spins slowly, inner rings dim, tiny pulsing core
  * STARTING -> all rings spin faster and the core grows
  * RUNNING  -> rings collapse inward, core bursts, green flash
  */
 export function AgentHatchAnimation({ state, onBurstComplete }: AgentHatchAnimationProps) {
   const id = useId().replace(/:/g, "");
-  const isPending = state === "PENDING";
-  const isStarting = state === "RESTORING" || state === "SYNCING" || state === "STARTING";
+  const isPending = state === "CREATING";
+  const isStarting = state === "RESTORING" || state === "STARTING";
   const isRunning = state === "RUNNING";
   const accent = isRunning ? "var(--selection-accent)" : "#f0c56c";
   const secondaryAccent = isRunning ? "var(--primary-hover)" : "#4ea7ff";
-  const lifecycleStage = state === "PENDING" || state === "RESTORING" || state === "SYNCING" ? "runtime" : state === "STARTING" ? "agent" : "complete";
+  const lifecycleStage = state === "CREATING" || state === "RESTORING" ? "runtime" : state === "STARTING" ? "agent" : "complete";
   const ringGradientId = `agent-hatch-ring-${id}`;
   const coreGradientId = `agent-hatch-core-${id}`;
 

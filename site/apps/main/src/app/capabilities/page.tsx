@@ -5,6 +5,18 @@ import {
   GlassCard,
   Header,
 } from "@hypercli/shared-ui";
+import {
+  AuroraFinalCta,
+  AuroraHero,
+  AuroraHeroHeading,
+  AuroraHeroLead,
+  MarketingActionGroup,
+  MarketingBand,
+  MarketingContainer,
+  MarketingEyebrow,
+  MarketingShell,
+  marketingCtaClassName,
+} from "@hypercli/shared-ui/marketing";
 import { GetStartedLink } from "@/components/get-started-link";
 import {
   CheckCircle2,
@@ -207,132 +219,122 @@ const MODELS = [
 
 export default function CapabilitiesPage() {
   return (
-    <div className="min-h-screen bg-background overflow-x-hidden">
-      <Header />
-      <main>
-        {/* Hero */}
-        <section className="relative px-6 pb-14 pt-26 text-center">
-          <div className="relative mx-auto max-w-4xl">
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.13em] text-primary">Capabilities</p>
-            <h1 className="mb-6 text-5xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl lg:text-7xl">
-              Everything your agent <span className="gradient-text-primary">can do.</span>
-            </h1>
-            <p className="mx-auto mb-9 max-w-2xl text-lg leading-relaxed text-text-secondary">
-              The complete surface of an agent running on HyperCLI — SDK, CLI, gateway, and platform. This is the
-              spec, not the pitch.
-            </p>
-            <div className="mx-auto flex max-w-2xl items-center gap-3 rounded-2xl bg-success/10 px-6 py-4 text-left">
-              <CheckCircle2 className="h-6 w-6 shrink-0 text-success" aria-hidden="true" />
-              <p className="text-sm font-medium text-success">
-                Everything on this page ships with every agent, out of the box. One API key covers all of it — no
-                add-ons, no per-feature pricing, no upgrade gates.
-              </p>
-            </div>
-          </div>
-        </section>
+    <MarketingShell header={<Header />} footer={<Footer />} headerClearance="section-nav">
+      {/* Hero */}
+      <AuroraHero width="4xl" backdrop={false} className="pb-14">
+        <MarketingEyebrow>Capabilities</MarketingEyebrow>
+        <AuroraHeroHeading>
+          Everything your agent <span className="gradient-text-primary">can do.</span>
+        </AuroraHeroHeading>
+        <AuroraHeroLead className="mb-9">
+          The complete surface of an agent running on HyperCLI — SDK, CLI, gateway, and platform. This is the
+          spec, not the pitch.
+        </AuroraHeroLead>
+        <div className="mx-auto flex max-w-2xl items-center gap-3 rounded-2xl bg-success/10 px-6 py-4 text-left">
+          <CheckCircle2 className="h-6 w-6 shrink-0 text-success" aria-hidden="true" />
+          <p className="text-sm font-medium text-success">
+            Everything on this page ships with every agent, out of the box. One API key covers all of it — no
+            add-ons, no per-feature pricing, no upgrade gates.
+          </p>
+        </div>
+      </AuroraHero>
 
-        {/* Capability spec cards */}
-        <section className="px-6 pb-10">
-          <div className="mx-auto grid max-w-5xl gap-5">
-            {CAPABILITIES.map((cap) => (
-              <GlassCard key={cap.title} className="p-7 sm:p-9">
-                <div className="mb-4 flex flex-wrap items-center gap-3.5">
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
-                    <cap.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                  </span>
-                  <h2 className="text-2xl font-bold tracking-tight text-foreground">{cap.title}</h2>
-                  <span className="rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success">
-                    every agent
-                  </span>
-                  <a
-                    href={cap.docsHref}
-                    className="ml-auto text-sm font-semibold text-primary hover:underline"
-                  >
-                    Docs →
-                  </a>
-                </div>
-                <p className="mb-2 max-w-3xl leading-relaxed text-foreground">{cap.lead}</p>
-                <p className="mb-6 flex items-start gap-2 text-sm text-text-secondary">
-                  <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                  <span>Use it for: {cap.uses}</span>
+      {/* Capability spec cards */}
+      <MarketingBand spacing="none" className="px-6 pb-10">
+        <MarketingContainer width="5xl" className="grid gap-5">
+          {CAPABILITIES.map((cap) => (
+            <GlassCard key={cap.title} className="p-7 sm:p-9">
+              <div className="mb-4 flex flex-wrap items-center gap-3.5">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
+                  <cap.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                </span>
+                <h2 className="text-2xl font-bold tracking-tight text-foreground">{cap.title}</h2>
+                <span className="rounded-full bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                  every agent
+                </span>
+                <a
+                  href={cap.docsHref}
+                  className="ml-auto text-sm font-semibold text-primary hover:underline"
+                >
+                  Docs →
+                </a>
+              </div>
+              <p className="mb-2 max-w-3xl leading-relaxed text-foreground">{cap.lead}</p>
+              <p className="mb-6 flex items-start gap-2 text-sm text-text-secondary">
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                <span>Use it for: {cap.uses}</span>
+              </p>
+              <ul className="mb-6 grid gap-x-7 gap-y-2 sm:grid-cols-2">
+                {cap.specs.map((spec) => (
+                  <li key={spec.term} className="flex gap-2 text-sm text-text-secondary">
+                    <span aria-hidden="true" className="text-text-muted">—</span>
+                    <span>
+                      <b className="font-semibold text-foreground">{spec.term}</b>
+                      {spec.detail && <> — {spec.detail}</>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <CodeSnippetCard label={cap.snippetLabel} code={cap.snippet} />
+            </GlassCard>
+          ))}
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* The models underneath */}
+      <MarketingBand spacing="compact">
+        <MarketingContainer className="rounded-3xl bg-surface-low px-8 py-16 text-center">
+          <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            The models <span className="gradient-text-primary">underneath.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            Three open frontier models, pre-wired into every agent. No provisioning, no separate bills.
+          </p>
+          <div className="grid gap-5 text-left md:grid-cols-3">
+            {MODELS.map((model) => (
+              <GlassCard key={model.name} interactive highlighted={model.badge === "Pro"} className="p-7">
+                <p className="mb-1.5 text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
+                  {model.role}
                 </p>
-                <ul className="mb-6 grid gap-x-7 gap-y-2 sm:grid-cols-2">
-                  {cap.specs.map((spec) => (
-                    <li key={spec.term} className="flex gap-2 text-sm text-text-secondary">
-                      <span aria-hidden="true" className="text-text-muted">—</span>
-                      <span>
-                        <b className="font-semibold text-foreground">{spec.term}</b>
-                        {spec.detail && <> — {spec.detail}</>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <CodeSnippetCard label={cap.snippetLabel} code={cap.snippet} />
+                <h3 className="mb-2.5 flex items-center gap-2.5 text-xl font-bold tracking-tight text-foreground">
+                  {model.name}
+                  {model.badge && (
+                    <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                      {model.badge}
+                    </span>
+                  )}
+                </h3>
+                <p className="text-sm leading-relaxed text-text-secondary">{model.body}</p>
               </GlassCard>
             ))}
           </div>
-        </section>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* The models underneath */}
-        <section className="px-6 py-12">
-          <div className="mx-auto max-w-6xl rounded-3xl bg-surface-low px-8 py-16 text-center">
-            <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              The models <span className="gradient-text-primary">underneath.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              Three open frontier models, pre-wired into every agent. No provisioning, no separate bills.
-            </p>
-            <div className="grid gap-5 text-left md:grid-cols-3">
-              {MODELS.map((model) => (
-                <GlassCard key={model.name} interactive highlighted={model.badge === "Pro"} className="p-7">
-                  <p className="mb-1.5 text-xs font-bold uppercase tracking-[0.08em] text-text-muted">
-                    {model.role}
-                  </p>
-                  <h3 className="mb-2.5 flex items-center gap-2.5 text-xl font-bold tracking-tight text-foreground">
-                    {model.name}
-                    {model.badge && (
-                      <span className="rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
-                        {model.badge}
-                      </span>
-                    )}
-                  </h3>
-                  <p className="text-sm leading-relaxed text-text-secondary">{model.body}</p>
-                </GlassCard>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Closer */}
-        <section className="px-6 pb-18 pt-4">
-          <div className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-terminal-background px-8 py-20 text-center">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_70%_at_22%_0%,rgb(var(--button-primary-rgb)_/_0.24),transparent_60%),radial-gradient(50%_65%_at_82%_12%,rgb(108_232_196_/_0.15),transparent_60%),radial-gradient(45%_60%_at_55%_100%,rgb(169_126_255_/_0.15),transparent_65%)]"
+      {/* Closer */}
+      <AuroraFinalCta
+        heading={
+          <>
+            One SDK. One CLI. <span className="gradient-text-primary">One bill.</span>
+          </>
+        }
+        description="Every capability above, live in under 5 minutes."
+        actions={
+          <MarketingActionGroup>
+            <GetStartedLink
+              label="Deploy your first agent"
+              toAgentDashboard
+              className={marketingCtaClassName({ size: "final" })}
             />
-            <div className="relative">
-              <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-terminal-foreground sm:text-5xl">
-                One SDK. One CLI. <span className="gradient-text-primary">One bill.</span>
-              </h2>
-              <p className="mb-9 text-lg text-text-secondary">Every capability above, live in under 5 minutes.</p>
-              <div className="flex flex-wrap justify-center gap-3.5">
-                <GetStartedLink
-                  label="Deploy your first agent"
-                  toAgentDashboard
-                  className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-                />
-                <a
-                  href="https://docs.hypercli.com"
-                  className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  Read the docs
-                </a>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-      <Footer />
-    </div>
+            <a
+              href="https://docs.hypercli.com"
+              className={marketingCtaClassName({ variant: "terminal-secondary", size: "final" })}
+            >
+              Read the docs
+            </a>
+          </MarketingActionGroup>
+        }
+      />
+    </MarketingShell>
   );
 }

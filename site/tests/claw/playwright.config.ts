@@ -61,5 +61,14 @@ export default defineConfig({
         isMobile: true,
       },
     },
+    {
+      name: "mobile-webkit",
+      testMatch: /.*mobile\.spec\.ts/,
+      use: {
+        ...devices["iPhone 14"],
+        browserName: "webkit",
+        viewport: { width: 390, height: 844 },
+      },
+    },
   ],
 });

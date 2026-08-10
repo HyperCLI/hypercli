@@ -163,6 +163,7 @@ export function AgentView({
   onAgentStop,
   agentStarting = false,
   agentStopping = false,
+  agentCleanupRequired = false,
   agentStartBlocked = false,
   agentStartBlockedReason,
   onOpenFiles,
@@ -705,6 +706,7 @@ export function AgentView({
                 onStop={onAgentStop}
                 starting={agentStarting}
                 stopping={agentStopping}
+                cleanupRequired={agentCleanupRequired}
                 startBlocked={agentStartBlocked}
                 startBlockedReason={agentStartBlockedReason}
               />

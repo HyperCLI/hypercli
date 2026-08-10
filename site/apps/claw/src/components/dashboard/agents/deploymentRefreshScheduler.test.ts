@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRefreshHandlers,
   createDeploymentSubscriptionRecovery,
 } from "./deploymentRefreshScheduler";
 
@@ -143,5 +144,30 @@ describe("createDeploymentSubscriptionRecovery", () => {
     vi.advanceTimersByTime(0);
     expect(retry).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+});
+
+describe("createDeploymentSubscriptionRefreshHandlers", () => {
+  it("reconciles on readiness and refreshes each persisted transition", () => {
+    const scheduler = {
+      invalidate: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const recovery = {
+      markHealthy: vi.fn(),
+      retryAfterFailure: vi.fn(),
+      reset: vi.fn(),
+    };
+    const handlers = createDeploymentSubscriptionRefreshHandlers(scheduler, recovery, {
+      includeEnrichmentOnReady: true,
+      includeEnrichmentOnTransition: true,
+    });
+
+    handlers.onReady();
+    handlers.onTransition();
+
+    expect(recovery.markHealthy).toHaveBeenCalledTimes(2);
+    expect(scheduler.invalidate).toHaveBeenNthCalledWith(1, true);
+    expect(scheduler.invalidate).toHaveBeenNthCalledWith(2, true);
   });
 });

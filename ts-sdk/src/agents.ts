@@ -1300,11 +1300,7 @@ export interface DeploymentTransitionEvent {
   namespace_exists?: boolean;
 }
 
-export interface DeploymentsChangedEvent {
-  type: 'deployments.changed';
-}
-
-export type DeploymentEvent = DeploymentTransitionEvent | DeploymentsChangedEvent;
+export type DeploymentEvent = DeploymentTransitionEvent;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -4516,6 +4512,7 @@ export class Deployments {
     timeoutMs = 300_000,
     failureStates: readonly AgentState[] = [],
     minimumLaunchEpoch?: number,
+    pollIntervalMs = 5_000,
   ): Promise<Agent> {
     if (!states.length) throw new Error('states must not be empty');
     if (minimumLaunchEpoch !== undefined && minimumLaunchEpoch < 0) {
@@ -4531,6 +4528,7 @@ export class Deployments {
     const controller = new AbortController();
     const desired = new Set(states.map((state) => state.toLowerCase()));
     const failures = new Set(failureStates.map((state) => state.toLowerCase()));
+    const effectivePollIntervalMs = Math.max(1, pollIntervalMs);
     const stateLabel = states.join(', ');
     const diagnostics = (agent: Agent | null): string => {
       if (!agent) return '';
@@ -4610,10 +4608,14 @@ export class Deployments {
         if (remaining <= 0) break;
         await Promise.race([
           new Promise<void>((resolve) => { wake = resolve; }),
-          sleep(remaining),
+          sleep(Math.min(remaining, effectivePollIntervalMs)).then(() => {
+            wakePending = true;
+          }),
         ]);
         wake = null;
       }
+      const finalAgent = await refresh();
+      if (finalAgent) return finalAgent;
     } finally {
       controller.abort();
       await subscription;
@@ -4629,13 +4631,13 @@ export class Deployments {
     pollIntervalMs = 5_000,
     minimumLaunchEpoch?: number,
   ): Promise<Agent> {
-    void pollIntervalMs;
     return this.waitForState(
       agentIdOrName,
       ['RUNNING'],
       timeoutMs,
       ['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'],
       minimumLaunchEpoch,
+      pollIntervalMs,
     );
   }
 

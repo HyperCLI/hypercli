@@ -9,7 +9,7 @@ export const financeData: IndustryData = {
   hero: {
     headline: "Your Alpha Doesn't Leak.",
     subheadline: "AI infrastructure that stays inside your perimeter. Full SEC/FINRA audit trails. Per-team governance. Deploy in days, not months.",
-    primaryCTA: { label: "Schedule Compliance Review", href: "/preview/self-hosted" },
+    primaryCTA: { label: "Schedule Compliance Review", source: "preview-finance-compliance-review" },
     secondaryCTA: { label: "See Finance Architecture", href: "/preview/cloud" },
     trustBadges: ["SOC 2 Type II", "FINRA Compliant", "SEC Audit Ready", "MNPI Protected"],
   },

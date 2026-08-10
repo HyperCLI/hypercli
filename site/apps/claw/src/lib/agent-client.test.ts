@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_CLEANUP_START_MESSAGE, agentCreationId, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
+import { agentCreationId, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, requestAgentStart, startAgent, stopAgent, waitForAgentRunning } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -11,9 +11,13 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
     deploymentsInstance: {
       createOpenClaw: vi.fn(),
       createOpenClawPro: vi.fn(),
+      delete: vi.fn(),
       get: vi.fn(),
       list: vi.fn(),
+      start: vi.fn(),
       startOpenClaw: vi.fn(),
+      stop: vi.fn(),
+      waitForState: vi.fn(),
     },
     getSlackInstallStatus: vi.fn(),
     hyperAgentConstructor: vi.fn(),
@@ -63,8 +67,12 @@ describe("agent-client", () => {
     deploymentsInstance.get.mockReset();
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
+    deploymentsInstance.delete.mockReset();
     deploymentsInstance.list.mockReset();
+    deploymentsInstance.start.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
+    deploymentsInstance.stop.mockReset();
+    deploymentsInstance.waitForState.mockReset();
     getSlackInstallStatus.mockReset();
     getSlackInstallStatus.mockResolvedValue({
       connected: false,
@@ -92,108 +100,88 @@ describe("agent-client", () => {
     expect(agentCreationId({ meta: { ui: {} } })).toBeNull();
   });
 
-  it("starts from stored sync_root, ignores stale sync_enabled, and strips stale origin locks", async () => {
-    deploymentsInstance.get.mockResolvedValue({
-      launchConfig: {
-        config: {
-          gateway: {
-            controlUi: {
-              allowedOrigins: ["https://claw.hypercli.com"],
-            },
-          },
-        },
-        image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
-        sync_root: "/home/ubuntu",
-        sync_enabled: false,
-        env: {
-          OPENCLAW_GATEWAY_TOKEN: "must-not-replay-from-env",
-          OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://claw.hypercli.com",
-          FOO: "bar",
-        },
-        routes: {
-          openclaw: { port: 18789, auth: false, prefix: "" },
-        },
-      },
-    });
-    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
+  it("starts from the backend-stored launch contract and fences readiness to the accepted snapshot", async () => {
+    const running = { id: "agent-123", state: "RUNNING", launchEpoch: 7 };
+    const accepted = {
+      id: "agent-123",
+      state: "STARTING",
+      launchEpoch: 7,
+      waitRunning: vi.fn().mockResolvedValue(running),
+    };
+    const onAccepted = vi.fn();
+    deploymentsInstance.start.mockResolvedValue(accepted);
 
-    await startOpenClawAgent("hyper_api_test", "agent-123", {
-      env: { EXTRA: "value" },
-    });
+    await expect(startAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(running);
 
-    expect(deploymentsInstance.get).toHaveBeenCalledWith("agent-123");
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.objectContaining({
-      image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
-      syncRoot: "/home/ubuntu",
-      controlUiOriginLock: true,
-      config: {},
-      env: {
-        FOO: "bar",
-        EXTRA: "value",
-      },
-      routes: {
-        openclaw: { port: 18789, auth: false, prefix: "" },
-      },
-    }));
+    expect(deploymentsInstance.start).toHaveBeenCalledWith("agent-123");
+    expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
+    expect(onAccepted).toHaveBeenCalledWith(accepted);
+    expect(accepted.waitRunning).toHaveBeenCalledWith(300_000);
   });
 
-  it("does not send an empty routes object when the saved launch config has no routes", async () => {
-    deploymentsInstance.get.mockResolvedValue({
-      launchConfig: {
-        image: "ghcr.io/hypercli/hypercli-openclaw:prod",
-        env: {
-          OPENCLAW_DESKTOP_ENABLED: "0",
-        },
-      },
-    });
-    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
+  it("returns an already-running accepted start without opening another wait", async () => {
+    const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8, waitRunning: vi.fn() };
+    deploymentsInstance.start.mockResolvedValue(accepted);
 
-    await startOpenClawAgent("hyper_api_test", "agent-123");
-
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.not.objectContaining({
-      routes: expect.anything(),
-    }));
+    await expect(startAgent("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+    expect(accepted.waitRunning).not.toHaveBeenCalled();
   });
 
-  it("preserves the saved desktop route when start overrides only touch env or config", async () => {
-    deploymentsInstance.get.mockResolvedValue({
-      launchConfig: {
-        env: {
-          OPENCLAW_DESKTOP_ENABLED: "1",
-          FOO: "bar",
-        },
-        routes: {
-          openclaw: { port: 18789, auth: false, prefix: "" },
-          desktop: { port: 3000, auth: true, prefix: "desktop" },
-        },
-      },
-    });
-    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
+  it("can release the mutation queue after the accepted start snapshot", async () => {
+    const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8, waitRunning: vi.fn() };
+    deploymentsInstance.start.mockResolvedValue(accepted);
 
-    await startOpenClawAgent("hyper_api_test", "agent-123", {
-      config: {
-        gateway: {
-          controlUi: {
-            requirePairing: true,
-          },
-        },
-      },
-      env: {
-        EXTRA: "value",
-      },
-    });
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+    expect(accepted.waitRunning).not.toHaveBeenCalled();
 
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.objectContaining({
-      env: {
-        OPENCLAW_DESKTOP_ENABLED: "1",
-        FOO: "bar",
-        EXTRA: "value",
-      },
-      routes: {
-        openclaw: { port: 18789, auth: false, prefix: "" },
-        desktop: { port: 3000, auth: true, prefix: "desktop" },
-      },
-    }));
+    accepted.waitRunning.mockResolvedValue({ ...accepted, state: "RUNNING" });
+    await expect(waitForAgentRunning(accepted as never)).resolves.toMatchObject({ state: "RUNNING" });
+  });
+
+  it("waits for canonical STOPPED after applying the accepted stop snapshot", async () => {
+    const accepted = { id: "agent-123", state: "STOPPING", launchEpoch: 9 };
+    const stopped = { id: "agent-123", state: "STOPPED", launchEpoch: 9 };
+    const onAccepted = vi.fn();
+    deploymentsInstance.stop.mockResolvedValue(accepted);
+    deploymentsInstance.waitForState.mockResolvedValue(stopped);
+
+    await expect(stopAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(stopped);
+
+    expect(onAccepted).toHaveBeenCalledWith(accepted);
+    expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
+      "agent-123",
+      ["STOPPED", "ARCHIVING", "ARCHIVED"],
+      300_000,
+      ["FAILED", "DELETED"],
+      9,
+    );
+  });
+
+  it("accepts archival progress when the stopped snapshot was missed", async () => {
+    const accepted = { id: "agent-123", state: "STOPPING", launchEpoch: 9 };
+    const archived = { id: "agent-123", state: "ARCHIVED", launchEpoch: 9 };
+    deploymentsInstance.stop.mockResolvedValue(accepted);
+    deploymentsInstance.waitForState.mockResolvedValue(archived);
+
+    await expect(stopAgent("hyper_api_test", "agent-123")).resolves.toBe(archived);
+    expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
+      "agent-123",
+      ["STOPPED", "ARCHIVING", "ARCHIVED"],
+      300_000,
+      ["FAILED", "DELETED"],
+      9,
+    );
+  });
+
+  it("deletes only an authoritative stopped agent", async () => {
+    deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPED" });
+    deploymentsInstance.delete.mockResolvedValue({ ok: true, id: "agent-123" });
+
+    await expect(deleteStoppedAgent("hyper_api_test", "agent-123")).resolves.toEqual({ ok: true, id: "agent-123" });
+    expect(deploymentsInstance.delete).toHaveBeenCalledWith("agent-123");
+
+    deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPING" });
+    await expect(deleteStoppedAgent("hyper_api_test", "agent-123")).rejects.toThrow("wait for cleanup");
   });
 
   it("creates OpenClaw agents with origin locking on by default", async () => {
@@ -557,42 +545,4 @@ describe("agent-client", () => {
     }));
   });
 
-  it("retries start while the agent is still cleaning up", async () => {
-    vi.useFakeTimers();
-    deploymentsInstance.get.mockResolvedValue({ launchConfig: {} });
-    deploymentsInstance.startOpenClaw
-      .mockRejectedValueOnce({
-        statusCode: 409,
-        detail: "Agent 'steady-pilot-engine' is still being cleaned up, try again in a moment",
-      })
-      .mockResolvedValueOnce({ id: "agent-123" });
-
-    const start = startOpenClawAgent("hyper_api_test", "agent-123");
-
-    await vi.waitFor(() => expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(2_000);
-
-    await expect(start).resolves.toEqual({ id: "agent-123" });
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(2);
-  });
-
-  it("returns a friendly cleanup message after retrying cleanup conflicts", async () => {
-    vi.useFakeTimers();
-    deploymentsInstance.get.mockResolvedValue({ launchConfig: {} });
-    deploymentsInstance.startOpenClaw.mockRejectedValue({
-      statusCode: 409,
-      detail: "Agent 'steady-pilot-engine' is still being cleaned up, try again in a moment",
-    });
-
-    const start = startOpenClawAgent("hyper_api_test", "agent-123");
-    const expectedFailure = expect(start).rejects.toThrow(AGENT_CLEANUP_START_MESSAGE);
-
-    await vi.waitFor(() => expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(1));
-    for (const delay of [2_000, 3_000, 5_000, 8_000, 12_000]) {
-      await vi.advanceTimersByTimeAsync(delay);
-    }
-
-    await expectedFailure;
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(6);
-  });
 });

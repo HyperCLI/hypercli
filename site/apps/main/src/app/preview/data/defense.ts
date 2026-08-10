@@ -9,7 +9,7 @@ export const defenseData: IndustryData = {
   hero: {
     headline: "Deployable Where the Internet Isn't.",
     subheadline: "Air-gapped AI infrastructure for classified and sensitive environments. ITAR-compliant supply chain. CMMC-ready deployment. No external dependencies.",
-    primaryCTA: { label: "Request Classified Briefing", href: "/preview/self-hosted" },
+    primaryCTA: { label: "Request Classified Briefing", source: "preview-defense-classified-briefing" },
     secondaryCTA: { label: "See Air-Gapped Architecture", href: "/preview/cloud" },
     trustBadges: ["CMMC Level 3 Ready", "ITAR Compliant", "FedRAMP In Progress", "Air-Gap Capable"],
   },

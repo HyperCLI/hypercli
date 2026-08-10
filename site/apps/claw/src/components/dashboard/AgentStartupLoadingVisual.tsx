@@ -104,7 +104,9 @@ export function AgentStartupTipsVisual({
   title = GATEWAY_LOADING_TITLE,
   detail = GATEWAY_LOADING_DETAIL,
   className = "",
-}: Pick<AgentStartupLoadingVisualProps, "heading" | "note" | "title" | "detail" | "className">) {
+  actionLabel,
+  onAction,
+}: Pick<AgentStartupLoadingVisualProps, "heading" | "note" | "title" | "detail" | "className" | "actionLabel" | "onAction">) {
   const reducedMotion = useReducedMotion();
   const [tipIndex, setTipIndex] = useState(0);
   const tip = AGENT_STARTUP_TIPS[tipIndex];
@@ -141,6 +143,15 @@ export function AgentStartupTipsVisual({
           </span>
           <span className="mt-1 block text-[13px] leading-5 text-text-muted">{detail}</span>
         </div>
+        {actionLabel && onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            className="mt-5 inline-flex min-h-10 max-w-full items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            <span className="break-words">{actionLabel}</span>
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-10 w-full border-t border-border pt-4 text-left" aria-live="off">
@@ -178,6 +189,8 @@ export function AgentStartupLoadingVisual(props: AgentStartupLoadingVisualProps)
       title={props.title}
       detail={props.detail}
       className={props.className}
+      actionLabel={props.actionLabel}
+      onAction={props.onAction}
     />
   );
 }

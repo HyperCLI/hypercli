@@ -61,6 +61,7 @@ if [[ -d "${WORKSPACE_ROOT}/ts-sdk" ]]; then
   npm --prefix "${WORKSPACE_ROOT}/ts-sdk" run build
 fi
 npm run sdk:use-checkout
+npm run test --workspace @hypercli/shared-ui
 rm -rf "${SITE_ROOT}/apps/main/.next"
 npm run build --workspace @hypercli/main
 
