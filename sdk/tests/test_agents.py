@@ -2400,8 +2400,6 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             command=["sh", "-c", "python -m http.server 80"],
             routes={"web": {"port": 80, "auth": False, "prefix": ""}},
             sync_root="/workspace",
-            sync_uid=2000,
-            sync_gid=2001,
             restart=False,
         )
 
@@ -2412,8 +2410,8 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
         assert posted_json["sync_root"] == "/workspace"
         assert "sync_enabled" not in posted_json
-        assert posted_json["sync_uid"] == 2000
-        assert posted_json["sync_gid"] == 2001
+        assert "sync_uid" not in posted_json
+        assert "sync_gid" not in posted_json
         assert posted_json["restart"] is False
 
 

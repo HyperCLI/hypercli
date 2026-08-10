@@ -226,8 +226,6 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'sync_root',
   'sync_include',
   'sync_exclude',
-  'sync_uid',
-  'sync_gid',
   'registry_url',
   'registry_auth',
   'restart',
@@ -235,8 +233,6 @@ const LAUNCH_CONFIG_KEYS = new Set([
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 export const DEFAULT_HERMES_AGENT_SYNC_ROOT = '/opt/data';
-export const DEFAULT_HERMES_AGENT_SYNC_UID = 10000;
-export const DEFAULT_HERMES_AGENT_SYNC_GID = 10000;
 export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
 export const AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024;
 export const AGENT_FILE_OPERATION_TIMEOUT_MS = 300_000;
@@ -598,8 +594,6 @@ export interface BuildAgentConfigOptions {
   syncRoot?: string | null;
   syncInclude?: readonly string[] | null;
   syncExclude?: readonly string[] | null;
-  syncUid?: number | null;
-  syncGid?: number | null;
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
   restart?: boolean | null;
@@ -1912,8 +1906,6 @@ export function buildAgentConfig(
   if (options.syncInclude === undefined && options.syncExclude !== undefined) {
     prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
   }
-  if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = options.syncUid;
-  if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
   if (options.restart !== undefined && options.restart !== null) prepared.restart = options.restart;
@@ -4110,8 +4102,6 @@ export class Deployments {
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
-      syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
-      syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
       routes: options.routes === undefined
         ? buildHermesAgentRoutes(options.hermesRoute ?? {})
         : options.routes,
@@ -4215,8 +4205,6 @@ export class Deployments {
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,
       syncExclude,
-      syncUid: options.syncUid ?? 1000,
-      syncGid: options.syncGid ?? 1000,
       // Hosted Buzz shutdown is process-driven; generic launch options cannot
       // opt it back into automatic restart.
       restart: buzzLaunch ? false : options.restart,
@@ -4694,8 +4682,6 @@ export class Deployments {
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
-      syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
-      syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
       routes: options.routes === undefined
         ? buildHermesAgentRoutes(options.hermesRoute ?? {})
         : options.routes,

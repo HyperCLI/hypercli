@@ -171,8 +171,8 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type, s
     assert "sync_enabled" not in posted
     assert posted["sync_include"] == sync_include
     assert "sync_exclude" not in posted
-    assert posted["sync_uid"] == 1000
-    assert posted["sync_gid"] == 1000
+    assert "sync_uid" not in posted
+    assert "sync_gid" not in posted
     assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
     assert posted["env"] == {
         "HYPER_WORKSPACES_BOOT_SYNC": "1",

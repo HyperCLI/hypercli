@@ -58,13 +58,13 @@ describe("TS SDK integration: agents", () => {
         image,
         routes: {},
         sync_root: "/home/node",
-        sync_uid: 1000,
-        sync_gid: 1000,
         env: {
           HYPER_WORKSPACES_BOOT_SYNC: "1",
         },
       });
       expect(preview.launchConfig).not.toHaveProperty("sync_enabled");
+      expect(preview.launchConfig).not.toHaveProperty("sync_uid");
+      expect(preview.launchConfig).not.toHaveProperty("sync_gid");
       expect(preview.launchConfig?.env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
     },
   );

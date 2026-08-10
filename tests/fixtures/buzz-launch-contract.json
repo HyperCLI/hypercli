@@ -20,9 +20,7 @@
     "command": ["/usr/local/bin/buzz-acp"],
     "routes": {},
     "restart": false,
-    "sync_root": "/home/node",
-    "sync_uid": 1000,
-    "sync_gid": 1000
+    "sync_root": "/home/node"
   },
   "runtimes": {
     "buzz-agent": {

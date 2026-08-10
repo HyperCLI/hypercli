@@ -70,8 +70,6 @@ impl HermesLaunchConfig {
             &mut request.env,
             &mut request.routes,
             &mut request.sync_root,
-            &mut request.sync_uid,
-            &mut request.sync_gid,
         );
     }
 
@@ -81,20 +79,15 @@ impl HermesLaunchConfig {
             &mut request.env,
             &mut request.routes,
             &mut request.sync_root,
-            &mut request.sync_uid,
-            &mut request.sync_gid,
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn apply(
         &self,
         image: &mut Option<String>,
         env: &mut BTreeMap<String, String>,
         routes: &mut BTreeMap<String, RouteConfig>,
         sync_root: &mut Option<String>,
-        sync_uid: &mut Option<u32>,
-        sync_gid: &mut Option<u32>,
     ) {
         image.get_or_insert_with(|| self.image.clone());
         env.insert("API_SERVER_ENABLED".to_owned(), "true".to_owned());
@@ -113,8 +106,6 @@ impl HermesLaunchConfig {
                 prefix: Some(self.route_prefix.clone()),
             });
         sync_root.get_or_insert_with(|| "/opt/data".to_owned());
-        sync_uid.get_or_insert(10_000);
-        sync_gid.get_or_insert(10_000);
     }
 }
 
@@ -935,10 +926,6 @@ mod tests {
         assert_eq!(request.runtime, ManagedRuntime::HermesAgent);
         assert_eq!(request.image.as_deref(), Some(HERMES_AGENT_IMAGE));
         assert_eq!(request.sync_root.as_deref(), Some("/opt/data"));
-        assert_eq!(
-            (request.sync_uid, request.sync_gid),
-            (Some(10_000), Some(10_000))
-        );
         assert_eq!(request.routes[HERMES_ROUTE].port, HERMES_API_PORT);
         assert_eq!(request.env["API_SERVER_KEY"], "gateway-secret-only");
         assert!(!request.env.contains_key("OPENCLAW_GATEWAY_TOKEN"));

@@ -49,10 +49,8 @@ LAUNCH_FIELD_KEYS = {
     "routes",
     "runtime_scopes",
     "sync_exclude",
-    "sync_gid",
     "sync_include",
     "sync_root",
-    "sync_uid",
 }
 
 
@@ -562,8 +560,6 @@ def create(
         "--sync-exclude",
         help="Path under the sync root to exclude. Repeatable.",
     ),
-    sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
-    sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
     api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent"),
@@ -622,8 +618,6 @@ def create(
             "entrypoint": entrypoint_argv,
             "registry_url": registry_url,
             "registry_auth": registry_auth,
-            "sync_uid": sync_uid,
-            "sync_gid": sync_gid,
             "dry_run": dry_run,
             "start": not no_start,
             **sync_policy,
@@ -1054,8 +1048,6 @@ def start(
         "--sync-exclude",
         help="Path under the sync root to exclude. Repeatable.",
     ),
-    sync_uid: int = typer.Option(None, "--sync-uid", help="UID for restored synced files; defaults to Lagoon's configured value"),
-    sync_gid: int = typer.Option(None, "--sync-gid", help="GID for restored synced files; defaults to Lagoon's configured value"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
     api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting the agent"),
@@ -1086,8 +1078,6 @@ def start(
                 "registry_password": registry_password,
                 "sync_include": sync_include,
                 "sync_exclude": sync_exclude,
-                "sync_uid": sync_uid,
-                "sync_gid": sync_gid,
                 "gateway_token": gateway_token,
                 "api_server_key": api_server_key,
                 "dry_run": True if dry_run else None,
@@ -1174,8 +1164,6 @@ def start(
     effective_entrypoint = entrypoint_argv if entrypoint_argv is not None else saved_launch_fields.get("entrypoint")
     effective_registry_url = registry_url if registry_url is not None else saved_launch_fields.get("registry_url")
     effective_registry_auth = registry_auth if registry_auth is not None else saved_launch_fields.get("registry_auth")
-    effective_sync_uid = sync_uid if sync_uid is not None else saved_launch_fields.get("sync_uid")
-    effective_sync_gid = sync_gid if sync_gid is not None else saved_launch_fields.get("sync_gid")
     memory_index = None if is_hermes else _build_memory_index_options(
         memory_search=memory_search,
         index_on_session_start=index_on_session_start,
@@ -1199,8 +1187,6 @@ def start(
             "restart": saved_launch_fields.get("restart"),
             "runtime_scopes": saved_launch_fields.get("runtime_scopes"),
             "sync_root": saved_launch_fields.get("sync_root"),
-            "sync_uid": effective_sync_uid,
-            "sync_gid": effective_sync_gid,
             "dry_run": dry_run,
             **sync_policy,
         }

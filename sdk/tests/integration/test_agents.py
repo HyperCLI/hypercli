@@ -129,8 +129,8 @@ def test_coding_runtime_create_dry_run_contract(
     assert preview.launch_config["image"] == image
     assert preview.launch_config["sync_root"] == "/home/node"
     assert "sync_enabled" not in preview.launch_config
-    assert preview.launch_config["sync_uid"] == 1000
-    assert preview.launch_config["sync_gid"] == 1000
+    assert "sync_uid" not in preview.launch_config
+    assert "sync_gid" not in preview.launch_config
     assert preview.launch_config["routes"] == {}
     assert preview.launch_config["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
     assert "OPENCLAW_GATEWAY_TOKEN" not in preview.launch_config["env"]

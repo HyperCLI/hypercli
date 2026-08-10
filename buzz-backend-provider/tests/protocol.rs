@@ -335,8 +335,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "command": common["command"].clone(),
             "image": image,
             "sync_root": common["sync_root"].clone(),
-            "sync_uid": common["sync_uid"].clone(),
-            "sync_gid": common["sync_gid"].clone(),
             // Deployment creation has no prior policy to inherit. Each coding
             // runtime persists only its authentication/config state by
             // default; Buzz Agent intentionally selects nothing.

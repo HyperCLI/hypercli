@@ -639,8 +639,6 @@ fn restart_if_stopped(
         sync_root: create.sync_root.clone(),
         sync_include: None,
         sync_exclude: None,
-        sync_uid: create.sync_uid,
-        sync_gid: create.sync_gid,
         restart: create.restart,
         runtime_scopes: create.runtime_scopes.clone(),
         dry_run: false,
@@ -766,8 +764,6 @@ fn build_launch_request_with_inference_base(
         .default_sync_include()
         .map(|paths| paths.iter().map(|path| (*path).to_owned()).collect());
     request.sync_exclude = None;
-    request.sync_uid = Some(1000);
-    request.sync_gid = Some(1000);
     request.restart = Some(false);
     request.runtime_scopes = BUZZ_RUNTIME_SCOPES.map(str::to_owned).to_vec();
 
@@ -2474,8 +2470,6 @@ mod tests {
                     "restart": false,
                     "command": ["/usr/local/bin/buzz-acp"],
                     "sync_root": "/home/node",
-                    "sync_uid": 1000,
-                    "sync_gid": 1000,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                     "secrets": {
                         "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
