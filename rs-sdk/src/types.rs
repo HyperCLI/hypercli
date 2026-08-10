@@ -1590,10 +1590,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(
-            deployment.cluster_id.as_deref(),
-            Some("cluster-current")
-        );
+        assert_eq!(deployment.cluster_id.as_deref(), Some("cluster-current"));
         assert_eq!(deployment.agent_version, 2);
         assert_eq!(
             deployment.archived_at.as_deref(),
