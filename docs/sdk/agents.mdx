@@ -644,7 +644,7 @@ Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAg
 - `discord_upsert()`
 - `cron_list()`
 
-`resolve_gateway_token()` now uses `GET /api/deployments/{id}` plus `GET /api/deployments/{id}/env`. Use those endpoints for scoped agent access.
+`resolve_gateway_token()` uses the narrow authenticated `GET /agents/deployments/{id}/gateway` context endpoint. Runtime Secrets are never exposed to the SDK.
 
 To mint a child key for one exact agent:
 

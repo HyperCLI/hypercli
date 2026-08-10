@@ -2111,11 +2111,6 @@ class Agent:
     def resize(self, *, size: str | None = None) -> "Agent":
         return self.update(size=size)
 
-    def env(self) -> dict[str, str]:
-        """Fetch runtime environment from the pod's K8s secret."""
-        data = self._require_deployments().env(self.id)
-        return data.get("env", {})
-
     def exec(self, command: str, timeout: int = 30, dry_run: bool = False) -> "ExecResult":
         return self._require_deployments().exec(self, command, timeout=timeout, dry_run=dry_run)
 
@@ -2334,56 +2329,40 @@ class OpenClawAgent(Agent):
             gateway_token=data.get("gateway_token"),
         )
 
-    @staticmethod
-    def _gateway_url_from_hostname(hostname: str | None) -> str | None:
-        value = str(hostname or "").strip()
-        return f"wss://{value}" if value else None
-
-    def _current_gateway_hostname(self) -> str | None:
-        if self.hostname:
-            return self.hostname
-        if not self.gateway_url:
-            return None
-        raw = str(self.gateway_url).strip().replace("wss://", "").replace("ws://", "")
-        return raw.split("/", 1)[0] or None
-
     def wait_for_gateway_context(self, timeout: float = 30.0, retry_interval: float = 1.0) -> dict[str, Any]:
         """
-        Resolve gateway context through the deployment record plus `/env`.
+        Resolve the narrow authenticated OpenClaw gateway context.
 
-        Agent startup is eventually consistent: the deployment record can lag
-        behind hostname attachment, and runtime env can lag behind both. The
-        SDK derives the gateway URL from the attached hostname and reads the
-        gateway token from `OPENCLAW_GATEWAY_TOKEN` in the env route.
+        Agent startup is eventually consistent, so the Backend can report that
+        the canonical gateway context is not ready while hostname and launch
+        projection settle. The SDK retries that one purpose-built endpoint; it
+        never reads the runtime Secret.
         """
         if self.gateway_token and self.gateway_url:
             return {
                 "agent_id": self.id,
-                "hostname": self._current_gateway_hostname(),
+                "gateway_url": self.gateway_url,
                 "gateway_token": self.gateway_token,
+                "runtime_generation": self.runtime_generation,
             }
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
         while True:
             try:
-                refreshed = self._require_deployments().get(self.id)
-                hostname = getattr(refreshed, "hostname", None)
-                gateway_url = self._gateway_url_from_hostname(hostname)
-                env_data = self._require_deployments().env(self.id)
-                gateway_token = (
-                    (env_data.get("env") or {}).get("OPENCLAW_GATEWAY_TOKEN", "").strip()
-                    if isinstance(env_data, dict)
-                    else None
-                )
-                if gateway_token and gateway_url:
+                context = self._require_deployments().gateway_context(self.id)
+                gateway_url = str(context.get("gateway_url") or "").strip()
+                gateway_token = str(context.get("gateway_token") or "").strip()
+                context_generation = int(context.get("runtime_generation") or 0)
+                if context_generation < self.runtime_generation:
+                    last_error = RuntimeError(
+                        "gateway context belongs to an older runtime generation"
+                    )
+                elif gateway_url and gateway_token:
                     self.gateway_token = gateway_token
                     self.gateway_url = gateway_url
-                    return {
-                        "agent_id": self.id,
-                        "hostname": hostname,
-                        "gateway_token": gateway_token,
-                    }
-                last_error = RuntimeError("missing gateway context")
+                    return context
+                else:
+                    last_error = RuntimeError("missing gateway context")
             except Exception as exc:
                 last_error = exc
             if time.monotonic() >= deadline:
@@ -2393,7 +2372,7 @@ class OpenClawAgent(Agent):
             time.sleep(retry_interval)
 
     def resolve_gateway_token(self) -> str | None:
-        """Resolve the gateway token through the deployment env route."""
+        """Resolve the gateway token through the narrow Backend context route."""
         token_data = self.wait_for_gateway_context()
         self.gateway_token = token_data.get("gateway_token")
         return self.gateway_token
@@ -4606,10 +4585,10 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs/token")
 
-    def env(self, agent_id: str) -> dict:
-        """Fetch runtime environment from the pod's K8s secret."""
+    def gateway_context(self, agent_id: str) -> dict[str, Any]:
+        """Fetch the narrow authenticated OpenClaw gateway context."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env")
+        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/gateway")
 
     def exec(self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
         """Execute a one-shot command on a running agent via the backend exec API.

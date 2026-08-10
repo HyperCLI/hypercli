@@ -428,9 +428,10 @@ describe('HyperClaw agents SDK', () => {
 
   it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', async () => {
     const get = vi.fn().mockResolvedValue({
-      env: {
-        OPENCLAW_GATEWAY_TOKEN: 'gw-ctx',
-      },
+      agent_id: 'agent-ctx',
+      gateway_url: 'wss://openclaw-agent.dev.hypercli.com',
+      gateway_token: 'gw-ctx',
+      runtime_generation: 0,
     });
     const deployments = new Deployments(
       { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
@@ -461,9 +462,10 @@ describe('HyperClaw agents SDK', () => {
 
   it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', async () => {
     const get = vi.fn().mockResolvedValue({
-      env: {
-        OPENCLAW_GATEWAY_TOKEN: 'gw-jwtless',
-      },
+      agent_id: 'agent-jwtless',
+      gateway_url: 'wss://openclaw-agent.dev.hypercli.com',
+      gateway_token: 'gw-jwtless',
+      runtime_generation: 0,
     });
     const deployments = new Deployments(
       { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,

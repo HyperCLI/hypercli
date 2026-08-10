@@ -589,7 +589,7 @@ Important additions:
 - `injectNumCtxForOpenAICompat`
 - `models`
 
-`resolveGatewayToken()` now uses `GET /api/deployments/{id}` plus `GET /api/deployments/{id}/env`, which is the supported path for scoped agent access.
+Gateway clients use the narrow authenticated `GET /agents/deployments/{id}/gateway` context endpoint. Runtime Secrets are never exposed to the SDK.
 
 To mint a child key for one exact agent:
 

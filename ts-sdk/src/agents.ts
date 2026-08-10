@@ -259,9 +259,10 @@ export interface BrowserDesktopUrlOptions {
 }
 
 export interface AgentGatewayContext {
-  agent_id?: string;
-  hostname?: string | null;
-  gateway_token?: string | null;
+  agent_id: string;
+  gateway_url: string;
+  gateway_token: string;
+  runtime_generation: number;
 }
 
 export interface GatewayContextWaitOptions {
@@ -2421,11 +2422,6 @@ export class Agent {
     return this.requireDeployments().resize(this.id, options);
   }
 
-  async env(): Promise<Record<string, string>> {
-    const data = await this.requireDeployments().env(this.id);
-    return data.env ?? {};
-  }
-
   async exec(command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
     return this.requireDeployments().exec(this, command, options);
   }
@@ -2979,23 +2975,12 @@ export class OpenClawAgent extends Agent {
     return trimmed ? `wss://${trimmed}` : null;
   }
 
-  private currentGatewayHostname(): string | null {
-    if (this.hostname) return this.hostname;
-    if (!this.gatewayUrl) return null;
-    try {
-      return new URL(this.gatewayUrl).hostname || null;
-    } catch {
-      return this.gatewayUrl.replace(/^wss?:\/\//, '').split('/')[0] || null;
-    }
-  }
-
   /**
-   * Resolve gateway context through the deployment record plus `/env`.
+   * Resolve the narrow authenticated OpenClaw gateway context.
    *
-   * Agent startup is eventually consistent: the deployment record may lag
-   * behind hostname attachment, and runtime env can lag behind both. The SDK
-   * derives the gateway URL from the attached hostname and reads the gateway
-   * token from `OPENCLAW_GATEWAY_TOKEN` in the agent env route.
+   * Agent startup is eventually consistent. The Backend may report that the
+   * context is not ready until the canonical launch projection catches up, so
+   * this retries one purpose-built endpoint and never reads runtime Secrets.
    */
   async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
     const callerAbortError = (): Error => {
@@ -3008,8 +2993,9 @@ export class OpenClawAgent extends Agent {
     if (this.gatewayToken && this.gatewayUrl) {
       return {
         agent_id: this.id,
-        hostname: this.currentGatewayHostname(),
+        gateway_url: this.gatewayUrl,
         gateway_token: this.gatewayToken,
+        runtime_generation: this.runtimeGeneration,
       };
     }
     const timeoutMs = options.timeoutMs ?? 30_000;
@@ -3075,30 +3061,20 @@ export class OpenClawAgent extends Agent {
           signal: controller.signal,
           timeout: Math.max(1, remainingMs),
         };
-        const requests: Promise<void>[] = [];
-        if (!this.gatewayUrl) {
-          requests.push(deployments.get(this.id, requestOptions).then((refreshed) => {
-            const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(refreshed.hostname);
-            if (gatewayUrl) this.gatewayUrl = gatewayUrl;
-          }));
+        try {
+          const context = await runWithAbort(
+            deployments.gatewayContext(this.id, requestOptions),
+          );
+          if (context.runtime_generation < this.runtimeGeneration) {
+            lastError = new Error('gateway context belongs to an older runtime generation');
+          } else {
+            this.gatewayUrl = context.gateway_url;
+            this.gatewayToken = context.gateway_token;
+            return context;
+          }
+        } catch (error) {
+          lastError = error;
         }
-        if (!this.gatewayToken) {
-          requests.push(deployments.env(this.id, requestOptions).then((envData) => {
-            const gatewayToken = envData.env?.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
-            if (gatewayToken) this.gatewayToken = gatewayToken;
-          }));
-        }
-
-        const results = await runWithAbort(Promise.allSettled(requests));
-        const rejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-        if (this.gatewayToken && this.gatewayUrl) {
-          return {
-            agent_id: this.id,
-            hostname: this.currentGatewayHostname(),
-            gateway_token: this.gatewayToken,
-          };
-        }
-        lastError = rejected?.reason ?? new Error('missing gateway context');
         const remainingAfterRequestMs = deadline - Date.now();
         if (remainingAfterRequestMs <= 0) throw timeoutError();
         const retryDelayMs = Math.min(Math.max(0, retryIntervalMs), remainingAfterRequestMs);
@@ -4841,12 +4817,12 @@ export class Deployments {
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
   }
 
-  async env(
+  async gatewayContext(
     agentIdOrName: string,
     requestOptions: RequestOverrides = {},
-  ): Promise<{ agent_id: string; env: Record<string, string> }> {
+  ): Promise<AgentGatewayContext> {
     const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
-    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/env`;
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/gateway`;
     return Object.keys(requestOptions).length === 0
       ? this.agentHttp.get(path)
       : this.agentHttp.get(path, undefined, requestOptions);
