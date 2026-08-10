@@ -665,6 +665,8 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
                 "image": "ghcr.io/hypercli/hypercli-hermes-agent:saved",
                 "routes": {"hermes-agent": {"port": 8642, "auth": False, "prefix": ""}},
                 "sync_root": "/opt/data",
+                "sync_uid": 10000,
+                "sync_gid": 10000,
             },
         }
     }
@@ -705,8 +707,8 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
     assert captured["config"] == {"model": {"default": "hyper/model"}}
     assert captured["env"] == {"SAVED": "1", "NEW": "2"}
     assert captured["sync_root"] == "/opt/data"
-    assert "sync_uid" not in captured
-    assert "sync_gid" not in captured
+    assert captured["sync_uid"] == 10000
+    assert captured["sync_gid"] == 10000
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
 

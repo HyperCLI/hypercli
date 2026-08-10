@@ -122,6 +122,8 @@ describe('coding agents', () => {
       routes: {},
       sync_root: '/home/node',
       sync_include: syncInclude,
+      sync_uid: 1000,
+      sync_gid: 1000,
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: '1',
@@ -129,8 +131,6 @@ describe('coding agents', () => {
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       },
     });
-    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_uid');
-    expect(post.mock.calls[0][1]).not.toHaveProperty('sync_gid');
     expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
   });
 

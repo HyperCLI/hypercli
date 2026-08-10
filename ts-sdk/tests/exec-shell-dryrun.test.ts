@@ -54,6 +54,8 @@ describe('HyperClaw agents SDK', () => {
         entrypoint: ['/bin/sh', '-c'],
         routes: { openclaw: { port: 18789, auth: false } },
         image: 'ghcr.io/hypercli/hypercli-openclaw:test',
+        syncUid: 2000,
+        syncGid: 2001,
       },
     );
 
@@ -67,8 +69,23 @@ describe('HyperClaw agents SDK', () => {
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
     expect(config.image).toBe('ghcr.io/hypercli/hypercli-openclaw:test');
-    expect(config).not.toHaveProperty('sync_uid');
-    expect(config).not.toHaveProperty('sync_gid');
+    expect(config.sync_uid).toBe(2000);
+    expect(config.sync_gid).toBe(2001);
+  });
+
+  it.each([
+    ['syncUid', -1],
+    ['syncUid', 1.5],
+    ['syncUid', Number.NaN],
+    ['syncUid', 4_294_967_295],
+    ['syncGid', -1],
+    ['syncGid', 1.5],
+    ['syncGid', Number.NaN],
+    ['syncGid', 4_294_967_295],
+  ] as const)('buildAgentConfig rejects invalid %s ownership', (field, value) => {
+    expect(() => buildAgentConfig({}, { [field]: value })).toThrow(
+      /must be an integer between 0 and 4294967294/,
+    );
   });
 
   it('buildAgentConfig rejects nested launch fields in config', () => {

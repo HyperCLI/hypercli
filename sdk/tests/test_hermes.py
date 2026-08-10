@@ -66,8 +66,8 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert "sync_enabled" not in body
     assert "sync_include" not in body
     assert "sync_exclude" not in body
-    assert "sync_uid" not in body
-    assert "sync_gid" not in body
+    assert body["sync_uid"] == 10000
+    assert body["sync_gid"] == 10000
     assert body["routes"] == {
         "hermes": {"port": 8642, "auth": False, "prefix": ""}
     }

@@ -515,6 +515,8 @@ impl BuzzLaunchConfig {
         if request.sync_include.is_some() {
             request.sync_exclude = None;
         }
+        request.sync_uid = Some(1000);
+        request.sync_gid = Some(1000);
         // Hosted Buzz shutdown is process-driven; automatic restart would
         // resurrect an agent after its owner-signed `!shutdown` completes.
         request.restart = Some(false);
@@ -692,6 +694,10 @@ pub struct CreateDeploymentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_exclude: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_uid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_gid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_scopes: Vec<String>,
@@ -719,6 +725,8 @@ impl CreateDeploymentRequest {
             sync_root: None,
             sync_include: None,
             sync_exclude: None,
+            sync_uid: None,
+            sync_gid: None,
             restart: None,
             runtime_scopes: Vec::new(),
             start: true,
@@ -776,6 +784,10 @@ pub struct StartDeploymentRequest {
         deserialize_with = "deserialize_present_nullable"
     )]
     pub sync_exclude: Option<Nullable<Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_uid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_gid: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -101,6 +101,8 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "sync_root",
         "sync_include",
         "sync_exclude",
+        "sync_uid",
+        "sync_gid",
         "registry_url",
         "registry_auth",
         "restart",
@@ -882,6 +884,19 @@ def _default_agents_ws_url(api_base: str) -> str:
     return _normalize_agents_ws_url(raw)
 
 
+MAX_SYNC_OWNER_ID = 4_294_967_294
+
+
+def _normalize_sync_owner(value: int | None, field: str) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int or not 0 <= value <= MAX_SYNC_OWNER_ID:
+        raise ValueError(
+            f"{field} must be an integer between 0 and {MAX_SYNC_OWNER_ID}"
+        )
+    return value
+
+
 def _build_agent_launch(
     config: dict | None = None,
     *,
@@ -895,6 +910,8 @@ def _build_agent_launch(
     sync_root: str | None = None,
     sync_include: list[str] | None | object = _UNSET,
     sync_exclude: list[str] | None | object = _UNSET,
+    sync_uid: int | None = None,
+    sync_gid: int | None = None,
     registry_url: str | None = None,
     registry_auth: dict | None = None,
     restart: bool | None = None,
@@ -968,6 +985,12 @@ def _build_agent_launch(
         launch["sync_include"] = None if sync_include is None else list(sync_include)
     if sync_include is _UNSET and sync_exclude is not _UNSET:
         launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
+    normalized_sync_uid = _normalize_sync_owner(sync_uid, "sync_uid")
+    normalized_sync_gid = _normalize_sync_owner(sync_gid, "sync_gid")
+    if normalized_sync_uid is not None:
+        launch["sync_uid"] = normalized_sync_uid
+    if normalized_sync_gid is not None:
+        launch["sync_gid"] = normalized_sync_gid
     if registry_url is not None:
         launch["registry_url"] = registry_url
     if registry_auth is not None:
@@ -993,6 +1016,8 @@ def build_agent_config(
     sync_root: str | None = None,
     sync_include: list[str] | None | object = _UNSET,
     sync_exclude: list[str] | None | object = _UNSET,
+    sync_uid: int | None = None,
+    sync_gid: int | None = None,
     registry_url: str | None = None,
     registry_auth: dict | None = None,
     restart: bool | None = None,
@@ -1018,6 +1043,8 @@ def build_agent_config(
         sync_root=sync_root,
         sync_include=sync_include,
         sync_exclude=sync_exclude,
+        sync_uid=sync_uid,
+        sync_gid=sync_gid,
         registry_url=registry_url,
         registry_auth=registry_auth,
         restart=restart,
@@ -3161,6 +3188,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool = None,
@@ -3201,6 +3230,8 @@ class Deployments:
             sync_root=sync_root,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
@@ -3264,6 +3295,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         runtime_scopes: list[str] | None = None,
@@ -3310,6 +3343,8 @@ class Deployments:
             sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             runtime_scopes=runtime_scopes,
@@ -3337,6 +3372,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool = None,
@@ -3376,6 +3413,8 @@ class Deployments:
             sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_uid=10000 if sync_uid is None else sync_uid,
+            sync_gid=10000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
@@ -3407,6 +3446,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         runtime_scopes: list[str] | None = None,
@@ -3438,6 +3479,8 @@ class Deployments:
             sync_root=sync_root,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             runtime_scopes=(
@@ -3476,6 +3519,8 @@ class Deployments:
         sync_root: str | None = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int | None = None,
+        sync_gid: int | None = None,
         registry_url: str | None = None,
         registry_auth: dict | None = None,
         restart: bool | None = None,
@@ -3551,6 +3596,8 @@ class Deployments:
             sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
+            sync_uid=1000 if sync_uid is None else sync_uid,
+            sync_gid=1000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=effective_restart,
@@ -4097,6 +4144,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool = None,
@@ -4127,6 +4176,8 @@ class Deployments:
                 "sync_root": sync_root,
                 "sync_include": sync_include,
                 "sync_exclude": sync_exclude,
+                "sync_uid": sync_uid,
+                "sync_gid": sync_gid,
                 "registry_url": registry_url,
                 "registry_auth": registry_auth,
                 "restart": restart,
@@ -4169,6 +4220,8 @@ class Deployments:
             sync_root=sync_root,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
@@ -4203,6 +4256,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool | None = None,
@@ -4240,6 +4295,8 @@ class Deployments:
             sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_uid=10000 if sync_uid is None else sync_uid,
+            sync_gid=10000 if sync_gid is None else sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
@@ -4266,6 +4323,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool | None = None,
@@ -4306,6 +4365,8 @@ class Deployments:
             sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
@@ -4329,6 +4390,8 @@ class Deployments:
         sync_root: str = None,
         sync_include: list[str] | None | object = _UNSET,
         sync_exclude: list[str] | None | object = _UNSET,
+        sync_uid: int = None,
+        sync_gid: int = None,
         registry_url: str = None,
         registry_auth: dict = None,
         restart: bool | None = None,
@@ -4356,6 +4419,8 @@ class Deployments:
             sync_root=sync_root,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
+            sync_uid=sync_uid,
+            sync_gid=sync_gid,
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,

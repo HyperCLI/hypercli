@@ -81,6 +81,17 @@ fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliE
     if object.contains_key("sync_include") {
         object.remove("sync_exclude");
     }
+    for field in ["sync_uid", "sync_gid"] {
+        if object
+            .get(field)
+            .and_then(Value::as_u64)
+            .is_some_and(|value| value > 4_294_967_294)
+        {
+            return Err(HyperCliError::InvalidResponse(format!(
+                "{field} must be at most 4294967294"
+            )));
+        }
+    }
     Ok(body)
 }
 
@@ -1870,6 +1881,33 @@ mod tests {
         assert_eq!(start["sync_root"], serde_json::json!("/workspace"));
         assert_eq!(start["sync_include"], serde_json::json!(["src"]));
         assert!(start.get("sync_exclude").is_none());
+    }
+
+    #[test]
+    fn deployment_wire_rejects_the_uid_t_sentinel() {
+        let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        create.sync_uid = Some(4_294_967_294);
+        assert_eq!(
+            deployment_request_body(&create).unwrap()["sync_uid"],
+            4_294_967_294u64
+        );
+
+        create.sync_uid = Some(u32::MAX);
+        assert!(matches!(
+            deployment_request_body(&create),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("sync_uid")
+        ));
+
+        let start = StartDeploymentRequest {
+            sync_gid: Some(u32::MAX),
+            ..StartDeploymentRequest::default()
+        };
+        assert!(matches!(
+            deployment_request_body(&start),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("sync_gid")
+        ));
     }
 
     #[test]
