@@ -83,8 +83,7 @@ session to align with existing conventions; the conceptual shape is:
 ```json
 {
   "sync_root": "/home/node",
-  "sync_include": [".codex", ".claude", ".claude.json"],
-  "sync_exclude": null
+  "sync_include": [".codex", ".claude", ".claude.json"]
 }
 ```
 

@@ -689,9 +689,9 @@ pub struct CreateDeploymentRequest {
     pub image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_root: Option<String>,
-    // Create has no stored policy to inherit. Keep `None` on the wire as JSON
-    // null so full-root selection is explicit and matches the other SDKs.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_include: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_exclude: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_uid: Option<u32>,
@@ -799,12 +799,25 @@ pub struct StartDeploymentRequest {
 impl StartDeploymentRequest {
     /// Apply an explicit sync policy on restart.
     ///
-    /// Passing `None` for both lists emits JSON `null` for both fields and
-    /// clears any saved selective policy. Leaving the request fields at their
-    /// default outer `None` omits them and inherits the saved policy instead.
+    /// An explicit include takes precedence over an exclude. Passing `None`
+    /// for both lists emits one canonical JSON `null` include and clears any
+    /// saved selective policy. Leaving the request fields at their default
+    /// outer `None` omits both and inherits the saved policy instead.
     pub fn set_sync_policy(&mut self, include: Option<Vec<String>>, exclude: Option<Vec<String>>) {
-        self.sync_include = Some(include.map_or(Nullable::Null, Nullable::Value));
-        self.sync_exclude = Some(exclude.map_or(Nullable::Null, Nullable::Value));
+        match (include, exclude) {
+            (Some(include), _) => {
+                self.sync_include = Some(Nullable::Value(include));
+                self.sync_exclude = None;
+            }
+            (None, Some(exclude)) => {
+                self.sync_include = None;
+                self.sync_exclude = Some(Nullable::Value(exclude));
+            }
+            (None, None) => {
+                self.sync_include = Some(Nullable::Null);
+                self.sync_exclude = None;
+            }
+        }
     }
 }
 
@@ -1784,23 +1797,29 @@ mod tests {
         start.set_sync_policy(Some(Vec::new()), None);
         let start_wire = serde_json::to_value(&start).unwrap();
         assert_eq!(start_wire["sync_include"], serde_json::json!([]));
-        assert!(start_wire["sync_exclude"].is_null());
+        assert!(start_wire.get("sync_exclude").is_none());
         let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_wire).unwrap();
         assert_eq!(
             start_round_trip.sync_include,
             Some(Nullable::Value(Vec::new()))
         );
-        assert_eq!(start_round_trip.sync_exclude, Some(Nullable::Null));
+        assert_eq!(start_round_trip.sync_exclude, None);
 
         let mut full_root = StartDeploymentRequest::default();
         full_root.set_sync_policy(None, None);
         let full_root_wire = serde_json::to_value(&full_root).unwrap();
         assert!(full_root_wire["sync_include"].is_null());
-        assert!(full_root_wire["sync_exclude"].is_null());
+        assert!(full_root_wire.get("sync_exclude").is_none());
         let full_root_round_trip: StartDeploymentRequest =
             serde_json::from_value(full_root_wire).unwrap();
         assert_eq!(full_root_round_trip.sync_include, Some(Nullable::Null));
-        assert_eq!(full_root_round_trip.sync_exclude, Some(Nullable::Null));
+        assert_eq!(full_root_round_trip.sync_exclude, None);
+
+        let mut excluded = StartDeploymentRequest::default();
+        excluded.set_sync_policy(None, Some(vec!["tmp/**".to_owned()]));
+        let excluded_wire = serde_json::to_value(&excluded).unwrap();
+        assert!(excluded_wire.get("sync_include").is_none());
+        assert_eq!(excluded_wire["sync_exclude"], serde_json::json!(["tmp/**"]));
     }
 
     #[test]

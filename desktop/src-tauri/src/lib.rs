@@ -498,7 +498,7 @@ fn apply_editor_sync_policy(
         // Explicit null is the backend's clear-to-full-root operation. Omitting
         // both keys on a restart means "inherit the stored selective policy".
         config.insert("sync_include".to_owned(), Value::Null);
-        config.insert("sync_exclude".to_owned(), Value::Null);
+        config.remove("sync_exclude");
         return;
     }
     config.retain(|key, value| {
@@ -3588,7 +3588,7 @@ mod tests {
         ]);
         apply_editor_sync_policy(&mut launch_config, ManagedRuntime::Codex, true);
         assert!(launch_config["sync_include"].is_null());
-        assert!(launch_config["sync_exclude"].is_null());
+        assert!(!launch_config.contains_key("sync_exclude"));
         assert!(launch_syncs_all(&DeploymentLaunchConfig::from_map(
             launch_config.clone()
         )));
@@ -3609,10 +3609,10 @@ mod tests {
         )]));
         assert!(!launch_syncs_all(&empty_include));
 
-        let null_policies = DeploymentLaunchConfig::from_map(BTreeMap::from([
-            ("sync_include".to_owned(), Value::Null),
-            ("sync_exclude".to_owned(), Value::Null),
-        ]));
+        let null_policies = DeploymentLaunchConfig::from_map(BTreeMap::from([(
+            "sync_include".to_owned(),
+            Value::Null,
+        )]));
         assert!(launch_syncs_all(&null_policies));
 
         let mut null_include_with_exclude = BTreeMap::from([

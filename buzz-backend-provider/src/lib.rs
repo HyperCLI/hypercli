@@ -658,29 +658,36 @@ fn wait_until_running(
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<Deployment, ProviderError> {
+    let accepted_launch_epoch = deployment.launch_epoch;
     let started = Instant::now();
     loop {
+        // A launch receipt is the authority for this readiness wait. The
+        // backend can briefly return an older projection while that receipt is
+        // being reconciled; it must not make this newer launch fail or appear
+        // ready.
         let state = deployment.state.trim().to_ascii_lowercase();
-        match state.as_str() {
-            "running" => return Ok(deployment),
-            "creating" | "restoring" | "starting" => {}
-            "stopping" | "archiving" => {
-                return Err(ProviderError::DeploymentBusy {
-                    deployment_id: deployment.id,
-                    state,
-                });
-            }
-            "failed" | "stopped" | "archived" | "deleted" => {
-                return Err(ProviderError::DeploymentTerminalState {
-                    deployment_id: deployment.id,
-                    state,
-                });
-            }
-            _ => {
-                return Err(ProviderError::UnexpectedDeploymentState {
-                    deployment_id: deployment.id,
-                    state,
-                });
+        if deployment.launch_epoch >= accepted_launch_epoch {
+            match state.as_str() {
+                "running" => return Ok(deployment),
+                "creating" | "restoring" | "starting" => {}
+                "stopping" | "archiving" => {
+                    return Err(ProviderError::DeploymentBusy {
+                        deployment_id: deployment.id,
+                        state,
+                    });
+                }
+                "failed" | "stopped" | "archived" | "deleted" => {
+                    return Err(ProviderError::DeploymentTerminalState {
+                        deployment_id: deployment.id,
+                        state,
+                    });
+                }
+                _ => {
+                    return Err(ProviderError::UnexpectedDeploymentState {
+                        deployment_id: deployment.id,
+                        state,
+                    });
+                }
             }
         }
 
@@ -1321,6 +1328,31 @@ mod tests {
             trace_file: None,
         })
         .unwrap()
+    }
+
+    fn readiness_deployment(state: &str, launch_epoch: u64) -> Deployment {
+        Deployment {
+            id: "deployment-1".to_owned(),
+            name: String::new(),
+            handle: None,
+            avatar_url: None,
+            runtime: Some(ManagedRuntime::Opencode),
+            state: state.to_owned(),
+            cluster_id: None,
+            hostname: None,
+            tags: Vec::new(),
+            requested_size: None,
+            archived_at: None,
+            archived_path: None,
+            reason: None,
+            error: None,
+            message: None,
+            launch_epoch,
+            agent_version: 0,
+            resources_exist: false,
+            namespace_exists: false,
+            launch_config: Default::default(),
+        }
     }
 
     #[test]
@@ -3042,6 +3074,112 @@ mod tests {
         restoring.assert();
         starting.assert();
         running.assert();
+    }
+
+    #[test]
+    fn readiness_wait_ignores_older_terminal_and_running_observations() {
+        let mut server = Server::new();
+        let older_stopped = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"stopped","launch_epoch":6}"#,
+            )
+            .expect(1)
+            .create();
+        let older_running = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"running","launch_epoch":6}"#,
+            )
+            .expect(1)
+            .create();
+        let running = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"running","launch_epoch":7}"#,
+            )
+            .expect(1)
+            .create();
+
+        let ready = wait_until_running(
+            &client(&server),
+            readiness_deployment("starting", 7),
+            Duration::from_secs(1),
+            Duration::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(ready.launch_epoch, 7);
+        older_stopped.assert();
+        older_running.assert();
+        running.assert();
+    }
+
+    #[test]
+    fn readiness_wait_fails_for_terminal_observation_at_receipt_epoch() {
+        let mut server = Server::new();
+        let stopped = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"stopped","launch_epoch":7}"#,
+            )
+            .expect(1)
+            .create();
+
+        let error = wait_until_running(
+            &client(&server),
+            readiness_deployment("starting", 7),
+            Duration::from_secs(1),
+            Duration::ZERO,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ProviderError::DeploymentTerminalState { state, .. } if state == "stopped"
+        ));
+        stopped.assert();
+    }
+
+    #[test]
+    fn readiness_wait_accepts_running_at_or_after_receipt_epoch() {
+        for observed_epoch in [7, 8] {
+            let mut server = Server::new();
+            let running = server
+                .mock("GET", "/agents/deployments/deployment-1")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    serde_json::json!({
+                        "id": "deployment-1",
+                        "runtime": "opencode",
+                        "state": "running",
+                        "launch_epoch": observed_epoch,
+                    })
+                    .to_string(),
+                )
+                .expect(1)
+                .create();
+
+            let ready = wait_until_running(
+                &client(&server),
+                readiness_deployment("starting", 7),
+                Duration::from_secs(1),
+                Duration::ZERO,
+            )
+            .unwrap();
+
+            assert_eq!(ready.launch_epoch, observed_epoch);
+            running.assert();
+        }
     }
 
     #[test]

@@ -78,11 +78,8 @@ fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliE
     let object = body.as_object_mut().ok_or_else(|| {
         HyperCliError::InvalidResponse("deployment request must serialize as an object".to_owned())
     })?;
-    if object
-        .get("sync_include")
-        .is_some_and(|value| !value.is_null())
-    {
-        object.insert("sync_exclude".to_owned(), Value::Null);
+    if object.contains_key("sync_include") {
+        object.remove("sync_exclude");
     }
     Ok(body)
 }
@@ -1855,7 +1852,13 @@ mod tests {
         assert!(create.get("sync_enabled").is_none());
         assert_eq!(create["sync_root"], serde_json::json!("/home/node"));
         assert_eq!(create["sync_include"], serde_json::json!([".codex"]));
-        assert!(create["sync_exclude"].is_null());
+        assert!(create.get("sync_exclude").is_none());
+
+        request.sync_include = None;
+        request.sync_exclude = Some(vec!["tmp/**".to_owned()]);
+        let excluded = deployment_request_body(&request).unwrap();
+        assert!(excluded.get("sync_include").is_none());
+        assert_eq!(excluded["sync_exclude"], serde_json::json!(["tmp/**"]));
 
         let mut request = StartDeploymentRequest {
             sync_root: Some("/workspace".to_owned()),
@@ -1866,7 +1869,7 @@ mod tests {
         assert!(start.get("sync_enabled").is_none());
         assert_eq!(start["sync_root"], serde_json::json!("/workspace"));
         assert_eq!(start["sync_include"], serde_json::json!(["src"]));
-        assert!(start["sync_exclude"].is_null());
+        assert!(start.get("sync_exclude").is_none());
     }
 
     #[test]

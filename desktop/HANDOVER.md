@@ -429,8 +429,8 @@ preserves the full stored launch envelope, mutates only owned fields, and
 stop/PATCH/starts a running deployment. Runtime and Buzz connection are
 immutable in-place; moving them is a future Clone/Move operation.
 Coding runtimes also expose **Sync all files**. Off applies the SDK subclass's
-visible `sync_include` default; on sends explicit JSON null for both flat
-`sync_include` and `sync_exclude`, clearing a stored selective policy. Omission
+visible `sync_include` default; on sends explicit JSON null for
+`sync_include`, clearing a stored selective policy without serializing both selectors. Omission
 means inherit on edit/restart and is not the same as null. An explicitly empty
 include remains serializable and means sync nothing. Include wins when callers
 provide both policies. Keep these fields flat in the launch contract; the
