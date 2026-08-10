@@ -6,8 +6,8 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 
-test("dashboard refreshes the gateway token before sdk reconnect", async ({ page }) => {
-  let gatewayContextCalls = 0;
+test("dashboard refreshes the gateway Secret before sdk reconnect", async ({ page }) => {
+  let gatewaySecretCalls = 0;
 
   await page.context().addCookies([
     {
@@ -151,6 +151,7 @@ test("dashboard refreshes the gateway token before sdk reconnect", async ({ page
             cpu: 1,
             memory: 1,
             hostname: "agent-1.example.test",
+            launch_epoch: 1,
             routes: {
               openclaw: { port: 18789, auth: false, prefix: "" },
             },
@@ -169,16 +170,35 @@ test("dashboard refreshes the gateway token before sdk reconnect", async ({ page
       return;
     }
 
-    if (pathName.endsWith("/agents/deployments/agent-1/gateway")) {
-      gatewayContextCalls += 1;
+    if (pathName.endsWith("/agents/deployments/agent-1/secrets/OPENCLAW_GATEWAY_TOKEN")) {
+      gatewaySecretCalls += 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           agent_id: "agent-1",
-          gateway_url: "wss://agent-1.example.test",
-          gateway_token: gatewayContextCalls === 1 ? "gw-token-1" : "gw-token-2",
-          runtime_generation: 1,
+          key: "OPENCLAW_GATEWAY_TOKEN",
+          value: gatewaySecretCalls === 1 ? "gw-token-1" : "gw-token-2",
+          launch_epoch: 1,
+        }),
+      });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/deployments/agent-1")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "agent-1",
+          name: "Reconnect Test",
+          user_id: "user-1",
+          state: "RUNNING",
+          cpu: 1,
+          memory: 1,
+          hostname: "agent-1.example.test",
+          launch_epoch: 1,
+          routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
         }),
       });
       return;
@@ -196,7 +216,7 @@ test("dashboard refreshes the gateway token before sdk reconnect", async ({ page
   });
 
   await expect
-    .poll(async () => gatewayContextCalls, { timeout: 15_000 })
+    .poll(async () => gatewaySecretCalls, { timeout: 15_000 })
     .toBeGreaterThanOrEqual(2);
 
   const connectTokens = await page.evaluate(() => {

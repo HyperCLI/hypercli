@@ -129,7 +129,9 @@ async function main() {
       console.log(JSON.stringify({ phase: 'poll', agent: summarize(last) }, null, 2));
       if (String(last.state).toUpperCase() === 'RUNNING') {
         const dns = await tryDns(last.hostname ?? null);
-        const gatewayContext = await deployments.gatewayContext(last.id).catch((error) => ({ error: String(error) }));
+        const gatewayContext = typeof last.waitForGatewayContext === 'function'
+          ? await last.waitForGatewayContext({ timeoutMs: 10_000, retryIntervalMs: 1_000 }).catch((error) => ({ error: String(error) }))
+          : { skipped: 'not-openclaw-agent' };
         console.log(JSON.stringify({ phase: 'running', agent: summarize(last), dns, gatewayContext }, null, 2));
         if (holdSeconds > 0) {
           await sleep(holdSeconds * 1000);

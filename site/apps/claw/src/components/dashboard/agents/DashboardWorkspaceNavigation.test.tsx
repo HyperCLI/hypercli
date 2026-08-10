@@ -40,16 +40,12 @@ const agent: Agent = {
   hostname: "agent.example.com",
   started_at: "2026-07-20T00:00:00Z",
   stopped_at: null,
-  last_error: null,
+  error: null,
   created_at: "2026-07-20T00:00:00Z",
   updated_at: "2026-07-20T00:00:00Z",
-  placementEpoch: 0,
-  runtimeGeneration: 0,
-  finalizeEpoch: null,
-  revision: 0,
+  launchEpoch: 0,
   resourcesExist: true,
   namespaceExists: true,
-  gatewayToken: null,
   meta: null,
 };
 

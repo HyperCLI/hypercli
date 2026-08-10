@@ -333,7 +333,10 @@ function launchConfigStartOptions(launchConfig: Record<string, unknown> | null |
   const options: FrontendOpenClawStartOptions = {};
   if (isRecord(launchConfig.config)) options.config = cloneRecord(launchConfig.config);
   const env = stringRecord(launchConfig.env);
-  if (env) options.env = env;
+  if (env) {
+    delete env.OPENCLAW_GATEWAY_TOKEN;
+    if (Object.keys(env).length > 0) options.env = env;
+  }
   if (Array.isArray(launchConfig.ports)) options.ports = cloneRecord(launchConfig.ports as Record<string, unknown>[]);
   if (isRecord(launchConfig.routes)) options.routes = cloneRecord(launchConfig.routes) as FrontendOpenClawStartOptions["routes"];
   if (Array.isArray(launchConfig.command) && launchConfig.command.every((item) => typeof item === "string")) {

@@ -86,7 +86,7 @@ export function buildSdkAgent(overrides: Partial<SdkAgent> = {}): SdkAgent {
     jwtExpiresAt: null,
     startedAt: new Date("2026-04-28T00:00:00Z"),
     stoppedAt: null,
-    lastError: null,
+    error: null,
     createdAt: new Date("2026-04-28T00:00:00Z"),
     updatedAt: new Date("2026-04-28T00:00:00Z"),
     launchConfig: null,

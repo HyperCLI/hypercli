@@ -40,5 +40,5 @@ test("agents subscription observes the public deployment transition wire", () =>
   expect(subscriptionSpecSource).toContain('frame.type === "deployment.transition"');
   expect(subscriptionSpecSource).toContain('expect(transition.version).toBe(1)');
   expect(subscriptionSpecSource).toContain("const allowedKeys = new Set([");
-  expect(subscriptionSpecSource).toContain('expect(transition).not.toHaveProperty("finalize_epoch")');
+  expect(subscriptionSpecSource).toContain('expect(Number.isInteger(transition.launch_epoch)).toBe(true)');
 });

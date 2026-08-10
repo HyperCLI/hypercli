@@ -208,7 +208,7 @@ For each generation:
 2. Replace the same 100 MiB random file and 100 fixed text files.
 3. Alternate the tombstone, and in the second generation delete text files
    `075.txt` through `099.txt` to prove removal.
-4. Stop, force archive finalization, and prove `finalize_epoch` advanced exactly
+4. Stop, force archive finalization, and prove the archive completed exactly
    once and archive HEAD matches local HEAD.
 5. Verify archive SHA-256/path inventory; the outside-policy fixture must be
    absent in include mode.

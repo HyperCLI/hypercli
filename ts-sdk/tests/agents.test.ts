@@ -48,9 +48,9 @@ describe('Agents SDK', () => {
     const { config } = buildAgentConfig({}, { gatewayToken: 'gw-test' });
 
     expect(config.env).toEqual({
-      OPENCLAW_GATEWAY_TOKEN: 'gw-test',
       OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://agents.hypercli.com',
     });
+    expect(config.secrets).toEqual({ OPENCLAW_GATEWAY_TOKEN: 'gw-test' });
   });
 
   it('can disable the automatic browser control UI origin lock', () => {
@@ -58,9 +58,8 @@ describe('Agents SDK', () => {
 
     const { config } = buildAgentConfig({}, { gatewayToken: 'gw-test', controlUiOriginLock: false });
 
-    expect(config.env).toEqual({
-      OPENCLAW_GATEWAY_TOKEN: 'gw-test',
-    });
+    expect(config.env).toBeUndefined();
+    expect(config.secrets).toEqual({ OPENCLAW_GATEWAY_TOKEN: 'gw-test' });
   });
 
   it('preserves explicit control UI origins when the automatic lock is disabled', () => {
@@ -76,8 +75,21 @@ describe('Agents SDK', () => {
 
     expect(config.env).toEqual({
       OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://console.hypercli.com',
-      OPENCLAW_GATEWAY_TOKEN: 'gw-test',
     });
+    expect(config.secrets).toEqual({ OPENCLAW_GATEWAY_TOKEN: 'gw-test' });
+  });
+
+  it('does not generate a gateway Secret and rejects env/Secret collisions', () => {
+    const { config, gatewayToken } = buildAgentConfig();
+    expect(gatewayToken).toBeNull();
+    expect(config).not.toHaveProperty('secrets');
+    expect(() => buildAgentConfig({}, {
+      env: { TOKEN: 'plain' },
+      secrets: { TOKEN: 'secret' },
+    })).toThrow(/both env and secrets/);
+    expect(() => buildAgentConfig({}, {
+      env: { OPENCLAW_GATEWAY_TOKEN: 'not-plain-env' },
+    })).toThrow(/is a Secret/);
   });
 
   it('preserves an explicit false restart setting and omits an unspecified one', () => {
@@ -147,22 +159,17 @@ describe('Agents SDK', () => {
     expect(agent.managed).toBeNull();
   });
 
-  it('hydrates transition epochs and future public states', async () => {
+  it('hydrates the public launch epoch and future public states', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         state: 'FUTURE_STATE',
-        placement_epoch: 8,
-        runtime_generation: 3,
+        launch_epoch: 3,
         agent_version: 2,
-        finalize_epoch: 2,
-        revision: 11,
         resources_exist: true,
         namespace_exists: true,
-        storage_cluster_id: 'cluster-current',
+        cluster_id: 'cluster-current',
         archived_at: '2026-08-09T12:00:00Z',
-        archived_cluster_id: 'cluster-archive',
-        archived_cluster_name: 'dev01',
         archived_path: 's3://archive/dev01/agent-123/checkpoint',
       }),
     } as unknown as HTTPClient;
@@ -171,17 +178,12 @@ describe('Agents SDK', () => {
     const agent = await deployments.get('agent-123');
 
     expect(agent.state).toBe('FUTURE_STATE');
-    expect(agent.placementEpoch).toBe(8);
-    expect(agent.runtimeGeneration).toBe(3);
+    expect(agent.launchEpoch).toBe(3);
     expect(agent.agentVersion).toBe(2);
-    expect(agent.finalizeEpoch).toBe(2);
-    expect(agent.revision).toBe(11);
     expect(agent.resourcesExist).toBe(true);
     expect(agent.namespaceExists).toBe(true);
-    expect(agent.storageClusterId).toBe('cluster-current');
+    expect(agent.clusterId).toBe('cluster-current');
     expect(agent.archivedAt?.toISOString()).toBe('2026-08-09T12:00:00.000Z');
-    expect(agent.archivedClusterId).toBe('cluster-archive');
-    expect(agent.archivedClusterName).toBe('dev01');
     expect(agent.archivedPath).toBe('s3://archive/dev01/agent-123/checkpoint');
   });
 
@@ -214,9 +216,8 @@ describe('Agents SDK', () => {
             reason: 'archive_request',
             error: null,
             message: 'Agent archive is being finalized',
-            placement_epoch: 8,
+            launch_epoch: 3,
             agent_version: 1,
-            revision: 9,
             resources_exist: true,
             namespace_exists: true,
           },
@@ -255,8 +256,8 @@ describe('Agents SDK', () => {
       reason: 'archive_request',
       error: null,
       message: 'Agent archive is being finalized',
+      launch_epoch: 3,
       agent_version: 1,
-      revision: 9,
       resources_exist: true,
       namespace_exists: true,
     });
@@ -607,6 +608,7 @@ describe('Agents SDK', () => {
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
     });
+    agent.gatewayToken = 'gw-token';
     const gateway = {
       channelsStatus: vi.fn(async () => ({ ok: true })),
       channelsStart: vi.fn(async () => ({ started: true })),
@@ -633,6 +635,7 @@ describe('Agents SDK', () => {
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
     });
+    agent.gatewayToken = 'gw-token';
     const gateway = {
       cronAdd: vi.fn(async () => ({ id: 'job-1' })),
       cronRemove: vi.fn(async () => undefined),
@@ -663,6 +666,7 @@ describe('Agents SDK', () => {
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
     });
+    agent.gatewayToken = 'gw-token';
     const sessions = {
       sessions: [{ key: 'main', label: 'Main' }],
       defaults: { model: 'test-model' },
@@ -706,6 +710,7 @@ describe('Agents SDK', () => {
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
     });
+    agent.gatewayToken = 'gw-token';
     const sessions = { sessions: [{ key: 'main' }] };
     const gateway = {
       connect: vi.fn(async () => undefined),
@@ -732,6 +737,7 @@ describe('Agents SDK', () => {
       hostname: 'agent.hypercli.app',
       gateway_token: 'gw-token',
     });
+    agent.gatewayToken = 'gw-token';
     const gateway = {
       connect: vi.fn().mockRejectedValue(new Error('gateway unavailable')),
       sessionsListResult: vi.fn(),
@@ -903,17 +909,17 @@ describe('Agents SDK', () => {
     },
   );
 
-  it('ignores an archived snapshot from an older accepted runtime generation', async () => {
+  it('ignores an archived snapshot from an older accepted launch epoch', async () => {
     const get = vi.fn()
       .mockResolvedValueOnce({
         id: 'agent-123',
         state: 'ARCHIVED',
-        runtime_generation: 9,
+        launch_epoch: 9,
       })
       .mockResolvedValueOnce({
         id: 'agent-123',
         state: 'RUNNING',
-        runtime_generation: 10,
+        launch_epoch: 10,
       });
     const deployments = new Deployments(
       { get } as unknown as HTTPClient,
@@ -926,7 +932,7 @@ describe('Agents SDK', () => {
         type: 'deployment.transition',
         agent_id: 'agent-123',
         state: 'RUNNING',
-        runtime_generation: 10,
+        launch_epoch: 10,
       });
       if (!options.signal?.aborted) {
         await new Promise<void>((resolve) => {
@@ -938,7 +944,7 @@ describe('Agents SDK', () => {
     const agent = await deployments.waitRunning('agent-123', 1_000, 0, 10);
 
     expect(agent.state).toBe('RUNNING');
-    expect(agent.runtimeGeneration).toBe(10);
+    expect(agent.launchEpoch).toBe(10);
   });
 
   it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
@@ -995,6 +1001,37 @@ describe('Agents SDK', () => {
         },
       },
     });
+  });
+
+  it('reads env, Secret names, and one exact Secret through generic Agent APIs', async () => {
+    const get = vi.fn(async (path: string) => {
+      if (path.endsWith('/env')) {
+        return { agent_id: 'agent-123', env: { PLAIN: 'value' }, launch_epoch: 4 };
+      }
+      if (path.endsWith('/secrets')) {
+        return { agent_id: 'agent-123', names: ['TOKEN'], launch_epoch: 4 };
+      }
+      if (path.endsWith('/secrets/TOKEN')) {
+        return { agent_id: 'agent-123', key: 'TOKEN', value: 'secret-value', launch_epoch: 4 };
+      }
+      throw new Error(`unexpected GET ${path}`);
+    });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agent = Agent.fromDict({ id: 'agent-123', state: 'RUNNING', launch_epoch: 4 });
+    agent._deployments = deployments;
+
+    await expect(agent.env()).resolves.toEqual({ PLAIN: 'value' });
+    await expect(agent.secretNames()).resolves.toEqual(['TOKEN']);
+    await expect(agent.secret('TOKEN')).resolves.toBe('secret-value');
+    expect(get.mock.calls.map(([path]) => path)).toEqual([
+      '/deployments/agent-123/env',
+      '/deployments/agent-123/secrets',
+      '/deployments/agent-123/secrets/TOKEN',
+    ]);
   });
 
   it('creates exact-agent scoped child keys', async () => {
@@ -1061,9 +1098,6 @@ describe('Agents SDK', () => {
       expect.objectContaining({
         restart: false,
         runtime_scopes: ['models:*'],
-        env: expect.objectContaining({
-          OPENCLAW_GATEWAY_TOKEN: expect.any(String),
-        }),
       }),
     );
 
@@ -1890,84 +1924,85 @@ describe('Agents SDK', () => {
     )).rejects.toThrow(/exceeds the .* read limit/i);
   });
 
-  it('hydrates gateway urls and skips context calls when url and token are complete', async () => {
-    const deployments = {
-      gatewayContext: vi.fn(),
-    } as unknown as Deployments;
+  it('hydrates gateway urls without hydrating gateway Secrets', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
       state: 'running',
       hostname: 'openclaw-test.hypercli.com',
-      gateway_token: 'gw-inline',
+      gateway_token: 'must-not-hydrate',
     });
     const proAgent = OpenClawProAgent.fromDict({
       id: 'agent-pro',
       user_id: 'user-456',
       state: 'running',
       hostname: 'openclaw-pro.hypercli.com',
-      gateway_token: 'gw-pro',
+      gateway_token: 'must-not-hydrate',
     });
-    agent._deployments = deployments;
-
-    const context = await agent.waitForGatewayContext();
 
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(agent.gatewayToken).toBeNull();
     expect(proAgent.gatewayUrl).toBe('wss://openclaw-pro.hypercli.com');
-    expect(context).toEqual({
-      agent_id: 'agent-123',
-      gateway_url: 'wss://openclaw-test.hypercli.com',
-      gateway_token: 'gw-inline',
-      runtime_generation: 0,
-    });
-    expect(deployments.gatewayContext).not.toHaveBeenCalled();
+    expect(proAgent.gatewayToken).toBeNull();
   });
 
-  it('fetches the narrow gateway context and caches it', async () => {
+  it('refreshes the Agent and exact gateway Secret to build context', async () => {
     const deployments = {
-      gatewayContext: vi.fn().mockResolvedValue({
+      get: vi.fn().mockResolvedValue(OpenClawAgent.fromDict({
+        id: 'agent-123',
+        user_id: 'user-456',
+        state: 'running',
+        hostname: 'openclaw-test.hypercli.com',
+        launch_epoch: 3,
+      })),
+      secret: vi.fn().mockResolvedValue({
         agent_id: 'agent-123',
-        gateway_url: 'wss://openclaw-test.hypercli.com',
-        gateway_token: 'gw-fetched',
-        runtime_generation: 3,
+        key: 'OPENCLAW_GATEWAY_TOKEN',
+        value: 'gw-fetched',
+        launch_epoch: 3,
       }),
     } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
       state: 'running',
-      runtime_generation: 3,
+      launch_epoch: 3,
     });
     agent._deployments = deployments;
 
     const context = await agent.waitForGatewayContext();
 
-    expect(context.gateway_token).toBe('gw-fetched');
-    expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
-    expect(deployments.gatewayContext).toHaveBeenCalledOnce();
+    expect(context).toEqual({
+      agent_id: 'agent-123',
+      gateway_url: 'wss://openclaw-test.hypercli.com',
+      gateway_token: 'gw-fetched',
+      launch_epoch: 3,
+    });
+    expect(deployments.get).toHaveBeenCalledTimes(2);
+    expect(deployments.secret).toHaveBeenCalledWith(
+      'agent-123',
+      'OPENCLAW_GATEWAY_TOKEN',
+      expect.any(Object),
+    );
   });
 
-  it('retries gateway context from an older runtime generation', async () => {
+  it('retries when the Agent and Secret launch epochs differ', async () => {
     const deployments = {
-      gatewayContext: vi.fn()
-        .mockResolvedValueOnce({
-          agent_id: 'agent-123',
-          gateway_url: 'wss://old.hypercli.com',
-          gateway_token: 'gw-old',
-          runtime_generation: 2,
-        })
-        .mockResolvedValueOnce({
-          agent_id: 'agent-123',
-          gateway_url: 'wss://openclaw-test.hypercli.com',
-          gateway_token: 'gw-fetched',
-          runtime_generation: 3,
-        }),
+      get: vi.fn().mockResolvedValue(OpenClawAgent.fromDict({
+        id: 'agent-123',
+        state: 'RUNNING',
+        hostname: 'openclaw-test.hypercli.com',
+        launch_epoch: 3,
+      })),
+      secret: vi.fn()
+        .mockResolvedValueOnce({ agent_id: 'agent-123', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-old', launch_epoch: 2 })
+        .mockResolvedValueOnce({ agent_id: 'agent-123', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-fetched', launch_epoch: 3 }),
     } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
       user_id: 'user-456',
       state: 'running',
-      runtime_generation: 3,
+      launch_epoch: 3,
     });
     agent._deployments = deployments;
 
@@ -1975,14 +2010,49 @@ describe('Agents SDK', () => {
 
     expect(context.gateway_token).toBe('gw-fetched');
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
-    expect(deployments.gatewayContext).toHaveBeenCalledTimes(2);
+    expect(deployments.get).toHaveBeenCalledTimes(3);
+    expect(deployments.secret).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries when the launch changes after the Secret read', async () => {
+    const snapshot = (launchEpoch: number, state = 'RUNNING') => OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state,
+      hostname: `openclaw-${launchEpoch}.hypercli.com`,
+      launch_epoch: launchEpoch,
+    });
+    const deployments = {
+      get: vi.fn()
+        .mockResolvedValueOnce(snapshot(3))
+        .mockResolvedValueOnce(snapshot(4, 'STARTING'))
+        .mockResolvedValueOnce(snapshot(4))
+        .mockResolvedValueOnce(snapshot(4)),
+      secret: vi.fn()
+        .mockResolvedValueOnce({ agent_id: 'agent-123', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-old', launch_epoch: 3 })
+        .mockResolvedValueOnce({ agent_id: 'agent-123', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-new', launch_epoch: 4 }),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state: 'RUNNING',
+      launch_epoch: 3,
+    });
+    agent._deployments = deployments;
+
+    const context = await agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 });
+
+    expect(context.gateway_url).toBe('wss://openclaw-4.hypercli.com');
+    expect(context.gateway_token).toBe('gw-new');
+    expect(context.launch_epoch).toBe(4);
+    expect(deployments.get).toHaveBeenCalledTimes(4);
+    expect(deployments.secret).toHaveBeenCalledTimes(2);
   });
 
   it('times out an in-flight gateway context attempt and aborts its requests', async () => {
     vi.useFakeTimers();
     const pending = new Promise<never>(() => undefined);
     const deployments = {
-      gatewayContext: vi.fn().mockReturnValue(pending),
+      get: vi.fn().mockReturnValue(pending),
+      secret: vi.fn(),
     } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
@@ -1996,13 +2066,14 @@ describe('Agents SDK', () => {
 
     await vi.advanceTimersByTimeAsync(100);
     await rejection;
-    expect((deployments.gatewayContext.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect((deployments.get.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
   });
 
   it('aborts an in-flight gateway context attempt from the caller signal', async () => {
     const pending = new Promise<never>(() => undefined);
     const deployments = {
-      gatewayContext: vi.fn().mockReturnValue(pending),
+      get: vi.fn().mockReturnValue(pending),
+      secret: vi.fn(),
     } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
       id: 'agent-123',
@@ -2016,6 +2087,6 @@ describe('Agents SDK', () => {
     controller.abort();
 
     await expect(contextPromise).rejects.toMatchObject({ name: 'AbortError' });
-    expect((deployments.gatewayContext.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+    expect((deployments.get.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
   });
 });

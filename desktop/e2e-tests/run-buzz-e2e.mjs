@@ -111,7 +111,7 @@ async function waitForAgent(browser, agentId, target, timeoutMs = START_TIMEOUT_
     last = agent?.state || "missing";
     if (last === target) return agent;
     if (["failed", "error", "deleted"].includes(last)) {
-      fail(`agent entered terminal state ${last}: ${agent?.last_error || "no detail"}`);
+      fail(`agent entered terminal state ${last}: ${agent?.error || "no detail"}`);
     }
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000));
   }

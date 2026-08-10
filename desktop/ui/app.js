@@ -193,11 +193,11 @@ function agentCard(agent) {
   }
   card.append(meta);
 
-  if (agent.last_error) {
+  if (agent.error) {
     const error = document.createElement("p");
     error.className = "agent-error";
-    error.textContent = agent.last_error;
-    error.title = agent.last_error;
+    error.textContent = agent.error;
+    error.title = agent.error;
     card.append(error);
   }
 

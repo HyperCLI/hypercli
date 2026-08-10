@@ -397,8 +397,10 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["restart"] is False
     assert "entrypoint" not in posted
-    assert posted["env"]["BUZZ_PRIVATE_KEY"] == agent_nsec
-    assert posted["env"]["NOSTR_PRIVATE_KEY"] == agent_nsec
+    assert "BUZZ_PRIVATE_KEY" not in posted["env"]
+    assert "NOSTR_PRIVATE_KEY" not in posted["env"]
+    assert posted["secrets"]["BUZZ_PRIVATE_KEY"] == agent_nsec
+    assert posted["secrets"]["NOSTR_PRIVATE_KEY"] == agent_nsec
     assert (
         posted["env"]["RUST_LOG"]
         == "buzz_acp=info,pool::prompt=info,acp::stream=off"
@@ -461,6 +463,12 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_ACP_LAZY_POOL"] == "true"
     assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "true"
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
+    assert posted["secrets"] == {
+        "BUZZ_PRIVATE_KEY": "nsec1test",
+        "NOSTR_PRIVATE_KEY": "nsec1test",
+    }
+    assert "BUZZ_PRIVATE_KEY" not in posted["env"]
+    assert "NOSTR_PRIVATE_KEY" not in posted["env"]
     assert posted["env"]["RUST_LOG"] == "debug"
     assert posted["env"]["HYPER_API_KEY"] == "inference-key"
     assert "CLAUDE_CODE_EXECUTABLE" not in posted["env"]

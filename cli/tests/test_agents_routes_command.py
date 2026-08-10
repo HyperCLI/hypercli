@@ -146,7 +146,7 @@ def test_status_and_stop_pass_self_without_local_resolution(monkeypatch):
         started_at=None,
         stopped_at=None,
         jwt_expires_at=None,
-        last_error=None,
+        error=None,
         is_running=False,
     )
 

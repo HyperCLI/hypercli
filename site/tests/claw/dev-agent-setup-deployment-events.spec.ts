@@ -172,7 +172,7 @@ test("dev agents retries a failed event refresh and resyncs after reconnect", as
       type: "deployment.transition",
       deployment_id: "agent-1",
       state: "STOPPED",
-      placement_epoch: 2,
+      launch_epoch: 2,
     });
   });
 

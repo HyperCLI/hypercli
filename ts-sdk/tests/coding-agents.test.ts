@@ -296,6 +296,12 @@ describe('coding agents', () => {
     expect(payload.env.CLAUDE_CODE_EXECUTABLE ?? null).toBe(
       expectedRuntime.claude_code_executable,
     );
+    expect(payload.env.BUZZ_PRIVATE_KEY).toBeUndefined();
+    expect(payload.env.NOSTR_PRIVATE_KEY).toBeUndefined();
+    expect(payload.secrets).toEqual({
+      BUZZ_PRIVATE_KEY: 'nsec1test',
+      NOSTR_PRIVATE_KEY: 'nsec1test',
+    });
   });
 
   it('honors an explicit image override for a typed Buzz launch', async () => {
@@ -371,6 +377,10 @@ describe('coding agents', () => {
     });
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
     expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
+    expect(post.mock.calls[0][1].secrets).toEqual({
+      BUZZ_PRIVATE_KEY: 'nsec1test',
+      NOSTR_PRIVATE_KEY: 'nsec1test',
+    });
     expect(buzzGolden.dynamic_env.BUZZ_MANAGED_AGENT_START_NONCE).toEqual({
       format: 'lowercase-hex',
       length: 32,

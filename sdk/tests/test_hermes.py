@@ -54,7 +54,10 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
         client.__exit__.return_value = False
         client_class.return_value = client
 
-        agent = deployments.create_hermes_agent(name="hermes")
+        agent = deployments.create_hermes_agent(
+            name="hermes",
+            secrets={"CUSTOM_TOKEN": "create-secret"},
+        )
 
     body = client.post.call_args.kwargs["json"]
     assert body["runtime"] == "hermes-agent"
@@ -75,6 +78,7 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
         "API_SERVER_KEY": "h" * 43,
     }
     assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
+    assert body["secrets"] == {"CUSTOM_TOKEN": "create-secret"}
     assert isinstance(agent, HermesAgent)
     assert agent.api_server_key == "h" * 43
     assert agent.api_url == "https://hermes.example.test"
@@ -92,13 +96,17 @@ def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> 
         client.__exit__.return_value = False
         client_class.return_value = client
 
-        agent = deployments.start_hermes_agent("agent-123")
+        agent = deployments.start_hermes_agent(
+            "agent-123",
+            secrets={"CUSTOM_TOKEN": "start-secret"},
+        )
 
     body = client.post.call_args.kwargs["json"]
     assert "sync_include" not in body
     assert "sync_exclude" not in body
     assert body["env"]["API_SERVER_KEY"] == "s" * 43
     assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
+    assert body["secrets"] == {"CUSTOM_TOKEN": "start-secret"}
     assert agent.api_server_key == "s" * 43
 
 

@@ -295,17 +295,17 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
                 user_id="user-1",
                 name="clear-window-works",
                 state="STARTING",
-                runtime_generation=10,
+                launch_epoch=10,
             )
 
-        def wait_running(self, agent_id, *, timeout, minimum_runtime_generation):
-            calls.append(("wait_running", (agent_id, timeout, minimum_runtime_generation)))
+        def wait_running(self, agent_id, *, timeout, minimum_launch_epoch):
+            calls.append(("wait_running", (agent_id, timeout, minimum_launch_epoch)))
             return Agent(
                 id=agent_id,
                 user_id="user-1",
                 name="clear-window-works",
                 state="RUNNING",
-                runtime_generation=10,
+                launch_epoch=10,
             )
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())

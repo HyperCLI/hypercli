@@ -48,7 +48,7 @@ function generateAgent(overrides = {}) {
     openclaw_url: state === 'RUNNING' ? `ws://localhost:8000/gateway/${id}` : null,
     started_at: startedAt,
     stopped_at: state === 'STOPPED' ? faker.date.recent({ days: 1 }).toISOString() : null,
-    last_error: null,
+    error: null,
     type: tier,
     created_at: faker.date.past().toISOString(),
     updated_at: faker.date.recent().toISOString(),
@@ -59,9 +59,18 @@ function generateAgent(overrides = {}) {
       NODE_ENV: 'production',
       LOG_LEVEL: 'info',
     },
+    secrets: {
+      OPENCLAW_GATEWAY_TOKEN: 'mock-gateway-token',
+    },
+    launch_epoch: 1,
     meta: null,
     ...overrides,
   };
+}
+
+function publicAgent(agent) {
+  const { env: _env, secrets: _secrets, ...publicFields } = agent;
+  return publicFields;
 }
 
 function generateApiKey() {
@@ -316,12 +325,12 @@ app.get('/api/auth/me', (req, res) => {
 
 // Legacy endpoints (without /api prefix) - for SDK compatibility
 app.get('/agents', (req, res) => {
-  const agents = Array.from(mockData.agents.values());
+  const agents = Array.from(mockData.agents.values(), publicAgent);
   res.json(agents);
 });
 
 app.get('/agents/deployments', (req, res) => {
-  const agents = Array.from(mockData.agents.values());
+  const agents = Array.from(mockData.agents.values(), publicAgent);
   res.json(agents);
 });
 
@@ -351,16 +360,44 @@ app.get('/agents/deployments/budget', (req, res) => {
   });
 });
 
-app.get('/agents/deployments/:id/gateway', (req, res) => {
+app.get('/agents/deployments/:id/env', (req, res) => {
   const agent = mockData.agents.get(req.params.id);
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
   res.json({
     agent_id: agent.id,
-    gateway_url: `wss://${agent.hostname}`,
-    gateway_token: agent.gateway_token || 'mock-gateway-token',
-    runtime_generation: agent.runtime_generation || 1,
+    env: agent.env || {},
+    launch_epoch: agent.launch_epoch || 1,
+  });
+});
+
+app.get('/agents/deployments/:id/secrets', (req, res) => {
+  const agent = mockData.agents.get(req.params.id);
+  if (!agent) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+  res.json({
+    agent_id: agent.id,
+    names: Object.keys(agent.secrets || {}),
+    launch_epoch: agent.launch_epoch || 1,
+  });
+});
+
+app.get('/agents/deployments/:id/secrets/:key', (req, res) => {
+  const agent = mockData.agents.get(req.params.id);
+  if (!agent) {
+    return res.status(404).json({ error: 'Agent not found' });
+  }
+  const value = agent.secrets?.[req.params.key];
+  if (typeof value !== 'string') {
+    return res.status(404).json({ error: 'Secret not found' });
+  }
+  res.json({
+    agent_id: agent.id,
+    key: req.params.key,
+    value,
+    launch_epoch: agent.launch_epoch || 1,
   });
 });
 
@@ -369,7 +406,7 @@ app.get('/agents/deployments/:id', (req, res) => {
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
-  res.json(agent);
+  res.json(publicAgent(agent));
 });
 
 app.get('/agents/deployments/:id/token', (req, res) => {
@@ -412,13 +449,16 @@ app.post('/agents/deployments/:id/start', (req, res) => {
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
+  if (Object.prototype.hasOwnProperty.call(req.body, 'env')) agent.env = { ...req.body.env };
+  if (Object.prototype.hasOwnProperty.call(req.body, 'secrets')) agent.secrets = { ...req.body.secrets };
+  agent.launch_epoch = (agent.launch_epoch || 0) + 1;
   agent.state = 'STARTING';
   setTimeout(() => {
     agent.state = 'RUNNING';
     agent.hostname = `localhost:8000`;
     agent.openclaw_url = `ws://localhost:8000/gateway/${agent.id}`;
   }, 2000);
-  res.json(agent);
+  res.json(publicAgent(agent));
 });
 
 app.post('/agents/deployments/:id/stop', (req, res) => {
@@ -432,7 +472,7 @@ app.post('/agents/deployments/:id/stop', (req, res) => {
     agent.hostname = null;
     agent.openclaw_url = null;
   }, 2000);
-  res.json(agent);
+  res.json(publicAgent(agent));
 });
 
 app.delete('/agents/deployments/:id', (req, res) => {
@@ -446,7 +486,7 @@ app.delete('/agents/deployments/:id', (req, res) => {
 
 // Standard /api prefix routes
 app.get('/api/agents', (req, res) => {
-  const agents = Array.from(mockData.agents.values());
+  const agents = Array.from(mockData.agents.values(), publicAgent);
   res.json({
     agents,
     total: agents.length,
@@ -458,14 +498,14 @@ app.get('/api/agents/:id', (req, res) => {
   if (!agent) {
     return res.status(404).json({ error: 'Agent not found' });
   }
-  res.json(agent);
+  res.json(publicAgent(agent));
 });
 
 app.post('/api/agents', (req, res) => {
   const { name, type, budget } = req.body;
   const agent = generateAgent({ name, type, budget, state: 'STOPPED' });
   mockData.agents.set(agent.id, agent);
-  res.status(201).json(agent);
+  res.status(201).json(publicAgent(agent));
 });
 
 app.post('/api/agents/:id/start', (req, res) => {
@@ -479,7 +519,7 @@ app.post('/api/agents/:id/start', (req, res) => {
     agent.hostname = `agent-${req.params.id.substring(0, 8)}.dev.hypercli.com`;
     agent.openclaw_url = `wss://openclaw-${req.params.id.substring(0, 8)}.dev.hypercli.com`;
   }, 2000);
-  res.json(agent);
+  res.json(publicAgent(agent));
 });
 
 app.post('/api/agents/:id/stop', (req, res) => {
@@ -493,7 +533,7 @@ app.post('/api/agents/:id/stop', (req, res) => {
     agent.hostname = null;
     agent.openclaw_url = null;
   }, 2000);
-  res.json(agent);
+  res.json(publicAgent(agent));
 });
 
 app.delete('/api/agents/:id', (req, res) => {

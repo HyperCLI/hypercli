@@ -44,11 +44,12 @@ describe('HyperClaw agents SDK', () => {
     } as any);
   });
 
-  it('buildAgentConfig injects gateway token and preserves launch fields', () => {
+  it('buildAgentConfig sends only an explicit gateway token as a Secret', () => {
     const { config, gatewayToken } = buildAgentConfig(
       { foo: 'bar' },
       {
         env: { FOO: 'bar' },
+        gatewayToken: 'gw-explicit',
         command: ['echo', 'hello'],
         entrypoint: ['/bin/sh', '-c'],
         routes: { openclaw: { port: 18789, auth: false } },
@@ -58,12 +59,12 @@ describe('HyperClaw agents SDK', () => {
       },
     );
 
-    expect(gatewayToken).toMatch(/^ab+/);
+    expect(gatewayToken).toBe('gw-explicit');
     expect(config.config).toEqual({ foo: 'bar' });
     expect(config.env).toEqual({
       FOO: 'bar',
-      OPENCLAW_GATEWAY_TOKEN: gatewayToken,
     });
+    expect(config.secrets).toEqual({ OPENCLAW_GATEWAY_TOKEN: 'gw-explicit' });
     expect(config.command).toEqual(['echo', 'hello']);
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
@@ -400,7 +401,7 @@ describe('HyperClaw agents SDK', () => {
       state: 'running',
       hostname: 'openclaw-agent2.dev.hyperclaw.app',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
-      gateway_token: 'gw-123',
+      gateway_token: 'must-not-hydrate',
       jwt_token: 'jwt-123',
       command: ['sleep', '3600'],
       entrypoint: ['/bin/sh', '-c'],
@@ -410,7 +411,7 @@ describe('HyperClaw agents SDK', () => {
     expect(generic.desktopUrl).toBe('https://desktop-agent.dev.hyperclaw.app');
     expect(generic.shellUrl).toBeNull();
     expect(openclaw.gatewayUrl).toBe('wss://openclaw-agent2.dev.hyperclaw.app');
-    expect(openclaw.gatewayToken).toBe('gw-123');
+    expect(openclaw.gatewayToken).toBeNull();
     expect(openclaw.command).toEqual(['sleep', '3600']);
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
@@ -427,12 +428,15 @@ describe('HyperClaw agents SDK', () => {
   });
 
   it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', async () => {
-    const get = vi.fn().mockResolvedValue({
-      agent_id: 'agent-ctx',
-      gateway_url: 'wss://openclaw-agent.dev.hypercli.com',
-      gateway_token: 'gw-ctx',
-      runtime_generation: 0,
-    });
+    const get = vi.fn(async (path: string) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')
+      ? { agent_id: 'agent-ctx', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-ctx', launch_epoch: 1 }
+      : {
+          id: 'agent-ctx',
+          user_id: 'user-1',
+          state: 'RUNNING',
+          hostname: 'openclaw-agent.dev.hypercli.com',
+          launch_epoch: 1,
+        });
     const deployments = new Deployments(
       { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
@@ -461,12 +465,15 @@ describe('HyperClaw agents SDK', () => {
   });
 
   it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', async () => {
-    const get = vi.fn().mockResolvedValue({
-      agent_id: 'agent-jwtless',
-      gateway_url: 'wss://openclaw-agent.dev.hypercli.com',
-      gateway_token: 'gw-jwtless',
-      runtime_generation: 0,
-    });
+    const get = vi.fn(async (path: string) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')
+      ? { agent_id: 'agent-jwtless', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-jwtless', launch_epoch: 1 }
+      : {
+          id: 'agent-jwtless',
+          user_id: 'user-1',
+          state: 'RUNNING',
+          hostname: 'openclaw-agent.dev.hypercli.com',
+          launch_epoch: 1,
+        });
     const deployments = new Deployments(
       { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
@@ -751,6 +758,7 @@ describe('HyperClaw agents SDK', () => {
       jwt_token: 'jwt-ready',
     });
     agent.gatewayUrl = 'wss://openclaw-agent.dev.hypercli.com';
+    agent.gatewayToken = 'gw-ready';
 
     const waitReady = vi.fn().mockResolvedValue({ gateway: { mode: 'local' } });
     const close = vi.fn();
@@ -882,7 +890,7 @@ describe('HyperClaw agents SDK', () => {
       id: 'agent-ready',
       user_id: 'user-1',
       state: 'starting',
-      runtime_generation: 10,
+      launch_epoch: 10,
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       hostname: 'agent-ready.hypercli.app',
     });
@@ -913,7 +921,7 @@ describe('HyperClaw agents SDK', () => {
       id: 'agent-ready',
       user_id: 'user-1',
       state: 'STARTING',
-      runtime_generation: 10,
+      launch_epoch: 10,
     });
     (agent as any)._deployments = deployments;
 
@@ -949,16 +957,13 @@ describe('HyperClaw agents SDK', () => {
         size: 'large',
         dry_run: true,
         start: true,
-        env: expect.objectContaining({
-          FOO: 'bar',
-          OPENCLAW_GATEWAY_TOKEN: expect.any(String),
-        }),
+        env: { FOO: 'bar' },
         command: ['nginx', '-g', 'daemon off;'],
         entrypoint: ['/docker-entrypoint.sh'],
       }),
     );
     expect(agent).toBeInstanceOf(OpenClawAgent);
-    expect((agent as OpenClawAgent).gatewayToken).toMatch(/^ab+/);
+    expect((agent as OpenClawAgent).gatewayToken).toBeNull();
   });
 
   it('create posts only meta.ui and hydrates it back onto the agent', async () => {
@@ -1034,7 +1039,7 @@ describe('HyperClaw agents SDK', () => {
       runtime: 'openclaw',
       creation_replayed: true,
       launch_config: {
-        env: { OPENCLAW_GATEWAY_TOKEN: 'original-token' },
+        secrets: { OPENCLAW_GATEWAY_TOKEN: 'must-not-hydrate' },
         command: ['original-command'],
         sync_enabled: true,
       },
@@ -1049,13 +1054,13 @@ describe('HyperClaw agents SDK', () => {
     const agent = await agents.createOpenClaw({
       name: 'replayed-agent',
       start: false,
-      env: { OPENCLAW_GATEWAY_TOKEN: 'retry-token' },
+      gatewayToken: 'retry-token',
       command: ['retry-command'],
       meta: { ui: { creation_id: 'setup-123' } },
     });
 
     expect(agent.creationReplayed).toBe(true);
-    expect(agent.launchConfig?.env?.OPENCLAW_GATEWAY_TOKEN).toBe('original-token');
+    expect(agent.launchConfig).not.toHaveProperty('secrets');
     expect(agent.launchConfig).not.toHaveProperty('sync_enabled');
     expect(agent.command).toEqual(['original-command']);
   });

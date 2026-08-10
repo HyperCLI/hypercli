@@ -93,6 +93,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
     {
         "image",
         "env",
+        "secrets",
         "routes",
         "ports",
         "command",
@@ -269,8 +270,8 @@ class BuzzLaunchConfig:
     """Typed Buzz ACP launch settings for a hosted coding runtime.
 
     The private key is intentionally excluded from ``repr``. Buzz-owned
-    environment variables are rendered last so a generic ``env`` mapping
-    cannot replace identity or harness configuration.
+    launch values are rendered last so generic ``env`` and ``secrets``
+    mappings cannot replace identity or harness configuration.
     """
 
     private_key_nsec: str
@@ -304,8 +305,6 @@ class BuzzLaunchConfig:
 
         default_command, default_args, default_mcp = _BUZZ_RUNTIME_COMMANDS[runtime]
         env = {
-            "BUZZ_PRIVATE_KEY": self.private_key_nsec,
-            "NOSTR_PRIVATE_KEY": self.private_key_nsec,
             "BUZZ_RELAY_URL": self.relay_url,
             "BUZZ_MANAGED_AGENT_START_NONCE": uuid4().hex,
             "BUZZ_ACP_AGENT_COMMAND": default_command,
@@ -350,6 +349,14 @@ class BuzzLaunchConfig:
         if self.rust_log:
             env["RUST_LOG"] = self.rust_log
         return env
+
+    def secrets(self) -> dict[str, str]:
+        if not self.private_key_nsec.strip():
+            raise ValueError("buzz.private_key_nsec is required")
+        return {
+            "BUZZ_PRIVATE_KEY": self.private_key_nsec,
+            "NOSTR_PRIVATE_KEY": self.private_key_nsec,
+        }
 
 # The three file-access paths for an OpenClaw agent, each with its own root —
 # the SDK owns the roots so a workspace-relative path (e.g. "AGENTS.md") hits the
@@ -881,6 +888,7 @@ def _build_agent_launch(
     config: dict | None = None,
     *,
     env: dict | None = None,
+    secrets: dict | None = None,
     ports: list | None = None,
     routes: dict | None = None,
     command: list[str] | None = None,
@@ -915,23 +923,39 @@ def _build_agent_launch(
         agents_cfg["defaults"] = defaults_cfg
         prepared_config["agents"] = agents_cfg
     env_map = dict(env or {})
-    if env:
-        env_map.update(env)
+    secret_map = dict(secrets) if secrets is not None else None
+    if "OPENCLAW_GATEWAY_TOKEN" in env_map:
+        raise ValueError(
+            "OPENCLAW_GATEWAY_TOKEN must be supplied through secrets or gateway_token"
+        )
 
     effective_gateway_token: str | None = None
-    if inject_gateway_token:
-        effective_gateway_token = (
-            gateway_token or str(env_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
-        )
+    if inject_gateway_token and gateway_token is not None:
+        effective_gateway_token = str(gateway_token).strip()
         if not effective_gateway_token:
-            effective_gateway_token = secrets.token_hex(32)
-        env_map["OPENCLAW_GATEWAY_TOKEN"] = effective_gateway_token
+            raise ValueError("gateway_token must not be blank")
+        if secret_map is None:
+            secret_map = {}
+        existing_gateway_token = str(secret_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
+        if existing_gateway_token and existing_gateway_token != effective_gateway_token:
+            raise ValueError(
+                "gateway_token conflicts with secrets.OPENCLAW_GATEWAY_TOKEN"
+            )
+        secret_map["OPENCLAW_GATEWAY_TOKEN"] = effective_gateway_token
+
+    collisions = sorted(set(env_map).intersection(secret_map or {}))
+    if collisions:
+        raise ValueError(
+            "Launch keys cannot appear in both env and secrets: " + ", ".join(collisions)
+        )
 
     launch: dict[str, Any] = {}
     if prepared_config:
         launch["config"] = prepared_config
     if env_map:
         launch["env"] = env_map
+    if secret_map:
+        launch["secrets"] = secret_map
     if ports is not None:
         launch["ports"] = ports
     if routes is not None:
@@ -968,6 +992,7 @@ def build_agent_config(
     config: dict | None = None,
     *,
     env: dict | None = None,
+    secrets: dict | None = None,
     ports: list | None = None,
     routes: dict | None = None,
     command: list[str] | None = None,
@@ -988,13 +1013,13 @@ def build_agent_config(
 ) -> tuple[dict, str | None]:
     """Build an agent launch config payload (mirrors ts-sdk buildAgentConfig).
 
-    Returns a tuple of (launch_config, gateway_token). The gateway token is
-    generated when not provided (unless inject_gateway_token=False, in which
-    case it is None).
+    Returns a tuple of (launch_config, gateway_token). A gateway token is only
+    included when explicitly supplied.
     """
     return _build_agent_launch(
         config,
         env=env,
+        secrets=secrets,
         ports=ports,
         routes=routes,
         command=command,
@@ -1223,6 +1248,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     launch_config = copy.deepcopy(data["launch_config"]) if isinstance(data.get("launch_config"), dict) else None
     if launch_config is not None:
         launch_config.pop("sync_enabled", None)
+        launch_config.pop("secrets", None)
     is_launchable = data.get("is_launchable")
     if is_launchable is None:
         is_launchable = data.get("managed", True) is not False
@@ -1250,25 +1276,18 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
         "archived_at": _parse_dt(data.get("archived_at")),
-        "storage_cluster_id": data.get("storage_cluster_id"),
-        "archived_cluster_id": data.get("archived_cluster_id"),
-        "archived_cluster_name": data.get("archived_cluster_name"),
+        "cluster_id": data.get("cluster_id"),
         "archived_path": data.get("archived_path"),
         "reason": data.get("reason"),
-        "error": data.get("error", data.get("last_error")),
+        "error": data.get("error"),
         "message": data.get("message"),
-        # Rollout-only compatibility aliases. New APIs use reason/error/message.
-        "last_error": data.get("last_error", data.get("error")),
         "runtime_status": (
             copy.deepcopy(data.get("runtime_status"))
             if isinstance(data.get("runtime_status"), dict)
             else None
         ),
-        "placement_epoch": int(data.get("placement_epoch", 0) or 0),
-        "runtime_generation": int(data.get("runtime_generation", 0) or 0),
+        "launch_epoch": int(data.get("launch_epoch", 0) or 0),
         "agent_version": int(data.get("agent_version", 0) or 0),
-        "finalize_epoch": int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
-        "revision": int(data.get("revision", 0) or 0),
         "resources_exist": bool(data.get("resources_exist", False)),
         "namespace_exists": bool(data.get("namespace_exists", False)),
         "created_at": _parse_dt(data.get("created_at")),
@@ -1874,11 +1893,8 @@ class DeploymentEvent:
     reason: str | None = None
     error: str | None = None
     message: str | None = None
-    placement_epoch: int | None = None
-    runtime_generation: int | None = None
+    launch_epoch: int | None = None
     agent_version: int | None = None
-    finalize_epoch: int | None = None
-    revision: int | None = None
     resources_exist: bool | None = None
     namespace_exists: bool | None = None
 
@@ -1891,11 +1907,8 @@ class DeploymentEvent:
             reason=str(data["reason"]) if data.get("reason") else None,
             error=str(data["error"]) if data.get("error") else None,
             message=str(data["message"]) if data.get("message") else None,
-            placement_epoch=int(data["placement_epoch"]) if data.get("placement_epoch") is not None else None,
-            runtime_generation=int(data["runtime_generation"]) if data.get("runtime_generation") is not None else None,
+            launch_epoch=int(data["launch_epoch"]) if data.get("launch_epoch") is not None else None,
             agent_version=int(data["agent_version"]) if data.get("agent_version") is not None else None,
-            finalize_epoch=int(data["finalize_epoch"]) if data.get("finalize_epoch") is not None else None,
-            revision=int(data["revision"]) if data.get("revision") is not None else None,
             resources_exist=bool(data["resources_exist"]) if data.get("resources_exist") is not None else None,
             namespace_exists=bool(data["namespace_exists"]) if data.get("namespace_exists") is not None else None,
         )
@@ -1945,21 +1958,14 @@ class Agent:
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
-    storage_cluster_id: Optional[str] = None
-    archived_cluster_id: Optional[str] = None
-    archived_cluster_name: Optional[str] = None
+    cluster_id: Optional[str] = None
     archived_path: Optional[str] = None
     reason: Optional[str] = None
     error: Optional[str] = None
     message: Optional[str] = None
-    # Deprecated rollout compatibility aliases; use reason/error/message.
-    last_error: Optional[str] = None
     runtime_status: Optional[dict] = None
-    placement_epoch: int = 0
-    runtime_generation: int = 0
+    launch_epoch: int = 0
     agent_version: int = 0
-    finalize_epoch: int | None = None
-    revision: int = 0
     resources_exist: bool = False
     namespace_exists: bool = False
     created_at: Optional[datetime] = None
@@ -2071,10 +2077,31 @@ class Agent:
         self.jwt_expires_at = _parse_dt(data.get("expires_at"))
         return data
 
+    def env(self) -> dict[str, str]:
+        """Return the deployment's persisted non-secret environment."""
+        data = self._require_deployments().env(self.id)
+        if int(data.get("launch_epoch") or 0) < self.launch_epoch:
+            raise RuntimeError("agent env belongs to an older launch epoch")
+        return dict(data.get("env") or {})
+
+    def secret_names(self) -> list[str]:
+        """Return names of deployment secrets without revealing their values."""
+        data = self._require_deployments().secret_names(self.id)
+        if int(data.get("launch_epoch") or 0) < self.launch_epoch:
+            raise RuntimeError("agent secret names belong to an older launch epoch")
+        return [str(name) for name in data.get("names") or []]
+
+    def secret(self, key: str) -> str:
+        """Reveal one deployment secret by exact key."""
+        data = self._require_deployments().secret(self.id, key)
+        if int(data.get("launch_epoch") or 0) < self.launch_epoch:
+            raise RuntimeError("agent secret belongs to an older launch epoch")
+        return str(data.get("value") or "")
+
     def wait_running(self, timeout: float = 300.0, poll_interval: float = 5.0) -> "Agent":
         wait_kwargs: dict[str, int] = {}
-        if self.runtime_generation > 0:
-            wait_kwargs["minimum_runtime_generation"] = self.runtime_generation
+        if self.launch_epoch > 0:
+            wait_kwargs["minimum_launch_epoch"] = self.launch_epoch
         agent = self._require_deployments().wait_running(
             self.id,
             timeout=timeout,
@@ -2092,7 +2119,7 @@ class Agent:
         size: str | None = None,
         launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
-        last_error: str | None = None,
+        error: str | None = None,
         handle: str | None = None,
     ) -> "Agent":
         agent = self._require_deployments().update(
@@ -2101,7 +2128,7 @@ class Agent:
             size=size,
             launch_config=launch_config,
             refresh_from_lagoon=refresh_from_lagoon,
-            last_error=last_error,
+            error=error,
             handle=handle,
         )
         self.__dict__.update(agent.__dict__)
@@ -2299,7 +2326,7 @@ class HermesAgent(Agent):
         size: str | None = None,
         launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
-        last_error: str | None = None,
+        error: str | None = None,
         handle: str | None = None,
     ) -> "HermesAgent":
         api_server_key = self.api_server_key
@@ -2308,7 +2335,7 @@ class HermesAgent(Agent):
             size=size,
             launch_config=launch_config,
             refresh_from_lagoon=refresh_from_lagoon,
-            last_error=last_error,
+            error=error,
             handle=handle,
         )
         self.api_server_key = api_server_key
@@ -2326,41 +2353,49 @@ class OpenClawAgent(Agent):
         return cls(
             **_agent_kwargs_from_dict(data),
             gateway_url=None,
-            gateway_token=data.get("gateway_token"),
+            gateway_token=None,
         )
 
     def wait_for_gateway_context(self, timeout: float = 30.0, retry_interval: float = 1.0) -> dict[str, Any]:
         """
-        Resolve the narrow authenticated OpenClaw gateway context.
-
-        Agent startup is eventually consistent, so the Backend can report that
-        the canonical gateway context is not ready while hostname and launch
-        projection settle. The SDK retries that one purpose-built endpoint; it
-        never reads the runtime Secret.
+        Resolve OpenClaw gateway context from the refreshed agent and one secret.
         """
-        if self.gateway_token and self.gateway_url:
-            return {
-                "agent_id": self.id,
-                "gateway_url": self.gateway_url,
-                "gateway_token": self.gateway_token,
-                "runtime_generation": self.runtime_generation,
-            }
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
         while True:
             try:
-                context = self._require_deployments().gateway_context(self.id)
-                gateway_url = str(context.get("gateway_url") or "").strip()
-                gateway_token = str(context.get("gateway_token") or "").strip()
-                context_generation = int(context.get("runtime_generation") or 0)
-                if context_generation < self.runtime_generation:
-                    last_error = RuntimeError(
-                        "gateway context belongs to an older runtime generation"
-                    )
-                elif gateway_url and gateway_token:
+                deployments = self._require_deployments()
+                current = deployments.get(self.id)
+                if int(current.launch_epoch or 0) < int(self.launch_epoch or 0):
+                    raise RuntimeError("agent snapshot belongs to an older launch epoch")
+                if str(current.state or "").upper() != "RUNNING":
+                    raise RuntimeError("agent gateway is not running")
+                hostname = str(current.hostname or "").strip()
+                secret_data = deployments.secret(self.id, "OPENCLAW_GATEWAY_TOKEN")
+                secret_epoch = int(secret_data.get("launch_epoch") or 0)
+                gateway_token = str(secret_data.get("value") or "").strip()
+                if secret_epoch != int(current.launch_epoch or 0):
+                    raise RuntimeError("gateway token belongs to a different launch epoch")
+                confirmed = deployments.get(self.id)
+                if (
+                    int(confirmed.launch_epoch or 0) != int(current.launch_epoch or 0)
+                    or str(confirmed.state or "").upper() != "RUNNING"
+                ):
+                    raise RuntimeError("gateway context changed while it was resolved")
+                if hostname and gateway_token:
+                    gateway_url = f"wss://{hostname}"
+                    confirmed.gateway_url = gateway_url
+                    confirmed.gateway_token = gateway_token
+                    confirmed._deployments = deployments
+                    self.__dict__.update(confirmed.__dict__)
                     self.gateway_token = gateway_token
                     self.gateway_url = gateway_url
-                    return context
+                    return {
+                        "agent_id": self.id,
+                        "gateway_url": gateway_url,
+                        "gateway_token": gateway_token,
+                        "launch_epoch": self.launch_epoch,
+                    }
                 else:
                     last_error = RuntimeError("missing gateway context")
             except Exception as exc:
@@ -2372,7 +2407,7 @@ class OpenClawAgent(Agent):
             time.sleep(retry_interval)
 
     def resolve_gateway_token(self) -> str | None:
-        """Resolve the gateway token through the narrow Backend context route."""
+        """Resolve the gateway token through the exact-key secret route."""
         token_data = self.wait_for_gateway_context()
         self.gateway_token = token_data.get("gateway_token")
         return self.gateway_token
@@ -2380,16 +2415,14 @@ class OpenClawAgent(Agent):
     def gateway(self, **kwargs) -> "GatewayClient":
         """Create a GatewayClient for this OpenClaw agent."""
         from .gateway import GatewayClient
-        if not self.gateway_url:
+        if "gateway_token" not in kwargs:
+            context = self.wait_for_gateway_context()
+            kwargs["gateway_token"] = context["gateway_token"]
+        elif not self.gateway_url:
             self.wait_for_gateway_context()
         if not self.gateway_url:
             raise ValueError("Agent has no OpenClaw gateway URL")
         deployments = self._require_deployments()
-        if "gateway_token" not in kwargs:
-            if not self.gateway_token:
-                self.wait_for_gateway_context()
-            if self.gateway_token:
-                kwargs["gateway_token"] = self.gateway_token
         kwargs.setdefault("deployment_id", self.id)
         kwargs.setdefault("api_key", deployments._api_key)
         kwargs.setdefault("api_base", deployments._api_base)
@@ -2463,8 +2496,6 @@ class OpenClawAgent(Agent):
         probe: str = "config",
         **kwargs,
     ) -> dict:
-        if not self.gateway_url or ("gateway_token" not in kwargs and not self.gateway_token):
-            self.wait_for_gateway_context()
         gw = self.gateway(**kwargs)
         try:
             return await gw.wait_ready(timeout=timeout, retry_interval=retry_interval, probe=probe)
@@ -3139,6 +3170,7 @@ class Deployments:
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -3167,6 +3199,7 @@ class Deployments:
             size: Size preset (small/medium/large). When omitted, the backend defaults to small.
             config: Optional config overrides.
             env: Optional environment variables to pass through to the pod.
+            secrets: Optional secret environment variables to pass through to the pod.
             ports: Optional exposed ports config.
             start: Start the agent immediately (default: True).
 
@@ -3179,6 +3212,7 @@ class Deployments:
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
+            secrets=secrets,
             ports=ports,
             routes=routes,
             command=command,
@@ -3226,7 +3260,7 @@ class Deployments:
             agent.launch_config = {
                 key: copy.deepcopy(value)
                 for key, value in launch_payload.items()
-                if key != "sync_enabled"
+                if key not in {"sync_enabled", "secrets"}
             }
             if isinstance(agent, HermesAgent) and isinstance(agent.launch_config.get("env"), dict):
                 agent.launch_config = copy.deepcopy(agent.launch_config)
@@ -3243,6 +3277,7 @@ class Deployments:
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -3287,6 +3322,7 @@ class Deployments:
             config=config,
             tags=tags,
             env=effective_env,
+            secrets=secrets,
             ports=ports,
             routes=_resolve_openclaw_routes(
                 routes,
@@ -3319,6 +3355,7 @@ class Deployments:
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -3356,6 +3393,7 @@ class Deployments:
             config=config,
             tags=tags,
             env=effective_env,
+            secrets=secrets,
             ports=ports,
             routes=_resolve_hermes_agent_routes(
                 routes,
@@ -3392,6 +3430,7 @@ class Deployments:
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -3424,6 +3463,7 @@ class Deployments:
             config=config,
             tags=tags,
             env=effective_env,
+            secrets=secrets,
             ports=ports,
             routes=routes,
             command=command,
@@ -3463,6 +3503,7 @@ class Deployments:
         config: dict | None = None,
         tags: list[str] | None = None,
         env: dict | None = None,
+        secrets: dict | None = None,
         ports: list | None = None,
         routes: dict | None = None,
         command: list[str] | None = None,
@@ -3496,12 +3537,21 @@ class Deployments:
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **dict(env or {}),
         }
+        effective_secrets = dict(secrets or {})
+        for key in ("BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"):
+            value = effective_env.pop(key, None)
+            if value is not None:
+                existing = effective_secrets.get(key)
+                if existing is not None and existing != value:
+                    raise ValueError(f"{key} conflicts between env and secrets")
+                effective_secrets[key] = value
         if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
             effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
         if buzz is not None:
             for key in BUZZ_RESERVED_ENV_KEYS:
                 effective_env.pop(key, None)
             effective_env.update(buzz.environment(runtime, default_session_title=name))
+            effective_secrets.update(buzz.secrets())
         if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
         (
@@ -3523,6 +3573,7 @@ class Deployments:
             config=config,
             tags=tags,
             env=effective_env,
+            secrets=effective_secrets,
             ports=ports,
             routes={} if routes is None else routes,
             command=(
@@ -3918,7 +3969,7 @@ class Deployments:
         *,
         timeout: float = 300.0,
         failure_states: set[str] | None = None,
-        minimum_runtime_generation: int | None = None,
+        minimum_launch_epoch: int | None = None,
     ) -> Agent:
         """Wait for one state in the requested runtime incarnation."""
         agent_id = await asyncio.to_thread(self.resolve_agent_id, agent_id_or_name)
@@ -3929,15 +3980,15 @@ class Deployments:
         failures = {state.lower() for state in (failure_states or set())}
         if not desired:
             raise ValueError("states must not be empty")
-        if minimum_runtime_generation is not None and minimum_runtime_generation < 0:
-            raise ValueError("minimum_runtime_generation must be non-negative")
+        if minimum_launch_epoch is not None and minimum_launch_epoch < 0:
+            raise ValueError("minimum_launch_epoch must be non-negative")
 
         def check(agent: Agent) -> Agent | None:
             nonlocal last_agent
             last_agent = agent
             if (
-                minimum_runtime_generation is not None
-                and int(agent.runtime_generation or 0) < minimum_runtime_generation
+                minimum_launch_epoch is not None
+                and int(agent.launch_epoch or 0) < minimum_launch_epoch
             ):
                 return None
             state = str(agent.state or "")
@@ -4017,7 +4068,7 @@ class Deployments:
         agent_id_or_name: str,
         timeout: float = 300.0,
         *,
-        minimum_runtime_generation: int | None = None,
+        minimum_launch_epoch: int | None = None,
     ) -> Agent:
         """Wait for RUNNING using WebSocket wakeups and REST confirmation."""
         return await self.wait_for_state_async(
@@ -4026,7 +4077,7 @@ class Deployments:
             timeout=timeout,
             # Stable runtime-free states cannot satisfy this invocation's goal.
             failure_states=set(AGENT_WAIT_RUNNING_FAILURE_STATES),
-            minimum_runtime_generation=minimum_runtime_generation,
+            minimum_launch_epoch=minimum_launch_epoch,
         )
 
     def wait_for_state(
@@ -4036,7 +4087,7 @@ class Deployments:
         *,
         timeout: float = 300.0,
         failure_states: set[str] | None = None,
-        minimum_runtime_generation: int | None = None,
+        minimum_launch_epoch: int | None = None,
     ) -> Agent:
         """Synchronous event-assisted state wait; use the async variant in an event loop."""
         return _run_sync(
@@ -4045,7 +4096,7 @@ class Deployments:
                     states,
                     timeout=timeout,
                     failure_states=failure_states,
-                    minimum_runtime_generation=minimum_runtime_generation,
+                    minimum_launch_epoch=minimum_launch_epoch,
             ),
             running_loop_error=(
                 "wait_for_state() cannot run inside an event loop; use wait_for_state_async()"
@@ -4058,7 +4109,7 @@ class Deployments:
         timeout: float = 300.0,
         poll_interval: float = 5.0,
         *,
-        minimum_runtime_generation: int | None = None,
+        minimum_launch_epoch: int | None = None,
     ) -> Agent:
         """Wait for RUNNING via deployment events; ``poll_interval`` is deprecated."""
         del poll_interval
@@ -4066,7 +4117,7 @@ class Deployments:
             lambda: self.wait_running_async(
                 agent_id_or_name,
                 timeout=timeout,
-                minimum_runtime_generation=minimum_runtime_generation,
+                minimum_launch_epoch=minimum_launch_epoch,
             ),
             running_loop_error=(
                 "wait_running() cannot run inside an event loop; use wait_running_async()"
@@ -4078,6 +4129,7 @@ class Deployments:
         agent_id: str,
         config: dict = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -4109,6 +4161,7 @@ class Deployments:
             overrides = {
                 "config": config,
                 "env": env,
+                "secrets": secrets,
                 "ports": ports,
                 "routes": routes,
                 "command": command,
@@ -4152,6 +4205,7 @@ class Deployments:
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
+            secrets=secrets,
             ports=ports,
             routes=routes,
             command=command,
@@ -4187,6 +4241,7 @@ class Deployments:
         agent_id: str,
         config: dict = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -4222,6 +4277,7 @@ class Deployments:
             agent_id,
             config=config,
             env=effective_env,
+            secrets=secrets,
             ports=ports,
             routes=_resolve_hermes_agent_routes(
                 routes,
@@ -4253,6 +4309,7 @@ class Deployments:
         agent_id: str,
         config: dict = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -4291,6 +4348,7 @@ class Deployments:
             agent_id,
             config=config,
             env=effective_env,
+            secrets=secrets,
             ports=ports,
             routes=_resolve_openclaw_routes(
                 routes,
@@ -4319,6 +4377,7 @@ class Deployments:
         agent_id: str,
         config: dict = None,
         env: dict = None,
+        secrets: dict = None,
         ports: list = None,
         routes: dict = None,
         command: list[str] = None,
@@ -4347,6 +4406,7 @@ class Deployments:
             agent_id,
             config=config,
             env=effective_env,
+            secrets=secrets,
             ports=ports,
             routes=routes,
             command=command,
@@ -4382,7 +4442,7 @@ class Deployments:
         size: str | None = None,
         launch_config: dict | None = None,
         refresh_from_lagoon: bool | None = None,
-        last_error: str | None = None,
+        error: str | None = None,
         handle: str | None = None,
     ) -> Agent:
         body: dict[str, Any] = {}
@@ -4396,8 +4456,8 @@ class Deployments:
             body["launch_config"] = launch_config
         if refresh_from_lagoon is not None:
             body["refresh_from_lagoon"] = refresh_from_lagoon
-        if last_error is not None:
-            body["last_error"] = last_error
+        if error is not None:
+            body["error"] = error
         resolved_agent_id = self.resolve_agent_id(agent_id)
         data = self._http.patch(f"{AGENTS_API_PREFIX}/{resolved_agent_id}", json=body)
         return self._hydrate_agent(data)
@@ -4490,7 +4550,7 @@ class Deployments:
             agent_id: Agent UUID.
 
         Returns:
-            Dict with agent_id, token, expires_at, and runtime generation.
+            Dict with agent_id, token, expires_at, and launch epoch.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/token")
@@ -4585,10 +4645,21 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs/token")
 
-    def gateway_context(self, agent_id: str) -> dict[str, Any]:
-        """Fetch the narrow authenticated OpenClaw gateway context."""
+    def env(self, agent_id: str) -> dict[str, Any]:
+        """Fetch the deployment's non-secret environment."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/gateway")
+        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env")
+
+    def secret_names(self, agent_id: str) -> dict[str, Any]:
+        """List the deployment's secret names without exposing their values."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/secrets")
+
+    def secret(self, agent_id: str, key: str) -> dict[str, Any]:
+        """Fetch one deployment secret by its exact environment key."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_key = quote(str(key), safe="")
+        return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/secrets/{resolved_key}")
 
     def exec(self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
         """Execute a one-shot command on a running agent via the backend exec API.

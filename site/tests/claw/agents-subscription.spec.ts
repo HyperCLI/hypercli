@@ -344,11 +344,8 @@ test.describe.serial("Agents subscription", () => {
       expect(transition.type).toBe("deployment.transition");
       expect(typeof transition.state).toBe("string");
       expect(String(transition.state).length).toBeGreaterThan(0);
-      expect(Number.isInteger(transition.placement_epoch)).toBe(true);
-      expect(Number(transition.placement_epoch)).toBeGreaterThanOrEqual(0);
-      expect(Number.isInteger(transition.runtime_generation)).toBe(true);
-      expect(Number(transition.runtime_generation)).toBeGreaterThanOrEqual(0);
-      expect(transition).not.toHaveProperty("finalize_epoch");
+      expect(Number.isInteger(transition.launch_epoch)).toBe(true);
+      expect(Number(transition.launch_epoch)).toBeGreaterThanOrEqual(0);
       expect(Object.values(transition).every((value) => value !== null && typeof value !== "object")).toBe(true);
 
       const allowedKeys = new Set([
@@ -356,9 +353,7 @@ test.describe.serial("Agents subscription", () => {
         "type",
         "deployment_id",
         "state",
-        "placement_epoch",
-        "runtime_generation",
-        "finalize_epoch",
+        "launch_epoch",
       ]);
       expect(Object.keys(transition).every((key) => allowedKeys.has(key))).toBe(true);
       expect(Object.keys(transition)).toEqual(
@@ -367,8 +362,7 @@ test.describe.serial("Agents subscription", () => {
           "type",
           "deployment_id",
           "state",
-          "placement_epoch",
-          "runtime_generation",
+          "launch_epoch",
         ])
       );
     } finally {

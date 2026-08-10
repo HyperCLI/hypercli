@@ -38,15 +38,11 @@ describe("agentViewModel", () => {
 
   it("preserves read-only deployment epochs", () => {
     const mapped = toAgentViewModel(buildSdkAgent({
-      placementEpoch: 4,
-      runtimeGeneration: 7,
-      finalizeEpoch: 3,
+      launchEpoch: 7,
     }));
 
     expect(mapped).toMatchObject({
-      placementEpoch: 4,
-      runtimeGeneration: 7,
-      finalizeEpoch: 3,
+      launchEpoch: 7,
     });
   });
 

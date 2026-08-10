@@ -190,6 +190,7 @@ Create/start options:
 - `config`
 - `tags`
 - `env`
+- `secrets`
 - `ports`
 - `routes`
 - `command`
@@ -213,6 +214,11 @@ disabled when it is absent; the SDK derives the compatibility wire boolean.
 Omit `restart` to preserve the platform default, or set `restart: false` for a
 one-shot process that should leave the deployment stopped after its main
 container exits.
+
+`env` and `secrets` are separate string records. A key cannot appear in both.
+The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gatewayToken` (or the
+same key in `secrets`) only when intentionally replacing it. Otherwise the
+Backend preserves the existing Secret.
 
 ## OpenClaw Presets
 
@@ -464,9 +470,7 @@ Important fields:
 - `id`
 - `userId`
 - `state`
-- `placementEpoch`
-- `runtimeGeneration`
-- `finalizeEpoch`
+- `launchEpoch`
 - `name`
 - `hostname`
 - `tags`
@@ -476,9 +480,9 @@ Important fields:
 - `entrypoint`
 - `ports`
 
-Epoch fields are opaque monotonic lifecycle identifiers. They are useful for
-correlation, but REST remains authoritative and clients should not reproduce
-the server state machine. `finalizeEpoch` is optional.
+`launchEpoch` is the opaque monotonic identifier for one admitted launch. It
+can fence asynchronous reads and waits, but REST remains authoritative and
+clients should not reproduce the server state machine.
 
 Important properties:
 
@@ -495,6 +499,8 @@ Important methods:
 - `refreshToken()`
 - `waitRunning()`
 - `env()`
+- `secretNames()`
+- `secret(key)`
 - `exec()`
 - `filesList()`
 - `fileRead()`
@@ -589,7 +595,10 @@ Important additions:
 - `injectNumCtxForOpenAICompat`
 - `models`
 
-Gateway clients use the narrow authenticated `GET /agents/deployments/{id}/gateway` context endpoint. Runtime Secrets are never exposed to the SDK.
+`waitForGatewayContext()` refreshes the Agent, derives `wss://${agent.hostname}`,
+and reads exactly `OPENCLAW_GATEWAY_TOKEN` through `secret()`. Both reads must
+belong to the same `launchEpoch`; the helper retries while startup projections
+are catching up. There is no OpenClaw-specific REST gateway-context endpoint.
 
 To mint a child key for one exact agent:
 

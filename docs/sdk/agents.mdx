@@ -217,6 +217,7 @@ Accepted create/start options:
 - `config`
 - `tags`
 - `env`
+- `secrets`
 - `ports`
 - `routes`
 - `command`
@@ -234,6 +235,11 @@ are generic launch options. They belong to the base deployment contract, not
 to OpenClaw specifically. Omit `restart` to preserve the platform default, or
 set `restart=False` for a one-shot process that should leave the deployment
 stopped after its main container exits.
+
+`env` and `secrets` are separate string dictionaries. A key cannot appear in
+both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gateway_token`
+(or the same key in `secrets`) only when intentionally replacing it. Otherwise
+the Backend preserves the existing secret.
 
 ### OpenClaw Presets
 
@@ -523,9 +529,7 @@ A hydrated `Agent` contains:
 - `id`
 - `user_id`
 - `state`
-- `placement_epoch`
-- `runtime_generation`
-- `finalize_epoch`
+- `launch_epoch`
 - `name`
 - `hostname`
 - `tags`
@@ -536,9 +540,9 @@ A hydrated `Agent` contains:
 - `entrypoint`
 - `ports`
 
-Lifecycle and restore states are forward-compatible strings. Epoch fields are
-opaque monotonic identifiers useful for correlating transitions; clients must
-not implement the server state machine from them. `finalize_epoch` is optional.
+Lifecycle and restore states are forward-compatible strings. `launch_epoch` is
+an opaque monotonic identifier for fencing observations from older launches;
+clients must not implement the server state machine from it.
 
 Important computed properties:
 
@@ -644,7 +648,9 @@ Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAg
 - `discord_upsert()`
 - `cron_list()`
 
-`resolve_gateway_token()` uses the narrow authenticated `GET /agents/deployments/{id}/gateway` context endpoint. Runtime Secrets are never exposed to the SDK.
+`resolve_gateway_token()` refreshes the Agent, derives `wss://{hostname}`, and
+fetches only `OPENCLAW_GATEWAY_TOKEN` through the exact-key secret endpoint.
+Generic deployments also expose `env()`, `secret_names()`, and `secret(key)`.
 
 To mint a child key for one exact agent:
 

@@ -187,7 +187,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       type: "deployment.transition",
       deployment_id: "agent-1",
       state: "STOPPED",
-      placement_epoch: 2,
+      launch_epoch: 2,
     });
   });
 
@@ -217,7 +217,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       type: "deployment.transition",
       deployment_id: "agent-1",
       state: "STOPPED",
-      placement_epoch: 3,
+      launch_epoch: 3,
     });
   });
 

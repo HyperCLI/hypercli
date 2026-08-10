@@ -144,9 +144,9 @@ def _sync_policy_kwargs(
     return {}
 
 
-def _runtime_generation_wait_kwargs(agent: object) -> dict[str, int]:
-    generation = int(getattr(agent, "runtime_generation", 0) or 0)
-    return {"minimum_runtime_generation": generation} if generation > 0 else {}
+def _launch_epoch_wait_kwargs(agent: object) -> dict[str, int]:
+    epoch = int(getattr(agent, "launch_epoch", 0) or 0)
+    return {"minimum_launch_epoch": epoch} if epoch > 0 else {}
 
 
 def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
@@ -236,9 +236,6 @@ def _save_agent_state(agent: Agent):
         "user_id": agent.user_id,
         "hostname": agent.hostname,
         "jwt_token": agent.jwt_token or existing.get("jwt_token"),
-        "gateway_token": (
-            agent.gateway_token if isinstance(agent, OpenClawAgent) else existing.get("gateway_token")
-        ),
         "api_server_key": (
             agent.api_server_key if isinstance(agent, HermesAgent) else existing.get("api_server_key")
         ),
@@ -290,8 +287,6 @@ def _get_agent_with_token(agent_id: str) -> Agent:
     local = state.get(pod.id, {}) or state.get(resolved_agent_id, {})
     if not pod.jwt_token and local.get("jwt_token"):
         pod.jwt_token = local["jwt_token"]
-    if isinstance(pod, OpenClawAgent) and not pod.gateway_token and local.get("gateway_token"):
-        pod.gateway_token = local["gateway_token"]
     if isinstance(pod, HermesAgent) and not pod.api_server_key and local.get("api_server_key"):
         pod.api_server_key = local["api_server_key"]
     if pod.launch_config is None and local.get("launch_config") is not None:
@@ -676,7 +671,7 @@ def create(
                 pod.id,
                 timeout=300,
                 poll_interval=5,
-                **_runtime_generation_wait_kwargs(pod),
+                **_launch_epoch_wait_kwargs(pod),
             )
             _save_agent_state(pod)
             console.print(f"[green]✅ Agent is running![/green]")
@@ -968,8 +963,8 @@ def status(
         console.print(f"  Stopped:    {pod.stopped_at}")
     if pod.jwt_expires_at:
         console.print(f"  JWT Expires: {pod.jwt_expires_at}")
-    if pod.last_error:
-        console.print(f"  Error:      [red]{pod.last_error}[/red]")
+    if pod.error:
+        console.print(f"  Error:      [red]{pod.error}[/red]")
 
 def _print_agent_metrics(data: dict) -> None:
     agent_name = str(data.get("name") or data.get("agent_id") or "")
@@ -1124,7 +1119,6 @@ def start(
     local = state.get(agent_id, {})
     if not local and getattr(existing_pod, "launch_config", None) is not None:
         local = {
-            "gateway_token": getattr(existing_pod, "gateway_token", None),
             "api_server_key": getattr(existing_pod, "api_server_key", None),
             "runtime": getattr(existing_pod, "runtime", None),
             "launch_config": existing_pod.launch_config,
@@ -1142,7 +1136,7 @@ def start(
     sync_policy = _sync_policy_kwargs(sync_include, sync_exclude)
     runtime = str(getattr(existing_pod, "runtime", None) or local.get("runtime") or "openclaw").strip().lower()
     is_hermes = runtime == "hermes-agent"
-    effective_gateway_token = gateway_token or local.get("gateway_token")
+    effective_gateway_token = gateway_token
     effective_api_server_key = api_server_key or local.get("api_server_key") or getattr(
         existing_pod, "api_server_key", None
     )

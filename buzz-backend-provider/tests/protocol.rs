@@ -186,9 +186,12 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "web:*",
                     "workspaces:*"
                 ],
+                "secrets": {
+                    "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
+                    "NOSTR_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl"
+                },
                 "env": {
                     "BUZZ_RELAY_URL": "wss://buzz.example.invalid",
-                    "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
                     "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/goose",
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "",
@@ -294,12 +297,14 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "runtime": runtime,
             "size": common["size"].clone(),
             "tags": ["app=buzz", format!("buzz_agent={TEST_PUBLIC_HEX}")],
-            "env": {
-                "MODEL_API_KEY": "fixture-model-credential",
+            "secrets": {
                 "BUZZ_PRIVATE_KEY":
                     "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
                 "NOSTR_PRIVATE_KEY":
-                    "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
+                    "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl"
+            },
+            "env": {
+                "MODEL_API_KEY": "fixture-model-credential",
                 "BUZZ_RELAY_URL": "wss://buzz.example.com",
                 "BUZZ_AUTH_TAG": "[\"auth\",\"fixture\"]",
                 "BUZZ_ACP_AGENT_COMMAND": child_command,
@@ -517,14 +522,10 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             .as_array_mut()
             .unwrap()
             .push(serde_json::json!("buzz_launch=<dynamic>"));
-        for key in [
-            "MODEL_API_KEY",
-            "BUZZ_PRIVATE_KEY",
-            "NOSTR_PRIVATE_KEY",
-            "BUZZ_AUTH_TAG",
-        ] {
+        for key in ["MODEL_API_KEY", "BUZZ_AUTH_TAG"] {
             expected["env"][key] = serde_json::json!("<redacted>");
         }
+        expected["secrets"] = serde_json::json!("<redacted>");
         assert_eq!(
             traced_request, expected,
             "{runtime}: full launch request drift"
@@ -532,7 +533,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         assert!(trace.contains(r#""operation":"create_deployment""#));
         assert!(trace.contains(r#""dry_run":true"#));
         assert!(trace.contains(&format!(r#""runtime":"{runtime}""#)));
-        assert!(trace.contains(r#""BUZZ_PRIVATE_KEY":"<redacted>""#));
+        assert!(trace.contains(r#""secrets":"<redacted>""#));
         assert!(trace.contains(r#""MODEL_API_KEY":"<redacted>""#));
         assert!(!trace.contains("nsec1qqqq"));
         assert!(!trace.contains("fixture-model-credential"));

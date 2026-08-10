@@ -631,6 +631,7 @@ fn restart_if_stopped(
     let start = StartDeploymentRequest {
         config: create.config.clone(),
         env: create.env.clone(),
+        secrets: create.secrets.clone(),
         routes: create.routes.clone(),
         command: create.command.clone(),
         entrypoint: create.entrypoint.clone(),
@@ -850,11 +851,13 @@ fn build_launch_request_with_inference_base(
             .iter()
             .any(|owned| key.eq_ignore_ascii_case(owned))
     });
-    env.insert(
+    request.secrets.insert(
         "BUZZ_PRIVATE_KEY".to_owned(),
         agent.private_key_nsec.clone(),
     );
-    env.insert("NOSTR_PRIVATE_KEY".to_owned(), agent.private_key_nsec);
+    request
+        .secrets
+        .insert("NOSTR_PRIVATE_KEY".to_owned(), agent.private_key_nsec);
     env.insert(
         "BUZZ_RELAY_URL".to_owned(),
         agent.relay_url.trim().to_owned(),
@@ -1707,7 +1710,8 @@ mod tests {
         assert_eq!(request.restart, Some(false));
         assert_eq!(request.env["TIER"], "launch");
         assert_eq!(request.env["BUZZ_ACP_MODEL"], "launch-model");
-        assert_eq!(request.env["BUZZ_PRIVATE_KEY"], TEST_SECRET_HEX);
+        assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
+        assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], TEST_SECRET_HEX);
         assert_eq!(request.env["BUZZ_AUTH_TAG"], "[\"auth\",\"tag\"]");
         assert!(!request.env.contains_key("buzz_auth_tag"));
         assert!(!request.env.contains_key("BUZZ_ACP_AGENT_OWNER"));
@@ -2258,10 +2262,12 @@ mod tests {
                     "restart": false,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                     "tags": ["app=buzz", format!("buzz_agent={TEST_PUBLIC_HEX}")],
+                    "secrets": {
+                        "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
+                        "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX
+                    },
                     "env": {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
-                        "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
-                        "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX,
                         "BUZZ_AUTH_TAG": "[\"auth\",\"tag\"]",
                         "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                         "BUZZ_ACP_AGENT_ARGS": "acp",
@@ -2439,9 +2445,11 @@ mod tests {
                     "sync_uid": 1000,
                     "sync_gid": 1000,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
-                    "env": {
+                    "secrets": {
                         "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
-                        "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX,
+                        "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX
+                    },
+                    "env": {
                         "BUZZ_RELAY_URL": "wss://buzz.example.com",
                         "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                         "BUZZ_ACP_AGENT_ARGS": "acp",
@@ -3006,22 +3014,17 @@ mod tests {
             avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "creating".to_owned(),
-            storage_cluster_id: None,
+            cluster_id: None,
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_cluster_id: None,
-            archived_cluster_name: None,
             archived_path: None,
             reason: None,
             error: None,
             message: None,
-            placement_epoch: 0,
-            runtime_generation: 0,
+            launch_epoch: 0,
             agent_version: 0,
-            finalize_epoch: None,
-            revision: 0,
             resources_exist: false,
             namespace_exists: false,
             launch_config: Default::default(),
@@ -3056,22 +3059,17 @@ mod tests {
                 avatar_url: None,
                 runtime: Some(ManagedRuntime::Opencode),
                 state: state.to_owned(),
-                storage_cluster_id: None,
+                cluster_id: None,
                 hostname: None,
                 tags: Vec::new(),
                 requested_size: None,
                 archived_at: None,
-                archived_cluster_id: None,
-                archived_cluster_name: None,
                 archived_path: None,
                 reason: None,
                 error: None,
                 message: None,
-                placement_epoch: 0,
-                runtime_generation: 0,
+                launch_epoch: 0,
                 agent_version: 0,
-                finalize_epoch: None,
-                revision: 0,
                 resources_exist: false,
                 namespace_exists: false,
                 launch_config: Default::default(),
@@ -3110,22 +3108,17 @@ mod tests {
             avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "starting".to_owned(),
-            storage_cluster_id: None,
+            cluster_id: None,
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_cluster_id: None,
-            archived_cluster_name: None,
             archived_path: None,
             reason: None,
             error: None,
             message: None,
-            placement_epoch: 0,
-            runtime_generation: 0,
+            launch_epoch: 0,
             agent_version: 0,
-            finalize_epoch: None,
-            revision: 0,
             resources_exist: false,
             namespace_exists: false,
             launch_config: Default::default(),

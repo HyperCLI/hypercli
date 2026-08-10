@@ -6,7 +6,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 
@@ -59,25 +59,19 @@ def test_agent_from_dict_minimal():
     assert agent.managed is None
 
 
-def test_agent_from_dict_hydrates_transition_epochs_and_future_state():
+def test_agent_from_dict_hydrates_launch_epoch_and_future_state():
     agent = Agent.from_dict(
         {
             "id": "agent-123",
             "state": "FUTURE_STATE",
-            "placement_epoch": 7,
-            "runtime_generation": 4,
-            "finalize_epoch": 2,
-            "revision": 11,
+            "launch_epoch": 4,
             "resources_exist": True,
             "namespace_exists": True,
         }
     )
 
     assert agent.state == "FUTURE_STATE"
-    assert agent.placement_epoch == 7
-    assert agent.runtime_generation == 4
-    assert agent.finalize_epoch == 2
-    assert agent.revision == 11
+    assert agent.launch_epoch == 4
     assert agent.resources_exist is True
     assert agent.namespace_exists is True
 
@@ -87,7 +81,7 @@ def test_agent_from_dict_hydrates_starting_runtime_status():
         {
             "id": "agent-123",
             "state": "STARTING",
-            "last_error": "ErrImagePull; unauthorized",
+            "error": "ErrImagePull; unauthorized",
             "runtime_status": {
                 "pod_phase": "Pending",
                 "container_name": "reef",
@@ -122,10 +116,8 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         "reason": "archive_request",
         "error": None,
         "message": "Agent archive is being finalized",
-        "placement_epoch": 7,
-        "runtime_generation": 4,
+        "launch_epoch": 4,
         "agent_version": 1,
-        "revision": 9,
         "resources_exist": True,
         "namespace_exists": True,
     }
@@ -176,9 +168,8 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     assert received[-1].reason == "archive_request"
     assert received[-1].error is None
     assert received[-1].message == "Agent archive is being finalized"
-    assert received[-1].runtime_generation == 4
+    assert received[-1].launch_epoch == 4
     assert received[-1].agent_version == 1
-    assert received[-1].revision == 9
     assert received[-1].resources_exist is True
     assert received[-1].namespace_exists is True
 
@@ -324,8 +315,8 @@ async def test_wait_running_ignores_terminal_snapshot_from_older_runtime(monkeyp
     deployments = Deployments(http)
     snapshots = iter(
         (
-            {"id": "agent-123", "state": "FAILED", "runtime_generation": 9},
-            {"id": "agent-123", "state": "RUNNING", "runtime_generation": 10},
+            {"id": "agent-123", "state": "FAILED", "launch_epoch": 9},
+            {"id": "agent-123", "state": "RUNNING", "launch_epoch": 10},
         )
     )
     monkeypatch.setattr(deployments, "resolve_agent_id", lambda _value: "agent-123")
@@ -345,11 +336,11 @@ async def test_wait_running_ignores_terminal_snapshot_from_older_runtime(monkeyp
     agent = await deployments.wait_running_async(
         "agent-123",
         timeout=1,
-        minimum_runtime_generation=10,
+        minimum_launch_epoch=10,
     )
 
     assert agent.state == "RUNNING"
-    assert agent.runtime_generation == 10
+    assert agent.launch_epoch == 10
 
 
 def _routes_response(**overrides):
@@ -832,20 +823,16 @@ def test_agent_hydrates_storage_and_archive_projection():
         {
             "id": "agent-123",
             "state": "ARCHIVED",
-            "storage_cluster_id": "cluster-current",
+            "cluster_id": "cluster-current",
             "agent_version": 2,
             "archived_at": "2026-08-09T12:00:00Z",
-            "archived_cluster_id": "cluster-archive",
-            "archived_cluster_name": "dev01",
             "archived_path": "s3://archive/dev01/agent-123/checkpoint",
         }
     )
 
-    assert agent.storage_cluster_id == "cluster-current"
+    assert agent.cluster_id == "cluster-current"
     assert agent.agent_version == 2
     assert agent.archived_at == datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
-    assert agent.archived_cluster_id == "cluster-archive"
-    assert agent.archived_cluster_name == "dev01"
     assert agent.archived_path == "s3://archive/dev01/agent-123/checkpoint"
 
 
@@ -976,7 +963,7 @@ def test_openclaw_agent_from_dict():
     )
 
     assert agent.gateway_url is None
-    assert agent.gateway_token == "gw123"
+    assert agent.gateway_token is None
     assert agent.jwt_token == "jwt123"
     assert isinstance(agent.jwt_expires_at, datetime)
     assert isinstance(agent.started_at, datetime)
@@ -993,10 +980,12 @@ def test_openclaw_agent_from_dict_does_not_guess_gateway_url_from_hostname():
             "user_id": "user-456",
             "state": "running",
             "hostname": "test.hypercli.com",
+            "gateway_token": "must-not-hydrate",
         }
     )
 
     assert agent.gateway_url is None
+    assert agent.gateway_token is None
 
 
 def test_openclaw_agent_gateway_requires_url():
@@ -1022,7 +1011,7 @@ def test_openclaw_agent_gateway_allows_jwtless_when_route_auth_disabled():
         _deployments=manager,
     )
 
-    gw = agent.gateway()
+    gw = agent.gateway(gateway_token="gw123")
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert gw.token is None
     assert gw.gateway_token == "gw123"
@@ -1043,7 +1032,7 @@ def test_openclaw_agent_gateway_ignores_jwt_and_uses_bound_tokens():
         _deployments=manager,
     )
 
-    gw = agent.gateway()
+    gw = agent.gateway(gateway_token="gw123")
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert gw.token is None
     assert gw.gateway_token == "gw123"
@@ -1095,7 +1084,7 @@ def test_agent_wait_running_delegates_to_deployments():
         id="agent-123",
         user_id="user-456",
         state="STARTING",
-        runtime_generation=10,
+        launch_epoch=10,
         _deployments=manager,
     )
 
@@ -1105,11 +1094,56 @@ def test_agent_wait_running_delegates_to_deployments():
         "agent-123",
         timeout=42,
         poll_interval=1.5,
-        minimum_runtime_generation=10,
+        minimum_launch_epoch=10,
     )
     assert result is agent
     assert agent.state == "running"
     assert agent.hostname == "ready.hypercli.com"
+
+
+def test_agent_reads_environment_and_exact_secrets_through_bound_deployments():
+    manager = Mock()
+    manager.env.return_value = {"agent_id": "agent-123", "env": {"MODE": "prod"}, "launch_epoch": 10}
+    manager.secret_names.return_value = {
+        "agent_id": "agent-123",
+        "names": ["API_TOKEN"],
+        "launch_epoch": 10,
+    }
+    manager.secret.return_value = {
+        "agent_id": "agent-123",
+        "key": "API_TOKEN",
+        "value": "secret-value",
+        "launch_epoch": 10,
+    }
+    agent = Agent(
+        id="agent-123",
+        user_id="user-456",
+        state="running",
+        launch_epoch=10,
+        _deployments=manager,
+    )
+
+    assert agent.env() == {"MODE": "prod"}
+    assert agent.secret_names() == ["API_TOKEN"]
+    assert agent.secret("API_TOKEN") == "secret-value"
+    manager.env.assert_called_once_with("agent-123")
+    manager.secret_names.assert_called_once_with("agent-123")
+    manager.secret.assert_called_once_with("agent-123", "API_TOKEN")
+
+
+def test_agent_rejects_secret_from_older_launch_epoch():
+    manager = Mock()
+    manager.secret.return_value = {"value": "stale", "launch_epoch": 9}
+    agent = Agent(
+        id="agent-123",
+        user_id="user-456",
+        state="running",
+        launch_epoch=10,
+        _deployments=manager,
+    )
+
+    with pytest.raises(RuntimeError, match="older launch epoch"):
+        agent.secret("API_TOKEN")
 
 
 @pytest.mark.asyncio
@@ -1295,12 +1329,32 @@ def test_build_agent_launch_includes_command_and_entrypoint():
 
     assert gateway_token == "gw-token"
     assert launch["config"] == {"foo": "bar"}
-    assert launch["env"] == {"FOO": "bar", "OPENCLAW_GATEWAY_TOKEN": "gw-token"}
+    assert launch["env"] == {"FOO": "bar"}
+    assert launch["secrets"] == {"OPENCLAW_GATEWAY_TOKEN": "gw-token"}
     assert launch["command"] == ["echo", "hello"]
     assert launch["entrypoint"] == ["/bin/sh", "-c"]
     assert launch["routes"] == {"web": {"port": 80, "prefix": ""}}
     assert launch["restart"] is False
     assert launch["runtime_scopes"] == ["models:*", "workspaces:*"]
+
+
+def test_build_agent_launch_rejects_env_secret_collisions():
+    with pytest.raises(ValueError, match="both env and secrets"):
+        _build_agent_launch({}, env={"TOKEN": "public"}, secrets={"TOKEN": "secret"})
+
+
+def test_build_agent_launch_rejects_gateway_token_in_env():
+    with pytest.raises(ValueError, match="must be supplied through secrets"):
+        _build_agent_launch({}, env={"OPENCLAW_GATEWAY_TOKEN": "legacy"})
+
+
+def test_build_agent_launch_rejects_conflicting_gateway_token_inputs():
+    with pytest.raises(ValueError, match="conflicts with secrets"):
+        _build_agent_launch(
+            {},
+            gateway_token="explicit-token",
+            secrets={"OPENCLAW_GATEWAY_TOKEN": "different-token"},
+        )
 
 
 def test_build_agent_launch_omits_unspecified_restart():
@@ -1628,7 +1682,7 @@ def agents_client(mock_http):
 
 
 def test_agents_create_returns_openclaw_agent(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1666,10 +1720,8 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         )
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["env"] == {
-            "FOO": "bar",
-            "OPENCLAW_GATEWAY_TOKEN": "gw-token-123",
-        }
+        assert posted_json["env"] == {"FOO": "bar"}
+        assert "secrets" not in posted_json
         assert posted_json["meta"] == {
             "ui": {
                 "avatar": {
@@ -1684,7 +1736,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert posted_json["registry_url"] == "ghcr.io"
         assert posted_json["registry_auth"] == {"username": "u", "password": "p"}
         assert isinstance(agent, OpenClawAgent)
-        assert agent.gateway_token == "gw-token-123"
+        assert agent.gateway_token is None
         assert agent.gateway_url is None
         assert agent.meta_ui is None
         assert agent._deployments is agents_client
@@ -1702,7 +1754,7 @@ def test_agents_create_preserves_backend_contract_on_idempotent_replay(agents_cl
             "runtime": "openclaw",
             "creation_replayed": True,
             "launch_config": {
-                "env": {"OPENCLAW_GATEWAY_TOKEN": "original-token"},
+                "secrets": {"OPENCLAW_GATEWAY_TOKEN": "original-token"},
                 "command": ["original-command"],
                 "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
                 "sync_enabled": True,
@@ -1716,19 +1768,19 @@ def test_agents_create_preserves_backend_contract_on_idempotent_replay(agents_cl
         agent = agents_client.create_openclaw(
             name="replayed-agent",
             start=False,
-            env={"OPENCLAW_GATEWAY_TOKEN": "retry-token"},
+            secrets={"OPENCLAW_GATEWAY_TOKEN": "retry-token"},
             command=["retry-command"],
             meta_ui={"creation_id": "setup-123"},
         )
 
         assert agent.creation_replayed is True
-        assert agent.launch_config["env"]["OPENCLAW_GATEWAY_TOKEN"] == "original-token"
+        assert agent.launch_config.get("secrets") is None
         assert "sync_enabled" not in agent.launch_config
         assert agent.command == ["original-command"]
 
 
 def test_create_openclaw_defaults_sync_root(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -2204,7 +2256,7 @@ def test_agents_list_passes_filters(agents_client):
 
 
 def test_agents_start_stop_delete(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-456"):
+    with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -2227,12 +2279,11 @@ def test_agents_start_stop_delete(agents_client):
             entrypoint=["/bin/sh", "-c"],
         )
         assert isinstance(agent, OpenClawAgent)
-        assert agent.gateway_token == "gw-token-456"
+        assert agent.gateway_token is None
         assert mock_client.post.call_args[1]["json"] == {
             "image": "ghcr.io/hypercli/hypercli-openclaw:test",
             "command": ["echo", "hello"],
             "entrypoint": ["/bin/sh", "-c"],
-            "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
         }
 
         mock_response.json.return_value["state"] = "stopping"
@@ -2618,14 +2669,20 @@ def test_agents_redeem_grant_code_can_request_extension(agents_client):
         assert mock_client.post.call_args[1]["json"] == {"code": "promo-123", "extend_existing": True}
 
 
-def test_openclaw_agent_resolve_gateway_token_uses_gateway_context():
+def _openclaw_snapshot(*, hostname="openclaw-test.hypercli.com", launch_epoch=3):
+    return OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        state="running",
+        hostname=hostname,
+        launch_epoch=launch_epoch,
+    )
+
+
+def test_openclaw_agent_resolve_gateway_token_uses_exact_secret():
     manager = Mock()
-    manager.gateway_context.return_value = {
-        "agent_id": "agent-123",
-        "gateway_url": "wss://openclaw-test.hypercli.com",
-        "gateway_token": "gw-fetched",
-        "runtime_generation": 3,
-    }
+    manager.get.return_value = _openclaw_snapshot()
+    manager.secret.return_value = {"value": "gw-fetched", "launch_epoch": 3}
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
@@ -2638,35 +2695,31 @@ def test_openclaw_agent_resolve_gateway_token_uses_gateway_context():
     assert token == "gw-fetched"
     assert agent.gateway_token == "gw-fetched"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    manager.gateway_context.assert_called_once_with("agent-123")
+    assert manager.get.call_count == 2
+    manager.get.assert_called_with("agent-123")
+    manager.secret.assert_called_once_with("agent-123", "OPENCLAW_GATEWAY_TOKEN")
 
 
-def test_deployments_gateway_context_uses_narrow_backend_route(agents_client):
-    context = {
-        "agent_id": "agent-123",
-        "gateway_url": "wss://openclaw-test.hypercli.com",
-        "gateway_token": "gw-fetched",
-        "runtime_generation": 3,
-    }
+def test_deployments_environment_and_secret_routes(agents_client):
     agents_client.resolve_agent_id = Mock(return_value="agent-123")
-    agents_client._get = Mock(return_value=context)
+    agents_client._get = Mock(side_effect=[{"env": {"FOO": "bar"}}, {"names": ["TOKEN"]}, {"value": "secret"}])
 
-    assert agents_client.gateway_context("openclaw-test") == context
-    agents_client._get.assert_called_once_with(
-        f"{AGENTS_API_PREFIX}/agent-123/gateway"
-    )
+    assert agents_client.env("openclaw-test") == {"env": {"FOO": "bar"}}
+    assert agents_client.secret_names("openclaw-test") == {"names": ["TOKEN"]}
+    assert agents_client.secret("openclaw-test", "A/B") == {"value": "secret"}
+    assert agents_client._get.call_args_list == [
+        call(f"{AGENTS_API_PREFIX}/agent-123/env"),
+        call(f"{AGENTS_API_PREFIX}/agent-123/secrets"),
+        call(f"{AGENTS_API_PREFIX}/agent-123/secrets/A%2FB"),
+    ]
 
 
 def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch):
     manager = Mock()
-    manager.gateway_context.side_effect = [
-        APIError(409, "Agent gateway context is not ready"),
-        {
-            "agent_id": "agent-123",
-            "gateway_url": "wss://openclaw-test.hypercli.com",
-            "gateway_token": "gw-fetched",
-            "runtime_generation": 3,
-        },
+    manager.get.return_value = _openclaw_snapshot()
+    manager.secret.side_effect = [
+        APIError(409, "Agent secret is not ready"),
+        {"value": "gw-fetched", "launch_epoch": 3},
     ]
     agent = OpenClawAgent(
         id="agent-123",
@@ -2682,52 +2735,40 @@ def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch
     assert context["gateway_url"] == "wss://openclaw-test.hypercli.com"
     assert agent.gateway_token == "gw-fetched"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    assert manager.gateway_context.call_count == 2
+    assert manager.get.call_count == 3
+    assert manager.secret.call_count == 2
 
 
-def test_openclaw_agent_gateway_context_rejects_older_generation(monkeypatch):
+def test_openclaw_agent_gateway_context_rejects_older_launch_epoch(monkeypatch):
     manager = Mock()
-    manager.gateway_context.side_effect = [
-        {
-            "agent_id": "agent-123",
-            "gateway_url": "wss://old.hypercli.com",
-            "gateway_token": "gw-old",
-            "runtime_generation": 2,
-        },
-        {
-            "agent_id": "agent-123",
-            "gateway_url": "wss://openclaw-test.hypercli.com",
-            "gateway_token": "gw-fetched",
-            "runtime_generation": 3,
-        },
+    manager.get.return_value = _openclaw_snapshot()
+    manager.secret.side_effect = [
+        {"value": "gw-old", "launch_epoch": 2},
+        {"value": "gw-fetched", "launch_epoch": 3},
     ]
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
         state="running",
-        runtime_generation=3,
+        launch_epoch=3,
         _deployments=manager,
     )
     monkeypatch.setattr("hypercli.agents.time.sleep", lambda _seconds: None)
 
     context = agent.wait_for_gateway_context(timeout=0.1, retry_interval=0)
 
-    assert context["runtime_generation"] == 3
+    assert context["launch_epoch"] == 3
     assert agent.gateway_token == "gw-fetched"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    assert manager.gateway_context.call_count == 2
+    assert manager.secret.call_count == 2
 
 
-def test_openclaw_agent_gateway_resolves_missing_url_via_gateway_context():
+def test_openclaw_agent_gateway_resolves_url_from_refreshed_hostname():
     manager = Mock()
     manager._api_key = "sk-hyper-test123"
     manager._api_base = "https://api.test.hypercli.com"
-    manager.gateway_context.return_value = {
-        "agent_id": "agent-123",
-        "gateway_url": "wss://openclaw-test.hypercli.com",
-        "gateway_token": "gw-fetched",
-        "runtime_generation": 3,
-    }
+    manager.get.return_value = _openclaw_snapshot()
+    manager.secret.return_value = {"value": "gw-fetched", "launch_epoch": 3}
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
@@ -2741,7 +2782,9 @@ def test_openclaw_agent_gateway_resolves_missing_url_via_gateway_context():
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
     assert agent.gateway_token == "gw-fetched"
-    manager.gateway_context.assert_called_once_with("agent-123")
+    assert manager.get.call_count == 2
+    manager.get.assert_called_with("agent-123")
+    manager.secret.assert_called_once_with("agent-123", "OPENCLAW_GATEWAY_TOKEN")
 
 
 def test_agents_api_error(agents_client):
@@ -2825,7 +2868,7 @@ async def test_agents_integration_lifecycle():
             if agent.is_running:
                 break
             if agent.state in ("failed", "stopped"):
-                pytest.fail(f"Agent failed to start: {agent.state} - {agent.last_error}")
+                pytest.fail(f"Agent failed to start: {agent.state} - {agent.error}")
         else:
             pytest.fail("Agent did not start within 2 minutes")
 

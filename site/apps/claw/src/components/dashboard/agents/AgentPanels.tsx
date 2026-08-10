@@ -791,7 +791,7 @@ function buildUpdatedLaunchConfig(
     readyOnly: resolvedWorkspacesSync.readyOnly,
     workspace: resolvedWorkspacesSync.workspace.trim() || null,
   };
-  launchConfig.env = {
+  const launchEnv: Record<string, string> = {
     ...preservedEnv,
     OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
     // Keep the injected indexing envs in line with the saved toggles; the
@@ -802,10 +802,11 @@ function buildUpdatedLaunchConfig(
     ...parseAdditionalEnvText(additionalEnvText),
   };
   if (workspaceOptions.enabled) {
-    launchConfig.env.HYPER_WORKSPACES_DIR = "/home/node/shared";
+    launchEnv.HYPER_WORKSPACES_DIR = "/home/node/shared";
   } else {
-    delete launchConfig.env.HYPER_WORKSPACES_DIR;
+    delete launchEnv.HYPER_WORKSPACES_DIR;
   }
+  launchConfig.env = launchEnv;
   launchConfig.workspacesSync = workspaceOptions;
   return launchConfig;
 }
@@ -2732,7 +2733,7 @@ function toAgentCardTooltipData(agent: Agent): AgentCardTooltipData {
     hostname: agent.hostname,
     startedAt: agent.started_at,
     updatedAt: agent.updated_at,
-    lastError: agent.last_error,
+    error: agent.error,
     meta: agent.meta,
     avatarUrl: agentProfileImageUrl(agent),
   };

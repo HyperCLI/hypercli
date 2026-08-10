@@ -450,6 +450,7 @@ async function mockAgentChat(
           cpu: 1,
           memory: 1,
           hostname: "agent-1.example.test",
+          launch_epoch: 1,
           routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
         },
         {
@@ -460,6 +461,7 @@ async function mockAgentChat(
           cpu: 1,
           memory: 1,
           hostname: "agent-2.example.test",
+          launch_epoch: 1,
           routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
         },
       ]));
@@ -482,16 +484,19 @@ async function mockAgentChat(
         cpu: 1,
         memory: 1,
         hostname: `${agentId}.example.test`,
+        launch_epoch: 1,
         routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
       }));
       return;
     }
 
-    if (/\/agents\/deployments\/agent-[12]\/env$/.test(pathName)) {
+    if (/\/agents\/deployments\/agent-[12]\/secrets\/OPENCLAW_GATEWAY_TOKEN$/.test(pathName)) {
       const agentId = pathName.includes("agent-2") ? "agent-2" : "agent-1";
       await route.fulfill(json({
         agent_id: agentId,
-        env: { OPENCLAW_GATEWAY_TOKEN: `gateway-token-${agentId}` },
+        key: "OPENCLAW_GATEWAY_TOKEN",
+        value: `gateway-token-${agentId}`,
+        launch_epoch: 1,
       }));
       return;
     }

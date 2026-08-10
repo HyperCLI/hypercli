@@ -106,7 +106,7 @@ describe("agent-client", () => {
         sync_root: "/home/ubuntu",
         sync_enabled: false,
         env: {
-          OPENCLAW_GATEWAY_TOKEN: "existing-gateway-token",
+          OPENCLAW_GATEWAY_TOKEN: "must-not-replay-from-env",
           OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://claw.hypercli.com",
           FOO: "bar",
         },
@@ -128,7 +128,6 @@ describe("agent-client", () => {
       controlUiOriginLock: true,
       config: {},
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "existing-gateway-token",
         FOO: "bar",
         EXTRA: "value",
       },

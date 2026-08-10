@@ -146,21 +146,21 @@ export function AgentMainPanel({
     if (selectedAgent.state === "FAILED") {
       return {
         label: "Failed",
-        detail: selectedAgent.last_error || "Needs attention before it can run.",
+        detail: selectedAgent.error || "Needs attention before it can run.",
         tone: "failed",
       };
     }
     if (selectedAgent.state === "RESTORE_FAILED") {
       return {
         label: "Restore failed",
-        detail: selectedAgent.last_error || "File restore failed before the agent could boot.",
+        detail: selectedAgent.error || "File restore failed before the agent could boot.",
         tone: "failed",
       };
     }
     if (selectedAgent.state === "SYNC_FAILED") {
       return {
         label: "Sync failed",
-        detail: selectedAgent.last_error?.replace(/\bworkspaces?\b/gi, "shared knowledge") || "Shared knowledge sync failed before the agent could boot.",
+        detail: selectedAgent.error?.replace(/\bworkspaces?\b/gi, "shared knowledge") || "Shared knowledge sync failed before the agent could boot.",
         tone: "failed",
       };
     }

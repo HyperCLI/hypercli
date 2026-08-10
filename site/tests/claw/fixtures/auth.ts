@@ -147,7 +147,7 @@ interface DeploymentRecord {
   memory?: number | null;
   hostname?: string | null;
   routes?: Record<string, unknown> | null;
-  lastError?: string | null;
+  error?: string | null;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
 }
@@ -1950,7 +1950,7 @@ export async function launchClawAgentAndWaitForGateway(
         `[agents-launch] readiness failed ${JSON.stringify({
           id: created.id,
           state: latest.state ?? "unknown",
-          lastError: latest.lastError ?? null,
+          error: latest.error ?? null,
           createdAt: latest.createdAt ?? null,
           updatedAt: latest.updatedAt ?? null,
           hostname: latest.hostname ?? null,

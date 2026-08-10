@@ -28,7 +28,7 @@ export interface AgentCardTooltipData {
   hostname?: string | null;
   startedAt?: string | null;
   updatedAt?: string | null;
-  lastError?: string | null;
+  error?: string | null;
   meta?: AgentMeta | null;
   config?: {
     model?: string | null;
@@ -139,8 +139,8 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
         </div>
       </div>
 
-      {agent?.lastError ? (
-        <p className="line-clamp-2 text-[10px] text-destructive">{agent.lastError}</p>
+      {agent?.error ? (
+        <p className="line-clamp-2 text-[10px] text-destructive">{agent.error}</p>
       ) : agent?.config?.systemPrompt ? (
         <p className="text-[10px] text-text-muted line-clamp-2">{agent.config.systemPrompt}</p>
       ) : null}

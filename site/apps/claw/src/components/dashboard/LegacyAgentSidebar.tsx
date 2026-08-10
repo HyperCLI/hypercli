@@ -21,7 +21,7 @@ interface SidebarAgent {
   state: AgentState;
   cpu_millicores: number;
   memory_mib: number;
-  last_error: string | null;
+  error: string | null;
   avatarUrl?: string | null;
   displayIdentity?: unknown;
   meta?: AgentMeta | null;
@@ -221,8 +221,8 @@ export function LegacyAgentSidebar({
                     <p className="text-xs text-text-muted mt-0.5">
                       {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
                     </p>
-                    {agent.last_error && (agent.state === "FAILED" || agent.state === "RESTORE_FAILED" || agent.state === "SYNC_FAILED") && (
-                      <p className="mt-0.5 truncate text-xs text-destructive">{agent.last_error}</p>
+                    {agent.error && (agent.state === "FAILED" || agent.state === "RESTORE_FAILED" || agent.state === "SYNC_FAILED") && (
+                      <p className="mt-0.5 truncate text-xs text-destructive">{agent.error}</p>
                     )}
                   </div>
                 </button>

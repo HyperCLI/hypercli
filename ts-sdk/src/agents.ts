@@ -218,6 +218,7 @@ const DEFAULT_OPENCLAW_SYNC_EXCLUDE = [
 const LAUNCH_CONFIG_KEYS = new Set([
   'image',
   'env',
+  'secrets',
   'routes',
   'ports',
   'command',
@@ -262,7 +263,26 @@ export interface AgentGatewayContext {
   agent_id: string;
   gateway_url: string;
   gateway_token: string;
-  runtime_generation: number;
+  launch_epoch: number;
+}
+
+export interface AgentEnvResponse {
+  agent_id: string;
+  env: Record<string, string>;
+  launch_epoch: number;
+}
+
+export interface AgentSecretNamesResponse {
+  agent_id: string;
+  names: string[];
+  launch_epoch: number;
+}
+
+export interface AgentSecretResponse {
+  agent_id: string;
+  key: string;
+  value: string;
+  launch_epoch: number;
 }
 
 export interface GatewayContextWaitOptions {
@@ -569,6 +589,7 @@ export interface RegistryAuth {
 
 export interface BuildAgentConfigOptions {
   env?: Record<string, string>;
+  secrets?: Record<string, string>;
   ports?: Record<string, any>[] | null;
   routes?: Record<string, AgentRouteConfig> | null;
   command?: string[] | null;
@@ -768,7 +789,7 @@ export interface UpdateAgentOptions {
   size?: string;
   launchConfig?: Record<string, any> | null;
   refreshFromLagoon?: boolean;
-  lastError?: string | null;
+  error?: string | null;
 }
 
 export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
@@ -837,8 +858,6 @@ function buildBuzzLaunchEnv(
 
   const harness = BUZZ_RUNTIME_COMMANDS[runtime];
   const env: Record<string, string> = {
-    BUZZ_PRIVATE_KEY: buzz.privateKeyNsec,
-    NOSTR_PRIVATE_KEY: buzz.privateKeyNsec,
     BUZZ_RELAY_URL: buzz.relayUrl,
     BUZZ_MANAGED_AGENT_START_NONCE: randomHexToken(16),
     BUZZ_ACP_AGENT_COMMAND: harness.command,
@@ -877,6 +896,14 @@ function buildBuzzLaunchEnv(
   if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
   if (buzz.requireReply) env.BUZZ_ACP_REQUIRE_REPLY = 'true';
   return env;
+}
+
+function buildBuzzLaunchSecrets(buzz: BuzzLaunchConfig): Record<string, string> {
+  if (!buzz.privateKeyNsec.trim()) throw new Error('buzz.privateKeyNsec is required');
+  return {
+    BUZZ_PRIVATE_KEY: buzz.privateKeyNsec,
+    NOSTR_PRIVATE_KEY: buzz.privateKeyNsec,
+  };
 }
 
 export interface RuntimeAuthMethod {
@@ -1260,21 +1287,24 @@ export function isAgentRuntimeInactiveState(state: string): boolean {
   return AGENT_RUNTIME_INACTIVE_STATES.has(state.toUpperCase());
 }
 
-export interface DeploymentEvent {
+export interface DeploymentTransitionEvent {
   type: 'deployment.transition';
   agent_id: string;
   state?: AgentState;
   reason?: string | null;
   error?: string | null;
   message?: string | null;
-  placement_epoch?: number;
-  runtime_generation?: number;
+  launch_epoch?: number;
   agent_version?: number;
-  finalize_epoch?: number;
-  revision?: number;
   resources_exist?: boolean;
   namespace_exists?: boolean;
 }
+
+export interface DeploymentsChangedEvent {
+  type: 'deployments.changed';
+}
+
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentsChangedEvent;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -1306,22 +1336,15 @@ export interface AgentStateFields {
   startedAt?: Date | null;
   stoppedAt?: Date | null;
   archivedAt?: Date | null;
-  storageClusterId?: string | null;
-  archivedClusterId?: string | null;
-  archivedClusterName?: string | null;
+  clusterId?: string | null;
   archivedPath?: string | null;
   reason?: string | null;
   error?: string | null;
   message?: string | null;
-  /** @deprecated Use error/message. Accepted during the rollout only. */
-  lastError?: string | null;
   /** @deprecated Use reason/error/message. Accepted during the rollout only. */
   runtimeStatus?: AgentRuntimeStatus | null;
-  placementEpoch?: number;
-  runtimeGeneration?: number;
+  launchEpoch?: number;
   agentVersion?: number;
-  finalizeEpoch?: number | null;
-  revision?: number;
   resourcesExist?: boolean;
   namespaceExists?: boolean;
   createdAt?: Date | null;
@@ -1368,22 +1391,15 @@ export interface AgentHydrationData {
   started_at?: string | null;
   stopped_at?: string | null;
   archived_at?: string | null;
-  storage_cluster_id?: string | null;
-  archived_cluster_id?: string | null;
-  archived_cluster_name?: string | null;
+  cluster_id?: string | null;
   archived_path?: string | null;
   reason?: string | null;
   error?: string | null;
   message?: string | null;
   /** @deprecated Accepted from older Backend deployments during rollout. */
-  last_error?: string | null;
-  /** @deprecated Accepted from older Backend deployments during rollout. */
   runtime_status?: AgentRuntimeStatus | null;
-  placement_epoch?: number;
-  runtime_generation?: number;
+  launch_epoch?: number;
   agent_version?: number;
-  finalize_epoch?: number | null;
-  revision?: number;
   resources_exist?: boolean;
   namespace_exists?: boolean;
   created_at?: string | null;
@@ -1398,7 +1414,6 @@ export interface AgentHydrationData {
   creation_replayed?: boolean;
   openclaw_url?: string | null;
   gateway_url?: string | null;
-  gateway_token?: string | null;
   [key: string]: any;
 }
 
@@ -1770,7 +1785,10 @@ function execResultFromDict(data: any): AgentExecResult {
 
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   const launchConfig = isPlainRecord(data.launch_config) ? structuredClone(data.launch_config) : null;
-  if (launchConfig) delete launchConfig.sync_enabled;
+  if (launchConfig) {
+    delete launchConfig.sync_enabled;
+    delete launchConfig.secrets;
+  }
   return {
     id: data.id ?? '',
     userId: data.user_id ?? '',
@@ -1795,20 +1813,14 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
     archivedAt: parseDate(data.archived_at),
-    storageClusterId: data.storage_cluster_id ?? null,
-    archivedClusterId: data.archived_cluster_id ?? null,
-    archivedClusterName: data.archived_cluster_name ?? null,
+    clusterId: data.cluster_id ?? null,
     archivedPath: data.archived_path ?? null,
     reason: data.reason ?? null,
-    error: data.error ?? data.last_error ?? null,
+    error: data.error ?? null,
     message: data.message ?? null,
-    lastError: data.last_error ?? data.error ?? null,
     runtimeStatus: data.runtime_status ? structuredClone(data.runtime_status) : null,
-    placementEpoch: data.placement_epoch ?? 0,
-    runtimeGeneration: data.runtime_generation ?? 0,
+    launchEpoch: data.launch_epoch ?? 0,
     agentVersion: data.agent_version ?? 0,
-    finalizeEpoch: data.finalize_epoch ?? null,
-    revision: data.revision ?? 0,
     resourcesExist: data.resources_exist ?? false,
     namespaceExists: data.namespace_exists ?? false,
     createdAt: parseDate(data.created_at),
@@ -1837,7 +1849,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
 export function buildAgentConfig(
   config: Record<string, any> = {},
   options: BuildAgentConfigOptions = {},
-): { config: Record<string, any>; gatewayToken: string } {
+): { config: Record<string, any>; gatewayToken: string | null } {
   const preparedConfig = structuredClone(config);
   const nestedLaunchKeys = Object.keys(preparedConfig).filter((key) => LAUNCH_CONFIG_KEYS.has(key));
   if (nestedLaunchKeys.length) {
@@ -1858,15 +1870,20 @@ export function buildAgentConfig(
     preparedConfig.agents = agentsConfig;
   }
   const env = { ...(options.env ?? {}) } as Record<string, string>;
+  const secrets = { ...(options.secrets ?? {}) } as Record<string, string>;
+  if (Object.prototype.hasOwnProperty.call(env, 'OPENCLAW_GATEWAY_TOKEN')) {
+    throw new Error('OPENCLAW_GATEWAY_TOKEN is a Secret; pass it through secrets or gatewayToken, not env');
+  }
 
-  let gatewayToken = '';
+  let gatewayToken: string | null = null;
   if (options.injectGatewayToken !== false) {
-    gatewayToken = options.gatewayToken?.trim() || env.OPENCLAW_GATEWAY_TOKEN?.trim() || '';
-    if (!gatewayToken) {
-      gatewayToken = randomHexToken(32);
+    const explicitGatewayToken = options.gatewayToken?.trim() || null;
+    const secretGatewayToken = secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+    if (explicitGatewayToken && secretGatewayToken && explicitGatewayToken !== secretGatewayToken) {
+      throw new Error('gatewayToken conflicts with secrets.OPENCLAW_GATEWAY_TOKEN');
     }
-
-    env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+    gatewayToken = explicitGatewayToken ?? secretGatewayToken;
+    if (gatewayToken) secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
     if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
       const controlUiOrigin = defaultControlUiAllowedOrigin();
       if (controlUiOrigin) {
@@ -1874,10 +1891,15 @@ export function buildAgentConfig(
       }
     }
   }
+  const collidingKeys = Object.keys(env).filter((key) => Object.prototype.hasOwnProperty.call(secrets, key));
+  if (collidingKeys.length > 0) {
+    throw new Error(`Launch keys cannot appear in both env and secrets: ${collidingKeys.join(', ')}`);
+  }
 
   const prepared: Record<string, any> = {};
   if (Object.keys(preparedConfig).length > 0) prepared.config = preparedConfig;
   if (Object.keys(env).length > 0) prepared.env = env;
+  if (Object.keys(secrets).length > 0) prepared.secrets = secrets;
   if (options.ports !== undefined && options.ports !== null) prepared.ports = options.ports;
   if (options.routes !== undefined && options.routes !== null) prepared.routes = options.routes;
   if (options.command !== undefined && options.command !== null) prepared.command = options.command;
@@ -2234,22 +2256,15 @@ export class Agent {
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
   public readonly archivedAt: Date | null;
-  public readonly storageClusterId: string | null;
-  public readonly archivedClusterId: string | null;
-  public readonly archivedClusterName: string | null;
+  public readonly clusterId: string | null;
   public readonly archivedPath: string | null;
   public readonly reason: string | null;
   public readonly error: string | null;
   public readonly message: string | null;
-  /** @deprecated Use error/message. */
-  public readonly lastError: string | null;
   /** @deprecated Use reason/error/message. */
   public readonly runtimeStatus: AgentRuntimeStatus | null;
-  public readonly placementEpoch: number;
-  public readonly runtimeGeneration: number;
+  public readonly launchEpoch: number;
   public readonly agentVersion: number;
-  public readonly finalizeEpoch: number | null;
-  public readonly revision: number;
   public readonly resourcesExist: boolean;
   public readonly namespaceExists: boolean;
   public readonly createdAt: Date | null;
@@ -2288,20 +2303,14 @@ export class Agent {
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
     this.archivedAt = fields.archivedAt ?? null;
-    this.storageClusterId = fields.storageClusterId ?? null;
-    this.archivedClusterId = fields.archivedClusterId ?? null;
-    this.archivedClusterName = fields.archivedClusterName ?? null;
+    this.clusterId = fields.clusterId ?? null;
     this.archivedPath = fields.archivedPath ?? null;
     this.reason = fields.reason ?? null;
-    this.error = fields.error ?? fields.lastError ?? null;
+    this.error = fields.error ?? null;
     this.message = fields.message ?? null;
-    this.lastError = fields.lastError ?? fields.error ?? null;
     this.runtimeStatus = fields.runtimeStatus ? structuredClone(fields.runtimeStatus) : null;
-    this.placementEpoch = fields.placementEpoch ?? 0;
-    this.runtimeGeneration = fields.runtimeGeneration ?? 0;
+    this.launchEpoch = fields.launchEpoch ?? 0;
     this.agentVersion = fields.agentVersion ?? 0;
-    this.finalizeEpoch = fields.finalizeEpoch ?? null;
-    this.revision = fields.revision ?? 0;
     this.resourcesExist = fields.resourcesExist ?? false;
     this.namespaceExists = fields.namespaceExists ?? false;
     this.createdAt = fields.createdAt ?? null;
@@ -2410,7 +2419,7 @@ export class Agent {
       this.id,
       timeoutMs,
       pollIntervalMs,
-      this.runtimeGeneration > 0 ? this.runtimeGeneration : undefined,
+      this.launchEpoch > 0 ? this.launchEpoch : undefined,
     );
   }
 
@@ -2420,6 +2429,30 @@ export class Agent {
 
   async resize(options: Pick<UpdateAgentOptions, 'size'>): Promise<Agent> {
     return this.requireDeployments().resize(this.id, options);
+  }
+
+  async env(): Promise<Record<string, string>> {
+    const response = await this.requireDeployments().env(this.id);
+    if (response.launch_epoch < this.launchEpoch) {
+      throw new Error('agent env belongs to an older launch epoch');
+    }
+    return response.env;
+  }
+
+  async secretNames(): Promise<string[]> {
+    const response = await this.requireDeployments().secretNames(this.id);
+    if (response.launch_epoch < this.launchEpoch) {
+      throw new Error('agent Secret names belong to an older launch epoch');
+    }
+    return response.names;
+  }
+
+  async secret(key: string): Promise<string> {
+    const response = await this.requireDeployments().secret(this.id, key);
+    if (response.launch_epoch < this.launchEpoch) {
+      throw new Error('agent Secret belongs to an older launch epoch');
+    }
+    return response.value;
   }
 
   async exec(command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
@@ -2966,7 +2999,7 @@ export class OpenClawAgent extends Agent {
     return new OpenClawAgent({
       ...agentStateFromDict(data),
       gatewayUrl: this.gatewayUrlFromHostname(data.hostname),
-      gatewayToken: data.gateway_token ?? null,
+      gatewayToken: null,
     });
   }
 
@@ -2975,13 +3008,7 @@ export class OpenClawAgent extends Agent {
     return trimmed ? `wss://${trimmed}` : null;
   }
 
-  /**
-   * Resolve the narrow authenticated OpenClaw gateway context.
-   *
-   * Agent startup is eventually consistent. The Backend may report that the
-   * context is not ready until the canonical launch projection catches up, so
-   * this retries one purpose-built endpoint and never reads runtime Secrets.
-   */
+  /** Resolve OpenClaw connection context from the generic Agent and Secret APIs. */
   async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
     const callerAbortError = (): Error => {
       if (options.signal?.reason instanceof Error) return options.signal.reason;
@@ -2990,14 +3017,6 @@ export class OpenClawAgent extends Agent {
       return error;
     };
     if (options.signal?.aborted) throw callerAbortError();
-    if (this.gatewayToken && this.gatewayUrl) {
-      return {
-        agent_id: this.id,
-        gateway_url: this.gatewayUrl,
-        gateway_token: this.gatewayToken,
-        runtime_generation: this.runtimeGeneration,
-      };
-    }
     const timeoutMs = options.timeoutMs ?? 30_000;
     const retryIntervalMs = options.retryIntervalMs ?? 1_000;
     const deployments = this.requireDeployments();
@@ -3062,16 +3081,38 @@ export class OpenClawAgent extends Agent {
           timeout: Math.max(1, remainingMs),
         };
         try {
-          const context = await runWithAbort(
-            deployments.gatewayContext(this.id, requestOptions),
-          );
-          if (context.runtime_generation < this.runtimeGeneration) {
-            lastError = new Error('gateway context belongs to an older runtime generation');
-          } else {
-            this.gatewayUrl = context.gateway_url;
-            this.gatewayToken = context.gateway_token;
-            return context;
+          const refreshed = await runWithAbort(deployments.get(this.id, requestOptions));
+          if (refreshed.launchEpoch < this.launchEpoch) {
+            throw new Error('gateway Agent belongs to an older launch epoch');
           }
+          if (refreshed.state.toUpperCase() !== 'RUNNING') {
+            throw new Error(`gateway Agent is ${refreshed.state}, not RUNNING`);
+          }
+          const secret = await runWithAbort(
+            deployments.secret(this.id, 'OPENCLAW_GATEWAY_TOKEN', requestOptions),
+          );
+          if (secret.launch_epoch !== refreshed.launchEpoch) {
+            throw new Error('gateway Secret and Agent belong to different launch epochs');
+          }
+          const gatewayToken = secret.value.trim();
+          if (!gatewayToken) throw new Error('OPENCLAW_GATEWAY_TOKEN is empty');
+          const confirmed = await runWithAbort(deployments.get(this.id, requestOptions));
+          if (
+            confirmed.launchEpoch !== refreshed.launchEpoch
+            || confirmed.state.toUpperCase() !== 'RUNNING'
+          ) {
+            throw new Error('gateway Agent changed while its Secret was resolved');
+          }
+          const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(confirmed.hostname);
+          if (!gatewayUrl) throw new Error('gateway Agent has no hostname');
+          this.gatewayUrl = gatewayUrl;
+          this.gatewayToken = gatewayToken;
+          return {
+            agent_id: this.id,
+            gateway_url: gatewayUrl,
+            gateway_token: gatewayToken,
+            launch_epoch: refreshed.launchEpoch,
+          };
         } catch (error) {
           lastError = error;
         }
@@ -3861,7 +3902,7 @@ export class OpenClawProAgent extends OpenClawAgent {
     return new OpenClawProAgent({
       ...agentStateFromDict(data),
       gatewayUrl: this.gatewayUrlFromHostname(data.hostname),
-      gatewayToken: data.gateway_token ?? null,
+      gatewayToken: null,
     });
   }
 }
@@ -4025,11 +4066,12 @@ export class Deployments {
     const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
     const agent = this.hydrateAgent(data);
     if (!agent.creationReplayed) {
-      if (agent instanceof OpenClawAgent) {
+      if (agent instanceof OpenClawAgent && gatewayToken) {
         agent.gatewayToken = gatewayToken;
       }
       agent.launchConfig = structuredClone(config);
       delete agent.launchConfig.sync_enabled;
+      delete agent.launchConfig.secrets;
       agent.command = [...(config.command ?? [])];
       agent.entrypoint = [...(config.entrypoint ?? [])];
     }
@@ -4124,6 +4166,16 @@ export class Deployments {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...(options.env ?? {}),
     };
+    const effectiveSecrets: Record<string, string> = { ...(options.secrets ?? {}) };
+    for (const key of ['BUZZ_PRIVATE_KEY', 'NOSTR_PRIVATE_KEY']) {
+      const value = effectiveEnv[key];
+      if (value === undefined) continue;
+      delete effectiveEnv[key];
+      if (effectiveSecrets[key] !== undefined && effectiveSecrets[key] !== value) {
+        throw new Error(`${key} conflicts between env and secrets`);
+      }
+      effectiveSecrets[key] = value;
+    }
     if (effectiveEnv.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
       effectiveEnv.HYPER_WORKSPACES_DIR = '/home/node/shared';
     }
@@ -4133,6 +4185,7 @@ export class Deployments {
         effectiveEnv,
         buildBuzzLaunchEnv(runtime, options.buzz, options.name),
       );
+      Object.assign(effectiveSecrets, buildBuzzLaunchSecrets(options.buzz));
     }
     if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
@@ -4158,6 +4211,7 @@ export class Deployments {
       size: buzzLaunch ? 'large' : options.size,
       injectGatewayToken: false,
       env: effectiveEnv,
+      secrets: effectiveSecrets,
       routes: options.routes ?? {},
       image: options.image ?? (
         buzzLaunch
@@ -4460,11 +4514,11 @@ export class Deployments {
     states: readonly AgentState[],
     timeoutMs = 300_000,
     failureStates: readonly AgentState[] = [],
-    minimumRuntimeGeneration?: number,
+    minimumLaunchEpoch?: number,
   ): Promise<Agent> {
     if (!states.length) throw new Error('states must not be empty');
-    if (minimumRuntimeGeneration !== undefined && minimumRuntimeGeneration < 0) {
-      throw new Error('minimumRuntimeGeneration must be non-negative');
+    if (minimumLaunchEpoch !== undefined && minimumLaunchEpoch < 0) {
+      throw new Error('minimumLaunchEpoch must be non-negative');
     }
     const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
@@ -4499,8 +4553,8 @@ export class Deployments {
       lastAgent = agent;
       lastState = String(agent.state || '');
       if (
-        minimumRuntimeGeneration !== undefined
-        && agent.runtimeGeneration < minimumRuntimeGeneration
+        minimumLaunchEpoch !== undefined
+        && agent.launchEpoch < minimumLaunchEpoch
       ) return null;
       if (desired.has(lastState.toLowerCase())) return agent;
       if (failures.has(lastState.toLowerCase())) {
@@ -4510,7 +4564,7 @@ export class Deployments {
     };
     let readyAgent: Agent | null = null;
     const subscription = this.subscribe((event) => {
-      if (event.agent_id === agentId) {
+      if (event.type === 'deployment.transition' && event.agent_id === agentId) {
         wakePending = true;
         wake?.();
       }
@@ -4572,7 +4626,7 @@ export class Deployments {
     agentIdOrName: string,
     timeoutMs = 300_000,
     pollIntervalMs = 5_000,
-    minimumRuntimeGeneration?: number,
+    minimumLaunchEpoch?: number,
   ): Promise<Agent> {
     void pollIntervalMs;
     return this.waitForState(
@@ -4580,7 +4634,7 @@ export class Deployments {
       ['RUNNING'],
       timeoutMs,
       ['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'],
-      minimumRuntimeGeneration,
+      minimumLaunchEpoch,
     );
   }
 
@@ -4606,7 +4660,7 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
     const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
     const agent = this.hydrateAgent(data);
-    if (agent instanceof OpenClawAgent) {
+    if (agent instanceof OpenClawAgent && gatewayToken) {
       agent.gatewayToken = gatewayToken;
     }
     return agent;
@@ -4682,7 +4736,7 @@ export class Deployments {
     if (options.size !== undefined) body.size = options.size;
     if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
     if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
-    if (options.lastError !== undefined) body.last_error = options.lastError;
+    if (options.error !== undefined) body.error = options.error;
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);
@@ -4817,12 +4871,35 @@ export class Deployments {
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
   }
 
-  async gatewayContext(
+  async env(
     agentIdOrName: string,
     requestOptions: RequestOverrides = {},
-  ): Promise<AgentGatewayContext> {
+  ): Promise<AgentEnvResponse> {
     const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
-    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/gateway`;
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/env`;
+    return Object.keys(requestOptions).length === 0
+      ? this.agentHttp.get(path)
+      : this.agentHttp.get(path, undefined, requestOptions);
+  }
+
+  async secretNames(
+    agentIdOrName: string,
+    requestOptions: RequestOverrides = {},
+  ): Promise<AgentSecretNamesResponse> {
+    const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets`;
+    return Object.keys(requestOptions).length === 0
+      ? this.agentHttp.get(path)
+      : this.agentHttp.get(path, undefined, requestOptions);
+  }
+
+  async secret(
+    agentIdOrName: string,
+    key: string,
+    requestOptions: RequestOverrides = {},
+  ): Promise<AgentSecretResponse> {
+    const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`;
     return Object.keys(requestOptions).length === 0
       ? this.agentHttp.get(path)
       : this.agentHttp.get(path, undefined, requestOptions);

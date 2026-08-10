@@ -528,9 +528,9 @@ impl BuzzLaunchConfig {
             request.env.remove(*key);
         }
         request
-            .env
+            .secrets
             .insert("BUZZ_PRIVATE_KEY".to_owned(), self.private_key_nsec.clone());
-        request.env.insert(
+        request.secrets.insert(
             "NOSTR_PRIVATE_KEY".to_owned(),
             self.private_key_nsec.clone(),
         );
@@ -678,6 +678,8 @@ pub struct CreateDeploymentRequest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secrets: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub routes: BTreeMap<String, RouteConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub command: Vec<String>,
@@ -715,6 +717,7 @@ impl CreateDeploymentRequest {
             config: BTreeMap::new(),
             tags: Vec::new(),
             env: BTreeMap::new(),
+            secrets: BTreeMap::new(),
             routes: BTreeMap::new(),
             command: Vec::new(),
             entrypoint: Vec::new(),
@@ -757,6 +760,8 @@ pub struct StartDeploymentRequest {
     pub config: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secrets: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub routes: BTreeMap<String, RouteConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -955,7 +960,7 @@ pub struct Deployment {
     #[serde(default)]
     pub state: String,
     #[serde(default)]
-    pub storage_cluster_id: Option<String>,
+    pub cluster_id: Option<String>,
     #[serde(default)]
     pub hostname: Option<String>,
     #[serde(default)]
@@ -965,10 +970,6 @@ pub struct Deployment {
     #[serde(default)]
     pub archived_at: Option<String>,
     #[serde(default)]
-    pub archived_cluster_id: Option<String>,
-    #[serde(default)]
-    pub archived_cluster_name: Option<String>,
-    #[serde(default)]
     pub archived_path: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
@@ -977,15 +978,9 @@ pub struct Deployment {
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]
-    pub placement_epoch: u64,
-    #[serde(default)]
-    pub runtime_generation: u64,
+    pub launch_epoch: u64,
     #[serde(default)]
     pub agent_version: u64,
-    #[serde(default)]
-    pub finalize_epoch: Option<u64>,
-    #[serde(default)]
-    pub revision: u64,
     #[serde(default)]
     pub resources_exist: bool,
     #[serde(default)]
@@ -1011,19 +1006,40 @@ pub struct DeploymentEvent {
     #[serde(default)]
     pub message: Option<String>,
     #[serde(default)]
-    pub placement_epoch: Option<u64>,
-    #[serde(default)]
-    pub runtime_generation: Option<u64>,
+    pub launch_epoch: Option<u64>,
     #[serde(default)]
     pub agent_version: Option<u64>,
-    #[serde(default)]
-    pub finalize_epoch: Option<u64>,
-    #[serde(default)]
-    pub revision: Option<u64>,
     #[serde(default)]
     pub resources_exist: Option<bool>,
     #[serde(default)]
     pub namespace_exists: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeploymentEnvironment {
+    pub agent_id: String,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default)]
+    pub launch_epoch: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeploymentSecretNames {
+    pub agent_id: String,
+    #[serde(default)]
+    pub names: Vec<String>,
+    #[serde(default)]
+    pub launch_epoch: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeploymentSecret {
+    pub agent_id: String,
+    pub key: String,
+    pub value: String,
+    #[serde(default)]
+    pub launch_epoch: u64,
 }
 
 impl Deployment {
@@ -1050,14 +1066,25 @@ impl Deployment {
     }
 }
 
-/// Secret-bearing persisted launch configuration returned by the agent API.
+/// Persisted non-secret launch configuration returned by the agent API.
 ///
-/// The wrapper keeps accidental `Debug` logging safe while retaining exact
-/// JSON round trips for stop → edit → start workflows. Callers should expose
-/// only a purpose-built sanitized projection to user interfaces.
-#[derive(Clone, Default, Deserialize, Serialize)]
+/// The wrapper keeps accidental `Debug` logging safe while retaining JSON
+/// round trips for stop → edit → start workflows. Secret values are available
+/// only through the exact-key secret API and are never retained here.
+#[derive(Clone, Default, Serialize)]
 #[serde(transparent)]
 pub struct DeploymentLaunchConfig(BTreeMap<String, Value>);
+
+impl<'de> Deserialize<'de> for DeploymentLaunchConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mut values = BTreeMap::<String, Value>::deserialize(deserializer)?;
+        values.remove("secrets");
+        Ok(Self(values))
+    }
+}
 
 impl DeploymentLaunchConfig {
     pub fn as_map(&self) -> &BTreeMap<String, Value> {
@@ -1068,7 +1095,8 @@ impl DeploymentLaunchConfig {
         self.0
     }
 
-    pub fn from_map(values: BTreeMap<String, Value>) -> Self {
+    pub fn from_map(mut values: BTreeMap<String, Value>) -> Self {
+        values.remove("secrets");
         Self(values)
     }
 }
@@ -1082,8 +1110,8 @@ impl fmt::Debug for DeploymentLaunchConfig {
 /// Mutable deployment fields accepted by `PATCH /deployments/{id}`.
 ///
 /// `launch_config` is a complete replacement, not a merge patch. Fetch the
-/// current deployment, modify its wrapped map, and submit the full result so
-/// unedited launch and secret fields survive.
+/// current deployment, modify its wrapped map, and submit the full result.
+/// Secrets are persisted independently and are unaffected by this request.
 #[derive(Clone, Default, Serialize)]
 pub struct UpdateDeploymentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1369,6 +1397,10 @@ mod tests {
             Some("Fizz4")
         );
         assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
+        assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
+        assert!(!request.env.contains_key("NOSTR_PRIVATE_KEY"));
+        assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], "nsec1test");
+        assert_eq!(request.secrets["NOSTR_PRIVATE_KEY"], "nsec1test");
         assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
         assert_eq!(
@@ -1453,22 +1485,17 @@ mod tests {
             avatar_url: None,
             runtime: Some(ManagedRuntime::Opencode),
             state: "RUNNING".to_owned(),
-            storage_cluster_id: None,
+            cluster_id: None,
             hostname: None,
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
             archived_at: None,
-            archived_cluster_id: None,
-            archived_cluster_name: None,
             archived_path: None,
             reason: None,
             error: None,
             message: None,
-            placement_epoch: 0,
-            runtime_generation: 0,
+            launch_epoch: 0,
             agent_version: 0,
-            finalize_epoch: None,
-            revision: 0,
             resources_exist: false,
             namespace_exists: false,
             launch_config: Default::default(),
@@ -1515,22 +1542,17 @@ mod tests {
             avatar_url: None,
             runtime: None,
             state: state.to_owned(),
-            storage_cluster_id: None,
+            cluster_id: None,
             hostname: None,
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_cluster_id: None,
-            archived_cluster_name: None,
             archived_path: None,
             reason: None,
             error: None,
             message: None,
-            placement_epoch: 0,
-            runtime_generation: 0,
+            launch_epoch: 0,
             agent_version: 0,
-            finalize_epoch: None,
-            revision: 0,
             resources_exist: false,
             namespace_exists: false,
             launch_config: Default::default(),
@@ -1546,14 +1568,12 @@ mod tests {
             "state": "ARCHIVING",
             "reason": "archive_request",
             "agent_version": 1,
-            "revision": 9,
             "resources_exist": true,
             "namespace_exists": true
         }))
         .unwrap();
         assert_eq!(event.state.as_deref(), Some("ARCHIVING"));
         assert_eq!(event.agent_version, Some(1));
-        assert_eq!(event.revision, Some(9));
         assert_eq!(event.resources_exist, Some(true));
         assert_eq!(event.namespace_exists, Some(true));
     }
@@ -1563,17 +1583,15 @@ mod tests {
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "agent-1",
             "state": "ARCHIVED",
-            "storage_cluster_id": "cluster-current",
+            "cluster_id": "cluster-current",
             "agent_version": 2,
             "archived_at": "2026-08-09T12:00:00Z",
-            "archived_cluster_id": "cluster-archive",
-            "archived_cluster_name": "dev01",
             "archived_path": "s3://archive/dev01/agent-1/checkpoint"
         }))
         .unwrap();
 
         assert_eq!(
-            deployment.storage_cluster_id.as_deref(),
+            deployment.cluster_id.as_deref(),
             Some("cluster-current")
         );
         assert_eq!(deployment.agent_version, 2);
@@ -1581,11 +1599,6 @@ mod tests {
             deployment.archived_at.as_deref(),
             Some("2026-08-09T12:00:00Z")
         );
-        assert_eq!(
-            deployment.archived_cluster_id.as_deref(),
-            Some("cluster-archive")
-        );
-        assert_eq!(deployment.archived_cluster_name.as_deref(), Some("dev01"));
         assert_eq!(
             deployment.archived_path.as_deref(),
             Some("s3://archive/dev01/agent-1/checkpoint")
@@ -1658,7 +1671,9 @@ mod tests {
     #[test]
     fn deployment_launch_config_round_trips_but_debug_is_redacted() {
         let config: DeploymentLaunchConfig = serde_json::from_value(serde_json::json!({
-            "env": {"BUZZ_PRIVATE_KEY": "nsec-secret", "SAFE": "visible"},
+            "env": {"SAFE": "visible"},
+            "registry_auth": {"password": "registry-secret"},
+            "secrets": {"API_TOKEN": "must-not-hydrate"},
             "command": ["/usr/local/bin/buzz-acp"]
         }))
         .unwrap();
@@ -1667,9 +1682,10 @@ mod tests {
             serde_json::to_value(&config).unwrap()["env"]["SAFE"],
             "visible"
         );
+        assert!(config.as_map().get("secrets").is_none());
         let debug = format!("{config:?}");
         assert!(debug.contains("REDACTED"));
-        assert!(!debug.contains("nsec-secret"));
+        assert!(!debug.contains("registry-secret"));
     }
 
     #[test]

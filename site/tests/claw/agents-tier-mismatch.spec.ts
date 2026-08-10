@@ -104,7 +104,7 @@ test("agents page resizes a stopped agent to an available tier before starting i
           memory: 4,
           hostname: "deep-sage-agent.hypercli.app",
           openclaw_url: "wss://deep-sage-agent.hypercli.app",
-          gateway_token: "gw-token-1",
+          launch_epoch: 1,
         }),
       });
       return;

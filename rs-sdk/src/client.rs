@@ -22,8 +22,9 @@ use url::Url;
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
     AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
-    DeleteDeploymentResponse, Deployment, DeploymentEvent, DeploymentFileWriteResponse,
-    DeploymentListFilters, DeploymentProfileImageResponse, DeploymentRoutes, ExecDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentEnvironment, DeploymentEvent,
+    DeploymentFileWriteResponse, DeploymentListFilters, DeploymentProfileImageResponse,
+    DeploymentRoutes, DeploymentSecret, DeploymentSecretNames, ExecDeploymentRequest,
     ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlementsSummary, HyperAgentPlan,
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
@@ -137,6 +138,33 @@ impl HyperCliClient {
 
     pub fn list_deployments(&self) -> Result<Vec<Deployment>, HyperCliError> {
         Ok(self.list_deployments_with_capacity()?.items)
+    }
+
+    pub fn deployment_env(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentEnvironment, HyperCliError> {
+        self.get_json(&format!("deployments/{deployment_id}/env"))
+    }
+
+    pub fn deployment_secret_names(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentSecretNames, HyperCliError> {
+        self.get_json(&format!("deployments/{deployment_id}/secrets"))
+    }
+
+    pub fn deployment_secret(
+        &self,
+        deployment_id: &str,
+        key: &str,
+    ) -> Result<DeploymentSecret, HyperCliError> {
+        let encoded_key: String = url::form_urlencoded::byte_serialize(key.as_bytes())
+            .collect::<String>()
+            .replace('+', "%20");
+        self.get_json(&format!(
+            "deployments/{deployment_id}/secrets/{encoded_key}"
+        ))
     }
 
     pub fn list_deployments_with_capacity(&self) -> Result<AgentCapacity, HyperCliError> {
@@ -1400,8 +1428,7 @@ mod tests {
                         "reason": "start",
                         "error": null,
                         "message": "Agent is running",
-                        "placement_epoch": 8,
-                        "runtime_generation": 3
+                        "launch_epoch": 3
                     })
                     .to_string()
                     .into(),
@@ -1450,7 +1477,7 @@ mod tests {
             assert_eq!(received[0].reason.as_deref(), Some("start"));
             assert_eq!(received[0].error, None);
             assert_eq!(received[0].message.as_deref(), Some("Agent is running"));
-            assert_eq!(received[0].runtime_generation, Some(3));
+            assert_eq!(received[0].launch_epoch, Some(3));
         }
         token.assert_async().await;
         drop(token);
@@ -1492,8 +1519,7 @@ mod tests {
                             "type": "deployment.transition",
                             "agent_id": "deployment-1",
                             "state": "RUNNING",
-                            "placement_epoch": 8,
-                            "runtime_generation": 3
+                            "launch_epoch": 3
                         })
                         .to_string()
                         .into(),
@@ -1602,8 +1628,7 @@ mod tests {
                         "type": "deployment.transition",
                         "agent_id": "deployment-1",
                         "state": "RUNNING",
-                        "placement_epoch": 8,
-                        "runtime_generation": 3
+                        "launch_epoch": 3
                     })
                     .to_string()
                     .into(),
@@ -1855,6 +1880,7 @@ mod tests {
                     "runtime": "opencode",
                     "size": "small",
                     "command": ["/usr/local/bin/buzz-acp"],
+                    "secrets": {"BUZZ_PRIVATE_KEY": "nsec-secret"},
                     "sync_root": "/home/node"
                 })
                 .to_string(),
@@ -1875,6 +1901,9 @@ mod tests {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         request.size = Some(AgentSize::Small);
         request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
+        request
+            .secrets
+            .insert("BUZZ_PRIVATE_KEY".to_owned(), "nsec-secret".to_owned());
         request.sync_root = Some("/home/node".to_owned());
         let created = client(&server).create_deployment(&request).unwrap();
 
@@ -2067,6 +2096,78 @@ mod tests {
         assert_eq!(deployment.id, "deployment-1");
         assert_eq!(deployment.state, "restoring");
         mock.assert();
+    }
+
+    #[test]
+    fn environment_and_secret_reads_use_narrow_authenticated_routes() {
+        let mut server = Server::new();
+        let env = server
+            .mock("GET", "/agents/deployments/deployment-1/env")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "agent_id": "deployment-1",
+                    "env": {"EDITOR": "nvim"},
+                    "launch_epoch": 4
+                })
+                .to_string(),
+            )
+            .create();
+        let names = server
+            .mock("GET", "/agents/deployments/deployment-1/secrets")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "agent_id": "deployment-1",
+                    "names": ["OPENCLAW_GATEWAY_TOKEN"],
+                    "launch_epoch": 4
+                })
+                .to_string(),
+            )
+            .create();
+        let secret = server
+            .mock(
+                "GET",
+                "/agents/deployments/deployment-1/secrets/OPENCLAW_GATEWAY_TOKEN",
+            )
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "agent_id": "deployment-1",
+                    "key": "OPENCLAW_GATEWAY_TOKEN",
+                    "value": "stable-token",
+                    "launch_epoch": 4
+                })
+                .to_string(),
+            )
+            .create();
+
+        let client = client(&server);
+        assert_eq!(
+            client.deployment_env("deployment-1").unwrap().env["EDITOR"],
+            "nvim"
+        );
+        assert_eq!(
+            client
+                .deployment_secret_names("deployment-1")
+                .unwrap()
+                .names,
+            vec!["OPENCLAW_GATEWAY_TOKEN"]
+        );
+        let revealed = client
+            .deployment_secret("deployment-1", "OPENCLAW_GATEWAY_TOKEN")
+            .unwrap();
+        assert_eq!(revealed.value, "stable-token");
+        assert_eq!(revealed.launch_epoch, 4);
+        env.assert();
+        names.assert();
+        secret.assert();
     }
 
     #[test]

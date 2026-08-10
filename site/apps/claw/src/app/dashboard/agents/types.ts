@@ -48,17 +48,13 @@ export interface Agent {
   desktopUrl?: string | null;
   started_at: string | null;
   stopped_at: string | null;
-  last_error: string | null;
+  error: string | null;
   created_at: string | null;
   updated_at: string | null;
-  placementEpoch: number;
-  runtimeGeneration: number;
-  finalizeEpoch: number | null;
-  revision: number;
+  launchEpoch: number;
   resourcesExist: boolean;
   namespaceExists: boolean;
   launchConfig?: Record<string, unknown> | null;
-  gatewayToken?: string | null;
   hasDesktop?: boolean;
   meta?: AgentMeta | null;
 }

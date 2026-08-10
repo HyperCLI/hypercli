@@ -475,7 +475,6 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     saved_state = {
         agent_id: {
             "id": agent_id,
-            "gateway_token": "saved-gateway-token",
             "launch_config": {
                 "config": {"agents": {"defaults": {"mode": "normal"}}},
                 "env": {
@@ -531,7 +530,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert "sync_enabled" not in captured
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
-    assert captured["gateway_token"] == "saved-gateway-token"
+    assert captured["gateway_token"] is None
 
 
 def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
@@ -623,7 +622,6 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
     saved_state = {
         canonical_id: {
             "id": canonical_id,
-            "gateway_token": "saved-gateway-token",
             "launch_config": {
                 "env": {"OPENCLAW_DESKTOP_ENABLED": "0", "SAVED": "1"},
                 "image": "git.nedos.co/hypercli/hypercli-openclaw:saved",
@@ -650,7 +648,7 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
     assert captured["agent_id"] == canonical_id
     assert captured["env"]["SAVED"] == "1"
     assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:saved"
-    assert captured["gateway_token"] == "saved-gateway-token"
+    assert captured["gateway_token"] is None
 
 
 def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):

@@ -665,10 +665,10 @@ def start_agent(
         resolved = deployments.get(agent)
         started = _start_deployment_agent(deployments, resolved, dry_run=dry_run)
         if wait and not dry_run:
-            generation = int(getattr(started, "runtime_generation", 0) or 0)
+            launch_epoch = int(getattr(started, "launch_epoch", 0) or 0)
             wait_kwargs = (
-                {"minimum_runtime_generation": generation}
-                if generation > 0
+                {"minimum_launch_epoch": launch_epoch}
+                if launch_epoch > 0
                 else {}
             )
             started = deployments.wait_running(
@@ -733,10 +733,10 @@ def enable_agent(
                 _wait_agent_state(deployments, resolved.id, {"stopped"}, timeout=timeout)
             restarted = _start_deployment_agent(deployments, resolved)
             if wait:
-                generation = int(getattr(restarted, "runtime_generation", 0) or 0)
+                launch_epoch = int(getattr(restarted, "launch_epoch", 0) or 0)
                 wait_kwargs = (
-                    {"minimum_runtime_generation": generation}
-                    if generation > 0
+                    {"minimum_launch_epoch": launch_epoch}
+                    if launch_epoch > 0
                     else {}
                 )
                 restarted = deployments.wait_running(

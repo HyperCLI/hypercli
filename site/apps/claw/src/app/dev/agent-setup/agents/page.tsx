@@ -1135,7 +1135,7 @@ export default function DevAgentSetupAgentsPage() {
         hostname: selectedAgent.hostname,
         startedAt: selectedAgent.started_at,
         updatedAt: selectedAgent.updated_at,
-        lastError: selectedAgent.last_error,
+        error: selectedAgent.error,
         meta: selectedAgent.meta,
         config: agentConfigForView,
         connections: agentConnectionsForView?.map((connection) => ({
