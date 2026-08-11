@@ -30,8 +30,8 @@ const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_A
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
 export const AGENT_CREATION_ID_META_KEY = "creation_id";
 const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
-const AGENT_STOP_RECONCILE_DELAYS_MS = [0, 500, 1_500, 3_000] as const;
-const AGENT_STOP_RECONCILE_REQUEST_TIMEOUT_MS = 2_000;
+const AGENT_LIFECYCLE_RECONCILE_DELAYS_MS = [0, 500, 1_500, 3_000] as const;
+const AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS = 2_000;
 const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
@@ -92,7 +92,7 @@ function errorText(value: unknown): string {
     .join(" ");
 }
 
-function isAgentStopTimeout(value: unknown): boolean {
+function isAgentLifecycleTimeout(value: unknown): boolean {
   const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
   if (statusCode !== null) return statusCode === 504;
 
@@ -167,15 +167,21 @@ function agentCreatedAtMs(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function reconcileCreatedAgentByName(agentClient: Deployments, name: string | undefined): Promise<ListedAgent | null> {
-  const expectedName = name?.trim();
-  if (!expectedName) return null;
+async function reconcileCreatedAgent(
+  agentClient: Deployments,
+  options: FrontendOpenClawCreateOptions,
+): Promise<ListedAgent | null> {
+  const expectedCreationId = agentCreationId(options);
+  const expectedName = options.name?.trim();
+  if (!expectedCreationId && !expectedName) return null;
 
   for (const delay of AGENT_CREATE_RECONCILE_DELAYS_MS) {
     await sleep(delay);
     const agents = await agentClient.list();
     const matches = agents
-      .filter((agent) => agentName(agent) === expectedName)
+      .filter((agent) => expectedCreationId
+        ? agentCreationId(agent) === expectedCreationId
+        : agentName(agent) === expectedName)
       .sort((left, right) => agentCreatedAtMs(right) - agentCreatedAtMs(left));
     if (matches.length > 0) {
       return matches[0];
@@ -184,15 +190,43 @@ async function reconcileCreatedAgentByName(agentClient: Deployments, name: strin
   return null;
 }
 
-async function reconcileTimedOutAgentStop(agentClient: Deployments, agentId: string): Promise<SdkAgent> {
+async function reconcileTimedOutAgentStart(agentClient: Deployments, agentId: string): Promise<SdkAgent> {
   let lastReadError: unknown;
-  for (const delay of AGENT_STOP_RECONCILE_DELAYS_MS) {
+  for (const delay of AGENT_LIFECYCLE_RECONCILE_DELAYS_MS) {
     await sleep(delay);
     let current: SdkAgent;
     try {
       current = await agentClient.get(agentId, {
         retries: 1,
-        timeout: AGENT_STOP_RECONCILE_REQUEST_TIMEOUT_MS,
+        timeout: AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS,
+      });
+      lastReadError = undefined;
+    } catch (error) {
+      lastReadError = error;
+      continue;
+    }
+
+    const state = current.state.toUpperCase();
+    if (["CREATING", "STARTING", "RESTORING", "RUNNING"].includes(state)) return current;
+    if (["FAILED", "DELETED"].includes(state)) {
+      const detail = [current.reason, current.error, current.message]
+        .find((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
+      throw new Error(`Agent entered ${state} while confirming launch${detail ? `: ${detail}` : "."}`);
+    }
+  }
+  if (lastReadError) throw lastReadError;
+  throw new Error("The start request timed out before launch was confirmed. Check the agent status and try again.");
+}
+
+async function reconcileTimedOutAgentStop(agentClient: Deployments, agentId: string): Promise<SdkAgent> {
+  let lastReadError: unknown;
+  for (const delay of AGENT_LIFECYCLE_RECONCILE_DELAYS_MS) {
+    await sleep(delay);
+    let current: SdkAgent;
+    try {
+      current = await agentClient.get(agentId, {
+        retries: 1,
+        timeout: AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS,
       });
       lastReadError = undefined;
     } catch (error) {
@@ -445,8 +479,8 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
         }
       }
 
-      if (isAgentCreateSpecVisibilityError(error)) {
-        const reconciled = await reconcileCreatedAgentByName(agentClient, candidateOptions.name);
+      if (isAgentCreateSpecVisibilityError(error) || isAgentLifecycleTimeout(error)) {
+        const reconciled = await reconcileCreatedAgent(agentClient, candidateOptions);
         if (reconciled) return reconciled;
         throw error;
       }
@@ -463,7 +497,13 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
 
 export async function requestAgentStart(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
   const agentClient = createAgentClient(apiKey);
-  const accepted = await agentClient.start(agentId);
+  let accepted: SdkAgent;
+  try {
+    accepted = await agentClient.start(agentId);
+  } catch (error) {
+    if (!isAgentLifecycleTimeout(error)) throw error;
+    accepted = await reconcileTimedOutAgentStart(agentClient, agentId);
+  }
   onAccepted?.(accepted);
   return accepted;
 }
@@ -484,7 +524,7 @@ export async function stopAgent(apiKey: string, agentId: string, onAccepted?: Ag
   try {
     accepted = await agentClient.stop(agentId);
   } catch (error) {
-    if (!isAgentStopTimeout(error)) throw error;
+    if (!isAgentLifecycleTimeout(error)) throw error;
     accepted = await reconcileTimedOutAgentStop(agentClient, agentId);
   }
   onAccepted?.(accepted);

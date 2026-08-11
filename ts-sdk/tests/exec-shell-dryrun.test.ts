@@ -177,7 +177,7 @@ describe('HyperClaw agents SDK', () => {
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
       },
-    }));
+    }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
@@ -208,7 +208,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {},
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClawPro defaults desktop image env and routes', async () => {
@@ -248,7 +248,7 @@ describe('HyperClaw agents SDK', () => {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },
       },
-    }));
+    }), { retries: 1 });
     expect(agent).toBeInstanceOf(OpenClawProAgent);
   });
 
@@ -287,7 +287,7 @@ describe('HyperClaw agents SDK', () => {
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: '60000',
         OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: '120',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClaw accepts workspace sync launch options', async () => {
@@ -317,7 +317,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_SYNC_READY_ONLY: '0',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'team-knowledge',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClaw lets explicit HYPER_API_BASE override the derived product API base', async () => {
@@ -341,7 +341,7 @@ describe('HyperClaw agents SDK', () => {
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.override.test',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClaw can disable workspace boot sync', async () => {
@@ -362,7 +362,7 @@ describe('HyperClaw agents SDK', () => {
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '0',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('startOpenClaw defaults sync root', async () => {
@@ -396,7 +396,7 @@ describe('HyperClaw agents SDK', () => {
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
       },
-    }));
+    }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
@@ -974,6 +974,7 @@ describe('HyperClaw agents SDK', () => {
         command: ['nginx', '-g', 'daemon off;'],
         entrypoint: ['/docker-entrypoint.sh'],
       }),
+      { retries: 1 },
     );
     expect(agent).toBeInstanceOf(OpenClawAgent);
     expect((agent as OpenClawAgent).gatewayToken).toBeNull();
@@ -1031,6 +1032,7 @@ describe('HyperClaw agents SDK', () => {
           },
         },
       }),
+      { retries: 1 },
     );
     expect((post as any).mock.calls[0][1].meta.internal).toBeUndefined();
     expect(agent.meta).toEqual({

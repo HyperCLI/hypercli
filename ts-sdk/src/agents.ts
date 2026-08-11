@@ -4063,7 +4063,11 @@ export class Deployments {
     if (options.tags?.length) body.tags = [...options.tags];
     if (options.runtime) body.runtime = options.runtime;
 
-    const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
+    const data = await this.agentHttp.post<AgentHydrationData>(
+      DEPLOYMENTS_API_PREFIX,
+      body,
+      { retries: 1 },
+    );
     const agent = this.hydrateAgent(data);
     if (!agent.creationReplayed) {
       if (agent instanceof OpenClawAgent && gatewayToken) {
@@ -4522,9 +4526,8 @@ export class Deployments {
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
     let lastAgent: Agent | null = null;
-    let wakePending = false;
+    let wakePending = true;
     let wake: (() => void) | null = null;
-    let subscriptionError: unknown;
     const controller = new AbortController();
     const desired = new Set(states.map((state) => state.toLowerCase()));
     const failures = new Set(failureStates.map((state) => state.toLowerCase()));
@@ -4541,12 +4544,6 @@ export class Deployments {
       }
       return details.length ? `, ${details.join(', ')}` : '';
     };
-    let readyResolve: (() => void) | null = null;
-    let readyReject: ((error: unknown) => void) | null = null;
-    const ready = new Promise<void>((resolve, reject) => {
-      readyResolve = resolve;
-      readyReject = reject;
-    });
     const refresh = async (): Promise<Agent | null> => {
       const agent = await this.get(agentId);
       lastAgent = agent;
@@ -4561,7 +4558,6 @@ export class Deployments {
       }
       return null;
     };
-    let readyAgent: Agent | null = null;
     const subscription = this.subscribe((event) => {
       if (event.type === 'deployment.transition' && event.agent_id === agentId) {
         wakePending = true;
@@ -4569,33 +4565,16 @@ export class Deployments {
       }
     }, {
       signal: controller.signal,
-      onReady: async () => {
-        try {
-          readyAgent = await refresh();
-          readyResolve?.();
-          readyResolve = null;
-          wakePending = true;
-          wake?.();
-        } catch (error) {
-          readyReject?.(error);
-          readyReject = null;
-          throw error;
-        }
+      onReady: () => {
+        wakePending = true;
+        wake?.();
       },
-    }).catch((error) => {
-      subscriptionError = error;
-      readyReject?.(error);
-      readyReject = null;
+    }).catch(() => {
+      // Lifecycle events reduce latency, but REST polling remains authoritative.
+      wakePending = true;
       wake?.();
     });
     try {
-      await Promise.race([
-        ready,
-        sleep(Math.max(deadline - Date.now(), 0)).then(() => {
-          throw new Error(`Timed out waiting for deployment event subscription for ${agentId}`);
-        }),
-      ]);
-      if (readyAgent) return readyAgent;
       while (Date.now() < deadline) {
         if (wakePending) {
           wakePending = false;
@@ -4603,7 +4582,6 @@ export class Deployments {
           if (agent) return agent;
           continue;
         }
-        if (subscriptionError) throw subscriptionError;
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
         await Promise.race([
@@ -4654,6 +4632,7 @@ export class Deployments {
       const data = await this.agentHttp.post<AgentHydrationData>(
         `${DEPLOYMENTS_API_PREFIX}/self/start`,
         {},
+        { retries: 1 },
       );
       return this.hydrateAgent(data);
     }
@@ -4661,7 +4640,11 @@ export class Deployments {
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
     const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
-    const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
+    const data = await this.agentHttp.post<AgentHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
+      body,
+      { retries: 1 },
+    );
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent && gatewayToken) {
       agent.gatewayToken = gatewayToken;

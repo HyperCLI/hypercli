@@ -525,7 +525,11 @@ describe('Agents SDK', () => {
     await deployments.removeRoute('self', 'web app');
 
     expect(http.get).toHaveBeenCalledWith('/deployments/self');
-    expect(http.post).toHaveBeenCalledWith('/deployments/self/start', {});
+    expect(http.post).toHaveBeenCalledWith(
+      '/deployments/self/start',
+      {},
+      { retries: 1 },
+    );
     expect(http.post).toHaveBeenCalledWith(
       '/deployments/self/stop',
       undefined,
@@ -1003,6 +1007,48 @@ describe('Agents SDK', () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
+  it('polls authoritative state before the deployment event subscription is ready', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'subscribe').mockImplementation(async (_handler, options = {}) => {
+      if (options.signal?.aborted) return;
+      await new Promise<void>((resolve) => {
+        options.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    });
+
+    const waiting = deployments.waitRunning('agent-123', 1_000, 100, 10);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps polling when the deployment event subscription fails', async () => {
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'subscribe').mockRejectedValue(new Error('Deployment events unavailable'));
+
+    await expect(deployments.waitRunning('agent-123', 1_000, 1, 10)).resolves.toMatchObject({
+      state: 'RUNNING',
+      launchEpoch: 10,
+    });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
   it('performs a final authoritative read at the timeout boundary', async () => {
     vi.useFakeTimers();
     const get = vi.fn()
@@ -1174,6 +1220,7 @@ describe('Agents SDK', () => {
         restart: false,
         runtime_scopes: ['models:*'],
       }),
+      { retries: 1 },
     );
 
     const handleResult = await deployments.get('coder');

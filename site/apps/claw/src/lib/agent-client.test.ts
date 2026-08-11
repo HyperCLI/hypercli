@@ -127,6 +127,43 @@ describe("agent-client", () => {
     expect(accepted.waitRunning).not.toHaveBeenCalled();
   });
 
+  it("reconciles an ambiguous start timeout when the agent is already running", async () => {
+    const timeout = new Error("Request timed out after 30 seconds");
+    timeout.name = "TimeoutError";
+    const running = { id: "agent-123", state: "RUNNING", launchEpoch: 8, waitRunning: vi.fn() };
+    const onAccepted = vi.fn();
+    deploymentsInstance.start.mockRejectedValue(timeout);
+    deploymentsInstance.get.mockResolvedValue(running);
+
+    await expect(startAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(running);
+
+    expect(deploymentsInstance.get).toHaveBeenCalledWith("agent-123", {
+      retries: 1,
+      timeout: 2_000,
+    });
+    expect(onAccepted).toHaveBeenCalledWith(running);
+    expect(running.waitRunning).not.toHaveBeenCalled();
+  });
+
+  it("does not accept stale stopped state after an ambiguous start timeout", async () => {
+    vi.useFakeTimers();
+    const timeout = new Error("Request timed out after 30 seconds");
+    timeout.name = "TimeoutError";
+    const stopped = { id: "agent-123", state: "STOPPED", launchEpoch: 8 };
+    const onAccepted = vi.fn();
+    deploymentsInstance.start.mockRejectedValue(timeout);
+    deploymentsInstance.get.mockResolvedValue(stopped);
+
+    const result = expect(requestAgentStart("hyper_api_test", "agent-123", onAccepted)).rejects.toThrow(
+      "The start request timed out before launch was confirmed. Check the agent status and try again.",
+    );
+    await vi.runAllTimersAsync();
+    await result;
+
+    expect(deploymentsInstance.get).toHaveBeenCalledTimes(4);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
   it("can release the mutation queue after the accepted start snapshot", async () => {
     const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8, waitRunning: vi.fn() };
     deploymentsInstance.start.mockResolvedValue(accepted);
@@ -422,6 +459,39 @@ describe("agent-client", () => {
 
     await expect(result).resolves.toBe(recoveredAgent);
     expect(deploymentsInstance.list).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciles an ambiguous create timeout by its durable creation id", async () => {
+    vi.useFakeTimers();
+    const timeout = new Error("Request timed out after 30 seconds");
+    timeout.name = "TimeoutError";
+    const recoveredAgent = {
+      id: "agent-recovered",
+      name: "clear-window-works",
+      meta: { ui: { creation_id: "setup-123" } },
+      createdAt: new Date("2026-07-18T19:08:15.000Z"),
+    };
+    deploymentsInstance.createOpenClaw.mockRejectedValue(timeout);
+    deploymentsInstance.list.mockResolvedValue([
+      {
+        id: "agent-unrelated",
+        name: "clear-window-works",
+        meta: { ui: { creation_id: "setup-other" } },
+        createdAt: new Date("2026-07-18T19:09:15.000Z"),
+      },
+      recoveredAgent,
+    ]);
+
+    const result = createOpenClawAgent("hyper_api_test", {
+      name: "clear-window-works",
+      start: false,
+      meta: { ui: { creation_id: "setup-123" } },
+    });
+    await vi.advanceTimersByTimeAsync(750);
+
+    await expect(result).resolves.toBe(recoveredAgent);
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(1);
+    expect(deploymentsInstance.list).toHaveBeenCalledTimes(1);
   });
 
   it("retries generated names when the backend reports a collision", async () => {
