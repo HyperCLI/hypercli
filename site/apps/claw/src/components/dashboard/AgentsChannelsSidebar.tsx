@@ -2260,6 +2260,7 @@ function HandoffThreadView({
             <RosterTooltip label={effectiveCreationDisabledReason ?? "Launch agent"} side="right">
               <motion.button
                 type="button"
+                data-testid="agent-launch-entry"
                 aria-label="Launch agent"
                 disabled={Boolean(effectiveCreationDisabledReason)}
                 initial={{ opacity: 0, y: -6 }}

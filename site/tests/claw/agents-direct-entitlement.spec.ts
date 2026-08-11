@@ -1,6 +1,7 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { captureStep } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
@@ -273,8 +274,9 @@ test("agents page launches from a direct entitlement without an active subscript
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByRole("heading", { name: "Launch your first agent" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Create an agent/ })).toBeVisible();
-  const welcomePanelBox = await page.locator('[data-slot="first-agent-empty-state"]').boundingBox();
+  const firstAgentEmptyState = page.locator('[data-slot="first-agent-empty-state"]');
+  await expect(firstAgentEmptyState.getByTestId("agent-launch-entry")).toBeVisible();
+  const welcomePanelBox = await firstAgentEmptyState.boundingBox();
   expect(welcomePanelBox).not.toBeNull();
 
   await page.goto("/dashboard/agents?open=agent-launcher", { waitUntil: "domcontentloaded" });
@@ -282,9 +284,12 @@ test("agents page launches from a direct entitlement without an active subscript
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
   const createAgentHeading = page.getByRole("heading", { name: "Create agent" });
   if (!await createAgentHeading.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await page.locator("main").getByRole("button", { name: "Launch agent", exact: true }).last().click();
+    await page.locator("main").getByTestId("agent-launch-entry").last().click();
   }
   await expect(createAgentHeading).toBeVisible();
+  const wizard = page.getByTestId("agent-setup-wizard");
+  await expect(wizard).toBeVisible();
+  await captureStep(page, "agents-direct-entitlement-identity");
   await expect(page.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "agents");
   const launcherBox = await page.locator("[data-agent-launch-surface]").boundingBox();
   expect(launcherBox).not.toBeNull();
@@ -292,19 +297,13 @@ test("agents page launches from a direct entitlement without an active subscript
   expect(Math.abs(launcherBox!.y - welcomePanelBox!.y)).toBeLessThan(1);
   expect(Math.abs(launcherBox!.width - welcomePanelBox!.width)).toBeLessThan(1);
   expect(Math.abs(launcherBox!.height - welcomePanelBox!.height)).toBeLessThan(1);
-  const advancedSettings = page.locator("details", {
-    has: page.locator("summary").filter({ hasText: /^Advanced$/i }),
-  }).first();
+  const advancedToggle = wizard.getByTestId("agent-setup-advanced-toggle");
+  const advancedSettings = wizard.getByTestId("agent-setup-advanced-settings");
   await expect(advancedSettings).not.toHaveAttribute("open", "");
-  await advancedSettings.locator("summary").click();
+  await advancedToggle.click();
   await expect(advancedSettings).toHaveAttribute("open", "");
-  await page
-    .locator("label")
-    .filter({ hasText: /Desktop browser/i })
-    .locator("input[type='checkbox']")
-    .first()
-    .check();
-  await page.getByRole("button", { name: "Continue" }).click();
+  await wizard.getByTestId("agent-setup-desktop-toggle").check();
+  await wizard.getByTestId("agent-setup-continue-identity").click();
   const workspaceStep = page.getByRole("region", { name: "Set up the workspace" });
   await expect(workspaceStep).toBeVisible();
   await expect(workspaceStep.getByRole("heading", { name: "What do you want to get done?" })).toBeVisible();
@@ -337,11 +336,12 @@ test("agents page launches from a direct entitlement without an active subscript
       Math.abs(panelBox.width - layoutBox.width),
     );
   })).toBeLessThanOrEqual(2);
-  await workspaceStep.getByRole("button", { name: "Continue" }).click();
+  await wizard.getByTestId("agent-setup-continue-objective").click();
   await expect(workspaceStep.getByRole("heading", { name: /approach the work/ })).toBeVisible();
   await expect(workspaceStep.locator('[data-slot="shape-agent-content"]')).toHaveAttribute("data-workspace-stage", "personality");
   await expectWizardToFit(page, workspaceStep);
-  await workspaceStep.getByRole("button", { name: "Launch agent" }).click();
+  await captureStep(page, "agents-direct-entitlement-personality");
+  await wizard.getByTestId("agent-setup-continue-personality").click();
 
   await expect(workspaceStep).toHaveCount(0);
   const startup = page.getByRole("region", { name: "Agent startup" });

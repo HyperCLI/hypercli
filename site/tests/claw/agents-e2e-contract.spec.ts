@@ -9,8 +9,13 @@ const subscriptionSpecSource = fs.readFileSync(path.resolve(__dirname, "agents-s
 test("agents launch helper accepts the current workspace empty state", () => {
   expect(authFixtureSource).toContain('return "workspace-selector"');
   expect(authFixtureSource).toContain('return "workspace-empty-state"');
-  expect(authFixtureSource).toContain("name: /^Launch an agent\\b/i");
-  expect(authFixtureSource).toContain("await findLastVisible(workspaceEmptyStateLaunchButton");
+  expect(authFixtureSource).toContain('getByTestId("agent-launch-entry")');
+  expect(authFixtureSource).toContain('getByTestId("agent-setup-advanced-toggle")');
+  expect(authFixtureSource).toContain('getByTestId("agent-setup-advanced-settings")');
+  expect(authFixtureSource).toContain('getByTestId("agent-setup-desktop-toggle")');
+  expect(authFixtureSource).toContain('getByTestId("agent-setup-launch")');
+  expect(authFixtureSource).not.toContain('locator("xpath=ancestor::button[1]")');
+  expect(authFixtureSource).not.toContain("clickPlanLaunchButtonViaDom");
   expect(authFixtureSource).toContain('name: "Team", exact: true');
   expect(authFixtureSource).toContain("expected Team to select medium launch capacity");
 });

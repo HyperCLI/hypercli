@@ -167,6 +167,8 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Create agent" })).toBeInTheDocument();
+    expect(screen.getByTestId("agent-setup-wizard")).toBeInTheDocument();
+    expect(screen.getByTestId("agent-setup-continue-identity")).toBeEnabled();
     expect(screen.getByLabelText("Agent name")).toHaveValue("");
     expect(screen.getByLabelText("Agent name")).toHaveAttribute("placeholder", "e.g. Research Assistant");
     expect(screen.queryByText("Avatar")).not.toBeInTheDocument();
@@ -176,11 +178,13 @@ describe("FirstAgentSetupWizard", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Agent URL preview")).toHaveTextContent(/^[a-z]+-[a-z]+-[a-z]+$/);
     });
-    const optionalSettings = screen.getByText("Advanced").closest("details");
+    const advancedToggle = screen.getByTestId("agent-setup-advanced-toggle");
+    const optionalSettings = screen.getByTestId("agent-setup-advanced-settings");
     expect(optionalSettings?.parentElement).toHaveClass("grid", "min-h-full", "content-center");
     expect(optionalSettings).not.toHaveAttribute("open");
-    fireEvent.click(optionalSettings!.querySelector("summary")!);
+    fireEvent.click(advancedToggle);
     expect(optionalSettings).toHaveAttribute("open");
+    expect(screen.getByTestId("agent-setup-desktop-toggle")).toHaveAttribute("id", "agent-setup-desktop-toggle");
   });
 
   it("shows distinct launch momentum across every setup step", () => {

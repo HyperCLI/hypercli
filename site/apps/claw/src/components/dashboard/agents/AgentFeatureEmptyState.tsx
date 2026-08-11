@@ -77,6 +77,7 @@ export function AgentFeatureEmptyState({
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.98 }}
                 type="button"
+                data-testid="agent-launch-entry"
                 onClick={onAction}
                 disabled={disabled}
                 className={`inline-flex h-12 max-w-full items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-5 text-[14px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background md:h-10 md:px-4 ${

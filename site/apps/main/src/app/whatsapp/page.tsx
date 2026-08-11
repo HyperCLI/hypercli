@@ -95,7 +95,7 @@ const DATA: ChannelPageData = {
   ],
   setupTitle: (
     <>
-      Connected before your <span className="text-primary">coffee's poured.</span>
+      Connected before your <span className="text-primary">coffee&apos;s poured.</span>
     </>
   ),
   steps: [

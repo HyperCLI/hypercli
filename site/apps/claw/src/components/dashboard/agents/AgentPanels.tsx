@@ -3035,6 +3035,7 @@ export function AgentList({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
+                    data-testid="agent-launch-entry"
                     onClick={openAgentLauncher}
                     aria-label="Launch agent"
                     disabled={Boolean(effectiveCreationDisabledReason)}
@@ -3303,6 +3304,7 @@ export function LaunchFirstAgentEmptyState({
         >
           <motion.button
             type="button"
+            data-testid="agent-launch-entry"
             onClick={() => {
               if (workspaceSetupRequired && onCreateWorkspace) {
                 onCreateWorkspace();
@@ -3728,6 +3730,7 @@ function LaunchAgentEmptyStateContent({
           whileHover={{ y: -1 }}
           whileTap={{ scale: 0.98 }}
           type="button"
+          data-testid="agent-launch-entry"
           onClick={onLaunch}
           className="mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >

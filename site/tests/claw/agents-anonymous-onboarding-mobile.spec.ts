@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { captureStep } from "./fixtures/auth";
 
 const PRIVY_MODAL_SELECTOR = "#privy-modal-content";
 const PRIVATE_API_PATH = /^\/(?:api\/)?(?:agents|workspaces|usage|billing)(?:\/|$)/;
@@ -106,7 +107,7 @@ async function expectLaunchEmptyStateFits(page: Page, allowVerticalScroll = fals
   const metrics = await emptyState.evaluate((element) => {
     const stateBox = element.getBoundingClientRect();
     const title = element.querySelector<HTMLElement>("h1");
-    const button = element.querySelector<HTMLElement>("button");
+    const button = element.querySelector<HTMLElement>('[data-testid="agent-launch-entry"]');
     const examples = Array.from(element.querySelectorAll<HTMLElement>('[data-slot="agent-feature-empty-state-example"]'));
     if (!title || !button || examples.length !== 3) throw new Error("Missing launch empty-state content");
     const titleBox = title.getBoundingClientRect();
@@ -209,7 +210,7 @@ test("opens authentication when the browser does not provide crypto.randomUUID",
   );
 
   const emptyState = page.getByTestId("agent-launch-empty-state");
-  await emptyState.getByRole("button", { name: "Launch agent", exact: true }).tap();
+  await emptyState.getByTestId("agent-launch-entry").tap();
   await completeAuthenticationRoundTrip(page);
 
   expect(compatibilityErrors).toEqual([]);
@@ -222,6 +223,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
   await page.goto("/dashboard/agents?plan=pro");
   await expectAnonymousFlowComplete(page);
   await expectLaunchEmptyStateFits(page);
+  await captureStep(page, "agents-anonymous-launch-entry");
 
   const previewSections = [
     ["Files", "Your files, working for you"],
@@ -240,8 +242,8 @@ test("completes mobile previews and every dashboard authentication gate", async 
     await expectLaunchEmptyStateFits(page);
   }
 
-  const desktopPreview = page.getByRole("heading", { name: "A browser built for action" }).locator("xpath=..");
-  await desktopPreview.getByRole("button", { name: "Launch agent", exact: true }).tap();
+  const desktopPreview = page.getByTestId("agent-launch-empty-state");
+  await desktopPreview.getByTestId("agent-launch-entry").tap();
   await completeAuthenticationRoundTrip(page, "A browser built for action");
 
   let navigation = await openMobileNavigation(page);
@@ -259,7 +261,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
   } else {
     // The current workspace-empty state routes creation through the navigation rail's
     // launch action instead of rendering the legacy workspace selector.
-    const launchWorkspace = navigation.getByRole("button", { name: "Launch agent", exact: true }).first();
+    const launchWorkspace = navigation.getByTestId("agent-launch-entry").first();
     await expect(launchWorkspace).toBeEnabled();
     await launchWorkspace.tap();
   }
@@ -271,7 +273,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
   await navigation.getByRole("button", { name: "Expand agents sidebar" }).tap();
   await expect(navigation.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "agents");
   const roster = navigation.locator(".agents-roster-shell");
-  await roster.getByRole("button", { name: "Launch agent" }).first().tap();
+  await roster.getByTestId("agent-launch-entry").first().tap();
   await expect(navigation).toHaveCount(0);
   await completeAuthenticationRoundTrip(page, "A browser built for action");
 

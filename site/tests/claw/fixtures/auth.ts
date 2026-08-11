@@ -1705,15 +1705,14 @@ export async function launchClawAgentAndWaitForGateway(
   ).not.toBeVisible({ timeout: 90_000 });
 
   const currentWorkspaceButton = page.getByRole("button", { name: /^Current workspace:/i }).first();
-  const workspaceEmptyStateLaunchButton = page
+  const workspaceEmptyStateLaunchButtons = page
     .locator("main")
-    .getByRole("button", { name: /^Launch an agent\b/i })
-    .first();
+    .getByTestId("agent-launch-entry");
   const dashboardMode = await expect
     .poll(
       async () => {
         if (await currentWorkspaceButton.isVisible().catch(() => false)) return "workspace-selector";
-        if (await workspaceEmptyStateLaunchButton.isVisible().catch(() => false)) return "workspace-empty-state";
+        if (await hasVisible(workspaceEmptyStateLaunchButtons)) return "workspace-empty-state";
         return "loading";
       },
       { timeout: 90_000, intervals: [250, 500, 1_000, 2_000] }
@@ -2021,92 +2020,26 @@ export async function launchClawAgentAndWaitForGateway(
     );
   }
 
-  const createButton = page.locator("main").locator("button").filter({ hasText: /Create an agent/i }).last();
-  const launchAgentButton = page.locator("main").getByRole("button", { name: /^launch agent$/i });
-  const launchFirstAgentButton = page
-    .locator("main")
-    .locator("section, [data-testid='agent-empty-state']")
-    .getByRole("button", { name: /^launch agent$/i })
-    .last();
-  const launcherEntryButton =
-    await findLastVisible(createButton, 30_000) ??
-    await findLastVisible(workspaceEmptyStateLaunchButton, 30_000) ??
-    await findLastVisible(launchAgentButton, 30_000) ??
-    await findLastVisible(launchFirstAgentButton, 30_000);
+  const launcherEntryButton = await findLastVisible(page.locator("main").getByTestId("agent-launch-entry"), 30_000);
   expect(launcherEntryButton, "expected a visible launch/create agent entry button").not.toBeNull();
   await expect(launcherEntryButton!, "expected the launch/create agent entry button to be enabled").toBeEnabled({ timeout: 30_000 });
   await launcherEntryButton!.click();
 
-  const optionalSettings = page.locator("details", {
-    has: page.locator("summary").filter({ hasText: /^Advanced$/i }),
-  }).first();
+  const wizardSurface = page.getByTestId("agent-setup-wizard").last();
+  await expect(wizardSurface).toBeVisible({ timeout: 30_000 });
+  await captureStep(page, "agents-10-launch-step-identity");
+
+  const advancedToggle = wizardSurface.getByTestId("agent-setup-advanced-toggle");
+  const optionalSettings = wizardSurface.getByTestId("agent-setup-advanced-settings");
   await expect(optionalSettings).toBeVisible({ timeout: 30_000 });
   await expect(optionalSettings).not.toHaveAttribute("open", "");
-  await optionalSettings.locator("summary").click();
+  await advancedToggle.click();
   await expect(optionalSettings).toHaveAttribute("open", "");
 
-  const desktopCheckbox = page
-    .locator("label")
-    .filter({ hasText: /Desktop browser/i })
-    .locator("input[type='checkbox']")
-    .first();
+  const desktopCheckbox = wizardSurface.getByTestId("agent-setup-desktop-toggle");
   await expect(desktopCheckbox).toBeVisible({ timeout: 30_000 });
   await desktopCheckbox.check();
   await expect(desktopCheckbox).toBeChecked();
-
-  const wizardSurface = page
-    .locator("main, [role='dialog'], section")
-    .filter({ has: page.getByRole("heading", { name: /create your first agent|choose your plan|review & launch|configuration/i }) })
-    .last();
-
-  const clickPlanLaunchButtonViaDom = async (timeoutMs = 30_000): Promise<boolean> => {
-    const deadline = Date.now() + timeoutMs;
-    do {
-      const clicked = await page.evaluate(() => {
-        const isVisible = (element: HTMLElement): boolean => {
-          const rect = element.getBoundingClientRect();
-          const style = window.getComputedStyle(element);
-          return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-        };
-        const buttons = Array.from(document.querySelectorAll("button")).filter((element) => {
-          const button = element as HTMLButtonElement;
-          return (
-            button.textContent?.trim() === "Launch agent" &&
-            !button.disabled &&
-            Boolean(button.closest("div[role='button']")) &&
-            isVisible(button)
-          );
-        }) as HTMLButtonElement[];
-        const button = buttons.at(-1);
-        if (!button) return false;
-        button.scrollIntoView({ block: "center", inline: "center" });
-        button.click();
-        return true;
-      }).catch(() => false);
-      if (clicked) return true;
-      await page.waitForTimeout(500);
-    } while (Date.now() < deadline);
-    return false;
-  };
-
-  const hasPlanLaunchButtonViaDom = async (): Promise<boolean> => {
-    return await page.evaluate(() => {
-      const isVisible = (element: HTMLElement): boolean => {
-        const rect = element.getBoundingClientRect();
-        const style = window.getComputedStyle(element);
-        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
-      };
-      return Array.from(document.querySelectorAll("button")).some((element) => {
-        const button = element as HTMLButtonElement;
-        return (
-          button.textContent?.trim() === "Launch agent" &&
-          !button.disabled &&
-          Boolean(button.closest("div[role='button']")) &&
-          isVisible(button)
-        );
-      });
-    }).catch(() => false);
-  };
 
   let mediumPlanSelected = false;
   for (let i = 0; i < 12; i += 1) {
@@ -2114,16 +2047,34 @@ export async function launchClawAgentAndWaitForGateway(
       await captureStep(page, `agents-10-launch-flow-${i}`);
     }
 
-    const continueButton = page.getByRole("button", { name: /^continue$/i }).first();
-    if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await continueButton.click();
+    const continueTargets = [
+      wizardSurface.getByTestId("agent-setup-continue-identity"),
+      wizardSurface.getByTestId("agent-setup-continue-objective"),
+    ];
+    let advancedToNextStep = false;
+    for (const continueTarget of continueTargets) {
+      if (await continueTarget.isVisible({ timeout: 500 }).catch(() => false)) {
+        await continueTarget.click();
+        advancedToNextStep = true;
+        break;
+      }
+    }
+    if (advancedToNextStep) continue;
+
+    const personalityAction = wizardSurface.getByTestId("agent-setup-continue-personality");
+    if (await personalityAction.isVisible({ timeout: 500 }).catch(() => false)) {
+      await expect(personalityAction).toBeEnabled({ timeout: 30_000 });
+      if (/launch agent|create agent/i.test((await personalityAction.textContent()) ?? "")) {
+        return await waitForCreatedAgent(() => personalityAction.click());
+      }
+      await personalityAction.click();
       continue;
     }
 
     const availablePlans = page.getByRole("group", { name: "Available plans", exact: true }).first();
     if (!mediumPlanSelected && await availablePlans.isVisible({ timeout: 500 }).catch(() => false)) {
       const teamPlan = availablePlans
-        .getByRole("button")
+        .getByTestId("agent-setup-plan-option")
         .filter({ has: page.getByRole("heading", { name: "Team", exact: true }) })
         .first();
       await expect(teamPlan, "expected Team launch capacity after Team checkout").toBeVisible({ timeout: 30_000 });
@@ -2137,45 +2088,10 @@ export async function launchClawAgentAndWaitForGateway(
       console.log("[agents-launch] selected Team medium capacity");
     }
 
-    const wizardLaunchButton = wizardSurface.getByRole("button", { name: /^launch agent$/i }).last();
+    const wizardLaunchButton = wizardSurface.getByTestId("agent-setup-launch");
     if (await wizardLaunchButton.isVisible({ timeout: 500 }).catch(() => false)) {
       await expect(wizardLaunchButton).toBeEnabled({ timeout: 30_000 });
       return await waitForCreatedAgent(() => wizardLaunchButton.click());
-    }
-
-    if (await hasPlanLaunchButtonViaDom()) {
-      return await waitForCreatedAgent(async () => {
-        const clicked = await clickPlanLaunchButtonViaDom(5_000);
-        expect(clicked).toBeTruthy();
-      });
-    }
-
-    const globalLaunchButtons = page.locator("main button").filter({ hasText: /Launch agent/i });
-    const exactLaunchTextButtons = page
-      .locator("main")
-      .getByText("Launch agent", { exact: true })
-      .locator("xpath=ancestor::button[1]");
-    const scopedLaunchButtons = (await wizardSurface.isVisible({ timeout: 500 }).catch(() => false))
-      ? wizardSurface.getByRole("button").filter({ hasText: /Launch agent/i })
-      : page.locator("main").getByRole("button").filter({ hasText: /Launch agent/i });
-    const launchExistingPlanButton =
-      (await findLastVisible(globalLaunchButtons)) ??
-      (await findLastVisible(exactLaunchTextButtons)) ??
-      (await findLastVisible(scopedLaunchButtons));
-    if (launchExistingPlanButton) {
-      await expect(launchExistingPlanButton).toBeEnabled({ timeout: 30_000 });
-      return await waitForCreatedAgent(() => launchExistingPlanButton.click());
-    }
-
-    const createAgentButton = page.getByRole("button", { name: /^create agent$/i }).first();
-    if (await createAgentButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      return await waitForCreatedAgent(() => createAgentButton.click());
-    }
-
-    const nextButton = page.getByRole("button", { name: /^next$/i }).first();
-    if (await nextButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      await nextButton.click();
-      continue;
     }
 
     break;

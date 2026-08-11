@@ -632,6 +632,7 @@ function WizardButton({
   busy = false,
   large = false,
   onClick,
+  testId,
   variant = "primary",
 }: {
   children: React.ReactNode;
@@ -639,6 +640,7 @@ function WizardButton({
   busy?: boolean;
   large?: boolean;
   onClick: () => void;
+  testId?: string;
   variant?: "primary" | "secondary";
 }) {
   return (
@@ -646,6 +648,7 @@ function WizardButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
       className={cx(
         "inline-flex shrink-0 items-center justify-center font-medium transition-colors disabled:opacity-60",
         large
@@ -1291,6 +1294,7 @@ export function FirstAgentSetupWizard({
     )}>
       <motion.section
         aria-labelledby="first-agent-setup-title"
+        data-testid="agent-setup-wizard"
         data-agent-launch-surface={embeddedPresentation || inlinePresentation || undefined}
         data-presentation={embeddedPresentation ? "embedded" : undefined}
         initial={embeddedPresentation || inlinePresentation ? false : { opacity: 0, y: 10 }}
@@ -1536,6 +1540,7 @@ export function FirstAgentSetupWizard({
                 </div>
 
                 <details
+                  data-testid="agent-setup-advanced-settings"
                   open={advancedOpen}
                   onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
                   className={cx(
@@ -1543,7 +1548,7 @@ export function FirstAgentSetupWizard({
                     largePresentation ? "mt-[clamp(2rem,3.4vw,2.5rem)] rounded-[18px]" : "mt-4 rounded-[11px]",
                   )}
                 >
-                  <summary className={cx(
+                  <summary id="agent-setup-advanced-toggle" data-testid="agent-setup-advanced-toggle" className={cx(
                     "flex cursor-pointer list-none items-center outline-none transition-colors hover:bg-surface-low focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection-accent/40 [&::-webkit-details-marker]:hidden",
                     largePresentation ? "gap-[clamp(0.75rem,1.35vw,1rem)] px-[clamp(1.25rem,2vw,1.5rem)] py-[clamp(1.25rem,2vw,1.5rem)]" : "gap-2.5 px-3.5 py-3",
                   )}>
@@ -1583,6 +1588,8 @@ export function FirstAgentSetupWizard({
                     <div className={cx("grid sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2", enableCustomImageOption && (largePresentation ? "mt-5" : "mt-3"))}>
                       <label className={cx("flex items-start border border-border bg-background", largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5")}>
                         <input
+                          id="agent-setup-desktop-toggle"
+                          data-testid="agent-setup-desktop-toggle"
                           type="checkbox"
                           checked={enableDesktop}
                           onChange={(event) => setEnableDesktop(event.target.checked)}
@@ -1625,7 +1632,7 @@ export function FirstAgentSetupWizard({
             )}>
               {onClose ? <WizardButton large={largePresentation} variant="secondary" onClick={onClose}>Cancel</WizardButton> : null}
               {largePresentation ? null : <WizardMomentum stage="identity" />}
-              <WizardButton onClick={() => {
+              <WizardButton testId="agent-setup-continue-identity" onClick={() => {
                 if (agentName.trim()) {
                   try {
                     managedAgentHandleFromDisplayName(agentName);
@@ -1700,6 +1707,7 @@ export function FirstAgentSetupWizard({
               {largePresentation ? null : <WizardMomentum stage={workspaceStage} />}
               <WizardButton
                 large={largePresentation}
+                testId={workspaceStage === "objective" ? "agent-setup-continue-objective" : "agent-setup-continue-personality"}
                 disabled={workspaceStage === "personality" && directCapacityFlow && (!capacityReady || creating || openingCapacity)}
                 busy={workspaceStage === "personality" && directCapacityFlow && (creating || openingCapacity)}
                 onClick={() => {
@@ -1762,6 +1770,8 @@ export function FirstAgentSetupWizard({
                     <button
                       type="button"
                       key={plan.id}
+                      data-testid="agent-setup-plan-option"
+                      data-plan-id={plan.id}
                       aria-pressed={selected}
                       disabled={plan.disabled}
                       onClick={() => {
@@ -1769,7 +1779,7 @@ export function FirstAgentSetupWizard({
                         if (saveDraftAsYouGo) persistDraft(plan);
                       }}
                       className={cx(
-                        "group relative flex w-full items-center overflow-hidden border bg-surface-low text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                        "agent-setup-plan-option group relative flex w-full items-center overflow-hidden border bg-surface-low text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                         largePresentation ? "min-h-[92px] gap-3.5 rounded-[15px] px-4 py-4" : "min-h-[68px] gap-3 rounded-[11px] px-3.5 py-3",
                         selected
                           ? "border-selection-accent/65 bg-[rgb(var(--selection-accent-rgb)_/_0.055)] shadow-[inset_3px_0_0_var(--selection-accent)]"
@@ -1862,6 +1872,7 @@ export function FirstAgentSetupWizard({
             {largePresentation ? null : <WizardMomentum stage="capacity" />}
             <WizardButton
               large={largePresentation}
+              testId="agent-setup-launch"
               disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled)}
               busy={creating || selectedPlanIsReleasing}
               onClick={() => handlePlanAction()}

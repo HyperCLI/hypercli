@@ -331,6 +331,7 @@ describe("LaunchFirstAgentEmptyState", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^Create an agent/ }));
     expect(onCreate).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("agent-launch-entry")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Launch your first agent" })).toHaveClass("whitespace-nowrap");
     expect(screen.queryByText(/Every plan starts with a 7-day free trial/)).not.toBeInTheDocument();
     expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
@@ -426,6 +427,7 @@ describe("AgentEmptyState", () => {
     expect(document.querySelectorAll('[data-slot="agent-feature-empty-state-example"]')).toHaveLength(3);
     expect(screen.getByText(/Ask questions across Slack/).parentElement).toHaveClass("min-h-16", "items-center", "text-[13px]", "text-left", "md:flex-col", "md:min-h-[118px]");
     expect(screen.getByRole("button", { name: "Launch agent" })).toHaveClass("h-12", "md:h-10");
+    expect(screen.getByTestId("agent-launch-entry")).toHaveAccessibleName("Launch agent");
   });
 });
 

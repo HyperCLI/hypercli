@@ -123,7 +123,7 @@ const CAPABILITY_PANELS: TabPanel[] = [
     lead: "Send it voice notes; it transcribes and acts. Ask it to speak; it reads your digest aloud — in a voice you picked or designed.",
     asks: [
       <em key="v1" className="text-text-secondary">
-        [voice note from the car] — three things, don't let me forget any of them
+        [voice note from the car] — three things, don&apos;t let me forget any of them
       </em>,
       "Read me the morning summary while I make coffee",
     ],
