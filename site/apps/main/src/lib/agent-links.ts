@@ -2,9 +2,8 @@ import { NAV_URLS } from "@hypercli/shared-ui";
 
 const AGENTS_DASHBOARD_URL = `${NAV_URLS.clawDashboard}/agents`;
 
-export function agentTrialHref(planId: string): string {
-  const params = new URLSearchParams({ intent: "trial", plan: planId.trim().toLowerCase() });
-  return `${AGENTS_DASHBOARD_URL}?${params.toString()}`;
+export function agentTrialHref(_planId: string): string {
+  return `${NAV_URLS.claw}/trial`;
 }
 
 export const TEAM_TRIAL_HREF = agentTrialHref("team");

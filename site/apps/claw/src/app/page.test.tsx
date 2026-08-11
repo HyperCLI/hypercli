@@ -48,7 +48,7 @@ describe("Claw login page", () => {
     render(<Home />);
 
     await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?intent=trial&plan=team");
+      expect(mocks.replace).toHaveBeenCalledWith("/trial");
     });
   });
 

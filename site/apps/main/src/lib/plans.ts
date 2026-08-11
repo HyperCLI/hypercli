@@ -39,7 +39,7 @@ export const PLAN_TIERS: PlanTier[] = [
     gaugePercent: 50,
     highlighted: true,
     cta: "Start free trial",
-    ctaNote: "7 days free · cancel anytime",
+    ctaNote: "7 days free · no card required",
   },
   {
     id: "pro",
@@ -77,7 +77,7 @@ export const BEYOND_PRO = [
 export const PILOT_PROGRAM_PRICE = "$15,000 fixed";
 
 export const TRIAL_COPY =
-  "7-day free trial on Team. Card down at checkout, nothing charged until it ends.";
+  "7-day free trial. No card, checkout, or purchase required.";
 
 export const OVERAGE_COPY =
   "Hit the cap? We applaud you. You throttle until tomorrow — never a surprise bill. You can always add another plan to keep going.";

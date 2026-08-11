@@ -26,9 +26,8 @@ export function buildAgentLauncherHref(planId?: string | null): string {
   return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
 }
 
-export function buildAgentTrialHref(planId = "team"): string {
-  const params = new URLSearchParams({ intent: "trial", plan: planId });
-  return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
+export function buildAgentTrialHref(_planId = "team"): string {
+  return "/trial";
 }
 
 export function buildAuthenticatedClawHomeHref(search = ""): string {

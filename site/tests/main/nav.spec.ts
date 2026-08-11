@@ -68,7 +68,7 @@ test("pricing preserves the Solo launch, Team trial, and Pro waitlist paths", as
   );
   await expect(teamCard.getByRole("link", { name: "Start free trial" })).toHaveAttribute(
     "href",
-    /\/dashboard\/agents\?intent=trial&plan=team$/,
+    /\/trial$/,
   );
 
   await proCard.getByRole("button", { name: "Join waitlist" }).click();

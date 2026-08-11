@@ -1118,14 +1118,14 @@ export function AgentWorkspaceSidebar({
       ? onStartTrial ?? onUpgrade
       : onUpgrade;
   const usageActionLabel = trialCheckoutPending
-    ? "Opening checkout..."
+    ? "Starting trial..."
     : activeTrial
       ? "Manage trial"
       : trialOfferVisible
         ? "Start free trial"
         : "Upgrade";
   const collapsedUsageLabel = trialCheckoutPending
-    ? "Opening Team trial checkout"
+    ? "Starting free trial"
     : activeTrial
       ? `${activeTrial.planName} trial: ${activeTrial.timeRemainingLabel}`
       : trialOfferVisible

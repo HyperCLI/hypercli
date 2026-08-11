@@ -49,12 +49,12 @@ describe("dashboard routes", () => {
   });
 
   it("builds and preserves an explicit Team trial entry", () => {
-    expect(buildAgentTrialHref()).toBe("/dashboard/agents?intent=trial&plan=team");
+    expect(buildAgentTrialHref()).toBe("/trial");
     expect(buildAuthenticatedClawHomeHref("?intent=trial&plan=team")).toBe(
-      "/dashboard/agents?intent=trial&plan=team",
+      "/trial",
     );
     expect(buildAuthenticatedClawHomeHref("?plan=team")).toBe(
-      "/dashboard/agents?intent=trial&plan=team",
+      "/trial",
     );
     expect(buildAuthenticatedClawHomeHref("?plan=pro")).toBe(
       "/dashboard/agents?open=agent-launcher&plan=pro",

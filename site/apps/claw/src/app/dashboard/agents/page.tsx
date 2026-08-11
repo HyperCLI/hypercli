@@ -134,22 +134,17 @@ import { displayNameForDashboard } from "@/lib/dashboard-greeting";
 import {
   clearStripeCheckoutReturnState,
   clearPendingPlanCheckout,
-  buildStripeCheckoutReturnUrl,
   catalogPlanOffersTeamTrial,
-  createPlanCheckoutAttemptId,
-  createTeamTrialCheckoutState,
   getCheckoutReflectionStatus,
   getCheckoutOwnedCountFromSummary,
   getEffectivePlanName,
   getGrantedLaunchSlotsByTier,
-  getTeamTrialEligibility,
   isTeamTrialCheckoutFlow,
   markPendingPlanCheckoutReturned,
   mergeLaunchSlotInventories,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
   TEAM_TRIAL_PLAN_ID,
-  writePendingPlanCheckout,
   type PendingPlanCheckout,
   type FirstAgentTrialCheckoutContext,
 } from "@/lib/plan-checkout-state";
@@ -468,14 +463,14 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
-function trialCheckoutErrorMessage(error: unknown): string {
+function trialClaimErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "detail" in error) {
     const detail = String((error as { detail?: unknown }).detail ?? "").trim();
     if (detail) return detail;
   }
   return error instanceof Error && error.message
     ? error.message
-    : "The Team trial checkout could not be opened. Try again.";
+    : "Trial access could not be started. Try again.";
 }
 
 function clearTeamTrialIntentSearchParams(): void {
@@ -903,7 +898,7 @@ function UpgradePlanCatalogContent({
                   } disabled:cursor-wait disabled:opacity-70`}
                 >
                   {trialOffer
-                    ? trialCheckoutPending ? "Opening trial checkout..." : "Start 7-day free trial"
+                    ? trialCheckoutPending ? "Starting trial..." : "Start free trial"
                     : ownedCount > 0 ? "Add another" : product.highlighted ? `Upgrade to ${product.name}` : "Select plan"}
                 </button>
 
@@ -1373,7 +1368,7 @@ function AgentsPageContent() {
   const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
   const appliedTeamTrialIntentRef = useRef<string | null>(null);
-  const trialCheckoutPrincipalRef = useRef<string | null>(null);
+  const trialClaimPrincipalRef = useRef<string | null>(null);
   const agentDataGenerationRef = useRef(0);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
   const agentAvatarObjectUrlsRef = useRef<Map<string, string>>(new Map());
@@ -1815,7 +1810,7 @@ function AgentsPageContent() {
     setAgentOnboardingOverlay(null);
     setCheckoutRecoveryDialogOpen(false);
     setTrialCheckoutPending(false);
-    trialCheckoutPrincipalRef.current = null;
+    trialClaimPrincipalRef.current = null;
     setPaidFirstAgentCheckout(null);
     setResumeAgentLauncher(false);
     if (previousPrincipal || !nextPrincipal) setCheckoutReturnRecoveryActive(false);
@@ -2713,10 +2708,7 @@ function AgentsPageContent() {
     () => getActiveAgentTrial(subscriptionSummary, trialClock, trialSummaryObservedAt),
     [subscriptionSummary, trialClock, trialSummaryObservedAt],
   );
-  const teamTrialEligibility = isAuthenticated
-    ? getTeamTrialEligibility(user?.id, billingDataPrincipalId, subscriptionSummary)
-    : "eligible";
-  const canStartTeamTrial = !activeTrial && teamTrialEligibility === "eligible";
+  const canStartTeamTrial = !activeTrial;
 
   useEffect(() => {
     if (!activeTrial) return;
@@ -2727,27 +2719,23 @@ function AgentsPageContent() {
   useEffect(() => {
     const handlePageShow = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
-      trialCheckoutPrincipalRef.current = null;
+      trialClaimPrincipalRef.current = null;
       setTrialCheckoutPending(false);
     };
     window.addEventListener("pageshow", handlePageShow);
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  const startTeamTrialCheckout = useCallback(async (
-    firstAgentSetup?: FirstAgentTrialCheckoutContext,
+  const startTeamTrial = useCallback(async (
+    _firstAgentSetup?: FirstAgentTrialCheckoutContext,
   ) => {
     const principalId = user?.id ?? null;
-    if (!principalId || trialCheckoutPrincipalRef.current === principalId) return;
-    if (activeTrial || teamTrialEligibility !== "eligible") {
-      setError(activeTrial
-        ? "Your Team trial is already active."
-        : teamTrialEligibility === "loading"
-          ? "Billing data could not be loaded. Retry before starting the trial."
-          : "The Team trial is only available before your first subscription.");
+    if (!principalId || trialClaimPrincipalRef.current === principalId) return;
+    if (activeTrial) {
+      setError("Your trial is already active.");
       return;
     }
-    trialCheckoutPrincipalRef.current = principalId;
+    trialClaimPrincipalRef.current = principalId;
     setTrialCheckoutPending(true);
     setError(null);
 
@@ -2755,41 +2743,23 @@ function AgentsPageContent() {
       const token = await getToken();
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
       const hyperAgent = createHyperAgentClient(token);
-      const teamProduct = upgradeProducts.find((product) => product.id.toLowerCase() === TEAM_TRIAL_PLAN_ID);
-      const checkoutAttemptId = createPlanCheckoutAttemptId();
-
       clearTeamTrialIntentSearchParams();
-
-      const { checkout, pending } = await createTeamTrialCheckoutState(
-        hyperAgent,
-        {
-          successUrl: buildStripeCheckoutReturnUrl("success", checkoutAttemptId),
-          cancelUrl: buildStripeCheckoutReturnUrl("cancelled", checkoutAttemptId),
-        },
-        {
-          principalId,
-          summary: subscriptionSummary,
-          catalogProduct: teamProduct,
-          firstAgentSetup,
-          checkoutAttemptId,
-        },
-      );
+      await hyperAgent.claimTrialEntitlement();
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
-      if (!checkout.checkoutUrl) throw new Error("The Team trial checkout URL was not returned. Try again.");
-
-      writePendingPlanCheckout(pending);
+      await refreshAgentEnrichment({ force: true, token });
       setLauncherPreferredPlanId(TEAM_TRIAL_PLAN_ID);
       setLauncherSelectedCatalogPlanId(TEAM_TRIAL_PLAN_ID);
-      window.location.href = checkout.checkoutUrl;
-    } catch (checkoutError) {
-      if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
-      trialCheckoutPrincipalRef.current = null;
+      trialClaimPrincipalRef.current = null;
       setTrialCheckoutPending(false);
-      setError(trialCheckoutErrorMessage(checkoutError));
+    } catch (claimError) {
+      if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
+      trialClaimPrincipalRef.current = null;
+      setTrialCheckoutPending(false);
+      setError(trialClaimErrorMessage(claimError));
     }
-  }, [activeTrial, getToken, subscriptionSummary, teamTrialEligibility, upgradeProducts, user?.id]);
+  }, [activeTrial, getToken, refreshAgentEnrichment, user?.id]);
 
-  const beginTeamTrialCheckout = useCallback((
+  const beginTeamTrial = useCallback((
     firstAgentSetup?: FirstAgentTrialCheckoutContext,
   ) => {
     if (trialCheckoutPending || activeTrial) return;
@@ -2809,17 +2779,12 @@ function AgentsPageContent() {
 
   useEffect(() => {
     if (pendingAuthIntent?.kind !== "trial" || authLoading || !isAuthenticated || !user?.id) return;
-    if (teamTrialEligibility === "loading" && !billingDataError) return;
     const timeout = window.setTimeout(() => {
       const intent = pendingAuthIntent;
       setPendingAuthIntent(null);
-      if (activeTrial || teamTrialEligibility !== "eligible") {
+      if (activeTrial) {
         clearTeamTrialIntentSearchParams();
-        setError(activeTrial
-          ? "Your Team trial is already active."
-          : teamTrialEligibility === "loading"
-            ? "Billing data could not be loaded. Retry before starting the trial."
-            : "The Team trial is only available before your first subscription.");
+        setError("Your trial is already active.");
         return;
       }
       if (intent.firstAgentSetup) {
@@ -2832,10 +2797,10 @@ function AgentsPageContent() {
           return;
         }
       }
-      void startTeamTrialCheckout(intent.firstAgentSetup);
+      void startTeamTrial(intent.firstAgentSetup);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [activeTrial, authLoading, billingDataError, firstAgentSetupDraft, isAuthenticated, pendingAuthIntent, startTeamTrialCheckout, teamTrialEligibility, user?.id]);
+  }, [activeTrial, authLoading, firstAgentSetupDraft, isAuthenticated, pendingAuthIntent, startTeamTrial, user?.id]);
 
   useEffect(() => {
     if (!teamTrialIntentRequested || stripeCheckoutRecoveryRequested) {
@@ -2845,10 +2810,10 @@ function AgentsPageContent() {
     const key = `${requestedIntent}:${requestedPlanId ?? TEAM_TRIAL_PLAN_ID}`;
     if (authLoading || appliedTeamTrialIntentRef.current === key) return;
     appliedTeamTrialIntentRef.current = key;
-    beginTeamTrialCheckout();
-  }, [authLoading, beginTeamTrialCheckout, requestedIntent, requestedPlanId, stripeCheckoutRecoveryRequested, teamTrialIntentRequested]);
+    beginTeamTrial();
+  }, [authLoading, beginTeamTrial, requestedIntent, requestedPlanId, stripeCheckoutRecoveryRequested, teamTrialIntentRequested]);
 
-  const beginEmbeddedTeamTrialCheckout = useCallback((product: UpgradeDisplayProduct) => {
+  const beginEmbeddedTeamTrial = useCallback((product: UpgradeDisplayProduct) => {
     const agentSize = primaryLaunchTier(product.bundle);
     updateFirstAgentSetupDraftPlan(product.id, agentSize);
     setLauncherPreferredPlanId(product.id);
@@ -2872,8 +2837,8 @@ function AgentsPageContent() {
           agentSize,
         }
       : undefined;
-    beginTeamTrialCheckout(firstAgentSetup);
-  }, [beginTeamTrialCheckout, firstAgentSetupDraft, selectedWorkspaceId, user?.id]);
+    beginTeamTrial(firstAgentSetup);
+  }, [beginTeamTrial, firstAgentSetupDraft, selectedWorkspaceId, user?.id]);
 
   const embeddedFirstAgentSetup = (() => {
     if (!embeddedCheckoutPlan || !firstAgentSetupDraft || !user?.id) return undefined;
@@ -5932,7 +5897,7 @@ function AgentsPageContent() {
           }}
           onStartTrial={() => {
             closeMobileNavigation();
-            beginTeamTrialCheckout();
+            beginTeamTrial();
           }}
           onManageTrial={() => {
             closeMobileNavigation();
@@ -6275,7 +6240,7 @@ function AgentsPageContent() {
               else requestAuthentication({ kind: "navigate", href: "/plans" });
             }}
             onSelectPlan={selectUpgradeProduct}
-            onStartTrial={() => beginTeamTrialCheckout()}
+            onStartTrial={() => beginTeamTrial()}
             trialAvailable={canStartTeamTrial}
             trialCheckoutPending={trialCheckoutPending}
           />
@@ -6518,7 +6483,7 @@ function AgentsPageContent() {
             onOpenSettings={openAgentAccountSettings}
             settingsActive={false}
             onUpgrade={() => { void openUpgradeCatalog(); }}
-            onStartTrial={beginTeamTrialCheckout}
+            onStartTrial={beginTeamTrial}
             onManageTrial={() => { selectAccountSettingsSection("billing"); }}
           />
           <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
@@ -6580,7 +6545,7 @@ function AgentsPageContent() {
                     loading={upgradeCatalogLoading}
                     error={upgradeCatalogError ?? billingDataError}
                     onSelectPlan={selectEmbeddedUpgradeProduct}
-                    onStartTrial={beginEmbeddedTeamTrialCheckout}
+                    onStartTrial={beginEmbeddedTeamTrial}
                     onOpenPlans={() => {
                       if (isAuthenticated) leaveAgentsPage("/plans");
                       else requestAuthentication({ kind: "navigate", href: "/plans" });
