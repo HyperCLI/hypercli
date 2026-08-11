@@ -940,10 +940,9 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
-  it("shows the authoritative lifecycle diagnostic for a failed agent", () => {
+  it("shows the canonical failed-agent status without using gateway diagnostics", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({
       state: "FAILED",
-      error: "Persistent storage could not be attached.",
     }));
     renderAgentChatPanel({
       selectedAgent,
@@ -952,7 +951,7 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.getByText("Agent failed")).toBeInTheDocument();
-    expect(screen.getByText("Persistent storage could not be attached.")).toBeInTheDocument();
+    expect(screen.getByText("Needs attention before it can run.")).toBeInTheDocument();
     expect(screen.queryByText("Stale gateway error")).not.toBeInTheDocument();
   });
 
@@ -961,8 +960,6 @@ describe("AgentChatPanel", () => {
     renderAgentChatPanel({
       selectedAgent: toAgentViewModel(buildSdkAgent({
         state: "FAILED",
-        resourcesExist: true,
-        error: "Launch failed after resources were created.",
       })),
       isSelectedRunning: false,
       slashCommandActions: { onStopAgent },
@@ -972,28 +969,10 @@ describe("AgentChatPanel", () => {
     expect(onStopAgent).toHaveBeenCalledTimes(1);
   });
 
-  it("offers restart after failed-launch cleanup is complete", () => {
-    const onStartAgent = vi.fn();
-    renderAgentChatPanel({
-      selectedAgent: toAgentViewModel(buildSdkAgent({
-        state: "FAILED",
-        resourcesExist: false,
-        error: "Launch failed.",
-      })),
-      isSelectedRunning: false,
-      slashCommandActions: { onStartAgent },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Start agent" }));
-    expect(onStartAgent).toHaveBeenCalledTimes(1);
-  });
-
   it("does not render a blank recovery action when failed lifecycle controls are unavailable", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({
       state: "FAILED",
-      resourcesExist: false,
       isLaunchable: false,
-      error: "This runtime cannot be relaunched.",
     }));
     renderAgentChatPanel({
       selectedAgent,
@@ -1003,7 +982,7 @@ describe("AgentChatPanel", () => {
       }),
     });
 
-    const alert = screen.getByText("This runtime cannot be relaunched.").closest('[role="alert"]');
+    const alert = screen.getByText("Needs attention before it can run.").closest('[role="alert"]');
     expect(alert).not.toBeNull();
     expect(alert?.querySelector("button")).toBeNull();
   });
@@ -2886,11 +2865,11 @@ describe("AgentChatPanel", () => {
     expect(agentLifecycleLabel("STOPPING", false)).toBe("stopping");
   });
 
-  it("does not expose start for a failed agent while resources still exist", async () => {
+  it("does not expose start until a failed agent is cleaned up", async () => {
     const onStartAgent = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({ input: "/" }),
-      selectedAgent: toAgentViewModel(buildSdkAgent({ state: "FAILED", resourcesExist: true })),
+      selectedAgent: toAgentViewModel(buildSdkAgent({ state: "FAILED" })),
       isSelectedRunning: false,
       slashCommandActions: { onStartAgent },
     });

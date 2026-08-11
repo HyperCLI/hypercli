@@ -754,6 +754,10 @@ fn default_true() -> bool {
     true
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct StartDeploymentRequest {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -792,7 +796,7 @@ pub struct StartDeploymentRequest {
     pub restart: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_scopes: Vec<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub dry_run: bool,
 }
 
@@ -983,21 +987,7 @@ pub struct Deployment {
     #[serde(default)]
     pub archived_at: Option<String>,
     #[serde(default)]
-    pub archived_path: Option<String>,
-    #[serde(default)]
-    pub reason: Option<String>,
-    #[serde(default)]
-    pub error: Option<String>,
-    #[serde(default)]
-    pub message: Option<String>,
-    #[serde(default)]
     pub launch_epoch: u64,
-    #[serde(default)]
-    pub agent_version: u64,
-    #[serde(default)]
-    pub resources_exist: bool,
-    #[serde(default)]
-    pub namespace_exists: bool,
     /// Persisted launch settings. This can contain runtime credentials, so its
     /// `Debug` implementation is always redacted even though authenticated
     /// clients may inspect and patch individual fields deliberately.
@@ -1020,8 +1010,6 @@ pub struct DeploymentEvent {
     pub message: Option<String>,
     #[serde(default)]
     pub launch_epoch: Option<u64>,
-    #[serde(default)]
-    pub agent_version: Option<u64>,
     #[serde(default)]
     pub resources_exist: Option<bool>,
     #[serde(default)]
@@ -1503,14 +1491,7 @@ mod tests {
             tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
             requested_size: None,
             archived_at: None,
-            archived_path: None,
-            reason: None,
-            error: None,
-            message: None,
             launch_epoch: 0,
-            agent_version: 0,
-            resources_exist: false,
-            namespace_exists: false,
             launch_config: Default::default(),
         };
 
@@ -1560,14 +1541,7 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_path: None,
-            reason: None,
-            error: None,
-            message: None,
             launch_epoch: 0,
-            agent_version: 0,
-            resources_exist: false,
-            namespace_exists: false,
             launch_config: Default::default(),
         };
 
@@ -1580,43 +1554,34 @@ mod tests {
             "agent_id": "agent-1",
             "state": "ARCHIVING",
             "reason": "archive_request",
-            "agent_version": 1,
             "resources_exist": true,
             "namespace_exists": true
         }))
         .unwrap();
         assert_eq!(event.state.as_deref(), Some("ARCHIVING"));
-        assert_eq!(event.agent_version, Some(1));
         assert_eq!(event.resources_exist, Some(true));
         assert_eq!(event.namespace_exists, Some(true));
     }
 
     #[test]
-    fn deployment_deserializes_storage_and_archive_projection() {
+    fn deployment_deserializes_cluster_and_archive_timestamp() {
         let deployment: Deployment = serde_json::from_value(serde_json::json!({
             "id": "agent-1",
             "state": "ARCHIVED",
             "cluster_id": "cluster-current",
-            "agent_version": 2,
-            "archived_at": "2026-08-09T12:00:00Z",
-            "archived_path": "s3://archive/dev01/agent-1/checkpoint"
+            "archived_at": "2026-08-09T12:00:00Z"
         }))
         .unwrap();
 
         assert_eq!(deployment.cluster_id.as_deref(), Some("cluster-current"));
-        assert_eq!(deployment.agent_version, 2);
         assert_eq!(
             deployment.archived_at.as_deref(),
             Some("2026-08-09T12:00:00Z")
         );
-        assert_eq!(
-            deployment.archived_path.as_deref(),
-            Some("s3://archive/dev01/agent-1/checkpoint")
-        );
     }
 
     #[test]
-    fn deployment_deserializes_every_canonical_lifecycle_state_and_diagnostics() {
+    fn deployment_deserializes_every_canonical_lifecycle_state() {
         for state in [
             "CREATING",
             "STARTING",
@@ -1629,53 +1594,14 @@ mod tests {
             "DELETED",
             "FAILED",
         ] {
-            let expected_message = format!("Lifecycle state is {state}");
             let deployment: Deployment = serde_json::from_value(serde_json::json!({
                 "id": "agent-1",
                 "state": state,
-                "reason": if state == "STOPPED" { "runtime_exit" } else { "start" },
-                "error": (state == "FAILED").then_some("ExampleError"),
-                "message": expected_message,
             }))
             .unwrap();
 
             assert_eq!(deployment.state, state);
-            assert_eq!(
-                deployment.reason.as_deref(),
-                Some(if state == "STOPPED" {
-                    "runtime_exit"
-                } else {
-                    "start"
-                })
-            );
-            assert_eq!(
-                deployment.error.as_deref(),
-                (state == "FAILED").then_some("ExampleError")
-            );
-            assert_eq!(
-                deployment.message.as_deref(),
-                Some(expected_message.as_str())
-            );
         }
-    }
-
-    #[test]
-    fn deployment_keeps_lifecycle_reason_independent_from_error_and_message() {
-        let deployment: Deployment = serde_json::from_value(serde_json::json!({
-            "id": "agent-1",
-            "state": "STOPPED",
-            "reason": "api_stop",
-            "error": null,
-            "message": "Agent stopped normally",
-        }))
-        .unwrap();
-
-        assert_eq!(deployment.reason.as_deref(), Some("api_stop"));
-        assert_eq!(deployment.error, None);
-        assert_eq!(
-            deployment.message.as_deref(),
-            Some("Agent stopped normally")
-        );
     }
 
     #[test]
@@ -1790,8 +1716,7 @@ mod tests {
 
         let inherited = StartDeploymentRequest::default();
         let inherited_wire = serde_json::to_value(&inherited).unwrap();
-        assert!(inherited_wire.get("sync_include").is_none());
-        assert!(inherited_wire.get("sync_exclude").is_none());
+        assert_eq!(inherited_wire, serde_json::json!({}));
 
         let mut start = StartDeploymentRequest::default();
         start.set_sync_policy(Some(Vec::new()), None);

@@ -94,7 +94,6 @@ export function buildSdkAgent(overrides: Partial<SdkAgent> = {}): SdkAgent {
     routes: {},
     command: [],
     entrypoint: [],
-    ports: [],
     dryRun: false,
     publicUrl: "https://agent.example.com",
     desktopUrl: null,

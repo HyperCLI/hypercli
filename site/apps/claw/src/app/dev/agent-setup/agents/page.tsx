@@ -299,10 +299,6 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   if (index === -1) {
     return [...prev, nextAgent];
   }
-  const currentAgent = prev[index];
-  if (nextAgent.agentVersion < currentAgent.agentVersion) {
-    return prev;
-  }
   const next = [...prev];
   next[index] = nextAgent;
   return next;
@@ -1149,7 +1145,6 @@ export default function DevAgentSetupAgentsPage() {
         hostname: selectedAgent.hostname,
         startedAt: selectedAgent.started_at,
         updatedAt: selectedAgent.updated_at,
-        error: selectedAgent.error,
         meta: selectedAgent.meta,
         config: agentConfigForView,
         connections: agentConnectionsForView?.map((connection) => ({

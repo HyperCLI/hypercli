@@ -365,7 +365,7 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('startOpenClaw defaults sync root', async () => {
+  it('startOpenClaw without overrides inherits the backend launch contract', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -381,23 +381,7 @@ describe('HyperClaw agents SDK', () => {
 
     await deployments.startOpenClaw('agent-123');
 
-    expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', expect.objectContaining({
-      image: DEFAULT_OPENCLAW_IMAGE,
-      sync_root: '/home/node',
-      sync_exclude: expect.arrayContaining([
-        'shared/**',
-        '.openclaw/npm/**/node_modules/**',
-      ]),
-      env: expect.objectContaining({
-        HYPER_WORKSPACES_BOOT_SYNC: '1',
-        HYPER_WORKSPACES_DIR: '/home/node/shared',
-        HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
-      }),
-      routes: {
-        openclaw: { port: 18789, auth: false, prefix: '' },
-      },
-    }), { retries: 1 });
-    expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
+    expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', {}, { retries: 1 });
   });
 
   it('hydrates generic and OpenClaw agents correctly', () => {
@@ -980,7 +964,7 @@ describe('HyperClaw agents SDK', () => {
     expect((agent as OpenClawAgent).gatewayToken).toBeNull();
   });
 
-  it('create posts only meta.ui and hydrates it back onto the agent', async () => {
+  it('create posts only canonical meta.ui and hydrates it back onto the agent', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-2',
       user_id: 'user-1',
@@ -989,7 +973,6 @@ describe('HyperClaw agents SDK', () => {
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       meta: {
         ui: {
-          creation_id: 'setup-123',
           avatar: {
             image: 'data:image/png;base64,xyz',
             icon_index: 5,
@@ -1008,7 +991,6 @@ describe('HyperClaw agents SDK', () => {
       start: false,
       meta: {
         ui: {
-          creation_id: 'setup-123',
           avatar: {
             image: 'data:image/png;base64,xyz',
             icon_index: 5,
@@ -1024,7 +1006,6 @@ describe('HyperClaw agents SDK', () => {
         start: false,
         meta: {
           ui: {
-            creation_id: 'setup-123',
             avatar: {
               image: 'data:image/png;base64,xyz',
               icon_index: 5,
@@ -1037,47 +1018,12 @@ describe('HyperClaw agents SDK', () => {
     expect((post as any).mock.calls[0][1].meta.internal).toBeUndefined();
     expect(agent.meta).toEqual({
       ui: {
-        creation_id: 'setup-123',
         avatar: {
           image: 'data:image/png;base64,xyz',
           icon_index: 5,
         },
       },
     });
-  });
-
-  it('keeps the backend launch contract when creation is an idempotent replay', async () => {
-    const post = vi.fn().mockResolvedValue({
-      id: 'agent-replayed',
-      user_id: 'user-1',
-      state: 'stopped',
-      runtime: 'openclaw',
-      creation_replayed: true,
-      launch_config: {
-        secrets: { OPENCLAW_GATEWAY_TOKEN: 'must-not-hydrate' },
-        command: ['original-command'],
-        sync_enabled: true,
-      },
-      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
-    });
-    const agents = new Deployments(
-      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
-      'sk-hyper-test',
-      'https://api.dev.hyperclaw.app',
-    );
-
-    const agent = await agents.createOpenClaw({
-      name: 'replayed-agent',
-      start: false,
-      gatewayToken: 'retry-token',
-      command: ['retry-command'],
-      meta: { ui: { creation_id: 'setup-123' } },
-    });
-
-    expect(agent.creationReplayed).toBe(true);
-    expect(agent.launchConfig).not.toHaveProperty('secrets');
-    expect(agent.launchConfig).not.toHaveProperty('sync_enabled');
-    expect(agent.command).toEqual(['original-command']);
   });
 
   it('list returns hydrated items', async () => {

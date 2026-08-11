@@ -505,33 +505,6 @@ describe("agent-client", () => {
     expect(new Set(attemptedNames).size).toBe(2);
   });
 
-  it("strips stale creation correlation and ports before the first create request", async () => {
-    deploymentsInstance.createOpenClaw.mockResolvedValueOnce({ id: "agent-123" });
-
-    await expect(createOpenClawAgent("hyper_api_test", {
-      name: "bright-atlas-anchor",
-      start: false,
-      meta: {
-        ui: {
-          avatar: { image: "/avatars/otter.svg", icon_index: 3 },
-          creation_id: "setup-compat",
-        },
-      },
-      ports: [{ port: 3000 }],
-    } as unknown as Parameters<typeof createOpenClawAgent>[1])).resolves.toEqual({ id: "agent-123" });
-
-    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledOnce();
-    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
-      name: "bright-atlas-anchor",
-      meta: {
-        ui: {
-          avatar: { image: "/avatars/otter.svg", icon_index: 3 },
-        },
-      },
-    }));
-    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0]).not.toHaveProperty("ports");
-  });
-
   it("does not retry unrelated validation failures", async () => {
     const validationError = {
       statusCode: 422,

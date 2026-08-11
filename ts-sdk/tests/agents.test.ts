@@ -165,12 +165,8 @@ describe('Agents SDK', () => {
         id: 'agent-123',
         state: 'FUTURE_STATE',
         launch_epoch: 3,
-        agent_version: 2,
-        resources_exist: true,
-        namespace_exists: true,
         cluster_id: 'cluster-current',
         archived_at: '2026-08-09T12:00:00Z',
-        archived_path: 's3://archive/dev01/agent-123/checkpoint',
       }),
     } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
@@ -179,12 +175,8 @@ describe('Agents SDK', () => {
 
     expect(agent.state).toBe('FUTURE_STATE');
     expect(agent.launchEpoch).toBe(3);
-    expect(agent.agentVersion).toBe(2);
-    expect(agent.resourcesExist).toBe(true);
-    expect(agent.namespaceExists).toBe(true);
     expect(agent.clusterId).toBe('cluster-current');
     expect(agent.archivedAt?.toISOString()).toBe('2026-08-09T12:00:00.000Z');
-    expect(agent.archivedPath).toBe('s3://archive/dev01/agent-123/checkpoint');
   });
 
   it('authenticates before the REST snapshot and delivers persisted transitions', async () => {
@@ -217,7 +209,6 @@ describe('Agents SDK', () => {
             error: null,
             message: 'Agent archive is being finalized',
             launch_epoch: 3,
-            agent_version: 1,
             resources_exist: true,
             namespace_exists: true,
           },
@@ -257,7 +248,6 @@ describe('Agents SDK', () => {
       error: null,
       message: 'Agent archive is being finalized',
       launch_epoch: 3,
-      agent_version: 1,
       resources_exist: true,
       namespace_exists: true,
     });
@@ -466,6 +456,28 @@ describe('Agents SDK', () => {
     );
   });
 
+  it('posts a bodyless restore and preserves RESTORING', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      user_id: 'user-456',
+      state: 'RESTORING',
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const restored = await deployments.restore('11111111-1111-4111-8111-111111111111');
+
+    expect(restored.state).toBe('RESTORING');
+    expect(post).toHaveBeenCalledWith(
+      '/deployments/11111111-1111-4111-8111-111111111111/restore',
+      undefined,
+      { retries: 1 },
+    );
+  });
+
   it('does not replay a stop whose admission request times out before a response', async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -559,9 +571,7 @@ describe('Agents SDK', () => {
     await expect(
       deployments.start('self', { syncInclude: null }),
     ).rejects.toThrow('syncInclude');
-    await expect(deployments.startOpenClaw('self')).rejects.toThrow(
-      'backend-stored launch configuration',
-    );
+    await expect(deployments.startOpenClaw('self')).resolves.toBeInstanceOf(Agent);
   });
 
   it('rejects self for destructive operations outside the approved surface', async () => {
@@ -804,15 +814,12 @@ describe('Agents SDK', () => {
     'ARCHIVED',
     'DELETED',
     'FAILED',
-  ] as const)('hydrates canonical lifecycle state %s and diagnostics', async (state) => {
+  ] as const)('hydrates canonical lifecycle state %s', async (state) => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
         state,
-        reason: state === 'STOPPED' ? 'runtime_exit' : 'start',
-        error: state === 'FAILED' ? 'ExampleError' : null,
-        message: `Lifecycle state is ${state}`,
       }),
     } as unknown as HTTPClient;
 
@@ -820,9 +827,6 @@ describe('Agents SDK', () => {
     const agent = await deployments.get('agent-123');
 
     expect(agent.state).toBe(state);
-    expect(agent.reason).toBe(state === 'STOPPED' ? 'runtime_exit' : 'start');
-    expect(agent.error).toBe(state === 'FAILED' ? 'ExampleError' : null);
-    expect(agent.message).toBe(`Lifecycle state is ${state}`);
   });
 
   it('classifies archive and deletion states without closing AgentState', () => {
@@ -874,26 +878,6 @@ describe('Agents SDK', () => {
     expect(agent.isDeleted).toBe(deleted);
   });
 
-  it('keeps lifecycle reason independent from error and message', async () => {
-    const http = {
-      get: vi.fn().mockResolvedValue({
-        id: 'agent-123',
-        user_id: 'user-456',
-        state: 'STOPPED',
-        reason: 'api_stop',
-        error: null,
-        message: 'Agent stopped normally',
-      }),
-    } as unknown as HTTPClient;
-
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-    const agent = await deployments.get('agent-123');
-
-    expect(agent.reason).toBe('api_stop');
-    expect(agent.error).toBeNull();
-    expect(agent.message).toBe('Agent stopped normally');
-  });
-
   it.each(['CREATING', 'STARTING', 'RESTORING', 'STOPPING', 'ARCHIVING'] as const)(
     'waitForState treats transitional state %s as a valid intermediate observation',
     async (state) => {
@@ -907,14 +891,12 @@ describe('Agents SDK', () => {
     },
   );
 
-  it('hydrates canonical starting state and diagnostics', async () => {
+  it('hydrates canonical starting state', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
         state: 'STARTING',
-        error: null,
-        message: 'Pulling runtime image',
       }),
     } as unknown as HTTPClient;
 
@@ -922,22 +904,16 @@ describe('Agents SDK', () => {
     const agent = await deployments.get('agent-123');
 
     expect(agent.state).toBe('STARTING');
-    expect(agent.error).toBeNull();
-    expect(agent.message).toBe('Pulling runtime image');
   });
 
   it.each(['STOPPED', 'ARCHIVED', 'DELETED', 'FAILED'] as const)(
-    'fails waitRunning promptly on terminal state %s with structured diagnostics',
+    'fails waitRunning promptly on terminal state %s',
     async (state) => {
       const http = {
         get: vi.fn().mockResolvedValue({
           id: 'agent-123',
           user_id: 'user-456',
           state,
-          reason: 'runtime_exit',
-          error: 'WorkspaceSyncFailed',
-          message: 'workspace sync failed',
-          updated_at: '2026-07-27T12:00:00Z',
         }),
       } as unknown as HTTPClient;
 
@@ -945,7 +921,7 @@ describe('Agents SDK', () => {
       installReadySubscription(deployments);
 
       await expect(deployments.waitRunning('agent-123', 100, 0)).rejects.toThrow(
-        `Agent entered ${state} while waiting for RUNNING, reason="runtime_exit", error="WorkspaceSyncFailed", message="workspace sync failed", updatedAt=2026-07-27T12:00:00.000Z`,
+        `Agent entered ${state} while waiting for RUNNING`,
       );
     },
   );
@@ -1068,16 +1044,13 @@ describe('Agents SDK', () => {
     expect(get).toHaveBeenCalledTimes(2);
   });
 
-  it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
+  it('includes only the latest REST state when waitRunning times out', async () => {
     vi.useFakeTimers();
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
         user_id: 'user-456',
         state: 'RESTORING',
-        error: null,
-        message: 'restore init container is still waiting',
-        updated_at: '2026-07-27T12:00:00Z',
       }),
     } as unknown as HTTPClient;
 
@@ -1085,7 +1058,7 @@ describe('Agents SDK', () => {
     installReadySubscription(deployments);
 
     const assertion = expect(deployments.waitRunning('agent-123', 1_000, 100)).rejects.toThrow(
-      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING, message="restore init container is still waiting", updatedAt=2026-07-27T12:00:00.000Z)',
+      'Timed out waiting for agent agent-123 to reach RUNNING (last=RESTORING)',
     );
     await vi.advanceTimersByTimeAsync(1_000);
     await assertion;
@@ -1229,7 +1202,7 @@ describe('Agents SDK', () => {
     expect(get).not.toHaveBeenCalledWith('/deployments/coder');
   });
 
-  it('starts OpenClaw Pro with default runtime scopes and honors overrides', async () => {
+  it('starts OpenClaw Pro with an empty inherited contract and honors overrides', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-pro',
       user_id: 'user-456',
@@ -1246,7 +1219,7 @@ describe('Agents SDK', () => {
     await deployments.startOpenClawPro(agentId);
     await deployments.startOpenClawPro(agentId, { runtimeScopes: ['models:*'] });
 
-    expect(post.mock.calls[0][1].runtime_scopes).toEqual(DEFAULT_AGENT_RUNTIME_SCOPES);
+    expect(post.mock.calls[0][1]).toEqual({});
     expect(post.mock.calls[1][1].runtime_scopes).toEqual(['models:*']);
   });
 
@@ -1269,7 +1242,6 @@ describe('Agents SDK', () => {
     );
 
     expect(post.mock.calls[0][1]).toMatchObject({
-      sync_root: '/home/node',
       sync_include: ['src'],
     });
     expect(post.mock.calls[0][1]).not.toHaveProperty('sync_enabled');
@@ -1752,7 +1724,6 @@ describe('Agents SDK', () => {
     expect(launchConfigHasDesktop({ env: { OPENCLAW_DESKTOP_ENABLED: '1' } })).toBe(true);
     expect(launchConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } } })).toBe(true);
     expect(launchConfigHasDesktop({ routes: { browser: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
-    expect(launchConfigHasDesktop({ ports: [{ port: 3000, auth: true }] })).toBe(true);
     expect(launchConfigHasDesktop({ image: 'ghcr.io/hypercli/hypercli-openclaw:pro-prod' })).toBe(false);
     expect(agentConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
   });
@@ -1761,13 +1732,11 @@ describe('Agents SDK', () => {
     const launchConfig = {
       env: { OPENCLAW_DESKTOP_ENABLED: '0' },
       routes: { openclaw: { port: 18789, prefix: '' } },
-      ports: [{ port: 3000, auth: true }],
     };
 
     expect(flattenLaunchConfig(launchConfig)).toMatchObject({
       'env.OPENCLAW_DESKTOP_ENABLED': '0',
       'routes.openclaw.port': 18789,
-      'ports[0].port': 3000,
     });
 
     const agent = Agent.fromDict({

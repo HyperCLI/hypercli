@@ -25,6 +25,15 @@ test("agents launch helper observes an authenticated gateway WebSocket connect",
   expect(authFixtureSource).toContain('page.off("websocket", observeGatewaySocket)');
 });
 
+test("agents launch canary exercises the canonical lifecycle contract", () => {
+  expect(authFixtureSource).toContain("expect(response.request().postDataJSON()).toEqual({})");
+  expect(authFixtureSource).toContain("acceptedStart?.launchEpoch ?? acceptedStart?.launch_epoch");
+  expect(authFixtureSource).toContain("waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch)");
+  expect(authFixtureSource).toContain('start: false');
+  expect(subscriptionSpecSource).toContain("stopClawAgentAndWaitStopped(page, createdAgentId)");
+  expect(authFixtureSource).toContain('["STOPPED"]');
+});
+
 test("agents subscription retry permits immutable canceled history", () => {
   expect(subscriptionSpecSource).toContain("beforeSummary.activeSubscriptions).toHaveLength(0)");
   expect(subscriptionSpecSource).toContain("filter((subscription) => subscription.isCurrent)");

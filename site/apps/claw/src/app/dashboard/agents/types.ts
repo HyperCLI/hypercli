@@ -21,21 +21,21 @@ export function isAgentOffline(state: AgentState | string | null | undefined): b
   return normalized === "STOPPED" || normalized === "ARCHIVED";
 }
 
-type AgentLifecycleActionState = Pick<Agent, "state" | "resourcesExist" | "isLaunchable">;
+type AgentLifecycleActionState = Pick<Agent, "state" | "isLaunchable">;
 
 export function isAgentStartable(agent: AgentLifecycleActionState): boolean {
   if (agent.isLaunchable === false) return false;
   const state = agent.state.toUpperCase();
-  return state === "STOPPED" || state === "ARCHIVED" || (state === "FAILED" && !agent.resourcesExist);
+  return state === "STOPPED" || state === "ARCHIVED";
 }
 
-export function isAgentStoppable(agent: Pick<Agent, "state" | "resourcesExist">): boolean {
+export function isAgentStoppable(agent: Pick<Agent, "state">): boolean {
   const state = agent.state.toUpperCase();
   return state === "CREATING"
     || state === "STARTING"
     || state === "RESTORING"
     || state === "RUNNING"
-    || (state === "FAILED" && agent.resourcesExist);
+    || state === "FAILED";
 }
 
 export function isAgentDeletable(agent: Pick<Agent, "state">): boolean {
@@ -62,17 +62,10 @@ export interface Agent {
   started_at: string | null;
   stopped_at: string | null;
   archived_at: string | null;
-  reason: string | null;
-  error: string | null;
-  message: string | null;
   created_at: string | null;
   updated_at: string | null;
   launchEpoch: number;
-  agentVersion: number;
-  resourcesExist: boolean;
-  namespaceExists: boolean;
   clusterId: string | null;
-  archivedPath: string | null;
   launchConfig?: Record<string, unknown> | null;
   hasDesktop?: boolean;
   meta?: AgentMeta | null;

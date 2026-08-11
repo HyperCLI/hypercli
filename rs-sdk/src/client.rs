@@ -491,28 +491,37 @@ impl HyperCliClient {
         };
         let waited = tokio::time::timeout(timeout, async {
             let mut retry_delay = Duration::from_millis(250);
+            let mut reconcile = tokio::time::interval(effective_poll_interval);
+            reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            reconcile.tick().await;
             loop {
-                let mut socket = match self.connect_deployment_events().await {
-                    Ok(socket) => {
-                        retry_delay = Duration::from_millis(250);
-                        socket
-                    }
-                    Err(error) if permanent_deployment_event_error(&error) => return Err(error),
-                    Err(_) => {
-                        tokio::time::sleep(retry_delay).await;
-                        retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
-                        continue;
-                    }
-                };
                 if let Some(deployment) = check(
                     self.async_get_json(&format!("deployments/{deployment_id}"))
                         .await?,
                 )? {
                     return Ok(deployment);
                 }
-                let mut reconcile = tokio::time::interval(effective_poll_interval);
-                reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                reconcile.tick().await;
+                let connection = self.connect_deployment_events();
+                tokio::pin!(connection);
+                let mut socket = match tokio::select! {
+                    connection = &mut connection => Some(connection),
+                    _ = reconcile.tick() => None,
+                } {
+                    None => continue,
+                    Some(result) => match result {
+                    Ok(socket) => {
+                        retry_delay = Duration::from_millis(250);
+                        socket
+                    }
+                    Err(_) => {
+                        tokio::select! {
+                            _ = tokio::time::sleep(retry_delay) => {},
+                            _ = reconcile.tick() => {},
+                        }
+                        retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
+                        continue;
+                    }
+                }};
                 'socket: loop {
                     tokio::select! {
                         _ = reconcile.tick() => {
@@ -553,7 +562,10 @@ impl HyperCliClient {
                         }
                     }
                 }
-                tokio::time::sleep(retry_delay).await;
+                tokio::select! {
+                    _ = tokio::time::sleep(retry_delay) => {},
+                    _ = reconcile.tick() => {},
+                }
                 retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
             }
         })
@@ -853,6 +865,20 @@ impl HyperCliClient {
             result.as_ref().map(|_| ()),
         );
         result
+    }
+
+    /// Restore durable storage for a stopped or archived deployment.
+    pub fn restore_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/restore"));
+        self.send_json(
+            "restore_deployment",
+            "POST",
+            &url,
+            None,
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )
     }
 
     /// Permanently remove a stopped deployment. The API enforces the stopped
@@ -1902,9 +1928,9 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_string().contains("entered STOPPED"));
-        websocket.await.unwrap();
+        websocket.abort();
         stopped.assert_async().await;
-        token.assert_async().await;
+        assert_eq!(token.matched_async().await, false);
         drop(stopped);
         drop(token);
         tokio::task::spawn_blocking(move || {
@@ -1913,6 +1939,64 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_deployment_state_reconciles_when_event_subscription_is_unavailable() {
+        let mut server = Server::new_async().await;
+        let rest_calls = Arc::new(Mutex::new(0usize));
+        let response_calls = Arc::clone(&rest_calls);
+        let states = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_chunked_body(move |writer| {
+                let mut count = response_calls.lock().unwrap();
+                let state = if *count == 0 { "STARTING" } else { "RUNNING" };
+                *count += 1;
+                writer.write_all(
+                    json!({"id": "deployment-1", "state": state})
+                        .to_string()
+                        .as_bytes(),
+                )
+            })
+            .expect(2)
+            .create_async()
+            .await;
+        let token = server
+            .mock("POST", "/agents/deployments/events/token")
+            .with_status(503)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"detail": "events unavailable"}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
+        let event_client = tokio::task::spawn_blocking(move || {
+            HyperCliClient::new(ClientConfig {
+                api_base,
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+            })
+            .unwrap()
+        })
+        .await
+        .unwrap();
+
+        let deployment = event_client
+            .wait_deployment_state_with_poll_interval(
+                "deployment-1",
+                &["RUNNING"],
+                &["STOPPED", "FAILED"],
+                Duration::from_secs(1),
+                Duration::from_millis(20),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(deployment.state, "RUNNING");
+        states.assert_async().await;
+        token.assert_async().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1971,9 +2055,9 @@ mod tests {
                 .unwrap();
 
             assert_eq!(deployment.state, state);
-            websocket.await.unwrap();
+            websocket.abort();
             observed.assert_async().await;
-            token.assert_async().await;
+            assert!(!token.matched_async().await);
             drop(observed);
             drop(token);
             tokio::task::spawn_blocking(move || {
@@ -2409,6 +2493,31 @@ mod tests {
     }
 
     #[test]
+    fn restore_posts_bodyless_and_decodes_restoring() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/restore")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "RESTORING"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let restored = client(&server).restore_deployment("deployment-1").unwrap();
+        assert_eq!(restored.id, "deployment-1");
+        assert_eq!(restored.state, "RESTORING");
+        mock.assert();
+    }
+
+    #[test]
     fn delete_uses_deployment_endpoint_and_decodes_tombstone() {
         let mut server = Server::new();
         let mock = server
@@ -2430,6 +2539,33 @@ mod tests {
         assert!(deleted.ok);
         assert_eq!(deleted.id, "deployment-1");
         assert_eq!(deleted.deleted_at.as_deref(), Some("2026-08-05T06:00:00Z"));
+        mock.assert();
+    }
+
+    #[test]
+    fn default_start_posts_exact_empty_json_body() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/start")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::Exact("{}".to_owned()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "STARTING"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let deployment = client(&server)
+            .start_deployment("deployment-1", &StartDeploymentRequest::default())
+            .unwrap();
+
+        assert_eq!(deployment.state, "STARTING");
         mock.assert();
     }
 

@@ -117,12 +117,9 @@ const agent: Agent = {
   hostname: "agent.example.com",
   started_at: "2026-05-05T00:00:00Z",
   stopped_at: null,
-  error: null,
   created_at: "2026-05-05T00:00:00Z",
   updated_at: "2026-05-05T00:00:00Z",
   launchEpoch: 0,
-  resourcesExist: true,
-  namespaceExists: true,
   meta: null,
 };
 

@@ -16,12 +16,14 @@ export function agentDisplayLabel(agent: Pick<Agent, "id" | "name" | "handle" | 
 }
 
 export function didAnyAgentFinishCleanup(
-  previous: ReadonlyMap<string, Pick<Agent, "state" | "resourcesExist">>,
-  current: ReadonlyArray<Pick<Agent, "id" | "state" | "resourcesExist">>,
+  previous: ReadonlyMap<string, Pick<Agent, "state">>,
+  current: ReadonlyArray<Pick<Agent, "id" | "state">>,
 ): boolean {
   return current.some((agent) => {
-    const previousAgent = previous.get(agent.id);
-    return Boolean(previousAgent?.resourcesExist && !agent.resourcesExist);
+    const previousState = previous.get(agent.id)?.state.toUpperCase();
+    const currentState = agent.state.toUpperCase();
+    return (previousState === "STOPPING" || previousState === "ARCHIVING" || previousState === "FAILED")
+      && (currentState === "STOPPED" || currentState === "ARCHIVED");
   });
 }
 
@@ -52,17 +54,10 @@ export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | n
     started_at: agent.startedAt?.toISOString() ?? null,
     stopped_at: agent.stoppedAt?.toISOString() ?? null,
     archived_at: agent.archivedAt?.toISOString() ?? null,
-    reason: agent.reason ?? null,
-    error: agent.error ?? null,
-    message: agent.message ?? null,
     created_at: agent.createdAt?.toISOString() ?? null,
     updated_at: agent.updatedAt?.toISOString() ?? null,
     launchEpoch: agent.launchEpoch,
-    agentVersion: agent.agentVersion,
-    resourcesExist: agent.resourcesExist,
-    namespaceExists: agent.namespaceExists,
     clusterId: agent.clusterId ?? null,
-    archivedPath: agent.archivedPath ?? null,
     launchConfig: agent.launchConfig ?? null,
     hasDesktop: agent.hasDesktop,
     meta: agent.meta ?? null,

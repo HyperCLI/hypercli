@@ -15,8 +15,8 @@ describe("AgentInspector lifecycle status", () => {
     });
   });
 
-  it("offers cleanup rather than restart while failed resources still exist", () => {
-    const agent = toAgentViewModel(buildSdkAgent({ state: "FAILED", resourcesExist: true }));
+  it("offers cleanup rather than restart after a failed launch", () => {
+    const agent = toAgentViewModel(buildSdkAgent({ state: "FAILED" }));
 
     expect(buildAgentInspectorActionState(agent)).toEqual({
       canStart: false,
@@ -25,8 +25,8 @@ describe("AgentInspector lifecycle status", () => {
     });
   });
 
-  it("offers restart once failed resources are gone", () => {
-    const agent = toAgentViewModel(buildSdkAgent({ state: "FAILED", resourcesExist: false }));
+  it("offers restart once cleanup reaches stopped", () => {
+    const agent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
 
     expect(buildAgentInspectorActionState(agent)).toEqual({
       canStart: true,

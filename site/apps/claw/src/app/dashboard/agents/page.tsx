@@ -314,25 +314,6 @@ const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
 const SHELL_INTENT_TTL_MS = 12_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 const KNOWLEDGE_HUB_SURFACE_CONTROLS_ID = "knowledge-hub-surface-controls";
-const AGENT_SETUP_STARTED_STATES = new Set(["CREATING", "RESTORING", "STARTING", "RUNNING", "STOPPING", "ARCHIVING", "ARCHIVED"]);
-
-function agentSetupAlreadyStarted(agent: {
-  state?: unknown;
-  launchEpoch?: unknown;
-  startedAt?: unknown;
-  stoppedAt?: unknown;
-  started_at?: unknown;
-  stopped_at?: unknown;
-}): boolean {
-  return Boolean(
-    (typeof agent.launchEpoch === "number" && agent.launchEpoch > 0)
-    || agent.startedAt
-    || agent.stoppedAt
-    || agent.started_at
-    || agent.stopped_at
-    || AGENT_SETUP_STARTED_STATES.has(String(agent.state ?? "").toUpperCase()),
-  );
-}
 
 function DeferredDashboardPanel() {
   return (
@@ -1135,10 +1116,6 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   const index = prev.findIndex((agent) => agent.id === nextAgent.id);
   if (index === -1) {
     return [...prev, nextAgent];
-  }
-  const currentAgent = prev[index];
-  if (nextAgent.agentVersion < currentAgent.agentVersion) {
-    return prev;
   }
   const next = [...prev];
   next[index] = nextAgent;
@@ -1971,7 +1948,7 @@ function AgentsPageContent() {
   const [requestedSkillId, setRequestedSkillId] = useState<string | null>(null);
 
   // Hatching animation state tracking
-  const prevStatesRef = useRef<Map<string, Pick<Agent, "state" | "resourcesExist">>>(new Map());
+  const prevStatesRef = useRef<Map<string, Pick<Agent, "state">>>(new Map());
   const [burstAgentId, setBurstAgentId] = useState<string | null>(null);
 
   // Settings panel state
@@ -2976,8 +2953,8 @@ function AgentsPageContent() {
         setBurstAgentId(agent.id);
       }
     }
-    const next = new Map<string, Pick<Agent, "state" | "resourcesExist">>();
-    for (const agent of agents) next.set(agent.id, { state: agent.state, resourcesExist: agent.resourcesExist });
+    const next = new Map<string, Pick<Agent, "state">>();
+    for (const agent of agents) next.set(agent.id, { state: agent.state });
     prevStatesRef.current = next;
     if (cleanupFinished) {
       void refreshAgentEnrichment({ force: true });
@@ -3653,7 +3630,7 @@ function AgentsPageContent() {
     if (selectedAgent.state === "FAILED") {
       return {
         label: "Failed",
-        detail: selectedAgent.error || "Needs attention before it can run.",
+        detail: "Needs attention before it can run.",
         tone: "failed",
       };
     }
@@ -3954,7 +3931,6 @@ function AgentsPageContent() {
         hostname: selectedAgent.hostname,
         startedAt: selectedAgent.started_at,
         updatedAt: selectedAgent.updated_at,
-        error: selectedAgent.error,
         meta: selectedAgent.meta,
         config: agentConfigForView,
         connections: agentConnectionsForView?.map((connection) => ({
@@ -4226,8 +4202,7 @@ function AgentsPageContent() {
       if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
         applyAgentMutationResult(created);
-        const setupAlreadyStarted = created.creationReplayed && agentSetupAlreadyStarted(created);
-        if (!setupAlreadyStarted && files.length > 0) {
+        if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
             await uploadAgentStarterFiles({
@@ -4246,7 +4221,7 @@ function AgentsPageContent() {
           }
           if (generation !== agentDataGenerationRef.current) return null;
         }
-        if (!setupAlreadyStarted && knowledgeDomain) {
+        if (knowledgeDomain) {
           try {
             await assignAgentToDomain(created.id, knowledgeDomain.id);
             if (generation !== agentDataGenerationRef.current) return null;
@@ -4257,24 +4232,22 @@ function AgentsPageContent() {
             throw new Error(`Agent was created, but Domain assignment did not complete: ${detail}`);
           }
         }
-        if (!setupAlreadyStarted) {
+        cancelledStartAgentIdsRef.current.delete(created.id);
+        try {
+          const runningAgent = await startAgent(token, created.id, (accepted) => {
+            if (generation === agentDataGenerationRef.current) {
+              applyAgentMutationResult(accepted);
+              invalidateAgentCapacity();
+              onLaunchAccepted?.(accepted);
+            }
+          });
+          if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
+        } catch (startError) {
+          if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
+        } finally {
           cancelledStartAgentIdsRef.current.delete(created.id);
-          try {
-            const runningAgent = await startAgent(token, created.id, (accepted) => {
-              if (generation === agentDataGenerationRef.current) {
-                applyAgentMutationResult(accepted);
-                invalidateAgentCapacity();
-                onLaunchAccepted?.(accepted);
-              }
-            });
-            if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
-          } catch (startError) {
-            if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
-          } finally {
-            cancelledStartAgentIdsRef.current.delete(created.id);
-          }
-          if (generation !== agentDataGenerationRef.current) return null;
         }
+        if (generation !== agentDataGenerationRef.current) return null;
         const agentsRefreshed = await fetchAgents({ force: true });
         if (generation !== agentDataGenerationRef.current) return null;
         if (!agentsRefreshed) {

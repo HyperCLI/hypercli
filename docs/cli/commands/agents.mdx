@@ -105,7 +105,6 @@ Important options:
 - `--wait / --no-wait`
 - `--desktop / --no-desktop`
 - `--env`
-- `--port`
 - `--command`
 - `--entrypoint`
 - `--image`
@@ -177,9 +176,11 @@ hyper agents start <agent_id> --desktop
 hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
 ```
 
-`hyper agents start self` is a lifecycle-only operation: it sends no launch
-configuration. Image, environment, route, registry, sync, desktop, and dry-run
-overrides are rejected for that reserved target.
+A zero-option `hyper agents start <agent>` is a lifecycle-only operation: it
+sends no launch configuration and inherits the backend-stored launch. Explicit
+flags construct an override request. `start self` only supports the zero-option
+form; image, environment, route, registry, sync, desktop, and dry-run overrides
+are rejected for that reserved target.
 
 ### `stop`
 
@@ -197,6 +198,16 @@ until the backend reports `STOPPED`.
 `create --wait`, `wait`, and `stop --wait` are event-assisted. `list` and
 `status` are one-shot REST snapshots; there is no general-purpose
 `hyper agents watch` command.
+
+### `restore`
+
+```bash
+hyper agents restore <agent_id>
+```
+
+Restore sends a bodyless request for a stopped agent. The backend reports
+`RESTORING` while it restores the archived state and returns the agent to
+`STOPPED`; use `start` after the restore completes.
 
 ### `delete`
 

@@ -57,7 +57,7 @@ describe('Hermes deployment lifecycle', () => {
     expect(body.env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
     expect(agent).toBeInstanceOf(HermesAgent);
     expect(agent.apiServerKey).toBe(body.env.API_SERVER_KEY);
-    expect(agent.launchConfig?.env).not.toHaveProperty('API_SERVER_KEY');
+    expect(agent.launchConfig).toBeNull();
     expect(agent.apiUrl).toBe('https://hermes-agent.example.test');
     expect(agent.openaiBaseUrl).toBe('https://hermes-agent.example.test/v1');
     expect(agent.api).toBeInstanceOf(HermesApiClient);

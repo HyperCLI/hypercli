@@ -13,13 +13,11 @@ interface AgentUiMeta {
     image?: string | null;
     icon_index?: number | null;
   } | null;
-  [key: string]: unknown;
 }
 
 type OpenClawAgentUiMeta = { ui?: AgentUiMeta | null } | null;
-type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta" | "ports"> & {
+type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta"> & {
   meta?: OpenClawAgentUiMeta;
-  ports?: never;
 };
 type ListedAgent = Awaited<ReturnType<Deployments["list"]>>[number];
 type AgentLifecycleAccepted = (agent: SdkAgent) => void;
@@ -104,20 +102,6 @@ function isAgentLifecycleTimeout(value: unknown): boolean {
     current = isRecord(current) ? current.cause : null;
   }
   return false;
-}
-
-function canonicalCreateOptions(options: FrontendOpenClawCreateOptions): FrontendOpenClawCreateOptions {
-  // Keep the first request canonical even if a stale caller supplies fields
-  // that the public TypeScript surface no longer accepts.
-  const canonical = { ...options } as FrontendOpenClawCreateOptions & Record<string, unknown>;
-  delete canonical.ports;
-
-  const ui = canonical.meta?.ui;
-  if (!ui || !("creation_id" in ui)) return canonical;
-  const nextUi = { ...ui };
-  delete nextUi.creation_id;
-  canonical.meta = Object.keys(nextUi).length > 0 ? { ...canonical.meta, ui: nextUi } : undefined;
-  return canonical;
 }
 
 export function isAgentCleanupConflictError(value: unknown): boolean {
@@ -428,7 +412,7 @@ export function createPublicHyperAgentClient(origin?: string): HyperAgent {
 
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
   const preparedOptions = withConfiguredControlUiOrigins(
-    await withUserSlackRelayLaunchConfig(apiKey, canonicalCreateOptions(options)),
+    await withUserSlackRelayLaunchConfig(apiKey, options),
   );
   const agentClient = createAgentClient(apiKey);
   const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())

@@ -10,6 +10,7 @@ import {
   fetchClawSubscriptionSummary,
   fetchStripeSubscriptionIdForCheckoutSession,
   launchClawAgentAndWaitForGateway,
+  stopClawAgentAndWaitStopped,
   completeStripeCheckout,
   loginWithPrivy,
   waitForPaidClawPlan,
@@ -354,7 +355,6 @@ test.describe.serial("Agents subscription", () => {
         "error",
         "message",
         "launch_epoch",
-        "agent_version",
         "resources_exist",
         "namespace_exists",
       ]);
@@ -367,6 +367,7 @@ test.describe.serial("Agents subscription", () => {
           "launch_epoch",
         ])
       );
+      await stopClawAgentAndWaitStopped(page, createdAgentId);
     } finally {
       if (createdAgentId) {
         await deleteClawAgent(page, createdAgentId).catch(() => {});

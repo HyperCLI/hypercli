@@ -82,7 +82,7 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert agent.api_server_key == "h" * 43
     assert agent.api_url == "https://hermes.example.test"
     assert agent.openai_base_url == "https://hermes.example.test/v1"
-    assert "API_SERVER_KEY" not in agent.launch_config["env"]
+    assert agent.launch_config is None
 
 
 def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> None:

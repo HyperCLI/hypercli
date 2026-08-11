@@ -220,7 +220,6 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'env',
   'secrets',
   'routes',
-  'ports',
   'command',
   'entrypoint',
   'sync_root',
@@ -577,7 +576,6 @@ export interface AgentDesktopConfigSource {
   launchConfig?: unknown;
   launch_config?: unknown;
   routes?: unknown;
-  ports?: unknown;
 }
 
 export interface RegistryAuth {
@@ -590,7 +588,6 @@ export interface RegistryAuth {
 export interface BuildAgentConfigOptions {
   env?: Record<string, string>;
   secrets?: Record<string, string>;
-  ports?: Record<string, any>[] | null;
   routes?: Record<string, AgentRouteConfig> | null;
   command?: string[] | null;
   entrypoint?: string[] | null;
@@ -671,9 +668,6 @@ export interface AgentUiAvatarMeta {
 
 export interface AgentUiMeta {
   avatar?: AgentUiAvatarMeta | null;
-  /** Stable client-generated key for replaying a saved create request (`start: false`). */
-  creation_id?: string | null;
-  [key: string]: any;
 }
 
 export interface AgentMeta {
@@ -1295,7 +1289,6 @@ export interface DeploymentTransitionEvent {
   error?: string | null;
   message?: string | null;
   launch_epoch?: number;
-  agent_version?: number;
   resources_exist?: boolean;
   namespace_exists?: boolean;
 }
@@ -1333,16 +1326,7 @@ export interface AgentStateFields {
   stoppedAt?: Date | null;
   archivedAt?: Date | null;
   clusterId?: string | null;
-  archivedPath?: string | null;
-  reason?: string | null;
-  error?: string | null;
-  message?: string | null;
-  /** @deprecated Use reason/error/message. Accepted during the rollout only. */
-  runtimeStatus?: AgentRuntimeStatus | null;
   launchEpoch?: number;
-  agentVersion?: number;
-  resourcesExist?: boolean;
-  namespaceExists?: boolean;
   createdAt?: Date | null;
   updatedAt?: Date | null;
   launchConfig?: Record<string, any> | null;
@@ -1350,17 +1334,7 @@ export interface AgentStateFields {
   routes: Record<string, AgentRouteConfig>;
   command: string[];
   entrypoint: string[];
-  ports: Record<string, any>[];
   dryRun: boolean;
-  creationReplayed?: boolean;
-}
-
-export interface AgentRuntimeStatus {
-  pod_phase: string;
-  container_name: string;
-  state: 'waiting';
-  reason?: string | null;
-  message?: string | null;
 }
 
 export interface AgentHydrationData {
@@ -1388,16 +1362,7 @@ export interface AgentHydrationData {
   stopped_at?: string | null;
   archived_at?: string | null;
   cluster_id?: string | null;
-  archived_path?: string | null;
-  reason?: string | null;
-  error?: string | null;
-  message?: string | null;
-  /** @deprecated Accepted from older Backend deployments during rollout. */
-  runtime_status?: AgentRuntimeStatus | null;
   launch_epoch?: number;
-  agent_version?: number;
-  resources_exist?: boolean;
-  namespace_exists?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
@@ -1405,9 +1370,7 @@ export interface AgentHydrationData {
   routes?: Record<string, AgentRouteConfig> | null;
   command?: string[] | null;
   entrypoint?: string[] | null;
-  ports?: Record<string, any>[] | null;
   dry_run?: boolean;
-  creation_replayed?: boolean;
   openclaw_url?: string | null;
   gateway_url?: string | null;
   [key: string]: any;
@@ -1524,23 +1487,17 @@ export function routesHaveDesktop(routes: unknown): boolean {
   return Object.values(routes).some((route) => isPlainRecord(route) && route.prefix === 'desktop');
 }
 
-export function portsHaveDesktop(ports: unknown): boolean {
-  return Array.isArray(ports) && ports.some((port) => isPlainRecord(port) && Number(port.port) === 3000);
-}
-
 export function launchConfigHasDesktop(launchConfig: unknown): boolean {
   if (!isPlainRecord(launchConfig)) return false;
   if (isTruthyEnv(getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED'))) return true;
-  if (routesHaveDesktop(getLaunchConfigValue(launchConfig, 'routes'))) return true;
-  return portsHaveDesktop(getLaunchConfigValue(launchConfig, 'ports'));
+  return routesHaveDesktop(getLaunchConfigValue(launchConfig, 'routes'));
 }
 
 export function agentConfigHasDesktop(source: AgentDesktopConfigSource | null | undefined): boolean {
   if (!source) return false;
   return (
     launchConfigHasDesktop(source.launchConfig ?? source.launch_config) ||
-    routesHaveDesktop(source.routes) ||
-    portsHaveDesktop(source.ports)
+    routesHaveDesktop(source.routes)
   );
 }
 
@@ -1782,7 +1739,6 @@ function execResultFromDict(data: any): AgentExecResult {
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
   const launchConfig = isPlainRecord(data.launch_config) ? structuredClone(data.launch_config) : null;
   if (launchConfig) {
-    delete launchConfig.sync_enabled;
     delete launchConfig.secrets;
   }
   return {
@@ -1810,15 +1766,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     stoppedAt: parseDate(data.stopped_at),
     archivedAt: parseDate(data.archived_at),
     clusterId: data.cluster_id ?? null,
-    archivedPath: data.archived_path ?? null,
-    reason: data.reason ?? null,
-    error: data.error ?? null,
-    message: data.message ?? null,
-    runtimeStatus: data.runtime_status ? structuredClone(data.runtime_status) : null,
     launchEpoch: data.launch_epoch ?? 0,
-    agentVersion: data.agent_version ?? 0,
-    resourcesExist: data.resources_exist ?? false,
-    namespaceExists: data.namespace_exists ?? false,
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig,
@@ -1834,11 +1782,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     entrypoint: data.entrypoint ?? (
       Array.isArray(launchConfig?.entrypoint) ? launchConfig.entrypoint as string[] : []
     ),
-    ports: data.ports ?? (
-      Array.isArray(launchConfig?.ports) ? launchConfig.ports as Record<string, any>[] : []
-    ),
     dryRun: Boolean(data.dry_run),
-    creationReplayed: Boolean(data.creation_replayed),
   };
 }
 
@@ -1906,7 +1850,6 @@ export function buildAgentConfig(
   if (Object.keys(preparedConfig).length > 0) prepared.config = preparedConfig;
   if (Object.keys(env).length > 0) prepared.env = env;
   if (Object.keys(secrets).length > 0) prepared.secrets = secrets;
-  if (options.ports !== undefined && options.ports !== null) prepared.ports = options.ports;
   if (options.routes !== undefined && options.routes !== null) prepared.routes = options.routes;
   if (options.command !== undefined && options.command !== null) prepared.command = options.command;
   if (options.entrypoint !== undefined && options.entrypoint !== null) prepared.entrypoint = options.entrypoint;
@@ -2257,16 +2200,7 @@ export class Agent {
   public readonly stoppedAt: Date | null;
   public readonly archivedAt: Date | null;
   public readonly clusterId: string | null;
-  public readonly archivedPath: string | null;
-  public readonly reason: string | null;
-  public readonly error: string | null;
-  public readonly message: string | null;
-  /** @deprecated Use reason/error/message. */
-  public readonly runtimeStatus: AgentRuntimeStatus | null;
   public readonly launchEpoch: number;
-  public readonly agentVersion: number;
-  public readonly resourcesExist: boolean;
-  public readonly namespaceExists: boolean;
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
   public launchConfig: Record<string, any> | null;
@@ -2274,9 +2208,7 @@ export class Agent {
   public routes: Record<string, AgentRouteConfig>;
   public command: string[];
   public entrypoint: string[];
-  public ports: Record<string, any>[];
   public readonly dryRun: boolean;
-  public readonly creationReplayed: boolean;
   _deployments: Deployments | null = null;
 
   constructor(fields: AgentStateFields) {
@@ -2304,15 +2236,7 @@ export class Agent {
     this.stoppedAt = fields.stoppedAt ?? null;
     this.archivedAt = fields.archivedAt ?? null;
     this.clusterId = fields.clusterId ?? null;
-    this.archivedPath = fields.archivedPath ?? null;
-    this.reason = fields.reason ?? null;
-    this.error = fields.error ?? null;
-    this.message = fields.message ?? null;
-    this.runtimeStatus = fields.runtimeStatus ? structuredClone(fields.runtimeStatus) : null;
     this.launchEpoch = fields.launchEpoch ?? 0;
-    this.agentVersion = fields.agentVersion ?? 0;
-    this.resourcesExist = fields.resourcesExist ?? false;
-    this.namespaceExists = fields.namespaceExists ?? false;
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
     this.launchConfig = fields.launchConfig ?? null;
@@ -2320,9 +2244,7 @@ export class Agent {
     this.routes = { ...fields.routes };
     this.command = [...fields.command];
     this.entrypoint = [...fields.entrypoint];
-    this.ports = [...fields.ports];
     this.dryRun = fields.dryRun;
-    this.creationReplayed = fields.creationReplayed ?? false;
   }
 
   static fromDict(data: AgentHydrationData): Agent {
@@ -2388,7 +2310,6 @@ export class Agent {
     return agentConfigHasDesktop({
       launchConfig: this.launchConfig,
       routes: this.routes,
-      ports: this.ports,
     });
   }
 
@@ -4050,7 +3971,7 @@ export class Deployments {
   }
 
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
-    const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, {
+    const { config } = buildAgentConfig(options.config ?? {}, {
       ...options,
       injectGatewayToken: options.injectGatewayToken ?? !isCodingAgentRuntime(options.runtime),
     });
@@ -4068,18 +3989,7 @@ export class Deployments {
       body,
       { retries: 1 },
     );
-    const agent = this.hydrateAgent(data);
-    if (!agent.creationReplayed) {
-      if (agent instanceof OpenClawAgent && gatewayToken) {
-        agent.gatewayToken = gatewayToken;
-      }
-      agent.launchConfig = structuredClone(config);
-      delete agent.launchConfig.sync_enabled;
-      delete agent.launchConfig.secrets;
-      agent.command = [...(config.command ?? [])];
-      agent.entrypoint = [...(config.entrypoint ?? [])];
-    }
-    return agent;
+    return this.hydrateAgent(data);
   }
 
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
@@ -4525,7 +4435,6 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const deadline = Date.now() + timeoutMs;
     let lastState = '';
-    let lastAgent: Agent | null = null;
     let wakePending = true;
     let wake: (() => void) | null = null;
     const controller = new AbortController();
@@ -4533,20 +4442,8 @@ export class Deployments {
     const failures = new Set(failureStates.map((state) => state.toLowerCase()));
     const effectivePollIntervalMs = Math.max(1, pollIntervalMs);
     const stateLabel = states.join(', ');
-    const diagnostics = (agent: Agent | null): string => {
-      if (!agent) return '';
-      const details: string[] = [];
-      if (agent.reason) details.push(`reason=${JSON.stringify(agent.reason)}`);
-      if (agent.error) details.push(`error=${JSON.stringify(agent.error)}`);
-      if (agent.message) details.push(`message=${JSON.stringify(agent.message)}`);
-      if (agent.updatedAt && !Number.isNaN(agent.updatedAt.getTime())) {
-        details.push(`updatedAt=${agent.updatedAt.toISOString()}`);
-      }
-      return details.length ? `, ${details.join(', ')}` : '';
-    };
     const refresh = async (): Promise<Agent | null> => {
       const agent = await this.get(agentId);
-      lastAgent = agent;
       lastState = String(agent.state || '');
       if (
         minimumLaunchEpoch !== undefined
@@ -4554,7 +4451,7 @@ export class Deployments {
       ) return null;
       if (desired.has(lastState.toLowerCase())) return agent;
       if (failures.has(lastState.toLowerCase())) {
-        throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}${diagnostics(agent)}`);
+        throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}`);
       }
       return null;
     };
@@ -4599,7 +4496,7 @@ export class Deployments {
       await subscription;
     }
     throw new Error(
-      `Timed out waiting for agent ${agentId} to reach ${stateLabel} (last=${lastState || 'unknown'}${diagnostics(lastAgent)})`,
+      `Timed out waiting for agent ${agentId} to reach ${stateLabel} (last=${lastState || 'unknown'})`,
     );
   }
 
@@ -4636,39 +4533,44 @@ export class Deployments {
       );
       return this.hydrateAgent(data);
     }
-    const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
+    const provided = Object.keys(options).filter(
+      (key) => options[key as keyof StartAgentOptions] !== undefined,
+    );
+    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    if (provided.length === 0) {
+      const data = await this.agentHttp.post<AgentHydrationData>(
+        `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
+        {},
+        { retries: 1 },
+      );
+      return this.hydrateAgent(data);
+    }
+    const { config } = buildAgentConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
       body,
       { retries: 1 },
     );
-    const agent = this.hydrateAgent(data);
-    if (agent instanceof OpenClawAgent && gatewayToken) {
-      agent.gatewayToken = gatewayToken;
-    }
-    return agent;
+    return this.hydrateAgent(data);
   }
 
   async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: StartAgentOptions = { ...options };
-    effectiveOptions.env = {
-      ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
-      ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
-      ...(options.env ?? {}),
-    };
-    if (effectiveOptions.env.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
-      effectiveOptions.env.HYPER_WORKSPACES_DIR = '/home/node/shared';
+    if (options.workspacesSync !== undefined || options.memoryIndex !== undefined) {
+      effectiveOptions.env = {
+        ...(options.workspacesSync !== undefined
+          ? buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null)
+          : {}),
+        ...(options.memoryIndex !== undefined
+          ? buildOpenClawMemoryIndexEnv(options.memoryIndex)
+          : {}),
+        ...(options.env ?? {}),
+      };
     }
-    if (options.routes === undefined) {
-      effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
-    }
-    effectiveOptions.image = defaultOpenClawImage(options.image);
-    if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
-    if (options.syncInclude === undefined && options.syncExclude === undefined) {
-      effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
+    if (options.routes === undefined && options.openClawRoutes !== undefined) {
+      effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? undefined);
     }
     return this.start(agentIdOrName, effectiveOptions);
   }
@@ -4704,13 +4606,7 @@ export class Deployments {
   }
 
   async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
-    return this.startOpenClaw(agentIdOrName, {
-      ...options,
-      env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
-      image: defaultOpenClawProImage(options.image),
-      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
-      openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
-    });
+    return this.startOpenClaw(agentIdOrName, options);
   }
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
@@ -4763,6 +4659,17 @@ export class Deployments {
     const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`,
+      undefined,
+      { retries: 1 },
+    );
+    return this.hydrateAgent(data);
+  }
+
+  /** Restore durable storage. The accepted snapshot is `RESTORING`; completion is `STOPPED`. */
+  async restore(agentIdOrName: string): Promise<Agent> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    const data = await this.agentHttp.post<AgentHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/restore`,
       undefined,
       { retries: 1 },
     );

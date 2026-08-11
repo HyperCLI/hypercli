@@ -37,7 +37,7 @@ interface AgentProfileUpdateClient<TAgent = SdkAgent> {
   updateExternalAgent: (agentId: string, options: UpdateExternalAgentOptions) => Promise<TAgent>;
 }
 
-export function mergeAgentListAfterMutations<TAgent extends { id: string; agentVersion?: number }>(
+export function mergeAgentListAfterMutations<TAgent extends { id: string }>(
   currentAgents: TAgent[],
   listedAgents: TAgent[],
   versionsAtRequest: ReadonlyMap<string, number>,
@@ -51,10 +51,6 @@ export function mergeAgentListAfterMutations<TAgent extends { id: string; agentV
   const merged = listedAgents.map((agent) => {
     const current = currentById.get(agent.id);
     if (!current) return agent;
-    const currentVersion = current.agentVersion ?? 0;
-    const listedVersion = agent.agentVersion ?? 0;
-    if (currentVersion > listedVersion) return current;
-    if (listedVersion > currentVersion) return agent;
     return changedDuringRequest(agent.id) ? current : agent;
   });
 

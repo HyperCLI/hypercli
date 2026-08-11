@@ -179,12 +179,9 @@ const agent: Agent = {
   hostname: "agent.example.com",
   started_at: "2026-05-05T00:00:00Z",
   stopped_at: null,
-  error: null,
   created_at: "2026-05-05T00:00:00Z",
   updated_at: "2026-05-05T00:00:00Z",
   launchEpoch: 0,
-  resourcesExist: true,
-  namespaceExists: true,
   launchConfig: {
     image: "ghcr.io/hypercli/hypercli-openclaw:prod",
     env: {
@@ -1217,11 +1214,11 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
-  it("offers cleanup instead of restart for a bound failed runtime", () => {
+  it("offers cleanup instead of restart for a failed runtime", () => {
       const onStartAgent = vi.fn();
       const onStopAgent = vi.fn();
       renderAgentSettingsPanel({
-        agent: { ...agent, state: "FAILED", resourcesExist: true },
+        agent: { ...agent, state: "FAILED" },
         onStartAgent,
         onStopAgent,
       });
@@ -1236,10 +1233,10 @@ describe("AgentSettingsPanel", () => {
       expect(onStartAgent).not.toHaveBeenCalled();
   });
 
-  it("allows restart for a failed runtime after cleanup clears its pod binding", () => {
+  it("allows restart after cleanup reaches stopped", () => {
     const onStartAgent = vi.fn();
     renderAgentSettingsPanel({
-      agent: { ...agent, state: "FAILED", resourcesExist: false },
+      agent: { ...agent, state: "STOPPED" },
       onStartAgent,
     });
 
@@ -1688,7 +1685,6 @@ describe("AgentSettingsPanel", () => {
             ...(agent.launchConfig?.env as Record<string, string>),
             OPENCLAW_GATEWAY_TOKEN: "legacy-token-must-not-replay",
           },
-          sync_enabled: true,
           workspacesSync: { enabled: true, readyOnly: true },
         },
       },
@@ -1756,7 +1752,6 @@ describe("AgentSettingsPanel", () => {
         });
     });
     const savedLaunchConfig = onUpdateAgentLaunchConfig.mock.calls[0]?.[1];
-    expect(savedLaunchConfig).not.toHaveProperty("sync_enabled");
     expect(savedLaunchConfig).not.toHaveProperty("workspacesSync");
     expect(savedLaunchConfig?.env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();

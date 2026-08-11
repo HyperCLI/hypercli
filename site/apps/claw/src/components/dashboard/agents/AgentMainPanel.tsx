@@ -148,7 +148,7 @@ export function AgentMainPanel({
     if (selectedAgent.state === "FAILED") {
       return {
         label: "Failed",
-        detail: selectedAgent.error || "Needs attention before it can run.",
+        detail: "Needs attention before it can run.",
         tone: "failed",
       };
     }

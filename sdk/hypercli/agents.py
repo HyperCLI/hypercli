@@ -95,7 +95,6 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "env",
         "secrets",
         "routes",
-        "ports",
         "command",
         "entrypoint",
         "sync_root",
@@ -902,7 +901,6 @@ def _build_agent_launch(
     *,
     env: dict | None = None,
     secrets: dict | None = None,
-    ports: list | None = None,
     routes: dict | None = None,
     command: list[str] | None = None,
     entrypoint: list[str] | None = None,
@@ -969,8 +967,6 @@ def _build_agent_launch(
         launch["env"] = env_map
     if secret_map:
         launch["secrets"] = secret_map
-    if ports is not None:
-        launch["ports"] = ports
     if routes is not None:
         launch["routes"] = routes
     if command is not None:
@@ -1008,7 +1004,6 @@ def build_agent_config(
     *,
     env: dict | None = None,
     secrets: dict | None = None,
-    ports: list | None = None,
     routes: dict | None = None,
     command: list[str] | None = None,
     entrypoint: list[str] | None = None,
@@ -1035,7 +1030,6 @@ def build_agent_config(
         config,
         env=env,
         secrets=secrets,
-        ports=ports,
         routes=routes,
         command=command,
         entrypoint=entrypoint,
@@ -1161,28 +1155,12 @@ def routes_have_desktop(routes: object) -> bool:
     return any(isinstance(route, dict) and route.get("prefix") == "desktop" for route in routes.values())
 
 
-def ports_have_desktop(ports: object) -> bool:
-    if not isinstance(ports, list):
-        return False
-    for port in ports:
-        if not isinstance(port, dict):
-            continue
-        try:
-            if int(port.get("port") or 0) == 3000:
-                return True
-        except (TypeError, ValueError):
-            continue
-    return False
-
-
 def launch_config_has_desktop(launch_config: object) -> bool:
     if not isinstance(launch_config, dict):
         return False
     if _truthy_env(get_launch_config_value(launch_config, "env.OPENCLAW_DESKTOP_ENABLED")):
         return True
-    if routes_have_desktop(get_launch_config_value(launch_config, "routes")):
-        return True
-    return ports_have_desktop(get_launch_config_value(launch_config, "ports"))
+    return routes_have_desktop(get_launch_config_value(launch_config, "routes"))
 
 
 def agent_config_has_desktop(source: object) -> bool:
@@ -1191,7 +1169,6 @@ def agent_config_has_desktop(source: object) -> bool:
     return (
         launch_config_has_desktop(source.get("launch_config") or source.get("launchConfig"))
         or routes_have_desktop(source.get("routes"))
-        or ports_have_desktop(source.get("ports"))
     )
 
 
@@ -1256,7 +1233,6 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     launch_config = copy.deepcopy(data["launch_config"]) if isinstance(data.get("launch_config"), dict) else None
     if launch_config is not None:
-        launch_config.pop("sync_enabled", None)
         launch_config.pop("secrets", None)
     is_launchable = data.get("is_launchable")
     if is_launchable is None:
@@ -1286,19 +1262,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "stopped_at": _parse_dt(data.get("stopped_at")),
         "archived_at": _parse_dt(data.get("archived_at")),
         "cluster_id": data.get("cluster_id"),
-        "archived_path": data.get("archived_path"),
-        "reason": data.get("reason"),
-        "error": data.get("error"),
-        "message": data.get("message"),
-        "runtime_status": (
-            copy.deepcopy(data.get("runtime_status"))
-            if isinstance(data.get("runtime_status"), dict)
-            else None
-        ),
         "launch_epoch": int(data.get("launch_epoch", 0) or 0),
-        "agent_version": int(data.get("agent_version", 0) or 0),
-        "resources_exist": bool(data.get("resources_exist", False)),
-        "namespace_exists": bool(data.get("namespace_exists", False)),
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": launch_config,
@@ -1306,9 +1270,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "routes": data.get("routes") or (launch_config or {}).get("routes") or {},
         "command": data.get("command") or (launch_config or {}).get("command") or [],
         "entrypoint": data.get("entrypoint") or (launch_config or {}).get("entrypoint") or [],
-        "ports": data.get("ports") or (launch_config or {}).get("ports") or [],
         "dry_run": bool(data.get("dry_run")),
-        "creation_replayed": bool(data.get("creation_replayed")),
     }
 
 
@@ -1903,7 +1865,6 @@ class DeploymentEvent:
     error: str | None = None
     message: str | None = None
     launch_epoch: int | None = None
-    agent_version: int | None = None
     resources_exist: bool | None = None
     namespace_exists: bool | None = None
 
@@ -1917,7 +1878,6 @@ class DeploymentEvent:
             error=str(data["error"]) if data.get("error") else None,
             message=str(data["message"]) if data.get("message") else None,
             launch_epoch=int(data["launch_epoch"]) if data.get("launch_epoch") is not None else None,
-            agent_version=int(data["agent_version"]) if data.get("agent_version") is not None else None,
             resources_exist=bool(data["resources_exist"]) if data.get("resources_exist") is not None else None,
             namespace_exists=bool(data["namespace_exists"]) if data.get("namespace_exists") is not None else None,
         )
@@ -1968,15 +1928,7 @@ class Agent:
     stopped_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
     cluster_id: Optional[str] = None
-    archived_path: Optional[str] = None
-    reason: Optional[str] = None
-    error: Optional[str] = None
-    message: Optional[str] = None
-    runtime_status: Optional[dict] = None
     launch_epoch: int = 0
-    agent_version: int = 0
-    resources_exist: bool = False
-    namespace_exists: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
@@ -1984,9 +1936,7 @@ class Agent:
     routes: dict[str, dict] = field(default_factory=dict)
     command: list[str] = field(default_factory=list)
     entrypoint: list[str] = field(default_factory=list)
-    ports: list[dict] = field(default_factory=list)
     dry_run: bool = False
-    creation_replayed: bool = False
     _deployments: Any = field(default=None, repr=False, compare=False)
 
     @classmethod
@@ -2065,7 +2015,6 @@ class Agent:
             {
                 "launch_config": self.launch_config,
                 "routes": self.routes,
-                "ports": self.ports,
             }
         )
 
@@ -3180,7 +3129,6 @@ class Deployments:
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -3209,7 +3157,6 @@ class Deployments:
             config: Optional config overrides.
             env: Optional environment variables to pass through to the pod.
             secrets: Optional secret environment variables to pass through to the pod.
-            ports: Optional exposed ports config.
             start: Start the agent immediately (default: True).
 
         Returns:
@@ -3222,7 +3169,6 @@ class Deployments:
             config,
             env=env,
             secrets=secrets,
-            ports=ports,
             routes=routes,
             command=command,
             entrypoint=entrypoint,
@@ -3260,23 +3206,7 @@ class Deployments:
         if tags:
             body["tags"] = list(tags)
         data = self._post(AGENTS_API_PREFIX, json=body)
-        agent = self._hydrate_agent(data)
-        if not agent.creation_replayed:
-            if isinstance(agent, OpenClawAgent):
-                agent.gateway_token = effective_gateway_token
-            if isinstance(agent, HermesAgent):
-                agent.api_server_key = effective_api_server_key
-            agent.launch_config = {
-                key: copy.deepcopy(value)
-                for key, value in launch_payload.items()
-                if key not in {"sync_enabled", "secrets"}
-            }
-            if isinstance(agent, HermesAgent) and isinstance(agent.launch_config.get("env"), dict):
-                agent.launch_config = copy.deepcopy(agent.launch_config)
-                agent.launch_config["env"].pop("API_SERVER_KEY", None)
-            agent.command = list(launch_payload.get("command") or [])
-            agent.entrypoint = list(launch_payload.get("entrypoint") or [])
-        return agent
+        return self._hydrate_agent(data)
 
     def create_openclaw(
         self,
@@ -3287,7 +3217,6 @@ class Deployments:
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -3331,7 +3260,6 @@ class Deployments:
             tags=tags,
             env=effective_env,
             secrets=secrets,
-            ports=ports,
             routes=_resolve_openclaw_routes(
                 routes,
                 openclaw_routes=openclaw_routes,
@@ -3364,7 +3292,6 @@ class Deployments:
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -3392,6 +3319,10 @@ class Deployments:
             "API_SERVER_HOST": "0.0.0.0",
             **dict(env or {}),
         }
+        effective_env, effective_key = _inject_hermes_api_server_key(
+            effective_env,
+            api_server_key,
+        )
         agent = self.create(
             name=name,
             handle=handle,
@@ -3401,7 +3332,6 @@ class Deployments:
             tags=tags,
             env=effective_env,
             secrets=secrets,
-            ports=ports,
             routes=_resolve_hermes_agent_routes(
                 routes,
                 hermes_routes=hermes_routes,
@@ -3419,7 +3349,7 @@ class Deployments:
             registry_auth=registry_auth,
             restart=restart,
             runtime_scopes=runtime_scopes,
-            api_server_key=api_server_key,
+            api_server_key=effective_key,
             heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
@@ -3427,6 +3357,7 @@ class Deployments:
         )
         if not isinstance(agent, HermesAgent):
             raise TypeError("backend did not return a HermesAgent deployment")
+        agent.api_server_key = effective_key
         return agent
 
     def create_openclaw_pro(
@@ -3438,7 +3369,6 @@ class Deployments:
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -3471,7 +3401,6 @@ class Deployments:
             tags=tags,
             env=effective_env,
             secrets=secrets,
-            ports=ports,
             routes=routes,
             command=command,
             entrypoint=entrypoint,
@@ -3511,7 +3440,6 @@ class Deployments:
         tags: list[str] | None = None,
         env: dict | None = None,
         secrets: dict | None = None,
-        ports: list | None = None,
         routes: dict | None = None,
         command: list[str] | None = None,
         entrypoint: list[str] | None = None,
@@ -3580,7 +3508,6 @@ class Deployments:
             tags=tags,
             env=effective_env,
             secrets=effective_secrets,
-            ports=ports,
             routes={} if routes is None else routes,
             command=(
                 ["/usr/local/bin/buzz-acp"]
@@ -4012,47 +3939,21 @@ class Deployments:
             if event.agent_id == agent_id:
                 wake.set()
 
-        ready = asyncio.Event()
-        ready_result: Agent | None = None
-        ready_error: BaseException | None = None
-
-        async def on_ready() -> None:
-            nonlocal ready_result, ready_error
-            try:
-                ready_result = check(await asyncio.to_thread(self.get, agent_id))
-            except BaseException as exc:
-                ready_error = exc
-            finally:
-                ready.set()
-
-        subscription = asyncio.create_task(self.subscribe(on_event, on_ready=on_ready))
+        subscription = asyncio.create_task(self.subscribe(on_event))
         try:
-            ready_waiter = asyncio.create_task(ready.wait())
-            done, _ = await asyncio.wait(
-                {ready_waiter, subscription},
-                timeout=max(deadline - asyncio.get_running_loop().time(), 0),
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if subscription in done:
-                await subscription
-                raise RuntimeError("Deployment event subscription ended unexpectedly")
-            if ready_waiter not in done:
-                ready_waiter.cancel()
-                raise TimeoutError(f"Timed out waiting for deployment event subscription for {agent_id}")
-            if ready_error is not None:
-                raise ready_error
-            if ready_result is not None:
-                return ready_result
             while (remaining := deadline - asyncio.get_running_loop().time()) > 0:
+                current = check(await asyncio.to_thread(self.get, agent_id))
+                if current is not None:
+                    return current
                 waiter = asyncio.create_task(wake.wait())
+                waiters = {waiter}
+                if not subscription.done():
+                    waiters.add(subscription)
                 done, _ = await asyncio.wait(
-                    {waiter, subscription},
+                    waiters,
                     timeout=min(remaining, effective_poll_interval),
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                if subscription in done:
-                    await subscription
-                    raise RuntimeError("Deployment event subscription ended unexpectedly")
                 if waiter not in done:
                     waiter.cancel()
                     await asyncio.gather(waiter, return_exceptions=True)
@@ -4060,9 +3961,6 @@ class Deployments:
                         break
                 else:
                     wake.clear()
-                current = check(await asyncio.to_thread(self.get, agent_id))
-                if current is not None:
-                    return current
         finally:
             subscription.cancel()
             await asyncio.gather(subscription, return_exceptions=True)
@@ -4147,7 +4045,6 @@ class Deployments:
         config: dict = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -4179,7 +4076,6 @@ class Deployments:
                 "config": config,
                 "env": env,
                 "secrets": secrets,
-                "ports": ports,
                 "routes": routes,
                 "command": command,
                 "entrypoint": entrypoint,
@@ -4216,6 +4112,26 @@ class Deployments:
             data = self._post(f"{AGENTS_API_PREFIX}/self/start", json={})
             return self._hydrate_agent(data)
 
+        overrides = {
+            "config": config, "env": env, "secrets": secrets,
+            "routes": routes, "command": command, "entrypoint": entrypoint,
+            "image": image, "sync_root": sync_root, "sync_include": sync_include,
+            "sync_exclude": sync_exclude, "sync_uid": sync_uid, "sync_gid": sync_gid,
+            "registry_url": registry_url, "registry_auth": registry_auth,
+            "restart": restart, "runtime_scopes": runtime_scopes,
+            "gateway_token": gateway_token, "api_server_key": api_server_key,
+            "heartbeat": heartbeat,
+        }
+        has_overrides = dry_run or any(
+            value is not _UNSET if name in {"sync_include", "sync_exclude"} else value is not None
+            for name, value in overrides.items()
+        )
+        if not has_overrides:
+            resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+            return self._hydrate_agent(
+                self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json={})
+            )
+
         effective_api_server_key: str | None = None
         if api_server_key is not None or (env and env.get("API_SERVER_KEY")):
             env, effective_api_server_key = _inject_hermes_api_server_key(env, api_server_key)
@@ -4223,7 +4139,6 @@ class Deployments:
             config,
             env=env,
             secrets=secrets,
-            ports=ports,
             routes=routes,
             command=command,
             entrypoint=entrypoint,
@@ -4246,12 +4161,7 @@ class Deployments:
             body["dry_run"] = True
         resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
-        agent = self._hydrate_agent(data)
-        if isinstance(agent, OpenClawAgent):
-            agent.gateway_token = effective_gateway_token
-        if isinstance(agent, HermesAgent):
-            agent.api_server_key = effective_api_server_key
-        return agent
+        return self._hydrate_agent(data)
 
     def start_hermes_agent(
         self,
@@ -4259,7 +4169,6 @@ class Deployments:
         config: dict = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -4294,7 +4203,6 @@ class Deployments:
             config=config,
             env=effective_env,
             secrets=secrets,
-            ports=ports,
             routes=_resolve_hermes_agent_routes(
                 routes,
                 hermes_routes=hermes_routes,
@@ -4318,6 +4226,7 @@ class Deployments:
         )
         if not isinstance(agent, HermesAgent):
             raise TypeError("backend did not return a HermesAgent deployment")
+        agent.api_server_key = effective_key
         return agent
 
     def start_openclaw(
@@ -4326,7 +4235,6 @@ class Deployments:
         config: dict = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -4348,32 +4256,40 @@ class Deployments:
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
-        effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
-            sync_include=sync_include,
-            sync_exclude=sync_exclude,
-        )
-        effective_env = {
-            **build_openclaw_workspaces_sync_env(workspaces_sync),
-            **build_openclaw_memory_index_env(memory_index),
-            **dict(env or {}),
-        }
-        if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
-            effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
+        effective_sync_include, effective_sync_exclude = sync_include, sync_exclude
+        effective_env = None if env is None else dict(env)
+        if workspaces_sync is not None or memory_index is not None:
+            effective_env = {
+                **(
+                    build_openclaw_workspaces_sync_env(workspaces_sync)
+                    if workspaces_sync is not None
+                    else {}
+                ),
+                **(
+                    build_openclaw_memory_index_env(memory_index)
+                    if memory_index is not None
+                    else {}
+                ),
+                **dict(env or {}),
+            }
         return self.start(
             agent_id,
             config=config,
             env=effective_env,
             secrets=secrets,
-            ports=ports,
-            routes=_resolve_openclaw_routes(
-                routes,
-                openclaw_routes=openclaw_routes,
-                openclaw_route_options=openclaw_route_options,
+            routes=(
+                _resolve_openclaw_routes(
+                    routes,
+                    openclaw_routes=openclaw_routes,
+                    openclaw_route_options=openclaw_route_options,
+                )
+                if routes is not None or openclaw_routes is not None or openclaw_route_options is not None
+                else None
             ),
             command=command,
             entrypoint=entrypoint,
-            image=_default_openclaw_image(image),
-            sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
+            image=image,
+            sync_root=sync_root,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,
             sync_uid=sync_uid,
@@ -4393,7 +4309,6 @@ class Deployments:
         config: dict = None,
         env: dict = None,
         secrets: dict = None,
-        ports: list = None,
         routes: dict = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
@@ -4415,18 +4330,15 @@ class Deployments:
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
-        effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
-        effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
         return self.start_openclaw(
             agent_id,
             config=config,
-            env=effective_env,
+            env=env,
             secrets=secrets,
-            ports=ports,
             routes=routes,
             command=command,
             entrypoint=entrypoint,
-            image=_default_openclaw_pro_image(image),
+            image=image,
             sync_root=sync_root,
             sync_include=sync_include,
             sync_exclude=sync_exclude,
@@ -4435,16 +4347,12 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             restart=restart,
-            runtime_scopes=(
-                list(DEFAULT_AGENT_RUNTIME_SCOPES)
-                if runtime_scopes is None
-                else runtime_scopes
-            ),
+            runtime_scopes=runtime_scopes,
             gateway_token=gateway_token,
             heartbeat=heartbeat,
             dry_run=dry_run,
             openclaw_routes=openclaw_routes,
-            openclaw_route_options=effective_route_options,
+            openclaw_route_options=openclaw_route_options,
             memory_index=memory_index,
             workspaces_sync=workspaces_sync,
         )
@@ -4498,6 +4406,12 @@ class Deployments:
         """
         resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")
+        return self._hydrate_agent(data)
+
+    def restore(self, agent_id: str) -> Agent:
+        """Restore durable storage for a stopped or archived agent."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/restore")
         return self._hydrate_agent(data)
 
     def get_routes(self, agent_id: str) -> AgentRoutes:

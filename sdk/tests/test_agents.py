@@ -55,7 +55,6 @@ def test_agent_from_dict_minimal():
     assert agent.cpu == 0
     assert agent.memory == 0
     assert agent.routes == {}
-    assert agent.ports == []
     assert agent.managed is None
 
 
@@ -65,41 +64,11 @@ def test_agent_from_dict_hydrates_launch_epoch_and_future_state():
             "id": "agent-123",
             "state": "FUTURE_STATE",
             "launch_epoch": 4,
-            "resources_exist": True,
-            "namespace_exists": True,
         }
     )
 
     assert agent.state == "FUTURE_STATE"
     assert agent.launch_epoch == 4
-    assert agent.resources_exist is True
-    assert agent.namespace_exists is True
-
-
-def test_agent_from_dict_hydrates_starting_runtime_status():
-    agent = Agent.from_dict(
-        {
-            "id": "agent-123",
-            "state": "STARTING",
-            "error": "ErrImagePull; unauthorized",
-            "runtime_status": {
-                "pod_phase": "Pending",
-                "container_name": "reef",
-                "state": "waiting",
-                "reason": "ErrImagePull",
-                "message": "unauthorized",
-            },
-        }
-    )
-
-    assert agent.state == "STARTING"
-    assert agent.runtime_status == {
-        "pod_phase": "Pending",
-        "container_name": "reef",
-        "state": "waiting",
-        "reason": "ErrImagePull",
-        "message": "unauthorized",
-    }
 
 
 @pytest.mark.asyncio
@@ -117,7 +86,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         "error": None,
         "message": "Agent archive is being finalized",
         "launch_epoch": 4,
-        "agent_version": 1,
         "resources_exist": True,
         "namespace_exists": True,
     }
@@ -169,7 +137,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     assert received[-1].error is None
     assert received[-1].message == "Agent archive is being finalized"
     assert received[-1].launch_epoch == 4
-    assert received[-1].agent_version == 1
     assert received[-1].resources_exist is True
     assert received[-1].namespace_exists is True
 
@@ -297,7 +264,6 @@ async def test_wait_running_async_accepts_every_canonical_transitional_state(
     )
 
     async def subscribe(handler, **kwargs):
-        await kwargs["on_ready"]()
         handler(DeploymentEvent(type="deployment.transition", agent_id="agent-123"))
         await asyncio.Event().wait()
 
@@ -327,7 +293,6 @@ async def test_wait_running_ignores_terminal_snapshot_from_older_runtime(monkeyp
     )
 
     async def subscribe(handler, **kwargs):
-        await kwargs["on_ready"]()
         handler(DeploymentEvent(type="deployment.transition", agent_id="agent-123"))
         await asyncio.Event().wait()
 
@@ -362,7 +327,6 @@ async def test_wait_running_reconciles_when_transition_event_is_missed(monkeypat
     )
 
     async def subscribe(_handler, **kwargs):
-        await kwargs["on_ready"]()
         await asyncio.Event().wait()
 
     monkeypatch.setattr(deployments, "subscribe", subscribe)
@@ -454,11 +418,30 @@ def test_self_selector_is_limited_to_status_lifecycle_and_routes():
     with pytest.raises(ValueError, match="sync_include"):
         deployments.start("self", sync_include=None)
 
-    with pytest.raises(ValueError, match="backend-stored launch configuration"):
+    with patch.object(deployments, "_post", return_value=response) as post:
         deployments.start_openclaw("self")
+    post.assert_called_once_with("/deployments/self/start", json={})
 
     with pytest.raises(ValueError, match="only supported"):
         deployments.delete("self")
+
+
+def test_restore_posts_bodyless_and_returns_restoring(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    response = {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "user_id": "user-456",
+        "state": "RESTORING",
+    }
+    post = Mock(return_value=response)
+    monkeypatch.setattr(deployments, "_post", post)
+
+    restored = deployments.restore(response["id"])
+
+    assert restored.state == "RESTORING"
+    post.assert_called_once_with(f"/deployments/{response['id']}/restore")
 
 
 def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
@@ -736,7 +719,6 @@ def test_wait_running_fails_on_terminal_states(monkeypatch, failed_state):
     )
 
     async def subscribe(_handler, **kwargs):
-        await kwargs["on_ready"]()
         await asyncio.Event().wait()
 
     monkeypatch.setattr(deployments, "subscribe", subscribe)
@@ -836,39 +818,29 @@ def test_agent_running_state_is_case_insensitive(state, expected):
     "state",
     CANONICAL_AGENT_STATES,
 )
-def test_agent_hydrates_canonical_lifecycle_state_and_diagnostics(state):
+def test_agent_hydrates_canonical_lifecycle_state(state):
     agent = Agent.from_dict(
         {
             "id": "agent-123",
             "state": state,
-            "reason": "runtime_exit" if state == "STOPPED" else "start",
-            "error": "ExampleError" if state == "FAILED" else None,
-            "message": f"Lifecycle state is {state}",
         }
     )
 
     assert agent.state == state
-    assert agent.reason == ("runtime_exit" if state == "STOPPED" else "start")
-    assert agent.error == ("ExampleError" if state == "FAILED" else None)
-    assert agent.message == f"Lifecycle state is {state}"
 
 
-def test_agent_hydrates_storage_and_archive_projection():
+def test_agent_hydrates_cluster_and_archive_timestamp():
     agent = Agent.from_dict(
         {
             "id": "agent-123",
             "state": "ARCHIVED",
             "cluster_id": "cluster-current",
-            "agent_version": 2,
             "archived_at": "2026-08-09T12:00:00Z",
-            "archived_path": "s3://archive/dev01/agent-123/checkpoint",
         }
     )
 
     assert agent.cluster_id == "cluster-current"
-    assert agent.agent_version == 2
     assert agent.archived_at == datetime(2026, 8, 9, 12, 0, tzinfo=timezone.utc)
-    assert agent.archived_path == "s3://archive/dev01/agent-123/checkpoint"
 
 
 def test_agent_lifecycle_state_classification_is_forward_open():
@@ -913,22 +885,6 @@ def test_agent_exposes_archive_and_delete_state_semantics(
     assert agent.is_deleted is is_deleted
 
 
-def test_agent_lifecycle_reason_is_independent_from_error_and_message():
-    agent = Agent.from_dict(
-        {
-            "id": "agent-123",
-            "state": "STOPPED",
-            "reason": "api_stop",
-            "error": None,
-            "message": "Agent stopped normally",
-        }
-    )
-
-    assert agent.reason == "api_stop"
-    assert agent.error is None
-    assert agent.message == "Agent stopped normally"
-
-
 def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():
     agent = Agent(
         id="agent-123",
@@ -947,7 +903,6 @@ def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
     assert launch_config_has_desktop({"env": {"OPENCLAW_DESKTOP_ENABLED": "1"}}) is True
     assert launch_config_has_desktop({"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}}}) is True
     assert launch_config_has_desktop({"routes": {"browser": {"port": 3000, "auth": True, "prefix": "desktop"}}}) is True
-    assert launch_config_has_desktop({"ports": [{"port": 3000, "auth": True}]}) is True
     assert launch_config_has_desktop({"image": DEFAULT_OPENCLAW_PRO_IMAGE}) is False
     assert agent_config_has_desktop({"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}}) is True
 
@@ -956,12 +911,10 @@ def test_flatten_launch_config_and_agent_has_desktop():
     launch_config = {
         "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
         "routes": {"openclaw": {"port": 18789, "prefix": ""}},
-        "ports": [{"port": 3000, "auth": True}],
     }
 
     assert flatten_launch_config(launch_config)["env.OPENCLAW_DESKTOP_ENABLED"] == "0"
     assert flatten_launch_config(launch_config)["routes.openclaw.port"] == 18789
-    assert flatten_launch_config(launch_config)["ports[0].port"] == 3000
 
     agent = Agent.from_dict(
         {
@@ -993,7 +946,6 @@ def test_openclaw_agent_from_dict():
             "routes": {"openclaw": {"port": 18789, "auth": False}},
             "command": ["sleep", "3600"],
             "entrypoint": ["/bin/sh", "-c"],
-            "ports": [{"port": 18789, "auth": False}],
         }
     )
 
@@ -1745,7 +1697,6 @@ def test_agents_create_returns_openclaw_agent(agents_client):
                 }
             },
             env={"FOO": "bar"},
-            ports=[{"port": 18789, "auth": False}],
             command=["nginx", "-g", "daemon off;"],
             entrypoint=["/docker-entrypoint.sh"],
             image="ghcr.io/hypercli/hypercli-openclaw:test",
@@ -1777,43 +1728,6 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert agent._deployments is agents_client
 
 
-def test_agents_create_preserves_backend_contract_on_idempotent_replay(agents_client):
-    with patch("httpx.Client") as mock_client_class:
-        mock_client = MagicMock()
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "id": "agent-replayed",
-            "user_id": "user-456",
-            "state": "stopped",
-            "runtime": "openclaw",
-            "creation_replayed": True,
-            "launch_config": {
-                "secrets": {"OPENCLAW_GATEWAY_TOKEN": "original-token"},
-                "command": ["original-command"],
-                "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
-                "sync_enabled": True,
-            },
-        }
-        mock_client.post.return_value = mock_response
-        mock_client.__enter__.return_value = mock_client
-        mock_client.__exit__.return_value = False
-        mock_client_class.return_value = mock_client
-
-        agent = agents_client.create_openclaw(
-            name="replayed-agent",
-            start=False,
-            secrets={"OPENCLAW_GATEWAY_TOKEN": "retry-token"},
-            command=["retry-command"],
-            meta_ui={"creation_id": "setup-123"},
-        )
-
-        assert agent.creation_replayed is True
-        assert agent.launch_config.get("secrets") is None
-        assert "sync_enabled" not in agent.launch_config
-        assert agent.command == ["original-command"]
-
-
 def test_create_openclaw_defaults_sync_root(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
@@ -1840,7 +1754,7 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         assert "HOME" not in posted_json["env"]
 
 
-def test_start_openclaw_defaults_sync_root(agents_client):
+def test_start_openclaw_without_overrides_inherits_backend_launch_config(agents_client):
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
         mock_client = MagicMock()
         mock_response = Mock()
@@ -1859,11 +1773,7 @@ def test_start_openclaw_defaults_sync_root(agents_client):
 
         agents_client.start_openclaw("agent-123")
 
-        posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["sync_root"] == "/home/node"
-        assert "sync_enabled" not in posted_json
-        assert "HYPER_API_BASE" not in posted_json["env"]
-        assert "HOME" not in posted_json["env"]
+        assert mock_client.post.call_args[1]["json"] == {}
 
 
 def test_start_openclaw_preserves_restart_policy(agents_client):
@@ -1899,7 +1809,7 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
         assert posted_json["runtime_scopes"] == ["models:*"]
 
 
-def test_start_openclaw_pro_defaults_runtime_scopes(agents_client):
+def test_start_openclaw_pro_without_overrides_inherits_backend_launch_config(agents_client):
     posted: dict = {}
 
     def fake_post(_path, json=None):
@@ -1914,7 +1824,7 @@ def test_start_openclaw_pro_defaults_runtime_scopes(agents_client):
     agents_client._post = fake_post
     agents_client.start_openclaw_pro("11111111-1111-4111-8111-111111111111")
 
-    assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
+    assert posted == {}
 
 
 @pytest.mark.parametrize(
@@ -2009,7 +1919,7 @@ def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agen
     agents_client.start_openclaw(agent_id, sync_include=None)
 
     assert "sync_include" not in posted[0]
-    assert posted[0]["sync_exclude"] == list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
+    assert posted[0] == {}
     assert posted[1]["sync_include"] is None
     assert "sync_exclude" not in posted[1]
 
@@ -2928,7 +2838,7 @@ async def test_agents_integration_lifecycle():
             if agent.is_running:
                 break
             if agent.state in ("failed", "stopped"):
-                pytest.fail(f"Agent failed to start: {agent.state} - {agent.error}")
+                pytest.fail(f"Agent failed to start: {agent.state}")
         else:
             pytest.fail("Agent did not start within 2 minutes")
 

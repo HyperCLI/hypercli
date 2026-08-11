@@ -24,7 +24,7 @@ describe('AgentFiles — one client, three sources', () => {
     };
     const agent = new OpenClawAgent({
       id: 'agent-123',
-      command: [], entrypoint: [], ports: [], routes: {},
+      command: [], entrypoint: [], routes: {},
       gatewayUrl: 'wss://gw', gatewayToken: 't',
     } as any);
     agent._deployments = deployments as any;

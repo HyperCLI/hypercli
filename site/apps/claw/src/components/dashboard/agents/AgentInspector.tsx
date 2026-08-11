@@ -42,7 +42,7 @@ export function buildAgentInspectorActionState(selectedAgent: Agent) {
   return {
     canStart: isAgentStartable(selectedAgent),
     canStop: isAgentStoppable(selectedAgent),
-    cleanupRequired: selectedAgent.state === "FAILED" && selectedAgent.resourcesExist,
+    cleanupRequired: selectedAgent.state === "FAILED",
   };
 }
 

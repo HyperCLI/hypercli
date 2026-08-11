@@ -130,9 +130,6 @@ test("agents page launches from a direct entitlement without an active subscript
         memory: 4,
         hostname: null,
         launch_epoch: 0,
-        agent_version: 1,
-        resources_exist: false,
-        namespace_exists: false,
         created_at: "2026-05-17T00:00:00Z",
         updated_at: "2026-05-17T00:00:00Z",
       };
@@ -153,9 +150,6 @@ test("agents page launches from a direct entitlement without an active subscript
         ...createdAgent,
         state: "CREATING",
         launch_epoch: 1,
-        agent_version: 2,
-        resources_exist: true,
-        namespace_exists: true,
         updated_at: "2026-05-17T00:01:00Z",
       };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });

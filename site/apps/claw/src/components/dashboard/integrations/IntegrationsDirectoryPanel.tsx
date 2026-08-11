@@ -824,7 +824,7 @@ export function IntegrationsDirectoryPanel({
           rawRuntimeStatus: {},
         })),
       } satisfies AgentChannel;
-      const runtimeStatusDetail = loadingChannels
+      const connectionStatusDetail = loadingChannels
         ? `Checking the live ${selectedTile.displayName} connection. Saved settings remain available while status loads.`
         : reportedChannelsError || loadError
           ? `Live status could not be refreshed. Saved settings remain available. ${reportedChannelsError || loadError}`
@@ -840,7 +840,7 @@ export function IntegrationsDirectoryPanel({
             {!selectedTile.runtimeReported ? (
               <RuntimeStatusNotice
                 displayName={selectedTile.displayName}
-                detail={runtimeStatusDetail}
+                detail={connectionStatusDetail}
                 refreshing={refreshing}
                 onRefresh={() => void refreshIntegrations()}
                 slackPreparation={selectedTile.id === "slack" ? selectedSlackPreparation : undefined}

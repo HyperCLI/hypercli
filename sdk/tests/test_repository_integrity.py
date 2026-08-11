@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -16,3 +17,11 @@ def test_sdk_sources_have_no_merge_conflict_markers():
                     conflicts.append(f"{path.relative_to(repo_root)}:{line_number}")
 
     assert conflicts == [], f"Unresolved merge conflicts: {', '.join(conflicts)}"
+
+
+def test_agents_openapi_uses_bodyless_restore():
+    repo_root = Path(__file__).resolve().parents[2]
+    schema = json.loads((repo_root / "docs" / "agents-openapi.json").read_text())
+    restore = schema["paths"]["/agents/deployments/{agent_id}/restore"]["post"]
+
+    assert "requestBody" not in restore

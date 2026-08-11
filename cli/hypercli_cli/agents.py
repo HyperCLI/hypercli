@@ -42,7 +42,6 @@ LAUNCH_FIELD_KEYS = {
     "entrypoint",
     "env",
     "image",
-    "ports",
     "registry_auth",
     "registry_url",
     "restart",
@@ -316,39 +315,6 @@ def _parse_env_vars(values: list[str] | None) -> dict | None:
     return env
 
 
-def _parse_ports(values: list[str] | None) -> list[dict] | None:
-    """Parse repeated --port PORT[:noauth] options."""
-    if not values:
-        return None
-    ports: list[dict] = []
-    for item in values:
-        if ":" in item:
-            port_text, suffix = item.split(":", 1)
-            if suffix != "noauth":
-                raise typer.BadParameter(
-                    f"Invalid --port '{item}'. Expected PORT or PORT:noauth."
-                )
-            auth = False
-        else:
-            port_text = item
-            auth = True
-
-        try:
-            port_num = int(port_text)
-        except ValueError as e:
-            raise typer.BadParameter(
-                f"Invalid --port '{item}'. PORT must be an integer."
-            ) from e
-
-        if port_num < 1 or port_num > 65535:
-            raise typer.BadParameter(
-                f"Invalid --port '{item}'. PORT must be between 1 and 65535."
-            )
-
-        ports.append({"port": port_num, "auth": auth})
-    return ports
-
-
 def _build_registry_auth(username: str | None, password: str | None) -> dict | None:
     if not username and not password:
         return None
@@ -373,23 +339,6 @@ def _parse_cp_target(value: str) -> tuple[str | None, str]:
     if not agent_id or not remote_path:
         raise typer.BadParameter("Remote paths must use AGENT_ID:PATH")
     return _resolve_agent(agent_id), remote_path
-
-
-def _port_url(pod: Agent, port: dict) -> str:
-    if port.get("url"):
-        return str(port["url"])
-    hostname = pod.hostname or ""
-    prefix = port.get("prefix")
-    if hostname and prefix:
-        return f"https://{prefix}-{hostname}"
-    if hostname:
-        return f"https://{hostname}"
-    return ""
-
-
-def _port_summary(port: dict) -> str:
-    auth_text = "auth" if port.get("auth", True) else "noauth"
-    return f"{port.get('port', '?')} ({auth_text})"
 
 
 def _routes_json_payload(state) -> dict:
@@ -538,7 +487,6 @@ def create(
     name: str = typer.Option(None, "--name", "-n", help="Agent name (auto-generated if omitted, becomes {name}.hypercli.com)"),
     size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
     env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable (KEY=VALUE). Repeatable."),
-    port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
@@ -574,7 +522,6 @@ def create(
     runtime = _managed_runtime(runtime)
     agents = _get_deployments_client()
     env_dict = _parse_env_vars(env)
-    ports_list = _parse_ports(port)
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
@@ -617,7 +564,6 @@ def create(
             "name": name,
             "size": size,
             "env": effective_env,
-            "ports": ports_list,
             "command": command_argv,
             "entrypoint": entrypoint_argv,
             "registry_url": registry_url,
@@ -659,10 +605,6 @@ def create(
     else:
         console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
-    display_ports = pod.ports or ports_list or []
-    for p in display_ports:
-        auth_text = "auth" if p.get("auth", True) else "noauth"
-        console.print(f"  Port {p.get('port')}:  {_port_url(pod, p)} ({auth_text})")
 
     if wait and not pod.dry_run:
         console.print("\n[dim]Waiting for agent to start...[/dim]")
@@ -773,7 +715,6 @@ def list_agents(
             "launch_config": getattr(p, "launch_config", None), "gateway_id": getattr(p, "gateway_id", None),
             "name": p.name, "state": p.state,
             "hostname": p.hostname, "vnc_url": p.vnc_url,
-            "ports": p.ports,
         } for p in pods], indent=2, default=str))
         return
 
@@ -789,9 +730,6 @@ def list_agents(
     table.add_column("Size")
     table.add_column("State")
     table.add_column("Desktop URL")
-    has_ports = any(pod.ports for pod in pods)
-    if has_ports:
-        table.add_column("Ports")
     table.add_column("Created")
 
     for pod in pods:
@@ -806,9 +744,6 @@ def list_agents(
             f"[{style}]{pod.state}[/{style}]",
             pod.vnc_url or "",
         ]
-        if has_ports:
-            ports_text = ", ".join(_port_summary(p) for p in pod.ports) if pod.ports else ""
-            row.append(ports_text)
         row.append(created)
         table.add_row(*row)
         _save_agent_state(pod)
@@ -963,9 +898,6 @@ def status(
         console.print(f"  Stopped:    {pod.stopped_at}")
     if pod.jwt_expires_at:
         console.print(f"  JWT Expires: {pod.jwt_expires_at}")
-    if pod.error:
-        console.print(f"  Error:      [red]{pod.error}[/red]")
-
 def _print_agent_metrics(data: dict) -> None:
     agent_name = str(data.get("name") or data.get("agent_id") or "")
     timestamp = str(data.get("timestamp") or "")
@@ -1030,7 +962,6 @@ def metrics(
 def start(
     agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable override (KEY=VALUE). Repeatable."),
-    port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
@@ -1064,36 +995,35 @@ def start(
     agent_id = _resolve_agent(agent_id)
     requested_agent_id = "self" if agent_id.strip().lower() == "self" else agent_id
     agents = _get_deployments_client()
+    override_names = [
+        name
+        for name, value in {
+            "env": env or None,
+            "command": command,
+            "entrypoint": entrypoint,
+            "image": image,
+            "desktop": desktop,
+            "memory_search": memory_search,
+            "index_on_session_start": index_on_session_start,
+            "index_on_search": index_on_search,
+            "index_watch": index_watch,
+            "index_watch_debounce_ms": index_watch_debounce_ms,
+            "index_interval_minutes": index_interval_minutes,
+            "registry_url": registry_url,
+            "registry_username": registry_username,
+            "registry_password": registry_password,
+            "sync_include": sync_include,
+            "sync_exclude": sync_exclude,
+            "sync_uid": sync_uid,
+            "sync_gid": sync_gid,
+            "gateway_token": gateway_token,
+            "api_server_key": api_server_key,
+            "dry_run": True if dry_run else None,
+        }.items()
+        if value is not None
+    ]
 
     if requested_agent_id == "self":
-        override_names = [
-            name
-            for name, value in {
-                "env": env or None,
-                "port": port or None,
-                "command": command,
-                "entrypoint": entrypoint,
-                "image": image,
-                "desktop": desktop,
-                "memory_search": memory_search,
-                "index_on_session_start": index_on_session_start,
-                "index_on_search": index_on_search,
-                "index_watch": index_watch,
-                "index_watch_debounce_ms": index_watch_debounce_ms,
-                "index_interval_minutes": index_interval_minutes,
-                "registry_url": registry_url,
-                "registry_username": registry_username,
-                "registry_password": registry_password,
-                "sync_include": sync_include,
-                "sync_exclude": sync_exclude,
-                "sync_uid": sync_uid,
-                "sync_gid": sync_gid,
-                "gateway_token": gateway_token,
-                "api_server_key": api_server_key,
-                "dry_run": True if dry_run else None,
-            }.items()
-            if value is not None
-        ]
         if override_names:
             console.print(
                 "[red]❌ start self uses the backend-stored launch configuration and "
@@ -1102,6 +1032,16 @@ def start(
             raise typer.Exit(1)
         try:
             pod = agents.start("self")
+        except Exception as e:
+            console.print(f"[red]❌ Failed to start agent: {e}[/red]")
+            raise typer.Exit(1)
+        _save_agent_state(pod)
+        console.print(f"[green]✓[/green] Agent starting: {getattr(pod, 'name', None) or pod.id}")
+        return
+
+    if not override_names:
+        try:
+            pod = agents.start(requested_agent_id)
         except Exception as e:
             console.print(f"[red]❌ Failed to start agent: {e}[/red]")
             raise typer.Exit(1)
@@ -1124,7 +1064,6 @@ def start(
             "launch_config": existing_pod.launch_config,
         }
     env_dict = _parse_env_vars(env)
-    ports_list = _parse_ports(port)
     command_argv = _parse_argv_option(command, "--command")
     entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
     registry_auth = _build_registry_auth(registry_username, registry_password)
@@ -1169,7 +1108,6 @@ def start(
             if desktop_enabled
             else _default_openclaw_image(image, saved_launch_fields)
         )
-    effective_ports = ports_list if ports_list is not None else saved_launch_fields.get("ports")
     effective_command = command_argv if command_argv is not None else saved_launch_fields.get("command")
     effective_entrypoint = entrypoint_argv if entrypoint_argv is not None else saved_launch_fields.get("entrypoint")
     effective_registry_url = registry_url if registry_url is not None else saved_launch_fields.get("registry_url")
@@ -1189,7 +1127,6 @@ def start(
         common = {
             "config": saved_runtime_config,
             "env": effective_env,
-            "ports": effective_ports,
             "routes": saved_launch_fields.get("routes"),
             "command": effective_command,
             "entrypoint": effective_entrypoint,
@@ -1267,6 +1204,24 @@ def stop(
     else:
         console.print("[yellow]✓ Agent stopping; runtime cleanup is still in progress.[/yellow]")
         console.print(f"Wait for completion: [bold]hyper agents stop {agent_id[:8]} --force --wait[/bold]")
+
+
+@app.command("restore")
+def restore(
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
+):
+    """Restore a stopped agent from its archived state."""
+    agent_id = _resolve_agent(agent_id)
+    agents = _get_deployments_client()
+
+    try:
+        pod = agents.restore(agent_id)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to restore agent: {e}[/red]")
+        raise typer.Exit(1)
+
+    _save_agent_state(pod)
+    console.print(f"[green]✓[/green] Agent restoring: {getattr(pod, 'name', None) or pod.id}")
 
 
 @app.command("delete")

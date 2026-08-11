@@ -1225,7 +1225,7 @@ function AgentSectionSettingsContent({
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
-  const failedRuntimeNeedsCleanup = agent.state === "FAILED" && agent.resourcesExist;
+  const failedRuntimeNeedsCleanup = agent.state === "FAILED";
   const canStartAgent = isAgentStartable(agent);
   const canStopAgent = isAgentStoppable(agent);
   const canDeleteAgent = isAgentDeletable(agent);
@@ -2764,7 +2764,6 @@ function toAgentCardTooltipData(agent: Agent): AgentCardTooltipData {
     hostname: agent.hostname,
     startedAt: agent.started_at,
     updatedAt: agent.updated_at,
-    error: agent.error,
     meta: agent.meta,
     avatarUrl: agentProfileImageUrl(agent),
   };

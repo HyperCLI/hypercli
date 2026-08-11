@@ -73,29 +73,29 @@ describe("agentViewModel", () => {
     expect(gatewayAgent.gatewayId).toBe("gateway-1");
   });
 
-  it("detects completed resource cleanup for slot enrichment refresh", () => {
+  it("detects completed cleanup from canonical lifecycle states", () => {
     const previous = new Map([
-      ["agent-1", { state: "STOPPING" as const, resourcesExist: true }],
-      ["agent-2", { state: "RUNNING" as const, resourcesExist: true }],
+      ["agent-1", { state: "STOPPING" as const }],
+      ["agent-2", { state: "RUNNING" as const }],
     ]);
 
     expect(didAnyAgentFinishCleanup(previous, [
-      { id: "agent-1", state: "STOPPED", resourcesExist: false },
-      { id: "agent-2", state: "RUNNING", resourcesExist: true },
+      { id: "agent-1", state: "STOPPED" },
+      { id: "agent-2", state: "RUNNING" },
     ])).toBe(true);
     expect(didAnyAgentFinishCleanup(previous, [
-      { id: "agent-1", state: "STOPPING", resourcesExist: true },
-      { id: "agent-2", state: "RUNNING", resourcesExist: true },
+      { id: "agent-1", state: "STOPPING" },
+      { id: "agent-2", state: "RUNNING" },
     ])).toBe(false);
   });
 
-  it("detects coalesced failed-launch cleanup from resource existence", () => {
+  it("detects archive cleanup reaching archived", () => {
     const previous = new Map([
-      ["agent-1", { state: "FAILED" as const, resourcesExist: true }],
+      ["agent-1", { state: "ARCHIVING" as const }],
     ]);
 
     expect(didAnyAgentFinishCleanup(previous, [
-      { id: "agent-1", state: "FAILED", resourcesExist: false },
+      { id: "agent-1", state: "ARCHIVED" },
     ])).toBe(true);
   });
 

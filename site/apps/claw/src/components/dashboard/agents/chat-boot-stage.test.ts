@@ -67,11 +67,10 @@ describe("getAgentChatBootStatus", () => {
       ...baseInput,
       agentState: "FAILED",
       isSelectedRunning: false,
-      error: "Restore failed before boot",
     })).toMatchObject({
       status: "error",
       title: "Agent failed",
-      detail: "Restore failed before boot",
+      detail: "Needs attention before it can run.",
     });
   });
 

@@ -1035,9 +1035,7 @@ export function AgentChatPanel({
       connected: chat.connected,
       connecting: chat.connecting,
       hydrating: chat.hydrating,
-      error: selectedAgent.state === "FAILED"
-        ? selectedAgent.error || selectedAgent.message || selectedAgent.reason
-        : chat.error,
+      error: chat.error,
     }),
     [
       chat.connected,
@@ -1047,9 +1045,6 @@ export function AgentChatPanel({
       chat.hydrating,
       chat.ready,
       isSelectedRunning,
-      selectedAgent.error,
-      selectedAgent.message,
-      selectedAgent.reason,
       selectedAgent.state,
     ],
   );

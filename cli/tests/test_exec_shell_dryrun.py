@@ -220,7 +220,6 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
                 memory=2,
                 state="validated",
                 vnc_url=None,
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -248,7 +247,6 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
                 memory=2,
                 state="validated",
                 vnc_url="https://desktop-demo.hypercli.app",
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -277,7 +275,6 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
                 memory=2,
                 state="validated",
                 vnc_url="https://desktop-demo.hypercli.app",
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -307,7 +304,6 @@ def test_agents_create_accepts_memory_index_flags(monkeypatch):
                 memory=2,
                 state="validated",
                 vnc_url=None,
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -353,7 +349,6 @@ def test_agents_create_sync_include_is_repeatable_and_wins_over_exclude(monkeypa
                 memory=2,
                 state="validated",
                 vnc_url=None,
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -399,7 +394,6 @@ def test_agents_create_rejects_removed_sync_all_option(monkeypatch):
                 memory=2,
                 state="validated",
                 vnc_url=None,
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -425,7 +419,6 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
                 memory=2,
                 state="validated",
                 api_url="https://hermes-demo.hypercli.app",
-                ports=[],
                 dry_run=True,
                 shell_url=None,
             )
@@ -487,7 +480,6 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
                 "restart": False,
                 "runtime_scopes": ["agents:none", "models:*"],
                 "sync_root": ".openclaw",
-                "sync_enabled": True,
                 "sync_include": [],
                 "sync_exclude": ["ignored-because-include-wins"],
             },
@@ -527,10 +519,38 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert captured["restart"] is False
     assert captured["runtime_scopes"] == ["agents:none", "models:*"]
     assert captured["sync_root"] == ".openclaw"
-    assert "sync_enabled" not in captured
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
     assert captured["gateway_token"] is None
+
+
+def test_agents_start_without_overrides_uses_exact_empty_sdk_start(monkeypatch):
+    calls: list[tuple[str, tuple, dict]] = []
+
+    def start(agent_id, *args, **kwargs):
+        calls.append((agent_id, args, kwargs))
+        return SimpleNamespace(
+            id=agent_id,
+            name="steady-orbit-engine",
+            state="STARTING",
+        )
+
+    def unexpected_get(_agent_id):
+        raise AssertionError("zero-option start must not fetch or replay launch configuration")
+
+    monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
+    monkeypatch.setattr(
+        agents_module,
+        "_get_deployments_client",
+        lambda: SimpleNamespace(start=start, get=unexpected_get),
+    )
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
+
+    result = runner.invoke(app, ["agents", "start", "steady-orbit-engine"])
+
+    assert result.exit_code == 0
+    assert calls == [("agent-123", (), {})]
+    assert "Agent starting: steady-orbit-engine" in result.output
 
 
 def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
@@ -877,6 +897,28 @@ def test_agents_stop_waits_for_stopped(monkeypatch):
     assert result.exit_code == 0
     assert calls == ["stop:agent-123", "wait:agent-123"]
     assert "Agent stopped" in result.output
+
+
+def test_agents_restore_posts_bodyless_via_sdk(monkeypatch):
+    calls: list[str] = []
+
+    def restore(agent_id):
+        calls.append(agent_id)
+        return SimpleNamespace(id=agent_id, name="steady-orbit-engine", state="RESTORING")
+
+    monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
+    monkeypatch.setattr(
+        agents_module,
+        "_get_deployments_client",
+        lambda: SimpleNamespace(restore=restore),
+    )
+    monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
+
+    result = runner.invoke(app, ["agents", "restore", "steady-orbit-engine"])
+
+    assert result.exit_code == 0
+    assert calls == ["agent-123"]
+    assert "Agent restoring: steady-orbit-engine" in result.output
 
 
 def test_agents_list_uses_transitional_and_terminal_state_colors():

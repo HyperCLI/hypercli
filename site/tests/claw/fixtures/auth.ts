@@ -150,13 +150,24 @@ interface DeploymentRecord {
   error?: string | null;
   createdAt?: Date | string | null;
   updatedAt?: Date | string | null;
+  launchEpoch?: number;
+  launch_epoch?: number;
 }
 
 interface DeploymentsClientLike {
   createOpenClaw(options?: Record<string, unknown>): Promise<DeploymentRecord>;
   list(): Promise<DeploymentRecord[]>;
   get(agentId: string): Promise<DeploymentRecord>;
-  waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number): Promise<DeploymentRecord>;
+  start(agentId: string): Promise<DeploymentRecord>;
+  waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number, minimumLaunchEpoch?: number): Promise<DeploymentRecord>;
+  waitForState(
+    agentId: string,
+    states: string[],
+    timeoutMs?: number,
+    failureStates?: string[],
+    minimumLaunchEpoch?: number,
+    pollIntervalMs?: number,
+  ): Promise<DeploymentRecord>;
   refreshToken(agentId: string): Promise<{ token?: string | null }>;
   stop(agentId: string): Promise<unknown>;
   delete(agentId: string): Promise<unknown>;
@@ -1750,6 +1761,7 @@ export async function launchClawAgentAndWaitForGateway(
     const beforeAgents = await deployments.list();
     const beforeIds = new Set(beforeAgents.map((agent) => String(agent.id || "")).filter(Boolean));
     let created: DeploymentRecord | null = null;
+    let acceptedStart: DeploymentRecord | null = null;
     let createResponseError: string | null = null;
     const watchBrowserCreateResponse = options.watchBrowserCreateResponse ?? true;
     const createResponseSettled = watchBrowserCreateResponse ? page
@@ -1771,6 +1783,17 @@ export async function launchClawAgentAndWaitForGateway(
       })
       .catch((error) => {
         createResponseError = error instanceof Error ? error.message : String(error);
+      }) : Promise.resolve();
+    const startResponseSettled = watchBrowserCreateResponse ? page
+      .waitForResponse(
+        (response) => response.request().method() === "POST"
+          && /\/agents\/deployments\/[^/]+\/start$/.test(new URL(response.url()).pathname),
+        { timeout: 90_000 },
+      )
+      .then(async (response) => {
+        if (!response.ok()) throw new Error(`Agent start request failed with ${response.status()}`);
+        expect(response.request().postDataJSON()).toEqual({});
+        acceptedStart = (await response.json()) as DeploymentRecord;
       }) : Promise.resolve();
     let launchSubmitted = false;
     try {
@@ -1813,12 +1836,23 @@ export async function launchClawAgentAndWaitForGateway(
 
     expect(created).toBeTruthy();
     expect(created.id).toBeTruthy();
+    if (watchBrowserCreateResponse) {
+      await startResponseSettled;
+      expect(acceptedStart?.id).toBe(created.id);
+    } else {
+      acceptedStart = await deployments.start(created.id);
+    }
+    const acceptedLaunchEpoch = Number(
+      acceptedStart?.launchEpoch ?? acceptedStart?.launch_epoch ?? 0,
+    );
+    expect(Number.isInteger(acceptedLaunchEpoch)).toBe(true);
+    expect(acceptedLaunchEpoch).toBeGreaterThan(0);
     console.log(`[agents-launch] created id=${created.id} state=${created.state ?? "unknown"}`);
 
     try {
       await captureStep(page, "agents-11-created");
 
-      const running = await deployments.waitRunning(created.id, timeout, 5_000);
+      const running = await deployments.waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch);
       expect(running.state).toBe("RUNNING");
       await verifyDesktopAuthRoute(running);
       await waitForGatewayRoute(running);
@@ -1980,7 +2014,7 @@ export async function launchClawAgentAndWaitForGateway(
         name: `agents-e2e-${Date.now()}`,
         size: "large",
         env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: controlUiOrigin },
-        start: true,
+        start: false,
         openClawRoutes: { includeDesktop: false },
       }),
       { watchBrowserCreateResponse: false },
@@ -2155,6 +2189,23 @@ export async function deleteClawAgent(page: Page, agentId: string): Promise<void
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
   await deleteDeployment(deployments, agentId);
+}
+
+export async function stopClawAgentAndWaitStopped(page: Page, agentId: string): Promise<DeploymentRecord> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  const accepted = await deployments.stop(agentId) as DeploymentRecord;
+  const acceptedLaunchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
+  const stopped = await deployments.waitForState(
+    agentId,
+    ["STOPPED"],
+    180_000,
+    ["FAILED", "DELETED"],
+    acceptedLaunchEpoch,
+    2_000,
+  );
+  expect(stopped.state).toBe("STOPPED");
+  return stopped;
 }
 
 async function stripeApiRequest<T>(

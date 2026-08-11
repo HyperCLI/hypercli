@@ -91,7 +91,7 @@ export function getAgentChatBootStatus({
       status: "error",
       phase: "error",
       title: "Agent failed",
-      detail: error || "The runtime could not complete its lifecycle operation.",
+      detail: "Needs attention before it can run.",
       stage: "runtime",
     };
   }

@@ -72,30 +72,16 @@ describe("agent profile updates", () => {
     ]);
   });
 
-  it("accepts a newer authoritative lifecycle snapshot despite a concurrent local mutation", () => {
-    const versionsAtRequest = new Map([["agent-1", 1]]);
-    const currentVersions = new Map([["agent-1", 2]]);
-
-    expect(mergeAgentListAfterMutations(
-      [{ id: "agent-1", state: "STARTING", agentVersion: 4 }],
-      [{ id: "agent-1", state: "RUNNING", agentVersion: 5 }],
-      versionsAtRequest,
-      currentVersions,
-    )).toEqual([
-      { id: "agent-1", state: "RUNNING", agentVersion: 5 },
-    ]);
-  });
-
-  it("does not regress to an older authoritative lifecycle snapshot", () => {
+  it("uses the listed lifecycle snapshot when no local mutation raced the request", () => {
     const versions = new Map([["agent-1", 1]]);
 
     expect(mergeAgentListAfterMutations(
-      [{ id: "agent-1", state: "RUNNING", agentVersion: 5 }],
-      [{ id: "agent-1", state: "STARTING", agentVersion: 4 }],
+      [{ id: "agent-1", state: "RUNNING" }],
+      [{ id: "agent-1", state: "STARTING" }],
       versions,
       versions,
     )).toEqual([
-      { id: "agent-1", state: "RUNNING", agentVersion: 5 },
+      { id: "agent-1", state: "STARTING" },
     ]);
   });
 
