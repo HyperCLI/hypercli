@@ -39,9 +39,7 @@ function localDevelopmentOrigins(): string[] {
 }
 
 const nextConfig: NextConfig = {
-  devIndicators: {
-    position: "bottom-right",
-  },
+  devIndicators: false,
   async headers() {
     return [
       {

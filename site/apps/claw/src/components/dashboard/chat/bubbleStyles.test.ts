@@ -9,9 +9,15 @@ describe("semantic chat styles", () => {
     expect(getBubbleClasses("off", "v3", false)).toContain("bg-surface-low");
   });
 
-  it("uses semantic status colors for failed tool calls", () => {
-    expect(getToolCallClass("v2", "failed")).toContain("border-l-destructive/70");
-    expect(getToolCallStatusClass("failed")).toContain("text-destructive");
+  it("keeps failed tool calls on neutral surfaces with semantic failure accents", () => {
+    const toolCallClass = getToolCallClass("v2", "failed");
+    const statusClass = getToolCallStatusClass("failed");
+
+    expect(toolCallClass).toContain("border-l-destructive/70");
+    expect(toolCallClass).toContain("bg-surface-low/35");
+    expect(toolCallClass).not.toContain("bg-destructive");
+    expect(statusClass).toContain("text-destructive");
+    expect(statusClass).not.toContain("bg-destructive");
   });
 
   it("uses green for running tool calls and neutral gray for completed tool calls", () => {

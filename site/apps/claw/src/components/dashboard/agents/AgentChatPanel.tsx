@@ -1112,7 +1112,7 @@ export function AgentChatPanel({
     ? activeSessionSending ? "sm:pr-84" : "sm:pr-76"
     : activeSessionSending ? "sm:pr-40" : "sm:pr-32";
   const composerRightPadding = modelMenuAvailable
-    ? `max-sm:pb-14 max-sm:pr-5 ${desktopComposerRightPadding}`
+    ? `max-sm:pb-18 max-sm:pr-5 ${desktopComposerRightPadding}`
     : `${mobileComposerRightPadding} ${desktopComposerRightPadding}`;
   const composerMinHeight = modelMenuAvailable
     ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-24"
@@ -1120,7 +1120,7 @@ export function AgentChatPanel({
       ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-20"
       : "";
   const composerActionsLayout = modelMenuAvailable
-    ? "bottom-2 left-2 right-2 justify-between sm:bottom-auto sm:left-auto sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
+    ? "bottom-4 left-3 right-3 justify-between sm:bottom-auto sm:left-auto sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
     : composerHasText
       ? "right-2 top-[calc(50%-3px)] -translate-y-1/2 max-sm:top-1/2 max-sm:flex-col"
       : "right-2 top-[calc(50%-3px)] -translate-y-1/2";

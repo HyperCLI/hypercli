@@ -1280,7 +1280,7 @@ describe("AgentChatPanel", () => {
     const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" });
     expect(compactTrigger.parentElement).not.toHaveClass("hidden", "sm:hidden");
     expect(within(compactTrigger).getByText("Medium")).not.toHaveClass("hidden");
-    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("max-sm:pb-14", "max-sm:pr-5", "sm:pr-76");
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("max-sm:pb-18", "max-sm:pr-5", "sm:pr-76");
   });
 
   it("keeps mobile model and attachment controls directly available", () => {
@@ -1331,13 +1331,13 @@ describe("AgentChatPanel", () => {
     });
 
     const composer = screen.getByRole("textbox", { name: /message agent/i });
-    expect(composer).toHaveClass("max-sm:pb-14", "max-sm:pr-5", "sm:pr-76", "max-sm:min-h-24");
+    expect(composer).toHaveClass("max-sm:pb-18", "max-sm:pr-5", "sm:pr-76", "max-sm:min-h-24");
 
     const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: Choose model" });
     const sendTrigger = screen.getByRole("button", { name: "Send message" });
     const actionRail = compactTrigger.parentElement?.parentElement;
     expect(sendTrigger.parentElement?.parentElement).toBe(actionRail);
-    expect(actionRail).toHaveClass("bottom-2", "left-2", "right-2", "justify-between", "sm:top-[calc(50%-3px)]");
+    expect(actionRail).toHaveClass("bottom-4", "left-3", "right-3", "justify-between", "sm:top-[calc(50%-3px)]");
     expect(actionRail).not.toHaveClass("flex-col");
 
     const voiceTrigger = screen.getByLabelText("Clear text to record voice");

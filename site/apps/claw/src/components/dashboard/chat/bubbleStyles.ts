@@ -30,7 +30,7 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
 export function getToolCallClass(theme: ThemeVariant, status: ToolCallViewStatus): string {
   const baseClass = "mb-1.5 w-full min-w-0 max-w-full overflow-hidden text-xs";
   const doneClass = "border-border bg-surface-low/35";
-  const failedClass = "border-destructive/35 bg-destructive/8";
+  const failedClass = "border-border bg-surface-low/35";
   const runningClass = "border-success/35 bg-success/8";
   const neutralClass = "border-border bg-surface-low/35";
   const stateClass = status === "failed" ? failedClass : status === "done" ? doneClass : status === "running" ? runningClass : neutralClass;
@@ -55,7 +55,7 @@ export function getToolCallStatusClass(status: ToolCallViewStatus): string {
   }
 
   if (status === "failed") {
-    return "border-destructive/35 bg-destructive/8 text-destructive";
+    return "border-destructive/35 bg-background/25 text-destructive";
   }
 
   if (status === "done") {

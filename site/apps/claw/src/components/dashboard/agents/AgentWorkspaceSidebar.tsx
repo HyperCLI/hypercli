@@ -1358,7 +1358,7 @@ export function AgentWorkspaceSidebar({
     >
       {embeddedInNavigation ? (
         <div
-          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center justify-start border-b border-r border-border bg-[var(--agent-panel-background)] px-3 transition-[left] duration-200 ease-out ${
+          className={`agent-desktop-navigation-header absolute -top-16 z-30 flex h-14 w-64 items-center justify-start border-b border-r border-border bg-[var(--agent-panel-background)] pl-4 pr-3 transition-[left] duration-200 ease-out ${
             isCollapsed ? "-left-52" : "-left-12"
           }`}
         >

@@ -320,7 +320,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(screen.getByTestId("hypercli-logo-full")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /current workspace/i })).not.toBeInTheDocument();
-    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52", "justify-start");
+    expect(document.querySelector(".agent-desktop-navigation-header")).toHaveClass("w-64", "-top-16", "-left-52", "justify-start", "pl-4");
     expect(screen.getByTestId("hypercli-logo-full")).toHaveClass("h-[24px]", "w-[124px]");
     expect(document.querySelector(".agent-workspace-shell")).not.toHaveClass("border-r");
     expect(screen.queryByRole("button", { name: /workspace sidebar/i })).not.toBeInTheDocument();

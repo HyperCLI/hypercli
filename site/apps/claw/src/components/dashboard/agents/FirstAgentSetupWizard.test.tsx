@@ -626,6 +626,46 @@ describe("FirstAgentSetupWizard", () => {
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });
 
+  it("replaces the setup form with the startup loader as soon as creation begins", async () => {
+    const onCreateAgent = vi.fn(() => new Promise<string | null>(() => undefined));
+
+    const view = renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={vi.fn()}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-team",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledOnce());
+    expect(view.container.querySelector('[data-slot="agent-creation-loading"]')).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Agent startup" })).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /approach the work/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Creating..." })).not.toBeInTheDocument();
+  });
+
   it("launches with the selected objective and personality in the workspace files", async () => {
     const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-1");
     const OriginalFile = File;
