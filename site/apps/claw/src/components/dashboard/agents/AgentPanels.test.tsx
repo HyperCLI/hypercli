@@ -16,7 +16,12 @@ vi.mock("./FirstAgentSetupWizard", () => ({
       name: string;
       iconIndex: number;
       size: "small";
-      files: [];
+      files: Array<{
+        name: string;
+        size: number;
+        type: string;
+        arrayBuffer: () => Promise<ArrayBuffer>;
+      }>;
       enableDesktop: boolean;
       knowledgeCollectionId: string | null;
     }) => Promise<string | null>;
@@ -37,6 +42,24 @@ vi.mock("./FirstAgentSetupWizard", () => ({
         }); }}
       >
         Finish setup
+      </button>
+      <button
+        type="button"
+        onClick={() => { void onCreateAgent({
+          name: "Created Agent",
+          iconIndex: 0,
+          size: "small",
+          files: [{
+            name: "AGENTS.md",
+            size: 8,
+            type: "text/markdown",
+            arrayBuffer: async () => new TextEncoder().encode("# Agent\n").buffer as ArrayBuffer,
+          }],
+          enableDesktop: false,
+          knowledgeCollectionId: null,
+        }); }}
+      >
+        Finish setup with starter files
       </button>
     </div>
   ),
@@ -94,8 +117,12 @@ const sdkMocks = vi.hoisted(() => ({
 }));
 
 const agentClientMocks = vi.hoisted(() => ({
+  waitForCreatedAgentStopped: vi.fn(async (client: { waitForState: (...args: unknown[]) => Promise<unknown> }, created: { id: string }) => (
+    client.waitForState(created.id, ["STOPPED"])
+  )),
   createAgentClient: vi.fn(() => ({
     fileWriteBytes: vi.fn(async () => undefined),
+    waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
     start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
   })),
 }));
@@ -116,6 +143,7 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
 
 vi.mock("@/lib/agent-client", () => ({
   createAgentClient: agentClientMocks.createAgentClient,
+  waitForCreatedAgentStopped: agentClientMocks.waitForCreatedAgentStopped,
   createBrowserHyperCLIClient: vi.fn(() => ({
     user: {
       get: sdkMocks.userGet,
@@ -164,6 +192,7 @@ beforeEach(() => {
   });
   agentClientMocks.createAgentClient.mockReturnValue({
     fileWriteBytes: vi.fn(async () => undefined),
+    waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
     start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
   });
 });
@@ -172,6 +201,7 @@ const agent: Agent = {
   id: "agent-1",
   name: "Test Agent",
   managed: true,
+  isLaunchable: true,
   user_id: "user-1",
   state: "RUNNING",
   cpu_millicores: 4000,
@@ -179,9 +209,11 @@ const agent: Agent = {
   hostname: "agent.example.com",
   started_at: "2026-05-05T00:00:00Z",
   stopped_at: null,
+  archived_at: null,
   created_at: "2026-05-05T00:00:00Z",
   updated_at: "2026-05-05T00:00:00Z",
   launchEpoch: 0,
+  clusterId: null,
   launchConfig: {
     image: "ghcr.io/hypercli/hypercli-openclaw:prod",
     env: {
@@ -628,6 +660,55 @@ describe("AgentList", () => {
 
     await waitFor(() => expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument());
     expect(onCreateAgent).toHaveBeenCalledOnce();
+  });
+
+  it("waits for stopped storage, preseeds it, then explicitly starts once", async () => {
+    const operations: string[] = [];
+    const createOpenClawAgent = vi.fn(async (_token: string, _options?: Record<string, unknown>) => {
+      operations.push("create-creating");
+      return { id: "created-agent", state: "CREATING" };
+    });
+    const fileWriteBytes = vi.fn(async () => {
+      operations.push("preseed");
+      return undefined;
+    });
+    const waitForState = vi.fn(async () => {
+      operations.push("wait-stopped");
+      return { id: "created-agent", state: "STOPPED" };
+    });
+    const start = vi.fn(async () => {
+      operations.push("start");
+      return { state: "RUNNING", waitRunning: vi.fn(async () => undefined) };
+    });
+    agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes, waitForState, start });
+    const fetchAgents = vi.fn(async () => {
+      operations.push("refresh");
+      return true;
+    });
+    const setSelectedAgentId = vi.fn();
+    renderAgentList({
+      sidebarCollapsed: false,
+      createOpenClawAgent,
+      fetchAgents,
+      setSelectedAgentId,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup with starter files" }));
+
+    await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
+    expect(createOpenClawAgent).toHaveBeenCalledOnce();
+    expect(createOpenClawAgent.mock.calls[0]?.[1]).not.toHaveProperty("start");
+    expect(fileWriteBytes).toHaveBeenCalledWith(
+      "created-agent",
+      ".openclaw/workspace/AGENTS.md",
+      expect.anything(),
+    );
+    expect(fileWriteBytes.mock.calls[0]).toHaveLength(3);
+    expect(waitForState).toHaveBeenCalledWith("created-agent", ["STOPPED"]);
+    expect(start).toHaveBeenCalledWith("created-agent");
+    expect(start).toHaveBeenCalledOnce();
+    expect(operations).toEqual(["create-creating", "wait-stopped", "refresh", "preseed", "start", "refresh"]);
   });
 
   it("associates a created agent before selecting it", async () => {
@@ -1175,7 +1256,6 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Default model")).toBeInTheDocument();
     expect(screen.getByText("Visibility")).toBeInTheDocument();
     expect(screen.getByText("Auto-archive idle projects")).toBeInTheDocument();
-    expect(screen.getByText("File source tabs")).toBeInTheDocument();
     expect(screen.getByText("Agent runtime")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Danger Zone" })).toBeInTheDocument();
@@ -1200,20 +1280,6 @@ describe("AgentSettingsPanel", () => {
     const teamGroup = screen.getByText("Collection members").closest("section");
     expect(teamGroup).toHaveClass("divide-border", "border-border", "bg-surface-low/30");
     expect(teamGroup).not.toHaveClass("divide-foreground", "border-foreground");
-  });
-
-  it("toggles the local file source tabs setting without marking agent settings dirty", () => {
-    const onShowFileSourceTabsChange = vi.fn();
-    renderAgentSettingsPanel({ showFileSourceTabs: true, onShowFileSourceTabsChange });
-
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    const toggle = screen.getByRole("switch", { name: /show source tabs/i });
-
-    expect(toggle).toBeChecked();
-    fireEvent.click(toggle);
-
-    expect(onShowFileSourceTabsChange).toHaveBeenCalledWith(false);
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
   it("offers cleanup instead of restart for a failed runtime", () => {

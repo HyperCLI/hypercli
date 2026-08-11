@@ -44,18 +44,16 @@ describe("agent starter files", () => {
       "agent-1",
       ".openclaw/workspace/launch-brief.txt",
       expect.anything(),
-      "s3",
     );
     expect(writeFileBytes).toHaveBeenNthCalledWith(
       2,
       "agent-1",
       ".openclaw/workspace/launch-brief-1.txt",
       expect.anything(),
-      "s3",
     );
   });
 
-  it("stages every canonical file to S3 before starting the agent", async () => {
+  it("stages every canonical file on the retained volume before starting the agent", async () => {
     const events: string[] = [];
     const files = [
       starterFile("AGENTS.md", "# AGENTS.md"),
@@ -66,8 +64,8 @@ describe("agent starter files", () => {
     await stageAgentStarterFilesAndStart({
       agentId: "agent-1",
       files,
-      writeFileBytes: async (_agentId, path, _content, destination) => {
-        events.push(`write:${destination}:${path}`);
+      writeFileBytes: async (_agentId, path) => {
+        events.push(`write:${path}`);
       },
       startAgent: async (agentId) => {
         events.push(`start:${agentId}`);
@@ -75,9 +73,9 @@ describe("agent starter files", () => {
     });
 
     expect(events).toEqual([
-      "write:s3:.openclaw/workspace/AGENTS.md",
-      "write:s3:.openclaw/workspace/SOUL.md",
-      "write:s3:.openclaw/workspace/USER.md",
+      "write:.openclaw/workspace/AGENTS.md",
+      "write:.openclaw/workspace/SOUL.md",
+      "write:.openclaw/workspace/USER.md",
       "start:agent-1",
     ]);
   });

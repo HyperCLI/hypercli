@@ -37,8 +37,14 @@ import {
 import { BRAND_ICONS } from "@/components/dashboard/BrandIcons";
 import { TooltipHint } from "@/components/ClawTooltip";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient, createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
+import {
+  createAgentClient,
+  createHyperAgentClient,
+  createOpenClawAgent,
+  waitForCreatedAgentStopped,
+} from "@/lib/agent-client";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
+import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 import type { OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 
 type StageId =
@@ -725,20 +731,27 @@ export default function DevAgentSetupPage() {
   const safeWriteTeamStarterContext = async (token: string, agentId: string) => {
     if (!isTeamPlanActive) return;
     const agentClient = createAgentClient(token);
+    await Promise.all(
+      activeSetupFiles.map((file) =>
+        agentClient.fileWrite(
+          agentId,
+          `${OPENCLAW_WORKSPACE_PREFIX}/${file.path}`,
+          fileEdits[file.id] ?? file.content,
+        ),
+      ),
+    );
+  };
+
+  const patchTeamStarterConfig = async (token: string, agentId: string) => {
+    if (!isTeamPlanActive) return;
+    const agentClient = createAgentClient(token);
     const runningAgent = await agentClient.waitRunning(agentId, 75_000, 3_000);
     if (!canUseGateway(runningAgent)) {
-      throw new Error("The agent was created, but its workspace gateway was not ready for starter context.");
+      throw new Error("The agent was started, but its workspace gateway was not ready for setup configuration.");
     }
     await runningAgent.waitReady(60_000, { probe: "config", retryIntervalMs: 3_000 });
     const gateway = await runningAgent.connect({ clientId: "openclaw-control-ui", clientMode: "ui" });
     try {
-      const agents = await gateway.agentsList();
-      const gatewayAgentId = agents[0]?.id ?? "main";
-      await Promise.all(
-        activeSetupFiles.map((file) =>
-          gateway.fileSet(gatewayAgentId, file.path, fileEdits[file.id] ?? file.content),
-        ),
-      );
       await gateway.configPatch({
         setup: {
           source: "dev-agent-setup",
@@ -922,31 +935,53 @@ export default function DevAgentSetupPage() {
       };
       const token = await getToken();
       const createdAgentId = createdSetupAgentId ?? window.sessionStorage.getItem("dev-agent-setup-created-agent-id");
-      const finalAgentId = createdAgentId || (await createOpenClawAgent(token, {
-        name: agentToCreate.name,
-        start: true,
-        size: agentToCreate.tier,
-        ...buildOpenClawLaunchOptions({ desktopEnabled: false }),
-        tags: isTeamPlanActive ? ["setup=agent-onboarding", "plan=team"] : undefined,
-        meta: {
-          ui: {
-            avatar: {
-              image: null,
-              icon_index: agentToCreate.id === "support" ? 1 : agentToCreate.id === "builder" ? 11 : 0,
+      let finalAgentId = createdAgentId;
+      if (!finalAgentId) {
+        const created = await createOpenClawAgent(token, {
+          name: agentToCreate.name,
+          size: agentToCreate.tier,
+          ...buildOpenClawLaunchOptions({ desktopEnabled: false }),
+          tags: isTeamPlanActive ? ["setup=agent-onboarding", "plan=team"] : undefined,
+          meta: {
+            ui: {
+              avatar: {
+                image: null,
+                icon_index: agentToCreate.id === "support" ? 1 : agentToCreate.id === "builder" ? 11 : 0,
+              },
             },
           },
-        },
-      })).id;
+        });
+        finalAgentId = created.id;
+        const agentClient = createAgentClient(token);
+        await waitForCreatedAgentStopped(agentClient, created);
 
-      if (isTeamPlanActive && !createdAgentId) {
-        try {
-          await safeWriteTeamStarterContext(token, finalAgentId);
-        } catch (writeErr) {
-          const warning = writeErr instanceof Error
-            ? writeErr.message
-            : "The agent was created, but starter context could not be written yet.";
-          setTeamSafeWriteWarning(warning);
-          window.sessionStorage.setItem("dev-agent-setup-safe-write-warning", warning);
+        if (isTeamPlanActive) {
+          try {
+            await safeWriteTeamStarterContext(token, finalAgentId);
+          } catch (writeErr) {
+            const warning = writeErr instanceof Error
+              ? writeErr.message
+              : "The agent was created, but starter context could not be written yet.";
+            setTeamSafeWriteWarning(warning);
+            window.sessionStorage.setItem("dev-agent-setup-safe-write-warning", warning);
+          }
+        }
+
+        const accepted = await agentClient.start(finalAgentId);
+        if (accepted.state.toUpperCase() !== "RUNNING") {
+          await accepted.waitRunning();
+        }
+
+        if (isTeamPlanActive) {
+          try {
+            await patchTeamStarterConfig(token, finalAgentId);
+          } catch (configErr) {
+            const warning = configErr instanceof Error
+              ? configErr.message
+              : "The agent was started, but setup configuration could not be applied yet.";
+            setTeamSafeWriteWarning(warning);
+            window.sessionStorage.setItem("dev-agent-setup-safe-write-warning", warning);
+          }
         }
       }
 

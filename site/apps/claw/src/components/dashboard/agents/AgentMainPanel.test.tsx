@@ -610,6 +610,18 @@ describe("AgentMainPanel", () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps archived restoration as an explicit lifecycle action", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "ARCHIVED" }));
+    const onStart = vi.fn();
+    renderAgentMainPanel({ selectedAgent, onStart });
+
+    const restore = screen.getByRole("button", { name: "Restore agent" });
+    fireEvent.click(restore);
+
+    expect(onStart).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("tablist", { name: /file source/i })).not.toBeInTheDocument();
+  });
+
   it("renders files panel content for a stopped agent", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
     renderAgentMainPanel({

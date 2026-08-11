@@ -10,7 +10,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
+import {
+  createAgentClient,
+  createHyperAgentClient,
+  createOpenClawAgent,
+  waitForCreatedAgentStopped,
+} from "@/lib/agent-client";
 import { deriveLaunchEligibilityState } from "@/lib/agent-launch-state";
 import { formatTokens, type SlotInventory } from "@/lib/format";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
@@ -371,7 +376,6 @@ export function AgentCreationWizard({
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
         name: name.trim() || undefined,
-        start: startImmediately,
         size: selectedType.id,
         ...buildOpenClawLaunchOptions({ desktopEnabled: false }),
         meta: {
@@ -383,7 +387,15 @@ export function AgentCreationWizard({
           },
         },
       });
-      onCreated(created.id);
+      const agentClient = createAgentClient(token);
+      const stoppedAgent = await waitForCreatedAgentStopped(agentClient, created);
+      if (startImmediately) {
+        const accepted = await agentClient.start(stoppedAgent.id);
+        if (accepted.state.toUpperCase() !== "RUNNING") {
+          await accepted.waitRunning();
+        }
+      }
+      onCreated(stoppedAgent.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {

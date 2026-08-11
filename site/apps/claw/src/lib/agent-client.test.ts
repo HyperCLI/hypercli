@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, requestAgentStart, startAgent, stopAgent, waitForAgentRunning } from "./agent-client";
+import { createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, requestAgentStart, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -93,6 +93,24 @@ describe("agent-client", () => {
     expect(agent).toEqual({ marker: "agent-client" });
     expect(httpClientConstructor).toHaveBeenCalledWith("https://api.hypercli.com", "hyper_api_test");
     expect(hyperAgentConstructor).toHaveBeenCalledWith(httpClientInstance, "hyper_api_test", false, "https://api.hypercli.com/agents");
+  });
+
+  it("waits for CREATE admission to reach authoritative STOPPED", async () => {
+    const stopped = { id: "agent-123", state: "STOPPED", launchEpoch: 4 };
+    deploymentsInstance.waitForState.mockResolvedValue(stopped);
+
+    await expect(waitForCreatedAgentStopped(deploymentsInstance as never, {
+      id: "agent-123",
+      launchEpoch: 4,
+    })).resolves.toBe(stopped);
+
+    expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
+      "agent-123",
+      ["STOPPED"],
+      300_000,
+      ["FAILED", "DELETED"],
+      4,
+    );
   });
 
   it("starts from the backend-stored launch contract and fences readiness to the accepted snapshot", async () => {
@@ -477,7 +495,6 @@ describe("agent-client", () => {
 
     const result = createOpenClawAgent("hyper_api_test", {
       name: "clear-window-works",
-      start: false,
     });
     await vi.advanceTimersByTimeAsync(750);
 

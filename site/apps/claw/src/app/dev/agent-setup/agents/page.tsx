@@ -41,6 +41,7 @@ import {
   requestAgentStart,
   startAgent,
   stopAgent,
+  waitForCreatedAgentStopped,
   waitForAgentRunning,
 } from "@/lib/agent-client";
 import {
@@ -75,8 +76,8 @@ import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTy
 import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
-import type { AgentFileEntry, SdkAgent } from "@/types";
-import { isFileTypeReference, type FileEntry } from "@hypercli/shared-ui/files";
+import type { SdkAgent } from "@/types";
+import { isFileTypeReference } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
@@ -105,7 +106,6 @@ import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName, isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
-import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
@@ -142,7 +142,6 @@ import {
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 
 type MainTab = AgentMainTab;
-type AgentFileSource = "auto" | "pod" | "s3";
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 const AGENT_CLEANUP_CONFLICT_COOLDOWN_MS = 30_000;
 
@@ -173,21 +172,6 @@ function buildBillingBudget(
     merged.size_presets = sizePresets;
   }
   return merged;
-}
-
-function normalizeAgentFilePath(path: string): string {
-  return normalizeOpenClawWorkspaceFilePath(path);
-}
-
-function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
-  const path = normalizeAgentFilePath(entry.path);
-  return {
-    name: entry.name || path.split("/").filter(Boolean).pop() || entry.path,
-    path,
-    type: entry.type,
-    size: entry.size,
-    lastModified: entry.last_modified,
-  };
 }
 
 interface TeamSetupSummary {
@@ -930,23 +914,6 @@ export default function DevAgentSetupAgentsPage() {
     return null;
   }, [chat.connected, chat.connecting, isSelectedRunning, mainTab, shellStatus, wsStatus]);
 
-  const listAgentFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
-    if (!selectedAgentId) return [];
-    const agentClient = await getAgentClient();
-    const entries = await agentClient.filesList(
-      selectedAgentId,
-      normalizeAgentFilePath(path ?? ""),
-      source,
-    );
-    return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
-  }, [getAgentClient, selectedAgentId]);
-
-  const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
-    if (!selectedAgentId) return "";
-    const agentClient = await getAgentClient();
-    return agentClient.fileRead(selectedAgentId, normalizeAgentFilePath(path), source);
-  }, [getAgentClient, selectedAgentId]);
-
   const agentSkills = useAgentSkills({
     enabled: mainTab === "integrations" || mainTab === "skills",
     connected: chat.connected,
@@ -1316,7 +1283,6 @@ export default function DevAgentSetupAgentsPage() {
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
         handle,
-        start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
@@ -1330,15 +1296,17 @@ export default function DevAgentSetupAgentsPage() {
       });
       if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
-        applyAgentMutationResult(created);
+        const agentClient = createAgentClient(token);
+        const stoppedAgent = await waitForCreatedAgentStopped(agentClient, created);
+        if (generation !== agentDataGenerationRef.current) return null;
+        applyAgentMutationResult(stoppedAgent);
         if (files.length > 0) {
           try {
-            const agentClient = createAgentClient(token);
             await uploadAgentStarterFiles({
               agentId: created.id,
               files,
-              writeFileBytes: (agentId, path, content, destination) => (
-                agentClient.fileWriteBytes(agentId, path, content, destination)
+              writeFileBytes: (agentId, path, content) => (
+                agentClient.fileWriteBytes(agentId, path, content)
               ),
             });
             if (generation !== agentDataGenerationRef.current) return null;

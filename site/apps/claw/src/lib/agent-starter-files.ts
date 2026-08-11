@@ -1,8 +1,6 @@
 import { toSafeAgentFileName } from "@/lib/agent-file-recovery";
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 
-type StarterFileDestination = "auto" | "pod" | "s3";
-
 export interface AgentStarterFile {
   name: string;
   size: number;
@@ -25,7 +23,6 @@ interface UploadAgentStarterFilesOptions {
     agentId: string,
     path: string,
     content: ArrayBuffer,
-    destination: StarterFileDestination,
   ) => Promise<unknown>;
 }
 
@@ -64,7 +61,7 @@ export async function uploadAgentStarterFiles({
   for (const file of files) {
     const name = uniqueStarterFileName(file.name, usedNames);
     const path = `${OPENCLAW_WORKSPACE_PREFIX}/${name}`;
-    await writeFileBytes(agentId, path, await file.arrayBuffer(), "s3");
+    await writeFileBytes(agentId, path, await file.arrayBuffer());
     uploaded.push({
       originalName: file.name,
       name,

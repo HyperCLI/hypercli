@@ -21,7 +21,7 @@ import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationIte
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient, createBrowserHyperCLIClient } from "@/lib/agent-client";
+import { createAgentClient, createBrowserHyperCLIClient, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
@@ -479,8 +479,6 @@ interface AgentSettingsPanelProps {
   onDeleteAgentAvatar?: (agentId: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
-  showFileSourceTabs?: boolean;
-  onShowFileSourceTabsChange?: (value: boolean) => void;
   isDesktopViewport?: boolean;
 }
 
@@ -1167,8 +1165,6 @@ function AgentSectionSettingsContent({
   onArchiveChange,
   agentSettingsError,
   agentSettingsSuccess,
-  showFileSourceTabs,
-  onShowFileSourceTabsChange,
   onStartAgent,
   onStopAgent,
   onDeleteAgent,
@@ -1210,8 +1206,6 @@ function AgentSectionSettingsContent({
   onArchiveChange: (value: string) => void;
   agentSettingsError?: string | null;
   agentSettingsSuccess?: string | null;
-  showFileSourceTabs: boolean;
-  onShowFileSourceTabsChange?: (value: boolean) => void;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
   onDeleteAgent?: () => void;
@@ -1538,18 +1532,6 @@ function AgentSectionSettingsContent({
             </select>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow
-            label="File source tabs"
-            description="Show Agent, Backup, and Gateway source tabs in the file browser. Useful for backup inspection and debugging."
-          >
-            <div className="flex min-h-9 items-center justify-end">
-              <Switch
-                checked={showFileSourceTabs}
-                onCheckedChange={(checked) => onShowFileSourceTabsChange?.(checked)}
-                aria-label="Show source tabs"
-              />
-            </div>
-          </AgentProfileSettingsRow>
         </section>
 
         <section className="mt-8 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:p-5">
@@ -1792,8 +1774,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onDeleteAgentAvatar,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
-    showFileSourceTabs = false,
-    onShowFileSourceTabsChange,
     isDesktopViewport = true,
   } = props;
   const [internalActiveSection, setInternalActiveSection] = React.useState<AgentSettingsSection>("general");
@@ -2486,8 +2466,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onArchiveChange={setArchiveDraft}
             agentSettingsError={agentSettingsError}
             agentSettingsSuccess={agentSettingsSuccess}
-            showFileSourceTabs={showFileSourceTabs}
-            onShowFileSourceTabsChange={onShowFileSourceTabsChange}
             onStartAgent={onStartAgent}
             onStopAgent={onStopAgent}
             onDeleteAgent={onDeleteAgent}
@@ -2893,7 +2871,6 @@ export function AgentList({
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
         handle,
-        start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
@@ -2907,17 +2884,18 @@ export function AgentList({
       });
       const createdId = created.id ?? null;
       if (createdId) {
+        const agentClient = createAgentClient(token);
+        await waitForCreatedAgentStopped(agentClient, { ...created, id: createdId });
         try {
           await fetchAgents();
         } catch {}
-        const agentClient = createAgentClient(token);
         if (files.length > 0) {
           try {
             await uploadAgentStarterFiles({
               agentId: createdId,
               files,
-              writeFileBytes: (agentId, path, content, destination) => (
-                agentClient.fileWriteBytes(agentId, path, content, destination)
+              writeFileBytes: (agentId, path, content) => (
+                agentClient.fileWriteBytes(agentId, path, content)
               ),
             });
           } catch (uploadError) {

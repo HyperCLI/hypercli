@@ -459,6 +459,22 @@ export async function waitForAgentRunning(accepted: SdkAgent): Promise<SdkAgent>
     : accepted.waitRunning(AGENT_LIFECYCLE_TIMEOUT_MS);
 }
 
+export async function waitForCreatedAgentStopped(
+  agentClient: Deployments,
+  created: { id: string; launchEpoch?: number },
+): Promise<SdkAgent> {
+  const minimumLaunchEpoch = typeof created.launchEpoch === "number" && created.launchEpoch > 0
+    ? created.launchEpoch
+    : undefined;
+  return agentClient.waitForState(
+    created.id,
+    ["STOPPED"],
+    AGENT_LIFECYCLE_TIMEOUT_MS,
+    ["FAILED", "DELETED"],
+    minimumLaunchEpoch,
+  );
+}
+
 export async function startAgent(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
   return waitForAgentRunning(await requestAgentStart(apiKey, agentId, onAccepted));
 }
