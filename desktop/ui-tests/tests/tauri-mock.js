@@ -47,7 +47,6 @@
         tags: ["buzz_agent=public-key"],
         hostname: "maverick.hypercli.app",
         requested_size: "large",
-        error: null,
         is_buzz: true,
         agent_public_key: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         can_start: false,
@@ -64,7 +63,6 @@
         tags: [],
         hostname: null,
         requested_size: "small",
-        error: null,
         is_buzz: false,
         can_start: true,
         can_stop: false,
@@ -80,7 +78,6 @@
         tags: ["app=buzz", "buzz_agent=another-key"],
         hostname: null,
         requested_size: "medium",
-        error: "Harness exited unexpectedly",
         is_buzz: true,
         can_start: false,
         can_stop: false,
@@ -334,7 +331,6 @@
               tags: ["app=buzz"],
               hostname: null,
               requested_size: input.size,
-              error: null,
               is_buzz: true,
               can_start: false,
               can_stop: true,
@@ -373,7 +369,6 @@
             const agent = state.agents.find((item) => item.id === args?.agentId);
             if (!agent) throw "Agent not found";
             agent.state = "starting";
-            agent.error = null;
             agent.can_start = false;
             agent.can_stop = true;
             agent.can_restart = false;

@@ -193,14 +193,6 @@ function agentCard(agent) {
   }
   card.append(meta);
 
-  if (agent.error) {
-    const error = document.createElement("p");
-    error.className = "agent-error";
-    error.textContent = agent.error;
-    error.title = agent.error;
-    card.append(error);
-  }
-
   const actions = document.createElement("div");
   actions.className = "agent-actions";
   if (agent.can_start) actions.append(actionButton(agent, "start", "Start"));

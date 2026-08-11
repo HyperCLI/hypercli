@@ -1343,14 +1343,7 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_path: None,
-            reason: None,
-            error: None,
-            message: None,
             launch_epoch,
-            agent_version: 0,
-            resources_exist: false,
-            namespace_exists: false,
             launch_config: Default::default(),
         }
     }
@@ -2538,7 +2531,7 @@ mod tests {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
+            .match_body(Matcher::Json(serde_json::json!({})))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"creating"}"#)
@@ -2562,7 +2555,7 @@ mod tests {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({"dry_run": false})))
+            .match_body(Matcher::Json(serde_json::json!({})))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"creating"}"#)
@@ -3051,14 +3044,7 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_path: None,
-            reason: None,
-            error: None,
-            message: None,
             launch_epoch: 0,
-            agent_version: 0,
-            resources_exist: false,
-            namespace_exists: false,
             launch_config: Default::default(),
         };
 
@@ -3202,14 +3188,7 @@ mod tests {
                 tags: Vec::new(),
                 requested_size: None,
                 archived_at: None,
-                archived_path: None,
-                reason: None,
-                error: None,
-                message: None,
                 launch_epoch: 0,
-                agent_version: 0,
-                resources_exist: false,
-                namespace_exists: false,
                 launch_config: Default::default(),
             };
 
@@ -3251,14 +3230,7 @@ mod tests {
             tags: Vec::new(),
             requested_size: None,
             archived_at: None,
-            archived_path: None,
-            reason: None,
-            error: None,
-            message: None,
             launch_epoch: 0,
-            agent_version: 0,
-            resources_exist: false,
-            namespace_exists: false,
             launch_config: Default::default(),
         };
 

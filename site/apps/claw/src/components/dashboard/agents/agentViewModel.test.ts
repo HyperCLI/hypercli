@@ -107,6 +107,16 @@ describe("agentViewModel", () => {
     expect(sdkAgent.avatarUrl).toBe("https://cdn.example.test/original.png");
   });
 
+  it("adapts the SDK avatar metadata into the dashboard presentation shape", () => {
+    const mapped = toAgentViewModel(buildSdkAgent({
+      meta: { ui: { avatar: { image: "https://cdn.example.test/avatar.png", icon_index: 7 } } },
+    }));
+
+    expect(mapped.meta).toEqual({
+      ui: { avatar: { image: "https://cdn.example.test/avatar.png", icon_index: 7 } },
+    });
+  });
+
   it("preserves distinct names and explicit management provenance", () => {
     const mapped = toAgentViewModel(buildSdkAgent({
       name: "research-agent",

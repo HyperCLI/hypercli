@@ -30,6 +30,14 @@ export function didAnyAgentFinishCleanup(
 export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | null): Agent {
   const managed = agent.managed ?? null;
   const canonicalName = agent.name?.trim() || agent.id;
+  const meta: Agent["meta"] = agent.meta == null ? null : {
+    ui: agent.meta.ui == null ? agent.meta.ui : {
+      avatar: agent.meta.ui.avatar == null ? agent.meta.ui.avatar : {
+        image: agent.meta.ui.avatar.image ?? null,
+        icon_index: agent.meta.ui.avatar.icon_index ?? null,
+      },
+    },
+  };
   return {
     id: agent.id,
     name: canonicalName,
@@ -60,6 +68,6 @@ export function toAgentViewModel(agent: SdkAgent, avatarUrlOverride?: string | n
     clusterId: agent.clusterId ?? null,
     launchConfig: agent.launchConfig ?? null,
     hasDesktop: agent.hasDesktop,
-    meta: agent.meta ?? null,
+    meta,
   };
 }

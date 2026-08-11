@@ -1930,7 +1930,7 @@ mod tests {
         assert!(error.to_string().contains("entered STOPPED"));
         websocket.abort();
         stopped.assert_async().await;
-        assert_eq!(token.matched_async().await, false);
+        assert!(!token.matched_async().await);
         drop(stopped);
         drop(token);
         tokio::task::spawn_blocking(move || {

@@ -172,9 +172,7 @@ async function reconcileTimedOutAgentStart(agentClient: Deployments, agentId: st
     const state = current.state.toUpperCase();
     if (["CREATING", "STARTING", "RESTORING", "RUNNING"].includes(state)) return current;
     if (["FAILED", "DELETED"].includes(state)) {
-      const detail = [current.reason, current.error, current.message]
-        .find((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
-      throw new Error(`Agent entered ${state} while confirming launch${detail ? `: ${detail}` : "."}`);
+      throw new Error(`Agent entered ${state} while confirming launch.`);
     }
   }
   if (lastReadError) throw lastReadError;
@@ -200,9 +198,7 @@ async function reconcileTimedOutAgentStop(agentClient: Deployments, agentId: str
     const state = current.state.toUpperCase();
     if (["STOPPING", "STOPPED", "ARCHIVING", "ARCHIVED"].includes(state)) return current;
     if (["FAILED", "DELETED"].includes(state)) {
-      const detail = [current.reason, current.error, current.message]
-        .find((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
-      throw new Error(`Agent entered ${state} while confirming shutdown${detail ? `: ${detail}` : "."}`);
+      throw new Error(`Agent entered ${state} while confirming shutdown.`);
     }
   }
   if (lastReadError) throw lastReadError;
