@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAgentOffline } from "@/app/dashboard/agents/types";
+import { AGENT_TRANSITIONAL_STATES, isAgentOffline, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { buildSdkAgent } from "@/test/factories";
 import { agentDisplayLabel, didAnyAgentFinishStopping, normalizeAgentState, toAgentViewModel } from "./agentViewModel";
 
@@ -18,13 +18,28 @@ describe("agentViewModel", () => {
     expect(normalizeAgentState(null)).toBe("STOPPED");
   });
 
-  it("classifies only stopped agents as offline", () => {
+  it("classifies stopped and archived agents as offline", () => {
     expect(isAgentOffline("STOPPED")).toBe(true);
     expect(isAgentOffline("stopped")).toBe(true);
+    expect(isAgentOffline("ARCHIVED")).toBe(true);
     expect(isAgentOffline("RUNNING")).toBe(false);
     expect(isAgentOffline("STARTING")).toBe(false);
     expect(isAgentOffline("FAILED")).toBe(false);
     expect(isAgentOffline(null)).toBe(false);
+  });
+
+  it("uses the canonical Backend lifecycle states for busy handling", () => {
+    expect(AGENT_TRANSITIONAL_STATES).toEqual([
+      "CREATING",
+      "RESTORING",
+      "STARTING",
+      "STOPPING",
+      "ARCHIVING",
+    ]);
+    expect(isAgentTransitionalState("CREATING")).toBe(true);
+    expect(isAgentTransitionalState("ARCHIVING")).toBe(true);
+    expect(isAgentTransitionalState("ARCHIVED")).toBe(false);
+    expect(isAgentTransitionalState("PENDING")).toBe(false);
   });
 
   it("preserves launch config for runtime settings", () => {

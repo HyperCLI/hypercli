@@ -26,10 +26,8 @@ import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
 import { useAccountProfileAvatar } from "@/hooks/useAccountProfileAvatar";
 import { useAccountProfileName } from "@/hooks/useAccountProfileName";
 import {
-  AGENT_CREATION_ID_META_KEY,
   AGENT_CLEANUP_START_MESSAGE,
   AGENT_STOP_CLEANUP_COOLDOWN_MS,
-  agentCreationId,
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
@@ -230,6 +228,7 @@ import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "
 import {
   createDeploymentRefreshScheduler,
   createDeploymentSubscriptionRecovery,
+  reconcileDeploymentSubscriptionReady,
   type DeploymentRefreshScheduler,
 } from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import {
@@ -311,7 +310,7 @@ const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
 const SHELL_INTENT_TTL_MS = 12_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 const KNOWLEDGE_HUB_SURFACE_CONTROLS_ID = "knowledge-hub-surface-controls";
-const AGENT_SETUP_STARTED_STATES = new Set(["PENDING", "RESTORING", "SYNCING", "STARTING", "RUNNING", "STOPPING"]);
+const AGENT_SETUP_STARTED_STATES = new Set(["CREATING", "RESTORING", "STARTING", "RUNNING", "STOPPING", "ARCHIVING", "ARCHIVED"]);
 
 function agentSetupAlreadyStarted(agent: {
   state?: unknown;
@@ -2234,9 +2233,16 @@ function AgentsPageContent() {
     });
     deploymentRefreshSchedulerRef.current = scheduler;
     void deployments.subscribe((event) => {
-      deploymentSubscriptionRecoveryRef.current.markHealthy();
       scheduler.invalidate(event.type === "deployments.changed");
-    }, { signal: controller.signal }).catch(() => {
+    }, {
+      signal: controller.signal,
+      onReady: () => {
+        reconcileDeploymentSubscriptionReady(
+          scheduler,
+          deploymentSubscriptionRecoveryRef.current,
+        );
+      },
+    }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
@@ -3095,7 +3101,7 @@ function AgentsPageContent() {
 
   const selectedAgentStartGuidance = useMemo(
     () =>
-      selectedAgent && (selectedAgent.state === "STOPPED" || isAgentFailureState(selectedAgent.state))
+      selectedAgent && (["STOPPED", "ARCHIVED"].includes(selectedAgent.state) || isAgentFailureState(selectedAgent.state))
         ? describeAgentTierStartGuidance(selectedAgent, budget)
         : null,
     [selectedAgent, budget],
@@ -3628,31 +3634,15 @@ function AgentsPageContent() {
       };
     }
 
-    if (selectedAgent.state === "RESTORE_FAILED") {
+    if (selectedAgent.state === "STOPPED" || selectedAgent.state === "ARCHIVED") {
       return {
-        label: "Restore failed",
-        detail: selectedAgent.error || "File restore failed before the agent could boot.",
-        tone: "failed",
-      };
-    }
-
-    if (selectedAgent.state === "SYNC_FAILED") {
-      return {
-        label: "Sync failed",
-        detail: selectedAgent.error?.replace(/\bworkspaces?\b/gi, "shared knowledge") || "Shared knowledge sync failed before the agent could boot.",
-        tone: "failed",
-      };
-    }
-
-    if (selectedAgent.state === "STOPPED") {
-      return {
-        label: "Stopped",
-        detail: "Start the agent to chat.",
+        label: selectedAgent.state === "ARCHIVED" ? "Archived" : "Stopped",
+        detail: selectedAgent.state === "ARCHIVED" ? "Start the agent to restore its files." : "Start the agent to chat.",
         tone: "stopped",
       };
     }
 
-    if (selectedAgent.state === "PENDING") {
+    if (selectedAgent.state === "CREATING") {
       return {
         label: "Provisioning",
         detail: "Reserving compute and preparing the workspace.",
@@ -3665,15 +3655,6 @@ function AgentsPageContent() {
       return {
         label: "Restoring files",
         detail: "Restoring the agent home directory before boot.",
-        tone: "starting",
-        loading: true,
-      };
-    }
-
-    if (selectedAgent.state === "SYNCING") {
-      return {
-        label: "Syncing shared knowledge",
-        detail: "Syncing shared knowledge Markdown before boot.",
         tone: "starting",
         loading: true,
       };
@@ -3692,6 +3673,15 @@ function AgentsPageContent() {
       return {
         label: "Stopping",
         detail: "Stopping the runtime and cleaning up the workspace.",
+        tone: "stopping",
+        loading: true,
+      };
+    }
+
+    if (selectedAgent.state === "ARCHIVING") {
+      return {
+        label: "Archiving",
+        detail: "Saving files before releasing the runtime.",
         tone: "stopping",
         loading: true,
       };
@@ -4143,7 +4133,6 @@ function AgentsPageContent() {
     enableMemoryIndex = false,
     customImage = null,
     knowledgeDomainId,
-    creationId,
   }: AgentCreationSetupCreateParams) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
@@ -4153,13 +4142,6 @@ function AgentsPageContent() {
       setWorkspaceCreationOpen(true);
       return null;
     }
-    const effectiveCreationId = creationId
-      ?? (
-        firstAgentSetupDraft
-        && (!firstAgentSetupDraft.principalId || firstAgentSetupDraft.principalId === user?.id)
-          ? firstAgentSetupDraft.setupId
-          : null
-      );
     const generation = agentDataGenerationRef.current;
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
@@ -4183,7 +4165,6 @@ function AgentsPageContent() {
         meta: {
           ui: {
             avatar: { icon_index: iconIndex },
-            ...(effectiveCreationId ? { [AGENT_CREATION_ID_META_KEY]: effectiveCreationId } : {}),
           },
         },
         ...buildOpenClawLaunchOptions({
@@ -4262,13 +4243,11 @@ function AgentsPageContent() {
     assignAgentToDomain,
     completeJourneyForEvent,
     fetchAgents,
-    firstAgentSetupDraft,
     getToken,
     isAuthenticated,
     requestAuthentication,
     selectAgent,
     shouldOfferWorkspaceCreation,
-    user?.id,
     workspaces,
   ]);
 
@@ -4309,11 +4288,9 @@ function AgentsPageContent() {
         agentCreationBlockedReason
       ) return;
 
-      const correlatedAgent = accountAgents.find((agent) => agentCreationId(agent) === pending.setupId);
-      const legacyExistingAgent = correlatedAgent ? null : accountAgents.find((agent) => agent.name === draft.name);
-      const completedAgent = correlatedAgent && agentSetupAlreadyStarted(correlatedAgent)
-        ? correlatedAgent
-        : legacyExistingAgent;
+      // Checkout recovery is correlated locally by the persisted draft name;
+      // setup IDs are UI state and never cross the public Agent API boundary.
+      const completedAgent = accountAgents.find((agent) => agent.name === draft.name);
       if (completedAgent) {
         clearPendingPlanCheckout(principalId, pending);
         clearFirstAgentSetupDraft();
@@ -4326,7 +4303,7 @@ function AgentsPageContent() {
         return;
       }
 
-      if (!correlatedAgent && Math.max(budget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0) return;
+      if (Math.max(budget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0) return;
       const attemptKey = `${pending.setupId}:${pending.returnSessionId ?? pending.startedAt}`;
       if (paidFirstAgentCreationAttemptsRef.current.has(attemptKey)) return;
       paidFirstAgentCreationAttemptsRef.current.add(attemptKey);

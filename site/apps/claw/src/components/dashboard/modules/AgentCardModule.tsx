@@ -58,8 +58,8 @@ function normalizeState(state: string | null | undefined): string {
 
 function stateDotClass(state: string): string {
   if (state === "RUNNING") return "bg-primary";
-  if (state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED") return "bg-destructive";
-  if (state === "PENDING" || state === "RESTORING" || state === "SYNCING" || state === "STARTING" || state === "STOPPING") return "bg-warning";
+  if (state === "FAILED") return "bg-destructive";
+  if (state === "CREATING" || state === "RESTORING" || state === "STARTING" || state === "STOPPING" || state === "ARCHIVING") return "bg-warning";
   return "bg-text-muted";
 }
 
@@ -350,8 +350,8 @@ export function AgentCardModule({
 
   // State-driven action button
   const isRunning = status.state === "RUNNING";
-  const isStopped = status.state === "STOPPED" || (status.state as string) === "FAILED";
-  const isTransitioning = !isRunning && !isStopped; // PENDING, STARTING, STOPPING
+  const isStopped = status.state === "STOPPED" || ["ARCHIVED", "FAILED", "DELETED"].includes(status.state as string);
+  const isTransitioning = !isRunning && !isStopped;
   const avatar = agentAvatar(agentName, agentMeta, agentAvatarUrl);
   const AvatarIcon = avatar.icon;
 

@@ -2,21 +2,21 @@ import type { AgentMeta } from "@/lib/avatar";
 import type { SlotInventory } from "@/lib/format";
 
 export type AgentState =
-  | "PENDING"
+  | "CREATING"
   | "RESTORING"
-  | "RESTORE_FAILED"
-  | "SYNCING"
-  | "SYNC_FAILED"
   | "STARTING"
   | "RUNNING"
   | "STOPPING"
   | "STOPPED"
+  | "ARCHIVING"
+  | "ARCHIVED"
   | "FAILED"
+  | "DELETED"
   | (string & {});
 export type JsonObject = Record<string, unknown>;
 
-export const AGENT_TRANSITIONAL_STATES: AgentState[] = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"];
-export const AGENT_FAILURE_STATES: AgentState[] = ["RESTORE_FAILED", "SYNC_FAILED", "FAILED"];
+export const AGENT_TRANSITIONAL_STATES: AgentState[] = ["CREATING", "RESTORING", "STARTING", "STOPPING", "ARCHIVING"];
+export const AGENT_FAILURE_STATES: AgentState[] = ["FAILED"];
 
 export function isAgentTransitionalState(state: AgentState | string | null | undefined): boolean {
   return AGENT_TRANSITIONAL_STATES.includes(state as AgentState);
@@ -27,7 +27,7 @@ export function isAgentFailureState(state: AgentState | string | null | undefine
 }
 
 export function isAgentOffline(state: AgentState | string | null | undefined): boolean {
-  return state?.toUpperCase() === "STOPPED";
+  return state?.toUpperCase() === "STOPPED" || state?.toUpperCase() === "ARCHIVED";
 }
 
 export interface Agent {

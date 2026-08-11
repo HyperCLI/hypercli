@@ -618,6 +618,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+const OPENCLAW_GATEWAY_TOKEN_ENV = "OPENCLAW_GATEWAY_TOKEN";
+
 const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "HYPER_API_BASE",
   "HYPER_API_KEY",
@@ -636,7 +638,7 @@ const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "OPENCLAW_DESKTOP_ENABLED",
   "OPENCLAW_DESKTOP_PORT",
   "OPENCLAW_GATEWAY_BIND",
-  "OPENCLAW_GATEWAY_TOKEN",
+  OPENCLAW_GATEWAY_TOKEN_ENV,
   "OPENCLAW_MEMORY_SEARCH_ENABLED",
   "OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES",
   "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH",
@@ -654,6 +656,23 @@ const MANAGED_LAUNCH_ENV_PREFIXES = [
   "REEF_",
 ];
 
+const PUBLIC_CANONICAL_LAUNCH_CONFIG_KEYS = new Set([
+  "config",
+  "image",
+  "env",
+  "routes",
+  "command",
+  "entrypoint",
+  "restart",
+  "sync_root",
+  "sync_include",
+  "sync_exclude",
+  "sync_uid",
+  "sync_gid",
+  "registry_url",
+  "runtime_scopes",
+]);
+
 const DEFAULT_OPENCLAW_ROUTE = { port: 18789, auth: false, prefix: "" } as const;
 const DEFAULT_DESKTOP_ROUTE = { port: 3000, auth: true, prefix: "desktop" } as const;
 
@@ -663,6 +682,19 @@ function isManagedLaunchEnvKey(key: string): boolean {
 
 function launchConfigFromAgent(agent: Agent | null): Record<string, unknown> {
   return isRecord(agent?.launchConfig) ? structuredClone(agent.launchConfig) : {};
+}
+
+function editableLaunchConfigFromAgent(agent: Agent): Record<string, unknown> {
+  const launchConfig = launchConfigFromAgent(agent);
+  const canonical = Object.fromEntries(
+    Object.entries(launchConfig).filter(([key]) => PUBLIC_CANONICAL_LAUNCH_CONFIG_KEYS.has(key)),
+  );
+  if (isRecord(canonical.env)) {
+    const env = { ...canonical.env };
+    delete env[OPENCLAW_GATEWAY_TOKEN_ENV];
+    canonical.env = env;
+  }
+  return canonical;
 }
 
 function launchConfigImage(agent: Agent | null): string {
@@ -765,7 +797,7 @@ function buildUpdatedLaunchConfig(
   workspacesSyncChanged: boolean,
   memoryIndex: MemoryIndexSettings | null = null,
 ): Record<string, unknown> {
-  const launchConfig = launchConfigFromAgent(agent);
+  const launchConfig = editableLaunchConfigFromAgent(agent);
   if (image) launchConfig.image = image;
   const routes = isRecord(launchConfig.routes) ? { ...launchConfig.routes } : {};
   if (!isRecord(routes.openclaw)) {
@@ -780,6 +812,7 @@ function buildUpdatedLaunchConfig(
   const preservedEnv = Object.fromEntries(
     Object.entries(launchConfigEnv(agent)).filter(([key]) => (
       isManagedLaunchEnvKey(key) && !(key.startsWith("HYPER_") && isManagedLaunchEnvKey(key))
+      && key !== OPENCLAW_GATEWAY_TOKEN_ENV
     )),
   );
   const managedHyperEnv = parseManagedHyperEnvText(managedHyperEnvText);
@@ -807,7 +840,6 @@ function buildUpdatedLaunchConfig(
     delete launchEnv.HYPER_WORKSPACES_DIR;
   }
   launchConfig.env = launchEnv;
-  launchConfig.workspacesSync = workspaceOptions;
   return launchConfig;
 }
 
@@ -839,21 +871,11 @@ function getDesktopEnabled(agent: Agent | null): boolean {
 }
 
 function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings {
-  const launchConfig = launchConfigFromAgent(agent);
-  const launchWorkspaces = isRecord(launchConfig.workspacesSync) ? launchConfig.workspacesSync : {};
   const env = launchConfigEnv(agent);
   return {
-    enabled: booleanFromConfig(
-      launchWorkspaces.enabled,
-      envBooleanFromString(env.HYPER_WORKSPACES_BOOT_SYNC, DEFAULT_WORKSPACES_SYNC_SETTINGS.enabled),
-    ),
-    readyOnly: booleanFromConfig(
-      launchWorkspaces.readyOnly,
-      envBooleanFromString(env.HYPER_WORKSPACES_SYNC_READY_ONLY, DEFAULT_WORKSPACES_SYNC_SETTINGS.readyOnly),
-    ),
-    workspace: typeof launchWorkspaces.workspace === "string"
-      ? launchWorkspaces.workspace
-      : env.HYPER_WORKSPACES_SYNC_WORKSPACE || DEFAULT_WORKSPACES_SYNC_SETTINGS.workspace,
+    enabled: envBooleanFromString(env.HYPER_WORKSPACES_BOOT_SYNC, DEFAULT_WORKSPACES_SYNC_SETTINGS.enabled),
+    readyOnly: envBooleanFromString(env.HYPER_WORKSPACES_SYNC_READY_ONLY, DEFAULT_WORKSPACES_SYNC_SETTINGS.readyOnly),
+    workspace: env.HYPER_WORKSPACES_SYNC_WORKSPACE || DEFAULT_WORKSPACES_SYNC_SETTINGS.workspace,
   };
 }
 
@@ -1202,10 +1224,11 @@ function AgentSectionSettingsContent({
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
   const failedRuntimeNeedsCleanup = isAgentFailureState(agent.state) && agent.resourcesExist;
-  const canStartAgent = agent.state === "STOPPED" || (isAgentFailureState(agent.state) && !agent.resourcesExist);
+  const canStartAgent = agent.state === "STOPPED" || agent.state === "ARCHIVED" || (isAgentFailureState(agent.state) && !agent.resourcesExist);
   const canStopAgent = agent.state === "RUNNING" || failedRuntimeNeedsCleanup;
   const stopping = Boolean(agentStopping || agent.state === "STOPPING");
-  const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping));
+  const archiving = agent.state === "ARCHIVING";
+  const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping && !archiving));
   const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
   const lifecycleDescription = canStopAgent
     ? failedRuntimeNeedsCleanup
@@ -1215,12 +1238,12 @@ function AgentSectionSettingsContent({
       ? (agentStartBlockedReason ?? "Start compute and reconnect the gateway")
       : agent.state === "RESTORING"
         ? "Agent is restoring files"
-      : agent.state === "SYNCING"
-        ? "Agent is syncing shared knowledge"
-      : agent.state === "PENDING" || agent.state === "STARTING"
+      : agent.state === "CREATING" || agent.state === "STARTING"
         ? "Agent is starting"
-        : agent.state === "STOPPING"
+      : agent.state === "STOPPING"
           ? "Agent is stopping"
+        : agent.state === "ARCHIVING"
+          ? "Agent is archiving"
           : "Lifecycle controls are unavailable";
 
   return (
@@ -1231,15 +1254,15 @@ function AgentSectionSettingsContent({
             <p className="text-sm font-semibold leading-5 text-foreground">Agent runtime</p>
             <p className="mt-1 text-sm leading-5 text-text-muted">{lifecycleDescription}</p>
           </div>
-          {canStopAgent || stopping ? (
+          {canStopAgent || stopping || archiving ? (
             <button
               type="button"
-              aria-label={failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              aria-label={archiving ? "Archive in progress" : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               onClick={onStopAgent}
               disabled={!onStopAgent || lifecycleBusy}
               className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
             >
-              {stopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              {archiving ? "Archiving..." : stopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               <Square className="h-3 w-3 fill-current" />
             </button>
           ) : (

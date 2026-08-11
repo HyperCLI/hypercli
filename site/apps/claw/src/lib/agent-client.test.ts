@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_CLEANUP_START_MESSAGE, agentCreationId, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
+import { createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -13,6 +13,7 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
       createOpenClawPro: vi.fn(),
       get: vi.fn(),
       list: vi.fn(),
+      start: vi.fn(),
       startOpenClaw: vi.fn(),
     },
     getSlackInstallStatus: vi.fn(),
@@ -64,6 +65,7 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
     deploymentsInstance.list.mockReset();
+    deploymentsInstance.start.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
     getSlackInstallStatus.mockReset();
     getSlackInstallStatus.mockResolvedValue({
@@ -87,113 +89,14 @@ describe("agent-client", () => {
     expect(hyperAgentConstructor).toHaveBeenCalledWith(httpClientInstance, "hyper_api_test", false, "https://api.hypercli.com/agents");
   });
 
-  it("reads the durable agent creation correlation from public UI metadata", () => {
-    expect(agentCreationId({ meta: { ui: { creation_id: " setup-123 " } } })).toBe("setup-123");
-    expect(agentCreationId({ meta: { ui: {} } })).toBeNull();
-  });
-
-  it("starts from stored sync_root, ignores stale sync_enabled, and strips stale origin locks", async () => {
-    deploymentsInstance.get.mockResolvedValue({
-      launchConfig: {
-        config: {
-          gateway: {
-            controlUi: {
-              allowedOrigins: ["https://claw.hypercli.com"],
-            },
-          },
-        },
-        image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
-        sync_root: "/home/ubuntu",
-        sync_enabled: false,
-        env: {
-          OPENCLAW_GATEWAY_TOKEN: "must-not-replay-from-env",
-          OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://claw.hypercli.com",
-          FOO: "bar",
-        },
-        routes: {
-          openclaw: { port: 18789, auth: false, prefix: "" },
-        },
-      },
-    });
-    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
-
-    await startOpenClawAgent("hyper_api_test", "agent-123", {
-      env: { EXTRA: "value" },
-    });
-
-    expect(deploymentsInstance.get).toHaveBeenCalledWith("agent-123");
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.objectContaining({
-      image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
-      syncRoot: "/home/ubuntu",
-      controlUiOriginLock: true,
-      config: {},
-      env: {
-        FOO: "bar",
-        EXTRA: "value",
-      },
-      routes: {
-        openclaw: { port: 18789, auth: false, prefix: "" },
-      },
-    }));
-  });
-
-  it("does not send an empty routes object when the saved launch config has no routes", async () => {
-    deploymentsInstance.get.mockResolvedValue({
-      launchConfig: {
-        image: "ghcr.io/hypercli/hypercli-openclaw:prod",
-        env: {
-          OPENCLAW_DESKTOP_ENABLED: "0",
-        },
-      },
-    });
-    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
+  it("starts with the backend-stored launch contract and no public-config replay", async () => {
+    deploymentsInstance.start.mockResolvedValue({ id: "agent-123" });
 
     await startOpenClawAgent("hyper_api_test", "agent-123");
 
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.not.objectContaining({
-      routes: expect.anything(),
-    }));
-  });
-
-  it("preserves the saved desktop route when start overrides only touch env or config", async () => {
-    deploymentsInstance.get.mockResolvedValue({
-      launchConfig: {
-        env: {
-          OPENCLAW_DESKTOP_ENABLED: "1",
-          FOO: "bar",
-        },
-        routes: {
-          openclaw: { port: 18789, auth: false, prefix: "" },
-          desktop: { port: 3000, auth: true, prefix: "desktop" },
-        },
-      },
-    });
-    deploymentsInstance.startOpenClaw.mockResolvedValue({ id: "agent-123" });
-
-    await startOpenClawAgent("hyper_api_test", "agent-123", {
-      config: {
-        gateway: {
-          controlUi: {
-            requirePairing: true,
-          },
-        },
-      },
-      env: {
-        EXTRA: "value",
-      },
-    });
-
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123", expect.objectContaining({
-      env: {
-        OPENCLAW_DESKTOP_ENABLED: "1",
-        FOO: "bar",
-        EXTRA: "value",
-      },
-      routes: {
-        openclaw: { port: 18789, auth: false, prefix: "" },
-        desktop: { port: 3000, auth: true, prefix: "desktop" },
-      },
-    }));
+    expect(deploymentsInstance.get).not.toHaveBeenCalled();
+    expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
+    expect(deploymentsInstance.start).toHaveBeenCalledWith("agent-123");
   });
 
   it("creates OpenClaw agents with origin locking on by default", async () => {
@@ -359,72 +262,31 @@ describe("agent-client", () => {
     expect(new Set(attemptedNames).size).toBe(2);
   });
 
-  it("retries an unused idempotency key after an unrelated generated-name conflict", async () => {
-    const collision = {
-      statusCode: 409,
-      detail: "Agent 'bright-atlas-anchor' already exists",
-    };
-    deploymentsInstance.createOpenClaw
-      .mockRejectedValueOnce(collision)
-      .mockResolvedValueOnce({ id: "agent-123" });
+  it("strips stale creation correlation and ports before the first create request", async () => {
+    deploymentsInstance.createOpenClaw.mockResolvedValueOnce({ id: "agent-123" });
 
     await expect(createOpenClawAgent("hyper_api_test", {
       name: "bright-atlas-anchor",
       start: false,
-      meta: { ui: { creation_id: "setup-123" } },
-    })).resolves.toEqual({ id: "agent-123" });
-    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(2);
-    expect(deploymentsInstance.createOpenClaw.mock.calls[1]?.[0].meta).toEqual({
-      ui: { creation_id: "setup-123" },
-    });
-  });
-
-  it("retries once without creation metadata when an older backend rejects it", async () => {
-    deploymentsInstance.createOpenClaw
-      .mockRejectedValueOnce({
-        statusCode: 422,
-        detail: "[object Object]",
-        responseText: JSON.stringify({
-          detail: [{ loc: ["body", "meta", "ui", "creation_id"], type: "extra_forbidden" }],
-        }),
-      })
-      .mockResolvedValueOnce({ id: "agent-compat", name: "bright-atlas-anchor" });
-
-    await expect(createOpenClawAgent("hyper_api_test", {
-      name: "bright-atlas-anchor",
-      size: "small",
-      env: { KEEP_ME: "yes" },
       meta: {
         ui: {
           avatar: { image: "/avatars/otter.svg", icon_index: 3 },
           creation_id: "setup-compat",
         },
       },
-    })).resolves.toEqual({ id: "agent-compat", name: "bright-atlas-anchor" });
+      ports: [{ port: 3000 }],
+    } as unknown as Parameters<typeof createOpenClawAgent>[1])).resolves.toEqual({ id: "agent-123" });
 
-    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(2);
-    expect(deploymentsInstance.createOpenClaw).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledOnce();
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
       name: "bright-atlas-anchor",
-      size: "small",
-      env: { KEEP_ME: "yes" },
-      meta: {
-        ui: {
-          avatar: { image: "/avatars/otter.svg", icon_index: 3 },
-          creation_id: "setup-compat",
-        },
-      },
-    }));
-    expect(deploymentsInstance.createOpenClaw).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      name: "bright-atlas-anchor",
-      size: "small",
-      env: { KEEP_ME: "yes" },
       meta: {
         ui: {
           avatar: { image: "/avatars/otter.svg", icon_index: 3 },
         },
       },
     }));
-    expect(deploymentsInstance.list).not.toHaveBeenCalled();
+    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0]).not.toHaveProperty("ports");
   });
 
   it("does not retry unrelated validation failures", async () => {
@@ -438,7 +300,6 @@ describe("agent-client", () => {
     await expect(createOpenClawAgent("hyper_api_test", {
       name: "bright-atlas-anchor",
       size: "invalid",
-      meta: { ui: { creation_id: "setup-validation" } },
     })).rejects.toBe(validationError);
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(1);
@@ -557,42 +418,4 @@ describe("agent-client", () => {
     }));
   });
 
-  it("retries start while the agent is still cleaning up", async () => {
-    vi.useFakeTimers();
-    deploymentsInstance.get.mockResolvedValue({ launchConfig: {} });
-    deploymentsInstance.startOpenClaw
-      .mockRejectedValueOnce({
-        statusCode: 409,
-        detail: "Agent 'steady-pilot-engine' is still being cleaned up, try again in a moment",
-      })
-      .mockResolvedValueOnce({ id: "agent-123" });
-
-    const start = startOpenClawAgent("hyper_api_test", "agent-123");
-
-    await vi.waitFor(() => expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(2_000);
-
-    await expect(start).resolves.toEqual({ id: "agent-123" });
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(2);
-  });
-
-  it("returns a friendly cleanup message after retrying cleanup conflicts", async () => {
-    vi.useFakeTimers();
-    deploymentsInstance.get.mockResolvedValue({ launchConfig: {} });
-    deploymentsInstance.startOpenClaw.mockRejectedValue({
-      statusCode: 409,
-      detail: "Agent 'steady-pilot-engine' is still being cleaned up, try again in a moment",
-    });
-
-    const start = startOpenClawAgent("hyper_api_test", "agent-123");
-    const expectedFailure = expect(start).rejects.toThrow(AGENT_CLEANUP_START_MESSAGE);
-
-    await vi.waitFor(() => expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(1));
-    for (const delay of [2_000, 3_000, 5_000, 8_000, 12_000]) {
-      await vi.advanceTimersByTimeAsync(delay);
-    }
-
-    await expectedFailure;
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(6);
-  });
 });

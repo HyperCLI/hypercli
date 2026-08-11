@@ -103,7 +103,7 @@ function stateLabel(value: string): string {
 function stateDotClass(value: string): string {
   const normalized = value.toUpperCase();
   if (normalized === "RUNNING") return "bg-success";
-  if (["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"].includes(normalized)) return "bg-warning";
+  if (["CREATING", "RESTORING", "STARTING", "STOPPING", "ARCHIVING"].includes(normalized)) return "bg-warning";
   if (normalized.includes("FAIL") || normalized.includes("ERROR")) return "bg-destructive";
   return "bg-text-muted";
 }

@@ -26,7 +26,7 @@ const workspace: Workspace = {
   updatedAt: null,
 };
 
-const capturedAt = Date.UTC(2026, 7, 3, 8, 0);
+const capturedAt = Date.now();
 const sdkAgent = buildSdkAgent({ id: "agent-1", name: "Research Agent", state: "RUNNING" });
 const agent = toAgentViewModel(sdkAgent);
 

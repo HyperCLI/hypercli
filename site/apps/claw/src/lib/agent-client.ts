@@ -1,6 +1,6 @@
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
+import type { OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { buildSlackRelayApiUrl, buildSlackRelayWebSocketUrl } from "@hypercli.com/sdk/channels";
 import { HTTPClient } from "@hypercli.com/sdk/http";
@@ -13,16 +13,13 @@ interface AgentUiMeta {
     image?: string | null;
     icon_index?: number | null;
   } | null;
-  creation_id?: string | null;
   [key: string]: unknown;
 }
 
 type OpenClawAgentUiMeta = { ui?: AgentUiMeta | null } | null;
-type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta"> & {
+type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta" | "ports"> & {
   meta?: OpenClawAgentUiMeta;
-};
-type FrontendOpenClawStartOptions = Omit<OpenClawStartAgentOptions, "meta"> & {
-  meta?: OpenClawAgentUiMeta;
+  ports?: never;
 };
 type ListedAgent = Awaited<ReturnType<Deployments["list"]>>[number];
 
@@ -31,8 +28,6 @@ const CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGI
 const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS";
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
 export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
-export const AGENT_CREATION_ID_META_KEY = "creation_id";
-const AGENT_CLEANUP_RETRY_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 12_000] as const;
 const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
 const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
@@ -42,20 +37,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-export function agentCreationId(value: unknown): string | null {
-  if (!isRecord(value) || !isRecord(value.meta) || !isRecord(value.meta.ui)) return null;
-  const creationId = value.meta.ui[AGENT_CREATION_ID_META_KEY];
-  return typeof creationId === "string" && creationId.trim() ? creationId.trim() : null;
-}
-
 function cloneRecord<T>(value: T): T {
   return structuredClone(value);
-}
-
-function stringRecord(value: unknown): Record<string, string> | undefined {
-  if (!isRecord(value)) return undefined;
-  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
-  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function normalizeOrigin(value: unknown): string | null {
@@ -99,29 +82,18 @@ function errorText(value: unknown): string {
     .join(" ");
 }
 
-function isUnsupportedCreationIdError(value: unknown): boolean {
-  if (!isRecord(value) || value.statusCode !== 422) return false;
-  const detail = errorText(value);
-  const responseText = typeof value.responseText === "string" ? value.responseText : "";
-  const description = `${detail}\n${responseText}`;
-  if (/creation[_\s-]?id/i.test(description)) return true;
-  return !responseText && (!detail || /unprocessable entity/i.test(detail));
-}
+function canonicalCreateOptions(options: FrontendOpenClawCreateOptions): FrontendOpenClawCreateOptions {
+  // Keep the first request canonical even if a stale caller supplies fields
+  // that the public TypeScript surface no longer accepts.
+  const canonical = { ...options } as FrontendOpenClawCreateOptions & Record<string, unknown>;
+  delete canonical.ports;
 
-function withoutAgentCreationId(options: FrontendOpenClawCreateOptions): FrontendOpenClawCreateOptions {
-  const ui = options.meta?.ui;
-  if (!ui || !(AGENT_CREATION_ID_META_KEY in ui)) return options;
-
+  const ui = canonical.meta?.ui;
+  if (!ui || !("creation_id" in ui)) return canonical;
   const nextUi = { ...ui };
-  delete nextUi[AGENT_CREATION_ID_META_KEY];
-  const nextMeta = { ...options.meta };
-  if (Object.keys(nextUi).length > 0) nextMeta.ui = nextUi;
-  else delete nextMeta.ui;
-
-  return {
-    ...options,
-    meta: Object.keys(nextMeta).length > 0 ? nextMeta : undefined,
-  };
+  delete nextUi.creation_id;
+  canonical.meta = Object.keys(nextUi).length > 0 ? { ...canonical.meta, ui: nextUi } : undefined;
+  return canonical;
 }
 
 export function isAgentCleanupConflictError(value: unknown): boolean {
@@ -230,7 +202,7 @@ function hasSelfHostedSlackConfig(slack: Record<string, unknown>): boolean {
   return ["appToken", "signingSecret", "userToken"].some((field) => slack[field] !== undefined);
 }
 
-function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(options: T): T {
+function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions>(options: T): T {
   const config = isRecord(options.config) ? cloneRecord(options.config) : {};
   const channels = isRecord(config.channels) ? cloneRecord(config.channels) : {};
   const existingSlack = isRecord(channels.slack) ? cloneRecord(channels.slack) : {};
@@ -266,7 +238,7 @@ function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions | Fr
   } as T;
 }
 
-async function withUserSlackRelayLaunchConfig<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(apiKey: string, options: T): Promise<T> {
+async function withUserSlackRelayLaunchConfig<T extends FrontendOpenClawCreateOptions>(apiKey: string, options: T): Promise<T> {
   if (!SLACK_RELAY_BASE_URL) return options;
   try {
     const status = await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: apiKey });
@@ -278,7 +250,7 @@ async function withUserSlackRelayLaunchConfig<T extends FrontendOpenClawCreateOp
   return withHostedSlackRelayConfig(options);
 }
 
-function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(options: T): T {
+function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions>(options: T): T {
   const origin = currentUiOrigin();
   const env = { ...(options.env ?? {}) };
   const configuredOrigins = configuredUiOrigins();
@@ -327,62 +299,6 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions 
   } as T;
 }
 
-function launchConfigStartOptions(launchConfig: Record<string, unknown> | null | undefined): FrontendOpenClawStartOptions {
-  if (!isRecord(launchConfig)) return {};
-
-  const options: FrontendOpenClawStartOptions = {};
-  if (isRecord(launchConfig.config)) options.config = cloneRecord(launchConfig.config);
-  const env = stringRecord(launchConfig.env);
-  if (env) {
-    delete env.OPENCLAW_GATEWAY_TOKEN;
-    if (Object.keys(env).length > 0) options.env = env;
-  }
-  if (Array.isArray(launchConfig.ports)) options.ports = cloneRecord(launchConfig.ports as Record<string, unknown>[]);
-  if (isRecord(launchConfig.routes)) options.routes = cloneRecord(launchConfig.routes) as FrontendOpenClawStartOptions["routes"];
-  if (Array.isArray(launchConfig.command) && launchConfig.command.every((item) => typeof item === "string")) {
-    options.command = [...launchConfig.command];
-  }
-  if (Array.isArray(launchConfig.entrypoint) && launchConfig.entrypoint.every((item) => typeof item === "string")) {
-    options.entrypoint = [...launchConfig.entrypoint];
-  }
-  if (typeof launchConfig.image === "string") options.image = launchConfig.image;
-  if (typeof launchConfig.sync_root === "string") options.syncRoot = launchConfig.sync_root;
-  if (typeof launchConfig.registry_url === "string") options.registryUrl = launchConfig.registry_url;
-  if (isRecord(launchConfig.registry_auth)) {
-    options.registryAuth = cloneRecord(launchConfig.registry_auth) as FrontendOpenClawStartOptions["registryAuth"];
-  }
-  return options;
-}
-
-function mergeStartOptions(
-  base: FrontendOpenClawStartOptions,
-  overrides: FrontendOpenClawStartOptions,
-): FrontendOpenClawStartOptions {
-  const merged: FrontendOpenClawStartOptions = {
-    ...base,
-    ...overrides,
-  };
-  if (base.config !== undefined || overrides.config !== undefined) {
-    merged.config = {
-      ...(base.config ?? {}),
-      ...(overrides.config ?? {}),
-    };
-  }
-  if (base.env !== undefined || overrides.env !== undefined) {
-    merged.env = {
-      ...(base.env ?? {}),
-      ...(overrides.env ?? {}),
-    };
-  }
-  if (base.routes !== undefined || overrides.routes !== undefined) {
-    merged.routes = {
-      ...(base.routes ?? {}),
-      ...(overrides.routes ?? {}),
-    };
-  }
-  return merged;
-}
-
 function resolveAgentApiBaseUrl(rawBaseUrl: string, origin?: string): string {
   if (!rawBaseUrl.startsWith("/")) {
     return rawBaseUrl;
@@ -428,7 +344,9 @@ export function createPublicHyperAgentClient(origin?: string): HyperAgent {
 }
 
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
-  const preparedOptions = withConfiguredControlUiOrigins(await withUserSlackRelayLaunchConfig(apiKey, options));
+  const preparedOptions = withConfiguredControlUiOrigins(
+    await withUserSlackRelayLaunchConfig(apiKey, canonicalCreateOptions(options)),
+  );
   const agentClient = createAgentClient(apiKey);
   const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
     ? agentClient.createOpenClawPro.bind(agentClient)
@@ -436,7 +354,6 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   const canRegenerateName = isGeneratedAgentName(preparedOptions.name);
   const attemptedNames = new Set<string>();
   let candidateOptions = preparedOptions;
-  let retriedWithoutCreationId = false;
 
   if (canRegenerateName && candidateOptions.name) attemptedNames.add(candidateOptions.name);
 
@@ -444,28 +361,13 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
     try {
       return await create(candidateOptions);
     } catch (initialError) {
-      let error = initialError;
-      if (
-        !retriedWithoutCreationId &&
-        agentCreationId(candidateOptions) &&
-        isUnsupportedCreationIdError(error)
-      ) {
-        retriedWithoutCreationId = true;
-        candidateOptions = withoutAgentCreationId(candidateOptions);
-        try {
-          return await create(candidateOptions);
-        } catch (retryError) {
-          error = retryError;
-        }
-      }
-
-      if (isAgentCreateSpecVisibilityError(error)) {
+      if (isAgentCreateSpecVisibilityError(initialError)) {
         const reconciled = await reconcileCreatedAgentByName(agentClient, candidateOptions.name);
         if (reconciled) return reconciled;
-        throw error;
+        throw initialError;
       }
-      if (!canRegenerateName || !isAgentNameConflictError(error) || attemptedNames.size >= AGENT_NAME_CREATE_ATTEMPTS) {
-        throw error;
+      if (!canRegenerateName || !isAgentNameConflictError(initialError) || attemptedNames.size >= AGENT_NAME_CREATE_ATTEMPTS) {
+        throw initialError;
       }
 
       const name = generateAgentName(attemptedNames);
@@ -475,23 +377,9 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   }
 }
 
-export async function startOpenClawAgent(apiKey: string, agentId: string, options: FrontendOpenClawStartOptions = {}) {
-  const agentClient = createAgentClient(apiKey);
-  let existingOptions: FrontendOpenClawStartOptions = {};
-  try {
-    const existingAgent = await agentClient.get(agentId);
-    existingOptions = launchConfigStartOptions(existingAgent.launchConfig);
-  } catch {}
-  const startOptions = withConfiguredControlUiOrigins(await withUserSlackRelayLaunchConfig(apiKey, mergeStartOptions(existingOptions, options)));
-  for (let attempt = 0; attempt <= AGENT_CLEANUP_RETRY_DELAYS_MS.length; attempt += 1) {
-    try {
-      return await agentClient.startOpenClaw(agentId, startOptions);
-    } catch (error) {
-      if (!isAgentCleanupConflictError(error)) throw error;
-      const delay = AGENT_CLEANUP_RETRY_DELAYS_MS[attempt];
-      if (delay === undefined) throw new Error(AGENT_CLEANUP_START_MESSAGE);
-      await sleep(delay);
-    }
-  }
-  throw new Error(AGENT_CLEANUP_START_MESSAGE);
+export async function startOpenClawAgent(apiKey: string, agentId: string) {
+  // Start is lifecycle-only. The Backend-stored launch contract is canonical;
+  // replaying its redacted public projection can erase secrets or replace
+  // storage policy with SDK defaults.
+  return createAgentClient(apiKey).start(agentId);
 }

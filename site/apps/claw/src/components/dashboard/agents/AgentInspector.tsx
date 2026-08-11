@@ -31,7 +31,7 @@ export function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolea
     };
   }
 
-  if (selectedAgent.state === "STOPPED") {
+  if (selectedAgent.state === "STOPPED" || selectedAgent.state === "ARCHIVED") {
     return {
       state: "STOPPED",
       uptime: 0,
@@ -40,7 +40,7 @@ export function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolea
     };
   }
 
-  if (selectedAgent.state === "STOPPING") {
+  if (selectedAgent.state === "STOPPING" || selectedAgent.state === "ARCHIVING") {
     return {
       state: "STOPPING",
       uptime: 0,

@@ -86,8 +86,8 @@ function normalizeAgentState(state?: string | null): string {
 
 function agentStateDotClass(state?: string | null): string {
   if (state === "RUNNING") return "bg-success";
-  if (state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED") return "bg-destructive";
-  if (state === "STOPPED") return "bg-text-muted";
+  if (state === "FAILED") return "bg-destructive";
+  if (state === "STOPPED" || state === "ARCHIVED" || state === "DELETED") return "bg-text-muted";
   return "bg-warning";
 }
 

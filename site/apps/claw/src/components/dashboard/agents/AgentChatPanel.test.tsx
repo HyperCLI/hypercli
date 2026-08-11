@@ -929,7 +929,7 @@ describe("AgentChatPanel", () => {
   });
 
   it("keeps the composer out of the provisioning stage", () => {
-    const selectedAgent = buildAgent("PENDING");
+    const selectedAgent = buildAgent("CREATING");
     renderAgentChatPanel({
       selectedAgent,
       isSelectedRunning: false,
@@ -942,7 +942,7 @@ describe("AgentChatPanel", () => {
 
   it("keeps the startup experience through gateway connection after lifecycle startup", async () => {
     window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
-    const pendingAgent = buildAgent("PENDING");
+    const pendingAgent = buildAgent("CREATING");
     const props = buildAgentChatPanelProps({
       selectedAgent: pendingAgent,
       isSelectedRunning: false,

@@ -25,18 +25,18 @@ export type {
 // ── Frontend agent state (matches API snake_case responses) ──
 
 export type AgentState =
-  | "PENDING"
+  | "CREATING"
   | "RESTORING"
-  | "RESTORE_FAILED"
-  | "SYNCING"
-  | "SYNC_FAILED"
   | "STARTING"
   | "RUNNING"
   | "STOPPING"
   | "STOPPED"
-  | "FAILED";
+  | "ARCHIVING"
+  | "ARCHIVED"
+  | "FAILED"
+  | "DELETED";
 
-export const TRANSITIONAL_STATES: AgentState[] = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"];
+export const TRANSITIONAL_STATES: AgentState[] = ["CREATING", "RESTORING", "STARTING", "STOPPING", "ARCHIVING"];
 
 export function isTransitionalState(state: string): boolean {
   return TRANSITIONAL_STATES.includes(state as AgentState);

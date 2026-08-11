@@ -4,7 +4,7 @@ import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleS
 export type AgentChatBootStatus =
   | {
       status: "loading";
-      phase: "provisioning" | "restoring" | "syncing" | "booting" | "stopping" | "gateway" | "workspace";
+      phase: "provisioning" | "restoring" | "booting" | "stopping" | "archiving" | "gateway" | "workspace";
       title: string;
       detail: string;
       tone: "starting" | "connecting" | "loading";
@@ -25,11 +25,11 @@ export type AgentBootDisplayStatus = Extract<AgentChatBootStatus, { status: "loa
 const LOADING_PHASE_ORDER: Record<Extract<AgentChatBootStatus, { status: "loading" }>["phase"], number> = {
   provisioning: 0,
   restoring: 1,
-  syncing: 2,
-  booting: 3,
-  gateway: 4,
-  workspace: 5,
-  stopping: 6,
+  booting: 2,
+  gateway: 3,
+  workspace: 4,
+  stopping: 5,
+  archiving: 6,
 };
 
 interface AgentChatBootStatusInput {
@@ -53,7 +53,7 @@ export function getAgentChatBootStatus({
   hydrating,
   error,
 }: AgentChatBootStatusInput): AgentChatBootStatus {
-  if (agentState === "PENDING") {
+  if (agentState === "CREATING") {
     return {
       status: "loading",
       phase: "provisioning",
@@ -75,17 +75,6 @@ export function getAgentChatBootStatus({
     };
   }
 
-  if (agentState === "SYNCING") {
-    return {
-      status: "loading",
-      phase: "syncing",
-      title: "Syncing shared knowledge",
-      detail: "Syncing shared knowledge Markdown before boot.",
-      tone: "starting",
-      stage: "runtime",
-    };
-  }
-
   if (agentState === "STARTING") {
     return {
       status: "loading",
@@ -97,22 +86,12 @@ export function getAgentChatBootStatus({
     };
   }
 
-  if (agentState === "RESTORE_FAILED") {
+  if (agentState === "FAILED") {
     return {
       status: "error",
       phase: "error",
-      title: "Restore failed",
-      detail: "File restore failed before the agent could boot.",
-      stage: "runtime",
-    };
-  }
-
-  if (agentState === "SYNC_FAILED") {
-    return {
-      status: "error",
-      phase: "error",
-      title: "Sync failed",
-      detail: "Shared knowledge sync failed before the agent could boot.",
+      title: "Agent failed",
+      detail: error || "The agent needs attention before it can run.",
       stage: "runtime",
     };
   }
@@ -123,6 +102,17 @@ export function getAgentChatBootStatus({
       phase: "stopping",
       title: "Stopping agent",
       detail: "Stopping the runtime and cleaning up the workspace.",
+      tone: "loading",
+      stage: "complete",
+    };
+  }
+
+  if (agentState === "ARCHIVING") {
+    return {
+      status: "loading",
+      phase: "archiving",
+      title: "Archiving agent",
+      detail: "Saving files before releasing the runtime.",
       tone: "loading",
       stage: "complete",
     };

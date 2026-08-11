@@ -13,7 +13,7 @@ import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
 
-type AgentState = "PENDING" | "RESTORING" | "RESTORE_FAILED" | "SYNCING" | "SYNC_FAILED" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
+type AgentState = "CREATING" | "RESTORING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "ARCHIVING" | "ARCHIVED" | "FAILED" | "DELETED";
 
 interface SidebarAgent {
   id: string;
@@ -49,16 +49,16 @@ export interface LegacyAgentSidebarProps {
 
 function stateClass(state: AgentState): string {
   if (state === "RUNNING") return "bg-success/15 text-success";
-  if (state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED") return "bg-destructive/15 text-destructive";
-  if (state === "STOPPED") return "bg-surface-low text-text-muted";
+  if (state === "FAILED") return "bg-destructive/15 text-destructive";
+  if (state === "STOPPED" || state === "ARCHIVED" || state === "DELETED") return "bg-surface-low text-text-muted";
   return "bg-warning/15 text-warning";
 }
 
 function AgentStateBadge({ state, pulsing }: { state: AgentState; pulsing: boolean }) {
   const color =
     state === "RUNNING" ? "bg-success" :
-    state === "FAILED" || state === "RESTORE_FAILED" || state === "SYNC_FAILED" ? "bg-destructive" :
-    state === "STOPPED" ? "bg-text-muted" : "bg-warning";
+    state === "FAILED" ? "bg-destructive" :
+    state === "STOPPED" || state === "ARCHIVED" || state === "DELETED" ? "bg-text-muted" : "bg-warning";
   return (
     <motion.span
       className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${color}`}
@@ -159,7 +159,7 @@ export function LegacyAgentSidebar({
           <div>
             {agents.map((agent) => {
               const isSelected = selectedAgentId === agent.id;
-              const isTransitioning = ["PENDING", "RESTORING", "SYNCING", "STARTING", "STOPPING"].includes(agent.state);
+              const isTransitioning = ["CREATING", "RESTORING", "STARTING", "STOPPING", "ARCHIVING"].includes(agent.state);
               const avatar = agentAvatar(agent.name || agent.id, agent.meta, agentProfileImageUrl(agent));
               const AvatarIcon = avatar.icon;
 
@@ -221,7 +221,7 @@ export function LegacyAgentSidebar({
                     <p className="text-xs text-text-muted mt-0.5">
                       {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
                     </p>
-                    {agent.error && (agent.state === "FAILED" || agent.state === "RESTORE_FAILED" || agent.state === "SYNC_FAILED") && (
+                    {agent.error && agent.state === "FAILED" && (
                       <p className="mt-0.5 truncate text-xs text-destructive">{agent.error}</p>
                     )}
                   </div>

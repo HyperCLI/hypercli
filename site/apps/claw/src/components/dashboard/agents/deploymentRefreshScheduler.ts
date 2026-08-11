@@ -19,6 +19,17 @@ export interface DeploymentSubscriptionRecoveryOptions {
   maxDelayMs?: number;
 }
 
+export function reconcileDeploymentSubscriptionReady(
+  scheduler: Pick<DeploymentRefreshScheduler, "invalidate">,
+  recovery: Pick<DeploymentSubscriptionRecovery, "markHealthy">,
+): void {
+  recovery.markHealthy();
+  // Events are edge-triggered. Reconcile the authoritative collection after
+  // every initial connection and reconnect so transitions during the socket
+  // gap cannot strand the UI in a stale lifecycle state.
+  scheduler.invalidate(true);
+}
+
 /**
  * Recover one rejected event credential immediately, then bound repeated
  * token/socket failures with exponential backoff. State survives replacement

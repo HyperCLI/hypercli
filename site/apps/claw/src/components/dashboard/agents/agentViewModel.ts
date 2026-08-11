@@ -7,16 +7,16 @@ export function normalizeAgentState(state: unknown): AgentState {
   if (!normalized) return "STOPPED";
   if (normalized === "ERROR") return "FAILED";
   if (
-    normalized === "PENDING" ||
+    normalized === "CREATING" ||
     normalized === "RESTORING" ||
-    normalized === "RESTORE_FAILED" ||
-    normalized === "SYNCING" ||
-    normalized === "SYNC_FAILED" ||
     normalized === "STARTING" ||
     normalized === "RUNNING" ||
     normalized === "STOPPING" ||
     normalized === "STOPPED" ||
-    normalized === "FAILED"
+    normalized === "ARCHIVING" ||
+    normalized === "ARCHIVED" ||
+    normalized === "FAILED" ||
+    normalized === "DELETED"
   ) {
     return normalized;
   }

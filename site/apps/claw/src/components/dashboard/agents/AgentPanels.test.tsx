@@ -182,7 +182,6 @@ const agent: Agent = {
   launchConfig: {
     image: "ghcr.io/hypercli/hypercli-openclaw:prod",
     env: {
-      OPENCLAW_GATEWAY_TOKEN: "gateway-token",
       OPENCLAW_DESKTOP_ENABLED: "0",
       HYPER_API_BASE: "https://api.hypercli.com",
       HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -196,7 +195,6 @@ const agent: Agent = {
       openclaw: { port: 18789, auth: false, prefix: "" },
     },
     sync_root: "/home/node",
-    sync_enabled: true,
   },
   meta: null,
 };
@@ -1199,13 +1197,11 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 
-  it.each(["RESTORE_FAILED", "SYNC_FAILED", "FAILED"] as const)(
-    "offers cleanup instead of restart for a bound %s runtime",
-    (state) => {
+  it("offers cleanup instead of restart for a bound FAILED runtime", () => {
       const onStartAgent = vi.fn();
       const onStopAgent = vi.fn();
       renderAgentSettingsPanel({
-        agent: { ...agent, state, resourcesExist: true },
+        agent: { ...agent, state: "FAILED", resourcesExist: true },
         onStartAgent,
         onStopAgent,
       });
@@ -1218,13 +1214,12 @@ describe("AgentSettingsPanel", () => {
       fireEvent.click(cleanupButton);
       expect(onStopAgent).toHaveBeenCalledTimes(1);
       expect(onStartAgent).not.toHaveBeenCalled();
-    },
-  );
+  });
 
   it("allows restart for a failed runtime after cleanup clears its pod binding", () => {
     const onStartAgent = vi.fn();
     renderAgentSettingsPanel({
-      agent: { ...agent, state: "SYNC_FAILED", resourcesExist: false },
+      agent: { ...agent, state: "FAILED", resourcesExist: false },
       onStartAgent,
     });
 
@@ -1649,8 +1644,26 @@ describe("AgentSettingsPanel", () => {
   });
 
   it("saves Docker image and user additional env while preserving managed launch env", async () => {
-    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig, reportedChannelsReady: true });
+    const onUpdateAgentLaunchConfig = vi.fn(async (
+      _agentId: string,
+      _launchConfig: Record<string, unknown>,
+    ) => undefined);
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        launchConfig: {
+          ...agent.launchConfig,
+          env: {
+            ...(agent.launchConfig?.env as Record<string, string>),
+            OPENCLAW_GATEWAY_TOKEN: "legacy-token-must-not-replay",
+          },
+          sync_enabled: true,
+          workspacesSync: { enabled: true, readyOnly: true },
+        },
+      },
+      onUpdateAgentLaunchConfig,
+      reportedChannelsReady: true,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
 
@@ -1693,7 +1706,6 @@ describe("AgentSettingsPanel", () => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
         image: "ghcr.io/hypercli/hypercli-openclaw:custom",
         env: {
-          OPENCLAW_GATEWAY_TOKEN: "gateway-token",
           OPENCLAW_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -1708,14 +1720,12 @@ describe("AgentSettingsPanel", () => {
           openclaw: { port: 18789, auth: false, prefix: "" },
         },
         sync_root: "/home/node",
-        sync_enabled: true,
-        workspacesSync: {
-          enabled: true,
-          readyOnly: true,
-          workspace: null,
-        },
       });
     });
+    const savedLaunchConfig = onUpdateAgentLaunchConfig.mock.calls[0]?.[1];
+    expect(savedLaunchConfig).not.toHaveProperty("sync_enabled");
+    expect(savedLaunchConfig).not.toHaveProperty("workspacesSync");
+    expect(savedLaunchConfig?.env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });
 
@@ -1828,6 +1838,20 @@ describe("AgentSettingsPanel", () => {
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
 
+  it("keeps an archiving runtime busy through the terminal archive boundary", () => {
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "ARCHIVING" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    const archiveButton = screen.getByRole("button", { name: "Archive in progress" });
+    expect(archiveButton).toBeDisabled();
+    expect(archiveButton).toHaveTextContent("Archiving...");
+    expect(screen.getByText("Agent is archiving")).toBeInTheDocument();
+    expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
+  });
+
   it("saves desktop and workspace launch settings as managed config", async () => {
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
@@ -1853,11 +1877,6 @@ describe("AgentSettingsPanel", () => {
           openclaw: { port: 18789, auth: false, prefix: "" },
           desktop: { port: 3000, auth: true, prefix: "desktop" },
         }),
-        workspacesSync: {
-          enabled: true,
-          readyOnly: false,
-          workspace: "team-docs",
-        },
       }));
     });
   });
@@ -1920,7 +1939,7 @@ describe("AgentSettingsPanel", () => {
           OPENCLAW_DESKTOP_ENABLED: "1",
         },
         routes: {
-          ...(initialAgent.launchConfig?.routes as Record<string, unknown>),
+          ...((initialAgent.launchConfig as Record<string, unknown>).routes as Record<string, unknown>),
           desktop: { port: 3000, auth: true, prefix: "desktop" },
         },
       },
@@ -2027,7 +2046,6 @@ describe("AgentSettingsPanel", () => {
     expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
-        OPENCLAW_GATEWAY_TOKEN: "gateway-token",
         OPENCLAW_DESKTOP_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",
         HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -2046,12 +2064,6 @@ describe("AgentSettingsPanel", () => {
         openclaw: { port: 18789, auth: false, prefix: "" },
       },
       sync_root: "/home/node",
-      sync_enabled: true,
-      workspacesSync: {
-        enabled: true,
-        readyOnly: true,
-        workspace: null,
-      },
     });
   });
 

@@ -492,7 +492,6 @@ function isLifecycleStartupStatus(status: AgentChatBootStatus): boolean {
   return status.status === "loading" && (
     status.phase === "provisioning" ||
     status.phase === "restoring" ||
-    status.phase === "syncing" ||
     status.phase === "booting"
   );
 }

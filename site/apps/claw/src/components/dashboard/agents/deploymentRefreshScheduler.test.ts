@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createDeploymentRefreshScheduler,
   createDeploymentSubscriptionRecovery,
+  reconcileDeploymentSubscriptionReady,
 } from "./deploymentRefreshScheduler";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -143,5 +144,17 @@ describe("createDeploymentSubscriptionRecovery", () => {
     vi.advanceTimersByTime(0);
     expect(retry).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+});
+
+describe("reconcileDeploymentSubscriptionReady", () => {
+  it("marks the stream healthy and reconciles the full authoritative collection", () => {
+    const scheduler = { invalidate: vi.fn() };
+    const recovery = { markHealthy: vi.fn() };
+
+    reconcileDeploymentSubscriptionReady(scheduler, recovery);
+
+    expect(recovery.markHealthy).toHaveBeenCalledOnce();
+    expect(scheduler.invalidate).toHaveBeenCalledWith(true);
   });
 });

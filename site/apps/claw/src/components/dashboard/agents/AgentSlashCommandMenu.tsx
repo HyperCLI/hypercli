@@ -133,11 +133,12 @@ export function agentLifecycleLabel(state: string, isRunning: boolean): string {
   if (isRunning) return "running";
   const normalized = state.trim().toUpperCase();
   if (normalized === "STOPPING") return "stopping";
+  if (normalized === "ARCHIVING") return "archiving";
   if (normalized === "STARTING") return "starting";
-  if (normalized === "PENDING") return "pending";
+  if (normalized === "CREATING") return "provisioning";
   if (normalized === "RESTORING") return "restoring files";
-  if (normalized === "SYNCING") return "syncing shared knowledge";
-  if (normalized === "FAILED" || normalized.endsWith("_FAILED")) return "failed";
+  if (normalized === "FAILED") return "failed";
+  if (normalized === "ARCHIVED") return "archived";
   return "stopped";
 }
 function slashInput(input: string): string | null {
@@ -396,7 +397,8 @@ function buildSlashCommands(): SlashCommand[] {
         if (isSelectedRunning) return "Agent is already running.";
         const normalized = selectedAgentState.trim().toUpperCase();
         if (normalized === "STOPPING") return "Agent cleanup is still in progress.";
-        if (!["STOPPED", "FAILED", "RESTORE_FAILED", "SYNC_FAILED"].includes(normalized)) {
+        if (normalized === "ARCHIVING") return "Agent archive is still in progress.";
+        if (!["STOPPED", "ARCHIVED", "FAILED"].includes(normalized)) {
           return `Agent is ${agentLifecycleLabel(selectedAgentState, false)}.`;
         }
         return actions.onStartAgent ? true : "Start action is unavailable here.";
