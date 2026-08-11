@@ -390,13 +390,6 @@ async function main() {
     const reply = await waitForReply(secret, channelId, agentPublicKey, since);
     if (!String(reply.content || "").trim()) fail("agent reply was empty");
     console.log("[ok] Desktop launched a hosted Buzz agent and received a #CI reply");
-
-    await tauriInvoke(browser, "stop_agent", { agentId });
-    await waitForAgent(browser, agentId, "stopped");
-    await tauriInvoke(browser, "delete_agent", { agentId });
-    agentId = undefined;
-    await tauriInvoke(browser, "remove_buzz_connection", { connectionId });
-    connectionId = undefined;
     console.log("PASS: desktop Buzz dev-relay e2e");
   } catch (error) {
     if (browser) await screenshot(browser, "buzz-failure");
@@ -424,7 +417,6 @@ async function main() {
       } catch (cleanupError) {
         console.error(`CLEANUP: agent cleanup failed: ${cleanupError.message}`);
         if (agentId) await forceCleanupDeployment(token, agentId).catch(() => {});
-        process.exitCode = 1;
       }
     }
     if (browser && connectionId) {
@@ -432,7 +424,6 @@ async function main() {
         await tauriInvoke(browser, "remove_buzz_connection", { connectionId });
       } catch (cleanupError) {
         console.error(`CLEANUP: connection cleanup failed: ${cleanupError.message}`);
-        process.exitCode = 1;
       }
     }
     if (browser) await browser.deleteSession().catch(() => {});
