@@ -148,7 +148,7 @@ jobs:
           set -euo pipefail
           package=$(find . -maxdepth 1 -type f -name 'hypercli.com-sdk-*.tgz' -print -quit)
           test -n "$package"
-          npm publish "$package" --access public --tag latest
+          npm publish "$package" --access public
 
       - name: Publish Python SDK and CLI to PyPI
         env:
