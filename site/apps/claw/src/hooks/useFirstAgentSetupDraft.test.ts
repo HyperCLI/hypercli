@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createOpenClawBootstrapDraft } from "@/lib/openclaw-bootstrap-pack";
 import {
+  FIRST_AGENT_SETUP_DRAFT_KEY,
   parseFirstAgentSetupDraft,
   readFirstAgentSetupDraft,
   updateFirstAgentSetupDraftPlan,
@@ -25,6 +26,40 @@ describe("first agent setup draft", () => {
     }))?.displayName).toBe("legacy-agent-name");
   });
 
+  it("reads the canonical knowledge Collection identifier", () => {
+    const draft = parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "canonical-collection-agent",
+      knowledgeCollectionId: " collection-1 ",
+    }));
+
+    expect(draft?.knowledgeCollectionId).toBe("collection-1");
+    expect(draft).not.toHaveProperty("knowledgeDomainId");
+  });
+
+  it("falls back to the legacy knowledgeDomainId identifier", () => {
+    const draft = parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "legacy-collection-agent",
+      knowledgeDomainId: " legacy-collection ",
+    }));
+
+    expect(draft?.knowledgeCollectionId).toBe("legacy-collection");
+    expect(draft).not.toHaveProperty("knowledgeDomainId");
+  });
+
+  it("prefers the canonical knowledge Collection identifier over the legacy alias", () => {
+    const draft = parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "precedence-agent",
+      knowledgeCollectionId: "collection-new",
+      knowledgeDomainId: "collection-old",
+    }));
+
+    expect(draft?.knowledgeCollectionId).toBe("collection-new");
+    expect(draft).not.toHaveProperty("knowledgeDomainId");
+  });
+
   it("keeps a stable setup identity and full launch snapshot when the paid plan changes", () => {
     const bootstrapDraft = createOpenClawBootstrapDraft("Tern");
     bootstrapDraft.files[0] = {
@@ -35,7 +70,7 @@ describe("first agent setup draft", () => {
     writeFirstAgentSetupDraft({
       principalId: "user-1",
       workspaceId: "workspace-1",
-      knowledgeDomainId: null,
+      knowledgeCollectionId: "collection-1",
       name: "Tern",
       displayName: "Release Coordinator",
       description: "Coordinates release work.",
@@ -54,6 +89,7 @@ describe("first agent setup draft", () => {
     expect(initial).toMatchObject({
       principalId: "user-1",
       workspaceId: "workspace-1",
+      knowledgeCollectionId: "collection-1",
       displayName: "Release Coordinator",
       size: "small",
       plan: "basic",
@@ -71,11 +107,15 @@ describe("first agent setup draft", () => {
       plan: "pro",
     });
     expect(updated?.bootstrapDraft?.files[0].content).toContain("Keep this exact setup.");
+    expect(JSON.parse(window.sessionStorage.getItem(FIRST_AGENT_SETUP_DRAFT_KEY) ?? "null")).toMatchObject({
+      knowledgeCollectionId: "collection-1",
+      knowledgeDomainId: "collection-1",
+    });
   });
 
   it("clears persisted account and workspace ownership when explicitly set to null", () => {
     const input = {
-      knowledgeDomainId: null,
+      knowledgeCollectionId: null,
       name: "Tern",
       displayName: "",
       description: "",

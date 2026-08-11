@@ -12,6 +12,7 @@ import {
   buildDashboardViewRedirectHref,
   buildKnowledgeHubHref,
   resolveDashboardView,
+  resolveKnowledgeCollectionId,
   syncDashboardSearchParams,
 } from "./dashboard-route";
 
@@ -61,14 +62,24 @@ describe("dashboard routes", () => {
     );
   });
 
-  it("builds a Knowledge Hub link with an owned Domain selection", () => {
+  it("builds a canonical Knowledge Hub link with a Collection selection", () => {
     expect(buildKnowledgeHubHref({
-      domainId: "domain/marketing",
+      collectionId: "collection/marketing",
       agentId: "agent-1",
       session: "focus session",
     })).toBe(
-      "/dashboard/agents?section=knowledge-hub&agentId=agent-1&session=focus+session&domainId=domain%2Fmarketing",
+      "/dashboard/agents?section=knowledge-hub&agentId=agent-1&session=focus+session&collectionId=collection%2Fmarketing",
     );
+  });
+
+  it("resolves canonical and legacy Knowledge Hub Collection selections", () => {
+    expect(resolveKnowledgeCollectionId(new URLSearchParams(
+      "collectionId=collection-new&domainId=collection-old",
+    ))).toBe("collection-new");
+    expect(resolveKnowledgeCollectionId(new URLSearchParams(
+      "domainId=legacy-collection",
+    ))).toBe("legacy-collection");
+    expect(resolveKnowledgeCollectionId(new URLSearchParams())).toBeNull();
   });
 
   it("keeps account management pages outside the persistent dashboard views", () => {

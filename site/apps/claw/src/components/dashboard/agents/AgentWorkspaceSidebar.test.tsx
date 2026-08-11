@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { renderWithClient } from "@/test/utils";
-import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "./AgentWorkspaceSidebar";
+import { AgentWorkspaceSidebar, CollectionCreationDialog } from "./AgentWorkspaceSidebar";
 
 type SidebarSession = NonNullable<ComponentProps<typeof AgentWorkspaceSidebar>["sessions"]>[number];
 
@@ -65,7 +65,7 @@ vi.mock("@hypercli/shared-ui", () => ({
   Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>,
   Button: ({ children, ...props }: ComponentProps<"button">) => <button {...props}>{children}</button>,
   Dialog: ({ children, open }: { children: ReactNode; open?: boolean }) => open ? <>{children}</> : null,
-  DialogContent: ({ children }: { children: ReactNode }) => <div role="dialog" aria-label="New Domain">{children}</div>,
+  DialogContent: ({ children, "data-testid": testId }: { children: ReactNode; "data-testid"?: string }) => <div role="dialog" aria-label="New Collection" data-testid={testId}>{children}</div>,
   DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -151,8 +151,8 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
   return props;
 }
 
-function renderWorkspaceCreationDialog() {
-  renderWithClient(<WorkspaceCreationDialog open onOpenChange={vi.fn()} />);
+function renderCollectionCreationDialog() {
+  renderWithClient(<CollectionCreationDialog open onOpenChange={vi.fn()} />);
 }
 
 function expectSessionBefore(firstName: string, secondName: string): void {
@@ -177,22 +177,23 @@ describe("AgentWorkspaceSidebar", () => {
     mocks.preloadShell.mockReset();
   });
 
-  it("uses the full HyperCLI logo instead of a Workspace picker", () => {
+  it("uses the full HyperCLI logo instead of a Collection picker", () => {
     renderAgentWorkspaceSidebar();
 
     expect(screen.getByTestId("hypercli-logo-full")).toHaveTextContent("HyperCLI");
-    expect(screen.queryByRole("button", { name: /current workspace/i })).not.toBeInTheDocument();
-    expect(screen.queryByText("Workspaces")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /current collection/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Collections")).not.toBeInTheDocument();
   });
 
-  it("creates a Workspace from the creation dialog", async () => {
-    renderWorkspaceCreationDialog();
+  it("creates a Collection from the creation dialog", async () => {
+    renderCollectionCreationDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "New Domain" });
-    fireEvent.change(within(dialog).getByLabelText("Domain name"), { target: { value: "Support" } });
+    const dialog = screen.getByTestId("collection-creation-dialog");
+    expect(dialog).toHaveAccessibleName("New Collection");
+    fireEvent.change(within(dialog).getByTestId("collection-name-input"), { target: { value: "Support" } });
     fireEvent.change(within(dialog).getByLabelText(/Description/), { target: { value: "Support playbooks" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
+    fireEvent.click(within(dialog).getByTestId("collection-create-submit"));
 
     await waitFor(() => expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledWith({
       name: "Support",
@@ -201,10 +202,10 @@ describe("AgentWorkspaceSidebar", () => {
   });
 
   it("collects email invites and grants direct access by user UUID", async () => {
-    renderWorkspaceCreationDialog();
+    renderCollectionCreationDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "New Domain" });
-    fireEvent.change(within(dialog).getByLabelText("Domain name"), { target: { value: "Support" } });
+    const dialog = screen.getByTestId("collection-creation-dialog");
+    fireEvent.change(within(dialog).getByTestId("collection-name-input"), { target: { value: "Support" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.change(within(dialog).getByLabelText("Email addresses"), {
       target: { value: "lucy@example.com, andrew@example.com," },
@@ -215,7 +216,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(within(dialog).getByText("lucy@example.com")).toBeInTheDocument();
     expect(within(dialog).getByText("andrew@example.com")).toBeInTheDocument();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
+    fireEvent.click(within(dialog).getByTestId("collection-create-submit"));
 
     await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledWith(
       "workspace-product",
@@ -227,20 +228,20 @@ describe("AgentWorkspaceSidebar", () => {
     ));
   });
 
-  it("retries a failed UUID grant without creating a second Workspace", async () => {
+  it("retries a failed UUID grant without creating a second Collection", async () => {
     mocks.workspacesClient.grant
       .mockRejectedValueOnce(new Error("User UUID was not found."))
       .mockResolvedValueOnce({ id: "grant-1" });
-    renderWorkspaceCreationDialog();
+    renderCollectionCreationDialog();
 
-    const dialog = screen.getByRole("dialog", { name: "New Domain" });
-    fireEvent.change(within(dialog).getByLabelText("Domain name"), { target: { value: "Support" } });
+    const dialog = screen.getByTestId("collection-creation-dialog");
+    fireEvent.change(within(dialog).getByTestId("collection-name-input"), { target: { value: "Support" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Continue" }));
     fireEvent.change(within(dialog).getByLabelText("User UUID"), { target: { value: "user-2" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
+    fireEvent.click(within(dialog).getByTestId("collection-create-submit"));
 
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("User UUID was not found.");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Create Domain" }));
+    fireEvent.click(within(dialog).getByTestId("collection-create-submit"));
 
     await waitFor(() => expect(mocks.workspacesClient.grant).toHaveBeenCalledTimes(2));
     expect(mocks.workspaceContext.createWorkspace).toHaveBeenCalledTimes(1);

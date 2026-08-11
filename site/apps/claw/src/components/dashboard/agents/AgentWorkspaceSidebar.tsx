@@ -741,11 +741,11 @@ function DeleteSessionDialog({
   );
 }
 
-type WorkspaceInviteRole = "viewer" | "contributor" | "admin";
-type WorkspaceDialogStep = "details" | "members";
-type WorkspaceInviteMode = "email" | "uuid";
+type CollectionInviteRole = "viewer" | "contributor" | "admin";
+type CollectionDialogStep = "details" | "members";
+type CollectionInviteMode = "email" | "uuid";
 
-const WORKSPACE_ROLE_OPTIONS: Array<{ value: WorkspaceInviteRole; label: string }> = [
+const COLLECTION_ROLE_OPTIONS: Array<{ value: CollectionInviteRole; label: string }> = [
   { value: "viewer", label: "Viewer" },
   { value: "contributor", label: "Member" },
   { value: "admin", label: "Admin" },
@@ -757,15 +757,15 @@ function uniqueValues(values: string[]): string[] {
 }
 
 // Email delivery will replace this callback when the Workspace service exposes invitations.
-function mockWorkspaceEmailInvites(
+function mockCollectionEmailInvites(
   _workspaceId: string,
   _emails: string[],
-  _role: WorkspaceInviteRole,
+  _role: CollectionInviteRole,
 ): Promise<void> {
   return Promise.resolve();
 }
 
-function CreateWorkspaceDialog({
+function CreateCollectionDialog({
   open,
   onOpenChange,
   onCreate,
@@ -775,17 +775,17 @@ function CreateWorkspaceDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreate: (input: { name: string; description?: string }) => Promise<{ id: string }>;
-  onGrantByUuid: (workspaceId: string, userId: string, role: WorkspaceInviteRole) => Promise<unknown>;
-  onInviteByEmail: (workspaceId: string, emails: string[], role: WorkspaceInviteRole) => Promise<unknown>;
+  onGrantByUuid: (workspaceId: string, userId: string, role: CollectionInviteRole) => Promise<unknown>;
+  onInviteByEmail: (workspaceId: string, emails: string[], role: CollectionInviteRole) => Promise<unknown>;
 }) {
-  const [step, setStep] = useState<WorkspaceDialogStep>("details");
+  const [step, setStep] = useState<CollectionDialogStep>("details");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [inviteMode, setInviteMode] = useState<WorkspaceInviteMode>("email");
+  const [inviteMode, setInviteMode] = useState<CollectionInviteMode>("email");
   const [emails, setEmails] = useState<string[]>([]);
   const [emailDraft, setEmailDraft] = useState("");
   const [userUuid, setUserUuid] = useState("");
-  const [role, setRole] = useState<WorkspaceInviteRole>("contributor");
+  const [role, setRole] = useState<CollectionInviteRole>("contributor");
   const [createdWorkspaceId, setCreatedWorkspaceId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -850,8 +850,8 @@ function CreateWorkspaceDialog({
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const workspaceName = name.trim();
-    if (!workspaceName || submitting || !commitEmailDraft()) return;
+    const collectionName = name.trim();
+    if (!collectionName || submitting || !commitEmailDraft()) return;
     const resolvedEmails = uniqueValues([
       ...emails,
       ...emailDraft.split(/[,;\n]/).map((email) => email.trim().toLowerCase()).filter(Boolean),
@@ -863,7 +863,7 @@ function CreateWorkspaceDialog({
       let workspaceId = createdWorkspaceId;
       if (!workspaceId) {
         const created = await onCreate({
-          name: workspaceName,
+          name: collectionName,
           description: description.trim() || undefined,
         });
         workspaceId = created.id;
@@ -874,32 +874,32 @@ function CreateWorkspaceDialog({
       reset();
       onOpenChange(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to finish setting up the Domain.");
+      setError(cause instanceof Error ? cause.message : "Unable to finish setting up the Collection.");
       setSubmitting(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (nextOpen) onOpenChange(true); else close(); }}>
-      <DialogContent closeLabel="Close new Domain" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[540px]">
+      <DialogContent data-testid="collection-creation-dialog" closeLabel="Close new Collection" overlayClassName="z-[89] bg-black/60 backdrop-blur-sm" className="z-[90] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[540px]">
         <DialogHeader className="border-b border-border px-5 py-4 pr-12">
-          <DialogTitle className="text-base">{step === "details" ? "New Domain" : "Invite team members"}</DialogTitle>
+          <DialogTitle className="text-base">{step === "details" ? "New Collection" : "Invite team members"}</DialogTitle>
           <DialogDescription className="text-[12px] leading-relaxed text-text-muted">
             {step === "details"
               ? "Create a shared space for knowledge, members, and agents."
-              : "Add people who should collaborate in this Domain, or skip this step for now."}
+              : "Add people who should collaborate in this Collection, or skip this step for now."}
           </DialogDescription>
         </DialogHeader>
         {step === "details" ? (
           <form onSubmit={continueToMembers}>
             <div className="space-y-4 px-5 py-5">
               <div className="space-y-1.5">
-                <Label htmlFor="workspace-name" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Domain name</Label>
-                <Input id="workspace-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} disabled={submitting} className="h-10 rounded-xl bg-surface-low/35 text-[13px]" placeholder="Product operations" />
+                <Label htmlFor="collection-name" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Collection name</Label>
+                <Input id="collection-name" data-testid="collection-name-input" autoFocus value={name} onChange={(event) => setName(event.target.value)} disabled={submitting} className="h-10 rounded-xl bg-surface-low/35 text-[13px]" placeholder="Product operations" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="workspace-description" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Description <span className="normal-case tracking-normal">(optional)</span></Label>
-                <Textarea id="workspace-description" value={description} onChange={(event) => setDescription(event.target.value)} disabled={submitting} rows={3} className="min-h-[84px] rounded-xl bg-surface-low/35 text-[13px] leading-relaxed" placeholder="What belongs in this Domain?" />
+                <Label htmlFor="collection-description" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Description <span className="normal-case tracking-normal">(optional)</span></Label>
+                <Textarea id="collection-description" value={description} onChange={(event) => setDescription(event.target.value)} disabled={submitting} rows={3} className="min-h-[84px] rounded-xl bg-surface-low/35 text-[13px] leading-relaxed" placeholder="What belongs in this Collection?" />
               </div>
               {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
             </div>
@@ -911,13 +911,13 @@ function CreateWorkspaceDialog({
         ) : (
           <form onSubmit={(event) => { void submit(event); }}>
             <div className="space-y-5 px-5 py-5">
-              <Tabs value={inviteMode} onValueChange={(value) => { setInviteMode(value as WorkspaceInviteMode); setError(null); }}>
+              <Tabs value={inviteMode} onValueChange={(value) => { setInviteMode(value as CollectionInviteMode); setError(null); }}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="email">Email invite</TabsTrigger>
                   <TabsTrigger value="uuid">User UUID</TabsTrigger>
                 </TabsList>
                 <TabsContent value="email" className="space-y-2 pt-2">
-                  <Label htmlFor="workspace-member-emails">Email addresses</Label>
+                  <Label htmlFor="collection-member-emails">Email addresses</Label>
                   {emails.length > 0 ? (
                     <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-surface-low/25 p-2.5">
                       {emails.map((email) => (
@@ -931,7 +931,7 @@ function CreateWorkspaceDialog({
                     </div>
                   ) : null}
                   <Input
-                    id="workspace-member-emails"
+                    id="collection-member-emails"
                     autoFocus
                     type="email"
                     inputMode="email"
@@ -952,20 +952,20 @@ function CreateWorkspaceDialog({
                   <p className="text-[11px] leading-relaxed text-text-muted">Add several addresses with commas. Email delivery is being connected separately.</p>
                 </TabsContent>
                 <TabsContent value="uuid" className="space-y-2 pt-2">
-                  <Label htmlFor="workspace-member-uuid">User UUID</Label>
-                  <Input id="workspace-member-uuid" autoFocus value={userUuid} onChange={(event) => setUserUuid(event.target.value)} disabled={submitting} className="h-11 rounded-xl font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" />
+                  <Label htmlFor="collection-member-uuid">User UUID</Label>
+                  <Input id="collection-member-uuid" autoFocus value={userUuid} onChange={(event) => setUserUuid(event.target.value)} disabled={submitting} className="h-11 rounded-xl font-mono text-xs" placeholder="00000000-0000-0000-0000-000000000000" />
                   <p className="text-[11px] leading-relaxed text-text-muted">Adds an existing user immediately. They can copy this value from their Profile settings.</p>
                 </TabsContent>
               </Tabs>
 
               <div className="space-y-1.5">
-                <Label htmlFor="workspace-member-role">Domain role</Label>
-                <Select value={role} onValueChange={(value) => setRole(value as WorkspaceInviteRole)} disabled={submitting}>
-                  <SelectTrigger id="workspace-member-role" aria-label="Domain role" className="h-11 rounded-xl">
+                <Label htmlFor="collection-member-role">Collection role</Label>
+                <Select value={role} onValueChange={(value) => setRole(value as CollectionInviteRole)} disabled={submitting}>
+                  <SelectTrigger id="collection-member-role" aria-label="Collection role" className="h-11 rounded-xl">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="z-[100]">
-                    {WORKSPACE_ROLE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                    {COLLECTION_ROLE_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -977,9 +977,9 @@ function CreateWorkspaceDialog({
                 <Button type="button" variant="ghost" onClick={() => { setError(null); setStep("details"); }} disabled={submitting} className="rounded-xl text-xs">Back</Button>
                 <div className="flex flex-col-reverse gap-2 sm:flex-row">
                   <Button type="button" variant="outline" onClick={close} disabled={submitting} className="rounded-xl text-xs">Cancel</Button>
-                  <Button type="submit" disabled={submitting} className="rounded-xl text-xs">
+                  <Button type="submit" data-testid="collection-create-submit" disabled={submitting} className="rounded-xl text-xs">
                     {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    Create Domain
+                    Create Collection
                   </Button>
                 </div>
               </div>
@@ -991,7 +991,7 @@ function CreateWorkspaceDialog({
   );
 }
 
-export function WorkspaceCreationDialog({
+export function CollectionCreationDialog({
   open,
   onOpenChange,
 }: {
@@ -1003,17 +1003,17 @@ export function WorkspaceCreationDialog({
     workspacesClient,
     createWorkspace,
   } = useWorkspace();
-  const workspaceScope = principalId ?? "current";
+  const collectionScope = principalId ?? "current";
 
   return (
-    <CreateWorkspaceDialog
-      key={workspaceScope}
+    <CreateCollectionDialog
+      key={collectionScope}
       open={open}
       onOpenChange={onOpenChange}
       onCreate={createWorkspace}
-      onInviteByEmail={mockWorkspaceEmailInvites}
+      onInviteByEmail={mockCollectionEmailInvites}
       onGrantByUuid={async (workspaceId, userId, role) => {
-        if (!workspacesClient) throw new Error("Domain access is unavailable right now.");
+        if (!workspacesClient) throw new Error("Collection access is unavailable right now.");
         await workspacesClient.grant(workspaceId, {
           subjectType: "user",
           subjectId: userId,

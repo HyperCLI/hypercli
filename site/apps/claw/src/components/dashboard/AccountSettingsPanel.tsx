@@ -4,12 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import { Badge, Button, Card, Switch, ThemeSelector } from "@hypercli/shared-ui";
+import { Button, Card, ThemeSelector } from "@hypercli/shared-ui";
 
 import { TooltipHint } from "@/components/ClawTooltip";
 import { SlackIcon } from "@/components/dashboard/BrandIcons";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { useAgentStartupExperience } from "@/hooks/useAgentStartupExperience";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
 function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) {
@@ -99,8 +98,6 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
 
 export default function AccountSettingsPanel() {
   const { getToken } = useAgentAuth();
-  const [startupExperience, setStartupExperience] = useAgentStartupExperience();
-  const startupTipsEnabled = startupExperience === "tips";
 
   return (
     <div className="h-full overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
@@ -112,37 +109,6 @@ export default function AccountSettingsPanel() {
               <p className="mt-1 text-sm text-text-muted">Choose how HyperCLI looks across all apps.</p>
             </div>
             <ThemeSelector aria-label="Appearance theme" className="justify-self-start md:justify-self-end" />
-          </div>
-        </Card>
-        <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">
-          <div className="grid w-full gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-foreground">Loading screen</h2>
-                <Badge variant="outline" className="rounded-full border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-2 text-[10px] font-semibold text-[var(--selection-accent)]">
-                  Preview
-                </Badge>
-              </div>
-              <p id="startup-screen-description" className="mt-1 max-w-2xl text-sm leading-6 text-text-muted">
-                Choose what you see while your teammate gets ready or rejoins after a page load.
-              </p>
-            </div>
-            <div className="flex w-full items-center justify-between gap-5 md:w-auto md:min-w-[19rem] md:justify-end">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  {startupTipsEnabled ? "Helpful tips" : "Classic"}
-                </p>
-                <p className="mt-0.5 text-xs text-text-muted">
-                  {startupTipsEnabled ? "Warm guidance while things load" : "The original loading animation"}
-                </p>
-              </div>
-              <Switch
-                checked={startupTipsEnabled}
-                onCheckedChange={(checked) => setStartupExperience(checked ? "tips" : "classic")}
-                aria-label="Show helpful loading tips"
-                aria-describedby="startup-screen-description"
-              />
-            </div>
           </div>
         </Card>
         <SlackAccountSection getToken={getToken} />

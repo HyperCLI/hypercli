@@ -42,18 +42,26 @@ export function buildAuthenticatedClawHomeHref(search = ""): string {
 }
 
 export function buildKnowledgeHubHref(selection?: {
-  domainId?: string | null;
+  collectionId?: string | null;
   agentId?: string | null;
   session?: string | null;
 }): string {
   const params = new URLSearchParams({ section: "knowledge-hub" });
-  const domainId = selection?.domainId?.trim();
+  const collectionId = selection?.collectionId?.trim();
   const agentId = selection?.agentId?.trim();
   const session = selection?.session?.trim();
   if (agentId) params.set("agentId", agentId);
   if (session) params.set("session", session);
-  if (domainId) params.set("domainId", domainId);
+  if (collectionId) params.set("collectionId", collectionId);
   return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
+}
+
+export function resolveKnowledgeCollectionId(
+  searchParams: Pick<URLSearchParams, "get">,
+): string | null {
+  return searchParams.get("collectionId")?.trim()
+    || searchParams.get("domainId")?.trim()
+    || null;
 }
 
 export function resolveDashboardView(value: string | null | undefined): DashboardView | null {

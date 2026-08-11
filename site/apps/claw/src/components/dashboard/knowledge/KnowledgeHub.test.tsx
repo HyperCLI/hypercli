@@ -170,37 +170,37 @@ beforeEach(() => {
 
 describe("KnowledgeHub", () => {
   it("hydrates the account catalog with source health and direct agent membership", async () => {
-    const onSelectedDomainChange = vi.fn();
+    const onSelectedCollectionChange = vi.fn();
     const controlsTargetId = "knowledge-hub-test-controls";
     renderWithClient(
       <>
         <div id={controlsTargetId} data-testid="knowledge-header-controls" />
-        <KnowledgeHub agents={mocks.agents} onSelectedDomainChange={onSelectedDomainChange} headerControlsTargetId={controlsTargetId} />
+        <KnowledgeHub agents={mocks.agents} onSelectedCollectionChange={onSelectedCollectionChange} headerControlsTargetId={controlsTargetId} />
       </>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Domains" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Collections" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Knowledge" })).not.toBeInTheDocument();
     const controlsTarget = screen.getByTestId("knowledge-header-controls");
     const controls = await within(controlsTarget).findByRole("group", { name: "Knowledge controls" });
     expect(controls).toHaveClass("flex-wrap", "justify-end");
-    expect(within(controlsTarget).getByRole("textbox", { name: "Search Domains and sources" })).toHaveStyle({ paddingLeft: "2.25rem" });
-    const newDomainButton = within(controlsTarget).getByRole("button", { name: "New Domain" });
-    expect(newDomainButton).toBeInTheDocument();
-    expect(newDomainButton.querySelector("svg")).not.toBeInTheDocument();
+    expect(within(controlsTarget).getByRole("textbox", { name: "Search Collections and sources" })).toHaveStyle({ paddingLeft: "2.25rem" });
+    const newCollectionButton = within(controlsTarget).getByRole("button", { name: "New Collection" });
+    expect(newCollectionButton).toBeInTheDocument();
+    expect(newCollectionButton.querySelector("svg")).not.toBeInTheDocument();
     expect((await screen.findAllByText("Support playbook")).length).toBeGreaterThan(0);
     expect(screen.getByRole("tab", { name: "Overview" })).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByRole("tab", { name: "Source" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Preview" })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Metadata" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox", { name: "Domain name" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Collection name" })).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Source coverage" })).toBeInTheDocument();
     expect(screen.getByText("1 of 1 source ready for agents")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Purpose" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Agent access" })).toBeInTheDocument();
-    expect(screen.getByText("1 agent has access to this Domain")).toBeInTheDocument();
+    expect(screen.getByText("1 agent has access to this Collection")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preview source: Support guide" })).toBeInTheDocument();
-    await waitFor(() => expect(onSelectedDomainChange).toHaveBeenLastCalledWith({
+    await waitFor(() => expect(onSelectedCollectionChange).toHaveBeenLastCalledWith({
       id: "workspace-1",
       name: "Support playbook",
       description: "Escalation guidance and support procedures.",
@@ -212,22 +212,22 @@ describe("KnowledgeHub", () => {
     const paneGrid = document.querySelector('[data-slot="knowledge-pane-grid"]');
     expect(paneGrid).toHaveClass("grid");
     expect(paneGrid).toHaveStyle({ gridTemplateColumns: "220px minmax(0, 1fr)" });
-    const domainsPane = document.querySelector('[data-pane="domains"]');
+    const collectionsPane = document.querySelector('[data-pane="collections"]');
     const sourcesPane = document.querySelector('[data-pane="sources"]');
     const inspectorPane = document.querySelector('[data-pane="inspector"]');
-    expect(domainsPane).toHaveAttribute("data-active", "true");
+    expect(collectionsPane).toHaveAttribute("data-active", "true");
     expect(sourcesPane).toHaveAttribute("data-active", "false");
     expect(inspectorPane).toHaveAttribute("data-active", "false");
-    expect(domainsPane).toHaveStyle({ display: "flex" });
+    expect(collectionsPane).toHaveStyle({ display: "flex" });
     expect(sourcesPane).toHaveStyle({ display: "none" });
     expect(inspectorPane).toHaveStyle({ display: "flex" });
-    const domainRow = within(domainsPane as HTMLElement).getByText("Support playbook").closest(".group");
-    expect(domainRow).toHaveClass("rounded-xl", "bg-[var(--selection-accent-soft)]");
-    expect(domainRow?.querySelector(".lucide-library-big")).not.toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-status"]')).toHaveClass("flex", "py-3");
-    expect(document.querySelector('[data-slot="domain-status"]')).not.toHaveClass("flex-col");
-    expect(document.querySelector('[data-slot="domain-status"] .lucide-check')).not.toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-overview-metrics"]')).toHaveStyle({ gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))" });
+    const collectionRow = within(collectionsPane as HTMLElement).getByText("Support playbook").closest(".group");
+    expect(collectionRow).toHaveClass("rounded-xl", "bg-[var(--selection-accent-soft)]");
+    expect(collectionRow?.querySelector(".lucide-library-big")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="collection-status"]')).toHaveClass("flex", "py-3");
+    expect(document.querySelector('[data-slot="collection-status"]')).not.toHaveClass("flex-col");
+    expect(document.querySelector('[data-slot="collection-status"] .lucide-check')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="collection-overview-metrics"]')).toHaveStyle({ gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))" });
 
     const uploadsOption = screen.getByRole("button", { name: "Uploads" });
     expect(uploadsOption).toHaveAttribute("aria-expanded", "false");
@@ -244,28 +244,28 @@ describe("KnowledgeHub", () => {
     expect(sourcesPane).toHaveStyle({ display: "none" });
     await waitFor(() => expect(uploadsOption).toHaveFocus());
     expect(screen.getByLabelText("Knowledge sections")).toHaveStyle({ display: "none" });
-    expect(document.querySelector('button[aria-label="Back to Domains"]')).toHaveStyle({ display: "none" });
-    expect(screen.getByRole("heading", { name: "Domain knowledge is ready" })).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-overview-metrics"]')).toHaveClass("grid", "gap-px");
-    expect(document.querySelector('[data-slot="domain-overview-layout"]')).toHaveStyle({ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 24rem), 1fr))" });
+    expect(document.querySelector('button[aria-label="Back to Collections"]')).toHaveStyle({ display: "none" });
+    expect(screen.getByRole("heading", { name: "Collection knowledge is ready" })).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="collection-overview-metrics"]')).toHaveClass("grid", "gap-px");
+    expect(document.querySelector('[data-slot="collection-overview-layout"]')).toHaveStyle({ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 24rem), 1fr))" });
     expect(screen.getAllByText("Support guide").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(screen.getByRole("heading", { name: "Domain configuration" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Collection configuration" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Catalog identity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Governance record" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Access boundary" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Lifecycle" })).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-settings-header"]')).toHaveClass("grid", "sm:grid-cols-[minmax(0,1fr)_auto]", "text-left");
-    expect(document.querySelector('[data-slot="domain-settings-state"]')?.parentElement).toHaveClass("grid", "grid-cols-[auto_minmax(0,1fr)]", "text-left");
-    const settingsLayout = document.querySelector('[data-slot="domain-settings-layout"]');
+    expect(document.querySelector('[data-slot="collection-settings-header"]')).toHaveClass("grid", "sm:grid-cols-[minmax(0,1fr)_auto]", "text-left");
+    expect(document.querySelector('[data-slot="collection-settings-state"]')?.parentElement).toHaveClass("grid", "grid-cols-[auto_minmax(0,1fr)]", "text-left");
+    const settingsLayout = document.querySelector('[data-slot="collection-settings-layout"]');
     expect(settingsLayout).toHaveClass("lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.75fr)]");
     expect(settingsLayout?.querySelector("svg")).not.toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-overview-status"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="collection-overview-status"]')).not.toBeInTheDocument();
     expect(document.querySelector('[data-slot="space-metadata"]')).toHaveClass("divide-y", "border-y");
-    expect(document.querySelector('[data-slot="domain-catalog-preview"]')).toHaveTextContent("Support playbook");
-    expect(document.querySelector('[data-slot="domain-catalog-preview"]')).toHaveTextContent("1 source · 1 assigned agent");
+    expect(document.querySelector('[data-slot="collection-catalog-preview"]')).toHaveTextContent("Support playbook");
+    expect(document.querySelector('[data-slot="collection-catalog-preview"]')).toHaveTextContent("1 source · 1 assigned agent");
     expect(document.querySelector('[data-slot="space-actions"]')).toHaveClass("sticky", "grid", "grid-cols-[minmax(0,1fr)_auto]");
     expect(screen.getByRole("button", { name: "Review assigned agents" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Discard changes" })).toBeDisabled();
@@ -278,28 +278,28 @@ describe("KnowledgeHub", () => {
     expect(screen.getByRole("heading", { name: "Agent access boundary" })).toBeInTheDocument();
     const assignedLane = document.querySelector('[data-lane="assigned"]');
     const availableLane = document.querySelector('[data-lane="available"]');
-    expect(within(assignedLane as HTMLElement).getByRole("heading", { name: "Inside this Domain" })).toBeInTheDocument();
+    expect(within(assignedLane as HTMLElement).getByRole("heading", { name: "Inside this Collection" })).toBeInTheDocument();
     expect(within(availableLane as HTMLElement).getByRole("heading", { name: "Available agents" })).toBeInTheDocument();
     expect(await screen.findByText("Support Agent")).toBeInTheDocument();
     expect(within(assignedLane as HTMLElement).getByText("Support Agent")).toBeInTheDocument();
     expect(within(availableLane as HTMLElement).getByText("Research Agent")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Remove Support Agent from Domain" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Remove Support Agent from Collection" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("opens the source pane from an empty Domain overview", async () => {
+  it("opens the source pane from an empty Collection overview", async () => {
     mocks.listFiles.mockResolvedValue([]);
     renderWithClient(<KnowledgeHub agents={mocks.agents} />);
 
     expect(await screen.findByRole("heading", { name: "Ready for your first source" })).toBeInTheDocument();
-    expect(screen.getByText("Upload a document to add reusable knowledge to this Domain.")).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="domain-status"] svg')).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Build knowledge for this Domain" })).toBeInTheDocument();
+    expect(screen.getByText("Upload a document to add reusable knowledge to this Collection.")).toBeInTheDocument();
+    expect(document.querySelector('[data-slot="collection-status"] svg')).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Build knowledge for this Collection" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add sources" }));
     expect(document.querySelector('[data-pane="sources"]')).toHaveStyle({ display: "flex" });
     expect(screen.getByRole("button", { name: "Close sources" })).toBeInTheDocument();
   });
 
-  it("guides creation with a live Domain preview and no decorative action icon", async () => {
+  it("guides creation with a live Collection preview and no decorative action icon", async () => {
     const createdWorkspace = {
       ...mocks.workspace,
       id: "workspace-2",
@@ -311,20 +311,20 @@ describe("KnowledgeHub", () => {
     renderWithClient(<KnowledgeHub agents={mocks.agents} />);
     await screen.findByRole("heading", { name: "Source coverage" });
 
-    fireEvent.click(screen.getByRole("button", { name: "New Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "New Collection" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "Create a Domain" })).toBeInTheDocument();
-    expect(within(dialog).getByRole("heading", { name: "Domain list preview" })).toBeInTheDocument();
-    expect(within(dialog).getByText("Untitled Domain")).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Create a Collection" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Collection list preview" })).toBeInTheDocument();
+    expect(within(dialog).getByText("Untitled Collection")).toBeInTheDocument();
 
-    fireEvent.change(within(dialog).getByRole("textbox", { name: "Domain name" }), { target: { value: "Customer support" } });
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Collection name" }), { target: { value: "Customer support" } });
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Purpose and boundary" }), { target: { value: "Policies and procedures for customer issues." } });
-    const preview = dialog.querySelector('[data-slot="domain-create-preview"]') as HTMLElement;
+    const preview = dialog.querySelector('[data-slot="collection-create-preview"]') as HTMLElement;
     expect(within(preview).getByText("Customer support")).toBeInTheDocument();
     expect(within(preview).getByText("Policies and procedures for customer issues.")).toBeInTheDocument();
-    const createDomain = within(dialog).getByRole("button", { name: "Create Domain" });
-    expect(createDomain.querySelector("svg")).not.toBeInTheDocument();
-    fireEvent.click(createDomain);
+    const createCollection = within(dialog).getByRole("button", { name: "Create Collection" });
+    expect(createCollection.querySelector("svg")).not.toBeInTheDocument();
+    fireEvent.click(createCollection);
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledWith({
       name: "Customer support",
@@ -333,28 +333,28 @@ describe("KnowledgeHub", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("filters Domains by operational state", async () => {
+  it("filters Collections by operational state", async () => {
     renderWithClient(<KnowledgeHub agents={mocks.agents} />);
 
     await screen.findByRole("heading", { name: "Source coverage" });
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Filter Domains" }), { button: 0, ctrlKey: false });
-    const allDomainsFilter = await screen.findByRole("menuitemradio", { name: /All Domains/ });
-    expect(allDomainsFilter).toHaveAttribute("aria-checked", "true");
-    expect(within(allDomainsFilter).getByText("1")).toBeInTheDocument();
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Filter Collections" }), { button: 0, ctrlKey: false });
+    const allCollectionsFilter = await screen.findByRole("menuitemradio", { name: /All Collections/ });
+    expect(allCollectionsFilter).toHaveAttribute("aria-checked", "true");
+    expect(within(allCollectionsFilter).getByText("1")).toBeInTheDocument();
     expect(screen.getByRole("menuitemradio", { name: /Ready/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitemradio", { name: /Processing/ })).toBeInTheDocument();
     expect(screen.getByRole("menuitemradio", { name: /Needs attention/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("menuitemradio", { name: /Empty/ }));
 
-    expect(screen.getByRole("button", { name: "Filter Domains: Empty" })).toBeInTheDocument();
-    expect(screen.getByText("No empty Domains")).toBeInTheDocument();
-    expect(screen.getByText("Choose another filter to see more Domains.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filter Collections: Empty" })).toBeInTheDocument();
+    expect(screen.getByText("No empty Collections")).toBeInTheDocument();
+    expect(screen.getByText("Choose another filter to see more Collections.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Source coverage" })).not.toBeInTheDocument();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Filter Domains: Empty" }), { button: 0, ctrlKey: false });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Filter Collections: Empty" }), { button: 0, ctrlKey: false });
     fireEvent.click(await screen.findByRole("menuitemradio", { name: /Ready/ }));
     expect(await screen.findByRole("heading", { name: "Source coverage" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Filter Domains: Ready" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Filter Collections: Ready" })).toBeInTheDocument();
   });
 
   it("uses a single-pane drill-in layout below the desktop breakpoint", async () => {
@@ -381,26 +381,26 @@ describe("KnowledgeHub", () => {
     const view = renderWithClient(<KnowledgeHub agents={mocks.agents} />);
 
     try {
-      await screen.findByRole("heading", { name: "Domains" });
-      const domainsPane = document.querySelector('[data-pane="domains"]');
+      await screen.findByRole("heading", { name: "Collections" });
+      const collectionsPane = document.querySelector('[data-pane="collections"]');
       const sourcesPane = document.querySelector('[data-pane="sources"]');
       const inspectorPane = document.querySelector('[data-pane="inspector"]');
       expect(screen.getByLabelText("Knowledge sections")).toHaveStyle({ display: "grid" });
       expect(screen.getByLabelText("Knowledge sections")).toHaveStyle({ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" });
-      expect(domainsPane).toHaveStyle({ display: "flex" });
+      expect(collectionsPane).toHaveStyle({ display: "flex" });
       expect(sourcesPane).toHaveStyle({ display: "none" });
       expect(inspectorPane).toHaveStyle({ display: "none" });
 
-      const domainName = (await screen.findAllByText("Support playbook")).find((element) => element.closest('[data-pane="domains"]'));
-      expect(domainName).toBeDefined();
-      fireEvent.click(domainName!.closest("button")!);
-      expect(domainsPane).toHaveStyle({ display: "none" });
+      const collectionName = (await screen.findAllByText("Support playbook")).find((element) => element.closest('[data-pane="collections"]'));
+      expect(collectionName).toBeDefined();
+      fireEvent.click(collectionName!.closest("button")!);
+      expect(collectionsPane).toHaveStyle({ display: "none" });
       expect(sourcesPane).toHaveStyle({ display: "none" });
       expect(inspectorPane).toHaveStyle({ display: "flex" });
 
-      fireEvent.click(screen.getByRole("button", { name: "Domains" }));
+      fireEvent.click(screen.getByRole("button", { name: "Collections" }));
       fireEvent.click(screen.getByRole("button", { name: "Uploads" }));
-      expect(domainsPane).toHaveStyle({ display: "none" });
+      expect(collectionsPane).toHaveStyle({ display: "none" });
       expect(sourcesPane).toHaveStyle({ display: "flex" });
       expect(inspectorPane).toHaveStyle({ display: "none" });
       expect(screen.getByLabelText("Knowledge sections")).toHaveStyle({ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" });
@@ -419,7 +419,7 @@ describe("KnowledgeHub", () => {
       desktopMatches = true;
       act(() => desktopListeners.forEach((listener) => listener()));
       expect(screen.getByLabelText("Knowledge sections")).toHaveStyle({ display: "none" });
-      expect(domainsPane).toHaveStyle({ display: "flex" });
+      expect(collectionsPane).toHaveStyle({ display: "flex" });
       expect(sourcesPane).toHaveStyle({ display: "flex" });
       expect(inspectorPane).toHaveStyle({ display: "flex" });
     } finally {
@@ -443,72 +443,72 @@ describe("KnowledgeHub", () => {
     await waitFor(() => expect(mocks.listFiles).toHaveBeenCalledTimes(2));
   });
 
-  it("allows deleting an ordinary Domain when it is the only visible Domain", async () => {
+  it("allows deleting an ordinary Collection when it is the only visible Collection", async () => {
     renderWithClient(<KnowledgeHub agents={mocks.agents} />);
 
     await screen.findByRole("heading", { name: "Source coverage" });
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Collection" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(mocks.deleteCollection).toHaveBeenCalledWith("support-playbook"));
   });
 
-  it("keeps General protected while allowing another Domain to be deleted", async () => {
+  it("keeps General protected while allowing another Collection to be deleted", async () => {
     mocks.contextWorkspaces = [mocks.generalWorkspace, mocks.workspace];
     mocks.list.mockResolvedValue([mocks.generalWorkspace, mocks.workspace]);
     renderWithClient(<KnowledgeHub agents={mocks.agents} />);
 
     expect((await screen.findAllByText("General")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    expect(screen.queryByRole("button", { name: "Delete Domain" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete Collection" })).not.toBeInTheDocument();
     expect(screen.getByText("General is created with your account and cannot be deleted.")).toBeInTheDocument();
 
-    const supportName = (await screen.findAllByText("Support playbook")).find((element) => element.closest('[data-pane="domains"]'));
+    const supportName = (await screen.findAllByText("Support playbook")).find((element) => element.closest('[data-pane="collections"]'));
     expect(supportName).toBeDefined();
     fireEvent.click(supportName!.closest("button")!);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    fireEvent.click(screen.getByRole("button", { name: "Delete Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete Collection" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(mocks.deleteCollection).toHaveBeenCalledWith("support-playbook"));
   });
 
-  it("opens an explicitly requested Domain from an external Knowledge Hub entry", async () => {
+  it("opens an explicitly requested Collection from an external Knowledge Hub entry", async () => {
     mocks.contextWorkspaces = [mocks.generalWorkspace, mocks.workspace];
     mocks.list.mockResolvedValue([mocks.generalWorkspace, mocks.workspace]);
-    const onSelectedDomainChange = vi.fn();
+    const onSelectedCollectionChange = vi.fn();
     renderWithClient(
       <KnowledgeHub
         agents={mocks.agents}
-        initialDomainId="workspace-1"
-        onSelectedDomainChange={onSelectedDomainChange}
+        initialCollectionId="workspace-1"
+        onSelectedCollectionChange={onSelectedCollectionChange}
       />,
     );
 
     await screen.findByRole("heading", { name: "Source coverage" });
-    const domainsPane = document.querySelector('[data-pane="domains"]') as HTMLElement;
-    const supportRow = within(domainsPane).getByText("Support playbook").closest("button");
-    const generalRow = within(domainsPane).getByText("General").closest("button");
+    const collectionsPane = document.querySelector('[data-pane="collections"]') as HTMLElement;
+    const supportRow = within(collectionsPane).getByText("Support playbook").closest("button");
+    const generalRow = within(collectionsPane).getByText("General").closest("button");
     expect(supportRow).toHaveAttribute("aria-current", "page");
     expect(generalRow).not.toHaveAttribute("aria-current");
-    await waitFor(() => expect(onSelectedDomainChange).toHaveBeenLastCalledWith(expect.objectContaining({ id: "workspace-1" })));
+    await waitFor(() => expect(onSelectedCollectionChange).toHaveBeenLastCalledWith(expect.objectContaining({ id: "workspace-1" })));
   });
 
-  it("renames a Domain through the explicit inspector action", async () => {
+  it("renames a Collection through the explicit inspector action", async () => {
     mocks.update.mockImplementation(async (_workspaceRef: string, input: { name?: string; description?: string }) => ({
       ...mocks.workspace,
       ...input,
       updatedAt: "2026-07-20T13:00:00Z",
     }));
-    const onSelectedDomainChange = vi.fn();
-    renderWithClient(<KnowledgeHub agents={mocks.agents} onSelectedDomainChange={onSelectedDomainChange} />);
+    const onSelectedCollectionChange = vi.fn();
+    renderWithClient(<KnowledgeHub agents={mocks.agents} onSelectedCollectionChange={onSelectedCollectionChange} />);
     await screen.findByRole("heading", { name: "Source coverage" });
 
-    const renameDomain = screen.getByRole("button", { name: "Rename Domain: Support playbook" });
-    expect(screen.getByRole("heading", { name: "Domains" }).closest("section")).toContainElement(renameDomain);
-    fireEvent.click(renameDomain);
-    const nameInput = screen.getByRole("textbox", { name: "Domain name" });
+    const renameCollection = screen.getByRole("button", { name: "Rename Collection: Support playbook" });
+    expect(screen.getByRole("heading", { name: "Collections" }).closest("section")).toContainElement(renameCollection);
+    fireEvent.click(renameCollection);
+    const nameInput = screen.getByRole("textbox", { name: "Collection name" });
     await waitFor(() => expect(nameInput).toHaveFocus());
     fireEvent.change(nameInput, { target: { value: "Support operations" } });
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
@@ -520,7 +520,7 @@ describe("KnowledgeHub", () => {
       description: "Escalation guidance and support procedures.",
     }));
     expect((await screen.findAllByText("Support operations")).length).toBeGreaterThan(0);
-    await waitFor(() => expect(onSelectedDomainChange).toHaveBeenLastCalledWith({
+    await waitFor(() => expect(onSelectedCollectionChange).toHaveBeenLastCalledWith({
       id: "workspace-1",
       name: "Support operations",
       description: "Escalation guidance and support procedures.",
@@ -572,7 +572,7 @@ describe("KnowledgeHub", () => {
     expect(mocks.markdownFile).toHaveBeenCalledWith("support-playbook", "guides/support-guide.pdf");
   });
 
-  it("uploads sources and assigns another account agent to the Domain", async () => {
+  it("uploads sources and assigns another account agent to the Collection", async () => {
     const uploadedFile = {
       ...mocks.file,
       id: "file-2",
@@ -595,7 +595,7 @@ describe("KnowledgeHub", () => {
     }));
 
     fireEvent.click(screen.getByRole("tab", { name: "Assigned agents" }));
-    const addResearch = await screen.findByRole("button", { name: "Assign Research Agent to Domain" });
+    const addResearch = await screen.findByRole("button", { name: "Assign Research Agent to Collection" });
     const accessReadCount = mocks.listGrants.mock.calls.length;
     fireEvent.click(addResearch);
     await waitFor(() => expect(mocks.grantAccess).toHaveBeenCalledWith("support-playbook", {
@@ -604,17 +604,17 @@ describe("KnowledgeHub", () => {
       role: "viewer",
     }));
     expect(mocks.listGrants).toHaveBeenCalledTimes(accessReadCount);
-    expect(await screen.findByRole("button", { name: "Remove Research Agent from Domain" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: "Remove Research Agent from Collection" })).toHaveAttribute("aria-pressed", "true");
     expect(within(document.querySelector('[data-lane="assigned"]') as HTMLElement).getByText("Research Agent")).toBeInTheDocument();
     expect(mocks.refreshSelectedWorkspaceAgents).toHaveBeenCalledOnce();
   });
 
-  it("refreshes after the provider provisions the first Domain", async () => {
+  it("refreshes after the provider provisions the first Collection", async () => {
     mocks.contextWorkspaces = [];
     mocks.list.mockResolvedValueOnce([]).mockResolvedValue([mocks.workspace]);
     const view = renderWithClient(<KnowledgeHub agents={mocks.agents} />);
 
-    expect(await screen.findByText("No Domains yet")).toBeInTheDocument();
+    expect(await screen.findByText("No Collections yet")).toBeInTheDocument();
     mocks.contextWorkspaces = [mocks.workspace];
     view.rerender(<KnowledgeHub agents={mocks.agents} />);
 

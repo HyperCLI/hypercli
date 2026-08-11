@@ -204,7 +204,7 @@ import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel, type DashboardSurfaceHeader } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
-import { AgentWorkspaceSidebar, WorkspaceCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
+import { AgentWorkspaceSidebar, CollectionCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import {
   SettingsMenu,
@@ -247,6 +247,7 @@ import {
   buildDashboardViewHref,
   buildKnowledgeHubHref,
   resolveDashboardView,
+  resolveKnowledgeCollectionId,
   syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
@@ -264,7 +265,7 @@ import {
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/journey/types";
 import { resolveWorkspaceAgentSelection } from "@/lib/workspace-agent-roster";
-import type { KnowledgeHubSelectedDomain } from "@/components/dashboard/knowledge/KnowledgeHub";
+import type { KnowledgeHubSelectedCollection } from "@/components/dashboard/knowledge/KnowledgeHub";
 
 type MainTab = AgentMainTab;
 type AgentOnboardingOverlay = "tour" | "launcher" | null;
@@ -1203,7 +1204,7 @@ function AgentsPageContent() {
     agentRosterError,
     error: workspacesError,
     isLoading: workspacesLoading,
-    assignAgentToDomain,
+    assignAgentToCollection,
     selectWorkspace,
   } = useWorkspace();
   const router = useRouter();
@@ -1219,7 +1220,7 @@ function AgentsPageContent() {
   const teamTrialIntentRequested = requestedIntent === "trial" && (!requestedPlanId || requestedPlanId.toLowerCase() === TEAM_TRIAL_PLAN_ID);
   const stripeCheckoutRecoveryRequested = searchParams.get("checkout") === "success" && Boolean(searchParams.get("session_id")?.trim());
   const requestedSection = searchParams.get("section")?.trim() || null;
-  const requestedKnowledgeDomainId = searchParams.get("domainId")?.trim() || null;
+  const requestedKnowledgeCollectionId = resolveKnowledgeCollectionId(searchParams);
   const requestedTab = searchParams.get("tab")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
   const dashboardView = isAuthenticated ? resolveDashboardView(requestedView) : null;
@@ -1500,10 +1501,10 @@ function AgentsPageContent() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [selectedKnowledgeDomain, setSelectedKnowledgeDomain] = useState<KnowledgeHubSelectedDomain | null>(null);
-  const handleKnowledgeDomainChange = useCallback((domain: KnowledgeHubSelectedDomain | null) => {
-    setSelectedKnowledgeDomain((current) => (
-      current?.id === domain?.id && current?.name === domain?.name ? current : domain
+  const [selectedKnowledgeCollection, setSelectedKnowledgeCollection] = useState<KnowledgeHubSelectedCollection | null>(null);
+  const handleKnowledgeCollectionChange = useCallback((collection: KnowledgeHubSelectedCollection | null) => {
+    setSelectedKnowledgeCollection((current) => (
+      current?.id === collection?.id && current?.name === collection?.name ? current : collection
     ));
   }, []);
   const tokenUsage = selectedAgentId && tokenUsageByAgent
@@ -1540,7 +1541,7 @@ function AgentsPageContent() {
   const preserveMainTabOnRouteCleanupRef = useRef(false);
   const [mainTab, setMainTab] = useState<MainTab>(() => administrationSectionTab ?? requestedCenterTab ?? "chat");
   const selectMainTab = useCallback((tab: MainTab) => {
-    if (tab !== "knowledge-hub") setSelectedKnowledgeDomain(null);
+    if (tab !== "knowledge-hub") setSelectedKnowledgeCollection(null);
     if (tab === "knowledge-hub" || tab === "knowledge" || tab === "members") {
       setMainTab((current) => {
         if (current !== "knowledge-hub" && current !== "knowledge" && current !== "members") mainTabBeforeAdministrationRef.current = current;
@@ -1560,7 +1561,7 @@ function AgentsPageContent() {
   }, [administrationSectionTab, requestedAgentTab, router, searchParams]);
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      if (administrationSectionTab !== "knowledge-hub") setSelectedKnowledgeDomain(null);
+      if (administrationSectionTab !== "knowledge-hub") setSelectedKnowledgeCollection(null);
       setMainTab((current) => {
         if (administrationSectionTab) {
           appliedAgentRouteTabRef.current = null;
@@ -1852,11 +1853,11 @@ function AgentsPageContent() {
         showAgentCreationFlow();
       } else if (intent.kind === "workspace") {
         if (workspacesError) {
-          setError("Knowledge Hub could not be loaded. Refresh before creating a Domain.");
+          setError("Knowledge Hub could not be loaded. Refresh before creating a Collection.");
           return;
         }
         if (!workspacesClient) {
-          setError("Domain access is unavailable right now.");
+          setError("Collection access is unavailable right now.");
           return;
         }
         setWorkspaceCreationOpen(true);
@@ -1906,6 +1907,8 @@ function AgentsPageContent() {
     }
     if (clearRoutedPanel) {
       params.delete("section");
+      params.delete("collectionId");
+      params.delete("domainId");
       params.delete("settings");
       params.delete("tab");
       params.delete("view");
@@ -2833,7 +2836,7 @@ function AgentsPageContent() {
       ? {
           setupId: firstAgentSetupDraft.setupId,
           ...(setupWorkspaceId ? { workspaceId: setupWorkspaceId } : {}),
-          knowledgeDomainId: firstAgentSetupDraft.knowledgeDomainId,
+          knowledgeCollectionId: firstAgentSetupDraft.knowledgeCollectionId,
           agentSize,
         }
       : undefined;
@@ -2849,7 +2852,7 @@ function AgentsPageContent() {
     return {
       setupId: firstAgentSetupDraft.setupId,
       workspaceId: firstAgentSetupDraft.workspaceId ?? selectedWorkspaceId,
-      knowledgeDomainId: firstAgentSetupDraft.knowledgeDomainId,
+      knowledgeCollectionId: firstAgentSetupDraft.knowledgeCollectionId,
       size,
     };
   })();
@@ -3312,8 +3315,9 @@ function AgentsPageContent() {
       return;
     }
     closeAgentCreationFlow();
-    void selectAgent(agentId, Boolean(dashboardView), Boolean(dashboardView));
-  }, [closeAgentCreationFlow, dashboardView, embeddedCheckoutProcessing, selectAgent]);
+    const leavingRoutedSurface = Boolean(dashboardView || administrationSectionTab);
+    void selectAgent(agentId, leavingRoutedSurface, leavingRoutedSurface);
+  }, [administrationSectionTab, closeAgentCreationFlow, dashboardView, embeddedCheckoutProcessing, selectAgent]);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
       return selectedAgentId ? "connected" as const : null;
@@ -4120,7 +4124,7 @@ function AgentsPageContent() {
     enableDesktop,
     enableMemoryIndex = false,
     customImage = null,
-    knowledgeDomainId,
+    knowledgeCollectionId,
   }: AgentCreationSetupCreateParams, onLaunchAccepted?: (accepted: SdkAgent) => void) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
@@ -4133,14 +4137,14 @@ function AgentsPageContent() {
     const generation = agentDataGenerationRef.current;
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
-      const knowledgeDomain = knowledgeDomainId
-        ? workspaces.find((workspace) => workspace.id === knowledgeDomainId) ?? null
+      const knowledgeCollection = knowledgeCollectionId
+        ? workspaces.find((workspace) => workspace.id === knowledgeCollectionId) ?? null
         : null;
-      if (knowledgeDomainId && !knowledgeDomain) {
-        throw new Error("The selected Knowledge Domain is no longer available.");
+      if (knowledgeCollectionId && !knowledgeCollection) {
+        throw new Error("The selected Collection is no longer available.");
       }
-      if (knowledgeDomain && knowledgeDomain.role !== "admin") {
-        throw new Error("Domain admin access is required to assign this agent.");
+      if (knowledgeCollection && knowledgeCollection.role !== "admin") {
+        throw new Error("Collection admin access is required to assign this agent.");
       }
       setError(null);
       const token = await getToken();
@@ -4186,15 +4190,15 @@ function AgentsPageContent() {
           }
           if (generation !== agentDataGenerationRef.current) return null;
         }
-        if (knowledgeDomain) {
+        if (knowledgeCollection) {
           try {
-            await assignAgentToDomain(created.id, knowledgeDomain.id);
+            await assignAgentToCollection(created.id, knowledgeCollection.id);
             if (generation !== agentDataGenerationRef.current) return null;
           } catch (assignmentError) {
             const detail = assignmentError instanceof Error
               ? assignmentError.message
-              : "Knowledge Domain access is unavailable right now.";
-            throw new Error(`Agent was created, but Domain assignment did not complete: ${detail}`);
+              : "Collection access is unavailable right now.";
+            throw new Error(`Agent was created, but Collection assignment did not complete: ${detail}`);
           }
         }
         cancelledStartAgentIdsRef.current.delete(created.id);
@@ -4241,7 +4245,7 @@ function AgentsPageContent() {
   }, [
     agentCreationBlockedReason,
     applyAgentMutationResult,
-    assignAgentToDomain,
+    assignAgentToCollection,
     completeJourneyForEvent,
     fetchAgents,
     getToken,
@@ -4276,7 +4280,7 @@ function AgentsPageContent() {
           clearPendingPlanCheckout(principalId, pending);
           setPaidFirstAgentCheckout(null);
           setCheckoutReturnRecoveryActive(false);
-          setError("The Domain used for this agent setup is no longer available. Choose a Domain to finish launching it.");
+          setError("The Collection used for this agent setup is no longer available. Choose a Collection to finish launching it.");
           setResumeAgentLauncher(true);
         }
         return;
@@ -4320,7 +4324,7 @@ function AgentsPageContent() {
         enableDesktop: draft.enableDesktop,
         enableMemoryIndex: draft.enableMemoryIndex,
         customImage: draft.enableCustomImage ? draft.customImage || null : null,
-        knowledgeDomainId: draft.knowledgeDomainId,
+        knowledgeCollectionId: draft.knowledgeCollectionId,
         creationId: pending.setupId,
       }).then((createdId) => {
         if (privatePrincipalRef.current !== principalId) return;
@@ -5116,9 +5120,9 @@ function AgentsPageContent() {
       : "chat";
   const knowledgeSurfaceHeader: DashboardSurfaceHeader | null = selectedCenterPanel === "knowledge-hub"
     ? {
-        title: selectedKnowledgeDomain?.name ?? "Knowledge",
-        description: selectedKnowledgeDomain?.description?.trim()
-          || (selectedKnowledgeDomain
+        title: selectedKnowledgeCollection?.name ?? "Knowledge",
+        description: selectedKnowledgeCollection?.description?.trim()
+          || (selectedKnowledgeCollection
             ? "Focused business knowledge available only to the agents you assign."
             : "Organize knowledge by business area and keep every agent focused."),
         controlsTargetId: KNOWLEDGE_HUB_SURFACE_CONTROLS_ID,
@@ -5453,26 +5457,26 @@ function AgentsPageContent() {
       router.push(href);
     })();
   };
-  const openKnowledgeHubSurface = (domainId: string | null) => {
+  const openKnowledgeHubSurface = (collectionId: string | null) => {
     const targetHref = buildKnowledgeHubHref({
-      domainId,
+      collectionId,
       agentId: selectedAgentId,
       session: selectedAgentId ? canonicalSelectedSessionKey : null,
     });
+    closeMobileNavigation();
     if (!isAuthenticated) {
       requestAuthentication({ kind: "navigate", href: targetHref });
       return;
     }
-    closeMobileNavigation();
     setOpenclawSettingsOpen(false);
     setMobileShowChat(true);
-    setSelectedKnowledgeDomain(null);
+    setSelectedKnowledgeCollection(null);
     selectMainTab("knowledge-hub");
-    if (knowledgeHubSectionActive && requestedKnowledgeDomainId === domainId) return;
+    if (knowledgeHubSectionActive && requestedKnowledgeCollectionId === collectionId) return;
     router.push(targetHref, { scroll: false });
   };
   const openKnowledgeHub = () => openKnowledgeHubSurface(null);
-  const openActivityDomain = (domainId: string) => openKnowledgeHubSurface(domainId);
+  const openActivityCollection = (collectionId: string) => openKnowledgeHubSurface(collectionId);
   const openActivityConversation = (agentId: string, sessionKey: string) => {
     const selectionOperation = agentSelectionOperationRef.current + 1;
     agentSelectionOperationRef.current = selectionOperation;
@@ -5795,7 +5799,7 @@ function AgentsPageContent() {
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
           onCreateAgent={handleCreateFirstAgent}
-          associateCreatedAgent={assignAgentToDomain}
+          associateCreatedAgent={assignAgentToCollection}
           agentCreationDisabledReason={agentCreationDisabledReason}
           fetchAgents={refreshAgentsForChildren}
           setError={setError}
@@ -6331,7 +6335,7 @@ function AgentsPageContent() {
           console.log("Create channel:", channel);
         }}
       />
-      <WorkspaceCreationDialog
+      <CollectionCreationDialog
         open={workspaceCreationOpen}
         onOpenChange={setWorkspaceCreationOpen}
       />
@@ -6397,7 +6401,7 @@ function AgentsPageContent() {
             getToken={getToken}
             createOpenClawAgent={createOpenClawAgent}
             onCreateAgent={handleCreateFirstAgent}
-            associateCreatedAgent={assignAgentToDomain}
+            associateCreatedAgent={assignAgentToCollection}
             agentLauncherSuspended={agentLauncherSuspended}
             agentCreationDisabledReason={agentCreationDisabledReason}
             fetchAgents={refreshAgentsForChildren}
@@ -6615,12 +6619,12 @@ function AgentsPageContent() {
                 onCreateAgent={createAgentFromLauncher}
                 draftPrincipalId={user?.id ?? null}
                 draftWorkspaceId={selectedWorkspaceId}
-                knowledgeDomains={workspaces.map((workspace) => ({
+                knowledgeCollections={workspaces.map((workspace) => ({
                   id: workspace.id,
                   name: workspaceDisplayName(workspace),
                   role: workspace.role,
                 }))}
-                knowledgeDomainsLoading={workspacesLoading}
+                knowledgeCollectionsLoading={workspacesLoading}
               />
             </div>
           ) : checkoutReturnRecoveryActive ? (
@@ -6651,6 +6655,7 @@ function AgentsPageContent() {
               selectedAgent={selectedAgent!}
               userAvatarUrl={accountAvatarUrl}
               userName={chatGreetingName}
+              isDesktopViewport={isDesktopViewport}
               isSelectedRunning={Boolean(isSelectedRunning)}
               chatDragActive={chatDragActive}
               setChatDragActive={setChatDragActive}
@@ -6822,13 +6827,13 @@ function AgentsPageContent() {
             />
           ) : mainTab === "knowledge-hub" ? (
             <KnowledgeHub
-              key={requestedKnowledgeDomainId ?? "domain-catalog"}
+              key={requestedKnowledgeCollectionId ?? "collection-catalog"}
               agents={accountAgents}
               agentsLoading={agentsLoading}
               agentsError={agentsLoadError}
-              initialDomainId={requestedKnowledgeDomainId}
+              initialCollectionId={requestedKnowledgeCollectionId}
               onRefreshAgents={refreshAgentsForChildren}
-              onSelectedDomainChange={handleKnowledgeDomainChange}
+              onSelectedCollectionChange={handleKnowledgeCollectionChange}
               headerControlsTargetId={KNOWLEDGE_HUB_SURFACE_CONTROLS_ID}
             />
           ) : mainTab === "knowledge" ? (
@@ -6981,7 +6986,7 @@ function AgentsPageContent() {
                 onOpenAgent={selectAgentFromRoster}
                 onOpenConversation={openActivityConversation}
                 onOpenScheduled={openActivityScheduled}
-                onOpenDomain={openActivityDomain}
+                onOpenCollection={openActivityCollection}
                 onOpenKnowledge={openKnowledgeHub}
                 onOpenUsage={() => openDashboardView("usage")}
                 onOpenAgentLauncher={() => {

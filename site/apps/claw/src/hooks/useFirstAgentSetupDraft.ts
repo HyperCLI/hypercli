@@ -16,7 +16,7 @@ export interface FirstAgentSetupDraft {
   setupId: string;
   principalId: string | null;
   workspaceId: string | null;
-  knowledgeDomainId: string | null;
+  knowledgeCollectionId: string | null;
   name: string;
   displayName: string;
   description: string;
@@ -74,7 +74,8 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
       setupId: normalizeOptionalString(value.setupId, 100) ?? `legacy-${normalizedUpdatedAt}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
       principalId: normalizeOptionalString(value.principalId, 100),
       workspaceId: normalizeOptionalString(value.workspaceId, 100),
-      knowledgeDomainId: normalizeOptionalString(value.knowledgeDomainId, 100),
+      knowledgeCollectionId: normalizeOptionalString(value.knowledgeCollectionId, 100)
+        ?? normalizeOptionalString(value.knowledgeDomainId, 100),
       name,
       displayName,
       description: normalizeOptionalString(value.description, 300) ?? "",
@@ -159,7 +160,11 @@ export function writeFirstAgentSetupDraft(input: FirstAgentSetupDraftInput): voi
   });
   const draft = parseFirstAgentSetupDraft(raw);
   if (!draft) return;
-  writeFirstAgentSetupDraftRaw(JSON.stringify(draft));
+  // Let an older deployed bundle resume drafts created during the terminology rollout.
+  writeFirstAgentSetupDraftRaw(JSON.stringify({
+    ...draft,
+    knowledgeDomainId: draft.knowledgeCollectionId,
+  }));
 }
 
 export function updateFirstAgentSetupDraftPlan(planId: string, size?: string | null): void {

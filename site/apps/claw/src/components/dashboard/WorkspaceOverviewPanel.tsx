@@ -195,7 +195,7 @@ export function WorkspaceOverviewPanel({
           <DashboardMetricCard
             title="Agents"
             value={workspaceAgentsLoading ? "---" : workspaceAgents.length.toLocaleString()}
-            periodLabel="In this Domain"
+            periodLabel="In this Collection"
             icon={Bot}
             href={agentsHref}
             compact

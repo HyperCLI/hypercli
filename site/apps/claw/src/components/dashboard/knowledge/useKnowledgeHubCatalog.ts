@@ -15,9 +15,9 @@ import type {
   WorkspacesAPI,
 } from "@hypercli.com/sdk/workspaces";
 import {
-  domainDeletionBlockedReason,
-  domainDisplayName,
-} from "@/lib/account-domain";
+  collectionDeletionBlockedReason,
+  collectionDisplayName,
+} from "@/lib/account-collection";
 
 export type KnowledgeHubCollection = {
   workspace: Workspace;
@@ -67,7 +67,7 @@ export function describeKnowledgeHubError(error: unknown, fallback: string): str
 }
 
 export function knowledgeWorkspaceName(workspace: Workspace): string {
-  return domainDisplayName(workspace);
+  return collectionDisplayName(workspace);
 }
 
 export function knowledgeWorkspaceRef(workspace: Workspace): string {
@@ -126,13 +126,13 @@ async function hydrateCollection(
     agentIds: grants ? agentIdsFromGrants(grants) : null,
     filesError: filesResult.status === "rejected"
       ? errorStatusCode(filesResult.reason) === 403
-        ? "You don't have permission to view sources in this Domain."
+        ? "You don't have permission to view sources in this Collection."
         : "Sources couldn't be loaded. Refresh to retry."
       : null,
     accessError: grantsResult.status === "rejected"
       ? errorStatusCode(grantsResult.reason) === 403
-        ? "You don't have permission to review Domain assignments."
-        : "Domain assignments couldn't be loaded. Refresh to retry."
+        ? "You don't have permission to review Collection assignments."
+        : "Collection assignments couldn't be loaded. Refresh to retry."
       : null,
   };
 }
@@ -257,7 +257,7 @@ export function useKnowledgeHubCatalog(
   ) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
     if (collection.workspace.role?.toLowerCase() !== "admin") {
-      throw knowledgeHubUserError("Domain admin access is required to update these details.");
+      throw knowledgeHubUserError("Collection admin access is required to update these details.");
     }
     mutationRevisionRef.current += 1;
     try {
@@ -275,9 +275,9 @@ export function useKnowledgeHubCatalog(
   const deleteCollection = useCallback(async (collection: KnowledgeHubCollection) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
     if (collection.workspace.role?.toLowerCase() !== "admin") {
-      throw knowledgeHubUserError("Domain admin access is required to delete this Domain.");
+      throw knowledgeHubUserError("Collection admin access is required to delete this Collection.");
     }
-    const blockedReason = domainDeletionBlockedReason(collection.workspace);
+    const blockedReason = collectionDeletionBlockedReason(collection.workspace);
     if (blockedReason) throw knowledgeHubUserError(blockedReason);
     mutationRevisionRef.current += 1;
     try {
@@ -394,7 +394,7 @@ export function useKnowledgeHubCatalog(
   ) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
     if (collection.workspace.role?.toLowerCase() !== "admin" || !collection.grants) {
-      throw knowledgeHubUserError("Domain admin access is required to change agent assignments.");
+      throw knowledgeHubUserError("Collection admin access is required to change agent assignments.");
     }
 
     const currentGrants = collection.grants;

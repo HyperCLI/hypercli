@@ -7,7 +7,6 @@ import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
 import { OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
-import { AGENT_STARTUP_EXPERIENCE_STORAGE_KEY } from "@/hooks/useAgentStartupExperience";
 import { toAgentViewModel } from "./agentViewModel";
 import { RETURNING_AGENT_SALUTATIONS } from "./AgentEmptyHistory";
 import {
@@ -882,26 +881,6 @@ describe("AgentChatPanel", () => {
     expect(screen.getByPlaceholderText("Verifying conversation...")).toBeInTheDocument();
   });
 
-  it("keeps the original conversation loader in the Classic experience", () => {
-    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "classic");
-    renderAgentChatPanel({
-      chat: buildChat({
-        status: "connected",
-        gatewayConnected: true,
-        ready: true,
-        connected: true,
-        historyPhase: "loading",
-        historyPending: true,
-        activeSessionCanSend: false,
-      }),
-      isSelectedRunning: true,
-    });
-
-    expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
-    window.localStorage.removeItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY);
-  });
-
   it("keeps existing messages visible and exposes retry when history refresh fails", () => {
     const retry = vi.fn();
     renderAgentChatPanel({
@@ -988,7 +967,6 @@ describe("AgentChatPanel", () => {
   });
 
   it("keeps the startup experience through gateway connection after lifecycle startup", async () => {
-    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
     const pendingAgent = buildAgent("CREATING");
     const props = buildAgentChatPanelProps({
       selectedAgent: pendingAgent,
@@ -1013,7 +991,6 @@ describe("AgentChatPanel", () => {
   });
 
   it("uses the guided experience for initial page hydration", () => {
-    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
     const { container } = renderAgentChatPanel({
       chat: buildChat({ connecting: true }),
       isSelectedRunning: true,
@@ -1023,8 +1000,7 @@ describe("AgentChatPanel", () => {
     expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
   });
 
-  it("keeps later reconnects compact after the teammate has been ready", async () => {
-    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "tips");
+  it("keeps the new startup experience during later reconnects", async () => {
     const props = buildAgentChatPanelProps({
       chat: buildChat({
         status: "connected",
@@ -1044,8 +1020,9 @@ describe("AgentChatPanel", () => {
     );
 
     await waitFor(() => expect(screen.getByText("Connecting gateway")).toBeInTheDocument());
-    expect(container.querySelector('[data-slot="agent-startup-tips"]')).not.toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("passes workspace file actions to rendered chat messages", () => {
@@ -1231,7 +1208,36 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
+    expect(screen.queryByTestId("agent-empty-state-app-suggestions")).not.toBeInTheDocument();
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
+  });
+
+  it("keeps the desktop composer below the empty state and offers app shortcuts", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+      }),
+      isDesktopViewport: true,
+      isSelectedRunning: true,
+    });
+
+    const emptyState = screen.getByTestId("agent-empty-history");
+    const composer = screen.getByTestId("agent-chat-composer");
+    const suggestions = screen.getByTestId("agent-empty-state-app-suggestions");
+    expect(emptyState).not.toContainElement(composer);
+    expect(composer.parentElement?.parentElement).toContainElement(suggestions);
+    expect(composer.parentElement?.parentElement).toHaveClass("rounded-3xl", "border-border");
+    expect(suggestions).toHaveTextContent("Get better answers from your apps");
+    for (const integration of ["GitHub", "Discord", "Telegram", "WhatsApp", "Slack"]) {
+      expect(within(suggestions).getByRole("button", { name: `Open ${integration} setup` })).toBeInTheDocument();
+    }
+    expect(screen.getAllByTestId("agent-chat-composer")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss app suggestions" }));
+    expect(screen.queryByTestId("agent-empty-state-app-suggestions")).not.toBeInTheDocument();
   });
 
   it("renders the current model control for OpenClaw conversations", () => {

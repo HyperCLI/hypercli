@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -53,6 +53,11 @@ describe("AgentEmptyHistory", () => {
     expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /open integrations/i })).toHaveTextContent("Browse integrations");
     expect(screen.getByText(/apps, APIs, and accounts/i)).toBeInTheDocument();
+    const featuredIntegrations = screen.getByRole("list", { name: "Featured integrations" });
+    expect(within(featuredIntegrations).getAllByRole("listitem")).toHaveLength(5);
+    for (const integration of ["GitHub", "Discord", "Telegram", "WhatsApp", "Slack"]) {
+      expect(within(featuredIntegrations).getByRole("button", { name: `Open ${integration} setup` })).toBeInTheDocument();
+    }
     expect(screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual([
       "Make It Yours",
       "Uses Your Tools",
@@ -60,13 +65,15 @@ describe("AgentEmptyHistory", () => {
       "Works Where You Work",
     ]);
 
+    await user.click(screen.getByRole("button", { name: "Open GitHub setup" }));
     await user.click(screen.getByRole("button", { name: /connect slack/i }));
     await user.click(screen.getByRole("button", { name: /open workspace files/i }));
     await user.click(screen.getByRole("button", { name: /open integrations/i }));
     await user.click(screen.getByRole("button", { name: /open skills/i }));
     await user.click(screen.getByRole("button", { name: /open scheduled work/i }));
 
-    expect(onOpenIntegrationChatCard).toHaveBeenCalledWith("slack");
+    expect(onOpenIntegrationChatCard).toHaveBeenNthCalledWith(1, "github");
+    expect(onOpenIntegrationChatCard).toHaveBeenNthCalledWith(2, "slack");
     expect(onOpenFiles).toHaveBeenCalledTimes(1);
     expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
     expect(onOpenSkills).toHaveBeenCalledTimes(1);

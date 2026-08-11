@@ -2018,7 +2018,7 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
-  rosterLoadingLabel = "Loading Domain agents",
+  rosterLoadingLabel = "Loading Collection agents",
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,
@@ -2298,7 +2298,7 @@ function HandoffThreadView({
               onClose={() => setShowAgentCreator(false)}
               onCreated={async (name, iconIndex, size) => {
                 if (onCreateAgent) {
-                  const createdId = await onCreateAgent({ name, iconIndex, size, files: [], enableDesktop: false, knowledgeDomainId: null });
+                  const createdId = await onCreateAgent({ name, iconIndex, size, files: [], enableDesktop: false, knowledgeCollectionId: null });
                   setShowAgentCreator(false);
                   if (createdId) {
                     onStartAgentChat?.({ id: createdId, name, type: "agent" });

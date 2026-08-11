@@ -52,14 +52,14 @@ export interface PendingPlanCheckout {
   flow?: "first-agent-setup" | "team-trial" | "first-agent-trial";
   setupId?: string;
   workspaceId?: string;
-  knowledgeDomainId?: string | null;
+  knowledgeCollectionId?: string | null;
   agentSize?: string;
 }
 
 export interface FirstAgentTrialCheckoutContext {
   setupId: string;
   workspaceId?: string;
-  knowledgeDomainId?: string | null;
+  knowledgeCollectionId?: string | null;
   agentSize: string;
 }
 
@@ -185,7 +185,7 @@ export async function createTeamTrialCheckoutState(
             ...(options.firstAgentSetup.workspaceId
               ? { workspaceId: options.firstAgentSetup.workspaceId }
               : {}),
-            knowledgeDomainId: options.firstAgentSetup.knowledgeDomainId ?? null,
+            knowledgeCollectionId: options.firstAgentSetup.knowledgeCollectionId ?? null,
             agentSize: options.firstAgentSetup.agentSize,
           }
         : {}),
@@ -206,10 +206,25 @@ export interface PendingCheckoutCorrelation {
 
 export type CheckoutReflectionStatus = "waiting-payment" | "waiting-entitlement" | "ready";
 
+function serializePendingPlanCheckout(checkout: PendingPlanCheckout): string {
+  const hasCollectionContext = checkout.flow === "first-agent-setup"
+    || checkout.flow === "first-agent-trial"
+    || "knowledgeCollectionId" in checkout;
+  const knowledgeCollectionId = checkout.knowledgeCollectionId ?? null;
+  return JSON.stringify({
+    ...checkout,
+    // Preserve checkout recovery if a deployment rolls back while payment is in flight.
+    ...(hasCollectionContext ? {
+      knowledgeCollectionId,
+      knowledgeDomainId: knowledgeCollectionId,
+    } : {}),
+  });
+}
+
 export function writePendingPlanCheckout(checkout: PendingPlanCheckout): void {
   if (typeof window === "undefined") return;
   try {
-    const serialized = JSON.stringify(checkout);
+    const serialized = serializePendingPlanCheckout(checkout);
     window.localStorage.setItem(pendingCheckoutKey(checkout.principalId), serialized);
     if (checkout.checkoutAttemptId) {
       window.localStorage.setItem(
@@ -232,9 +247,19 @@ function parsePendingPlanCheckout(
 ): PendingPlanCheckout | null {
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as Partial<PendingPlanCheckout>;
+    const parsed = JSON.parse(raw) as Partial<PendingPlanCheckout> & {
+      knowledgeDomainId?: unknown;
+    };
     if (!parsed.principalId || !parsed.planId || !parsed.planName) return null;
     if (expectedPrincipalId && parsed.principalId !== expectedPrincipalId) return null;
+    const canonicalKnowledgeCollectionId = typeof parsed.knowledgeCollectionId === "string"
+      && parsed.knowledgeCollectionId.trim()
+      ? parsed.knowledgeCollectionId.trim().slice(0, 100)
+      : null;
+    const legacyKnowledgeCollectionId = typeof parsed.knowledgeDomainId === "string"
+      && parsed.knowledgeDomainId.trim()
+      ? parsed.knowledgeDomainId.trim().slice(0, 100)
+      : null;
     return {
       principalId: parsed.principalId,
       planId: parsed.planId,
@@ -277,9 +302,7 @@ function parsePendingPlanCheckout(
         : {}),
       ...(parsed.flow === "first-agent-setup" || parsed.flow === "first-agent-trial"
         ? {
-            knowledgeDomainId: typeof parsed.knowledgeDomainId === "string" && parsed.knowledgeDomainId.trim()
-              ? parsed.knowledgeDomainId.trim().slice(0, 100)
-              : null,
+            knowledgeCollectionId: canonicalKnowledgeCollectionId ?? legacyKnowledgeCollectionId,
           }
         : {}),
       ...(typeof parsed.agentSize === "string" && parsed.agentSize.trim()
@@ -390,7 +413,7 @@ export function markPendingPlanCheckoutReturned(
     ...(pending.checkoutSessionId ? {} : { checkoutSessionId: normalizedSessionId }),
   };
   try {
-    const serialized = JSON.stringify(returned);
+    const serialized = serializePendingPlanCheckout(returned);
     if (returned.checkoutAttemptId) {
       window.localStorage.setItem(
         pendingCheckoutCorrelationKey(principalId, "attempt", returned.checkoutAttemptId),

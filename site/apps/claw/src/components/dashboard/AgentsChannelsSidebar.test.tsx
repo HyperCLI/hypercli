@@ -218,7 +218,7 @@ describe("AgentsChannelsSidebar", () => {
     expect(avatar.closest(".agents-roster-agent-avatar")).toHaveStyle({ width: "20px", height: "20px" });
   });
 
-  it("disables launch controls when the selected Workspace is read-only", () => {
+  it("disables launch controls when the selected Collection is read-only", () => {
     const onOpenAgentLauncher = vi.fn();
     render(
       <AgentsChannelsSidebar
@@ -228,13 +228,13 @@ describe("AgentsChannelsSidebar", () => {
         onSelectThread={vi.fn()}
         showChannels={false}
         onOpenAgentLauncher={onOpenAgentLauncher}
-        agentCreationDisabledReason="Domain admin access is required to add agents."
+        agentCreationDisabledReason="Collection admin access is required to add agents."
       />,
     );
 
     const launch = screen.getByRole("button", { name: "Launch agent" });
     expect(launch).toBeDisabled();
-    expect(screen.getByText("Domain admin access is required to add agents.")).toBeInTheDocument();
+    expect(screen.getByText("Collection admin access is required to add agents.")).toBeInTheDocument();
     fireEvent.click(launch);
     expect(onOpenAgentLauncher).not.toHaveBeenCalled();
   });

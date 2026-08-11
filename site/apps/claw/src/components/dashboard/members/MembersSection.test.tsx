@@ -299,7 +299,7 @@ describe("MembersSection", () => {
       render(<MembersSection agents={accountAgents} />);
 
       if (role === "admin") await screen.findByText("Alex Chen");
-      else await screen.findByRole("heading", { name: "Your Domain access" });
+      else await screen.findByRole("heading", { name: "Your Collection access" });
       expect(mocks.workspaces.accessSnapshot).toHaveBeenCalledOnce();
       expect(mocks.workspaces.accessSnapshot).toHaveBeenCalledWith("workspace-1");
       expect(Object.keys(mocks.workspaces).sort()).toEqual(["accessSnapshot", "grant", "revokeGrant"]);
@@ -313,11 +313,11 @@ describe("MembersSection", () => {
 
       render(<MembersSection agents={accountAgents} />);
 
-      expect(await screen.findByRole("heading", { name: "Your Domain access" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Your Collection access" })).toBeInTheDocument();
       expect(screen.getByText("Jane Rivera")).toBeInTheDocument();
       expect(screen.getByText("jane@example.com")).toBeInTheDocument();
       expect(screen.getByText(role)).toBeInTheDocument();
-      expect(screen.getByText("The full direct-access list is available to Domain admins.")).toBeInTheDocument();
+      expect(screen.getByText("The full direct-access list is available to Collection admins.")).toBeInTheDocument();
       expect(screen.queryByText("Alex Chen")).not.toBeInTheDocument();
       expect(screen.queryByText("Research Agent")).not.toBeInTheDocument();
       expect(screen.queryByText("External Scout")).not.toBeInTheDocument();
@@ -336,7 +336,7 @@ describe("MembersSection", () => {
 
     expect(await screen.findByText("Jane Rivera")).toBeInTheDocument();
     expect(screen.getByText("viewer - Current access")).toBeInTheDocument();
-    expect(screen.getByText("The full direct-access list is available to Domain admins.")).toBeInTheDocument();
+    expect(screen.getByText("The full direct-access list is available to Collection admins.")).toBeInTheDocument();
     expect(screen.queryByText("Alex Chen")).not.toBeInTheDocument();
     expect(screen.queryByText("Research Agent")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Manage" })).toHaveAttribute("href", "/dashboard/agents?section=members");
@@ -401,7 +401,7 @@ describe("MembersSection", () => {
     expect(await screen.findByText("No active direct access entries.")).toBeInTheDocument();
     expect(within(summaryValue("People")).getByText("0")).toBeInTheDocument();
     expect(within(summaryValue("Agents")).getByText("0")).toBeInTheDocument();
-    expect(screen.queryByText("Domain access is unavailable.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Collection access is unavailable.")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -409,7 +409,7 @@ describe("MembersSection", () => {
     render(<MembersSection agents={accountAgents} />);
 
     const historyHeading = await screen.findByRole("heading", { name: "Access history" });
-    const history = screen.getByRole("table", { name: "Inactive Domain access grants" });
+    const history = screen.getByRole("table", { name: "Inactive Collection access grants" });
     expect(historyHeading).toBeInTheDocument();
     expect(within(history).getByText("Former Member")).toBeInTheDocument();
     expect(within(history).getByText("Future Snapshot Inactive")).toBeInTheDocument();
@@ -422,7 +422,7 @@ describe("MembersSection", () => {
     render(<MembersSection agents={accountAgents} />);
     await screen.findByText("Research Agent");
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh Domain access" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh Collection access" }));
 
     await waitFor(() => expect(mocks.workspaces.accessSnapshot).toHaveBeenCalledTimes(2));
     expect(mocks.workspaceContext.refreshSelectedWorkspaceAgents).not.toHaveBeenCalled();
@@ -479,7 +479,7 @@ describe("MembersSection", () => {
     await screen.findByText("Research Agent");
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Research Agent" }));
-    const dialog = screen.getByRole("alertdialog", { name: "Remove Domain access" });
+    const dialog = screen.getByRole("alertdialog", { name: "Remove Collection access" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove access" }));
 
     await waitFor(() => expect(mocks.workspaces.revokeGrant).toHaveBeenCalledTimes(2));
@@ -487,7 +487,7 @@ describe("MembersSection", () => {
     expect(mocks.workspaces.revokeGrant).toHaveBeenNthCalledWith(2, "workspace-1", "grant-agent-contributor");
     await waitFor(() => expect(mocks.workspaces.accessSnapshot).toHaveBeenCalledTimes(2));
     expect(mocks.workspaceContext.refreshSelectedWorkspaceAgents).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("alertdialog", { name: "Remove Domain access" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog", { name: "Remove Collection access" })).not.toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("Partially removed Research Agent");
     expect(screen.getByRole("alert")).toHaveTextContent("1 of 2 active access grants failed");
     expect(screen.getByRole("alert")).toHaveTextContent("Backend denied contributor grant");
@@ -566,7 +566,7 @@ describe("MembersSection", () => {
     render(<MembersSection agents={accountAgents} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Workspace connection failed");
-    expect(screen.getByText("Domain access is unavailable.")).toBeInTheDocument();
+    expect(screen.getByText("Collection access is unavailable.")).toBeInTheDocument();
     expect(screen.queryByText("No active direct access entries.")).not.toBeInTheDocument();
     expect(within(summaryValue("People")).getByText("-")).toBeInTheDocument();
     expect(within(summaryValue("Agents")).getByText("-")).toBeInTheDocument();

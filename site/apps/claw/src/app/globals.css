@@ -342,6 +342,15 @@
   height: auto;
 }
 
+.agent-chat-composer-with-footer:has(textarea:focus-visible) {
+  border-color: var(--focus-outline);
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--focus-outline);
+}
+
 .agent-empty-history-frame {
   align-items: safe center;
   container-name: agent-empty-history;

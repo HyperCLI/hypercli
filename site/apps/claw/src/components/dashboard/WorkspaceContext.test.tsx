@@ -84,12 +84,12 @@ import {
 
 describe("workspaceAgentCreationDisabledReason", () => {
   it("requires a selected Workspace with admin access and a healthy roster", () => {
-    expect(workspaceAgentCreationDisabledReason(null, null)).toBe("Select a Domain before launching an agent.");
+    expect(workspaceAgentCreationDisabledReason(null, null)).toBe("Select a Collection before launching an agent.");
     expect(workspaceAgentCreationDisabledReason({ ...teamWorkspace, role: "viewer" }, null)).toBe(
-      "Domain admin access is required to add agents.",
+      "Collection admin access is required to add agents.",
     );
     expect(workspaceAgentCreationDisabledReason(teamWorkspace, "Unavailable")).toBe(
-      "Domain agents could not be loaded. Refresh before launching an agent.",
+      "Collection agents could not be loaded. Refresh before launching an agent.",
     );
     expect(workspaceAgentCreationDisabledReason(teamWorkspace, null)).toBeNull();
   });
@@ -195,7 +195,7 @@ describe("WorkspaceProvider", () => {
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("none");
   });
 
-  it("deduplicates selected Domain agent IDs", async () => {
+  it("deduplicates selected Collection agent IDs", async () => {
     mocks.client.listAgents.mockResolvedValue([
       workspaceAgent("agent-1"),
       workspaceAgent("agent-1"),
@@ -264,7 +264,7 @@ describe("WorkspaceProvider", () => {
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("none");
   });
 
-  it("reports selected Domain agent loading failures without fallback IDs", async () => {
+  it("reports selected Collection agent loading failures without fallback IDs", async () => {
     mocks.client.listAgents.mockRejectedValue(new Error("Agent roster unavailable"));
 
     renderProvider();
@@ -332,20 +332,20 @@ describe("WorkspaceProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "Associate agent" }));
 
     await waitFor(() => expect(screen.getByTestId("association-error")).toHaveTextContent(
-      "The agent was assigned to the Domain, but its agent list could not be refreshed.",
+      "The agent was assigned to the Collection, but its agent list could not be refreshed.",
     ));
     expect(mocks.client.grant).toHaveBeenCalledOnce();
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("Roster refresh failed");
   });
 
-  it("rejects automatic association without Domain admin access", async () => {
+  it("rejects automatic association without Collection admin access", async () => {
     mocks.client.list.mockResolvedValue([{ ...teamWorkspace, role: "viewer" }]);
 
     renderProvider();
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge"));
     fireEvent.click(screen.getByRole("button", { name: "Associate agent" }));
 
-    await waitFor(() => expect(screen.getByTestId("association-error")).toHaveTextContent("Domain admin access is required to assign agents."));
+    await waitFor(() => expect(screen.getByTestId("association-error")).toHaveTextContent("Collection admin access is required to assign agents."));
     expect(mocks.client.grant).not.toHaveBeenCalled();
   });
 
@@ -364,7 +364,7 @@ describe("WorkspaceProvider", () => {
     expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-team");
   });
 
-  it("creates and selects General when the account has no Domains", async () => {
+  it("creates and selects General when the account has no Collections", async () => {
     mocks.client.list.mockResolvedValue([]);
     mocks.client.create.mockResolvedValue({ ...generalWorkspace, role: null });
 
@@ -379,7 +379,7 @@ describe("WorkspaceProvider", () => {
     await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-general"));
   });
 
-  it("provisions General without replacing an existing Domain", async () => {
+  it("provisions General without replacing an existing Collection", async () => {
     mocks.client.list.mockResolvedValue([teamWorkspace]);
     mocks.client.create.mockResolvedValue(generalWorkspace);
 
@@ -390,7 +390,7 @@ describe("WorkspaceProvider", () => {
     expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
   });
 
-  it("uses a concurrently created General Domain when provisioning conflicts", async () => {
+  it("uses a concurrently created General Collection when provisioning conflicts", async () => {
     mocks.client.list
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([teamWorkspace, generalWorkspace]);
@@ -426,7 +426,7 @@ describe("WorkspaceProvider", () => {
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
   });
 
-  it("repairs an externally emptied account with a replacement General Domain", async () => {
+  it("repairs an externally emptied account with a replacement General Collection", async () => {
     mocks.client.list.mockResolvedValue([]);
     mocks.client.create
       .mockResolvedValueOnce({ ...generalWorkspace, role: null })

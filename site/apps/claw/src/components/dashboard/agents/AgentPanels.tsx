@@ -1042,7 +1042,7 @@ function AgentGeneralSettingsContent({
             />
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="User UUID" description="Share this ID when someone adds you directly to a Domain.">
+          <AgentProfileSettingsRow label="User UUID" description="Share this ID when someone adds you directly to a Collection.">
             <div className="flex min-w-0 gap-2">
               <Input
                 aria-label="User UUID"
@@ -1521,7 +1521,7 @@ function AgentSectionSettingsContent({
               disabled
               className={SETTINGS_FIELD_CLASS}
             >
-              <option value="">Domain members</option>
+              <option value="">Collection members</option>
             </select>
           </AgentProfileSettingsRow>
 
@@ -2709,7 +2709,7 @@ interface AgentListProps {
   getToken: () => Promise<string>;
   createOpenClawAgent: (apiKey: string, options?: Record<string, unknown>) => Promise<{ id?: string | null }>;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
-  associateCreatedAgent?: (agentId: string, domainId: string) => Promise<void>;
+  associateCreatedAgent?: (agentId: string, collectionId: string) => Promise<void>;
   agentCreationDisabledReason?: string | null;
   onOpenAgentLauncher?: () => void;
   agentLauncherSuspended?: boolean;
@@ -2886,7 +2886,7 @@ export function AgentList({
     openAgentLauncher();
   }, [isDesktopViewport, openAgentLauncher, renderMobileNavigation, rosterLoading, sidebarCreatorSignal]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeDomainId }: AgentCreationSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeCollectionId }: AgentCreationSetupCreateParams) => {
     try {
       if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
       const token = await getToken();
@@ -2926,14 +2926,14 @@ export function AgentList({
               : "Agent created, but starter files could not be uploaded.");
           }
         }
-        if (associateCreatedAgent && knowledgeDomainId) {
+        if (associateCreatedAgent && knowledgeCollectionId) {
           try {
-            await associateCreatedAgent(createdId, knowledgeDomainId);
+            await associateCreatedAgent(createdId, knowledgeCollectionId);
           } catch (associationError) {
             const detail = associationError instanceof Error
               ? associationError.message
-              : "Knowledge Domain access is unavailable right now.";
-            throw new Error(`Agent was created, but Domain assignment did not complete: ${detail}`);
+              : "Collection access is unavailable right now.";
+            throw new Error(`Agent was created, but Collection assignment did not complete: ${detail}`);
           }
         }
         const accepted = await agentClient.start(createdId);
@@ -3049,7 +3049,7 @@ export function AgentList({
               {rosterLoading ? (
                 <div role="status" aria-live="polite" className="flex h-8 w-8 items-center justify-center text-text-muted">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span className="sr-only">Loading Domain agents</span>
+                  <span className="sr-only">Loading Collection agents</span>
                 </div>
               ) : (
                 visibleAgents.map((a) => {
@@ -3293,12 +3293,12 @@ export function LaunchFirstAgentEmptyState({
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
           {workspaceScoped && hasAccountAgents
-            ? "Launch a new agent for this Domain or add an existing agent from Members."
+            ? "Launch a new agent for this Collection or add an existing agent from Members."
             : "Agents handle projects, tasks, and workflows on your behalf."}
         </p>
 
         <TooltipHint
-          label={workspaceSetupRequired ? "Create your first Domain" : creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")}
+          label={workspaceSetupRequired ? "Create your first Collection" : creationDisabledReason ?? (workspaceScoped ? "Launch an agent" : "Create an agent")}
           disabled={!workspaceSetupRequired && Boolean(creationDisabledReason)}
           triggerClassName="w-full"
         >
@@ -3322,7 +3322,7 @@ export function LaunchFirstAgentEmptyState({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-[14px] font-semibold leading-5 text-foreground">
-                {workspaceSetupRequired ? "Create your first Domain" : workspaceScoped ? "Launch an agent" : "Create an agent"}
+                {workspaceSetupRequired ? "Create your first Collection" : workspaceScoped ? "Launch an agent" : "Create an agent"}
               </span>
               <span className="mt-0.5 block text-[12px] font-medium leading-4 text-text-muted">
                 {workspaceSetupRequired

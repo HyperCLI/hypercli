@@ -6,8 +6,9 @@ import {
   AgentStartupLoadingVisual,
   AgentStartupTipsVisual,
 } from "./AgentStartupLoadingVisual";
-import { AGENT_STARTUP_EXPERIENCE_STORAGE_KEY } from "@/hooks/useAgentStartupExperience";
 import { expectNoA11yViolations, renderWithClient } from "@/test/utils";
+
+const LEGACY_AGENT_STARTUP_EXPERIENCE_STORAGE_KEY = "claw.agentStartupExperience.v1";
 
 describe("AgentStartupTipsVisual", () => {
   beforeEach(() => {
@@ -87,13 +88,13 @@ describe("AgentStartupLoadingVisual", () => {
     expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
-  it("renders the unchanged Classic loader when selected", () => {
-    window.localStorage.setItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "classic");
+  it("ignores the retired Classic preference", () => {
+    window.localStorage.setItem(LEGACY_AGENT_STARTUP_EXPERIENCE_STORAGE_KEY, "classic");
 
     renderWithClient(<AgentStartupLoadingVisual title="Booting agent" detail="Starting the runtime." />);
 
-    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
-    expect(document.querySelector('[data-slot="agent-startup-tips"]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("keeps the existing retryable error presentation in either experience", () => {

@@ -61,7 +61,7 @@ interface EmbeddedPlanCheckoutProps {
   firstAgentSetup?: {
     setupId: string;
     workspaceId?: string | null;
-    knowledgeDomainId: string | null;
+    knowledgeCollectionId: string | null;
     size: string;
   };
 }
@@ -206,7 +206,7 @@ export function EmbeddedPlanCheckout({
         flow: "first-agent-setup" as const,
         setupId: firstAgentSetup.setupId,
         ...(firstAgentSetup.workspaceId ? { workspaceId: firstAgentSetup.workspaceId } : {}),
-        knowledgeDomainId: firstAgentSetup.knowledgeDomainId,
+        knowledgeCollectionId: firstAgentSetup.knowledgeCollectionId,
         agentSize: firstAgentSetup.size,
       } : {}),
     } satisfies PendingPlanCheckout;

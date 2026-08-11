@@ -3,8 +3,8 @@
 /*
  * THESIS: Knowledge is an operating catalog, not a settings page or a stack of summary cards.
  * OWN-WORLD: Claw's quiet bordered surfaces, dense roster navigation, and restrained green selection state.
- * STORY: Choose a Domain, inspect its sources, then verify or change its assigned agents.
- * FIRST VIEWPORT: The existing agent roster joins a three-pane Domain, source, and inspector workspace.
+ * STORY: Choose a Collection, inspect its sources, then verify or change its assigned agents.
+ * FIRST VIEWPORT: The existing agent roster joins a three-pane Collection, source, and inspector workspace.
  * FORM: A responsive catalog browser derived from the approved three-pane topology and incumbent Claw shell.
  */
 
@@ -75,7 +75,7 @@ import {
 } from "@hypercli/shared-ui";
 
 import { downloadFileBytes } from "@/lib/download-file";
-import { domainDeletionBlockedReason } from "@/lib/account-domain";
+import { collectionDeletionBlockedReason } from "@/lib/account-collection";
 import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import {
@@ -92,10 +92,10 @@ type MobilePane = "collections" | "sources" | "details";
 type InspectorTab = "overview" | "source" | "access" | "settings";
 type SourceInspectorView = "preview" | "metadata";
 type PreviewMode = "source" | "markdown";
-type DomainFilter = "all" | "ready" | "processing" | "attention" | "empty";
+type CollectionFilter = "all" | "ready" | "processing" | "attention" | "empty";
 
-const DOMAIN_FILTER_OPTIONS: ReadonlyArray<readonly [DomainFilter, string]> = [
-  ["all", "All Domains"],
+const COLLECTION_FILTER_OPTIONS: ReadonlyArray<readonly [CollectionFilter, string]> = [
+  ["all", "All Collections"],
   ["ready", "Ready"],
   ["processing", "Processing"],
   ["attention", "Needs attention"],
@@ -132,7 +132,7 @@ export type KnowledgeHubAgent = {
   avatarUrl?: string | null;
 };
 
-export type KnowledgeHubSelectedDomain = {
+export type KnowledgeHubSelectedCollection = {
   id: string;
   name: string;
   description: string | null;
@@ -146,9 +146,9 @@ type KnowledgeHubProps = {
   agents?: KnowledgeHubAgent[];
   agentsLoading?: boolean;
   agentsError?: string | null;
-  initialDomainId?: string | null;
+  initialCollectionId?: string | null;
   onRefreshAgents?: () => Promise<unknown> | void;
-  onSelectedDomainChange?: (domain: KnowledgeHubSelectedDomain | null) => void;
+  onSelectedCollectionChange?: (collection: KnowledgeHubSelectedCollection | null) => void;
   headerControlsTargetId?: string;
 };
 
@@ -236,7 +236,7 @@ function fileHealthCounts(collection: KnowledgeHubCollection) {
   };
 }
 
-function domainOperationalState(collection: KnowledgeHubCollection): Exclude<DomainFilter, "all"> | null {
+function collectionOperationalState(collection: KnowledgeHubCollection): Exclude<CollectionFilter, "all"> | null {
   const counts = fileHealthCounts(collection);
   if (collection.filesError || counts.failed > 0) return "attention";
   if (collection.files === null) return null;
@@ -312,7 +312,7 @@ function CreateCollectionDialog({
       resetDraft();
       onOpenChange(false);
     } catch (cause) {
-      setError(describeKnowledgeHubError(cause, "The Domain couldn't be created."));
+      setError(describeKnowledgeHubError(cause, "The Collection couldn't be created."));
     } finally {
       setSubmitting(false);
     }
@@ -323,7 +323,7 @@ function CreateCollectionDialog({
       <DialogContent className="max-w-xl overflow-hidden gap-0 rounded-2xl border-border p-0 sm:max-w-xl">
         <form onSubmit={submit}>
           <DialogHeader className="border-b border-border px-5 py-5 pr-14 text-left sm:px-6">
-            <DialogTitle className="text-xl tracking-[-0.02em]">Create a Domain</DialogTitle>
+            <DialogTitle className="text-xl tracking-[-0.02em]">Create a Collection</DialogTitle>
             <DialogDescription className="max-w-md leading-relaxed">
               Define one business area now. Add its sources and assigned agents after creation.
             </DialogDescription>
@@ -331,7 +331,7 @@ function CreateCollectionDialog({
           <div className="space-y-6 px-5 py-5 sm:px-6 sm:py-6">
             <div>
               <label htmlFor={nameInputId} className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold text-foreground">
-                <span>Domain name</span>
+                <span>Collection name</span>
                 <span aria-hidden="true" className="text-[10px] font-normal tabular-nums text-text-muted">{name.length}/120</span>
               </label>
               <Input
@@ -356,7 +356,7 @@ function CreateCollectionDialog({
                 id={descriptionInputId}
                 value={description}
                 onChange={(event) => { setDescription(event.target.value); setError(null); }}
-                placeholder="What belongs here, and what should stay outside this Domain?"
+                placeholder="What belongs here, and what should stay outside this Collection?"
                 rows={4}
                 maxLength={280}
                 aria-describedby={descriptionHintId}
@@ -365,12 +365,12 @@ function CreateCollectionDialog({
               <p id={descriptionHintId} className="mt-2 text-[11px] leading-relaxed text-text-muted">A clear boundary helps collaborators choose the right sources and assignments.</p>
             </div>
 
-            <section data-slot="domain-create-preview" aria-labelledby="domain-create-preview-heading" className="rounded-xl border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-4 py-3.5">
+            <section data-slot="collection-create-preview" aria-labelledby="collection-create-preview-heading" className="rounded-xl border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-4 py-3.5">
               <div className="flex items-center justify-between gap-3">
-                <h3 id="domain-create-preview-heading" className="text-[10px] font-semibold text-[var(--selection-accent)]">Domain list preview</h3>
+                <h3 id="collection-create-preview-heading" className="text-[10px] font-semibold text-[var(--selection-accent)]">Collection list preview</h3>
                 <span className="text-[9px] text-text-muted">Updates as you type</span>
               </div>
-              <p className="mt-3 truncate text-sm font-semibold text-foreground">{trimmedName || "Untitled Domain"}</p>
+              <p className="mt-3 truncate text-sm font-semibold text-foreground">{trimmedName || "Untitled Collection"}</p>
               <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-muted">{trimmedDescription || "Add a concise purpose so people know what knowledge belongs here."}</p>
               <p className="mt-3 text-[10px] text-text-muted">0 sources · 0 assigned agents</p>
             </section>
@@ -382,7 +382,7 @@ function CreateCollectionDialog({
               <Button type="button" variant="ghost" onClick={() => changeOpen(false)} disabled={submitting}>Cancel</Button>
               <Button type="submit" disabled={!trimmedName || submitting} className="min-w-32">
               {submitting ? <Loader2 className="animate-spin" /> : null}
-              {submitting ? "Creating" : "Create Domain"}
+              {submitting ? "Creating" : "Create Collection"}
               </Button>
             </div>
           </DialogFooter>
@@ -450,7 +450,7 @@ function CollectionOverview({
   const overviewFiles = collection.files?.slice(0, 4) ?? [];
 
   let healthLabel = "Ready";
-  let healthTitle = "Domain knowledge is ready";
+  let healthTitle = "Collection knowledge is ready";
   let healthDescription = `All ${sourceCount ?? 0} source${sourceCount === 1 ? "" : "s"} finished processing and can be reviewed.`;
   let healthClasses = "border-success/25 bg-success/10 text-success";
   let HealthIcon = AlertCircle;
@@ -458,12 +458,12 @@ function CollectionOverview({
   if (collection.filesError) {
     healthLabel = "Unavailable";
     healthTitle = "Source status is unavailable";
-    healthDescription = "Refresh Knowledge to try loading this Domain again.";
+    healthDescription = "Refresh Knowledge to try loading this Collection again.";
     healthClasses = "border-warning/30 bg-warning/10 text-warning";
     HealthIcon = AlertCircle;
   } else if (sourceCount === null) {
     healthLabel = "Checking";
-    healthTitle = "Checking Domain status";
+    healthTitle = "Checking Collection status";
     healthDescription = "Loading source health and processing details.";
     healthClasses = "border-border bg-surface-high text-text-secondary";
     HealthIcon = RefreshCw;
@@ -482,7 +482,7 @@ function CollectionOverview({
   } else if (sourceCount === 0) {
     healthLabel = "Empty";
     healthTitle = "Ready for your first source";
-    healthDescription = "Upload a document to add reusable knowledge to this Domain.";
+    healthDescription = "Upload a document to add reusable knowledge to this Collection.";
     healthClasses = "border-border bg-surface-high text-text-secondary";
   }
 
@@ -501,12 +501,12 @@ function CollectionOverview({
       ? "Assignment visibility is scoped"
       : agentCount === 0
         ? "No agents are assigned yet"
-        : `${agentCount} agent${agentCount === 1 ? " has" : "s have"} access to this Domain`;
+        : `${agentCount} agent${agentCount === 1 ? " has" : "s have"} access to this Collection`;
 
   return (
     <div className="mx-auto w-full max-w-5xl p-4 sm:p-6 lg:p-8">
-      <section data-slot="domain-overview-status" className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
-        <div data-slot="domain-status" className="flex items-start gap-3 bg-surface-low/35 px-4 py-3">
+      <section data-slot="collection-overview-status" className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground">
+        <div data-slot="collection-status" className="flex items-start gap-3 bg-surface-low/35 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             {showHealthIcon ? (
               <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${healthClasses}`}>
@@ -525,7 +525,7 @@ function CollectionOverview({
         </div>
 
         <div
-          data-slot="domain-overview-metrics"
+          data-slot="collection-overview-metrics"
           className="grid gap-px border-t border-border bg-border"
           style={{ gridTemplateColumns: "repeat(auto-fit, minmax(8rem, 1fr))" }}
         >
@@ -569,7 +569,7 @@ function CollectionOverview({
       </section>
 
       <div
-        data-slot="domain-overview-layout"
+        data-slot="collection-overview-layout"
         className="mt-5 grid gap-5"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 24rem), 1fr))" }}
       >
@@ -587,7 +587,7 @@ function CollectionOverview({
           {collection.filesError ? (
             <div role="alert" className="m-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs leading-relaxed text-warning">{collection.filesError}</div>
           ) : collection.files === null ? (
-            <div className="flex min-h-40 items-center justify-center" role="status" aria-label="Loading Domain sources"><Loader2 className="h-5 w-5 animate-spin text-text-muted" /></div>
+            <div className="flex min-h-40 items-center justify-center" role="status" aria-label="Loading Collection sources"><Loader2 className="h-5 w-5 animate-spin text-text-muted" /></div>
           ) : overviewFiles.length > 0 ? (
             <div className="divide-y divide-border">
               {overviewFiles.map((file) => (
@@ -618,7 +618,7 @@ function CollectionOverview({
           ) : (
             <div className="px-5 py-10 text-center">
               <FileText className="mx-auto h-5 w-5 text-text-muted" />
-              <h3 className="mt-3 text-xs font-semibold text-foreground">Build knowledge for this Domain</h3>
+              <h3 className="mt-3 text-xs font-semibold text-foreground">Build knowledge for this Collection</h3>
               <p className="mx-auto mt-1 max-w-sm text-[11px] leading-relaxed text-text-muted">Add source documents to create agent-readable knowledge for this business area.</p>
             </div>
           )}
@@ -630,7 +630,7 @@ function CollectionOverview({
               <div className="min-w-0">
                 <h3 className="text-sm font-semibold text-foreground">Purpose</h3>
                 <p className="mt-2 text-xs leading-relaxed text-text-muted">
-                  {description || "No purpose has been added yet. Describe what belongs here so collaborators know when to use this Domain."}
+                  {description || "No purpose has been added yet. Describe what belongs here so collaborators know when to use this Collection."}
                 </p>
               </div>
               <Button type="button" variant="ghost" size="sm" onClick={onOpenSettings} className="h-8 shrink-0 px-2.5 text-[11px]">
@@ -715,7 +715,7 @@ function CollectionSettings({
     try {
       await onSave(trimmedName, trimmedDescription);
     } catch (cause) {
-      setError(describeKnowledgeHubError(cause, "Domain details couldn't be saved."));
+      setError(describeKnowledgeHubError(cause, "Collection details couldn't be saved."));
     } finally {
       setSaving(false);
     }
@@ -723,28 +723,28 @@ function CollectionSettings({
 
   return (
     <form onSubmit={submit} className="mx-auto w-full max-w-6xl px-4 pb-8 pt-5 sm:px-6 sm:pb-10 lg:px-8">
-      <header data-slot="domain-settings-header" className="mb-5 grid gap-4 border-b border-border pb-5 text-left sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-8">
+      <header data-slot="collection-settings-header" className="mb-5 grid gap-4 border-b border-border pb-5 text-left sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-8">
         <div className="min-w-0 text-left">
-          <h3 className="text-lg font-semibold tracking-[-0.02em] text-foreground">Domain configuration</h3>
+          <h3 className="text-lg font-semibold tracking-[-0.02em] text-foreground">Collection configuration</h3>
           <p className="mt-1 max-w-2xl truncate text-xs leading-relaxed text-text-muted">Set a clear knowledge boundary, then review the account record and access rules behind it.</p>
         </div>
         <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 text-left sm:pt-1">
-          <p data-slot="domain-settings-state" className={`whitespace-nowrap text-xs font-semibold ${editStateClasses}`}>{editStateLabel}</p>
-          <p className="truncate text-[10px] text-text-muted">{canAdminister ? "Published across the Knowledge Hub after you save." : "Domain admin access is required to edit."}</p>
+          <p data-slot="collection-settings-state" className={`whitespace-nowrap text-xs font-semibold ${editStateClasses}`}>{editStateLabel}</p>
+          <p className="truncate text-[10px] text-text-muted">{canAdminister ? "Published across the Knowledge Hub after you save." : "Collection admin access is required to edit."}</p>
         </div>
       </header>
 
-      <div data-slot="domain-settings-layout" className="grid overflow-hidden rounded-2xl border border-border bg-background lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.75fr)]">
-        <section aria-labelledby="domain-catalog-identity-heading" className="min-w-0">
+      <div data-slot="collection-settings-layout" className="grid overflow-hidden rounded-2xl border border-border bg-background lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.75fr)]">
+        <section aria-labelledby="collection-catalog-identity-heading" className="min-w-0">
           <header className="border-b border-border px-4 py-4 sm:px-6 sm:py-5">
-            <h4 id="domain-catalog-identity-heading" className="text-sm font-semibold text-foreground">Catalog identity</h4>
+            <h4 id="collection-catalog-identity-heading" className="text-sm font-semibold text-foreground">Catalog identity</h4>
             <p className="mt-1 max-w-xl text-xs leading-relaxed text-text-muted">Give collaborators a precise name and boundary before they add sources or assign agents.</p>
           </header>
 
           <div className="space-y-6 px-4 py-5 sm:px-6 sm:py-6">
             <div>
               <label className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold text-foreground" htmlFor={nameInputId}>
-                <span>Domain name</span>
+                <span>Collection name</span>
                 <span aria-hidden="true" className="text-[10px] font-normal tabular-nums text-text-muted">{name.length}/120</span>
               </label>
               <Input
@@ -761,7 +761,7 @@ function CollectionSettings({
                 className="h-11 rounded-xl border-border bg-input-background px-3.5 text-sm font-medium"
               />
               <p id={nameHintId} className={`mt-2 text-[11px] leading-relaxed ${trimmedName ? "text-text-muted" : "text-destructive"}`}>
-                {trimmedName ? "Use the business-area name people already recognize." : "A Domain name is required before you can save."}
+                {trimmedName ? "Use the business-area name people already recognize." : "A Collection name is required before you can save."}
               </p>
             </div>
 
@@ -781,20 +781,20 @@ function CollectionSettings({
                 rows={6}
                 maxLength={280}
                 aria-describedby={descriptionHintId}
-                placeholder="What belongs here, and what should stay outside this Domain?"
+                placeholder="What belongs here, and what should stay outside this Collection?"
                 className="min-h-36 resize-y rounded-xl border-border bg-input-background px-3.5 py-3 text-sm leading-relaxed"
               />
               <p id={descriptionHintId} className="mt-2 text-[11px] leading-relaxed text-text-muted">Describe scope and intended use, not a full inventory of sources.</p>
             </div>
           </div>
 
-          <section data-slot="domain-catalog-preview" aria-labelledby="domain-catalog-preview-heading" className="border-t border-border bg-surface-low/25 px-4 py-4 sm:px-6 sm:py-5">
+          <section data-slot="collection-catalog-preview" aria-labelledby="collection-catalog-preview-heading" className="border-t border-border bg-surface-low/25 px-4 py-4 sm:px-6 sm:py-5">
             <div className="flex items-center justify-between gap-3">
-              <h4 id="domain-catalog-preview-heading" className="text-[10px] font-semibold text-text-secondary">Domain list preview</h4>
+              <h4 id="collection-catalog-preview-heading" className="text-[10px] font-semibold text-text-secondary">Collection list preview</h4>
               <span className="text-[9px] text-text-muted">Updates as you type</span>
             </div>
             <div className="mt-3 rounded-xl border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-4 py-3.5">
-              <p className="truncate text-sm font-semibold text-foreground">{trimmedName || "Untitled Domain"}</p>
+              <p className="truncate text-sm font-semibold text-foreground">{trimmedName || "Untitled Collection"}</p>
               <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-text-muted">{trimmedDescription || "No purpose has been added yet."}</p>
               <p className="mt-3 text-[10px] text-text-muted">{sourceSummary} · {assignmentSummary}</p>
             </div>
@@ -802,12 +802,12 @@ function CollectionSettings({
         </section>
 
         <aside className="min-w-0 border-t border-border bg-surface-low/25 lg:border-l lg:border-t-0">
-          <section aria-labelledby="domain-governance-record-heading" className="px-4 py-4 sm:px-5 sm:py-5">
-            <h4 id="domain-governance-record-heading" className="text-sm font-semibold text-foreground">Governance record</h4>
-            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Stable account details that identify this Domain.</p>
+          <section aria-labelledby="collection-governance-record-heading" className="px-4 py-4 sm:px-5 sm:py-5">
+            <h4 id="collection-governance-record-heading" className="text-sm font-semibold text-foreground">Governance record</h4>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Stable account details that identify this Collection.</p>
             <dl data-slot="space-metadata" className="mt-4 divide-y divide-border border-y border-border text-xs">
               <div className="flex items-start justify-between gap-4 py-3">
-                <dt className="text-text-muted">Domain path</dt>
+                <dt className="text-text-muted">Collection path</dt>
                 <dd className="max-w-[65%] break-all text-right font-mono text-[11px] font-medium text-text-secondary">{collection.workspace.slug || "Not available"}</dd>
               </div>
               <div className="flex items-start justify-between gap-4 py-3">
@@ -829,29 +829,29 @@ function CollectionSettings({
             </dl>
           </section>
 
-          <section aria-labelledby="domain-access-boundary-heading" className="border-t border-border px-4 py-4 sm:px-5 sm:py-5">
+          <section aria-labelledby="collection-access-boundary-heading" className="border-t border-border px-4 py-4 sm:px-5 sm:py-5">
             <div className="flex items-start justify-between gap-4">
-              <h4 id="domain-access-boundary-heading" className="text-xs font-semibold text-foreground">Access boundary</h4>
+              <h4 id="collection-access-boundary-heading" className="text-xs font-semibold text-foreground">Access boundary</h4>
               <span className="text-right text-[10px] font-medium text-text-secondary">{assignmentSummary}</span>
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-text-muted">Assignment grants access. It does not prove that an agent synchronized or used a source.</p>
             <button type="button" onClick={onOpenAccess} className="mt-3 text-[11px] font-semibold text-[var(--selection-accent)] hover:underline hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Review assigned agents</button>
           </section>
 
-          <section data-slot="domain-lifecycle" aria-labelledby="domain-lifecycle-heading" className="border-t border-border px-4 py-4 sm:px-5 sm:py-5">
+          <section data-slot="collection-lifecycle" aria-labelledby="collection-lifecycle-heading" className="border-t border-border px-4 py-4 sm:px-5 sm:py-5">
             <div className="flex items-start justify-between gap-4">
-              <h4 id="domain-lifecycle-heading" className="text-xs font-semibold text-foreground">Lifecycle</h4>
+              <h4 id="collection-lifecycle-heading" className="text-xs font-semibold text-foreground">Lifecycle</h4>
               <span className="text-[10px] font-medium text-text-muted">{deleteBlockedReason ? "Protected" : canAdminister ? "Admin controlled" : "Admin only"}</span>
             </div>
             {deleteBlockedReason ? (
               <p className="mt-2 text-[11px] leading-relaxed text-text-muted">{deleteBlockedReason}</p>
             ) : canAdminister ? (
               <>
-                <p className="mt-2 text-[11px] leading-relaxed text-text-muted">Deleting removes this Domain and all of its sources. Assigned agents lose future access.</p>
-                <Button type="button" variant="ghost" size="sm" onClick={onDelete} disabled={busy || saving} className="-ml-2 mt-3 justify-start text-destructive hover:text-destructive">Delete Domain</Button>
+                <p className="mt-2 text-[11px] leading-relaxed text-text-muted">Deleting removes this Collection and all of its sources. Assigned agents lose future access.</p>
+                <Button type="button" variant="ghost" size="sm" onClick={onDelete} disabled={busy || saving} className="-ml-2 mt-3 justify-start text-destructive hover:text-destructive">Delete Collection</Button>
               </>
             ) : (
-              <p className="mt-2 text-[11px] leading-relaxed text-text-muted">A Domain admin controls deletion and other lifecycle changes.</p>
+              <p className="mt-2 text-[11px] leading-relaxed text-text-muted">A Collection admin controls deletion and other lifecycle changes.</p>
             )}
           </section>
         </aside>
@@ -867,7 +867,7 @@ function CollectionSettings({
         <footer data-slot="space-actions" className="sticky bottom-0 z-10 mt-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t border-border bg-background py-3 text-left">
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-text-secondary">{hasChanges ? "Review and publish your updates" : "The published profile is current"}</p>
-            <p className="mt-0.5 hidden truncate text-[10px] leading-relaxed text-text-muted sm:block">{hasChanges ? "Saving updates the Domain wherever it appears in Knowledge Hub." : "Edit the profile when this business boundary changes."}</p>
+            <p className="mt-0.5 hidden truncate text-[10px] leading-relaxed text-text-muted sm:block">{hasChanges ? "Saving updates the Collection wherever it appears in Knowledge Hub." : "Edit the profile when this business boundary changes."}</p>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-2">
             <Button type="button" variant="ghost" onClick={discardChanges} disabled={!hasChanges || busy || saving} className="px-2 text-[11px] sm:px-4 sm:text-sm">Discard changes</Button>
@@ -879,8 +879,8 @@ function CollectionSettings({
         </footer>
       ) : (
         <div className="mt-5 border-t border-border py-4">
-          <p className="text-xs font-semibold text-text-secondary">Read-only Domain</p>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">Domain admin access is required to change these details.</p>
+          <p className="text-xs font-semibold text-text-secondary">Read-only Collection</p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-text-muted">Collection admin access is required to change these details.</p>
         </div>
       )}
     </form>
@@ -1231,7 +1231,7 @@ function AgentAccessRow({
         <button
           type="button"
           aria-pressed={assigned}
-          aria-label={assigned ? `Remove ${name} from Domain` : `Assign ${name} to Domain`}
+          aria-label={assigned ? `Remove ${name} from Collection` : `Assign ${name} to Collection`}
           disabled={actionDisabled}
           onClick={() => void onToggle(!assigned).catch(() => undefined)}
           className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-50 ${assigned ? "border-transparent bg-transparent text-text-muted hover:border-destructive/25 hover:bg-destructive/10 hover:text-destructive" : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.16)]"}`}
@@ -1284,7 +1284,7 @@ function AgentAccess({
   const assignedAgents = agentsError ? [] : agents.filter((agent) => assignedIds.has(agent.id));
   const availableAgents = agentsError ? [] : agents.filter((agent) => !assignedIds.has(agent.id));
   const assignedIdentifiers = agentsError ? collection.agentIds ?? [] : unknownAssignedIds;
-  const domainName = knowledgeWorkspaceName(collection.workspace);
+  const collectionName = knowledgeWorkspaceName(collection.workspace);
 
   if (collection.accessError) {
     return (
@@ -1307,7 +1307,7 @@ function AgentAccess({
           <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-text-muted"><ShieldCheck className="h-5 w-5" /></span>
           <h3 className="mt-4 text-base font-semibold text-foreground">Agent assignments are scoped</h3>
           <p className="mt-2 text-xs leading-relaxed text-text-muted">
-            Domain admins can review all direct agent assignments. Your own access remains unchanged.
+            Collection admins can review all direct agent assignments. Your own access remains unchanged.
           </p>
         </div>
       </div>
@@ -1324,7 +1324,7 @@ function AgentAccess({
               <h3 className="text-base font-semibold tracking-[-0.015em] text-foreground">Agent access boundary</h3>
             </div>
             <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-text-muted">
-              Only assigned agents can access sources in {domainName}.
+              Only assigned agents can access sources in {collectionName}.
             </p>
           </div>
           <div className="flex shrink-0 items-center rounded-full border border-border bg-background px-1 py-1 text-[10px] text-text-muted">
@@ -1343,10 +1343,10 @@ function AgentAccess({
         {agentsLoading ? <span className="sr-only" role="status">Loading agents</span> : null}
 
         <div className="grid gap-px bg-border lg:grid-cols-2">
-          <section data-lane="assigned" aria-labelledby="assigned-domain-agents-heading" className="min-h-72 bg-[rgb(var(--selection-accent-rgb)_/_0.045)]">
+          <section data-lane="assigned" aria-labelledby="assigned-collection-agents-heading" className="min-h-72 bg-[rgb(var(--selection-accent-rgb)_/_0.045)]">
             <header className="flex items-center justify-between gap-3 border-b border-[var(--selection-accent-border)] px-4 py-3.5 sm:px-5">
               <div>
-                <h4 id="assigned-domain-agents-heading" className="text-[13px] font-semibold text-foreground">Inside this Domain</h4>
+                <h4 id="assigned-collection-agents-heading" className="text-[13px] font-semibold text-foreground">Inside this Collection</h4>
                 <p className="mt-0.5 text-[10px] text-text-muted">Direct access granted</p>
               </div>
               <span className="rounded-full border border-[var(--selection-accent-border)] bg-background/80 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-[var(--selection-accent)]">{collection.agentIds.length}</span>
@@ -1380,18 +1380,18 @@ function AgentAccess({
                   <div className="max-w-xs">
                     <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--selection-accent-border)] bg-background/70 text-[var(--selection-accent)]"><ShieldCheck className="h-4 w-4" /></span>
                     <h4 className="mt-3 text-[13px] font-semibold text-foreground">The boundary is empty</h4>
-                    <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Assign an available agent to give it direct access to this Domain.</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Assign an available agent to give it direct access to this Collection.</p>
                   </div>
                 </div>
               )}
             </div>
           </section>
 
-          <section data-lane="available" aria-labelledby="available-domain-agents-heading" className="min-h-72 bg-background">
+          <section data-lane="available" aria-labelledby="available-collection-agents-heading" className="min-h-72 bg-background">
             <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3.5 sm:px-5">
               <div>
-                <h4 id="available-domain-agents-heading" className="text-[13px] font-semibold text-foreground">Available agents</h4>
-                <p className="mt-0.5 text-[10px] text-text-muted">Outside this Domain</p>
+                <h4 id="available-collection-agents-heading" className="text-[13px] font-semibold text-foreground">Available agents</h4>
+                <p className="mt-0.5 text-[10px] text-text-muted">Outside this Collection</p>
               </div>
               <span className="rounded-full border border-border bg-surface-low px-2 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary">{agentsError ? "---" : availableAgents.length}</span>
             </header>
@@ -1421,7 +1421,7 @@ function AgentAccess({
                   <div className="max-w-xs">
                     <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-surface-low text-text-muted"><Bot className="h-4 w-4" /></span>
                     <h4 className="mt-3 text-[13px] font-semibold text-foreground">{agents.length === 0 ? "No agents available" : "Every agent is assigned"}</h4>
-                    <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{agents.length === 0 ? "Launch an agent before assigning it to this Domain." : "All visible agents are already inside this Domain boundary."}</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{agents.length === 0 ? "Launch an agent before assigning it to this Collection." : "All visible agents are already inside this Collection boundary."}</p>
                   </div>
                 </div>
               )}
@@ -1431,7 +1431,7 @@ function AgentAccess({
 
         <footer className="flex items-start gap-2.5 border-t border-border bg-surface-low/25 px-5 py-3.5 text-[11px] leading-relaxed text-text-muted">
           <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--selection-accent)]" />
-          Assignment grants access to this Domain. It does not indicate that an agent has synchronized or used a source.
+          Assignment grants access to this Collection. It does not indicate that an agent has synchronized or used a source.
         </footer>
       </section>
     </div>
@@ -1442,9 +1442,9 @@ export function KnowledgeHub({
   agents = [],
   agentsLoading = false,
   agentsError = null,
-  initialDomainId = null,
+  initialCollectionId = null,
   onRefreshAgents,
-  onSelectedDomainChange,
+  onSelectedCollectionChange,
   headerControlsTargetId,
 }: KnowledgeHubProps) {
   const {
@@ -1478,19 +1478,19 @@ export function KnowledgeHub({
   const searchId = useId();
   const uploadInputId = useId();
   const inspectorTabsId = useId();
-  const domainNameInputId = useId();
+  const collectionNameInputId = useId();
   const collectionsHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const sourcesHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const detailsHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const uploadsOptionRef = useRef<HTMLButtonElement | null>(null);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
-  const [domainFilter, setDomainFilter] = useState<DomainFilter>("all");
-  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(initialDomainId);
+  const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("all");
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(initialCollectionId);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("overview");
   const [sourceInspectorView, setSourceInspectorView] = useState<SourceInspectorView>("preview");
-  const [mobilePane, setMobilePane] = useState<MobilePane>(initialDomainId ? "details" : "collections");
+  const [mobilePane, setMobilePane] = useState<MobilePane>(initialCollectionId ? "details" : "collections");
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [pendingCollectionDelete, setPendingCollectionDelete] = useState<KnowledgeHubCollection | null>(null);
@@ -1520,7 +1520,7 @@ export function KnowledgeHub({
   }, [hasProcessingFiles, refresh]);
 
   const searchedCollections = collections.filter((collection) => collectionMatches(collection, deferredQuery));
-  const domainFilterCounts: Record<DomainFilter, number> = {
+  const collectionFilterCounts: Record<CollectionFilter, number> = {
     all: searchedCollections.length,
     ready: 0,
     processing: 0,
@@ -1528,13 +1528,13 @@ export function KnowledgeHub({
     empty: 0,
   };
   searchedCollections.forEach((collection) => {
-    const state = domainOperationalState(collection);
-    if (state) domainFilterCounts[state] += 1;
+    const state = collectionOperationalState(collection);
+    if (state) collectionFilterCounts[state] += 1;
   });
-  const visibleCollections = domainFilter === "all"
+  const visibleCollections = collectionFilter === "all"
     ? searchedCollections
-    : searchedCollections.filter((collection) => domainOperationalState(collection) === domainFilter);
-  const selectedDomainFilterLabel = DOMAIN_FILTER_OPTIONS.find(([value]) => value === domainFilter)?.[1] ?? "All Domains";
+    : searchedCollections.filter((collection) => collectionOperationalState(collection) === collectionFilter);
+  const selectedCollectionFilterLabel = COLLECTION_FILTER_OPTIONS.find(([value]) => value === collectionFilter)?.[1] ?? "All Collections";
   const selectedCollection = visibleCollections.find((collection) => collection.workspace.id === selectedCollectionId)
     ?? visibleCollections[0]
     ?? null;
@@ -1556,17 +1556,17 @@ export function KnowledgeHub({
   const pageError = actionError || catalogError || (workspacesClient ? null : workspaceConnectionError);
   const selectedBusy = Boolean(busyAction && selectedCollection && busyAction.includes(selectedCollection.workspace.id));
   const mobilePaneOptions: ReadonlyArray<readonly [MobilePane, string]> = sourcesOpen
-    ? [["collections", "Domains"], ["sources", "Sources"], ["details", "Details"]]
-    : [["collections", "Domains"], ["details", "Details"]];
+    ? [["collections", "Collections"], ["sources", "Sources"], ["details", "Details"]]
+    : [["collections", "Collections"], ["details", "Details"]];
   const controlsInSharedHeader = desktopPaneLayout && Boolean(headerControlsTarget);
 
   useEffect(() => {
     if (!selectedCollection || !selectedCollectionName) {
-      onSelectedDomainChange?.(null);
+      onSelectedCollectionChange?.(null);
       return;
     }
     const health = fileHealthCounts(selectedCollection);
-    onSelectedDomainChange?.({
+    onSelectedCollectionChange?.({
       id: selectedCollection.workspace.id,
       name: selectedCollectionName,
       description: selectedCollection.workspace.description,
@@ -1575,7 +1575,7 @@ export function KnowledgeHub({
       processingCount: selectedCollection.files ? health.processing : null,
       failedCount: selectedCollection.files ? health.failed : null,
     });
-  }, [onSelectedDomainChange, selectedCollection, selectedCollectionName]);
+  }, [onSelectedCollectionChange, selectedCollection, selectedCollectionName]);
 
   async function runAction<T>(key: string, action: () => Promise<T>): Promise<T> {
     setBusyAction(key);
@@ -1642,13 +1642,13 @@ export function KnowledgeHub({
     showMobilePane("details");
   }
 
-  function focusDomainNameInput(collection: KnowledgeHubCollection) {
+  function focusCollectionNameInput(collection: KnowledgeHubCollection) {
     setSelectedCollectionId(collection.workspace.id);
     setSelectedFilePath(null);
     setInspectorTab("settings");
     showMobilePane("details");
     window.requestAnimationFrame(() => {
-      const input = document.getElementById(domainNameInputId);
+      const input = document.getElementById(collectionNameInputId);
       if (!(input instanceof HTMLInputElement)) return;
       input.focus();
       input.select();
@@ -1708,13 +1708,13 @@ export function KnowledgeHub({
     return (
       <div role="group" aria-label="Knowledge controls" className="flex w-full flex-wrap items-center justify-end gap-2">
         <label htmlFor={searchId} className="relative block min-w-[min(100%,15rem)] max-w-xl flex-[1_1_20rem]">
-          <span className="sr-only">Search Domains and sources</span>
+          <span className="sr-only">Search Collections and sources</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
           <Input
             id={searchId}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search Domains and sources"
+            placeholder="Search Collections and sources"
             className="h-9 rounded-xl bg-input-background text-xs"
             style={{ paddingLeft: "2.25rem" }}
           />
@@ -1726,7 +1726,7 @@ export function KnowledgeHub({
           {refreshing || agentsLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
         </Button>
         <Button type="button" onClick={() => setCreateOpen(true)} disabled={!workspacesClient || workspacesLoading} className="h-9 shrink-0 rounded-xl px-4">
-          New Domain
+          New Collection
         </Button>
       </div>
     );
@@ -1784,7 +1784,7 @@ export function KnowledgeHub({
               : "minmax(0, 1fr)" }}
           >
             <section
-              data-pane="domains"
+              data-pane="collections"
               data-active={mobilePane === "collections"}
               className="min-h-0 flex-col border-r border-border bg-surface-low/20"
               style={{ display: desktopPaneLayout || mobilePane === "collections" ? "flex" : "none" }}
@@ -1792,29 +1792,29 @@ export function KnowledgeHub({
             >
               <div className="shrink-0 border-b border-border bg-surface-low/30 px-4 py-3.5">
                 <div className="flex items-center gap-2.5">
-                  <h2 ref={collectionsHeadingRef} id="knowledge-collections-heading" tabIndex={-1} className="min-w-0 flex-1 text-sm font-semibold tracking-[-0.015em] text-foreground outline-none">Domains</h2>
+                  <h2 ref={collectionsHeadingRef} id="knowledge-collections-heading" tabIndex={-1} className="min-w-0 flex-1 text-sm font-semibold tracking-[-0.015em] text-foreground outline-none">Collections</h2>
                   <span className="inline-flex min-w-6 items-center justify-center rounded-full border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-text-secondary">{visibleCollections.length}</span>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        aria-label={domainFilter === "all" ? "Filter Domains" : `Filter Domains: ${selectedDomainFilterLabel}`}
-                        title={domainFilter === "all" ? "Filter Domains" : selectedDomainFilterLabel}
-                        className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${domainFilter === "all" ? "border-border bg-background text-text-muted hover:text-foreground" : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"}`}
+                        aria-label={collectionFilter === "all" ? "Filter Collections" : `Filter Collections: ${selectedCollectionFilterLabel}`}
+                        title={collectionFilter === "all" ? "Filter Collections" : selectedCollectionFilterLabel}
+                        className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${collectionFilter === "all" ? "border-border bg-background text-text-muted hover:text-foreground" : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"}`}
                       >
                         <ListFilter className="h-3.5 w-3.5" />
-                        {domainFilter !== "all" ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" /> : null}
+                        {collectionFilter !== "all" ? <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" /> : null}
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" sideOffset={7} className="z-[80] w-52 rounded-xl border-border bg-popover p-1.5 shadow-xl">
-                      <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">Domain state</DropdownMenuLabel>
-                      <DropdownMenuRadioGroup value={domainFilter} onValueChange={(value) => setDomainFilter(value as DomainFilter)}>
-                        {DOMAIN_FILTER_OPTIONS.map(([value, label], index) => (
+                      <DropdownMenuLabel className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-text-muted">Collection state</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup value={collectionFilter} onValueChange={(value) => setCollectionFilter(value as CollectionFilter)}>
+                        {COLLECTION_FILTER_OPTIONS.map(([value, label], index) => (
                           <div key={value}>
                             {index === 1 ? <DropdownMenuSeparator className="my-1" /> : null}
                             <DropdownMenuRadioItem value={value} className="rounded-lg py-2 pl-8 pr-2 text-xs">
                               <span>{label}</span>
-                              <span className="ml-auto tabular-nums text-text-muted">{domainFilterCounts[value]}</span>
+                              <span className="ml-auto tabular-nums text-text-muted">{collectionFilterCounts[value]}</span>
                             </DropdownMenuRadioItem>
                           </div>
                         ))}
@@ -1826,13 +1826,13 @@ export function KnowledgeHub({
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto py-2">
                 {loading && collections.length === 0 ? (
-                  <div className="flex min-h-40 items-center justify-center" role="status" aria-label="Loading Domains">
+                  <div className="flex min-h-40 items-center justify-center" role="status" aria-label="Loading Collections">
                     <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
                   </div>
                 ) : visibleCollections.length > 0 ? visibleCollections.map((collection) => {
                   const selected = collection.workspace.id === selectedCollection?.workspace.id;
                   const counts = fileHealthCounts(collection);
-                  const domainName = knowledgeWorkspaceName(collection.workspace);
+                  const collectionName = knowledgeWorkspaceName(collection.workspace);
                   return (
                     <div
                       key={collection.workspace.id}
@@ -1845,7 +1845,7 @@ export function KnowledgeHub({
                         className="relative w-full px-3 py-3 pr-11 text-left focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                       >
                         <span className="block min-w-0">
-                          <span className="block truncate text-xs font-semibold text-foreground">{domainName}</span>
+                          <span className="block truncate text-xs font-semibold text-foreground">{collectionName}</span>
                           <span className="mt-1 block line-clamp-2 text-[10px] leading-relaxed text-text-muted">{collection.workspace.description || "Add a short description"}</span>
                           <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-text-muted">
                             <span>{collection.files === null ? "Sources unavailable" : `${collection.files.length} source${collection.files.length === 1 ? "" : "s"}`}</span>
@@ -1857,9 +1857,9 @@ export function KnowledgeHub({
                       {collectionCanAdminister(collection) ? (
                         <button
                           type="button"
-                          onClick={() => focusDomainNameInput(collection)}
-                          aria-label={`Rename Domain: ${domainName}`}
-                          title="Rename Domain"
+                          onClick={() => focusCollectionNameInput(collection)}
+                          aria-label={`Rename Collection: ${collectionName}`}
+                          title="Rename Collection"
                           className={`absolute right-2.5 top-2.5 z-20 flex h-7 w-7 items-center justify-center rounded-md border bg-background/85 transition-[color,background-color,opacity] hover:bg-background hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? "border-[var(--selection-accent-border)] text-[var(--selection-accent)] opacity-100" : "border-border text-text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -1869,26 +1869,26 @@ export function KnowledgeHub({
                   );
                 }) : (
                   <div className="px-5 py-10 text-center">
-                    {deferredQuery ? <Search className="mx-auto h-5 w-5 text-text-muted" /> : domainFilter !== "all" ? <ListFilter className="mx-auto h-5 w-5 text-text-muted" /> : <LibraryBig className="mx-auto h-5 w-5 text-text-muted" />}
+                    {deferredQuery ? <Search className="mx-auto h-5 w-5 text-text-muted" /> : collectionFilter !== "all" ? <ListFilter className="mx-auto h-5 w-5 text-text-muted" /> : <LibraryBig className="mx-auto h-5 w-5 text-text-muted" />}
                     <p className="mt-3 text-xs font-semibold text-foreground">
                       {deferredQuery
                         ? "No matching knowledge"
-                        : domainFilter === "ready"
-                          ? "No ready Domains"
-                          : domainFilter === "processing"
-                            ? "No Domains are processing"
-                            : domainFilter === "attention"
-                              ? "No Domains need attention"
-                              : domainFilter === "empty"
-                                ? "No empty Domains"
-                                : "No Domains yet"}
+                        : collectionFilter === "ready"
+                          ? "No ready Collections"
+                          : collectionFilter === "processing"
+                            ? "No Collections are processing"
+                            : collectionFilter === "attention"
+                              ? "No Collections need attention"
+                              : collectionFilter === "empty"
+                                ? "No empty Collections"
+                                : "No Collections yet"}
                     </p>
                     <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
                       {deferredQuery
                         ? "Try another name, path, summary, or keyword."
-                        : domainFilter !== "all"
-                          ? "Choose another filter to see more Domains."
-                          : "Create a Domain to organize knowledge by business area."}
+                        : collectionFilter !== "all"
+                          ? "Choose another filter to see more Collections."
+                          : "Create a Collection to organize knowledge by business area."}
                     </p>
                   </div>
                 )}
@@ -1936,7 +1936,7 @@ export function KnowledgeHub({
               }}
             >
               <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:px-4">
-                  <button type="button" onClick={() => showMobilePane("collections")} aria-label="Back to Domains" className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={{ display: desktopPaneLayout ? "none" : "flex" }}>
+                  <button type="button" onClick={() => showMobilePane("collections")} aria-label="Back to Collections" className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={{ display: desktopPaneLayout ? "none" : "flex" }}>
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <div className="min-w-0 flex-1">
@@ -1949,7 +1949,7 @@ export function KnowledgeHub({
                   >
                     Sources
                   </h2>
-                  <p className="mt-0.5 truncate text-[10px] text-text-muted">{selectedCollection ? `${visibleFiles.length} visible source${visibleFiles.length === 1 ? "" : "s"}` : "Choose a Domain"}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-text-muted">{selectedCollection ? `${visibleFiles.length} visible source${visibleFiles.length === 1 ? "" : "s"}` : "Choose a Collection"}</p>
                 </div>
                 {selectedCollection && collectionCanWrite(selectedCollection) ? (
                   <>
@@ -1989,7 +1989,7 @@ export function KnowledgeHub({
                   <div className="flex h-full min-h-64 items-center justify-center p-6 text-center">
                     <div className="max-w-xs">
                       <FolderOpen className="mx-auto h-5 w-5 text-text-muted" />
-                      <p className="mt-3 text-xs font-semibold text-foreground">Choose a Domain</p>
+                      <p className="mt-3 text-xs font-semibold text-foreground">Choose a Collection</p>
                       <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Its uploaded sources and processing state will appear here.</p>
                     </div>
                   </div>
@@ -2029,7 +2029,7 @@ export function KnowledgeHub({
                     <div className="max-w-xs">
                       {deferredQuery ? <Search className="mx-auto h-5 w-5 text-text-muted" /> : <Upload className="mx-auto h-5 w-5 text-text-muted" />}
                       <p className="mt-3 text-xs font-semibold text-foreground">{deferredQuery ? "No matching sources" : "No sources yet"}</p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{deferredQuery ? "Try another path, summary, or keyword." : collectionCanWrite(selectedCollection) ? "Upload documents to create agent-readable knowledge." : "This Domain has no visible sources."}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{deferredQuery ? "Try another path, summary, or keyword." : collectionCanWrite(selectedCollection) ? "Upload documents to create agent-readable knowledge." : "This Collection has no visible sources."}</p>
                       {!deferredQuery && collectionCanWrite(selectedCollection) ? (
                         <Button type="button" variant="outline" size="sm" onClick={() => document.getElementById(uploadInputId)?.click()} className="mt-4"><Upload /> Upload sources</Button>
                       ) : null}
@@ -2061,7 +2061,7 @@ export function KnowledgeHub({
               {selectedCollection ? (
                 <>
                   <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border bg-background px-3">
-                    <button type="button" onClick={() => showMobilePane(sourcesOpen ? "sources" : "collections")} aria-label={sourcesOpen ? "Back to sources" : "Back to Domains"} className="mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={{ display: desktopPaneLayout ? "none" : "flex" }}>
+                    <button type="button" onClick={() => showMobilePane(sourcesOpen ? "sources" : "collections")} aria-label={sourcesOpen ? "Back to sources" : "Back to Collections"} className="mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={{ display: desktopPaneLayout ? "none" : "flex" }}>
                       <ChevronLeft className="h-4 w-4" />
                     </button>
                     <div role="tablist" aria-label="Knowledge details" className="flex min-w-0 items-center gap-1 overflow-x-auto">
@@ -2169,8 +2169,8 @@ export function KnowledgeHub({
                         key={`${selectedCollection.workspace.id}:${selectedCollection.workspace.updatedAt}:${selectedCollection.workspace.name}:${selectedCollection.workspace.description ?? ""}`}
                         collection={selectedCollection}
                         busy={selectedBusy}
-                        nameInputId={domainNameInputId}
-                        deleteBlockedReason={domainDeletionBlockedReason(selectedCollection.workspace)}
+                        nameInputId={collectionNameInputId}
+                        deleteBlockedReason={collectionDeletionBlockedReason(selectedCollection.workspace)}
                         onSave={async (name, description) => {
                           await runAction(`collection:${selectedCollection.workspace.id}`, () => updateCollection(selectedCollection, { name, description }));
                         }}
@@ -2194,7 +2194,7 @@ export function KnowledgeHub({
                   <div className="max-w-xs">
                     <MoreHorizontal className="mx-auto h-5 w-5 text-text-muted" />
                     <p className="mt-3 text-xs font-semibold text-foreground">Nothing selected</p>
-                    <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Choose a Domain to review its sources, metadata, and assigned agents.</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-text-muted">Choose a Collection to review its sources, metadata, and assigned agents.</p>
                   </div>
                 </div>
               )}
@@ -2206,7 +2206,7 @@ export function KnowledgeHub({
       ) : null}
       <DestructiveConfirmDialog
         open={Boolean(pendingCollectionDelete)}
-        title="Delete Domain?"
+        title="Delete Collection?"
         description={pendingCollectionDelete ? `Delete ${knowledgeWorkspaceName(pendingCollectionDelete.workspace)} and all of its sources? Assigned agents will lose access. Copies already available to a running agent may remain until it refreshes.` : ""}
         busy={Boolean(pendingCollectionDelete && busyAction === `delete:${pendingCollectionDelete.workspace.id}`)}
         onCancel={() => { if (!busyAction) setPendingCollectionDelete(null); }}
@@ -2226,7 +2226,7 @@ export function KnowledgeHub({
       <DestructiveConfirmDialog
         open={Boolean(pendingFileDelete)}
         title="Delete source?"
-        description={pendingFileDelete ? `Remove ${fileName(pendingFileDelete.file)} from this Domain? A copy already available to a running agent may remain until it refreshes.` : ""}
+        description={pendingFileDelete ? `Remove ${fileName(pendingFileDelete.file)} from this Collection? A copy already available to a running agent may remain until it refreshes.` : ""}
         busy={Boolean(pendingFileDelete && busyAction === `delete-file:${pendingFileDelete.collection.workspace.id}:${pendingFileDelete.file.path}`)}
         onCancel={() => { if (!busyAction) setPendingFileDelete(null); }}
         onConfirm={() => {

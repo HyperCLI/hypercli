@@ -17,12 +17,13 @@ import { ChatMessageBubble, ChatThinkingIndicator, type ChatFileBytesReader } fr
 import { isAgentStartable, isAgentStoppable, type Agent } from "@/app/dashboard/agents/types";
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
-import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
+import { AgentEmptyHistory, FEATURED_AGENT_INTEGRATIONS } from "@/components/dashboard/agents/AgentEmptyHistory";
 import { OpenClawModelMenu } from "@/components/dashboard/agents/OpenClawModelMenu";
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
 import { JourneyMissionChatCard, type JourneyMissionChatCardProps } from "@/components/dashboard/journey/JourneyMissionChatCard";
 import { getChatConnectorSuggestion, getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import { parseClawUiActionBlocks, type ClawIntegrationConnectAction, type ClawUiAction } from "@/components/dashboard/chat-integrations/claw-ui-actions";
+import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 import {
   AgentSlashCommandMenu,
   type AgentSlashCommandActions,
@@ -39,7 +40,6 @@ import {
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { AgentChatComposerShell } from "@/components/dashboard/agents/AgentChatComposerShell";
-import { useAgentStartupExperience } from "@/hooks/useAgentStartupExperience";
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 export type ChatPendingFileRemovalState = "removing" | "failed";
@@ -447,30 +447,21 @@ function StoppedChatEmptyState() {
   );
 }
 
-function ChatHistoryState({ failed, onRetry }: { failed?: boolean; onRetry: () => void }) {
+function ChatHistoryErrorState({ onRetry }: { onRetry: () => void }) {
   return (
     <div
-      role={failed ? "alert" : "status"}
+      role="alert"
       className="flex min-h-28 flex-col items-center justify-center px-4 py-6 text-center text-text-muted"
     >
-      {failed ? (
-        <>
-          <p className="text-sm font-medium text-foreground">Could not load this conversation</p>
-          <p className="mt-1 max-w-sm text-xs">Your current messages are unchanged. Try loading the history again.</p>
-          <button
-            type="button"
-            onClick={onRetry}
-            className="mt-3 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-high"
-          >
-            Retry
-          </button>
-        </>
-      ) : (
-        <>
-          <Loader2 className="mb-2 h-4 w-4 animate-spin" />
-          <p className="text-sm">Loading conversation...</p>
-        </>
-      )}
+      <p className="text-sm font-medium text-foreground">Could not load this conversation</p>
+      <p className="mt-1 max-w-sm text-xs">Your current messages are unchanged. Try loading the history again.</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-high"
+      >
+        Retry
+      </button>
     </div>
   );
 }
@@ -522,9 +513,11 @@ function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStat
         ? null
         : isLifecycleStartupStatus(value)
           ? "startup"
-          : current.agentId === targetAgentId
-            ? current.guidedLoadingReason
-            : initialGuidedLoadingReason(value);
+          : value.phase === "gateway" || value.phase === "workspace"
+            ? current.agentId === targetAgentId && current.guidedLoadingReason === "startup"
+              ? "startup"
+              : "initial"
+            : null;
       return {
         agentId: targetAgentId,
         status: value,
@@ -569,6 +562,7 @@ interface AgentChatPanelProps {
   selectedAgent: Agent;
   userAvatarUrl?: string | null;
   userName?: string | null;
+  isDesktopViewport?: boolean;
   isSelectedRunning: boolean;
   chatDragActive: boolean;
   setChatDragActive: (active: boolean) => void;
@@ -615,6 +609,7 @@ export function AgentChatPanel({
   selectedAgent,
   userAvatarUrl,
   userName,
+  isDesktopViewport = false,
   isSelectedRunning,
   chatDragActive,
   setChatDragActive,
@@ -655,7 +650,6 @@ export function AgentChatPanel({
   journeyMissionCard,
   skillDraftTestBanner,
 }: AgentChatPanelProps) {
-  const [loadingExperience] = useAgentStartupExperience();
   const chatScrollContext = `${selectedAgent.id}\0${chat.activeSessionKey}`;
   const selectedAgentDisplayName = agentDisplayLabel(selectedAgent);
   const selectedAgentAvatarUrl = agentProfileImageUrl(selectedAgent);
@@ -690,6 +684,7 @@ export function AgentChatPanel({
   const [fileDropError, setFileDropError] = React.useState("");
   const [activeIntegrationCard, setActiveIntegrationCard] = React.useState<ActiveIntegrationCard | null>(null);
   const [dismissedConnectionSuggestions, setDismissedConnectionSuggestions] = React.useState<{ context: string; ids: string[] }>({ context: "", ids: [] });
+  const [dismissedEmptyStateAppContexts, setDismissedEmptyStateAppContexts] = React.useState<string[]>([]);
   const [retryingFailedReplyKey, setRetryingFailedReplyKey] = React.useState<string | null>(null);
   const [transcriptRenderState, setTranscriptRenderState] = React.useState({
     context: chatScrollContext,
@@ -1177,6 +1172,64 @@ export function AgentChatPanel({
   const handleErrorAction = failedCleanupAction ?? failedRestartAction ?? originRecoveryAction ?? (
     selectedAgent.state === "FAILED" ? undefined : chat.retry
   );
+  const defaultEmptyHistoryReady = displayBootStatus.status === "ready" &&
+    chat.historyPhase !== "loading" &&
+    chat.historyPhase !== "idle" &&
+    chat.historyPhase !== "error" &&
+    !journeyIntro?.enabled &&
+    !journeyMissionCard?.enabled;
+  const showEmptyStateAppSuggestions = isDesktopViewport &&
+    showComposer &&
+    defaultEmptyHistoryReady &&
+    visibleChatMessages.length === 0 &&
+    !activeIntegrationAction &&
+    visibleConnectionSuggestions.length === 0 &&
+    !recording &&
+    !preparingAudioPreview &&
+    !audioUrl &&
+    !dismissedEmptyStateAppContexts.includes(chatScrollContext);
+  const emptyStateAppSuggestionsFooter = showEmptyStateAppSuggestions ? (
+    <div
+      data-testid="agent-empty-state-app-suggestions"
+      className="flex min-h-9 items-center gap-3 px-2.5 py-1.5"
+    >
+      <p className="min-w-0 flex-1 truncate text-[11px] text-text-muted">
+        Get better answers from your apps
+      </p>
+      <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex -space-x-1">
+          {FEATURED_AGENT_INTEGRATIONS.map(({ id, label }) => {
+            const integration = INTEGRATION_BRAND_LOGOS[id];
+            const IntegrationIcon = integration.icon;
+            return (
+              <TooltipHint key={id} label={`Open ${label} setup`}>
+                <button
+                  type="button"
+                  aria-label={`Open ${label} setup`}
+                  onClick={() => openIntegrationChatCard(id)}
+                  className="relative flex size-7 items-center justify-center rounded-full border border-background bg-surface-high shadow-[0_2px_8px_rgb(0_0_0_/_0.16)] transition-[background-color,transform] hover:z-10 hover:-translate-y-0.5 hover:bg-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] motion-reduce:hover:translate-y-0"
+                >
+                  <IntegrationIcon className="size-3.5" style={{ color: integration.color }} />
+                </button>
+              </TooltipHint>
+            );
+          })}
+        </div>
+        <TooltipHint label="Dismiss app suggestions">
+          <button
+            type="button"
+            aria-label="Dismiss app suggestions"
+            onClick={() => setDismissedEmptyStateAppContexts((current) => (
+              current.includes(chatScrollContext) ? current : [...current, chatScrollContext]
+            ))}
+            className="flex size-7 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)]"
+          >
+            <X aria-hidden="true" className="size-3.5" />
+          </button>
+        </TooltipHint>
+      </div>
+    </div>
+  ) : undefined;
   const emptyChatContent = (() => {
     if (displayBootStatus.status === "loading") {
       return (
@@ -1203,7 +1256,7 @@ export function AgentChatPanel({
 
     if (displayBootStatus.status === "ready") {
       if (chat.historyPhase === "loading" || chat.historyPhase === "idle") {
-        return loadingExperience === "tips" ? (
+        return (
           <AgentLoadingState
             guided
             heading="Rejoining your teammate"
@@ -1211,10 +1264,10 @@ export function AgentChatPanel({
             title="Loading conversation"
             detail="Bringing recent messages back into view."
           />
-        ) : <ChatHistoryState onRetry={chat.retry} />;
+        );
       }
       if (chat.historyPhase === "error") {
-        return <ChatHistoryState failed onRetry={chat.retry} />;
+        return <ChatHistoryErrorState onRetry={chat.retry} />;
       }
       if (journeyIntro?.enabled) return <JourneyIntroPanel {...journeyIntro} />;
       if (journeyMissionCard?.enabled) return <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />;
@@ -1675,6 +1728,7 @@ export function AgentChatPanel({
                 </>
               ) : (
                 <AgentChatComposerShell
+                    footer={emptyStateAppSuggestionsFooter}
                     inputRef={textareaRef}
                     aria-label="Message agent"
                     data-testid="agent-chat-composer"

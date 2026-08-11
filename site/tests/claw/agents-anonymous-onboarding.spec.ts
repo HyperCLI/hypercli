@@ -203,7 +203,7 @@ test("keeps a saved draft private until authentication", async ({ page }) => {
   expect(await page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toContain("night-ops-pilot");
 });
 
-test("routes New Domain through authentication", async ({ page }) => {
+test("routes Knowledge Hub Collection access through authentication", async ({ page }) => {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -215,22 +215,14 @@ test("routes New Domain through authentication", async ({ page }) => {
   });
 
   await page.goto("/dashboard/agents");
-  await page.getByRole("button", { name: "Close agent tour" }).click();
   const navigation = page.locator(".agent-desktop-navigation");
-  const workspaceSelector = navigation.getByRole("button", { name: /Current workspace:/ });
-  if (await workspaceSelector.isVisible().catch(() => false)) {
-    await workspaceSelector.click();
-    const newWorkspace = page.getByRole("menuitem", { name: /New Domain/ });
-    await expect(newWorkspace).toBeEnabled();
-    await newWorkspace.click();
-  } else {
-    const launchWorkspace = navigation.getByRole("button", { name: "Launch agent", exact: true }).first();
-    await expect(launchWorkspace).toBeEnabled();
-    await launchWorkspace.click();
-  }
+  const knowledgeHub = navigation.getByRole("button", { name: "Knowledge Hub", exact: true });
+  await expect(knowledgeHub).toBeEnabled();
+  await knowledgeHub.click();
 
   await expect(page.locator("#privy-modal-content")).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "New Domain" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Collections" })).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "New Collection" })).toHaveCount(0);
 });
 
 test("keeps a saved anonymous draft while showing the dashboard preview", async ({ page }) => {

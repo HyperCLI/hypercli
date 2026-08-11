@@ -18,7 +18,7 @@ vi.mock("./FirstAgentSetupWizard", () => ({
       size: "small";
       files: [];
       enableDesktop: boolean;
-      knowledgeDomainId: string | null;
+      knowledgeCollectionId: string | null;
     }) => Promise<string | null>;
     onClose?: () => void;
   }) => (
@@ -33,7 +33,7 @@ vi.mock("./FirstAgentSetupWizard", () => ({
           size: "small",
           files: [],
           enableDesktop: false,
-          knowledgeDomainId: "knowledge-domain-1",
+          knowledgeCollectionId: "knowledge-collection-1",
         }); }}
       >
         Finish setup
@@ -352,41 +352,41 @@ describe("LaunchFirstAgentEmptyState", () => {
     expect(screen.queryByText("private-draft")).not.toBeInTheDocument();
   });
 
-  it("replaces the blocked agent action with a friendly Domain setup CTA", () => {
+  it("replaces the blocked agent action with a friendly Collection setup CTA", () => {
     const onCreate = vi.fn();
     const onCreateWorkspace = vi.fn();
 
     render(
       <LaunchFirstAgentEmptyState
         onCreate={onCreate}
-        creationDisabledReason="Select a Domain before launching an agent."
+        creationDisabledReason="Select a Collection before launching an agent."
         onCreateWorkspace={onCreateWorkspace}
       />,
     );
 
-    const createWorkspace = screen.getByRole("button", { name: /create your first domain/i });
+    const createWorkspace = screen.getByRole("button", { name: /create your first collection/i });
     expect(createWorkspace).toBeEnabled();
     expect(screen.getByText("One quick step, then you can launch your first agent.")).toBeInTheDocument();
-    expect(screen.queryByText("Select a Domain before launching an agent.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Select a Collection before launching an agent.")).not.toBeInTheDocument();
 
     fireEvent.click(createWorkspace);
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
     expect(onCreate).not.toHaveBeenCalled();
   });
 
-  it("keeps the selection guard when Domains exist but none is selected", () => {
+  it("keeps the selection guard when Collections exist but none is selected", () => {
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
-        creationDisabledReason="Select a Domain before launching an agent."
+        creationDisabledReason="Select a Collection before launching an agent."
       />,
     );
 
     expect(screen.getByRole("button", { name: /^Create an agent/ })).toBeDisabled();
-    expect(screen.getAllByText("Select a Domain before launching an agent.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Select a Collection before launching an agent.").length).toBeGreaterThan(0);
   });
 
-  it("keeps first-agent onboarding copy for the account General Domain", () => {
+  it("keeps first-agent onboarding copy for the account General Collection", () => {
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
@@ -398,7 +398,7 @@ describe("LaunchFirstAgentEmptyState", () => {
     expect(screen.queryByRole("heading", { name: /Welcome to.*General/i })).not.toBeInTheDocument();
   });
 
-  it("welcomes established users to an empty Domain by name", () => {
+  it("welcomes established users to an empty Collection by name", () => {
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
@@ -408,7 +408,7 @@ describe("LaunchFirstAgentEmptyState", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Welcome to Personal Workspace" })).toBeInTheDocument();
-    expect(screen.queryByText("Workspace roster")).not.toBeInTheDocument();
+    expect(screen.queryByText("Collection roster")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message agent" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "Message agent" })).toHaveAttribute(
       "placeholder",
@@ -655,11 +655,11 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
-    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-domain-1");
+    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-collection-1");
     expect(operations).toEqual(["create", "refresh", "associate", "refresh"]);
   });
 
-  it("does not select an agent when Workspace association fails", async () => {
+  it("does not select an agent when Collection association fails", async () => {
     const setSelectedAgentId = vi.fn();
     const setError = vi.fn();
     renderAgentList({
@@ -673,7 +673,7 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
 
     await waitFor(() => expect(setError).toHaveBeenCalledWith(
-      "Agent was created, but Domain assignment did not complete: Roster refresh failed",
+      "Agent was created, but Collection assignment did not complete: Roster refresh failed",
     ));
     expect(setSelectedAgentId).not.toHaveBeenCalled();
   });
@@ -696,29 +696,29 @@ describe("AgentList", () => {
     await waitFor(() => expect(setError).toHaveBeenCalledWith(
       "Agent was created, but agents could not be refreshed.",
     ));
-    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-domain-1");
+    expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-collection-1");
     expect(setSelectedAgentId).not.toHaveBeenCalled();
   });
 
-  it("blocks launch entry points without Domain admin access", async () => {
+  it("blocks launch entry points without Collection admin access", async () => {
     const props = renderAgentList({
       sidebarCollapsed: false,
       sidebarCreatorSignal: 1,
-      agentCreationDisabledReason: "Domain admin access is required to add agents.",
+      agentCreationDisabledReason: "Collection admin access is required to add agents.",
     });
 
     const launch = screen.getByRole("button", { name: "Launch agent" });
     expect(launch).toBeDisabled();
-    expect(screen.getByText("Domain admin access is required to add agents.")).toBeInTheDocument();
-    await waitFor(() => expect(props.setError).toHaveBeenCalledWith("Domain admin access is required to add agents."));
+    expect(screen.getByText("Collection admin access is required to add agents.")).toBeInTheDocument();
+    await waitFor(() => expect(props.setError).toHaveBeenCalledWith("Collection admin access is required to add agents."));
     expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
   });
 
-  it("shows a loading status instead of stale Domain agents", () => {
+  it("shows a loading status instead of stale Collection agents", () => {
     renderAgentList({ rosterLoading: true });
 
     expect(document.querySelector(".agents-roster-shell")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent("Loading Domain agents");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading Collection agents");
     expect(screen.queryByRole("button", { name: "Select Test Agent" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeDisabled();
   });
@@ -1197,7 +1197,7 @@ describe("AgentSettingsPanel", () => {
     expect(usageCard).not.toHaveClass("border-foreground");
 
     fireEvent.click(screen.getByRole("button", { name: "Team" }));
-    const teamGroup = screen.getByText("Domain members").closest("section");
+    const teamGroup = screen.getByText("Collection members").closest("section");
     expect(teamGroup).toHaveClass("divide-border", "border-border", "bg-surface-low/30");
     expect(teamGroup).not.toHaveClass("divide-foreground", "border-foreground");
   });
@@ -1286,7 +1286,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Team" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Team" })).toHaveClass("bg-surface-high");
     expect(screen.getByRole("heading", { name: "Team" })).toBeInTheDocument();
-    expect(screen.getByText("Domain members")).toBeInTheDocument();
+    expect(screen.getByText("Collection members")).toBeInTheDocument();
   });
 
   it("signs out from general settings", () => {

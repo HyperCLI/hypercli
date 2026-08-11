@@ -20,7 +20,7 @@ export function AgentTeamSettingsContent() {
                 <Users className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold leading-5 text-foreground">Domain members</p>
+                <p className="text-sm font-semibold leading-5 text-foreground">Collection members</p>
                 <p className="mt-1 text-sm leading-5 text-text-muted">
                   Manage who can collaborate with this agent.
                 </p>

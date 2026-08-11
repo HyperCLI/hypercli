@@ -102,7 +102,7 @@ describe("WorkspaceOverviewPanel", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Research Hub" })).toBeInTheDocument();
-    expect(screen.getByText("In this Domain")).toBeInTheDocument();
+    expect(screen.getByText("In this Collection")).toBeInTheDocument();
     expect(screen.getByText("Across Knowledge Hub")).toBeInTheDocument();
     expect(screen.queryByText("In this Workspace")).not.toBeInTheDocument();
     const knowledgeMetric = await screen.findByRole("link", { name: /Knowledge files/i });

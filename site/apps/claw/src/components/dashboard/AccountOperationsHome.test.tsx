@@ -79,10 +79,10 @@ describe("AccountOperationsHome", () => {
     setOverview();
   });
 
-  it("joins recent conversations, Domain access, and upcoming scheduled work", () => {
+  it("joins recent conversations, Collection access, and upcoming scheduled work", () => {
     const onOpenConversation = vi.fn();
     const onOpenScheduled = vi.fn();
-    const onOpenDomain = vi.fn();
+    const onOpenCollection = vi.fn();
 
     renderWithClient(
       <AccountOperationsHome
@@ -93,16 +93,16 @@ describe("AccountOperationsHome", () => {
         displayName="Franc Reyes"
         onOpenConversation={onOpenConversation}
         onOpenScheduled={onOpenScheduled}
-        onOpenDomain={onOpenDomain}
+        onOpenCollection={onOpenCollection}
       />,
     );
 
     expect(screen.getByRole("heading", { name: /Good (morning|afternoon|evening), Franc\./, level: 1 })).toBeInTheDocument();
     expect(screen.queryByText(/Franc Reyes/)).not.toBeInTheDocument();
     expect(screen.getByText(/Pick up where you left off/i)).toBeInTheDocument();
-    expect(screen.queryByText("Manage Domains")).not.toBeInTheDocument();
+    expect(screen.queryByText("Manage Collections")).not.toBeInTheDocument();
     expect(screen.getAllByText("Market research").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Known Domain access for Market research")).toHaveTextContent("Main Space");
+    expect(screen.getByLabelText("Known Collection access for Market research")).toHaveTextContent("Main Space");
     expect(screen.getByText("via slack")).toBeInTheDocument();
     expect(screen.getByText("openai/gpt-5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "1 scheduled" })).toBeInTheDocument();
@@ -120,7 +120,7 @@ describe("AccountOperationsHome", () => {
     expect(onOpenScheduled).toHaveBeenLastCalledWith("agent-1");
 
     fireEvent.click(screen.getByRole("button", { name: "Main Space" }));
-    expect(onOpenDomain).toHaveBeenCalledWith("space-1");
+    expect(onOpenCollection).toHaveBeenCalledWith("space-1");
   });
 
   it("turns available daily token capacity into a next action", () => {
@@ -152,7 +152,7 @@ describe("AccountOperationsHome", () => {
     expect(onOpenUsage).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces Domain access gaps without claiming observed usage", () => {
+  it("surfaces Collection access gaps without claiming observed usage", () => {
     const onOpenKnowledge = vi.fn();
     setOverview({
       spaces: [{ workspace, visibility: "known", agentIds: [] }],
@@ -169,10 +169,10 @@ describe("AccountOperationsHome", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Knowledge in reach" })).toBeInTheDocument();
-    expect(screen.getByText("1 Domain is waiting to meet an agent.")).toBeInTheDocument();
+    expect(screen.getByText("1 Collection is waiting to meet an agent.")).toBeInTheDocument();
     expect(screen.getByText(/direct access, not observed conversation usage/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect a Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect a Collection" }));
     expect(onOpenKnowledge).toHaveBeenCalledTimes(1);
   });
 
@@ -398,7 +398,7 @@ describe("AccountOperationsHome", () => {
     expect(onOpenScheduled).toHaveBeenCalledWith("agent-1");
   });
 
-  it("does not turn unavailable Domain access into a no-access claim", () => {
+  it("does not turn unavailable Collection access into a no-access claim", () => {
     setOverview({
       spaces: [{ workspace, visibility: "unavailable", agentIds: null }],
     });
@@ -412,8 +412,8 @@ describe("AccountOperationsHome", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Known Domain access for Market research")).toHaveTextContent("Domain access unavailable");
-    expect(screen.queryByText("No known direct Domain access")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Known Collection access for Market research")).toHaveTextContent("Collection access unavailable");
+    expect(screen.queryByText("No known direct Collection access")).not.toBeInTheDocument();
   });
 
   it("does not describe a stopped agent as online or its hidden schedule as empty", () => {

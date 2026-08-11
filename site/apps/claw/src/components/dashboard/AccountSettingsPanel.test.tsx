@@ -193,7 +193,6 @@ vi.mock("@hypercli/shared-ui", async (importOriginal) => {
 
 import AccountSettingsPanel from "./AccountSettingsPanel";
 import { ProfileBillingSection } from "@/components/billing/ProfileBillingSection";
-import { AGENT_STARTUP_EXPERIENCE_STORAGE_KEY } from "@/hooks/useAgentStartupExperience";
 
 function buildSubscriptionSummary() {
   const billingResetAt = new Date("2026-05-21T12:00:00Z");
@@ -406,8 +405,7 @@ describe("AccountSettingsPanel", () => {
     expect(screen.getByRole("link", { name: "Reconnect Slack" })).toHaveAttribute("href", "/slack/start");
   });
 
-  it("defaults to helpful startup tips and persists the Classic alternative", async () => {
-    const user = userEvent.setup();
+  it("aligns the appearance controls without exposing a retired loading preference", () => {
     render(<AccountSettingsPanel />);
 
     const appearanceCard = screen.getByRole("heading", { name: "Appearance" }).closest('[data-slot="card"]');
@@ -421,24 +419,8 @@ describe("AccountSettingsPanel", () => {
       "justify-self-start",
       "md:justify-self-end",
     );
-
-    const startupSwitch = screen.getByRole("switch", { name: "Show helpful loading tips" });
-    const loadingScreenCard = screen.getByRole("heading", { name: "Loading screen" }).closest('[data-slot="card"]');
-    expect(loadingScreenCard?.firstElementChild).toHaveClass(
-      "grid",
-      "w-full",
-      "md:grid-cols-[minmax(0,1fr)_auto]",
-      "md:items-center",
-    );
-    expect(startupSwitch.parentElement).toHaveClass("w-full", "md:w-auto", "md:min-w-[19rem]");
-    expect(startupSwitch).toBeChecked();
-    expect(screen.getByText("Helpful tips")).toBeInTheDocument();
-
-    await user.click(startupSwitch);
-
-    expect(startupSwitch).not.toBeChecked();
-    expect(screen.getByText("Classic")).toBeInTheDocument();
-    expect(window.localStorage.getItem(AGENT_STARTUP_EXPERIENCE_STORAGE_KEY)).toBe("classic");
+    expect(screen.queryByRole("heading", { name: "Loading screen" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Show helpful loading tips" })).not.toBeInTheDocument();
   });
 
   it("renders consolidated billing with card management, cancellation, and agent attribution", async () => {

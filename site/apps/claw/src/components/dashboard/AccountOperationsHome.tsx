@@ -1,7 +1,7 @@
 "use client";
 
 /*
- * THESIS: Home is a daily briefing for an agent team, not an analytics report or a catalog of Domains.
+ * THESIS: Home is a daily briefing for an agent team, not an analytics report or a catalog of Collections.
  * OWN-WORLD: Warm quiet surfaces, conversational copy, open rows, and Claw's green used only for readiness and action.
  * STORY: Understand how the team is doing, continue its latest work, and see what is coming next without decoding a dashboard.
  * FIRST VIEWPORT: A personal briefing and plain-language pulse lead into agent activity and a compact chronological agenda.
@@ -35,7 +35,7 @@ import {
 import type { Agent } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { useAccountOperationsOverview } from "@/hooks/useAccountOperationsOverview";
-import { domainDisplayName } from "@/lib/account-domain";
+import { collectionDisplayName } from "@/lib/account-collection";
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { formatTokens } from "@/lib/format";
 import {
@@ -64,7 +64,7 @@ export type AccountOperationsHomeProps = {
   onOpenAgent?: (agentId: string) => void;
   onOpenConversation?: (agentId: string, sessionKey: string) => void;
   onOpenScheduled?: (agentId: string) => void;
-  onOpenDomain?: (domainId: string) => void;
+  onOpenCollection?: (collectionId: string) => void;
   onOpenKnowledge?: () => void;
   onOpenUsage?: () => void;
   onOpenAgentLauncher?: () => void;
@@ -211,7 +211,7 @@ export function AccountOperationsHome({
   onOpenAgent,
   onOpenConversation,
   onOpenScheduled,
-  onOpenDomain,
+  onOpenCollection,
   onOpenKnowledge,
   onOpenUsage,
   onOpenAgentLauncher,
@@ -246,10 +246,10 @@ export function AccountOperationsHome({
       knownSpacesByAgent.set(agentId, current);
     }
   }
-  const knownDomainAccess = overview.spaces.filter((space) => space.visibility === "known" && space.agentIds !== null);
-  const domainsInReachCount = knownDomainAccess.filter((space) => space.agentIds!.length > 0).length;
-  const domainsWaitingCount = knownDomainAccess.filter((space) => space.agentIds!.length === 0).length;
-  const agentsWithDomainAccessCount = new Set(knownDomainAccess.flatMap((space) => space.agentIds ?? [])).size;
+  const knownCollectionAccess = overview.spaces.filter((space) => space.visibility === "known" && space.agentIds !== null);
+  const collectionsInReachCount = knownCollectionAccess.filter((space) => space.agentIds!.length > 0).length;
+  const collectionsWaitingCount = knownCollectionAccess.filter((space) => space.agentIds!.length === 0).length;
+  const agentsWithCollectionAccessCount = new Set(knownCollectionAccess.flatMap((space) => space.agentIds ?? [])).size;
 
   const recentConversations: RecentConversation[] = Object.values(overview.agents)
     .flatMap((snapshot) => {
@@ -322,31 +322,31 @@ export function AccountOperationsHome({
   const knowledgeHeadline = workspaces.length === 0
     ? "A blank shelf, ready for the first thing worth remembering."
     : spaceAccessUnknown
-      ? `${domainsInReachCount} ${domainsInReachCount === 1 ? "Domain is" : "Domains are"} known to be in reach.`
-      : domainsInReachCount === 0
-        ? `${workspaces.length} ${workspaces.length === 1 ? "Domain is" : "Domains are"} waiting to meet an agent.`
-        : domainsWaitingCount > 0
-          ? `${domainsInReachCount} of ${workspaces.length} Domains are in reach.`
-          : `Every Domain has an agent in reach.`;
+      ? `${collectionsInReachCount} ${collectionsInReachCount === 1 ? "Collection is" : "Collections are"} known to be in reach.`
+      : collectionsInReachCount === 0
+        ? `${workspaces.length} ${workspaces.length === 1 ? "Collection is" : "Collections are"} waiting to meet an agent.`
+        : collectionsWaitingCount > 0
+          ? `${collectionsInReachCount} of ${workspaces.length} Collections are in reach.`
+          : `Every Collection has an agent in reach.`;
   const knowledgeCopy = workspaces.length === 0
     ? "Start with the docs, decisions, or references your team should carry forward."
     : spaceAccessUnknown
       ? "Some access details are still coming into view, so we will not guess about the rest."
-      : domainsInReachCount === 0
+      : collectionsInReachCount === 0
         ? "Connect one and turn stored knowledge into useful context for the next task."
-        : domainsWaitingCount > 0
-          ? `${domainsWaitingCount} ${domainsWaitingCount === 1 ? "is" : "are"} still waiting for a teammate. A thoughtful match can make old context useful again.`
+        : collectionsWaitingCount > 0
+          ? `${collectionsWaitingCount} ${collectionsWaitingCount === 1 ? "is" : "are"} still waiting for a teammate. A thoughtful match can make old context useful again.`
           : "Your shared context has a path to the team. Keep it fresh as the work changes.";
   const knowledgeActionLabel = workspaces.length === 0
-    ? "Build your first Domain"
-    : domainsInReachCount === 0 || domainsWaitingCount > 0
-      ? "Connect a Domain"
+    ? "Build your first Collection"
+    : collectionsInReachCount === 0 || collectionsWaitingCount > 0
+      ? "Connect a Collection"
       : "Open Knowledge Hub";
 
   const coverageNotice = agentsError
     ? "The roster is unavailable, so this brief may be incomplete."
     : workspacesError || (!spaceAccessLoading && unavailableSpaceCount > 0)
-      ? "Some Domain access details are unavailable. Unknown access remains clearly marked below."
+      ? "Some Collection access details are unavailable. Unknown access remains clearly marked below."
       : unavailableGatewayCount > 0 || partialGatewayCount > 0
         ? `${unavailableGatewayCount + partialGatewayCount} ${unavailableGatewayCount + partialGatewayCount === 1 ? "agent has" : "agents have"} incomplete activity data. Everything we could reach is still shown.`
         : null;
@@ -506,12 +506,12 @@ export function AccountOperationsHome({
                   const spaceDetail = spaces.length > 0
                     ? null
                     : spaceAccessLoading
-                      ? "Checking Domain access"
+                      ? "Checking Collection access"
                       : unavailableSpaceCount > 0
-                        ? "Domain access unavailable"
+                        ? "Collection access unavailable"
                         : restrictedSpaceCount > 0
-                          ? "Some Domain access is restricted"
-                          : "No known direct Domain access";
+                          ? "Some Collection access is restricted"
+                          : "No known direct Collection access";
                   return (
                     <div key={`${agent.id}:${session.key}`}>
                       {group !== previousGroup ? <p className={cn("border-t border-border bg-background/20 px-4 py-1.5 text-[9px] font-semibold text-text-muted sm:px-5", index === 0 && "border-t-0")}>{group}</p> : null}
@@ -544,24 +544,24 @@ export function AccountOperationsHome({
                             <span className="shrink-0">{session.messageCount} {session.messageCount === 1 ? "message" : "messages"}</span>
                           </span>
                         </button>
-                        <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:col-start-3 lg:row-start-1 lg:justify-end" aria-label={`Known Domain access for ${title}`}>
+                        <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:col-start-3 lg:row-start-1 lg:justify-end" aria-label={`Known Collection access for ${title}`}>
                           {spaces.length > 0 ? spaces.slice(0, 1).map((space) => (
                             <button
                               key={space.id}
                               type="button"
-                              onClick={() => onOpenDomain?.(space.id)}
-                              disabled={!onOpenDomain}
+                              onClick={() => onOpenCollection?.(space.id)}
+                              disabled={!onOpenCollection}
                               className="min-h-6 max-w-32 truncate rounded-full border border-border bg-background/60 px-2 text-[9px] font-medium text-text-secondary transition-colors hover:border-border-strong hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] disabled:cursor-default"
-                              title={`Open ${domainDisplayName(space)}`}
+                              title={`Open ${collectionDisplayName(space)}`}
                             >
-                              {domainDisplayName(space)}
+                              {collectionDisplayName(space)}
                             </button>
-                          )) : <span className="truncate text-[9px] text-text-muted">{spaceDetail === "No known direct Domain access" ? "No Domain access yet" : spaceDetail}</span>}
+                          )) : <span className="truncate text-[9px] text-text-muted">{spaceDetail === "No known direct Collection access" ? "No Collection access yet" : spaceDetail}</span>}
                           {spaces.length > 1 ? <span className="text-[9px] text-text-muted">+{spaces.length - 1}</span> : null}
                           {spaces.length > 0 && spaceAccessUnknown ? (
-                            <span className="inline-flex text-text-muted" title="Domain access details are incomplete">
+                            <span className="inline-flex text-text-muted" title="Collection access details are incomplete">
                               <CircleAlert className="h-3 w-3" />
-                              <span className="sr-only">Domain access details are incomplete</span>
+                              <span className="sr-only">Collection access details are incomplete</span>
                             </span>
                           ) : null}
                           {linkedAgenda.length > 0 ? (
@@ -830,11 +830,11 @@ export function AccountOperationsHome({
             <div className="flex h-full flex-col px-4 py-4 sm:px-5">
               <div className="min-w-0">
                 <h2 id="account-home-knowledge-heading" className="text-[15px] font-semibold tracking-[-0.015em] text-foreground">Knowledge in reach</h2>
-                <p className="mt-0.5 text-[9px] text-text-muted">See which Domains can already help an agent.</p>
+                <p className="mt-0.5 text-[9px] text-text-muted">See which Collections can already help an agent.</p>
               </div>
 
               {spaceAccessLoading ? (
-                <div className="mt-4 space-y-3" role="status" aria-label="Reading Domain access">
+                <div className="mt-4 space-y-3" role="status" aria-label="Reading Collection access">
                   <Skeleton className="h-4 w-4/5" />
                   <Skeleton className="h-3 w-full" />
                   <Skeleton className="h-14 w-full rounded-lg" />
@@ -846,16 +846,16 @@ export function AccountOperationsHome({
 
                   <dl className="mt-4 grid grid-cols-3 border-y border-border py-2.5 text-center">
                     <div className="px-1">
-                      <dt className="text-[8px] text-text-muted">Domains</dt>
+                      <dt className="text-[8px] text-text-muted">Collections</dt>
                       <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-foreground">{workspaces.length}</dd>
                     </div>
                     <div className="border-x border-border px-1">
                       <dt className="text-[8px] text-text-muted">In reach</dt>
-                      <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-foreground">{domainsInReachCount}</dd>
+                      <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-foreground">{collectionsInReachCount}</dd>
                     </div>
                     <div className="px-1">
                       <dt className="text-[8px] text-text-muted">Agents</dt>
-                      <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-foreground">{agentsWithDomainAccessCount}</dd>
+                      <dd className="mt-0.5 text-[13px] font-semibold tabular-nums text-foreground">{agentsWithCollectionAccessCount}</dd>
                     </div>
                   </dl>
 

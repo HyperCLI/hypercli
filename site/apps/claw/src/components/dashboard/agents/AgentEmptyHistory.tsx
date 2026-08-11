@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 
 import type { AgentSlashCommandActions } from "@/components/dashboard/agents/AgentSlashCommandMenu";
+import { TooltipHint } from "@/components/ClawTooltip";
+import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 
 type AgentEmptyHistoryActions = Pick<
   AgentSlashCommandActions,
@@ -35,7 +37,16 @@ interface Capability {
   description: string;
   icon: LucideIcon;
   actions: CapabilityAction[];
+  showIntegrationIcons?: boolean;
 }
+
+export const FEATURED_AGENT_INTEGRATIONS = [
+  { id: "github", label: "GitHub" },
+  { id: "discord", label: "Discord" },
+  { id: "telegram", label: "Telegram" },
+  { id: "whatsapp", label: "WhatsApp" },
+  { id: "slack", label: "Slack" },
+] as const;
 
 export const RETURNING_AGENT_SALUTATIONS = [
   "What are we working on today",
@@ -101,6 +112,7 @@ export function AgentEmptyHistory({
       title: "Uses Your Tools",
       description: "Securely connect to your apps, APIs, and accounts so your agent can work across the software you already use.",
       icon: Plug,
+      showIntegrationIcons: true,
       actions: actions?.onOpenIntegrations ? [{
         label: "Browse integrations",
         ariaLabel: "Open Integrations",
@@ -166,6 +178,28 @@ export function AgentEmptyHistory({
               </div>
               {capability.actions.length > 0 ? (
                 <div className="agent-empty-history-capability-actions col-start-2 flex flex-wrap items-center gap-1.5">
+                  {capability.showIntegrationIcons && actions?.onOpenIntegrationChatCard ? (
+                    <ul aria-label="Featured integrations" className="mr-1 flex -space-x-1">
+                      {FEATURED_AGENT_INTEGRATIONS.map(({ id, label }) => {
+                        const integration = INTEGRATION_BRAND_LOGOS[id];
+                        const IntegrationIcon = integration.icon;
+                        return (
+                          <li key={id} className="relative size-7">
+                            <TooltipHint label={`Open ${label} setup`}>
+                              <button
+                                type="button"
+                                aria-label={`Open ${label} setup`}
+                                onClick={() => actions.onOpenIntegrationChatCard?.(id)}
+                                className="relative flex size-7 items-center justify-center rounded-full border border-background bg-surface-high shadow-[0_2px_8px_rgb(0_0_0_/_0.16)] transition-[background-color,transform] hover:z-10 hover:-translate-y-0.5 hover:bg-secondary focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] motion-reduce:hover:translate-y-0"
+                              >
+                                <IntegrationIcon className="size-3.5" style={{ color: integration.color }} />
+                              </button>
+                            </TooltipHint>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
                   {capability.actions.map((action) => (
                     <Button
                       key={action.ariaLabel}

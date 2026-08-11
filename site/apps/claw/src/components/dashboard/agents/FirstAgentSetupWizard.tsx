@@ -67,10 +67,10 @@ export interface FirstAgentSetupCreateParams {
   enableDesktop: boolean;
   enableMemoryIndex?: boolean;
   customImage?: string | null;
-  knowledgeDomainId: string | null;
+  knowledgeCollectionId: string | null;
 }
 
-export interface KnowledgeDomainOption {
+export interface KnowledgeCollectionOption {
   id: string;
   name: string;
   role: string | null;
@@ -109,8 +109,8 @@ interface FirstAgentSetupWizardProps {
   onStartFresh?: () => void;
   draftPrincipalId?: string | null;
   draftWorkspaceId?: string | null;
-  knowledgeDomains?: KnowledgeDomainOption[];
-  knowledgeDomainsLoading?: boolean;
+  knowledgeCollections?: KnowledgeCollectionOption[];
+  knowledgeCollectionsLoading?: boolean;
   size?: "default" | "embedded" | "inline" | "large";
 }
 
@@ -841,8 +841,8 @@ export function FirstAgentSetupWizard({
   onStartFresh,
   draftPrincipalId = null,
   draftWorkspaceId = null,
-  knowledgeDomains = [],
-  knowledgeDomainsLoading = false,
+  knowledgeCollections = [],
+  knowledgeCollectionsLoading = false,
   size = "default",
 }: FirstAgentSetupWizardProps) {
   const [restoredDraft] = React.useState(() => {
@@ -867,7 +867,7 @@ export function FirstAgentSetupWizard({
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
-  const [knowledgeDomainId, setKnowledgeDomainId] = React.useState<string | null>(restoredDraft?.knowledgeDomainId ?? null);
+  const [knowledgeCollectionId, setKnowledgeCollectionId] = React.useState<string | null>(restoredDraft?.knowledgeCollectionId ?? null);
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [workspaceStage, setWorkspaceStage] = React.useState<OpenClawBootstrapStage>(() => restoredDraft ? "personality" : "objective");
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
@@ -1041,7 +1041,7 @@ export function FirstAgentSetupWizard({
       customImage: enableCustomImage ? effectiveCustomImage.trim() : "",
       principalId: draftPrincipalId,
       workspaceId: draftWorkspaceId,
-      knowledgeDomainId,
+      knowledgeCollectionId,
       bootstrapDraft,
     });
   }, [
@@ -1055,7 +1055,7 @@ export function FirstAgentSetupWizard({
     enableDesktop,
     enableMemoryIndex,
     initialPlanId,
-    knowledgeDomainId,
+    knowledgeCollectionId,
     restoredDraft?.plan,
     restoredDraft?.size,
     selectedCatalogPlanId,
@@ -1223,7 +1223,7 @@ export function FirstAgentSetupWizard({
         enableDesktop,
         enableMemoryIndex,
         customImage: selectedCustomImage,
-        knowledgeDomainId,
+        knowledgeCollectionId,
       });
       if (createdId && typeof window !== "undefined") {
         clearFirstAgentSetupDraft();
@@ -1512,22 +1512,22 @@ export function FirstAgentSetupWizard({
                 </div>
 
                 <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
-                  <label htmlFor="first-agent-knowledge-domain" className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Initial Knowledge Domain</label>
+                  <label htmlFor="first-agent-knowledge-collection" className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Initial Collection</label>
                   <div className={cx("relative", largePresentation ? "mt-3" : "mt-2")}>
                     <select
-                      id="first-agent-knowledge-domain"
-                      value={knowledgeDomainId ?? ""}
-                      onChange={(event) => setKnowledgeDomainId(event.target.value || null)}
-                      disabled={knowledgeDomainsLoading}
+                      id="first-agent-knowledge-collection"
+                      value={knowledgeCollectionId ?? ""}
+                      onChange={(event) => setKnowledgeCollectionId(event.target.value || null)}
+                      disabled={knowledgeCollectionsLoading}
                       className={cx(
                         "peer w-full appearance-none border border-border bg-background text-foreground outline-none transition-colors focus:border-border-strong focus-visible:ring-2 focus-visible:ring-selection-accent/40 disabled:cursor-wait disabled:opacity-60",
                         largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] pl-4 pr-14 text-[clamp(0.9375rem,1.7vw,1.125rem)]" : "h-10 rounded-[10px] pl-3 pr-10 text-[13px]",
                       )}
                     >
-                      <option value="">{knowledgeDomainsLoading ? "Loading Domains..." : "No Domain"}</option>
-                      {knowledgeDomains.map((domain) => (
-                        <option key={domain.id} value={domain.id} disabled={domain.role?.toLowerCase() !== "admin"}>
-                          {domain.name}{domain.role?.toLowerCase() === "admin" ? "" : " (admin access required)"}
+                      <option value="">{knowledgeCollectionsLoading ? "Loading Collections..." : "No Collection"}</option>
+                      {knowledgeCollections.map((collection) => (
+                        <option key={collection.id} value={collection.id} disabled={collection.role?.toLowerCase() !== "admin"}>
+                          {collection.name}{collection.role?.toLowerCase() === "admin" ? "" : " (admin access required)"}
                         </option>
                       ))}
                     </select>
@@ -1536,7 +1536,7 @@ export function FirstAgentSetupWizard({
                       largePresentation ? "right-5 h-5 w-5" : "right-3 h-4 w-4",
                     )} />
                   </div>
-                  <p className={cx("text-text-muted", largePresentation ? "mt-2 text-[13px] leading-5" : "mt-1.5 text-[11px] leading-4")}>Assign only the business knowledge this agent needs. You can change Domain access later.</p>
+                  <p className={cx("text-text-muted", largePresentation ? "mt-2 text-[13px] leading-5" : "mt-1.5 text-[11px] leading-4")}>Assign only the business knowledge this agent needs. You can change Collection access later.</p>
                 </div>
 
                 <details

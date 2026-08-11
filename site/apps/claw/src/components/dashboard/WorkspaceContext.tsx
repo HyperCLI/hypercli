@@ -20,11 +20,11 @@ import type {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createWorkspacesClient } from "@/lib/agent-client";
 import {
-  GENERAL_DOMAIN_NAME,
-  GENERAL_DOMAIN_SLUG,
-  domainDisplayName,
-  isGeneralDomain,
-} from "@/lib/account-domain";
+  GENERAL_COLLECTION_NAME,
+  GENERAL_COLLECTION_SLUG,
+  collectionDisplayName,
+  isGeneralCollection,
+} from "@/lib/account-collection";
 
 const WORKSPACE_SELECTION_STORAGE_PREFIX = "claw.selectedWorkspace.v1";
 const EMPTY_WORKSPACES: Workspace[] = [];
@@ -47,7 +47,7 @@ type WorkspaceContextValue = {
   createWorkspace: (input: WorkspaceCreateInput) => Promise<Workspace>;
   refreshWorkspaces: (preferredWorkspaceId?: string | null) => Promise<boolean>;
   refreshSelectedWorkspaceAgents: () => Promise<boolean>;
-  assignAgentToDomain: (agentId: string, domainId: string) => Promise<void>;
+  assignAgentToCollection: (agentId: string, collectionId: string) => Promise<void>;
   associateAgentWithSelectedWorkspace: (agentId: string) => Promise<void>;
 };
 
@@ -82,16 +82,16 @@ type WorkspaceAgentRoster = {
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 
 export function workspaceDisplayName(workspace: Workspace): string {
-  return domainDisplayName(workspace);
+  return collectionDisplayName(workspace);
 }
 
 export function workspaceAgentCreationDisabledReason(
   workspace: Workspace | null,
   rosterError: string | null,
 ): string | null {
-  if (!workspace) return "Select a Domain before launching an agent.";
-  if (workspace.role !== "admin") return "Domain admin access is required to add agents.";
-  if (rosterError) return "Domain agents could not be loaded. Refresh before launching an agent.";
+  if (!workspace) return "Select a Collection before launching an agent.";
+  if (workspace.role !== "admin") return "Collection admin access is required to add agents.";
+  if (rosterError) return "Collection agents could not be loaded. Refresh before launching an agent.";
   return null;
 }
 
@@ -123,7 +123,7 @@ function describeWorkspaceError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-async function confirmGeneralDomain(client: WorkspacesAPI, candidate: Workspace): Promise<Workspace> {
+async function confirmGeneralCollection(client: WorkspacesAPI, candidate: Workspace): Promise<Workspace> {
   try {
     const confirmed = await client.get(candidate.id);
     if (confirmed.role === "admin") return confirmed;
@@ -133,7 +133,7 @@ async function confirmGeneralDomain(client: WorkspacesAPI, candidate: Workspace)
   const listed = await client.list();
   const confirmed = listed.find((workspace) => workspace.id === candidate.id);
   if (confirmed?.role === "admin") return confirmed;
-  throw new Error(`${GENERAL_DOMAIN_NAME} was created, but admin access is not ready. Refresh Domains to retry.`);
+  throw new Error(`${GENERAL_COLLECTION_NAME} was created, but admin access is not ready. Refresh Collections to retry.`);
 }
 
 function workspaceErrorStatus(error: unknown): number | null {
@@ -158,7 +158,7 @@ async function listWorkspaceAgentAssociations(
     if (workspaceErrorStatus(cause) !== 404) throw cause;
     // Older Workspace services expose agent associations only through the admin grants catalog.
     if (workspace.role !== "admin") {
-      throw new Error("Domain agent rosters for non-admin members require a Knowledge Hub service update.");
+      throw new Error("Collection agent rosters for non-admin members require a Knowledge Hub service update.");
     }
 
     const grants = await client.listGrants(workspace.id);
@@ -209,7 +209,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   });
   const listRequestRef = useRef(0);
   const agentRosterRequestRef = useRef(0);
-  const generalDomainCreationRef = useRef<{
+  const generalCollectionCreationRef = useRef<{
     principalId: string;
     client: WorkspacesAPI;
     promise: Promise<Workspace>;
@@ -273,7 +273,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
             principalId,
             tokenGetter: getToken,
             client: null,
-            error: describeWorkspaceError(cause, "Domain access is unavailable right now."),
+            error: describeWorkspaceError(cause, "Collection access is unavailable right now."),
           });
         }
       })();
@@ -308,16 +308,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         || activeConnectionRef.current.client !== workspacesClient
         || activeConnectionRef.current.principalId !== principalId
       ) return false;
-      if (!listed.some(isGeneralDomain)) {
+      if (!listed.some(isGeneralCollection)) {
         const shouldSelectGeneral = listed.length === 0 && !preferredWorkspaceId;
-        const existingCreation = generalDomainCreationRef.current;
+        const existingCreation = generalCollectionCreationRef.current;
         const creationPromise = existingCreation?.principalId === principalId
           && existingCreation.client === workspacesClient
           ? existingCreation.promise
           : workspacesClient
-              .create({ name: GENERAL_DOMAIN_NAME, slug: GENERAL_DOMAIN_SLUG })
-              .then((created) => confirmGeneralDomain(workspacesClient, created));
-        generalDomainCreationRef.current = {
+              .create({ name: GENERAL_COLLECTION_NAME, slug: GENERAL_COLLECTION_SLUG })
+              .then((created) => confirmGeneralCollection(workspacesClient, created));
+        generalCollectionCreationRef.current = {
           principalId,
           client: workspacesClient,
           promise: creationPromise,
@@ -329,16 +329,16 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         } catch (cause) {
           if (workspaceErrorStatus(cause) !== 409) throw cause;
           const recovered = await workspacesClient.list();
-          const general = recovered.find(isGeneralDomain);
+          const general = recovered.find(isGeneralCollection);
           if (!general) throw cause;
           const confirmed = general.role === "admin"
             ? general
-            : await confirmGeneralDomain(workspacesClient, general);
+            : await confirmGeneralCollection(workspacesClient, general);
           listed = recovered.map((workspace) => workspace.id === confirmed.id ? confirmed : workspace);
           if (shouldSelectGeneral) selectionPreference = confirmed.id;
         } finally {
-          if (generalDomainCreationRef.current?.promise === creationPromise) {
-            generalDomainCreationRef.current = null;
+          if (generalCollectionCreationRef.current?.promise === creationPromise) {
+            generalCollectionCreationRef.current = null;
           }
         }
         if (
@@ -440,7 +440,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         workspaceId,
         agentIds: EMPTY_AGENT_IDS,
         loading: false,
-        error: describeWorkspaceError(cause, "Unable to load Domain agents."),
+        error: describeWorkspaceError(cause, "Unable to load Collection agents."),
       });
       return false;
     }
@@ -485,12 +485,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [principalId, workspaces, workspacesClient]);
 
   const createWorkspace = useCallback(async (input: WorkspaceCreateInput) => {
-    if (!workspacesClient) throw new Error("Domain access is unavailable right now.");
+    if (!workspacesClient) throw new Error("Collection access is unavailable right now.");
     const created = await workspacesClient.create(input);
     if (
       activeConnectionRef.current.client !== workspacesClient
       || activeConnectionRef.current.principalId !== principalId
-    ) throw new Error("The signed-in account changed before Domain creation finished.");
+    ) throw new Error("The signed-in account changed before Collection creation finished.");
     const refreshed = await refreshWorkspaces(created.id);
     if (!refreshed) {
       setCatalog((current) => current.client === workspacesClient ? {
@@ -504,19 +504,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return created;
   }, [principalId, refreshWorkspaces, workspacesClient]);
 
-  const assignAgentToDomain = useCallback(async (agentId: string, domainId: string) => {
+  const assignAgentToCollection = useCallback(async (agentId: string, collectionId: string) => {
     const capturedPrincipalId = principalId;
     const client = workspacesClient;
-    const workspace = workspaces.find((candidate) => candidate.id === domainId);
+    const workspace = workspaces.find((candidate) => candidate.id === collectionId);
     if (
       !capturedPrincipalId
       || !client
       || !workspace
       || activeConnectionRef.current.principalId !== capturedPrincipalId
       || activeConnectionRef.current.client !== client
-    ) throw new Error("Knowledge Domain access is unavailable right now.");
+    ) throw new Error("Collection access is unavailable right now.");
     if (workspace.role !== "admin") {
-      throw new Error("Domain admin access is required to assign agents.");
+      throw new Error("Collection admin access is required to assign agents.");
     }
 
     await client.grant(workspace.id, {
@@ -528,20 +528,20 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       activeConnectionRef.current.principalId !== capturedPrincipalId
       || activeConnectionRef.current.client !== client
     ) {
-      throw new Error("The signed-in account changed before the Domain assignment finished.");
+      throw new Error("The signed-in account changed before the Collection assignment finished.");
     }
     if (selectedWorkspaceId === workspace.id) {
       const refreshed = await refreshSelectedWorkspaceAgents();
       if (!refreshed) {
-        throw new Error("The agent was assigned to the Domain, but its agent list could not be refreshed.");
+        throw new Error("The agent was assigned to the Collection, but its agent list could not be refreshed.");
       }
     }
   }, [principalId, refreshSelectedWorkspaceAgents, selectedWorkspaceId, workspaces, workspacesClient]);
 
   const associateAgentWithSelectedWorkspace = useCallback(async (agentId: string) => {
-    if (!selectedWorkspaceId) throw new Error("Domain access is unavailable right now.");
-    await assignAgentToDomain(agentId, selectedWorkspaceId);
-  }, [assignAgentToDomain, selectedWorkspaceId]);
+    if (!selectedWorkspaceId) throw new Error("Collection access is unavailable right now.");
+    await assignAgentToCollection(agentId, selectedWorkspaceId);
+  }, [assignAgentToCollection, selectedWorkspaceId]);
 
   const isLoading = authLoading || Boolean(
     isAuthenticated && (
@@ -565,11 +565,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     createWorkspace,
     refreshWorkspaces,
     refreshSelectedWorkspaceAgents,
-    assignAgentToDomain,
+    assignAgentToCollection,
     associateAgentWithSelectedWorkspace,
   }), [
     agentRosterError,
-    assignAgentToDomain,
+    assignAgentToCollection,
     associateAgentWithSelectedWorkspace,
     catalog.error,
     catalogIsCurrent,

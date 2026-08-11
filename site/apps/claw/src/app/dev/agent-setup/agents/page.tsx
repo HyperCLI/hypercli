@@ -2238,6 +2238,7 @@ export default function DevAgentSetupAgentsPage() {
                 chat={gatewayChat}
                 selectedAgent={selectedAgent!}
                 userAvatarUrl={accountAvatarUrl}
+                isDesktopViewport={isDesktopViewport}
                 isSelectedRunning={Boolean(isSelectedRunning)}
                 chatDragActive={chatDragActive}
                 setChatDragActive={setChatDragActive}

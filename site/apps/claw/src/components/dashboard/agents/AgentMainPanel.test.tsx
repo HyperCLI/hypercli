@@ -43,7 +43,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
             onClick={onCreateWorkspace ?? onLaunchAction ?? onCreate}
             disabled={Boolean(launching || launchBlocked || (!workspaceSetupRequired && creationDisabledReason))}
           >
-            {workspaceSetupRequired ? "Create your first Domain" : launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
+            {workspaceSetupRequired ? "Create your first Collection" : launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
           </button>
           {workspaceName && hasAccountAgents && onOpenMembers ? (
             <button type="button" onClick={onOpenMembers}>Add an existing agent in Members</button>
@@ -271,24 +271,24 @@ describe("AgentMainPanel", () => {
     expect(onCreate).toHaveBeenCalledOnce();
   });
 
-  it("offers Workspace creation before agent creation when no Workspace is available", () => {
+  it("offers Collection creation before agent creation when no Collection is available", () => {
     const onCreate = vi.fn();
     const onCreateWorkspace = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
       onCreate,
       onCreateWorkspace,
-      creationDisabledReason: "Select a Domain before launching an agent.",
+      creationDisabledReason: "Select a Collection before launching an agent.",
     });
 
-    const createWorkspace = screen.getByRole("button", { name: "Create your first Domain" });
+    const createWorkspace = screen.getByRole("button", { name: "Create your first Collection" });
     expect(createWorkspace).toBeEnabled();
     fireEvent.click(createWorkspace);
     expect(onCreateWorkspace).toHaveBeenCalledOnce();
     expect(onCreate).not.toHaveBeenCalled();
   });
 
-  it("describes an empty Workspace and links to existing agent assignments", () => {
+  it("describes an empty Collection and links to existing agent assignments", () => {
     const onOpenMembers = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
@@ -302,11 +302,11 @@ describe("AgentMainPanel", () => {
     expect(onOpenMembers).toHaveBeenCalledOnce();
   });
 
-  it("disables agent creation for a non-admin Domain member", () => {
+  it("disables agent creation for a non-admin Collection member", () => {
     renderAgentMainPanel({
       selectedAgent: null,
       workspaceName: "Product Operations",
-      creationDisabledReason: "Domain admin access is required to add agents.",
+      creationDisabledReason: "Collection admin access is required to add agents.",
     });
 
     const createAgent = screen.getByRole("button", { name: "Create an agent" });
@@ -417,7 +417,7 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
   });
 
-  it("renders shared knowledge before any Domain agent exists", () => {
+  it("renders shared knowledge before any Collection agent exists", () => {
     renderAgentMainPanel({
       selectedAgent: null,
       hasAgents: false,

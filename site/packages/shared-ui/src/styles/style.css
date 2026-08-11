@@ -704,7 +704,7 @@ h6 {
   background: var(--border-strong);
 }
 
-*:focus-visible {
+*:focus-visible:not([data-focus-ring="container"]) {
   outline: 2px solid var(--focus-outline) !important;
   outline-offset: 2px !important;
   box-shadow:

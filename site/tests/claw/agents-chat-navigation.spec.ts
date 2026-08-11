@@ -521,6 +521,16 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByTestId("agent-empty-history")).toBeVisible();
+  await expect(page.getByTestId("agent-empty-state-app-suggestions")).toBeVisible();
+  const composerFocusStyles = await page.getByTestId("agent-chat-composer").evaluate((composer) => {
+    composer.focus();
+    const shell = composer.parentElement?.parentElement;
+    return {
+      inputOutline: getComputedStyle(composer).outlineStyle,
+      shellOutline: shell ? getComputedStyle(shell).outlineStyle : null,
+    };
+  });
+  expect(composerFocusStyles).toEqual({ inputOutline: "none", shellOutline: "solid" });
   const metrics = await page.getByTestId("agent-chat-transcript").evaluate((scroller) => {
     const frame = scroller.querySelector<HTMLElement>('[data-testid="agent-empty-history-frame"]');
     const section = scroller.querySelector<HTMLElement>('[data-testid="agent-empty-history"]');
@@ -848,6 +858,27 @@ test("direct dashboard views defer the chat controller until an agent is opened"
     (window as Window & { __agentChatNavigationGatewayCalls?: { sockets: Array<{ methods: string[] }> } })
       .__agentChatNavigationGatewayCalls?.sockets.filter((socket) => socket.methods.includes("chat.history")).length ?? 0
   ))).toBe(1);
+});
+
+test("selecting a roster agent leaves Knowledge Hub for that agent's chat", async ({ page }) => {
+  await mockAgentChat(page);
+  await page.goto(
+    "/dashboard/agents?section=knowledge-hub&collectionId=collection-marketing&agentId=agent-1",
+    { waitUntil: "domcontentloaded" },
+  );
+
+  await expect.poll(() => new URL(page.url()).searchParams.get("section")).toBe("knowledge-hub");
+  await rosterAgent(page, "agent-2").click();
+
+  await expect.poll(() => {
+    const params = new URL(page.url()).searchParams;
+    return {
+      agentId: params.get("agentId"),
+      collectionId: params.get("collectionId"),
+      section: params.get("section"),
+    };
+  }).toEqual({ agentId: "agent-2", collectionId: null, section: null });
+  await expect(page.getByTestId("agent-chat-composer")).toBeVisible();
 });
 
 test("pinned sessions stay first across reload and return to recency order after unpinning", async ({ page }) => {

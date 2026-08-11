@@ -8,7 +8,6 @@ import {
   GATEWAY_LOADING_DETAIL,
   GATEWAY_LOADING_TITLE,
 } from "@/components/dashboard/AgentGatewayLoadingVisual";
-import { useAgentStartupExperience } from "@/hooks/useAgentStartupExperience";
 
 export const AGENT_STARTUP_TIP_INTERVAL_MS = 5_000;
 
@@ -100,7 +99,7 @@ function LoadingDots() {
 
 export function AgentStartupTipsVisual({
   heading = "Your teammate is warming up",
-  note = "First starts can take about a minute.",
+  note = "Starts can take about a minute.",
   title = GATEWAY_LOADING_TITLE,
   detail = GATEWAY_LOADING_DETAIL,
   className = "",
@@ -176,9 +175,7 @@ export function AgentStartupTipsVisual({
 }
 
 export function AgentStartupLoadingVisual(props: AgentStartupLoadingVisualProps) {
-  const [startupExperience] = useAgentStartupExperience();
-
-  if (startupExperience === "classic" || props.status === "error") {
+  if (props.status === "error") {
     return <AgentGatewayLoadingVisual {...props} />;
   }
 

@@ -18,7 +18,7 @@ Included:
 
 - All 25 Next.js page routes and the `/.well-known/x402` route handler.
 - Public, anonymous, authenticated, callback, compatibility, static, dev-only, disabled, and unreachable surfaces.
-- Account navigation, agent roster, agent creation, lifecycle, workspace tools, Knowledge Domains, access management, usage, settings, billing, plans, trials, and utility flows.
+- Account navigation, agent roster, agent creation, lifecycle, workspace tools, Knowledge Collections, access management, usage, settings, billing, plans, trials, and utility flows.
 - Loading, empty, partial, error, permission, runtime, gateway, responsive, and persistence states.
 - Direct dependencies in `site/packages/shared-ui` and `ts-sdk` when they determine Claw behavior.
 - Source-level, automated-test, local-browser, and deployed read-only evidence.
@@ -81,7 +81,7 @@ Outcomes are recorded separately as pass, fail, partial, flaky, stale, blocked, 
 | Claw production build         | Test run: pass               | `npm run build -w @hypercli/claw`                      | Next recognized 25 page routes plus one dynamic route handler; only 18 page routes yield route-specific deployed HTML, and this command does not verify the assembled static artifact |
 | Claw lint                     | Test run: pass with warnings | `npm run lint -w @hypercli/claw`                       | 0 errors, 65 warnings; dominated by React purity/effect/ref warnings. The apparent `alt` warning targets a Lucide SVG component and is a false positive                               |
 | Deterministic UI detector     | Test run: warnings           | `detect.mjs --json site/apps/claw/src`                 | 13 warnings; several are test/dead-code/regex false positives, with remaining visual consistency issues treated as P3                                                                 |
-| Anonymous desktop browser     | Local browser: partial       | Targeted Playwright against isolated production server | 6 of 7 tests passed; New Domain test is stale and waits for a disabled tour control                                                                                                   |
+| Anonymous desktop browser     | Local browser: partial       | Targeted Playwright against isolated production server | 6 of 7 tests passed; New Collection test is stale and waits for a disabled tour control                                                                                               |
 | Anonymous mobile browser      | Local browser: pass          | Targeted mobile Chromium Playwright                    | 4 tests passed, including authentication gates and Team trial entry                                                                                                                   |
 | Mobile authenticated mock     | Local browser: partial/flaky | Targeted mobile Chromium Playwright                    | Navigation, settings, billing, and full-width file editor passed in isolation; an earlier concurrent route transition aborted                                                         |
 | x402 checkout browser test    | Test run: stale              | `plans-x402-route.spec.ts`                             | Product renders `Purchase`; test waits for nonexistent accessible name `Purchase Pro`                                                                                                 |
@@ -92,7 +92,7 @@ Outcomes are recorded separately as pass, fail, partial, flaky, stale, blocked, 
 
 ## 2. Executive Assessment
 
-Claw is a broad operating environment rather than a simple agent list. Its strongest surfaces are agent chat/session behavior, files, creation/capacity handling, Knowledge Domain operations, and component-level state coverage. The main risk is not lack of capability; it is that a very large set of capabilities is compressed into one query-routed client page with overlapping account navigation, inconsistent canonical URLs, incomplete production boundaries, and uneven end-to-end verification.
+Claw is a broad operating environment rather than a simple agent list. Its strongest surfaces are agent chat/session behavior, files, creation/capacity handling, Knowledge Collection operations, and component-level state coverage. The main risk is not lack of capability; it is that a very large set of capabilities is compressed into one query-routed client page with overlapping account navigation, inconsistent canonical URLs, incomplete production boundaries, and uneven end-to-end verification.
 
 ### Health Snapshot
 
@@ -101,7 +101,7 @@ Claw is a broad operating environment rather than a simple agent list. Its stron
 | Agent chat and sessions      | Strong                             | Real-gateway behavior remains less covered than component and mocked-browser behavior                                                                                                  |
 | Agent files                  | Strong with policy gap             | Gateway source can bypass protected-file policy                                                                                                                                        |
 | Creation and lifecycle       | Broad but non-transactional        | Failures after creation can leave an orphaned agent                                                                                                                                    |
-| Knowledge and access         | Broad but duplicated               | Knowledge Hub and Shared knowledge maintain different Domain selection models                                                                                                          |
+| Knowledge and access         | Broad but duplicated               | Knowledge Hub and Shared knowledge maintain different Collection selection models                                                                                                      |
 | Integrations                 | Large catalog, uneven reachability | Advertised registry and actually discoverable/configurable tiles diverge                                                                                                               |
 | Skills and schedules         | Functional                         | No live-gateway mutation E2E; timezone and persistence copy need clarification                                                                                                         |
 | Billing and plans            | Broad                              | Duplicate entry points, stale tests, static plan documentation, and broken deployed route behavior                                                                                     |
@@ -118,7 +118,7 @@ Claw is a broad operating environment rather than a simple agent list. Its stron
 4. Desktop login transfers a reusable bearer token through an unbound custom-scheme callback without state, PKCE, or a one-time code.
 5. CI validates a different serving architecture from production and allows publishing without waiting for Claw quality jobs.
 6. Account Profile is unusable when the user has no selected agent.
-7. Knowledge selection, account/Domain usage scope, and multiple account entry points make the product's current context hard to reason about.
+7. Knowledge selection, account/Collection usage scope, and multiple account entry points make the product's current context hard to reason about.
 8. The legal copy needs review against the product's persistent conversations, files, backups, schedules, settings, caches, and Knowledge sources.
 
 ## 3. Product Sitemap
@@ -178,12 +178,12 @@ The standalone-page header uses a second navigation model that also exposes Shar
 | Claw                         | Repository/application name and the scope of this audit                            |
 | OpenClaw                     | One agent runtime and gateway implementation; not the generic platform model       |
 | HyperClaw                    | Legacy hostname/install-file naming only                                           |
-| Knowledge Domain             | User-facing name for the backend Workspace entity                                  |
+| Knowledge Collection         | User-facing name for the backend Workspace entity                                  |
 | Agent workspace              | Product area for one selected agent                                                |
 | OpenClaw workspace directory | Runtime filesystem under the agent environment                                     |
-| Slack workspace              | A Slack tenant; unrelated to a Knowledge Domain or agent filesystem                |
+| Slack workspace              | A Slack tenant; unrelated to a Knowledge Collection or agent filesystem            |
 
-Canonical UI capitalization is Knowledge Hub, Shared knowledge, API Keys, Scheduled, and Memory index.
+Canonical UI capitalization is Knowledge Hub, Collection, Shared knowledge, API Keys, Scheduled, and Memory index. Collection IDs are backend Workspace IDs. Product URL and parsed persisted state use `collectionId` and `knowledgeCollectionId`; backend Workspace APIs and `workspaceId` fields remain unchanged. Legacy URL `domainId` is accepted only as a migration input and is never emitted. Browser persistence temporarily dual-writes the legacy `knowledgeDomainId` alias for deployment rollback and in-flight checkout compatibility, but parsed application state omits it.
 
 ## 4. Route Atlas
 
@@ -269,7 +269,7 @@ The following parameters apply to `/dashboard/agents` unless noted otherwise.
 | `agentId`                               | Deployment ID                                                                                             | Selects an account agent                                                    |
 | `session`                               | Routable OpenClaw session key                                                                             | Selects a conversation                                                      |
 | `tab`                                   | `chat`, `files`, `integrations`, `skills`, `scheduled`, `logs`, `shell`, `openclaw`, `settings`           | Selects an agent workspace surface                                          |
-| `domainId`                              | Workspace/Domain ID                                                                                       | Initializes Knowledge Hub selection                                         |
+| `collectionId`                          | Backend Workspace/Collection ID                                                                           | Initializes Knowledge Hub selection                                         |
 | `settings`                              | `profile`, `preferences`, `agent`, `workspace`, `members`, `api-keys`, `billing`, `plans`, `memory-index` | Selects a settings subsection                                               |
 | `open`                                  | `agent-launcher`, `launcher`, `launch-agent`                                                              | Opens or auth-gates agent creation, then is consumed                        |
 | `plan`                                  | Backend plan ID                                                                                           | Prefers a launcher/checkout plan; `team` also supports trial handoff        |
@@ -284,7 +284,7 @@ The following parameters apply to `/dashboard/agents` unless noted otherwise.
 | `journey`, `journeyDay`, `journeyReset` | Preview/public Journey state                                                                              | Controls the environment-gated guided Journey                               |
 | `billingMock`                           | `active-no-slot`                                                                                          | Replaces local billing presentation with a mock state; not production-gated |
 
-Invalid authenticated `view` and `tab` values are removed. Invalid settings values fall back to Profile. Anonymous access removes `agentId`, `session`, `integration`, `section`, `settings`, `tab`, `view`, `slack_oauth_ok`, and `slack_oauth_error`. It retains public plan/trial intent as well as `open`, `domainId`, `checkout`, `session_id`, `cancelled`, `slack_team_id`, Journey parameters, `billingMock`, and unknown parameters; `open` is separately consumed after triggering its authentication gate, while some other retained values are inert until authentication or a matching view is active.
+Invalid authenticated `view` and `tab` values are removed. Invalid settings values fall back to Profile. Anonymous access removes `agentId`, `session`, `integration`, `section`, `settings`, `tab`, `view`, `slack_oauth_ok`, and `slack_oauth_error`. It retains public plan/trial intent as well as `open`, `collectionId`, `checkout`, `session_id`, `cancelled`, `slack_team_id`, Journey parameters, `billingMock`, and unknown parameters; legacy `domainId` remains accepted as a read-only fallback for old links. `open` is separately consumed after triggering its authentication gate, while some other retained values are inert until authentication or a matching view is active.
 
 Additional route contracts:
 
@@ -333,15 +333,15 @@ Alias normalization:
 - Settings section changes use browser history without requesting a new App Router page.
 - Agent selection updates `agentId` and session state and clears incompatible account/administration selectors.
 - Roster order, stopped-agent visibility, and sidebar collapse are browser-local preferences.
-- Selected Domain is persisted per principal, but current Knowledge Hub selection does not update that global preference.
+- Selected Collection is persisted per principal, but current Knowledge Hub selection does not update that global preference.
 
 ### Anonymous Product Preview
 
 - Rotates every ten seconds through Chat, Files, Integrations, Skills, Scheduled, and Desktop.
 - Stops automatic rotation after the visitor explicitly selects a preview surface.
 - Pauses while authentication, launcher, or tour overlays are open.
-- Allows public plan/trial context while preventing private agent, Domain, usage, billing, and file reads.
-- Routes launch, trial, and Domain-creation intent through authentication without exposing saved setup drafts.
+- Allows public plan/trial context while preventing private agent, Collection, usage, billing, and file reads.
+- Routes launch, trial, and Collection-creation intent through authentication without exposing saved setup drafts.
 
 Weak point: automatic rotation has no explicit pause control and no reduced-motion check. Manual selection stops it, but that behavior is not announced.
 
@@ -358,17 +358,17 @@ Weak point: automatic rotation has no explicit pause control and no reduced-moti
 - Recent conversations from reachable running OpenClaw gateways.
 - Next scheduled jobs and links into an agent's schedule.
 - Most-used agents and agents quiet for at least one week.
-- Knowledge Domains and known direct agent access.
+- Knowledge Collections and known direct agent access.
 - Launch-first-agent and launch-another-agent actions.
 - Resume a specific conversation.
-- Open Usage, Knowledge Hub, a Domain, an agent, or Scheduled work.
+- Open Usage, Knowledge Hub, a Collection, an agent, or Scheduled work.
 
 ### Operational States
 
 - Initial roster loading.
 - Gateway snapshot loading, ready, partial, unavailable, offline, and runtime-not-applicable.
-- Domain access loading, known, restricted, and unavailable.
-- No agents, no conversations, no schedules, no Domains, or Domains with no assigned agents.
+- Collection access loading, known, restricted, and unavailable.
+- No agents, no conversations, no schedules, no Collections, or Collections with no assigned agents.
 - Unknown token capacity remains unknown rather than being presented as zero.
 
 ### Dependencies
@@ -377,7 +377,7 @@ Weak point: automatic rotation has no explicit pause control and no reduced-moti
 - `operationsSnapshot` from each supported running OpenClaw gateway.
 - Workspace list and admin-only grant reads.
 - Account `agentUsage(1)` for daily token data.
-- Bounded concurrency of three gateway and four Domain-access requests.
+- Bounded concurrency of three gateway and four Collection-access requests.
 
 ### Weak Points
 
@@ -436,15 +436,15 @@ Persistence:
 
 | Preference                  | Storage                                               |
 | --------------------------- | ----------------------------------------------------- |
-| Roster order                | `claw.agentRosterOrder.v1[:domainId]`                 |
+| Roster order                | `claw.agentRosterOrder.v1[:collectionId]`             |
 | Show stopped agents         | `claw.agentRosterShowOffline.v1`                      |
 | Account roster collapsed    | `claw.agentRosterCollapsed.v1`                        |
 | Workspace sidebar collapsed | Browser local storage under the workspace sidebar key |
 
 Weak points:
 
-- Roster loading also waits on selected-Domain association loading even though the visible roster is account-wide.
-- Account and selected-Domain concepts coexist without a visible global Domain picker, increasing scope ambiguity.
+- Roster loading also waits on selected-Collection association loading even though the visible roster is account-wide.
+- Account and selected-Collection concepts coexist without a visible global Collection picker, increasing scope ambiguity.
 
 Existing external agents:
 
@@ -461,22 +461,22 @@ Stages:
 
 | Stage             | Functions                                                                                                       |
 | ----------------- | --------------------------------------------------------------------------------------------------------------- |
-| Identity          | Friendly display name, generated deployment handle/name, icon/category, optional initial Knowledge Domain       |
+| Identity          | Friendly display name, generated deployment handle/name, icon/category, optional initial Knowledge Collection   |
 | Advanced identity | Custom runtime image, protected browser desktop, memory indexing                                                |
 | Workspace         | Generate deterministic OpenClaw bootstrap files, optionally enhance files with inference, review/edit file pack |
 | Capacity          | Load backend plans, subscription summary, current plan, and agent types; choose an available slot/tier          |
 | Checkout          | Embedded Stripe card or Base USDC/x402 when no suitable capacity exists                                         |
-| Launch            | Create stopped agent, upload files, grant Domain, start, refresh roster, select agent, open chat                |
+| Launch            | Create stopped agent, upload files, grant Collection, start, refresh roster, select agent, open chat            |
 
 Creation guards and states:
 
-- Selected Domain must still exist and require admin access when used.
+- Selected Collection must still exist and require admin access when used.
 - Launch plans and agent sizes come from backend catalogs; no static fallback is substituted.
 - Explicit states exist for catalog unavailable, billing unavailable, no capacity, slot release pending, payment reflected but entitlement pending, Pro requirements, and backend reservation failure.
 - Setup drafts are principal/workspace scoped and stored in session storage with a volatile fallback.
 - Restored drafts offer Continue setup and Start fresh.
-- Launch without a Knowledge Domain is valid; ambient Domain selection is never inferred.
-- `shouldOfferWorkspaceCreation` is currently hardcoded false, so the dormant pre-launch Domain creation path is bypassed.
+- Launch without a Knowledge Collection is valid; ambient Collection selection is never inferred.
+- `shouldOfferWorkspaceCreation` is currently hardcoded false, so the dormant pre-launch Collection creation path is bypassed.
 
 ### Team Trial
 
@@ -490,7 +490,7 @@ Functions:
 - Preserves trial intent through login.
 - Calls the dedicated Stripe trial-checkout operation.
 - Persists a principal-scoped `team-trial` or `first-agent-trial` checkout record. Expected bundle and baseline-slot fields are conditional.
-- First-agent trials retain setup, workspace, Knowledge Domain, and agent-size context.
+- First-agent trials retain setup, workspace, Knowledge Collection, and agent-size context.
 - Reconciles both active trial metadata and trial-granted launch slots after return.
 - Writes a setup ID into created-agent metadata and checks it before auto-creation to reduce duplicate launches after recovery.
 - Shows active plan name, authoritative end time, and a minute-updated time-remaining label.
@@ -522,7 +522,7 @@ Weak points:
 
 1. Create an OpenClaw deployment with `start: false`.
 2. Upload starter/bootstrap files.
-3. Grant the agent viewer access to the selected Knowledge Domain.
+3. Grant the agent viewer access to the selected Knowledge Collection.
 4. Start OpenClaw.
 5. Refresh the account roster.
 6. Select the agent and open chat.
@@ -864,7 +864,7 @@ Sections:
 | Agent   | Canonical/display name, handle, avatar, lifecycle, environment, Desktop, shared-knowledge launch settings, default model; Docker-image editor remains mounted in a hidden block |
 | Index   | Semantic memory index, session/search sync, watcher, debounce, periodic interval                                                                                                |
 | Usage   | Links to account Usage, API Keys, and current plan limits; no embedded per-agent metrics                                                                                        |
-| Team    | Domain members currently links to account Overview; Shared channels links to the bare dashboard                                                                                 |
+| Team    | Collection members currently links to account Overview; Shared channels links to the bare dashboard                                                                             |
 
 The workspace sidebar's Agent Settings action opens `view=settings&settings=agent` and renders only the Agent subsection. The full five-section `tab=settings` panel remains separately addressable through direct/internal actions.
 
@@ -875,36 +875,36 @@ Weak points:
 - Team actions are generic links rather than task-specific destinations.
 - A fallback launch pipeline is duplicated in `AgentList`, increasing drift risk.
 
-## 9. Knowledge Domains and Access
+## 9. Knowledge Collections and Access
 
-### Domain Model
+### Collection Model
 
-The backend calls this object a Workspace; the product calls it a Knowledge Domain. The Workspaces service is authoritative for Domains, source files, generated Markdown, metadata, search, and direct user/agent grants.
+The backend calls this object a Workspace; the product calls it a Knowledge Collection. The Workspaces service is authoritative for Collections, source files, generated Markdown, metadata, search, and direct user/agent grants.
 
 Provider functions:
 
 - Create an authenticated Workspaces client.
-- List Domains and restore principal-scoped selection.
-- Provision a protected General Domain when absent.
-- Select a Domain and persist that selection.
-- Load selected-Domain agent associations.
-- Create Domains and grant an agent viewer access.
+- List Collections and restore principal-scoped selection.
+- Provision a protected General Collection when absent.
+- Select a Collection and persist that selection.
+- Load selected-Collection agent associations.
+- Create Collections and grant an agent viewer access.
 - Fall back from `listAgents` to active agent grants for older services.
 
 Weak points:
 
 - A catalog read can mutate backend state by creating General.
-- The current main navigation has no visible global Domain picker even though Members and overview sections depend on global Domain selection.
+- The current main navigation has no visible global Collection picker even though Members and overview sections depend on global Collection selection.
 
 ### Knowledge Hub
 
-**Entry:** `section=knowledge-hub`, optionally `domainId=<id>`<br>
+**Entry:** `section=knowledge-hub`, optionally `collectionId=<id>`<br>
 **Status:** Preview, Live
 
 Functions:
 
-- Search Domains and apply All, Ready, Processing, Needs attention, and Empty filters.
-- Create, rename/update, refresh, and delete Domains.
+- Search Collections and apply All, Ready, Processing, Needs attention, and Empty filters.
+- Create, rename/update, refresh, and delete Collections.
 - Protect General from deletion.
 - Upload source documents by picker or drag/drop.
 - Poll processing catalogs every eight seconds.
@@ -914,22 +914,22 @@ Functions:
 - Regenerate generated content.
 - Delete sources.
 - Assign and revoke direct agent viewer grants.
-- Render responsive Domain, source, and inspector panes.
+- Render responsive Collection, source, and inspector panes.
 - Show external connectors as Coming Soon without fabricated data.
 
 Permissions:
 
 | Role        | Knowledge Hub capability                                |
 | ----------- | ------------------------------------------------------- |
-| Viewer      | Read-only Domain and source access                      |
+| Viewer      | Read-only Collection and source access                  |
 | Contributor | Upload and modify source material                       |
-| Admin       | Domain details/deletion and agent assignment management |
+| Admin       | Collection details/deletion and agent assignment management |
 
 States:
 
 - Initial loading and background refresh.
-- Catalog unavailable and no Domains.
-- No filter results and empty Domain.
+- Catalog unavailable and no Collections.
+- No filter results and empty Collection.
 - Source list unavailable.
 - Processing, ready, and failed source.
 - Assignment list unavailable and agent roster unavailable.
@@ -937,7 +937,7 @@ States:
 
 Weak points:
 
-- `domainId` initializes selection, but in-page Domain changes do not update the URL or global Workspace context.
+- `collectionId` initializes selection, but in-page Collection changes do not update the URL or global Workspace context. Legacy `domainId` is read only to support old links.
 - File metadata update, regenerate, and delete rely more heavily on rendered UI guards and backend enforcement than other operations' direct hook-level role checks.
 
 ### Shared Knowledge
@@ -947,11 +947,11 @@ Weak points:
 
 Functions:
 
-- Create, edit, and delete Domains.
+- Create, edit, and delete Collections.
 - Expand a file browser and search sources.
 - Upload, preview, regenerate, download, edit metadata, and delete files.
 - Grant and revoke agent access.
-- Update global selected Workspace/Domain state.
+- Update global selected Workspace/Collection state.
 
 Weak points:
 
@@ -966,7 +966,7 @@ Weak points:
 
 Functions:
 
-- Select a Domain and refresh access.
+- Select a Collection and refresh access.
 - Resolve current user identity.
 - List direct user and agent access for admins.
 - Show current-access-only mode for non-admins.
@@ -997,7 +997,7 @@ Functions:
 - Render token totals and history chart.
 - Render request totals and integration activity.
 - Render API-key/integration usage detail.
-- Render selected-Domain agent rows.
+- Render selected-Collection agent rows.
 - Use separate one-day usage data for per-agent token display elsewhere in the dashboard.
 
 States:
@@ -1010,7 +1010,7 @@ States:
 
 Weak points:
 
-- Aggregate usage is account-wide while the agent table is selected-Domain scoped.
+- Aggregate usage is account-wide while the agent table is selected-Collection scoped.
 - Aggregate requests/integrations/tokens are assigned to an agent only when the account has exactly one agent; otherwise rows show `---`.
 - Zero values are also rendered as `---` in places, conflating zero, unknown, and unavailable.
 - Partial failures are largely silent.
@@ -1030,8 +1030,8 @@ Every settings detail header exposes a Feedback action that opens `mailto:suppor
 | Personal       | `profile`      | Profile       | Full name, read-only email, User UUID/copy, avatar upload/delete, sign out                                       | Requires a selected agent even though fields are account-level       |
 | Personal       | `preferences`  | Preferences   | Aurora light/dark theme, startup/loading experience, Slack account status/connect/reconnect/debug                | Slack disconnect unavailable                                         |
 | Personal       | `agent`        | Agent         | Agent identity, runtime, environment, desktop, knowledge sync, default model, lifecycle                          | Requires selected agent; includes placeholders                       |
-| Administration | `workspace`    | Knowledge Hub | Domain overview, agents, members, source count, usage links                                                      | Not the full Knowledge Hub; member count is synthetic                |
-| Administration | `members`      | Members       | Domain access directory and grant/revoke operations                                                              | UUID-only humans; no role edit                                       |
+| Administration | `workspace`    | Knowledge Hub | Collection overview, agents, members, source count, usage links                                                  | Not the full Knowledge Hub; member count is synthetic                |
+| Administration | `members`      | Members       | Collection access directory and grant/revoke operations                                                          | UUID-only humans; no role edit                                       |
 | Administration | `api-keys`     | API Keys      | List, search, filter, create, reveal/copy, rename, disable, permissions                                          | Creation initializes full access; least privilege is not the default |
 | Administration | `billing`      | Billing       | Overview, invoices, subscriptions, capacity, token pool, receipts, portal, cancellation, codes, trial management | Duplicate standalone surface                                         |
 | Administration | `plans`        | Plans         | Dynamic catalog, current plan, bundles, checkout, cancellation, codes                                            | Duplicate standalone surface                                         |
@@ -1080,8 +1080,8 @@ Least-privilege weakness: Claw passes a deny-by-default description, but the sha
 
 ### Knowledge Hub Overview Details
 
-- Shows selected-Domain agents and compact members.
-- Counts files across all Domains.
+- Shows selected-Collection agents and compact members.
+- Counts files across all Collections.
 - Displays account-wide usage history.
 - Uses `user ? 1 : 0` as the member count rather than authoritative access data.
 - Links to Knowledge and Members surfaces.
@@ -1218,7 +1218,7 @@ This is a legal-review requirement, not a conclusion that the statements are nec
 | Chat/config/sessions/cron/skills | Runtime-specific OpenClaw gateway capabilities                  |
 | Live/backup files                | Agent REST file APIs                                            |
 | Gateway text files               | OpenClaw gateway file RPC                                       |
-| Knowledge Domains                | Workspaces service                                              |
+| Knowledge Collections            | Workspaces service                                              |
 | API keys                         | Browser/account keys client                                     |
 | Plans/billing/usage              | HyperAgent billing and usage APIs                               |
 | Card payments/trials             | Stripe checkout and portal                                      |
@@ -1232,14 +1232,14 @@ This is a legal-review requirement, not a conclusion that the statements are nec
 | Auth tokens/logout marker    | Cookie and local storage through shared auth                                                                                                                     |
 | Theme mode/family            | Cookie and local storage                                                                                                                                         |
 | Plan tier theme accent       | Principal/environment-scoped cached cookie                                                                                                                       |
-| Selected Domain              | Principal-scoped local storage                                                                                                                                   |
+| Selected Collection          | Principal-scoped local storage using canonical `collectionId` state                                                                                              |
 | Agent roster order           | Local storage                                                                                                                                                    |
 | Show stopped agents          | Local storage                                                                                                                                                    |
 | Roster/sidebar collapse      | Local storage                                                                                                                                                    |
 | Session pins                 | Agent-scoped local storage                                                                                                                                       |
 | Normal writable chat history | Agent/session-scoped local storage; excludes ephemeral/read-only sessions; capped at 300 messages and 900,000 serialized characters with message/tool truncation |
 | Session titles/list          | Local titles plus a five-minute session-list cache                                                                                                               |
-| First-agent setup draft      | Session storage, then in-memory fallback                                                                                                                         |
+| First-agent setup draft      | Session storage, then in-memory fallback; canonical knowledge selection is `knowledgeCollectionId`, and legacy drafts are migrated                             |
 | Pending checkout/trial       | Principal-scoped local storage                                                                                                                                   |
 | Skill drafts/revisions       | IndexedDB, then local storage, then memory                                                                                                                       |
 | Connector workflow guides    | Agent-scoped cache with a seven-day refresh interval                                                                                                             |
@@ -1331,7 +1331,7 @@ Weak evidence:
 | Scheduled work                                 | Live                  | Enabled even though a stale disabled-reason constant remains                                                                                                         |
 | Workspace-before-agent flow                    | Disabled              | `shouldOfferWorkspaceCreation = false`                                                                                                                               |
 | Channel creation wizard                        | Unreachable           | State never opens from production flow; submit logs rather than calling a backend operation                                                                          |
-| Email invitation in Domain dialog              | Dormant no-op         | Collects email and resolves without delivery; active Members does not expose it                                                                                      |
+| Email invitation in Collection dialog          | Dormant no-op         | Collects email and resolves without delivery; active Members does not expose it                                                                                      |
 | Visibility setting                             | Disabled placeholder  | No mutation                                                                                                                                                          |
 | Auto-archive                                   | Misleading local-only | Appears saveable but no remote persistence occurs                                                                                                                    |
 | Group conversation modules                     | Prototype/mock        | Group roster, shared files, mentions/tasks, handoff, decision log, and related modules are not live product truth                                                    |
@@ -1374,7 +1374,7 @@ No confirmed P0 finding was identified. The deployment defect below is P1 becaus
 | ---- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | W-01 | Static deployment drops non-HTML Next.js route behavior                                     | Assembler copies emitted HTML/assets then rewrites most unmatched paths to root; deployed probes return the same root body for five aliases, two dynamic ID routes, x402, crawler paths, and unknown paths | Receipt/file deep links are broken; compatibility redirects, x402 discovery, route headers, and 404 semantics are also absent in the shipped architecture | Serve Claw through a Next runtime or explicitly materialize/proxy every redirect, dynamic page, machine endpoint, header, and 404 contract; test the assembled artifact and deployed URL matrix |
 | W-03 | Production URL can activate a billing mock                                                  | `billingMock=active-no-slot` has no environment/internal guard                                                                                                                                             | Authenticated users can see false subscription/capacity state and enter misleading launch/checkout UX                                                     | Remove from production or require explicit non-production build capability                                                                                                                      |
-| W-05 | Agent creation has no rollback after deployment creation                                    | File upload, Domain grant, start, refresh follow create                                                                                                                                                    | Partial failures leave stopped/orphaned deployments and consume user attention/capacity                                                                   | Add backend transaction/orchestrator or compensating cleanup with explicit recovery ownership                                                                                                   |
+| W-05 | Agent creation has no rollback after deployment creation                                    | File upload, Collection grant, start, refresh follow create                                                                                                                                                | Partial failures leave stopped/orphaned deployments and consume user attention/capacity                                                                   | Add backend transaction/orchestrator or compensating cleanup with explicit recovery ownership                                                                                                   |
 | W-10 | Release confidence is undermined by unresolved/stale browser coverage                       | Chat spec has merge markers; at least four safe specs expect a removed tour, removed billing editor, old purchase label, or forbidden static plan fallback                                                 | CI can miss regressions or fail for test drift rather than product behavior                                                                               | Resolve conflict, repair stale selectors/state assumptions, and gate the selected suite                                                                                                         |
 | W-24 | CI validates a different serving architecture and does not gate pull requests or publishing | E2E uses `next start`, production uses a static assembler, publish jobs do not depend on Claw quality jobs, and `frontend-ci.yml` has no `pull_request` trigger                                            | Passing source-build E2E does not protect the shipped artifact; changes can merge without this workflow and publication can precede failures              | Add a pull-request gate, make publishing depend on Claw unit/lint/build/targeted E2E, test the exact assembled artifact, and run a deployed route matrix tied to deploy identity                |
 | W-36 | Desktop token handoff lacks callback binding and PKCE                                       | Reusable bearer JWT is placed in an allowlisted custom-scheme fragment without state, nonce, one-time code, or PKCE                                                                                        | Another installed app claiming the custom scheme could intercept a reusable session token                                                                 | Use a one-time code bound to state and PKCE, or a claimed HTTPS callback; redeem rather than transfer the bearer JWT                                                                            |
@@ -1389,8 +1389,8 @@ No confirmed P0 finding was identified. The deployment defect below is P1 becaus
 | W-08 | Legal retention language does not map the persistent agent product                       | Privacy/Terms focus on real-time API processing and do not clearly classify sessions, files, backups, schedules, caches, and Knowledge                                                                            | Users cannot understand retention/deletion responsibilities                                                                                                       | Obtain legal review and publish a data-class/retention/deletion matrix                                                                            |
 | W-09 | Account Profile depends on agent selection                                               | Page mounts `AgentSettingsPanel` only with selected agent; save exits without agent                                                                                                                               | New/empty accounts cannot manage their own profile                                                                                                                | Extract account Profile into an agent-independent settings component                                                                              |
 | W-11 | Account capabilities have competing entry points                                         | Keys, plans, and billing reuse shared implementations across standalone/settings URLs; Knowledge has genuinely divergent implementations                                                                          | History, analytics, support instructions, and Knowledge behavior are harder to reason about                                                                       | Declare canonical URLs; redirect/link aliases; consolidate Knowledge implementations                                                              |
-| W-12 | Knowledge Hub selection drifts from global Domain selection                              | Local `selectedCollectionId`; no URL/global update                                                                                                                                                                | Members/overview can operate on a different Domain than the one the user just viewed                                                                              | Use one scoped selection contract or make each scope explicit and URL-backed                                                                      |
-| W-13 | Usage mixes account and Domain scopes                                                    | Account aggregates plus selected-Domain rows                                                                                                                                                                      | Users can misread totals as belonging to displayed agents                                                                                                         | Label scope explicitly or request authoritative Domain/agent attribution                                                                          |
+| W-12 | Knowledge Hub selection drifts from global Collection selection                          | Local `selectedCollectionId`; no URL/global update                                                                                                                                                                | Members/overview can operate on a different Collection than the one the user just viewed                                                                          | Use one scoped selection contract or make each scope explicit and URL-backed                                                                      |
+| W-13 | Usage mixes account and Collection scopes                                                | Account aggregates plus selected-Collection rows                                                                                                                                                                  | Users can misread totals as belonging to displayed agents                                                                                                         | Label scope explicitly or request authoritative Collection/agent attribution                                                                      |
 | W-14 | Knowledge overview member count is synthetic                                             | `memberCount = user ? 1 : 0`                                                                                                                                                                                      | Overview presents an invented metric                                                                                                                              | Load authoritative access count or label the value unavailable                                                                                    |
 | W-15 | Slack OAuth recovery loses destination context                                           | Callback lacks settings subsection/agent context; disconnect absent                                                                                                                                               | Users land on Profile and cannot finish/manage the intended connection cleanly                                                                                    | Preserve a validated return target through OAuth state and add disconnect or truthful ownership guidance                                          |
 | W-16 | Runtime settings discard unsaved changes silently                                        | Drawer closes on backdrop/button without dirty guard                                                                                                                                                              | Users lose configuration edits                                                                                                                                    | Add dirty comparison, confirm close, and preserve draft where safe                                                                                |
@@ -1418,7 +1418,7 @@ No confirmed P0 finding was identified. The deployment defect below is P1 becaus
 | ID   | Finding                                                             | Evidence                                                                                                                                                              | Impact                                                                                                                                  | Required action                                                                       |
 | ---- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | W-07 | `/adjust-plan` has inconsistent unauthenticated behavior            | Unlike most private pages it stays rendered and falls into a handled catalog-unavailable state when token/API access fails                                            | One account route has inconsistent navigation and error treatment, but it exposes no private data and bypasses no backend authorization | Standardize the route allowlist/redirect experience                                   |
-| W-19 | Dormant email-invitation control is a no-op                         | Unreachable Domain dialog accepts an email and resolves locally without delivery                                                                                      | Dead UI can be mistaken for a supported invitation path during future wiring                                                            | Remove it or isolate it until authoritative invitation delivery exists                |
+| W-19 | Dormant email-invitation control is a no-op                         | Unreachable Collection dialog accepts an email and resolves locally without delivery                                                                                  | Dead UI can be mistaken for a supported invitation path during future wiring                                                            | Remove it or isolate it until authoritative invitation delivery exists                |
 | W-23 | x402 discovery settlement metadata is hardcoded                     | Network, payee, asset, and minimum are route constants; direct checkout uses backend challenge data                                                                   | Once discovery is deployed it can drift from payment configuration                                                                      | Source settlement metadata from one authoritative contract before enabling discovery  |
 | W-46 | Skill file helper copy understates draft persistence                | File preview says changes last for the current session, while the main skill view correctly says drafts persist in the browser and exposes confirmed Discard behavior | One localized message gives an incorrect retention expectation                                                                          | Reuse the accurate browser-persistence copy in the file preview                       |
 | W-31 | Visual detector found repeated accent-border/bounce patterns        | 13 warnings, filtered for false positives                                                                                                                             | Some chat/billing surfaces feel visually inconsistent or dated                                                                          | Review active components and replace decorative side tabs/bounce with system patterns |
@@ -1490,8 +1490,8 @@ No confirmed P0 finding was identified. The deployment defect below is P1 becaus
 ### Information Architecture
 
 1. Choose canonical URLs for API Keys, Plans, Billing, and Knowledge.
-2. Resolve Knowledge Hub versus Shared knowledge and unify Domain selection.
-3. Clarify account-wide versus Domain-scoped usage and overview metrics.
+2. Resolve Knowledge Hub versus Shared knowledge and unify Collection selection.
+3. Clarify account-wide versus Collection-scoped usage and overview metrics.
 4. Repair Slack return routing and provide a disconnect contract.
 
 ### Quality System
@@ -1572,7 +1572,7 @@ There are 16 checked-in files under `public/`: 15 URL-addressable resources and 
 | Knowledge Hub               | `src/components/dashboard/knowledge/KnowledgeHub.tsx`                                                          |
 | Shared knowledge            | `src/components/dashboard/knowledge/SharedKnowledgePanel.tsx`                                                  |
 | Members                     | `src/components/dashboard/members/MembersSection.tsx`                                                          |
-| Workspace/Domain state      | `src/components/dashboard/WorkspaceContext.tsx`                                                                |
+| Workspace/Collection state  | `src/components/dashboard/WorkspaceContext.tsx`                                                                |
 | Guided Journey              | `src/components/dashboard/journey`                                                                             |
 | Usage                       | `src/components/dashboard/WorkspaceUsagePanel.tsx`                                                             |
 | Agent settings              | `src/components/dashboard/agents/AgentPanels.tsx`                                                              |
@@ -1599,7 +1599,7 @@ There are 16 checked-in files under `public/`: 15 URL-addressable resources and 
 - [x] Nine account settings sections inventoried.
 - [x] Agent creation, Team trial, payment, entitlement, launch, and lifecycle flows inventoried.
 - [x] Chat, sessions, private chat, files, media, integrations, skills, schedules, desktop, logs, shell, and runtime config inventoried.
-- [x] Knowledge Domains, sources, grants, Members, and permissions inventoried.
+- [x] Knowledge Collections, sources, grants, Members, and permissions inventoried.
 - [x] Usage, API keys, plans, billing, receipts, Slack, desktop login, legal, and install flows inventoried.
 - [x] Loading, empty, partial, error, permission, runtime, gateway, responsive, and persistence behavior inventoried.
 - [x] Hidden, disabled, legacy, unreachable, dead, and missing capabilities inventoried.

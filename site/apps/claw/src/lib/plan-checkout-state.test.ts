@@ -20,6 +20,10 @@ import {
   writePendingPlanCheckout,
 } from "./plan-checkout-state";
 
+function pendingCheckoutStorageKey(principalId: string): string {
+  return `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(principalId)}`;
+}
+
 describe("plan checkout state", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -61,6 +65,7 @@ describe("plan checkout state", () => {
       flow: "first-agent-setup",
       setupId: "setup-1",
       workspaceId: "workspace-1",
+      knowledgeCollectionId: "collection-1",
       agentSize: "large",
     });
 
@@ -68,7 +73,13 @@ describe("plan checkout state", () => {
       flow: "first-agent-setup",
       setupId: "setup-1",
       workspaceId: "workspace-1",
+      knowledgeCollectionId: "collection-1",
       agentSize: "large",
+    });
+    expect(readPendingPlanCheckout("user-1")).not.toHaveProperty("knowledgeDomainId");
+    expect(JSON.parse(window.localStorage.getItem(pendingCheckoutStorageKey("user-1")) ?? "null")).toMatchObject({
+      knowledgeCollectionId: "collection-1",
+      knowledgeDomainId: "collection-1",
     });
 
     writePendingPlanCheckout({
@@ -79,6 +90,43 @@ describe("plan checkout state", () => {
       startedAt: 1,
     });
     expect(readPendingPlanCheckout("user-2")).not.toHaveProperty("flow");
+  });
+
+  it("falls back to a legacy checkout knowledgeDomainId identifier", () => {
+    window.localStorage.setItem(pendingCheckoutStorageKey("user-1"), JSON.stringify({
+      principalId: "user-1",
+      planId: "pro",
+      planName: "Pro",
+      ownedCount: 0,
+      startedAt: 1,
+      flow: "first-agent-setup",
+      setupId: "setup-1",
+      knowledgeDomainId: "legacy-collection",
+      agentSize: "large",
+    }));
+
+    const pending = readPendingPlanCheckout("user-1");
+    expect(pending?.knowledgeCollectionId).toBe("legacy-collection");
+    expect(pending).not.toHaveProperty("knowledgeDomainId");
+  });
+
+  it("prefers the canonical checkout knowledge Collection identifier", () => {
+    window.localStorage.setItem(pendingCheckoutStorageKey("user-1"), JSON.stringify({
+      principalId: "user-1",
+      planId: "pro",
+      planName: "Pro",
+      ownedCount: 0,
+      startedAt: 1,
+      flow: "first-agent-trial",
+      setupId: "setup-1",
+      knowledgeCollectionId: "collection-new",
+      knowledgeDomainId: "collection-old",
+      agentSize: "large",
+    }));
+
+    const pending = readPendingPlanCheckout("user-1");
+    expect(pending?.knowledgeCollectionId).toBe("collection-new");
+    expect(pending).not.toHaveProperty("knowledgeDomainId");
   });
 
   it("round-trips a Team trial checkout flow", () => {
@@ -256,7 +304,7 @@ describe("plan checkout state", () => {
         firstAgentSetup: {
           setupId: "setup-1",
           workspaceId: "workspace-1",
-          knowledgeDomainId: "domain-1",
+          knowledgeCollectionId: "collection-1",
           agentSize: "medium",
         },
         startedAt: 10,
@@ -267,7 +315,7 @@ describe("plan checkout state", () => {
       flow: "first-agent-trial",
       setupId: "setup-1",
       workspaceId: "workspace-1",
-      knowledgeDomainId: "domain-1",
+      knowledgeCollectionId: "collection-1",
       agentSize: "medium",
       bundle: { medium: 3 },
     });
