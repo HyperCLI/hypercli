@@ -121,6 +121,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          required_commands=(
+            WebKitWebDriver
+            xvfb-run
+            dbus-run-session
+            gnome-keyring-daemon
+            secret-tool
+          )
+          missing_commands=()
+          for required_command in "${required_commands[@]}"; do
+            command -v "$required_command" >/dev/null || missing_commands+=("$required_command")
+          done
+          if (( ${#missing_commands[@]} == 0 )); then
+            exit 0
+          fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             webkit2gtk-driver xvfb dbus-x11 gnome-keyring libsecret-tools
