@@ -30,6 +30,8 @@ const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_A
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
 export const AGENT_CREATION_ID_META_KEY = "creation_id";
 const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
+const AGENT_STOP_RECONCILE_DELAYS_MS = [0, 500, 1_500, 3_000] as const;
+const AGENT_STOP_RECONCILE_REQUEST_TIMEOUT_MS = 2_000;
 const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
@@ -88,6 +90,27 @@ function errorText(value: unknown): string {
   return [value.message, value.detail, value.error, value.reason]
     .filter((entry): entry is string => typeof entry === "string")
     .join(" ");
+}
+
+function isAgentStopTimeout(value: unknown): boolean {
+  const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
+  if (statusCode !== null) return statusCode === 504;
+
+  let current = value;
+  for (let depth = 0; depth < 5; depth++) {
+    const name = current instanceof Error ? current.name : "";
+    const message = errorText(current);
+    const code = isRecord(current) && typeof current.code === "string" ? current.code : "";
+    if (
+      name === "AbortError"
+      || name === "TimeoutError"
+      || /abort|time(?:d)?\s*out|timeout/i.test(message)
+      || code === "ETIMEDOUT"
+      || /^UND_ERR_.*TIMEOUT$/.test(code)
+    ) return true;
+    current = isRecord(current) ? current.cause : null;
+  }
+  return false;
 }
 
 function isUnsupportedCreationIdError(value: unknown): boolean {
@@ -159,6 +182,34 @@ async function reconcileCreatedAgentByName(agentClient: Deployments, name: strin
     }
   }
   return null;
+}
+
+async function reconcileTimedOutAgentStop(agentClient: Deployments, agentId: string): Promise<SdkAgent> {
+  let lastReadError: unknown;
+  for (const delay of AGENT_STOP_RECONCILE_DELAYS_MS) {
+    await sleep(delay);
+    let current: SdkAgent;
+    try {
+      current = await agentClient.get(agentId, {
+        retries: 1,
+        timeout: AGENT_STOP_RECONCILE_REQUEST_TIMEOUT_MS,
+      });
+      lastReadError = undefined;
+    } catch (error) {
+      lastReadError = error;
+      continue;
+    }
+
+    const state = current.state.toUpperCase();
+    if (["STOPPING", "STOPPED", "ARCHIVING", "ARCHIVED"].includes(state)) return current;
+    if (["FAILED", "DELETED"].includes(state)) {
+      const detail = [current.reason, current.error, current.message]
+        .find((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
+      throw new Error(`Agent entered ${state} while confirming shutdown${detail ? `: ${detail}` : "."}`);
+    }
+  }
+  if (lastReadError) throw lastReadError;
+  throw new Error("The stop request timed out before shutdown was confirmed. Check the agent status and try again.");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -429,7 +480,13 @@ export async function startAgent(apiKey: string, agentId: string, onAccepted?: A
 
 export async function stopAgent(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
   const agentClient = createAgentClient(apiKey);
-  const accepted = await agentClient.stop(agentId);
+  let accepted: SdkAgent;
+  try {
+    accepted = await agentClient.stop(agentId);
+  } catch (error) {
+    if (!isAgentStopTimeout(error)) throw error;
+    accepted = await reconcileTimedOutAgentStop(agentClient, agentId);
+  }
   onAccepted?.(accepted);
   if (["STOPPED", "ARCHIVING", "ARCHIVED"].includes(accepted.state.toUpperCase())) return accepted;
   return agentClient.waitForState(

@@ -459,7 +459,40 @@ describe('Agents SDK', () => {
     const agent = await deployments.stop('agent-123');
 
     expect(agent.state).toBe('stopping');
-    expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/stop');
+    expect(http.post).toHaveBeenCalledWith(
+      '/deployments/agent-123/stop',
+      undefined,
+      { retries: 1 },
+    );
+  });
+
+  it('does not replay a stop whose admission request times out before a response', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal as AbortSignal;
+      const rejectOnAbort = () => {
+        const error = new Error('signal is aborted without reason');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (signal.aborted) rejectOnAbort();
+      else signal.addEventListener('abort', rejectOnAbort, { once: true });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const http = new HTTPClient('https://api.test.hypercli.com/agents', 'hyper_api_test', 10);
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    try {
+      await expect(
+        deployments.stop('11111111-1111-4111-8111-111111111111'),
+      ).rejects.toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out after 10ms',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
   });
 
   it('passes self directly for status, lifecycle, and route operations', async () => {
@@ -493,7 +526,11 @@ describe('Agents SDK', () => {
 
     expect(http.get).toHaveBeenCalledWith('/deployments/self');
     expect(http.post).toHaveBeenCalledWith('/deployments/self/start', {});
-    expect(http.post).toHaveBeenCalledWith('/deployments/self/stop');
+    expect(http.post).toHaveBeenCalledWith(
+      '/deployments/self/stop',
+      undefined,
+      { retries: 1 },
+    );
     expect(http.get).toHaveBeenCalledWith('/deployments/self/routes');
     expect(http.put).toHaveBeenCalledWith('/deployments/self/routes', {
       routes: routesResponse.routes,

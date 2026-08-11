@@ -4778,7 +4778,11 @@ export class Deployments {
    */
   async stop(agentIdOrName: string): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
-    const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
+    const data = await this.agentHttp.post<AgentHydrationData>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`,
+      undefined,
+      { retries: 1 },
+    );
     return this.hydrateAgent(data);
   }
 

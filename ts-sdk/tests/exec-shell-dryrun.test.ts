@@ -1379,11 +1379,61 @@ describe('HyperClaw agents SDK', () => {
     const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test', 10);
 
     await expect(client.post('/deployments/agent-1/shell/token', {})).rejects.toMatchObject({
-      name: 'AbortError',
+      name: 'TimeoutError',
+      message: 'Request timed out after 10ms',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.stubGlobal('fetch', originalFetch);
+  });
+
+  it('HTTPClient normalizes lower-level transport timeouts', async () => {
+    const originalFetch = globalThis.fetch;
+    const transportError = Object.assign(new TypeError('fetch failed'), {
+      cause: { code: 'UND_ERR_CONNECT_TIMEOUT' },
+    });
+    const fetchMock = vi.fn().mockRejectedValue(transportError);
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test');
+
+    try {
+      await expect(client.post('/deployments/agent-1/stop', undefined, { retries: 1 })).rejects.toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out',
+        cause: transportError,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
+  });
+
+  it('HTTPClient preserves an external abort that wins the timeout race', async () => {
+    vi.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const requestSignal = init?.signal as AbortSignal;
+      const rejectLater = () => setTimeout(() => reject(requestSignal.reason), 20);
+      if (requestSignal.aborted) rejectLater();
+      else requestSignal.addEventListener('abort', rejectLater, { once: true });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test', 10);
+    const controller = new AbortController();
+    const cancellation = new Error('caller cancelled the request');
+
+    try {
+      const result = expect(client.post('/deployments/agent-1/stop', undefined, {
+        retries: 1,
+        signal: controller.signal,
+      })).rejects.toBe(cancellation);
+      controller.abort(cancellation);
+      await vi.runAllTimersAsync();
+      await result;
+    } finally {
+      vi.useRealTimers();
+      vi.stubGlobal('fetch', originalFetch);
+    }
   });
 
   it('logsConnect uses configured agents websocket base', async () => {

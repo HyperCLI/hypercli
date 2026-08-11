@@ -19,6 +19,34 @@ export interface RequestOptions {
 
 export type RequestOverrides = Pick<RequestOptions, 'retries' | 'backoff' | 'timeout' | 'signal' | 'retryStatuses'>;
 
+const TRANSPORT_TIMEOUT_CODES = new Set([
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+]);
+
+function requestTimeoutError(timeout?: number, cause?: unknown): Error {
+  const duration = timeout === undefined
+    ? ""
+    : ` after ${timeout % 1000 === 0 ? `${timeout / 1000} seconds` : `${timeout}ms`}`;
+  const error = new Error(`Request timed out${duration}`);
+  error.name = 'TimeoutError';
+  if (cause !== undefined) Object.assign(error, { cause });
+  return error;
+}
+
+function hasTransportTimeout(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 5; depth++) {
+    if (!current || typeof current !== 'object') return false;
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (typeof candidate.code === 'string' && TRANSPORT_TIMEOUT_CODES.has(candidate.code)) return true;
+    current = candidate.cause;
+  }
+  return false;
+}
+
 function waitForBackoff(delayMs: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(signal.reason ?? new Error('Request cancelled'));
   return new Promise((resolve, reject) => {
@@ -80,8 +108,18 @@ async function requestWithRetryHandled<T>(
 
   for (let attempt = 0; attempt < retries; attempt++) {
     const controller = new AbortController();
-    const abortRequest = () => controller.abort(signal?.reason);
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    let abortSource: 'external' | 'timeout' | null = null;
+    const abortRequest = () => {
+      if (abortSource !== null) return;
+      abortSource = 'external';
+      controller.abort(signal?.reason);
+    };
+    const timeoutError = requestTimeoutError(timeout);
+    const timeoutId = setTimeout(() => {
+      if (abortSource !== null) return;
+      abortSource = 'timeout';
+      controller.abort(timeoutError);
+    }, timeout);
     let responseReceived = false;
     let retry = false;
     try {
@@ -102,12 +140,20 @@ async function requestWithRetryHandled<T>(
         return await handle(response, method);
       }
     } catch (error: any) {
-      lastError = error;
+      const transportTimedOut = hasTransportTimeout(error);
+      const requestError = abortSource === 'timeout'
+        ? timeoutError
+        : transportTimedOut
+          ? requestTimeoutError(undefined, error)
+          : error;
+      lastError = requestError;
 
-      if (signal?.aborted) throw error;
+      if (abortSource === 'external') throw signal?.reason ?? error;
 
       // Check if it's a transient error (network, timeout, etc.)
       const isTransient = !responseReceived && (
+        abortSource === 'timeout' ||
+        transportTimedOut ||
         error.name === 'AbortError' ||
         error.cause?.code === 'ECONNREFUSED' ||
         error.cause?.code === 'ECONNRESET' ||
@@ -117,7 +163,7 @@ async function requestWithRetryHandled<T>(
       if (isTransient && attempt < retries - 1) {
         retry = true;
       } else {
-        throw error;
+        throw requestError;
       }
     } finally {
       clearTimeout(timeoutId);
