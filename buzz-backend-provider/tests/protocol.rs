@@ -227,6 +227,37 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
             .to_string(),
         )
         .create();
+    let provisioned = server
+        .mock("GET", "/agents/deployments/fixture-deployment")
+        .match_header("authorization", "Bearer fixture-hypercli-credential")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            serde_json::json!({
+                "id":"fixture-deployment",
+                "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                "runtime":"goose",
+                "state":"stopped"
+            })
+            .to_string(),
+        )
+        .create();
+    let start = server
+        .mock("POST", "/agents/deployments/fixture-deployment/start")
+        .match_header("authorization", "Bearer fixture-hypercli-credential")
+        .match_body(Matcher::Json(serde_json::json!({})))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            serde_json::json!({
+                "id":"fixture-deployment",
+                "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                "runtime":"goose",
+                "state":"starting"
+            })
+            .to_string(),
+        )
+        .create();
     let ready = server
         .mock("GET", "/agents/deployments/fixture-deployment")
         .match_header("authorization", "Bearer fixture-hypercli-credential")
@@ -255,6 +286,8 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
     assert_eq!(response, expected);
     lookup.assert();
     create.assert();
+    provisioned.assert();
+    start.assert();
     ready.assert();
 }
 
@@ -343,7 +376,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "sync_include": contract["sync_include"].clone(),
             "restart": common["restart"].clone(),
             "runtime_scopes": golden["runtime_scopes"].clone(),
-            "start": true,
             "dry_run": true
         });
         if runtime == "goose" {

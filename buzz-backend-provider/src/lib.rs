@@ -294,6 +294,13 @@ pub enum ProviderError {
         deployment_id: String,
         state: String,
     },
+    #[error(
+        "timed out waiting for HyperCLI deployment {deployment_id} to provision (last state: {state})"
+    )]
+    DeploymentProvisioningTimeout {
+        deployment_id: String,
+        state: String,
+    },
 }
 
 pub fn provider_info() -> ProviderInfoResponse {
@@ -415,6 +422,11 @@ fn deploy_with_readiness(
 
         match client.create_deployment(&request) {
             Ok(deployment) => {
+                let deployment =
+                    wait_until_stopped(client, deployment, readiness_timeout, poll_interval)?;
+                let deployment = client
+                    .start_deployment(&deployment.id, &StartDeploymentRequest::default())
+                    .map_err(ProviderError::HyperCli)?;
                 let deployment =
                     wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
                 return Ok(DeployResponse {
@@ -694,6 +706,53 @@ fn wait_until_running(
         let elapsed = started.elapsed();
         if elapsed >= timeout {
             return Err(ProviderError::DeploymentReadinessTimeout {
+                deployment_id: deployment.id,
+                state,
+            });
+        }
+        let remaining = timeout.saturating_sub(elapsed);
+        thread::sleep(poll_interval.min(remaining));
+        deployment = client
+            .get_deployment(&deployment.id)
+            .map_err(ProviderError::HyperCli)?;
+    }
+}
+
+fn wait_until_stopped(
+    client: &HyperCliClient,
+    mut deployment: Deployment,
+    timeout: Duration,
+    poll_interval: Duration,
+) -> Result<Deployment, ProviderError> {
+    let started = Instant::now();
+    loop {
+        let state = deployment.state.trim().to_ascii_lowercase();
+        match state.as_str() {
+            "stopped" => return Ok(deployment),
+            "creating" => {}
+            "stopping" | "archiving" => {
+                return Err(ProviderError::DeploymentBusy {
+                    deployment_id: deployment.id,
+                    state,
+                });
+            }
+            "failed" | "archived" | "deleted" => {
+                return Err(ProviderError::DeploymentTerminalState {
+                    deployment_id: deployment.id,
+                    state,
+                });
+            }
+            _ => {
+                return Err(ProviderError::UnexpectedDeploymentState {
+                    deployment_id: deployment.id,
+                    state,
+                });
+            }
+        }
+
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Err(ProviderError::DeploymentProvisioningTimeout {
                 deployment_id: deployment.id,
                 state,
             });
@@ -2317,7 +2376,7 @@ mod tests {
                 .to_string(),
             )
             .create();
-        let ready = server
+        let provisioned = server
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2326,10 +2385,30 @@ mod tests {
                     "id":"deployment-1",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"running"
+                    "state":"stopped"
                 })
                 .to_string(),
             )
+            .create();
+        let start = server
+            .mock("POST", "/agents/deployments/deployment-1/start")
+            .match_body(Matcher::Json(serde_json::json!({})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"deployment-1",
+                    "runtime":"opencode",
+                    "state":"starting"
+                })
+                .to_string(),
+            )
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"running"}"#)
             .create();
 
         let response = deploy(
@@ -2341,6 +2420,8 @@ mod tests {
         assert_eq!(response.agent_id, "deployment-1");
         lookup.assert();
         create.assert();
+        provisioned.assert();
+        start.assert();
         ready.assert();
     }
 
@@ -2396,7 +2477,7 @@ mod tests {
             )
             .expect(1)
             .create();
-        let ready = server
+        let provisioned = server
             .mock("GET", "/agents/deployments/deployment-medium")
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2405,10 +2486,25 @@ mod tests {
                     "id": "deployment-medium",
                     "handle": handle,
                     "runtime": "opencode",
-                    "state": "running"
+                    "state": "stopped"
                 })
                 .to_string(),
             )
+            .expect(1)
+            .create();
+        let start = server
+            .mock("POST", "/agents/deployments/deployment-medium/start")
+            .match_body(Matcher::Json(serde_json::json!({})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-medium","runtime":"opencode","state":"starting"}"#)
+            .expect(1)
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/deployment-medium")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-medium","runtime":"opencode","state":"running"}"#)
             .expect(1)
             .create();
 
@@ -2424,6 +2520,8 @@ mod tests {
         raced_large.assert();
         refreshed_capacity.assert();
         medium_create.assert();
+        provisioned.assert();
+        start.assert();
         ready.assert();
     }
 
@@ -2620,7 +2718,7 @@ mod tests {
                 .to_string(),
             )
             .create();
-        let ready = server
+        let provisioned = server
             .mock("GET", "/agents/deployments/new-runtime")
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2629,10 +2727,23 @@ mod tests {
                     "id":"new-runtime",
                     "handle":handle,
                     "runtime":"opencode",
-                    "state":"running"
+                    "state":"stopped"
                 })
                 .to_string(),
             )
+            .create();
+        let start = server
+            .mock("POST", "/agents/deployments/new-runtime/start")
+            .match_body(Matcher::Json(serde_json::json!({})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"new-runtime","runtime":"opencode","state":"starting"}"#)
+            .create();
+        let ready = server
+            .mock("GET", "/agents/deployments/new-runtime")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"new-runtime","runtime":"opencode","state":"running"}"#)
             .create();
 
         let response = deploy(
@@ -2646,6 +2757,8 @@ mod tests {
         lookup.assert();
         delete.assert();
         create.assert();
+        provisioned.assert();
+        start.assert();
         ready.assert();
     }
 
@@ -2796,7 +2909,7 @@ mod tests {
                         "id":"shared",
                         "handle":handle,
                         "runtime":"opencode",
-                        "state":"creating"
+                        "state":"starting"
                     }]
                 })
                 .to_string(),
@@ -2812,7 +2925,7 @@ mod tests {
                     "id":"shared",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"creating"
+                    "state":"stopped"
                 })
                 .to_string(),
             )
@@ -2821,6 +2934,22 @@ mod tests {
         let losing_create = server
             .mock("POST", "/agents/deployments")
             .with_status(409)
+            .expect(1)
+            .create();
+        let start = server
+            .mock("POST", "/agents/deployments/shared/start")
+            .match_body(Matcher::Json(serde_json::json!({})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id":"shared",
+                    "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
+                    "runtime":"opencode",
+                    "state":"running"
+                })
+                .to_string(),
+            )
             .expect(1)
             .create();
         let ready = server
@@ -2836,7 +2965,7 @@ mod tests {
                 })
                 .to_string(),
             )
-            .expect(2)
+            .expect(1)
             .create();
 
         let barrier = Arc::new(Barrier::new(2));
@@ -2869,6 +2998,7 @@ mod tests {
         recovered_lookup.assert();
         winning_create.assert();
         losing_create.assert();
+        start.assert();
         ready.assert();
     }
 

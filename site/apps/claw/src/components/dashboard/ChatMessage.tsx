@@ -592,7 +592,6 @@ function useAgentFileObjectState(
       return createAgentClient(token).fileReadBytes(
         fileAgentId,
         normalizeOpenClawWorkspaceFilePath(filePath),
-        "auto",
         { maxBytes: MAX_CHAT_MEDIA_PREVIEW_BYTES, signal: abortController.signal },
       );
     };
