@@ -1089,6 +1089,14 @@ class HyperAgent:
         response.raise_for_status()
         return response.json()
 
+    def _control_post_bodyless(self, path: str) -> dict[str, Any]:
+        response = self._http._session.post(
+            f"{self._control_base_url}{path}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return response.json()
+
     def _control_put(self, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         response = self._http._session.put(
             f"{self._control_base_url}{path}",
@@ -1188,6 +1196,12 @@ class HyperAgent:
             payload["cancel_url"] = cancel_url
         return HyperAgentStripeCheckoutResponse.from_dict(
             self._control_post("/stripe/trial", payload)
+        )
+
+    def claim_trial_entitlement(self) -> HyperAgentEntitlement:
+        """Claim the authenticated fresh user's introductory trial entitlement."""
+        return HyperAgentEntitlement.from_dict(
+            self._control_post_bodyless("/plans/trial")
         )
 
     def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> Dict[str, Any]:

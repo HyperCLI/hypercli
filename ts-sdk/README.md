@@ -107,6 +107,7 @@ ws.close();
 
 ```typescript
 const models = await client.agent.models();
+const trial = await client.agent.claimTrialEntitlement();
 const activation = await client.agent.redeemGrantCode('PROMO123');
 const renewal = await client.agent.redeemGrantCode('PROMO123', { extendExisting: true });
 
@@ -347,7 +348,7 @@ await gateway.sendChat('Already normalized', 'main', undefined, [
 ]);
 ```
 
-`client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
+`client.agent.claimTrialEntitlement()` sends an authenticated, bodyless claim to `/agents/plans/trial` and returns the backend-created introductory entitlement. Trial eligibility is decided exclusively by the backend. `client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
 
 Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
 

@@ -103,6 +103,10 @@ if summary.has_active_plan() {
 }
 ```
 
+`client.claim_trial_entitlement()` sends an authenticated, bodyless `POST` to
+`/agents/plans/trial` and returns the backend-created introductory entitlement.
+The backend is the sole authority for trial eligibility.
+
 This summary is the HyperClaw source of truth, not Orchestra `/api/auth/me`.
 A `401` or `403` is an unknown plan state for that scoped key; callers must not
 turn the error into a false no-plan result.

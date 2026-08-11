@@ -290,13 +290,23 @@ pub struct HyperAgentCurrentPlan {
 pub struct HyperAgentEntitlement {
     pub id: String,
     #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
     pub subscription_id: Option<String>,
     #[serde(default)]
     pub plan_id: String,
     #[serde(default)]
+    pub plan_name: String,
+    #[serde(default)]
     pub provider: String,
     #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub starts_at: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
     #[serde(default)]
     pub tpm_limit: u64,
     #[serde(default)]

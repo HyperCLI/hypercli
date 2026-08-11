@@ -159,6 +159,7 @@ export {
   type HyperAgentCurrentPlan,
   type HyperAgentEntitlements,
   type HyperAgentEntitlementsSummary,
+  type HyperAgentEntitlement,
   type HyperAgentSubscription,
   type HyperAgentSubscriptionTrial,
   type HyperAgentSubscriptionMutationResult,

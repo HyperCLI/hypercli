@@ -651,6 +651,64 @@ class TestHyperAgentClient:
 
         mock_http._session.post.assert_not_called()
 
+    def test_claim_trial_entitlement_posts_bodyless(self, mock_http):
+        mock_http._session.post.return_value.json.return_value = {
+            "id": "ent-trial-1",
+            "user_id": "user-1",
+            "subscription_id": None,
+            "plan_id": "team",
+            "plan_name": "Team",
+            "provider": "TRIAL",
+            "status": "ACTIVE",
+            "starts_at": "2026-08-11T12:00:00Z",
+            "expires_at": "2026-08-18T12:00:00Z",
+            "slot_grants": {"medium": 3},
+        }
+        mock_http._session.post.return_value.raise_for_status = Mock()
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        result = agent.claim_trial_entitlement()
+
+        assert isinstance(result, HyperAgentEntitlement)
+        assert result.id == "ent-trial-1"
+        assert result.plan_id == "team"
+        assert result.provider == "TRIAL"
+        assert result.starts_at == datetime(2026, 8, 11, 12, tzinfo=timezone.utc)
+        assert result.expires_at == datetime(2026, 8, 18, 12, tzinfo=timezone.utc)
+        assert result.slot_grants == {"medium": 3}
+        mock_http._session.post.assert_called_once_with(
+            "https://api.hypercli.com/agents/plans/trial",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
+    def test_claim_trial_entitlement_propagates_conflict(self, mock_http):
+        url = "https://api.hypercli.com/agents/plans/trial"
+        response = httpx.Response(
+            409,
+            request=httpx.Request("POST", url),
+            json={"detail": "trial_not_eligible"},
+        )
+        mock_http._session.post.return_value = response
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            agent.claim_trial_entitlement()
+
+        assert exc_info.value.response.status_code == 409
+        assert exc_info.value.response.json()["detail"] == "trial_not_eligible"
+        mock_http._session.post.assert_called_once_with(
+            url,
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
     def test_create_stripe_trial_checkout_serializes_optional_urls(self, mock_http):
         mock_http._session.post.return_value.json.return_value = {
             "checkout_url": "https://checkout.stripe.com/c/pay/cs_trial",

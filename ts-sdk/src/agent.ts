@@ -1189,6 +1189,22 @@ export class HyperAgent {
     return response.json() as Promise<T>;
   }
 
+  private async controlPostBodyless<T = any>(path: string): Promise<T> {
+    const url = `${this.controlBaseUrl}${path}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw await responseAPIError(response, 'POST', url);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
   private async controlPut<T = any>(path: string, body?: any): Promise<T> {
     const response = await fetch(`${this.controlBaseUrl}${path}`, {
       method: 'PUT',
@@ -1467,6 +1483,11 @@ export class HyperAgent {
         ...(request.extendExisting !== undefined ? { extend_existing: Boolean(request.extendExisting) } : {}),
       }),
     );
+  }
+
+  /** Claim the authenticated fresh user's introductory trial entitlement. */
+  async claimTrialEntitlement(): Promise<HyperAgentEntitlement> {
+    return hyperAgentEntitlementFromDict(await this.controlPostBodyless('/plans/trial'));
   }
 
   async createStripeCheckout(
