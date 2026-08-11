@@ -990,7 +990,7 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
-  it("uses the guided experience for initial page hydration", () => {
+  it("uses the new startup experience for initial page hydration", () => {
     const { container } = renderAgentChatPanel({
       chat: buildChat({ connecting: true }),
       isSelectedRunning: true,
@@ -1181,7 +1181,7 @@ describe("AgentChatPanel", () => {
   });
 
   it("shows workspace hydration once the gateway transport is connected", () => {
-    renderAgentChatPanel({
+    const { container } = renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
         gatewayConnected: true,
@@ -1193,6 +1193,8 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByText("Loading workspace")).toBeInTheDocument();
     expect(screen.getByText("Fetching messages, files, and config.")).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox")).toBeDisabled();
   });
 
@@ -3468,9 +3470,11 @@ describe("AgentChatPanel", () => {
       }),
       isSelectedRunning: true,
     });
-    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+    const { container, rerender } = renderWithClient(<AgentChatPanel {...props} />);
 
     expect(screen.getByText("Loading workspace")).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
 
     rerender(
       <AgentChatPanel
@@ -3483,6 +3487,8 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByText("Loading workspace")).toBeInTheDocument();
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("settles briefly before replacing loading with the ready composer", async () => {

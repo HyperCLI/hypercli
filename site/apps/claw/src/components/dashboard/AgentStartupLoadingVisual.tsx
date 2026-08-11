@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 import {
-  AgentGatewayLoadingVisual,
+  AgentGatewayErrorVisual,
   GATEWAY_LOADING_DETAIL,
   GATEWAY_LOADING_TITLE,
 } from "@/components/dashboard/AgentGatewayLoadingVisual";
@@ -65,8 +65,6 @@ export interface AgentStartupLoadingVisualProps {
   title?: string;
   detail?: string;
   className?: string;
-  animationClassName?: string;
-  showCodePhase?: boolean;
   status?: "loading" | "error";
   actionLabel?: string;
   onAction?: () => void;
@@ -176,7 +174,15 @@ export function AgentStartupTipsVisual({
 
 export function AgentStartupLoadingVisual(props: AgentStartupLoadingVisualProps) {
   if (props.status === "error") {
-    return <AgentGatewayLoadingVisual {...props} />;
+    return (
+      <AgentGatewayErrorVisual
+        title={props.title}
+        detail={props.detail}
+        className={props.className}
+        actionLabel={props.actionLabel}
+        onAction={props.onAction}
+      />
+    );
   }
 
   return (

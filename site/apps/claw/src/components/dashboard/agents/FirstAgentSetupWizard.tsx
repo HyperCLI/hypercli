@@ -1281,7 +1281,6 @@ export function FirstAgentSetupWizard({
           detail="Saving your setup and preparing persistent storage."
           tone="starting"
           stage="runtime"
-          guided
         />
       </div>
     );

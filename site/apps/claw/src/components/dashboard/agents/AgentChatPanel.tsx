@@ -1235,7 +1235,6 @@ export function AgentChatPanel({
       return (
         <AgentLoadingState
           bootStatus={displayBootStatus}
-          guided={guidedLoadingReason !== null}
           heading={guidedLoadingReason === "initial" ? "Rejoining your teammate" : undefined}
           note={guidedLoadingReason === "initial" ? "Restoring your connection and recent conversation." : undefined}
           actionLabel={startupStopAction ? "Stop agent" : undefined}
@@ -1258,7 +1257,6 @@ export function AgentChatPanel({
       if (chat.historyPhase === "loading" || chat.historyPhase === "idle") {
         return (
           <AgentLoadingState
-            guided
             heading="Rejoining your teammate"
             note="Restoring your connection and recent conversation."
             title="Loading conversation"

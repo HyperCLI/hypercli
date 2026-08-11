@@ -1,6 +1,6 @@
 "use client";
 
-import { AgentGatewayLoadingVisual } from "@/components/dashboard/AgentGatewayLoadingVisual";
+import { AgentStartupLoadingVisual } from "@/components/dashboard/AgentStartupLoadingVisual";
 
 interface SkillsLoadingStateProps {
   title?: string;
@@ -15,11 +15,11 @@ export function SkillsLoadingState({
 }: SkillsLoadingStateProps) {
   return (
     <div className={`flex min-h-[260px] min-w-0 items-center justify-center overflow-hidden ${className}`}>
-      <AgentGatewayLoadingVisual
+      <AgentStartupLoadingVisual
+        heading="Getting skills ready"
+        note="Loading the tools available to this agent."
         title={title}
         detail={detail}
-        animationClassName="h-[clamp(5.5rem,20vh,8rem)] w-[clamp(5.5rem,20vh,8rem)]"
-        className="gap-4"
       />
     </div>
   );

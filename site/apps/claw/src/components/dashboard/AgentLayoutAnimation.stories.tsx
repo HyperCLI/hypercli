@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
 import { Menu } from "lucide-react";
 import { AgentLayoutAnimation } from "./AgentLayoutAnimation";
-import { AgentGatewayLoadingVisual } from "./AgentGatewayLoadingVisual";
+import { AgentGatewayErrorVisual } from "./AgentGatewayLoadingVisual";
 import { AgentStartupTipsVisual } from "./AgentStartupLoadingVisual";
 import { AgentEmptyHistory } from "./agents/AgentEmptyHistory";
 
@@ -96,7 +96,7 @@ export const LoadingState: Story = {
   render: () => (
     <MobileChatFrame>
       <div className="flex flex-1 items-center justify-center px-5">
-        <AgentGatewayLoadingVisual />
+        <AgentStartupTipsVisual />
       </div>
     </MobileChatFrame>
   ),
@@ -162,13 +162,16 @@ export const BootStages: Story = {
         ["Could not connect", "Gateway handshake failed.", "error" as const],
       ].map(([title, detail, status]) => (
         <div key={title} className="flex min-h-[260px] items-center justify-center rounded-lg border border-white/10 bg-black px-5">
-          <AgentGatewayLoadingVisual
-            title={title}
-            detail={detail}
-            status={status}
-            actionLabel={status === "error" ? "Retry" : undefined}
-            onAction={status === "error" ? () => {} : undefined}
-          />
+          {status === "error" ? (
+            <AgentGatewayErrorVisual
+              title={title}
+              detail={detail}
+              actionLabel="Retry"
+              onAction={() => {}}
+            />
+          ) : (
+            <AgentStartupTipsVisual title={title} detail={detail} />
+          )}
         </div>
       ))}
     </div>
@@ -222,7 +225,9 @@ export const ReconnectWithDraft: Story = {
   render: () => (
     <MobileChatFrame>
       <div className="flex min-h-0 flex-1 items-center justify-center px-5">
-        <AgentGatewayLoadingVisual
+        <AgentStartupTipsVisual
+          heading="Rejoining your teammate"
+          note="Restoring your connection and recent conversation."
           title="Waiting for gateway"
           detail="The runtime is up. Reconnecting to the agent session."
         />

@@ -6634,7 +6634,6 @@ function AgentsPageContent() {
                 detail={checkoutSync?.message ?? "Confirming your new capacity and restoring the setup you saved before payment."}
                 tone="loading"
                 stage="runtime"
-                guided
               />
             </div>
           ) : null}

@@ -84,9 +84,11 @@ function renderPanel(overrides: Partial<ComponentProps<typeof SkillsPanel>> = {}
 
 describe("SkillsPanel", () => {
   it("uses the Claw loading layout while skills load", () => {
-    renderPanel({ loading: true });
+    const { container } = renderPanel({ loading: true });
     expect(screen.getByRole("status", { name: /loading skills reading available app skills/i })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Getting skills ready" })).toBeInTheDocument();
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("renders installed skills and opens details", () => {

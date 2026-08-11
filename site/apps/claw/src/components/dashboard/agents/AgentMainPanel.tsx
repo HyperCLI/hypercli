@@ -339,7 +339,6 @@ export function AgentMainPanel({
           detail={startupCopy.detail}
           tone="starting"
           stage={startupCopy.stage}
-          guided
           actionLabel={onStop ? "Stop agent" : undefined}
           onAction={onStop}
         />
@@ -476,7 +475,6 @@ export function AgentMainPanel({
             detail="Checking who is available before opening your teammate."
             tone="loading"
             stage="complete"
-            guided
           />
         </div>
       ) : !selectedAgent && hasAgents ? (
@@ -488,7 +486,6 @@ export function AgentMainPanel({
             detail="Opening the next available agent."
             tone="loading"
             stage="complete"
-            guided
           />
         </div>
       ) : !selectedAgent ? (

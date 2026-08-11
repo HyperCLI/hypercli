@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "sh -lc 'next dev --port ${PORT:-4003}'",
+    "predev": "npm --prefix ../../../ts-sdk run build",
+    "dev": "concurrently --kill-others --names sdk,claw \"npm --prefix ../../../ts-sdk run watch\" \"sh -lc 'next dev --port ${PORT:-4003}'\"",
     "dev:mock": "cp .env.mock .env.local && npm run dev",
     "dev:real": "bash ../../scripts/setup-local-env.sh && npm run dev",
     "switch:mock": "cp .env.mock .env.local && echo '✅ Switched to MOCK server'",

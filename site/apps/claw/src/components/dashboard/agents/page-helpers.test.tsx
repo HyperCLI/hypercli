@@ -78,28 +78,24 @@ describe("AgentLoadingState", () => {
     window.localStorage.clear();
   });
 
-  it("shows the shared gateway loading state", () => {
-    renderWithClient(<AgentLoadingState />);
+  it("uses the new startup loading state by default", () => {
+    const { container } = renderWithClient(<AgentLoadingState />);
 
-    expect(screen.getByText("Connecting gateway .")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your teammate is warming up" })).toBeInTheDocument();
+    expect(screen.getByText("Connecting gateway")).toBeInTheDocument();
     expect(screen.getByText("Opening the agent session")).toBeInTheDocument();
-    const animation = screen.getByRole("img", { name: /agent workspace loading/i });
-    expect(animation).toBeInTheDocument();
-    expect(animation.querySelectorAll('[fill="var(--foreground)"]')).not.toHaveLength(0);
-    expect(animation.querySelectorAll('[stroke="var(--foreground)"]')).not.toHaveLength(0);
-    expect(animation.querySelectorAll('stop[stop-color="var(--background)"]')).toHaveLength(4);
-    expect(screen.getByRole("status")).toHaveClass("bg-popover");
-    expect(screen.getByRole("status")).not.toHaveClass("elevation-shadow-medium");
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
-  it("keeps the loading animation mounted while status text changes", async () => {
-    const { rerender } = renderWithClient(
+  it("keeps the startup experience mounted while status text changes", async () => {
+    const { container, rerender } = renderWithClient(
       <AgentLoadingState
         title="Provisioning runtime"
         detail="Reserving compute and preparing the workspace."
       />,
     );
-    const animation = screen.getByRole("img", { name: /agent workspace loading/i });
+    const startupExperience = container.querySelector('[data-slot="agent-startup-tips"]');
 
     rerender(
       <AgentLoadingState
@@ -108,11 +104,12 @@ describe("AgentLoadingState", () => {
       />,
     );
 
-    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBe(animation);
+    expect(container.querySelector('[data-slot="agent-startup-tips"]')).toBe(startupExperience);
     await waitFor(() => {
       expect(screen.getByText("Booting agent")).toBeInTheDocument();
       expect(screen.getByText("Starting the container and OpenClaw services.")).toBeInTheDocument();
     });
+    expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
   it("uses the startup tips experience for lifecycle boot phases", () => {

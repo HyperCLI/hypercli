@@ -12,7 +12,6 @@ import {
   TerminalSquare,
 } from "lucide-react";
 import {
-  AgentGatewayLoadingVisual,
   GATEWAY_LOADING_DETAIL,
   GATEWAY_LOADING_TITLE,
 } from "@/components/dashboard/AgentGatewayLoadingVisual";
@@ -170,7 +169,6 @@ interface AgentLoadingStateProps {
   surface?: "default" | "terminal";
   stage?: AgentLifecycleStage;
   bootStatus?: AgentBootDisplayStatus;
-  guided?: boolean;
   actionLabel?: string;
   onAction?: () => void;
 }
@@ -183,7 +181,6 @@ export function AgentLoadingState({
   surface = "default",
   stage = "gateway",
   bootStatus,
-  guided,
   actionLabel,
   onAction,
 }: AgentLoadingStateProps) {
@@ -191,12 +188,6 @@ export function AgentLoadingState({
   const resolvedDetail = bootStatus?.detail ?? detail ?? GATEWAY_LOADING_DETAIL;
   const resolvedStage = bootStatus?.stage ?? stage;
   const resolvedStatus = bootStatus?.status ?? "loading";
-  const bootPhaseIsStartup = bootStatus?.status === "loading" && (
-    bootStatus.phase === "creating" ||
-    bootStatus.phase === "restoring" ||
-    bootStatus.phase === "booting"
-  );
-  const showGuidedExperience = guided ?? bootPhaseIsStartup;
 
   return (
     <div
@@ -204,27 +195,15 @@ export function AgentLoadingState({
       data-loading-surface={surface}
       data-loading-stage={resolvedStage}
     >
-      {showGuidedExperience ? (
-        <AgentStartupLoadingVisual
-          heading={heading}
-          note={note}
-          title={resolvedTitle}
-          detail={resolvedDetail}
-          showCodePhase
-          status={resolvedStatus}
-          actionLabel={actionLabel}
-          onAction={onAction}
-        />
-      ) : (
-        <AgentGatewayLoadingVisual
-          title={resolvedTitle}
-          detail={resolvedDetail}
-          showCodePhase
-          status={resolvedStatus}
-          actionLabel={actionLabel}
-          onAction={onAction}
-        />
-      )}
+      <AgentStartupLoadingVisual
+        heading={heading}
+        note={note}
+        title={resolvedTitle}
+        detail={resolvedDetail}
+        status={resolvedStatus}
+        actionLabel={actionLabel}
+        onAction={onAction}
+      />
     </div>
   );
 }
