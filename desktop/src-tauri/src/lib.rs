@@ -2321,16 +2321,16 @@ fn create_buzz_deployment_blocking(
         request.sync_exclude = None;
     }
     request.size = Some(requested_size);
-    // Keep the runtime stopped until its durable avatar, Buzz profile, and
-    // local ownership record have all been installed.
-    request.start = false;
     request.mark_buzz_deployment(Some(&prepared.agent_public_hex));
     for channel in &prepared.channels {
         request.tags.push(format!("buzz_channel={channel}"));
     }
-    client
+    let deployment = client
         .create_deployment(&request)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    // CREATE provisions only. Keep the runtime stopped until its durable
+    // avatar, Buzz profile, and local ownership record have been installed.
+    wait_for_stopped(&client, deployment)
 }
 
 fn sync_created_avatar_env_blocking(
