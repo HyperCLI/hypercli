@@ -2031,7 +2031,24 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         def get(self, url, headers=None, params=None, follow_redirects=None):
             assert params is None
             if url.endswith("/deployments/agent-123/files/.openclaw/workspace/workspace"):
-                return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
+                return FakeResponse(
+                    json_data={
+                        "directories": [
+                            {
+                                "name": "dir",
+                                "path": ".openclaw/workspace/workspace/dir/",
+                                "type": "directory",
+                            }
+                        ],
+                        "files": [
+                            {
+                                "name": "a.txt",
+                                "path": ".openclaw/workspace/workspace/a.txt",
+                                "type": "file",
+                            }
+                        ],
+                    }
+                )
             if url.endswith("/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt"):
                 return FakeResponse(content=b"hello", headers={"content-type": "text/plain"})
             if url.endswith("/deployments/agent-123/files/.openclaw/workspace/.openclaw"):
@@ -2079,7 +2096,10 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         entries = agents_client.files_list(agent, "workspace")
         hidden_entries = agents_client.files_list(agent, ".openclaw")
-        assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
+        assert entries == [
+            {"name": "dir", "path": "workspace/dir/", "type": "directory"},
+            {"name": "a.txt", "path": "workspace/a.txt", "type": "file"},
+        ]
         assert hidden_entries == [{"name": "workspace", "type": "directory"}, {"name": "openclaw.json", "type": "file"}]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
         assert agents_client.file_read_bytes_with_metadata(agent, "workspace/a.txt") == {

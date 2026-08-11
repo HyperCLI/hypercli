@@ -981,6 +981,15 @@ function resolveWorkspaceFilePath(path: string): string {
   return rel ? `${OPENCLAW_WORKSPACE_PREFIX}/${rel}` : OPENCLAW_WORKSPACE_PREFIX;
 }
 
+function workspaceRelativeFileEntry(entry: AgentFileEntry): AgentFileEntry {
+  if (typeof entry.path !== 'string') return { ...entry };
+  const normalized = entry.path.replace(/^\/+/, '');
+  const prefix = `${OPENCLAW_WORKSPACE_PREFIX}/`;
+  if (normalized === OPENCLAW_WORKSPACE_PREFIX) return { ...entry, path: '' };
+  if (normalized.startsWith(prefix)) return { ...entry, path: normalized.slice(prefix.length) };
+  return { ...entry };
+}
+
 function normalizeWritableBackendFilePath(path: string): string {
   const normalized = path.replace(/\\/g, '/');
   if (normalized.startsWith('/')) {
@@ -4588,7 +4597,7 @@ export class Deployments {
     const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodeFilePath(resolvedPath)}`);
     const payload = (await response.json()) as AgentDirectoryListing;
-    return [...(payload.directories ?? []), ...(payload.files ?? [])];
+    return [...(payload.directories ?? []), ...(payload.files ?? [])].map(workspaceRelativeFileEntry);
   }
 
   async fileReadBytesWithMetadata(

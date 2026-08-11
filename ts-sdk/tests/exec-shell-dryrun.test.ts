@@ -1402,8 +1402,8 @@ describe('HyperClaw agents SDK', () => {
       const url = String(input);
       if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/workspace')) {
         return new Response(JSON.stringify({
-          directories: [{ name: 'dir', path: 'workspace/dir/', type: 'directory' }],
-          files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
+          directories: [{ name: 'dir', path: '.openclaw/workspace/workspace/dir/', type: 'directory' }],
+          files: [{ name: 'a.txt', path: '.openclaw/workspace/workspace/a.txt', type: 'file' }],
         }), { status: 200 });
       }
       if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/workspace/a.txt') && (!init || !init.method)) {
@@ -1419,9 +1419,9 @@ describe('HyperClaw agents SDK', () => {
       if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/.openclaw') && (!init || !init.method)) {
         return new Response(JSON.stringify({
           type: 'directory',
-          prefix: '.openclaw/',
-          directories: [{ name: 'workspace', path: '.openclaw/workspace/', type: 'directory' }],
-          files: [{ name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' }],
+          prefix: '.openclaw/workspace/.openclaw/',
+          directories: [{ name: 'workspace', path: '.openclaw/workspace/.openclaw/workspace/', type: 'directory' }],
+          files: [{ name: 'openclaw.json', path: '.openclaw/workspace/.openclaw/openclaw.json', type: 'file' }],
         }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },

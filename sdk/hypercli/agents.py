@@ -381,6 +381,21 @@ def resolve_workspace_file_path(path: str) -> str:
     return f"{OPENCLAW_WORKSPACE_PREFIX}/{rel}" if rel else OPENCLAW_WORKSPACE_PREFIX
 
 
+def workspace_relative_file_entry(entry: dict) -> dict:
+    """Project a Reef sync-root entry back into the public workspace namespace."""
+    projected = dict(entry)
+    raw_path = projected.get("path")
+    if not isinstance(raw_path, str):
+        return projected
+    prefix = f"{OPENCLAW_WORKSPACE_PREFIX}/"
+    normalized = raw_path.lstrip("/")
+    if normalized == OPENCLAW_WORKSPACE_PREFIX:
+        projected["path"] = ""
+    elif normalized.startswith(prefix):
+        projected["path"] = normalized[len(prefix) :]
+    return projected
+
+
 def normalize_writable_backend_file_path(path: str) -> str:
     """Return a relative workspace path accepted by the public files API."""
     normalized = path.replace("\\", "/")
@@ -4393,7 +4408,13 @@ class Deployments:
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         payload = resp.json()
-        return [*(payload.get("directories") or []), *(payload.get("files") or [])]
+        return [
+            workspace_relative_file_entry(entry)
+            for entry in [
+                *(payload.get("directories") or []),
+                *(payload.get("files") or []),
+            ]
+        ]
 
     def file_read_bytes_with_metadata(self, pod: Agent | str, path: str) -> dict[str, Any]:
         """Read a relative workspace file through the Reef file API."""
