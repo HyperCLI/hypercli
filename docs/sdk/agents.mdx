@@ -157,7 +157,6 @@ This namespace manages agent runtimes.
 agent = client.deployments.create(
     name="docs-demo",
     size="medium",
-    start=True,
     env={"APP_ENV": "prod"},
 )
 ```
@@ -247,9 +246,10 @@ Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw r
 ```python
 agent = client.deployments.create_openclaw(
     name="docs-demo",
-    start=True,
     tags=["team=dev"],
 )
+agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
+agent = client.deployments.start(agent.id)
 ```
 
 Default OpenClaw routes are:
@@ -423,7 +423,6 @@ Example:
 ```python
 agent = client.deployments.create(
     name="docs-demo",
-    start=True,
     routes={
         "app": {"prefix": "app", "port": 8080, "auth": False},
         "admin": {"prefix": "admin", "port": 8081, "auth": True},
@@ -453,6 +452,8 @@ current = client.deployments.get(agent.id)
 
 agent = client.deployments.start(agent.id)
 agent = client.deployments.stop(agent.id)
+agent = client.deployments.archive(agent.id)
+agent = client.deployments.restore(agent.id)
 client.deployments.delete(agent.id)
 
 budget = client.deployments.budget()

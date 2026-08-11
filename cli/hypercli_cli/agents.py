@@ -5,7 +5,6 @@ import json
 import os
 import shlex
 import sys
-import time
 from pathlib import Path
 
 import typer
@@ -515,10 +514,8 @@ def create(
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
     api_server_key: str = typer.Option(None, "--api-server-key", help="Hermes API Server bearer key override"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent"),
-    no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
-    wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for the agent to be running"),
 ):
-    """Create a new managed agent."""
+    """Provision a new managed agent in STOPPED state."""
     runtime = _managed_runtime(runtime)
     agents = _get_deployments_client()
     env_dict = _parse_env_vars(env)
@@ -571,7 +568,6 @@ def create(
             "sync_uid": sync_uid,
             "sync_gid": sync_gid,
             "dry_run": dry_run,
-            "start": not no_start,
             **sync_policy,
         }
         if runtime == "hermes-agent":
@@ -606,28 +602,12 @@ def create(
         console.print(f"  Desktop:  {pod.vnc_url or ('disabled' if not desktop_enabled else '')}")
     console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
 
-    if wait and not pod.dry_run:
-        console.print("\n[dim]Waiting for agent to start...[/dim]")
-        try:
-            pod = agents.wait_running(
-                pod.id,
-                timeout=300,
-                poll_interval=5,
-                **_launch_epoch_wait_kwargs(pod),
-            )
-            _save_agent_state(pod)
-            console.print(f"[green]✅ Agent is running![/green]")
-        except RuntimeError as e:
-            console.print(f"[red]❌ Agent failed: {e}[/red]")
-            raise typer.Exit(1)
-        except TimeoutError:
-            console.print("[yellow]⚠ Timed out (5 min). Agent may still be starting.[/yellow]")
-
     if pod.dry_run:
         console.print("\n[dim]Dry run only. No agent was created.[/dim]")
     else:
         console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
+        console.print(f"Start:   [bold]hyper agents start {pod.id[:8]}[/bold]")
         if runtime == "hermes-agent":
             console.print(f"API:     {pod.api_url or 'pending route assignment'}")
         elif desktop_enabled:
@@ -1222,6 +1202,24 @@ def restore(
 
     _save_agent_state(pod)
     console.print(f"[green]✓[/green] Agent restoring: {getattr(pod, 'name', None) or pod.id}")
+
+
+@app.command("archive")
+def archive(
+    agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
+):
+    """Archive a stopped agent's durable workspace without launching it."""
+    agent_id = _resolve_agent(agent_id)
+    agents = _get_deployments_client()
+
+    try:
+        pod = agents.archive(agent_id)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to archive agent: {e}[/red]")
+        raise typer.Exit(1)
+
+    _save_agent_state(pod)
+    console.print(f"[green]✓[/green] Agent archiving: {getattr(pod, 'name', None) or pod.id}")
 
 
 @app.command("delete")

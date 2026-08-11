@@ -711,8 +711,6 @@ pub struct CreateDeploymentRequest {
     pub restart: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_scopes: Vec<String>,
-    #[serde(default = "default_true")]
-    pub start: bool,
     #[serde(default)]
     pub dry_run: bool,
 }
@@ -739,7 +737,6 @@ impl CreateDeploymentRequest {
             sync_gid: None,
             restart: None,
             runtime_scopes: Vec::new(),
-            start: true,
             dry_run: false,
         }
     }
@@ -1755,6 +1752,13 @@ mod tests {
         let excluded_wire = serde_json::to_value(&excluded).unwrap();
         assert!(excluded_wire.get("sync_include").is_none());
         assert_eq!(excluded_wire["sync_exclude"], serde_json::json!(["tmp/**"]));
+    }
+
+    #[test]
+    fn create_request_has_no_start_field() {
+        let request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+        let wire = serde_json::to_value(request).unwrap();
+        assert!(wire.get("start").is_none());
     }
 
     #[test]

@@ -32,7 +32,7 @@ REST confirmation:
 
 ```rust,no_run
 use std::time::Duration;
-use hypercli_sdk::{AgentSize, CreateDeploymentRequest, HyperCliClient, ManagedRuntime};
+use hypercli_sdk::{AgentSize, CreateDeploymentRequest, HyperCliClient, ManagedRuntime, StartDeploymentRequest};
 
 # async fn example(client: &HyperCliClient) -> Result<(), Box<dyn std::error::Error>> {
 let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
@@ -40,6 +40,10 @@ request.name = Some("docs-demo".into());
 request.size = Some(AgentSize::Small);
 
 let created = client.create_deployment(&request)?;
+let created = client
+    .wait_deployment_state(&created.id, &["stopped"], &["failed", "deleted"], Duration::from_secs(330))
+    .await?;
+client.start_deployment(&created.id, &StartDeploymentRequest::default())?;
 let running = client
     .wait_deployment_running(&created.id, Duration::from_secs(300))
     .await?;
@@ -47,6 +51,11 @@ println!("{} {}", running.id, running.state);
 # Ok(())
 # }
 ```
+
+Lifecycle mutations remain separate calls:
+`start_deployment(id, request)`, `stop_deployment(id)`,
+`archive_deployment(id)`, and `restore_deployment(id)`. Archive and restore use
+bodyless POST requests and never launch the runtime.
 
 For a newly issued hostname, consumers can use
 `wait_deployment_running_settled(&created.id, timeout, None)`.  It waits for

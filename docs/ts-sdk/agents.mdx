@@ -137,7 +137,6 @@ For account-facing billing and capacity screens, prefer `client.agent.entitlemen
 const agent = await client.deployments.create({
   name: "docs-demo",
   size: "medium",
-  start: true,
   env: { APP_ENV: "prod" },
 });
 ```
@@ -226,9 +225,10 @@ Use the OpenClaw-specific helpers when you want the SDK to provide the standard 
 ```ts
 const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
-  start: true,
   tags: ["team=dev"],
 });
+await client.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
+await client.deployments.start(agent.id);
 ```
 
 Default OpenClaw routes are:
@@ -396,7 +396,6 @@ Routes are a generic dict keyed by route name. Outside the OpenClaw helper metho
 ```ts
 const agent = await client.deployments.create({
   name: "docs-demo",
-  start: true,
   routes: {
     app: { prefix: "app", port: 8080, auth: false },
     admin: { prefix: "admin", port: 8081, auth: true },
@@ -411,6 +410,8 @@ await client.deployments.list();
 await client.deployments.get(agent.id);
 await client.deployments.start(agent.id);
 await client.deployments.stop(agent.id);
+await client.deployments.archive(agent.id);
+await client.deployments.restore(agent.id);
 await client.deployments.delete(agent.id);
 const running = await client.deployments.waitForState(
   agent.id,

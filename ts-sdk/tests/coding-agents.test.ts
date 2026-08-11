@@ -110,13 +110,11 @@ describe('coding agents', () => {
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
-
     const agent = await deployments[helper]();
 
     expect(agent).toBeInstanceOf(AgentClass);
     expect(agent.runtime).toBe(runtime);
     expect(post).toHaveBeenCalledWith('/deployments', {
-      start: true,
       runtime,
       image,
       routes: {},

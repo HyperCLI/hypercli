@@ -50,10 +50,10 @@ export async function createAgentWithAvailableTier(
       const agent = await client.deployments.create({
         name: options.name,
         size: tier,
-        start: false,
         tags: options.tags,
       });
       agentId = agent.id;
+      await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
       await client.deployments.startOpenClaw(agent.id, { dryRun: true });
       return { id: agent.id, tier };
     } catch (error) {

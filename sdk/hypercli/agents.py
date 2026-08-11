@@ -16,7 +16,6 @@ import inspect
 import json
 import mimetypes
 import os
-import posixpath
 import re
 import secrets
 import shlex
@@ -357,47 +356,11 @@ class BuzzLaunchConfig:
             "NOSTR_PRIVATE_KEY": self.private_key_nsec,
         }
 
-# The three file-access paths for an OpenClaw agent, each with its own root —
-# the SDK owns the roots so a workspace-relative path (e.g. "AGENTS.md") hits the
-# same file on all three:
-# - `agent`  — the files API on the agent's live pod filesystem. A
-#              workspace-relative path resolves under the workspace, while an
-#              absolute `/…` path can be listed/read anywhere on the pod.
-#              Writes under the sync root are supported. (wire `source=pod`)
-# - `backup` — the S3 backup of the sync root (`/home/node`); served when the pod
-#              is stopped. Scoped to the sync root. (wire `source=s3`)
-# - `gateway`— the operator-WebSocket `agents.files.*` RPC; scoped to the
-#              `.openclaw/workspace` (name-addressed; no delete). Works on any
-#              gateway, self-hosted included.
-# - `auto`   — backend default: the agent while running, else the backup.
-#
-# `pod`/`s3` are accepted as deprecated aliases of `agent`/`backup`.
-AgentFileSource = Literal["auto", "agent", "backup", "gateway", "pod", "s3"]
-
-# Deprecated alias of AgentFileSource; gateway is a base capability now.
-OpenClawFileSource = AgentFileSource
-
-# The backend (non-gateway) file sources — the deployment HTTP files store.
-AgentFileBackendSource = Literal["auto", "agent", "backup", "pod", "s3"]
-
-# The value the deployment HTTP API accepts on the wire (`source`/`destination`).
-AgentFileWireSource = Literal["auto", "pod", "s3"]
-
-# The agent's sync root and workspace, owned by the SDK so paths are unambiguous.
+# Public file access is one Reef-backed, workspace-relative API. S3 is reserved
+# for archive/restore internals and gateway RPCs remain available through the
+# explicit gateway client instead of being multiplexed into these methods.
 OPENCLAW_SYNC_ROOT = "/home/node"
 OPENCLAW_WORKSPACE_PREFIX = ".openclaw/workspace"
-
-_GATEWAY_FILE_SOURCES = frozenset({"gateway"})
-_FULL_FS_FILE_SOURCES = frozenset({"agent", "pod"})
-
-
-def to_wire_file_source(source: str) -> str:
-    """Map the friendly `agent`/`backup` names to their wire `pod`/`s3` values."""
-    if source == "agent":
-        return "pod"
-    if source == "backup":
-        return "s3"
-    return source  # 'auto' | 'pod' | 's3'
 
 
 def strip_rel_prefix(path: str) -> str:
@@ -405,214 +368,62 @@ def strip_rel_prefix(path: str) -> str:
     return re.sub(r"^/+", "", re.sub(r"^(?:\./)+", "", path))
 
 
-def resolve_backend_file_path(path: str, source: str) -> str:
-    """
-    Resolve a caller path to the deployment HTTP files path (sync-root relative).
-    Workspace-relative by default (prefixed with the workspace); an absolute `/…`
-    path is read-only full-fs and only valid for the `agent` source.
-    """
+def resolve_workspace_file_path(path: str) -> str:
+    """Resolve one relative workspace path to the Reef sync-root-relative path."""
     if path.startswith("/"):
-        if source not in _FULL_FS_FILE_SOURCES:
-            scope = "the sync root" if source in {"backup", "s3"} else "the workspace"
-            raise ValueError(
-                "absolute paths need the 'agent' source (full pod filesystem); "
-                f"'{source}' is scoped to {scope}."
-            )
-        return path  # full-fs path, passed through to source=pod
+        raise ValueError("agent file paths must be relative to the workspace")
     rel = strip_rel_prefix(path)
+    if ".." in rel.replace("\\", "/").split("/"):
+        raise ValueError("agent file paths must stay within the workspace")
+    prefix = f"{OPENCLAW_WORKSPACE_PREFIX}/"
+    if rel == OPENCLAW_WORKSPACE_PREFIX or rel.startswith(prefix):
+        return rel
     return f"{OPENCLAW_WORKSPACE_PREFIX}/{rel}" if rel else OPENCLAW_WORKSPACE_PREFIX
 
 
 def normalize_writable_backend_file_path(path: str) -> str:
-    """Return a sync-root-relative path accepted by the backend files API."""
+    """Return a relative workspace path accepted by the public files API."""
     normalized = path.replace("\\", "/")
     if normalized.startswith("/"):
-        normalized = posixpath.normpath(normalized)
-        prefix = f"{OPENCLAW_SYNC_ROOT}/"
-        if not normalized.startswith(prefix):
-            raise ValueError(
-                f"absolute write paths must stay within the sync root ({OPENCLAW_SYNC_ROOT})."
-            )
-        return normalized[len(prefix):]
+        raise ValueError("agent file paths must be relative to the workspace")
     if ".." in normalized.split("/"):
         raise ValueError(
-            "paths containing '..' are not writable; "
-            "writes and deletes must stay within the sync root."
+            "paths containing '..' are not writable; agent file paths must stay within the workspace."
         )
     return strip_rel_prefix(normalized)
 
 
-def resolve_gateway_file_name(path: str) -> str:
-    """Strip a workspace prefix so gateway (name-addressed) sees the bare name."""
-    if path.startswith("/"):
-        raise ValueError(
-            "absolute paths are not valid for the 'gateway' source (scoped to the workspace)."
-        )
-    rel = strip_rel_prefix(path)
-    prefix = f"{OPENCLAW_WORKSPACE_PREFIX}/"
-    return rel[len(prefix):] if rel.startswith(prefix) else rel
-
-
-def _coerce_utf8_text(content: bytes | str) -> str:
-    """Coerce write content to text for the gateway (text-only) file source."""
-    if isinstance(content, str):
-        return content
-    return bytes(content).decode("utf-8")
-
-
-@dataclass
-class AgentFilesGatewayHooks:
-    """Hooks an OpenClaw agent provides so AgentFiles can reach its gateway.
-
-    `with_gateway` runs an async op inside a connected gateway session (the sync
-    `_with_gateway` seam: opens `connect()`, runs the op, closes); `resolve_agent_id`
-    is the async resolver for the in-gateway agent id.
-    """
-    with_gateway: Callable[[Callable[[Any], Any]], Any]
-    resolve_agent_id: Callable[[Any], Any]
-
-
 class AgentFiles:
-    """
-    ONE client wrapping all three agent file-access paths behind a single `source`
-    switch (`agent` | `backup` | `gateway`, plus `auto`). The SDK owns the roots,
-    so a workspace-relative path is the same file on every source; `agent` also
-    takes absolute `/…` paths for read-only full-filesystem browsing. The
-    underlying APIs are left as-is — this only wraps them.
-    """
+    """Reef-backed file access scoped to an agent's workspace."""
 
     def __init__(
         self,
         agent: "Agent",
         deployments: "Deployments",
-        gateway_hooks: AgentFilesGatewayHooks | None = None,
     ):
         self._agent = agent
         self._deployments = deployments
-        self._gateway_hooks = gateway_hooks
 
-    def _require_gateway(self) -> AgentFilesGatewayHooks:
-        if self._gateway_hooks is None:
-            raise ValueError(
-                "gateway file source requires an OpenClaw agent with a gateway URL/token."
-            )
-        return self._gateway_hooks
+    def list(self, path: str = "") -> list[dict]:
+        return self._deployments.files_list(self._agent, path)
 
-    def list(self, path: str = "", source: str = "auto") -> list[dict]:
-        if source not in _GATEWAY_FILE_SOURCES:
-            return self._deployments.files_list(
-                self._agent,
-                resolve_backend_file_path(path, source),
-                source=to_wire_file_source(source),
-            )
-        gw = self._require_gateway()
-        name = resolve_gateway_file_name(path)
+    def read_bytes(self, path: str) -> bytes:
+        return self._deployments.file_read_bytes(self._agent, path)
 
-        async def _op(c):
-            return await c.files_list(await gw.resolve_agent_id(c))
+    def read_bytes_with_metadata(self, path: str) -> dict[str, Any]:
+        return self._deployments.file_read_bytes_with_metadata(self._agent, path)
 
-        files = gw.with_gateway(_op) or []
-        prefix = name if name.endswith("/") else f"{name}/"
-        return [
-            entry
-            for entry in (
-                {"name": f.get("name"), "path": f.get("name"), "type": "file", "size": f.get("size")}
-                for f in files
-            )
-            if not name or entry["name"] == name or str(entry["name"]).startswith(prefix)
-        ]
+    def read(self, path: str) -> str:
+        return self._deployments.file_read(self._agent, path)
 
-    def read_bytes(self, path: str, source: str = "auto") -> bytes:
-        if source not in _GATEWAY_FILE_SOURCES:
-            return self._deployments.file_read_bytes(
-                self._agent,
-                resolve_backend_file_path(path, source),
-                source=to_wire_file_source(source),
-            )
-        return self.read(path, source).encode("utf-8")
+    def write_bytes(self, path: str, content: bytes) -> dict:
+        return self._deployments.file_write_bytes(self._agent, path, content)
 
-    def read_bytes_with_metadata(self, path: str, source: str = "auto") -> dict[str, Any]:
-        if source not in _GATEWAY_FILE_SOURCES:
-            return self._deployments.file_read_bytes_with_metadata(
-                self._agent,
-                resolve_backend_file_path(path, source),
-                source=to_wire_file_source(source),
-            )
-        return {"content": self.read(path, source).encode("utf-8"), "mime_type": "text/plain"}
+    def write(self, path: str, content: str) -> dict:
+        return self._deployments.file_write(self._agent, path, content)
 
-    def read(self, path: str, source: str = "auto") -> str:
-        if source not in _GATEWAY_FILE_SOURCES:
-            return self._deployments.file_read(
-                self._agent,
-                resolve_backend_file_path(path, source),
-                source=to_wire_file_source(source),
-            )
-        gw = self._require_gateway()
-        name = resolve_gateway_file_name(path)
-
-        async def _op(c):
-            return await c.file_get(await gw.resolve_agent_id(c), name)
-
-        return gw.with_gateway(_op)
-
-    def write_bytes(self, path: str, content: bytes, source: str = "auto") -> dict:
-        if source not in _GATEWAY_FILE_SOURCES:
-            writable_path = normalize_writable_backend_file_path(path)
-            resolved_path = (
-                writable_path
-                if path.startswith("/")
-                else resolve_backend_file_path(writable_path, source)
-            )
-            return self._deployments.file_write_bytes(
-                self._agent,
-                resolved_path,
-                content,
-                destination=to_wire_file_source(source),
-            )
-        return self.write(path, _coerce_utf8_text(content), source)
-
-    def write(self, path: str, content: str, source: str = "auto") -> dict:
-        if source not in _GATEWAY_FILE_SOURCES:
-            writable_path = normalize_writable_backend_file_path(path)
-            resolved_path = (
-                writable_path
-                if path.startswith("/")
-                else resolve_backend_file_path(writable_path, source)
-            )
-            return self._deployments.file_write(
-                self._agent,
-                resolved_path,
-                content,
-                destination=to_wire_file_source(source),
-            )
-        gw = self._require_gateway()
-        name = resolve_gateway_file_name(path)
-
-        async def _op(c):
-            aid = await gw.resolve_agent_id(c)
-            await c.file_set(aid, name, content)
-            return aid
-
-        agent_id = gw.with_gateway(_op)
-        return {"name": name, "source": "gateway", "agentId": agent_id}
-
-    def delete(self, path: str, recursive: bool = False, source: str = "auto") -> dict:
-        if source in _GATEWAY_FILE_SOURCES:
-            raise ValueError(
-                "delete is not supported over the gateway file source; use the agent/backup source."
-            )
-        writable_path = normalize_writable_backend_file_path(path)
-        resolved_path = (
-            writable_path
-            if path.startswith("/")
-            else resolve_backend_file_path(writable_path, source)
-        )
-        return self._deployments.file_delete(
-            self._agent,
-            resolved_path,
-            recursive=recursive,
-            source=to_wire_file_source(source),
-        )
+    def delete(self, path: str, recursive: bool = False) -> dict:
+        return self._deployments.file_delete(self._agent, path, recursive=recursive)
 
 
 def _is_directory_listing_payload(value: object) -> bool:
@@ -2099,46 +1910,31 @@ class Agent:
     def exec(self, command: str, timeout: int = 30, dry_run: bool = False) -> "ExecResult":
         return self._require_deployments().exec(self, command, timeout=timeout, dry_run=dry_run)
 
-    def _gateway_file_hooks(self) -> AgentFilesGatewayHooks | None:
-        """
-        The gateway hooks a subclass supplies — the seam that enables the
-        `gateway` source. The base agent has none (gateway calls raise); an agent
-        type that speaks a gateway file protocol (e.g. OpenClaw's `agents.files.*`)
-        overrides this. Kept on the base so the *calling* is standardized through
-        the superclass even though each agent's gateway differs.
-        """
-        return None
-
     @property
     def files(self) -> AgentFiles:
-        """
-        The single file client for this agent — one `source` switch (`agent` |
-        `backup` | `gateway`) routes to the three underlying APIs (pod sidecar / S3
-        backup / gateway), with the SDK owning the roots. One implementation; a
-        subclass only supplies its gateway via `_gateway_file_hooks`.
-        """
-        return AgentFiles(self, self._require_deployments(), self._gateway_file_hooks())
+        """Reef-backed files scoped to this agent's workspace."""
+        return AgentFiles(self, self._require_deployments())
 
-    def files_list(self, path: str = "", source: AgentFileSource = "auto") -> list[dict]:
-        return self.files.list(path, source)
+    def files_list(self, path: str = "") -> list[dict]:
+        return self.files.list(path)
 
-    def file_read_bytes(self, path: str, source: AgentFileSource = "auto") -> bytes:
-        return self.files.read_bytes(path, source)
+    def file_read_bytes(self, path: str) -> bytes:
+        return self.files.read_bytes(path)
 
-    def file_read_bytes_with_metadata(self, path: str, source: AgentFileSource = "auto") -> dict[str, Any]:
-        return self.files.read_bytes_with_metadata(path, source)
+    def file_read_bytes_with_metadata(self, path: str) -> dict[str, Any]:
+        return self.files.read_bytes_with_metadata(path)
 
-    def file_read(self, path: str, source: AgentFileSource = "auto") -> str:
-        return self.files.read(path, source)
+    def file_read(self, path: str) -> str:
+        return self.files.read(path)
 
-    def file_write_bytes(self, path: str, content: bytes, destination: AgentFileSource = "auto") -> dict:
-        return self.files.write_bytes(path, content, destination)
+    def file_write_bytes(self, path: str, content: bytes) -> dict:
+        return self.files.write_bytes(path, content)
 
-    def file_write(self, path: str, content: str, destination: AgentFileSource = "auto") -> dict:
-        return self.files.write(path, content, destination)
+    def file_write(self, path: str, content: str) -> dict:
+        return self.files.write(path, content)
 
-    def file_delete(self, path: str, recursive: bool = False, source: AgentFileSource = "auto") -> dict:
-        return self.files.delete(path, recursive, source)
+    def file_delete(self, path: str, recursive: bool = False) -> dict:
+        return self.files.delete(path, recursive)
 
     def cp_to(self, local_path: str | Path, remote_path: str) -> dict:
         return self._require_deployments().cp_to(self, local_path, remote_path)
@@ -2418,31 +2214,6 @@ class OpenClawAgent(Agent):
     # The in-gateway agent id for `agents.files.*` — NOT the deployment id. A
     # deployment's gateway hosts an agent named "main" (or a named agent);
     # matches the existing file_get/file_set/workspace_files convention.
-    _gateway_agent_id: str | None = None
-
-    async def _resolve_gateway_agent_id(self, gw: "GatewayClient") -> str:
-        if self._gateway_agent_id:
-            return self._gateway_agent_id
-        try:
-            agents = await gw.agents_list()
-        except Exception:
-            agents = []
-        self._gateway_agent_id = agents[0]["id"] if agents else "main"
-        return self._gateway_agent_id
-
-    def _gateway_file_hooks(self) -> AgentFilesGatewayHooks:
-        """
-        Override the base gateway seam with OpenClaw's `agents.files.*` — the real
-        OpenClaw gateway file methods. The base `files`/`file_*` calling surface is
-        inherited unchanged; only the gateway hooks are supplied here. `with_gateway`
-        is the sync `_with_gateway` seam (connect → op → close); `resolve_agent_id`
-        resolves the in-gateway agent id (NOT the deployment id).
-        """
-        return AgentFilesGatewayHooks(
-            with_gateway=self._with_gateway,
-            resolve_agent_id=self._resolve_gateway_agent_id,
-        )
-
     async def gateway_status(self, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
             return await gw.status()
@@ -3147,9 +2918,8 @@ class Deployments:
         heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
-        start: bool = True,
     ) -> Agent:
-        """Create a new agent (provisions an agent pod via the backend).
+        """Submit provisioning for a new agent and return its admission snapshot.
 
         Args:
             name: Agent name.
@@ -3157,10 +2927,9 @@ class Deployments:
             config: Optional config overrides.
             env: Optional environment variables to pass through to the pod.
             secrets: Optional secret environment variables to pass through to the pod.
-            start: Start the agent immediately (default: True).
-
         Returns:
-            Agent with connection details.
+            Agent, normally in ``CREATING``. Wait for ``STOPPED`` before file
+            access or calling :meth:`start`.
         """
         effective_api_server_key: str | None = None
         if runtime == "hermes-agent":
@@ -3190,7 +2959,7 @@ class Deployments:
                 "hermes-agent",
             },
         )
-        body: dict = {**launch_payload, "start": start}
+        body: dict = {**launch_payload}
         if dry_run:
             body["dry_run"] = True
         if name:
@@ -3233,7 +3002,6 @@ class Deployments:
         heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
-        start: bool = True,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
@@ -3280,7 +3048,6 @@ class Deployments:
             heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
-            start=start,
         )
 
     def create_hermes_agent(
@@ -3309,7 +3076,6 @@ class Deployments:
         heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
-        start: bool = True,
         hermes_routes: dict | None = None,
         hermes_route_options: dict | None = None,
     ) -> HermesAgent:
@@ -3353,7 +3119,6 @@ class Deployments:
             heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
-            start=start,
         )
         if not isinstance(agent, HermesAgent):
             raise TypeError("backend did not return a HermesAgent deployment")
@@ -3385,7 +3150,6 @@ class Deployments:
         heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
-        start: bool = True,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
         memory_index: dict | None = None,
@@ -3421,7 +3185,6 @@ class Deployments:
             heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
-            start=start,
             openclaw_routes=openclaw_routes,
             openclaw_route_options=effective_route_options,
             memory_index=memory_index,
@@ -3455,7 +3218,6 @@ class Deployments:
         runtime_scopes: list[str] | None = None,
         meta_ui: dict | None = None,
         dry_run: bool = False,
-        start: bool = True,
         workspaces_sync: dict | bool | None = None,
         buzz_enabled: bool = False,
         buzz: BuzzLaunchConfig | None = None,
@@ -3535,7 +3297,6 @@ class Deployments:
             ),
             meta_ui=meta_ui,
             dry_run=dry_run,
-            start=start,
         )
 
     def create_opencode(self, **kwargs: Any) -> OpenCodeAgent:
@@ -4408,6 +4169,12 @@ class Deployments:
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")
         return self._hydrate_agent(data)
 
+    def archive(self, agent_id: str) -> Agent:
+        """Archive durable storage for a stopped agent without launching it."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/archive")
+        return self._hydrate_agent(data)
+
     def restore(self, agent_id: str) -> Agent:
         """Restore durable storage for a stopped or archived agent."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
@@ -4616,49 +4383,25 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return ExecResult.from_dict(resp.json())
 
-    def files_list(self, pod: Agent | str, path: str = "", source: str = "auto") -> list[dict]:
-        """List files on an agent via the backend file API."""
+    def files_list(self, pod: Agent | str, path: str = "") -> list[dict]:
+        """List a relative workspace path through the Reef file API."""
         agent_id = self._agent_id_for_target(pod)
-        params = {"source": source}
-        if path.startswith("/"):
-            if source != "pod":
-                raise ValueError("absolute paths require source='pod'.")
-            url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files"
-            params["absolute_path"] = path
-        else:
-            url = (
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}"
-                if path
-                else f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files"
-            )
+        resolved_path = resolve_workspace_file_path(path)
+        url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(resolved_path)}"
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.get(
-                url,
-                headers=self._file_headers(),
-                params=params,
-            )
+            resp = client.get(url, headers=self._file_headers())
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         payload = resp.json()
         return [*(payload.get("directories") or []), *(payload.get("files") or [])]
 
-    def file_read_bytes_with_metadata(self, pod: Agent | str, path: str, source: str = "auto") -> dict[str, Any]:
-        """Read a file from an agent via the backend file API."""
+    def file_read_bytes_with_metadata(self, pod: Agent | str, path: str) -> dict[str, Any]:
+        """Read a relative workspace file through the Reef file API."""
         agent_id = self._agent_id_for_target(pod)
-        params = {"source": source}
-        if path.startswith("/"):
-            if source != "pod":
-                raise ValueError("absolute paths require source='pod'.")
-            url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files"
-            params["absolute_path"] = path
-        else:
-            url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}"
+        resolved_path = resolve_workspace_file_path(path)
+        url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(resolved_path)}"
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.get(
-                url,
-                headers=self._file_headers(),
-                params=params,
-            )
+            resp = client.get(url, headers=self._file_headers())
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         content_type = resp.headers.get("content-type", "")
@@ -4671,17 +4414,17 @@ class Deployments:
                 raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
         return {"content": resp.content, "mime_type": content_type or None}
 
-    def file_read_bytes(self, pod: Agent | str, path: str, source: str = "auto") -> bytes:
-        """Read a file from an agent via the backend file API."""
-        return self.file_read_bytes_with_metadata(pod, path, source=source).get("content", b"")
+    def file_read_bytes(self, pod: Agent | str, path: str) -> bytes:
+        """Read a relative workspace file through the Reef file API."""
+        return self.file_read_bytes_with_metadata(pod, path).get("content", b"")
 
-    def file_read(self, pod: Agent | str, path: str, source: str = "auto") -> str:
+    def file_read(self, pod: Agent | str, path: str) -> str:
         """Read a UTF-8 text file from an agent."""
-        return self.file_read_bytes(pod, path, source=source).decode(errors="replace")
+        return self.file_read_bytes(pod, path).decode(errors="replace")
 
-    def file_write_bytes(self, pod: Agent | str, path: str, content: bytes, destination: str = "auto") -> dict:
-        """Write raw bytes to an agent via the backend file API."""
-        path = normalize_writable_backend_file_path(path)
+    def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
+        """Write bytes to a relative workspace path through Reef."""
+        path = resolve_workspace_file_path(normalize_writable_backend_file_path(path))
         if len(content) > AGENT_FILE_MAX_BYTES:
             raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
         agent_id = self._agent_id_for_target(pod)
@@ -4689,35 +4432,30 @@ class Deployments:
             resp = client.post(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),
-                params={"destination": destination},
                 content=content,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
 
-    def file_write(self, pod: Agent | str, path: str, content: str, destination: str = "auto") -> dict:
+    def file_write(self, pod: Agent | str, path: str, content: str) -> dict:
         """Write a UTF-8 text file to an agent."""
-        return self.file_write_bytes(pod, path, content.encode(), destination=destination)
+        return self.file_write_bytes(pod, path, content.encode())
 
     def file_delete(
         self,
         pod: Agent | str,
         path: str,
         recursive: bool = False,
-        source: str = "auto",
     ) -> dict:
-        """Delete a file or directory from an agent."""
-        path = normalize_writable_backend_file_path(path)
+        """Delete a relative workspace file or directory through Reef."""
+        path = resolve_workspace_file_path(normalize_writable_backend_file_path(path))
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.delete(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
-                params={
-                    **({"recursive": "true"} if recursive else {}),
-                    **({"source": source} if source != "auto" else {}),
-                } or None,
+                params={"recursive": "true"} if recursive else None,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)

@@ -127,10 +127,11 @@ OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_a
 ```python
 agent = client.deployments.create_openclaw(
     name="docs-demo",
-    start=True,
     registry_url="git.nedos.co",
     registry_auth={"username": "ci", "password": "token"},
 )
+agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
+agent = client.deployments.start(agent.id)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 
 capacity = client.deployments.list_with_capacity()

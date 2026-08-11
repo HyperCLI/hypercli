@@ -113,7 +113,6 @@ async function main() {
     routes: {
       openclaw: { port: 18789, auth: false, prefix: '' },
     },
-    start: true,
     ...registryConfig(),
   };
 
@@ -121,6 +120,7 @@ async function main() {
   try {
     created = await deployments.create(createOptions);
     console.log(JSON.stringify({ phase: 'created', agent: summarize(created) }, null, 2));
+    await deployments.start(created.id);
 
     const deadline = Date.now() + timeoutSeconds * 1000;
     let last = created;

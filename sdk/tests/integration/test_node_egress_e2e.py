@@ -148,8 +148,9 @@ async def test_node_egress_routes_http_and_tcp_through_live_gateway(
                     size=tier,
                     tags=["team=dev", "suite=sdk-node-egress-e2e"],
                     config={"gateway": {"nodes": {"allowCommands": list(EGRESS_COMMANDS)}}},
-                    start=True,
                 )
+                client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
+                client.deployments.start(agent.id)
                 break
             except APIError as exc:
                 if exc.status_code in {429, 503} and tier != tiers[-1]:

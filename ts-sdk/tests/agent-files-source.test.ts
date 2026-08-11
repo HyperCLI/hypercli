@@ -1,132 +1,49 @@
 import { describe, expect, it, vi } from 'vitest';
+
 import { OpenClawAgent } from '../src/agents.js';
 
-// One AgentFiles client wraps all three access paths behind a `source` switch.
-// The SDK owns the roots: workspace-relative paths are prefixed with
-// `.openclaw/workspace/` for the backend (agent/backup); `agent` also takes
-// absolute `/…` paths for full-fs; gateway is name-addressed within the workspace.
-describe('AgentFiles — one client, three sources', () => {
-  function makeAgent() {
-    const gatewayClient = {
-      // The in-gateway agent is "main" — NOT the deployment id ("agent-123").
-      agentsList: vi.fn().mockResolvedValue([{ id: 'main' }]),
-      filesList: vi.fn().mockResolvedValue([{ name: 'AGENTS.md', size: 12, missing: false }]),
-      fileGet: vi.fn().mockResolvedValue('hello from gateway'),
-      fileSet: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn(),
-    };
-    const deployments = {
-      filesList: vi.fn().mockResolvedValue([{ name: 'out.txt', path: 'out.txt', type: 'file' }]),
-      fileReadBytes: vi.fn().mockResolvedValue(new TextEncoder().encode('backend bytes')),
-      fileWrite: vi.fn().mockResolvedValue({ ok: true }),
-      fileWriteBytes: vi.fn().mockResolvedValue({ ok: true }),
-      fileDelete: vi.fn().mockResolvedValue({ ok: true }),
-    };
-    const agent = new OpenClawAgent({
-      id: 'agent-123',
-      command: [], entrypoint: [], routes: {},
-      gatewayUrl: 'wss://gw', gatewayToken: 't',
-    } as any);
-    agent._deployments = deployments as any;
-    vi.spyOn(agent, 'connect').mockResolvedValue(gatewayClient as any);
-    return { agent, gatewayClient, deployments };
-  }
-
-  // --- gateway: name-addressed workspace, resolved agent id ---
-  it('gateway write hits agents.files.set with the resolved id and bare name', async () => {
-    const { agent, gatewayClient, deployments } = makeAgent();
-    const res = await agent.fileWrite('AGENTS.md', 'hi', 'gateway');
-    expect(gatewayClient.fileSet).toHaveBeenCalledWith('main', 'AGENTS.md', 'hi');
-    expect(deployments.fileWrite).not.toHaveBeenCalled();
-    expect(res).toEqual({ name: 'AGENTS.md', source: 'gateway', agentId: 'main' });
+function makeAgent() {
+  const deployments = {
+    filesList: vi.fn().mockResolvedValue([{ name: 'out.txt', type: 'file' }]),
+    fileReadBytes: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+    fileReadBytesWithMetadata: vi.fn().mockResolvedValue({ content: new Uint8Array([1]), mimeType: 'text/plain' }),
+    fileRead: vi.fn().mockResolvedValue('hello'),
+    fileWriteBytes: vi.fn().mockResolvedValue({ ok: true }),
+    fileWrite: vi.fn().mockResolvedValue({ ok: true }),
+    fileDelete: vi.fn().mockResolvedValue({ ok: true }),
+  };
+  const agent = OpenClawAgent.fromDict({
+    id: 'agent-123',
+    user_id: 'user-456',
+    state: 'STOPPED',
   });
+  (agent as any)._deployments = deployments;
+  return { agent, deployments };
+}
 
-  it('gateway read strips a workspace prefix to the bare name', async () => {
-    const { agent, gatewayClient } = makeAgent();
-    expect(await agent.fileRead('.openclaw/workspace/AGENTS.md', 'gateway')).toBe('hello from gateway');
-    expect(gatewayClient.fileGet).toHaveBeenCalledWith('main', 'AGENTS.md');
-  });
-
-  // --- agent (pod) / backup (s3): workspace-relative → prefixed backend path ---
-  it('agent source prefixes the workspace and maps to wire source pod', async () => {
+describe('Reef-only workspace file client', () => {
+  it('delegates without source or destination selectors', async () => {
     const { agent, deployments } = makeAgent();
-    await agent.fileWrite('notes/todo.md', 'x', 'agent');
-    expect(deployments.fileWrite).toHaveBeenCalledWith(agent, '.openclaw/workspace/notes/todo.md', 'x', 'pod');
+
+    await expect(agent.filesList('notes')).resolves.toEqual([{ name: 'out.txt', type: 'file' }]);
+    await expect(agent.fileRead('AGENTS.md')).resolves.toBe('hello');
+    await expect(agent.fileReadBytes('data.bin')).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    await expect(agent.fileWrite('notes/todo.md', 'x')).resolves.toEqual({ ok: true });
+    await expect(agent.fileWriteBytes('data.bin', new Uint8Array([1]))).resolves.toEqual({ ok: true });
+    await expect(agent.fileDelete('notes', { recursive: true })).resolves.toEqual({ ok: true });
+
+    expect(deployments.filesList).toHaveBeenCalledWith(agent, 'notes');
+    expect(deployments.fileRead).toHaveBeenCalledWith(agent, 'AGENTS.md', undefined);
+    expect(deployments.fileReadBytes).toHaveBeenCalledWith(agent, 'data.bin', undefined);
+    expect(deployments.fileWrite).toHaveBeenCalledWith(agent, 'notes/todo.md', 'x');
+    expect(deployments.fileWriteBytes).toHaveBeenCalledWith(agent, 'data.bin', new Uint8Array([1]));
+    expect(deployments.fileDelete).toHaveBeenCalledWith(agent, 'notes', { recursive: true });
   });
 
-  it('backup source prefixes the workspace and maps to wire source s3', async () => {
-    const { agent, deployments } = makeAgent();
-    await agent.filesList('logs', 'backup');
-    expect(deployments.filesList).toHaveBeenCalledWith(agent, '.openclaw/workspace/logs', 's3');
-  });
-
-  it('the same workspace-relative name is the same file on all three sources', async () => {
-    const { agent, gatewayClient, deployments } = makeAgent();
-    await agent.fileRead('AGENTS.md', 'gateway');
-    await agent.fileReadBytes('AGENTS.md', 'agent');
-    await agent.fileReadBytes('AGENTS.md', 'backup');
-    expect(gatewayClient.fileGet).toHaveBeenCalledWith('main', 'AGENTS.md');
-    expect(deployments.fileReadBytes).toHaveBeenNthCalledWith(1, agent, '.openclaw/workspace/AGENTS.md', 'pod');
-    expect(deployments.fileReadBytes).toHaveBeenNthCalledWith(2, agent, '.openclaw/workspace/AGENTS.md', 's3');
-  });
-
-  // --- full-fs: absolute paths only on agent ---
-  it('agent accepts an absolute path for full-fs access (no workspace prefix)', async () => {
-    const { agent, deployments } = makeAgent();
-    await agent.fileRead('/etc/hosts', 'agent');
-    expect(deployments.fileReadBytes).toHaveBeenCalledWith(agent, '/etc/hosts', 'pod');
-  });
-
-  it('absolute paths are rejected for backup and gateway (out of scope)', async () => {
+  it('keeps gateway file RPCs explicit', () => {
     const { agent } = makeAgent();
-    await expect(agent.fileRead('/etc/hosts', 'backup')).rejects.toThrow(/absolute paths need the 'agent' source/i);
-    await expect(agent.fileRead('/etc/hosts', 'gateway')).rejects.toThrow(/absolute paths are not valid for the 'gateway'/i);
-  });
-
-  it('writes absolute paths within the sync root', async () => {
-    const { agent, deployments } = makeAgent();
-    await agent.fileWrite('/home/node/AGENTS.md', 'instructions', 'agent');
-    await agent.fileDelete('/home/node/AGENTS.md', { source: 'agent' });
-    expect(deployments.fileWrite).toHaveBeenCalledWith(agent, 'AGENTS.md', 'instructions', 'pod');
-    expect(deployments.fileDelete).toHaveBeenCalledWith(
-      agent,
-      'AGENTS.md',
-      { recursive: undefined, source: 'pod' },
-    );
-  });
-
-  it('rejects absolute pod writes outside the sync root', async () => {
-    const { agent, deployments } = makeAgent();
-    await expect(agent.fileWrite('/etc/hosts', 'blocked', 'agent')).rejects.toThrow(/sync root/i);
-    await expect(agent.fileDelete('/etc/hosts', { source: 'agent' })).rejects.toThrow(/sync root/i);
-    await expect(agent.fileWrite('/home/node/../outside.txt', 'blocked', 'agent')).rejects.toThrow(/sync root/i);
-    await expect(agent.fileWrite('../outside.txt', 'blocked', 'agent')).rejects.toThrow(/not writable/i);
-    await expect(agent.fileDelete('safe/../../outside.txt', { source: 'agent' })).rejects.toThrow(/not writable/i);
-    expect(deployments.fileWrite).not.toHaveBeenCalled();
-    expect(deployments.fileDelete).not.toHaveBeenCalled();
-  });
-
-  it('routes Backup deletes only to the S3 source', async () => {
-    const { agent, deployments } = makeAgent();
-    await agent.fileDelete('archive.txt', { source: 'backup' });
-    expect(deployments.fileDelete).toHaveBeenCalledWith(
-      agent,
-      '.openclaw/workspace/archive.txt',
-      { recursive: undefined, source: 's3' },
-    );
-  });
-
-  // --- deprecated aliases still work ---
-  it('pod/s3 aliases still map to agent/backup', async () => {
-    const { agent, deployments } = makeAgent();
-    await agent.fileWrite('a.md', 'x', 'pod');
-    await agent.fileWrite('a.md', 'x', 's3');
-    expect(deployments.fileWrite).toHaveBeenNthCalledWith(1, agent, '.openclaw/workspace/a.md', 'x', 'pod');
-    expect(deployments.fileWrite).toHaveBeenNthCalledWith(2, agent, '.openclaw/workspace/a.md', 'x', 's3');
-  });
-
-  it('delete over the gateway source is rejected', async () => {
-    const { agent } = makeAgent();
-    await expect(agent.fileDelete('AGENTS.md', { source: 'gateway' })).rejects.toThrow(/delete is not supported/i);
+    expect(agent.workspaceFiles).toBeTypeOf('function');
+    expect(agent.fileGet).toBeTypeOf('function');
+    expect(agent.fileSet).toBeTypeOf('function');
   });
 });

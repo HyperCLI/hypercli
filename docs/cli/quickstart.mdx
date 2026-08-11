@@ -65,7 +65,9 @@ sets `hypercli/kimi-k2.6` as the primary coding model.
 ## Create An Agent
 
 ```bash
-hyper agents create --name docs-demo --size small --wait
+hyper agents create --name docs-demo --size small
+# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents start docs-demo
 ```
 
 Current defaults:
@@ -76,7 +78,9 @@ Current defaults:
 For Chrome/browser automation and a noVNC desktop:
 
 ```bash
-hyper agents create --name docs-demo --size small --desktop --wait
+hyper agents create --name docs-demo --size small --desktop
+# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents start docs-demo
 ```
 
 That uses the OpenClaw pro image, sets `OPENCLAW_DESKTOP_ENABLED=1`, and exposes `https://desktop-docs-demo.hypercli.app`.

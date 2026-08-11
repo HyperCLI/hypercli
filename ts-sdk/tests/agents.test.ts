@@ -478,6 +478,36 @@ describe('Agents SDK', () => {
     );
   });
 
+  it('keeps create, start, stop, archive, and restore as distinct lifecycle commands', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const post = vi.fn()
+      .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'CREATING' })
+      .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'STARTING' })
+      .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'STOPPING' })
+      .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'ARCHIVING' })
+      .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'RESTORING' });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.create({ name: 'matrix-agent' })).resolves.toMatchObject({ state: 'CREATING' });
+    await expect(deployments.start(agentId)).resolves.toMatchObject({ state: 'STARTING' });
+    await expect(deployments.stop(agentId)).resolves.toMatchObject({ state: 'STOPPING' });
+    await expect(deployments.archive(agentId)).resolves.toMatchObject({ state: 'ARCHIVING' });
+    await expect(deployments.restore(agentId)).resolves.toMatchObject({ state: 'RESTORING' });
+    expect(post.mock.calls[0]?.[0]).toBe('/deployments');
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ name: 'matrix-agent' });
+    expect(post.mock.calls[0]?.[1]).not.toHaveProperty('start');
+    expect(post.mock.calls.slice(1)).toEqual([
+      [`/deployments/${agentId}/start`, {}, { retries: 1 }],
+      [`/deployments/${agentId}/stop`, undefined, { retries: 1 }],
+      [`/deployments/${agentId}/archive`, undefined, { retries: 1 }],
+      [`/deployments/${agentId}/restore`, undefined, { retries: 1 }],
+    ]);
+  });
+
   it('does not replay a stop whose admission request times out before a response', async () => {
     const originalFetch = globalThis.fetch;
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
@@ -1987,7 +2017,6 @@ describe('Agents SDK', () => {
     const result = await deployments.fileReadBytesWithMetadata(
       'agent-123',
       '.openclaw/workspace/preview.png',
-      'pod',
       { maxBytes: 16, signal: abortController.signal },
     );
 
@@ -2010,7 +2039,6 @@ describe('Agents SDK', () => {
     await expect(deployments.fileReadBytes(
       'agent-123',
       '.openclaw/workspace/large.txt',
-      'pod',
       { maxBytes: 4 },
     )).rejects.toThrow(/exceeds the .* read limit/i);
   });

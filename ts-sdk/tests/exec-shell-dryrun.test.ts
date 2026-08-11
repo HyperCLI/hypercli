@@ -160,7 +160,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent' });
+    await deployments.createOpenClaw({ name: 'test-agent', dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
@@ -193,7 +193,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent', routes: {} });
+    await deployments.createOpenClaw({ name: 'test-agent', routes: {}, dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
@@ -228,7 +228,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    const agent = await deployments.createOpenClawPro({ name: 'test-agent' });
+    const agent = await deployments.createOpenClawPro({ name: 'test-agent', dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_PRO_IMAGE,
@@ -270,6 +270,7 @@ describe('HyperClaw agents SDK', () => {
 
     await deployments.createOpenClaw({
       name: 'test-agent',
+      dryRun: true,
       memoryIndex: {
         onSessionStart: true,
         onSearch: true,
@@ -304,6 +305,7 @@ describe('HyperClaw agents SDK', () => {
 
     await deployments.createOpenClaw({
       name: 'test-agent',
+      dryRun: true,
       workspacesSync: {
         readyOnly: false,
         workspace: 'team-knowledge',
@@ -334,6 +336,7 @@ describe('HyperClaw agents SDK', () => {
 
     await deployments.createOpenClaw({
       name: 'test-agent',
+      dryRun: true,
       env: { HYPER_API_BASE: 'https://api.override.test' },
     });
 
@@ -356,7 +359,7 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.createOpenClaw({ name: 'test-agent', workspacesSync: false });
+    await deployments.createOpenClaw({ name: 'test-agent', workspacesSync: false, dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       env: expect.objectContaining({
@@ -953,7 +956,6 @@ describe('HyperClaw agents SDK', () => {
         name: 'smoke',
         size: 'large',
         dry_run: true,
-        start: true,
         env: { FOO: 'bar' },
         command: ['nginx', '-g', 'daemon off;'],
         entrypoint: ['/docker-entrypoint.sh'],
@@ -968,7 +970,7 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-2',
       user_id: 'user-1',
-      state: 'starting',
+      state: 'creating',
       hostname: 'openclaw-pod-name-2.dev.hyperclaw.app',
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       meta: {
@@ -985,10 +987,10 @@ describe('HyperClaw agents SDK', () => {
       'sk-hyper-test',
       'https://api.dev.hyperclaw.app',
     );
+    const wait = vi.spyOn(agents, 'waitForState');
 
     const agent = await agents.create({
       name: 'meta-check',
-      start: false,
       meta: {
         ui: {
           avatar: {
@@ -1003,7 +1005,6 @@ describe('HyperClaw agents SDK', () => {
       '/deployments',
       expect.objectContaining({
         name: 'meta-check',
-        start: false,
         meta: {
           ui: {
             avatar: {
@@ -1016,14 +1017,9 @@ describe('HyperClaw agents SDK', () => {
       { retries: 1 },
     );
     expect((post as any).mock.calls[0][1].meta.internal).toBeUndefined();
-    expect(agent.meta).toEqual({
-      ui: {
-        avatar: {
-          image: 'data:image/png;base64,xyz',
-          icon_index: 5,
-        },
-      },
-    });
+    expect((post as any).mock.calls[0][1].start).toBeUndefined();
+    expect(agent.state).toBe('creating');
+    expect(wait).not.toHaveBeenCalled();
   });
 
   it('list returns hydrated items', async () => {
@@ -1404,30 +1400,23 @@ describe('HyperClaw agents SDK', () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/deployments/agent-1/files/workspace?source=auto')) {
+      if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/workspace')) {
         return new Response(JSON.stringify({
           directories: [{ name: 'dir', path: 'workspace/dir/', type: 'directory' }],
           files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
         }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt?source=auto') && (!init || !init.method)) {
+      if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/workspace/a.txt') && (!init || !init.method)) {
         return new Response(new Uint8Array([104, 101, 108, 108, 111]), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt?destination=auto') && init?.method === 'POST') {
+      if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/workspace/a.txt') && init?.method === 'POST') {
         expect(init.body).toBeInstanceOf(Uint8Array);
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/AGENTS.md?destination=pod') && init?.method === 'POST') {
-        expect(init.body).toBeInstanceOf(Uint8Array);
+      if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/workspace/a.txt') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
-        return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
-      }
-      if (url.endsWith('/deployments/agent-1/files/workspace/backup.txt?source=s3') && init?.method === 'DELETE') {
-        return new Response(JSON.stringify({ status: 'ok', target: 's3' }), { status: 200 });
-      }
-      if (url.endsWith('/deployments/agent-1/files/.openclaw?source=auto') && (!init || !init.method)) {
+      if (url.endsWith('/deployments/agent-1/files/.openclaw/workspace/.openclaw') && (!init || !init.method)) {
         return new Response(JSON.stringify({
           type: 'directory',
           prefix: '.openclaw/',
@@ -1437,17 +1426,6 @@ describe('HyperClaw agents SDK', () => {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
-      }
-      if (url.endsWith('/deployments/agent-1/files?source=pod&absolute_path=%2F') && (!init || !init.method)) {
-        return new Response(JSON.stringify({
-          type: 'directory',
-          prefix: '/',
-          directories: [{ name: 'home', path: '/home/', type: 'directory' }],
-          files: [],
-        }), { status: 200 });
-      }
-      if (url.endsWith('/deployments/agent-1/files?source=pod&absolute_path=%2Fetc%2Fhosts') && (!init || !init.method)) {
-        return new Response('127.0.0.1 localhost', { status: 200, headers: { 'Content-Type': 'text/plain' } });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -1461,18 +1439,9 @@ describe('HyperClaw agents SDK', () => {
 
     const entries = await agents.filesList('agent-1', 'workspace');
     const hiddenEntries = await agents.filesList('agent-1', '.openclaw');
-    const rootEntries = await agents.filesList('agent-1', '/', 'pod');
     const content = await agents.fileRead('agent-1', 'workspace/a.txt');
-    const hostsContent = await agents.fileRead('agent-1', '/etc/hosts', 'pod');
     const writeResult = await agents.fileWrite('agent-1', 'workspace/a.txt', 'payload');
-    const syncRootWriteResult = await agents.fileWrite(
-      'agent-1',
-      '/home/node/AGENTS.md',
-      'instructions',
-      'pod',
-    );
     const deleteResult = await agents.fileDelete('agent-1', 'workspace/a.txt');
-    const backupDeleteResult = await agents.fileDelete('agent-1', 'workspace/backup.txt', { source: 's3' });
 
     expect(entries).toEqual([
       { name: 'dir', path: 'workspace/dir/', type: 'directory' },
@@ -1482,21 +1451,15 @@ describe('HyperClaw agents SDK', () => {
       { name: 'workspace', path: '.openclaw/workspace/', type: 'directory' },
       { name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' },
     ]);
-    expect(rootEntries).toEqual([
-      { name: 'home', path: '/home/', type: 'directory' },
-    ]);
     expect(content).toBe('hello');
-    expect(hostsContent).toBe('127.0.0.1 localhost');
     expect(writeResult).toEqual({ status: 'ok', target: 'pod' });
-    expect(syncRootWriteResult).toEqual({ status: 'ok', target: 'pod' });
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
-    expect(backupDeleteResult).toEqual({ status: 'ok', target: 's3' });
     await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
     await expect(
       agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_MAX_BYTES + 1)),
     ).rejects.toThrow('250 MiB');
-    await expect(agents.filesList('agent-1', '/', 'auto')).rejects.toThrow("source='pod'");
-    await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked', 'pod')).rejects.toThrow('sync root');
-    await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('sync root');
+    await expect(agents.filesList('agent-1', '/')).rejects.toThrow('workspace');
+    await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked')).rejects.toThrow('workspace');
+    await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('workspace');
   });
 });

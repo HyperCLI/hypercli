@@ -46,7 +46,6 @@ describe("TS SDK integration: agents", () => {
       const client = createIntegrationClient();
       const preview = await client.deployments[method]({
         name: `ts-${runtime}-dry-${Math.random().toString(16).slice(2, 10)}`,
-        start: false,
         dryRun: true,
         workspacesSync: true,
       });
@@ -123,7 +122,6 @@ describe("TS SDK integration: agents", () => {
       const deniedCreate = scoped.deployments.create({
         name: `ts-denied-${Math.random().toString(16).slice(2, 10)}`,
         size: createdA.tier,
-        start: false,
       });
       await expect(deniedCreate).rejects.toBeInstanceOf(APIError);
       await expect(deniedCreate).rejects.toMatchObject({ statusCode: 403 });

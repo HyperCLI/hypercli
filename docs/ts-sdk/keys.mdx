@@ -104,7 +104,6 @@ const scoped = await root.keys.create("customer-user123", [
 const agent = await root.deployments.create({
   name: "customer-user123-agent",
   size: "small",
-  start: false,
   tags: ["customer=user123"],
 });
 
@@ -122,6 +121,7 @@ const scopedClient = new HyperCLI({
   agentsApiBaseUrl: "https://api.hypercli.com/agents",
 });
 
+await root.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
 await scopedClient.deployments.start(agent.id);
 console.log("started", agent.id);
 
@@ -178,7 +178,6 @@ const root = new HyperCLI({
 const agent = await root.deployments.create({
   name: "single-agent-client",
   size: "small",
-  start: false,
 });
 
 const child = await root.deployments.createScopedKey(agent.id, "single-agent-client");
@@ -193,6 +192,7 @@ const exactClient = new HyperCLI({
   agentsApiBaseUrl: "https://api.hypercli.com/agents",
 });
 
+await root.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
 await exactClient.deployments.start(agent.id);
 await exactClient.deployments.stop(agent.id);
 ```

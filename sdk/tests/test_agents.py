@@ -444,6 +444,39 @@ def test_restore_posts_bodyless_and_returns_restoring(monkeypatch):
     post.assert_called_once_with(f"/deployments/{response['id']}/restore")
 
 
+def test_explicit_lifecycle_methods_use_distinct_endpoints_and_states(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    responses = iter(
+        [
+            {"id": agent_id, "user_id": "user-456", "state": "CREATING"},
+            {"id": agent_id, "user_id": "user-456", "state": "STARTING"},
+            {"id": agent_id, "user_id": "user-456", "state": "STOPPING"},
+            {"id": agent_id, "user_id": "user-456", "state": "ARCHIVING"},
+            {"id": agent_id, "user_id": "user-456", "state": "RESTORING"},
+        ]
+    )
+    post = Mock(side_effect=lambda *_args, **_kwargs: next(responses))
+    monkeypatch.setattr(deployments, "_post", post)
+
+    assert deployments.create(name="matrix-agent").state == "CREATING"
+    assert deployments.start(agent_id).state == "STARTING"
+    assert deployments.stop(agent_id).state == "STOPPING"
+    assert deployments.archive(agent_id).state == "ARCHIVING"
+    assert deployments.restore(agent_id).state == "RESTORING"
+    assert post.call_args_list[0].args == ("/deployments",)
+    assert post.call_args_list[0].kwargs["json"]["name"] == "matrix-agent"
+    assert "start" not in post.call_args_list[0].kwargs["json"]
+    assert post.call_args_list[1:] == [
+        call(f"/deployments/{agent_id}/start", json={}),
+        call(f"/deployments/{agent_id}/stop"),
+        call(f"/deployments/{agent_id}/archive"),
+        call(f"/deployments/{agent_id}/restore"),
+    ]
+
+
 def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
     agent = Agent.from_dict(
         {
@@ -1668,6 +1701,29 @@ def agents_client(mock_http):
     return Deployments(http=mock_http, api_key="sk-hyper-test123", api_base="https://api.test.hypercli.com")
 
 
+def test_create_omits_start_and_returns_creating_admission(mock_http):
+    deployments = Deployments(
+        http=mock_http,
+        api_key="sk-hyper-test123",
+        api_base="https://api.test.hypercli.com",
+    )
+    created = {
+        "id": "agent-created",
+        "user_id": "user-456",
+        "state": "CREATING",
+        "launch_epoch": 4,
+    }
+    with patch.object(deployments, "_post", return_value=created) as post, patch.object(
+        deployments, "wait_for_state"
+    ) as wait:
+        result = deployments.create(name="provisioned")
+
+    assert result.state == "CREATING"
+    body = post.call_args.kwargs["json"]
+    assert "start" not in body
+    wait.assert_not_called()
+
+
 def test_agents_create_returns_openclaw_agent(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
@@ -1702,7 +1758,6 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             image="ghcr.io/hypercli/hypercli-openclaw:test",
             registry_url="ghcr.io",
             registry_auth={"username": "u", "password": "p"},
-            start=True,
         )
 
         posted_json = mock_client.post.call_args[1]["json"]
@@ -1721,6 +1776,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert posted_json["image"] == "ghcr.io/hypercli/hypercli-openclaw:test"
         assert posted_json["registry_url"] == "ghcr.io"
         assert posted_json["registry_auth"] == {"username": "u", "password": "p"}
+        assert "start" not in posted_json
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token is None
         assert agent.gateway_url is None
@@ -1973,32 +2029,12 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             return False
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
-            if url.endswith("/deployments/agent-123/files") and params == {
-                "source": "pod",
-                "absolute_path": "/",
-            }:
-                return FakeResponse(
-                    json_data={
-                        "directories": [{"name": "home", "path": "/home/", "type": "directory"}],
-                        "files": [],
-                    }
-                )
-            if url.endswith("/deployments/agent-123/files") and params == {
-                "source": "pod",
-                "absolute_path": "/etc/hosts",
-            }:
-                return FakeResponse(content=b"127.0.0.1 localhost", headers={"content-type": "text/plain"})
-            if url.endswith("/deployments/agent-123/files"):
-                assert params == {"source": "auto"}
+            assert params is None
+            if url.endswith("/deployments/agent-123/files/.openclaw/workspace/workspace"):
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
-            if url.endswith("/deployments/agent-123/files/workspace"):
-                assert params == {"source": "auto"}
-                return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
-            if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
-                assert params == {"source": "auto"}
+            if url.endswith("/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt"):
                 return FakeResponse(content=b"hello", headers={"content-type": "text/plain"})
-            if url.endswith("/deployments/agent-123/files/.openclaw"):
-                assert params == {"source": "auto"}
+            if url.endswith("/deployments/agent-123/files/.openclaw/workspace/.openclaw"):
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2024,22 +2060,18 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                     }
                 )
             assert url.endswith((
-                "/deployments/agent-123/files/workspace/a.txt",
-                "/deployments/agent-123/files/AGENTS.md",
+                "/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt",
+                "/deployments/agent-123/files/.openclaw/workspace/AGENTS.md",
             ))
-            assert params == {"destination": "auto"}
+            assert params is None
             assert content in {b"payload", b"instructions"}
             return FakeResponse(json_data={"status": "ok"})
 
         def delete(self, url, headers=None, params=None):
             assert url.endswith((
-                "/deployments/agent-123/files/workspace/a.txt",
-                "/deployments/agent-123/files/workspace/backup.txt",
+                "/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt",
             ))
-            if url.endswith("/backup.txt"):
-                assert params == {"source": "s3"}
-            else:
-                assert params is None
+            assert params is None
             return FakeResponse(json_data={"status": "ok"})
 
     with patch("hypercli.agents.httpx.Client", FakeClient):
@@ -2047,26 +2079,15 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         entries = agents_client.files_list(agent, "workspace")
         hidden_entries = agents_client.files_list(agent, ".openclaw")
-        root_entries = agents_client.files_list(agent, "/", source="pod")
         assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
         assert hidden_entries == [{"name": "workspace", "type": "directory"}, {"name": "openclaw.json", "type": "file"}]
-        assert root_entries == [{"name": "home", "path": "/home/", "type": "directory"}]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
         assert agents_client.file_read_bytes_with_metadata(agent, "workspace/a.txt") == {
             "content": b"hello",
             "mime_type": "text/plain",
         }
-        assert agents_client.file_read(agent, "/etc/hosts", source="pod") == "127.0.0.1 localhost"
         assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
-        assert agents_client.file_write_bytes(
-            agent, "/home/node/AGENTS.md", b"instructions"
-        ) == {"status": "ok"}
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
-        assert agents_client.file_delete(
-            agent,
-            "workspace/backup.txt",
-            source="s3",
-        ) == {"status": "ok"}
         assert agents_client.upload_profile_image("agent-123", b"png") == {
             "id": "agent-123",
             "avatar_url": "https://cdn.example.test/prod/user-456/agent-123.png",
@@ -2074,11 +2095,11 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         }
         with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
             agents_client.file_read(agent, ".openclaw")
-        with pytest.raises(ValueError, match="source='pod'"):
+        with pytest.raises(ValueError, match="workspace"):
             agents_client.files_list(agent, "/")
-        with pytest.raises(ValueError, match="sync root"):
-            agents_client.file_write(agent, "/etc/hosts", "blocked", destination="pod")
-        with pytest.raises(ValueError, match="sync root"):
+        with pytest.raises(ValueError, match="workspace"):
+            agents_client.file_write(agent, "/etc/hosts", "blocked")
+        with pytest.raises(ValueError, match="workspace"):
             agents_client.file_delete(agent, "/etc/hosts")
 
 
@@ -2828,8 +2849,10 @@ async def test_agents_integration_lifecycle():
     http = HTTPClient(base_url="https://api.dev.hypercli.com", api_key=api_key)
     agents = Deployments(http, api_key=api_key, api_base="https://api.dev.hypercli.com")
 
-    agent = agents.create(name="test-integration", size="small", start=True)
+    agent = agents.create(name="test-integration", size="small")
     assert agent.id is not None
+    agents.wait_for_state(agent.id, {"stopped"}, timeout=330)
+    agents.start(agent.id)
 
     try:
         for _ in range(24):

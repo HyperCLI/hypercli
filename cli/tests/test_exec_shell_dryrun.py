@@ -231,7 +231,27 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "0"
     assert captured["openclaw_route_options"] == {"include_desktop": False}
+    assert "start" not in captured
     assert "Desktop:  disabled" in result.stdout
+
+
+def test_agents_archive_is_an_explicit_non_launching_command(monkeypatch):
+    calls = []
+
+    class FakeDeployments:
+        def archive(self, agent_id):
+            calls.append(agent_id)
+            return SimpleNamespace(id=agent_id, name="demo", state="ARCHIVING")
+
+    monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda value: value)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+    monkeypatch.setattr("hypercli_cli.agents._save_agent_state", lambda _agent: None)
+
+    result = runner.invoke(app, ["agents", "archive", "agent-123"])
+
+    assert result.exit_code == 0
+    assert calls == ["agent-123"]
+    assert "Agent archiving: demo" in result.stdout
 
 
 def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
@@ -887,7 +907,6 @@ def test_agents_stop_waits_for_stopped(monkeypatch):
     monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
     monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
-    monkeypatch.setattr(agents_module.time, "sleep", lambda _seconds: None)
 
     result = runner.invoke(
         app,

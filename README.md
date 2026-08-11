@@ -41,8 +41,10 @@ hyper agent plans
 hyper agent subscribe solo
 hyper config openclaw
 
-# Create an agent and wait through event-assisted REST confirmation
-hyper agents create --name docs-demo --size small --wait
+# Provision an agent, then launch it explicitly
+hyper agents create --name docs-demo --size small
+# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents start docs-demo
 hyper agents status docs-demo
 ```
 

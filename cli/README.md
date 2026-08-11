@@ -49,8 +49,9 @@ hyper agent activate-code PROMO123
 hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
-hyper agents create --name docs-demo --size small --wait
-hyper agents wait docs-demo --timeout 300
+hyper agents create --name docs-demo --size small
+# after `hyper agents status docs-demo` reports STOPPED:
+hyper agents start docs-demo --wait
 hyper agents stop docs-demo --wait --timeout 900
 ```
 

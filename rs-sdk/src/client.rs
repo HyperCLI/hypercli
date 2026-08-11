@@ -665,7 +665,7 @@ impl HyperCliClient {
         };
         let status = response.status();
         let headers = trace_headers(&response);
-        let result = decode_json(response);
+        let result: Result<Deployment, HyperCliError> = decode_json(response);
         self.trace_http(
             "create_deployment",
             "POST",
@@ -699,16 +699,16 @@ impl HyperCliClient {
 
     /// Write a file through the managed agent file API without placing its
     /// content in argv, query strings, or HTTP traces. Paths are deliberately
-    /// restricted to simple relative segments; callers choose whether the
-    /// backend targets the running pod or persisted storage automatically.
+    /// restricted to simple workspace-relative segments and always use Reef.
     pub fn put_deployment_file(
         &self,
         deployment_id: &str,
         path: &str,
         content: &[u8],
     ) -> Result<DeploymentFileWriteResponse, HyperCliError> {
-        let path = path.trim_matches('/');
+        let path = path.trim_end_matches('/');
         let valid = !path.is_empty()
+            && !path.starts_with('/')
             && path.split('/').all(|segment| {
                 !segment.is_empty()
                     && segment != "."
@@ -719,9 +719,15 @@ impl HyperCliClient {
             });
         if !valid {
             return Err(HyperCliError::InvalidResponse(
-                "deployment file path must contain only safe relative segments".to_owned(),
+                "deployment file path must contain only safe workspace-relative segments"
+                    .to_owned(),
             ));
         }
+        let path = if path == ".openclaw/workspace" || path.starts_with(".openclaw/workspace/") {
+            path.to_owned()
+        } else {
+            format!(".openclaw/workspace/{path}")
+        };
         let url = self.endpoint(&format!("deployments/{deployment_id}/files/{path}"));
         let request_trace = json!({"path": path, "size": content.len(), "content": "<omitted>"});
         let builder = self
@@ -875,6 +881,20 @@ impl HyperCliClient {
             result.as_ref().map(|_| ()),
         );
         result
+    }
+
+    /// Archive durable storage without launching the deployment.
+    pub fn archive_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/archive"));
+        self.send_json(
+            "archive_deployment",
+            "POST",
+            &url,
+            None,
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )
     }
 
     /// Restore durable storage for a stopped or archived deployment.
@@ -2167,7 +2187,6 @@ mod tests {
                 .to_string(),
             )
             .create();
-
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         request.size = Some(AgentSize::Small);
         request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
@@ -2179,6 +2198,7 @@ mod tests {
 
         assert_eq!(created.id, "deployment-1");
         assert_eq!(created.runtime, Some(ManagedRuntime::Opencode));
+        assert_eq!(created.state, "CREATING");
         mock.assert();
     }
 
@@ -2563,6 +2583,31 @@ mod tests {
     }
 
     #[test]
+    fn archive_posts_bodyless_and_decodes_archiving() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/archive")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "ARCHIVING"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let archived = client(&server).archive_deployment("deployment-1").unwrap();
+        assert_eq!(archived.id, "deployment-1");
+        assert_eq!(archived.state, "ARCHIVING");
+        mock.assert();
+    }
+
+    #[test]
     fn restore_posts_bodyless_and_decodes_restoring() {
         let mut server = Server::new();
         let mock = server
@@ -2637,6 +2682,119 @@ mod tests {
 
         assert_eq!(deployment.state, "STARTING");
         mock.assert();
+    }
+
+    #[test]
+    fn lifecycle_transition_api_matrix_has_no_implicit_calls() {
+        let mut server = Server::new();
+        let create = server
+            .mock("POST", "/agents/deployments")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({"runtime": "openclaw", "dry_run": false}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "CREATING"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let start = server
+            .mock("POST", "/agents/deployments/deployment-1/start")
+            .match_body(Matcher::Exact("{}".to_owned()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "STARTING"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let stop = server
+            .mock("POST", "/agents/deployments/deployment-1/stop")
+            .match_body(Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "STOPPING"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let archive = server
+            .mock("POST", "/agents/deployments/deployment-1/archive")
+            .match_body(Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "ARCHIVING"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let restore = server
+            .mock("POST", "/agents/deployments/deployment-1/restore")
+            .match_body(Matcher::Missing)
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "RESTORING"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+
+        let client = client(&server);
+        let request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+        assert_eq!(
+            client.create_deployment(&request).unwrap().state,
+            "CREATING"
+        );
+        assert_eq!(
+            client
+                .start_deployment("deployment-1", &StartDeploymentRequest::default())
+                .unwrap()
+                .state,
+            "STARTING"
+        );
+        assert_eq!(
+            client.stop_deployment("deployment-1").unwrap().state,
+            "STOPPING"
+        );
+        assert_eq!(
+            client.archive_deployment("deployment-1").unwrap().state,
+            "ARCHIVING"
+        );
+        assert_eq!(
+            client.restore_deployment("deployment-1").unwrap().state,
+            "RESTORING"
+        );
+
+        for mock in [create, start, stop, archive, restore] {
+            mock.assert();
+        }
     }
 
     #[test]
@@ -2880,7 +3038,7 @@ mod tests {
         let mock = server
             .mock(
                 "POST",
-                "/agents/deployments/deployment-1/files/.ssh/id_ed25519_imported",
+                "/agents/deployments/deployment-1/files/.openclaw/workspace/.ssh/id_ed25519_imported",
             )
             .match_header("authorization", "Bearer test-credential")
             .match_body("private-key-material")
@@ -2889,7 +3047,7 @@ mod tests {
             .with_body(
                 serde_json::json!({
                     "status": "ok",
-                    "path": ".ssh/id_ed25519_imported",
+                    "path": ".openclaw/workspace/.ssh/id_ed25519_imported",
                     "size": 20,
                     "target": "pod"
                 })
@@ -2904,7 +3062,10 @@ mod tests {
                 b"private-key-material",
             )
             .unwrap();
-        assert_eq!(response.path, ".ssh/id_ed25519_imported");
+        assert_eq!(
+            response.path,
+            ".openclaw/workspace/.ssh/id_ed25519_imported"
+        );
         assert_eq!(response.target, "pod");
         assert!(client(&server)
             .put_deployment_file("deployment-1", "../escape", b"nope")

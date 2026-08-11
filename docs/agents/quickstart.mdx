@@ -28,7 +28,9 @@ description: Create and control an OpenClaw managed runtime in a few commands.
 ## Create An Agent With The CLI
 
 ```bash
-hyper agents create --name my-agent --size small --wait
+hyper agents create --name my-agent --size small
+# after status reports STOPPED:
+hyper agents start my-agent
 hyper agents status my-agent
 hyper agents exec my-agent "echo hello world"
 hyper agents shell my-agent
@@ -47,7 +49,9 @@ from hypercli import HyperCLI
 
 client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
-agent = client.deployments.create_openclaw(name="my-agent", size="small", start=True)
+agent = client.deployments.create_openclaw(name="my-agent", size="small")
+agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
+agent = client.deployments.start(agent.id)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 print(agent.id, agent.state, agent.vnc_url)
 
@@ -61,9 +65,10 @@ print(content)
 client.deployments.stop(agent.id)
 ```
 
-`create --wait` and the SDK wait helpers use deployment events to wake an
-authoritative REST check. `status`, `get`, and `list` remain one-shot REST
-snapshots.
+Create returns the admission snapshot, normally `CREATING`. Wait explicitly for
+authoritative `STOPPED` before writing files or starting. Lifecycle wait helpers
+use deployment events to wake an authoritative REST check. `status`, `get`, and
+`list` remain one-shot REST snapshots.
 
 ## Receive Lifecycle Updates
 

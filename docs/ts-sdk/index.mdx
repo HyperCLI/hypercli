@@ -147,9 +147,10 @@ const client = new HyperCLI({
 
 const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
-  start: true,
 });
 
+await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
+await client.deployments.start(agent.id);
 const running = await client.deployments.waitRunning(agent.id);
 console.log(running.publicUrl);
 console.log(running.desktopUrl);

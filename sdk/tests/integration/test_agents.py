@@ -43,10 +43,10 @@ def _create_agent_with_available_tier(client: HyperCLI, name: str, tags: list[st
             agent = client.deployments.create(
                 name=name,
                 size=tier,
-                start=False,
                 tags=tags,
             )
             agent_id = agent.id
+            client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
             client.deployments.start_openclaw(agent.id, dry_run=True)
             return agent.id, tier
         except APIError as exc:
@@ -118,7 +118,6 @@ def test_coding_runtime_create_dry_run_contract(
 
     preview = getattr(client.deployments, create_method)(
         name=f"sdk-{runtime}-dry-{uuid.uuid4().hex[:8]}",
-        start=False,
         dry_run=True,
         workspaces_sync=True,
     )
@@ -183,7 +182,6 @@ def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str
             scoped.deployments.create(
                 name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
                 size=agent_a_tier,
-                start=False,
             )
         assert create_exc.value.status_code == 403
     finally:

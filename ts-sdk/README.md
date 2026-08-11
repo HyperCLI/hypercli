@@ -152,10 +152,11 @@ OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAut
 ```typescript
 const agent = await client.deployments.createOpenClaw({
   name: 'docs-demo',
-  start: true,
   registryUrl: 'git.nedos.co',
   registryAuth: { username: 'ci', password: 'token' },
 });
+await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
+await client.deployments.start(agent.id);
 const running = await client.deployments.waitForState(
   agent.id,
   ['RUNNING'],
