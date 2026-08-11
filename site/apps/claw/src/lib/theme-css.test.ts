@@ -107,9 +107,9 @@ describe("shared theme CSS", () => {
     expect(fixedDefaultBlock).toContain("--accent: #5d87ff;");
     expect(fixedDefaultBlock).toContain("--accent-hover: #9db4ff;");
     expect(fixedDefaultBlock).toContain("--accent-pressed: #4f7cff;");
-    expect(fixedDefaultBlock).toContain("--button-primary: #4f7cff;");
+    expect(fixedDefaultBlock).toContain("--button-primary: #3d68e6;");
     expect(fixedDefaultBlock).toContain("--button-hover-foreground: #ffffff;");
-    expect(fixedDefaultBlock).toContain("--button-primary-rgb: 79 124 255;");
+    expect(fixedDefaultBlock).toContain("--button-primary-rgb: 61 104 230;");
     expect(fixedDefaultBlock).toContain("--selection-accent: #5d87ff;");
     expect(fixedDefaultBlock).toContain("--selection-accent-rgb: 93 135 255;");
     expect(fixedDefaultBlock).toContain("--selection-background: rgba(93, 135, 255, 0.35);");
@@ -119,9 +119,9 @@ describe("shared theme CSS", () => {
 
   it("defines a switchable light theme with the same token contract", () => {
     expect(lightBlock).toContain("--background: #ffffff;");
-    expect(lightBlock).toContain("--button-primary: #4f7cff;");
-    expect(lightBlock).toContain("--button-primary-rgb: 79 124 255;");
-    expect(lightBlock).toContain("--selection-accent: #4f7cff;");
+    expect(lightBlock).toContain("--button-primary: #3d68e6;");
+    expect(lightBlock).toContain("--button-primary-rgb: 61 104 230;");
+    expect(lightBlock).toContain("--selection-accent: #3d68e6;");
     expect(lightBlock).toContain("--glass-card-background: rgba(255, 255, 255, 0.78);");
     expect(lightBlock).toContain("--elevation-shadow-medium: 0 18px 48px rgba(31, 41, 55, 0.12);");
     expect(lightBlock).toContain("color-scheme: light;");
@@ -132,7 +132,7 @@ describe("shared theme CSS", () => {
   it("defines complete Aurora light and dark themes from the brand palette", () => {
     expect(auroraLightBlock).toContain("--background: #ffffff;");
     expect(auroraLightBlock).toContain("--foreground: #1f2937;");
-    expect(auroraLightBlock).toContain("--primary: #4f7cff;");
+    expect(auroraLightBlock).toContain("--primary: #3157c7;");
     expect(auroraLightBlock).toContain("--gradient-text-primary: linear-gradient(92deg, #4f7cff 5%, #6ce8c4 48%, #a97eff 100%);");
     expect(auroraLightBlock).toContain('--font-ui: var(--font-figtree, "Figtree")');
     expect(auroraDarkBlock).toContain("--background: #10151f;");
@@ -147,8 +147,8 @@ describe("shared theme CSS", () => {
   });
 
   it("keeps Aurora CTAs blue while plan tiers only override wayfinding tokens", () => {
-    expect(auroraLightBlock).toContain("--button-primary: #4f7cff;");
-    expect(auroraDarkBlock).toContain("--button-primary: #4f7cff;");
+    expect(auroraLightBlock).toContain("--button-primary: #3d68e6;");
+    expect(auroraDarkBlock).toContain("--button-primary: #3d68e6;");
     expect(themeCss).toContain('[data-theme="aurora-light"] [data-plan-tier="team"]');
     expect(themeCss).toContain("--plan-accent: #0e7a5f;");
     expect(themeCss).toContain('[data-theme="aurora-dark"] [data-plan-tier="enterprise"]');

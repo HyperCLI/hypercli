@@ -132,14 +132,16 @@ const PROMPTS = {
 export function agentLifecycleLabel(state: string, isRunning: boolean): string {
   if (isRunning) return "running";
   const normalized = state.trim().toUpperCase();
+  if (normalized === "CREATING") return "creating";
   if (normalized === "STOPPING") return "stopping";
-  if (normalized === "ARCHIVING") return "archiving";
   if (normalized === "STARTING") return "starting";
-  if (normalized === "CREATING") return "provisioning";
   if (normalized === "RESTORING") return "restoring files";
-  if (normalized === "FAILED") return "failed";
+  if (normalized === "ARCHIVING") return "archiving";
   if (normalized === "ARCHIVED") return "archived";
-  return "stopped";
+  if (normalized === "FAILED") return "failed";
+  if (normalized === "DELETED") return "deleted";
+  if (normalized === "STOPPED") return "stopped";
+  return normalized ? normalized.toLowerCase() : "unknown";
 }
 function slashInput(input: string): string | null {
   const trimmedStart = input.trimStart();
@@ -398,6 +400,9 @@ function buildSlashCommands(): SlashCommand[] {
         const normalized = selectedAgentState.trim().toUpperCase();
         if (normalized === "STOPPING") return "Agent cleanup is still in progress.";
         if (normalized === "ARCHIVING") return "Agent archive is still in progress.";
+        if (["CREATING", "STARTING", "RESTORING"].includes(normalized)) {
+          return "Agent lifecycle work is still in progress.";
+        }
         if (!["STOPPED", "ARCHIVED", "FAILED"].includes(normalized)) {
           return `Agent is ${agentLifecycleLabel(selectedAgentState, false)}.`;
         }

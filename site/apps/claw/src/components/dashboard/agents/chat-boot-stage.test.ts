@@ -33,7 +33,20 @@ describe("getAgentChatBootStatus", () => {
     });
   });
 
-  it("shows the restore phase before gateway readiness", () => {
+  it("shows creation and restore phases before gateway readiness", () => {
+    expect(getAgentChatBootStatus({
+      ...baseInput,
+      agentState: "CREATING",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+    })).toMatchObject({
+      status: "loading",
+      phase: "creating",
+      title: "Creating agent",
+      stage: "runtime",
+    });
+
     expect(getAgentChatBootStatus({
       ...baseInput,
       agentState: "RESTORING",

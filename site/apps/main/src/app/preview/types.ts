@@ -1,4 +1,4 @@
-export type CTA = { label: string; href: string }
+export type CTA = { label: string; href?: string; source?: string }
 
 export type IndustryData = {
   slug: string

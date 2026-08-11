@@ -25,15 +25,19 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentRosterCollapsed } from "@/hooks/useAgentRosterCollapsed";
 import { useAccountProfileAvatar } from "@/hooks/useAccountProfileAvatar";
 import { useAccountProfileName } from "@/hooks/useAccountProfileName";
+import { useAgentDashboardDesktopViewport } from "@/hooks/useAgentDashboardViewport";
 import {
   AGENT_CLEANUP_START_MESSAGE,
-  AGENT_STOP_CLEANUP_COOLDOWN_MS,
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
   createPublicHyperAgentClient,
+  deleteStoppedAgent,
   isAgentCleanupConflictError,
-  startOpenClawAgent,
+  requestAgentStart,
+  startAgent,
+  stopAgent,
+  waitForAgentRunning,
 } from "@/lib/agent-client";
 import {
   createAgentMutationQueue,
@@ -98,7 +102,7 @@ import type {
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
-import { isAgentFailureState, isAgentTransitionalState } from "./types";
+import { isAgentDeletable, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -224,11 +228,11 @@ import { useJourney } from "@/components/dashboard/journey/useJourney";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
-import { agentDisplayLabel, didAnyAgentFinishStopping, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { agentDisplayLabel, didAnyAgentFinishCleanup, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import {
   createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRefreshHandlers,
   createDeploymentSubscriptionRecovery,
-  reconcileDeploymentSubscriptionReady,
   type DeploymentRefreshScheduler,
 } from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import {
@@ -291,7 +295,6 @@ const SCHEDULED_SECTION_ENABLED = true;
 const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
 const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
-const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const ANONYMOUS_AGENT_PREVIEW_ROTATION_MS = 10_000;
 const ANONYMOUS_AGENT_PREVIEW_SECTIONS: readonly AnonymousAgentPreviewSection[] = [
   "chat",
@@ -304,6 +307,7 @@ const ANONYMOUS_AGENT_PREVIEW_SECTIONS: readonly AnonymousAgentPreviewSection[] 
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 const INTEGRATION_QUERY_IDS = new Set(["telegram", "discord", "slack", "whatsapp", "github"]);
 const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
+const AGENT_CLEANUP_CONFLICT_COOLDOWN_MS = 30_000;
 const CHAT_UPLOAD_DRAIN_WAIT_MS = 1_500;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
@@ -314,12 +318,18 @@ const AGENT_SETUP_STARTED_STATES = new Set(["CREATING", "RESTORING", "STARTING",
 
 function agentSetupAlreadyStarted(agent: {
   state?: unknown;
+  launchEpoch?: unknown;
   startedAt?: unknown;
   stoppedAt?: unknown;
+  started_at?: unknown;
+  stopped_at?: unknown;
 }): boolean {
   return Boolean(
-    agent.startedAt
+    (typeof agent.launchEpoch === "number" && agent.launchEpoch > 0)
+    || agent.startedAt
     || agent.stoppedAt
+    || agent.started_at
+    || agent.stopped_at
     || AGENT_SETUP_STARTED_STATES.has(String(agent.state ?? "").toUpperCase()),
   );
 }
@@ -1126,6 +1136,10 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   if (index === -1) {
     return [...prev, nextAgent];
   }
+  const currentAgent = prev[index];
+  if (nextAgent.agentVersion < currentAgent.agentVersion) {
+    return prev;
+  }
   const next = [...prev];
   next[index] = nextAgent;
   return next;
@@ -1274,7 +1288,6 @@ function AgentsPageContent() {
   const completeJourneyForEvent = journey.completeForEvent;
   const completeJourneyDay = journey.completeDay;
   const recordJourneyReceipt = journey.recordReceipt;
-  const [isDesktopViewport, setIsDesktopViewport] = useState(true);
   const [agentWorkspaceActivated, setAgentWorkspaceActivated] = useState(() => !dashboardView || settingsAgentConfigurationActive);
 
   useEffect(() => {
@@ -1388,6 +1401,7 @@ function AgentsPageContent() {
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
   const agentAvatarObjectUrlsRef = useRef<Map<string, string>>(new Map());
   const deletingAgentIdsRef = useRef<Set<string>>(new Set());
+  const cancelledStartAgentIdsRef = useRef<Set<string>>(new Set());
   const fetchAgentsRequestRef = useRef(0);
   const fetchBillingRequestRef = useRef(0);
   const fetchAgentsInFlightRef = useRef<{
@@ -1407,6 +1421,7 @@ function AgentsPageContent() {
   const appliedOpenQueryRef = useRef<string | null>(null);
   const appliedAgentTourEntryRef = useRef(false);
   const authenticationModalObservedRef = useRef(false);
+  const authenticationLoginPendingRef = useRef(false);
   const embeddedCheckoutSelectionRequestRef = useRef(0);
   const paidFirstAgentCreationAttemptsRef = useRef<Set<string>>(new Set());
   const selectedAgentIdRef = useRef<string | null>(null);
@@ -1505,7 +1520,7 @@ function AgentsPageContent() {
     stoppedTimersRef.current.set(agentId, setTimeout(() => {
       setRecentlyStoppedIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
       stoppedTimersRef.current.delete(agentId);
-    }, AGENT_STOP_CLEANUP_COOLDOWN_MS));
+    }, AGENT_CLEANUP_CONFLICT_COOLDOWN_MS));
   }, []);
 
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
@@ -1610,6 +1625,7 @@ function AgentsPageContent() {
   const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const isDesktopViewport = useAgentDashboardDesktopViewport(() => setMobileNavigationOpen(false));
   const [mobileRosterCollapsed, setMobileRosterCollapsed] = useState(true);
   const [mobileSettingsMenuOpen, setMobileSettingsMenuOpen] = useState(() => !searchParams.has("settings"));
   const [agentOnboardingOverlay, setAgentOnboardingOverlay] = useState<AgentOnboardingOverlay>(null);
@@ -1676,12 +1692,24 @@ function AgentsPageContent() {
     if (intent.kind === "launch" || intent.kind === "workspace" || intent.kind === "checkout" || intent.kind === "trial") {
       appliedAgentTourEntryRef.current = true;
     }
+    authenticationLoginPendingRef.current = !isAuthenticationModalOpen;
     setPendingAuthIntent(intent);
-    if (!isAuthenticationModalOpen) login();
-  }, [isAuthenticationModalOpen, login]);
+  }, [isAuthenticationModalOpen]);
+  useEffect(() => {
+    if (
+      !pendingAuthIntent
+      || !authenticationLoginPendingRef.current
+      || authLoading
+      || isAuthenticated
+      || isAuthenticationModalOpen
+    ) return;
+    authenticationLoginPendingRef.current = false;
+    login();
+  }, [authLoading, isAuthenticated, isAuthenticationModalOpen, login, pendingAuthIntent]);
   useEffect(() => {
     if (!pendingAuthIntent || isAuthenticated) {
       authenticationModalObservedRef.current = false;
+      authenticationLoginPendingRef.current = false;
       return;
     }
     if (isAuthenticationModalOpen) {
@@ -1767,6 +1795,7 @@ function AgentsPageContent() {
     fetchBillingInFlightRef.current = null;
     agentMutationVersionsRef.current.clear();
     deletingAgentIdsRef.current.clear();
+    cancelledStartAgentIdsRef.current.clear();
     deploymentsRef.current = null;
     const nextPrincipal = isAuthenticated ? user?.id ?? null : null;
     deploymentSubscriptionRecoveryRef.current.reset();
@@ -1942,20 +1971,8 @@ function AgentsPageContent() {
   const [requestedSkillId, setRequestedSkillId] = useState<string | null>(null);
 
   // Hatching animation state tracking
-  const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
+  const prevStatesRef = useRef<Map<string, Pick<Agent, "state" | "resourcesExist">>>(new Map());
   const [burstAgentId, setBurstAgentId] = useState<string | null>(null);
-
-  useLayoutEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY);
-    const apply = () => {
-      setIsDesktopViewport(mediaQuery.matches);
-      if (mediaQuery.matches) setMobileNavigationOpen(false);
-    };
-    apply();
-    mediaQuery.addEventListener("change", apply);
-    return () => mediaQuery.removeEventListener("change", apply);
-  }, []);
 
   // Settings panel state
   const [settingsName, setSettingsName] = useState("");
@@ -2124,6 +2141,15 @@ function AgentsPageContent() {
     return promise;
   }, [getToken, isAuthenticated, reconcilePendingSlotReleases, user?.id]);
 
+  const invalidateAgentCapacity = useCallback(() => {
+    const scheduler = deploymentRefreshSchedulerRef.current;
+    if (scheduler) {
+      scheduler.invalidate(true);
+      return;
+    }
+    void refreshAgentEnrichment({ force: true });
+  }, [refreshAgentEnrichment]);
+
   const fetchAgents = useCallback((options?: {
     force?: boolean;
     includeEnrichment?: boolean;
@@ -2232,16 +2258,14 @@ function AgentsPageContent() {
       }
     });
     deploymentRefreshSchedulerRef.current = scheduler;
-    void deployments.subscribe((event) => {
-      scheduler.invalidate(event.type === "deployments.changed");
-    }, {
+    const subscriptionRefresh = createDeploymentSubscriptionRefreshHandlers(
+      scheduler,
+      deploymentSubscriptionRecoveryRef.current,
+      { includeEnrichmentOnReady: true, includeEnrichmentOnTransition: true },
+    );
+    void deployments.subscribe(subscriptionRefresh.onTransition, {
       signal: controller.signal,
-      onReady: () => {
-        reconcileDeploymentSubscriptionReady(
-          scheduler,
-          deploymentSubscriptionRecoveryRef.current,
-        );
-      },
+      onReady: subscriptionRefresh.onReady,
     }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
@@ -2945,15 +2969,15 @@ function AgentsPageContent() {
   // Detect lifecycle completions for UI effects and released-slot enrichment.
   useEffect(() => {
     const prev = prevStatesRef.current;
-    const cleanupFinished = didAnyAgentFinishStopping(prev, agents);
+    const cleanupFinished = didAnyAgentFinishCleanup(prev, agents);
     for (const agent of agents) {
-      const prevState = prev.get(agent.id);
+      const prevState = prev.get(agent.id)?.state;
       if (prevState && isAgentTransitionalState(prevState) && agent.state === "RUNNING") {
         setBurstAgentId(agent.id);
       }
     }
-    const next = new Map<string, AgentState>();
-    for (const agent of agents) next.set(agent.id, agent.state);
+    const next = new Map<string, Pick<Agent, "state" | "resourcesExist">>();
+    for (const agent of agents) next.set(agent.id, { state: agent.state, resourcesExist: agent.resourcesExist });
     prevStatesRef.current = next;
     if (cleanupFinished) {
       void refreshAgentEnrichment({ force: true });
@@ -3101,7 +3125,7 @@ function AgentsPageContent() {
 
   const selectedAgentStartGuidance = useMemo(
     () =>
-      selectedAgent && (["STOPPED", "ARCHIVED"].includes(selectedAgent.state) || isAgentFailureState(selectedAgent.state))
+      selectedAgent && isAgentStartable(selectedAgent)
         ? describeAgentTierStartGuidance(selectedAgent, budget)
         : null,
     [selectedAgent, budget],
@@ -3634,18 +3658,26 @@ function AgentsPageContent() {
       };
     }
 
-    if (selectedAgent.state === "STOPPED" || selectedAgent.state === "ARCHIVED") {
+    if (selectedAgent.state === "STOPPED") {
       return {
-        label: selectedAgent.state === "ARCHIVED" ? "Archived" : "Stopped",
-        detail: selectedAgent.state === "ARCHIVED" ? "Start the agent to restore its files." : "Start the agent to chat.",
+        label: "Stopped",
+        detail: "Start the agent to chat.",
+        tone: "stopped",
+      };
+    }
+
+    if (selectedAgent.state === "ARCHIVED") {
+      return {
+        label: "Archived",
+        detail: "Start the agent to restore its verified archive.",
         tone: "stopped",
       };
     }
 
     if (selectedAgent.state === "CREATING") {
       return {
-        label: "Provisioning",
-        detail: "Reserving compute and preparing the workspace.",
+        label: "Creating",
+        detail: "Preparing persistent storage and admitting the runtime.",
         tone: "starting",
         loading: true,
       };
@@ -3681,7 +3713,7 @@ function AgentsPageContent() {
     if (selectedAgent.state === "ARCHIVING") {
       return {
         label: "Archiving",
-        detail: "Saving files before releasing the runtime.",
+        detail: "Verifying the cold archive before releasing runtime resources.",
         tone: "stopping",
         loading: true,
       };
@@ -4050,8 +4082,13 @@ function AgentsPageContent() {
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
+    cancelledStartAgentIdsRef.current.delete(agentId);
     const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
     const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
+    if (!agent || !isAgentStartable(agent)) {
+      setError(agent?.isLaunchable === false ? "This agent cannot be launched." : "The agent is not ready to start.");
+      return;
+    }
     const guidance = describeAgentTierStartGuidance(agent, budget);
     if (guidance) {
       if (guidance.availableTiers.length > 0) {
@@ -4065,16 +4102,25 @@ function AgentsPageContent() {
     setError(null);
     const generation = agentDataGenerationRef.current;
     try {
-      const startedAgent = await runAgentMutation(agentId, async () => {
+      const acceptedAgent = await runAgentMutation(agentId, async () => {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return startOpenClawAgent(token, agentId);
+        return requestAgentStart(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+            invalidateAgentCapacity();
+          }
+        });
       });
-      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      if (!acceptedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      const startedAgent = await waitForAgentRunning(acceptedAgent);
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(startedAgent);
+      invalidateAgentCapacity();
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (cancelledStartAgentIdsRef.current.has(agentId)) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -4103,6 +4149,7 @@ function AgentsPageContent() {
         setError(err instanceof Error ? err.message : "Failed to start agent");
       }
     } finally {
+      cancelledStartAgentIdsRef.current.delete(agentId);
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
   };
@@ -4133,7 +4180,7 @@ function AgentsPageContent() {
     enableMemoryIndex = false,
     customImage = null,
     knowledgeDomainId,
-  }: AgentCreationSetupCreateParams) => {
+  }: AgentCreationSetupCreateParams, onLaunchAccepted?: (accepted: SdkAgent) => void) => {
     if (!isAuthenticated) {
       requestAuthentication({ kind: "launch" });
       return null;
@@ -4178,6 +4225,7 @@ function AgentsPageContent() {
       });
       if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
+        applyAgentMutationResult(created);
         const setupAlreadyStarted = created.creationReplayed && agentSetupAlreadyStarted(created);
         if (!setupAlreadyStarted && files.length > 0) {
           try {
@@ -4210,7 +4258,21 @@ function AgentsPageContent() {
           }
         }
         if (!setupAlreadyStarted) {
-          await startOpenClawAgent(token, created.id);
+          cancelledStartAgentIdsRef.current.delete(created.id);
+          try {
+            const runningAgent = await startAgent(token, created.id, (accepted) => {
+              if (generation === agentDataGenerationRef.current) {
+                applyAgentMutationResult(accepted);
+                invalidateAgentCapacity();
+                onLaunchAccepted?.(accepted);
+              }
+            });
+            if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
+          } catch (startError) {
+            if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
+          } finally {
+            cancelledStartAgentIdsRef.current.delete(created.id);
+          }
           if (generation !== agentDataGenerationRef.current) return null;
         }
         const agentsRefreshed = await fetchAgents({ force: true });
@@ -4240,10 +4302,12 @@ function AgentsPageContent() {
     }
   }, [
     agentCreationBlockedReason,
+    applyAgentMutationResult,
     assignAgentToDomain,
     completeJourneyForEvent,
     fetchAgents,
     getToken,
+    invalidateAgentCapacity,
     isAuthenticated,
     requestAuthentication,
     selectAgent,
@@ -4344,7 +4408,7 @@ function AgentsPageContent() {
 
     return () => window.clearTimeout(timeout);
   }, [
-    accountAgents,
+    accountSdkAgents,
     agentCreationBlockedReason,
     agentsLoading,
     authLoading,
@@ -4363,25 +4427,40 @@ function AgentsPageContent() {
   ]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
+    cancelledStartAgentIdsRef.current.delete(agentId);
     const generation = agentDataGenerationRef.current;
     setStartingId(agentId);
     setError(null);
     setTierSelection(null);
     try {
-      const startedAgent = await runAgentMutation(agentId, async () => {
+      const acceptedAgent = await runAgentMutation(agentId, async () => {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const agentClient = createAgentClient(token);
+        const currentAgent = toAgentViewModel(await agentClient.get(agentId));
+        if (!isAgentStartable(currentAgent)) {
+          throw new Error(currentAgent.isLaunchable === false ? "This agent cannot be launched." : "The agent is not ready to start.");
+        }
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const resizedAgent = await agentClient.resize(agentId, { size: tier });
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         applyAgentMutationResult(resizedAgent);
-        return startOpenClawAgent(token, agentId);
+        return requestAgentStart(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+            invalidateAgentCapacity();
+          }
+        });
       });
-      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      if (!acceptedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      const startedAgent = await waitForAgentRunning(acceptedAgent);
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(startedAgent);
+      invalidateAgentCapacity();
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (cancelledStartAgentIdsRef.current.has(agentId)) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -4389,18 +4468,24 @@ function AgentsPageContent() {
         setError(err instanceof Error ? err.message : "Failed to resize and start agent");
       }
     } finally {
+      cancelledStartAgentIdsRef.current.delete(agentId);
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
-  }, [applyAgentMutationResult, getToken, markAgentCleanupCooldown, runAgentMutation]);
+  }, [applyAgentMutationResult, getToken, invalidateAgentCapacity, markAgentCleanupCooldown, runAgentMutation]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
   const selectedAgentTierLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
-  const selectedAgentLaunchBlocked = selectedAgentTierLaunchBlocked || selectedAgentRecentlyStopped;
-  const selectedAgentStartBlockedTitle = selectedAgentRecentlyStopped
+  const selectedAgentNotLaunchable = selectedAgent?.isLaunchable === false;
+  const selectedAgentLaunchBlocked = selectedAgentTierLaunchBlocked || selectedAgentRecentlyStopped || selectedAgentNotLaunchable;
+  const selectedAgentStartBlockedTitle = selectedAgentNotLaunchable
+    ? "This agent cannot be launched"
+    : selectedAgentRecentlyStopped
     ? "Agent is finishing shutdown"
     : selectedAgentStartGuidance?.title;
-  const selectedAgentStartBlockedMessage = selectedAgentRecentlyStopped
+  const selectedAgentStartBlockedMessage = selectedAgentNotLaunchable
+    ? "Lifecycle controls are unavailable for this agent."
+    : selectedAgentRecentlyStopped
     ? "Wait a few seconds before starting this agent again."
     : selectedAgentStartGuidance?.message;
   const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
@@ -4425,6 +4510,14 @@ function AgentsPageContent() {
   );
 
   const handleStop = async (agentId: string) => {
+    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+    const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
+    if (!agent || !isAgentStoppable(agent)) {
+      setError("The agent is not ready to stop.");
+      return;
+    }
+    const cancellingStart = agent.state === "CREATING" || agent.state === "STARTING" || agent.state === "RESTORING";
+    if (cancellingStart) cancelledStartAgentIdsRef.current.add(agentId);
     const generation = agentDataGenerationRef.current;
     setStoppingId(agentId);
     setError(null);
@@ -4437,13 +4530,18 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return createAgentClient(token).stop(agentId);
+        return stopAgent(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+          }
+        });
       });
       if (!stoppedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(stoppedAgent);
-      markAgentCleanupCooldown(agentId);
+      invalidateAgentCapacity();
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (cancellingStart) cancelledStartAgentIdsRef.current.delete(agentId);
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
       if (generation === agentDataGenerationRef.current) setStoppingId(null);
@@ -4453,6 +4551,10 @@ function AgentsPageContent() {
   const handleDelete = async (agentId: string) => {
     const generation = agentDataGenerationRef.current;
     const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
+    if (!agentToDelete || !isAgentDeletable(agentToDelete)) {
+      setError("Stop the agent and wait for cleanup to finish before deleting it.");
+      return;
+    }
     const releaseTier = agentToDelete ? inferAgentTier(agentToDelete, budget) : null;
     const releaseBaseline = releaseTier ? budget?.slots?.[releaseTier] : null;
     const releaseId = releaseTier && releaseBaseline && Math.max(releaseBaseline.used ?? 0, 0) > 0
@@ -4472,7 +4574,7 @@ function AgentsPageContent() {
       const deleted = await runAgentMutation(agentId, async () => {
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current) return false;
-        await createAgentClient(token).delete(agentId);
+        await deleteStoppedAgent(token, agentId);
         return true;
       });
       if (!deleted || generation !== agentDataGenerationRef.current) {
@@ -4480,6 +4582,7 @@ function AgentsPageContent() {
         return;
       }
       if (releaseId) completePendingSlotRelease(releaseId);
+      fetchAgentsRequestRef.current += 1;
       agentMutationVersionsRef.current.delete(agentId);
       clearOpenClawSessionPins(agentId);
       const nextAgents = removeSdkAgent(sdkAgents, agentId);
@@ -4508,7 +4611,7 @@ function AgentsPageContent() {
       if (scheduler) {
         // Register a post-response invalidation even if the server event raced
         // ahead of the mutation response. The scheduler retries transient REST
-        // failures and coalesces this with the server-sent collection event.
+        // failures and coalesces this with the server-sent transition.
         scheduler.invalidate(Boolean(releaseId));
       } else {
         await fetchAgents({ force: true });
@@ -5603,7 +5706,14 @@ function AgentsPageContent() {
   };
   const createAgentFromLauncher = async (params: AgentCreationSetupCreateParams) => {
     try {
-      const createdId = await handleCreateFirstAgent(params);
+      const createdId = await handleCreateFirstAgent(params, (accepted) => {
+        agentLauncherReturnHrefRef.current = null;
+        setOpenclawSettingsOpen(false);
+        setMainTab("chat");
+        setMobileShowChat(true);
+        setAgentLauncherOpen(false);
+        void selectAgent(accepted.id, true);
+      });
       if (createdId) {
         const principalId = user?.id ?? null;
         const pending = principalId ? readPendingPlanCheckout(principalId) : null;
@@ -6676,9 +6786,9 @@ function AgentsPageContent() {
                 onOpenPlans: openUpgradeCatalog,
                 onOpenBilling: () => leaveAgentsPage(ACCOUNT_PAGE_HREFS.billing),
                 onNewConversation: createSession,
-                onStartAgent: async () => {
-                  if (selectedAgent) await handleStart(selectedAgent.id);
-                },
+                onStartAgent: selectedAgent && isAgentStartable(selectedAgent)
+                  ? async () => { await handleStart(selectedAgent.id); }
+                  : undefined,
                 onStopAgent: async () => {
                   if (selectedAgent) await handleStop(selectedAgent.id);
                 },
@@ -6824,9 +6934,9 @@ function AgentsPageContent() {
               onDelete={async (jobId) => {
                 await chat.removeCron(jobId);
               }}
-              onStartAgent={async () => {
-                if (selectedAgent) await handleStart(selectedAgent.id);
-              }}
+              onStartAgent={selectedAgent && isAgentStartable(selectedAgent)
+                ? async () => { await handleStart(selectedAgent.id); }
+                : undefined}
               initialCommand={scheduledInitialCommand?.command ?? null}
             />
           ) : mainTab === "settings" ? (
@@ -6865,6 +6975,9 @@ function AgentsPageContent() {
               void handleStart(selectedAgent.id);
             }
           }}
+          onStop={selectedAgent && isAgentStoppable(selectedAgent)
+            ? () => { void handleStop(selectedAgent.id); }
+            : undefined}
           onReconnect={() => {
             if (mainTab === "logs") logsControllerRef.current?.reconnect();
             if (mainTab === "shell") shellControllerRef.current?.reconnect();

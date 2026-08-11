@@ -1,6 +1,6 @@
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import type { OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
+import type { Agent as SdkAgent, OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { buildSlackRelayApiUrl, buildSlackRelayWebSocketUrl } from "@hypercli.com/sdk/channels";
 import { HTTPClient } from "@hypercli.com/sdk/http";
@@ -22,14 +22,17 @@ type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta" | "
   ports?: never;
 };
 type ListedAgent = Awaited<ReturnType<Deployments["list"]>>[number];
+type AgentLifecycleAccepted = (agent: SdkAgent) => void;
 
 const CONTROL_UI_ALLOWED_ORIGIN_ENV = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN";
 const CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK";
 const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS";
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
-export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
 const AGENT_CREATE_RECONCILE_DELAYS_MS = [750, 1_500, 3_000] as const;
+const AGENT_LIFECYCLE_RECONCILE_DELAYS_MS = [0, 500, 1_500, 3_000] as const;
+const AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS = 2_000;
 const AGENT_NAME_CREATE_ATTEMPTS = 32;
+const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
@@ -82,6 +85,27 @@ function errorText(value: unknown): string {
     .join(" ");
 }
 
+function isAgentLifecycleTimeout(value: unknown): boolean {
+  const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
+  if (statusCode !== null) return statusCode === 504;
+
+  let current = value;
+  for (let depth = 0; depth < 5; depth++) {
+    const name = current instanceof Error ? current.name : "";
+    const message = errorText(current);
+    const code = isRecord(current) && typeof current.code === "string" ? current.code : "";
+    if (
+      name === "AbortError"
+      || name === "TimeoutError"
+      || /abort|time(?:d)?\s*out|timeout/i.test(message)
+      || code === "ETIMEDOUT"
+      || /^UND_ERR_.*TIMEOUT$/.test(code)
+    ) return true;
+    current = isRecord(current) ? current.cause : null;
+  }
+  return false;
+}
+
 function canonicalCreateOptions(options: FrontendOpenClawCreateOptions): FrontendOpenClawCreateOptions {
   // Keep the first request canonical even if a stale caller supplies fields
   // that the public TypeScript surface no longer accepts.
@@ -125,8 +149,11 @@ function agentCreatedAtMs(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function reconcileCreatedAgentByName(agentClient: Deployments, name: string | undefined): Promise<ListedAgent | null> {
-  const expectedName = name?.trim();
+async function reconcileCreatedAgent(
+  agentClient: Deployments,
+  options: FrontendOpenClawCreateOptions,
+): Promise<ListedAgent | null> {
+  const expectedName = options.name?.trim();
   if (!expectedName) return null;
 
   for (const delay of AGENT_CREATE_RECONCILE_DELAYS_MS) {
@@ -140,6 +167,62 @@ async function reconcileCreatedAgentByName(agentClient: Deployments, name: strin
     }
   }
   return null;
+}
+
+async function reconcileTimedOutAgentStart(agentClient: Deployments, agentId: string): Promise<SdkAgent> {
+  let lastReadError: unknown;
+  for (const delay of AGENT_LIFECYCLE_RECONCILE_DELAYS_MS) {
+    await sleep(delay);
+    let current: SdkAgent;
+    try {
+      current = await agentClient.get(agentId, {
+        retries: 1,
+        timeout: AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS,
+      });
+      lastReadError = undefined;
+    } catch (error) {
+      lastReadError = error;
+      continue;
+    }
+
+    const state = current.state.toUpperCase();
+    if (["CREATING", "STARTING", "RESTORING", "RUNNING"].includes(state)) return current;
+    if (["FAILED", "DELETED"].includes(state)) {
+      const detail = [current.reason, current.error, current.message]
+        .find((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
+      throw new Error(`Agent entered ${state} while confirming launch${detail ? `: ${detail}` : "."}`);
+    }
+  }
+  if (lastReadError) throw lastReadError;
+  throw new Error("The start request timed out before launch was confirmed. Check the agent status and try again.");
+}
+
+async function reconcileTimedOutAgentStop(agentClient: Deployments, agentId: string): Promise<SdkAgent> {
+  let lastReadError: unknown;
+  for (const delay of AGENT_LIFECYCLE_RECONCILE_DELAYS_MS) {
+    await sleep(delay);
+    let current: SdkAgent;
+    try {
+      current = await agentClient.get(agentId, {
+        retries: 1,
+        timeout: AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS,
+      });
+      lastReadError = undefined;
+    } catch (error) {
+      lastReadError = error;
+      continue;
+    }
+
+    const state = current.state.toUpperCase();
+    if (["STOPPING", "STOPPED", "ARCHIVING", "ARCHIVED"].includes(state)) return current;
+    if (["FAILED", "DELETED"].includes(state)) {
+      const detail = [current.reason, current.error, current.message]
+        .find((entry): entry is string => typeof entry === "string" && Boolean(entry.trim()));
+      throw new Error(`Agent entered ${state} while confirming shutdown${detail ? `: ${detail}` : "."}`);
+    }
+  }
+  if (lastReadError) throw lastReadError;
+  throw new Error("The stop request timed out before shutdown was confirmed. Check the agent status and try again.");
 }
 
 function sleep(ms: number): Promise<void> {
@@ -361,8 +444,8 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
     try {
       return await create(candidateOptions);
     } catch (initialError) {
-      if (isAgentCreateSpecVisibilityError(initialError)) {
-        const reconciled = await reconcileCreatedAgentByName(agentClient, candidateOptions.name);
+      if (isAgentCreateSpecVisibilityError(initialError) || isAgentLifecycleTimeout(initialError)) {
+        const reconciled = await reconcileCreatedAgent(agentClient, candidateOptions);
         if (reconciled) return reconciled;
         throw initialError;
       }
@@ -377,9 +460,54 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   }
 }
 
-export async function startOpenClawAgent(apiKey: string, agentId: string) {
-  // Start is lifecycle-only. The Backend-stored launch contract is canonical;
-  // replaying its redacted public projection can erase secrets or replace
-  // storage policy with SDK defaults.
-  return createAgentClient(apiKey).start(agentId);
+export async function requestAgentStart(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
+  const agentClient = createAgentClient(apiKey);
+  let accepted: SdkAgent;
+  try {
+    accepted = await agentClient.start(agentId);
+  } catch (error) {
+    if (!isAgentLifecycleTimeout(error)) throw error;
+    accepted = await reconcileTimedOutAgentStart(agentClient, agentId);
+  }
+  onAccepted?.(accepted);
+  return accepted;
+}
+
+export async function waitForAgentRunning(accepted: SdkAgent): Promise<SdkAgent> {
+  return accepted.state.toUpperCase() === "RUNNING"
+    ? accepted
+    : accepted.waitRunning(AGENT_LIFECYCLE_TIMEOUT_MS);
+}
+
+export async function startAgent(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
+  return waitForAgentRunning(await requestAgentStart(apiKey, agentId, onAccepted));
+}
+
+export async function stopAgent(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
+  const agentClient = createAgentClient(apiKey);
+  let accepted: SdkAgent;
+  try {
+    accepted = await agentClient.stop(agentId);
+  } catch (error) {
+    if (!isAgentLifecycleTimeout(error)) throw error;
+    accepted = await reconcileTimedOutAgentStop(agentClient, agentId);
+  }
+  onAccepted?.(accepted);
+  if (["STOPPED", "ARCHIVING", "ARCHIVED"].includes(accepted.state.toUpperCase())) return accepted;
+  return agentClient.waitForState(
+    accepted.id,
+    ["STOPPED", "ARCHIVING", "ARCHIVED"],
+    AGENT_LIFECYCLE_TIMEOUT_MS,
+    ["FAILED", "DELETED"],
+    accepted.launchEpoch,
+  );
+}
+
+export async function deleteStoppedAgent(apiKey: string, agentId: string): Promise<Record<string, unknown>> {
+  const agentClient = createAgentClient(apiKey);
+  const current = await agentClient.get(agentId);
+  if (current.state.toUpperCase() !== "STOPPED") {
+    throw new Error("Stop the agent and wait for cleanup to finish before deleting it.");
+  }
+  return agentClient.delete(current.id);
 }

@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRefreshHandlers,
   createDeploymentSubscriptionRecovery,
-  reconcileDeploymentSubscriptionReady,
 } from "./deploymentRefreshScheduler";
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -147,14 +147,27 @@ describe("createDeploymentSubscriptionRecovery", () => {
   });
 });
 
-describe("reconcileDeploymentSubscriptionReady", () => {
-  it("marks the stream healthy and reconciles the full authoritative collection", () => {
-    const scheduler = { invalidate: vi.fn() };
-    const recovery = { markHealthy: vi.fn() };
+describe("createDeploymentSubscriptionRefreshHandlers", () => {
+  it("reconciles on readiness and refreshes each persisted transition", () => {
+    const scheduler = {
+      invalidate: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const recovery = {
+      markHealthy: vi.fn(),
+      retryAfterFailure: vi.fn(),
+      reset: vi.fn(),
+    };
+    const handlers = createDeploymentSubscriptionRefreshHandlers(scheduler, recovery, {
+      includeEnrichmentOnReady: true,
+      includeEnrichmentOnTransition: true,
+    });
 
-    reconcileDeploymentSubscriptionReady(scheduler, recovery);
+    handlers.onReady();
+    handlers.onTransition();
 
-    expect(recovery.markHealthy).toHaveBeenCalledOnce();
-    expect(scheduler.invalidate).toHaveBeenCalledWith(true);
+    expect(recovery.markHealthy).toHaveBeenCalledTimes(2);
+    expect(scheduler.invalidate).toHaveBeenNthCalledWith(1, true);
+    expect(scheduler.invalidate).toHaveBeenNthCalledWith(2, true);
   });
 });

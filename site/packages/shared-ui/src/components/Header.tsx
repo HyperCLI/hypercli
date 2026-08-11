@@ -9,6 +9,7 @@ import ContactModal from "./ContactModal";
 import { HyperCLILogo } from "./HyperCLILogo";
 import { PrivyLoginModal } from "./PrivyLogin";
 import { ThemeSelector } from "./ThemeSelector";
+import { ThemeToggle } from "./ThemeToggle";
 import { AuthContext as SharedAuthContext } from "../providers/AuthProvider";
 import { AuthContext as PrivyAuthContext } from "../auth/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
@@ -24,6 +25,7 @@ interface SubLink {
 }
 
 const CHANNEL_PATHS = ["/slack", "/teams", "/telegram", "/whatsapp", "/discord", "/buzz"];
+const HEADER_COLLAPSE_SCROLL_Y = 80;
 
 const TRACKS: Record<TrackId, { paths: string[]; links: SubLink[] }> = {
   teams: {
@@ -93,6 +95,7 @@ function TurnkeyLogoutBridge({ register }: { register: (logout: (() => Promise<v
 
 export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: HeaderProps = {}) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isCondensed, setIsCondensed] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -150,15 +153,31 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
     return () => document.removeEventListener("mousedown", closeOnOutsideClick);
   }, [accountMenuOpen]);
 
+  useEffect(() => {
+    const desktopQuery = window.matchMedia("(min-width: 1024px)");
+    const updateHeader = () => {
+      setIsCondensed(pathname !== "/" && desktopQuery.matches && window.scrollY > HEADER_COLLAPSE_SCROLL_Y);
+    };
+
+    updateHeader();
+    window.addEventListener("scroll", updateHeader, { passive: true });
+    desktopQuery.addEventListener("change", updateHeader);
+    return () => {
+      window.removeEventListener("scroll", updateHeader);
+      desktopQuery.removeEventListener("change", updateHeader);
+    };
+  }, [pathname]);
+
   return (
     <>
       {sharedAuth ? <TurnkeyLogoutBridge register={registerTurnkeyLogout} /> : null}
       <header
+        data-condensed={isCondensed ? "true" : "false"}
         className={`fixed top-0 left-0 right-0 z-50 ${
           mobileMenuOpen ? "bg-background" : "bg-background/80"
         } backdrop-blur-lg border-b border-border`}
       >
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${isCondensed ? "lg:hidden" : ""}`}>
           <nav className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link
@@ -233,7 +252,7 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
                 </div>
               ) : (
                 <>
-                  <ThemeSelector />
+                  <ThemeToggle className="border border-border bg-surface-low/70 shadow-sm" />
                   <button
                     onClick={openLoginModal}
                     className="text-sm font-medium text-text-muted hover:text-foreground transition-colors cursor-pointer whitespace-nowrap"
@@ -275,8 +294,82 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
           </nav>
         </div>
 
+        {isCondensed ? (
+          <div data-slot="condensed-header" className="hidden lg:!block">
+            <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-3 px-8">
+              <Link
+                href={NAV_URLS.home}
+                aria-label="HyperCLI home"
+                className="inline-flex shrink-0 transition-opacity hover:opacity-80"
+              >
+                <HyperCLILogo markOnly decorative className="h-6 w-6" />
+              </Link>
+
+              <nav aria-label="Audience" className="flex shrink-0 items-center gap-0.5 rounded-full bg-surface-low p-1">
+                {AUDIENCE_LINKS.map((link) => {
+                  const isActive = track === link.track;
+                  return (
+                    <a
+                      key={link.label}
+                      href={link.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium transition-colors ${
+                        isActive
+                          ? "bg-surface-high text-foreground shadow-sm"
+                          : "text-text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {link.label}
+                    </a>
+                  );
+                })}
+              </nav>
+
+              {trackLinks ? (
+                <nav
+                  aria-label="Section"
+                  className="flex min-w-0 flex-1 items-center gap-4 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
+                  {trackLinks.map((link) => {
+                    const isActive = link.paths.some(
+                      (path) => pathname === path || pathname.startsWith(`${path}/`),
+                    );
+                    return (
+                      <a
+                        key={link.label}
+                        href={link.href}
+                        aria-current={isActive ? "page" : undefined}
+                        {...(link.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                        className={`flex h-14 shrink-0 items-center whitespace-nowrap border-b-2 text-xs font-medium transition-colors ${
+                          isActive
+                            ? "border-primary text-foreground"
+                            : "border-transparent text-text-muted hover:text-foreground"
+                        }`}
+                      >
+                        {link.label}
+                        {link.external ? <ExternalLink aria-hidden="true" className="ml-1 h-3 w-3" /> : null}
+                      </a>
+                    );
+                  })}
+                </nav>
+              ) : (
+                <span className="flex-1" />
+              )}
+
+              <ThemeToggle className="shrink-0 border border-border bg-surface-low/70 shadow-sm" />
+
+              <a
+                href={NAV_URLS.agents}
+                className="btn-primary shrink-0 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold"
+              >
+                Get started
+              </a>
+            </div>
+          </div>
+        ) : null}
+
         {/* Tier 2: per-track sub-bar */}
-        {trackLinks ? (
+        {trackLinks && !isCondensed ? (
           <nav aria-label="Section" className="hidden lg:!block border-t border-border">
             <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex items-center gap-6 h-11 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

@@ -459,7 +459,40 @@ describe('Agents SDK', () => {
     const agent = await deployments.stop('agent-123');
 
     expect(agent.state).toBe('stopping');
-    expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/stop');
+    expect(http.post).toHaveBeenCalledWith(
+      '/deployments/agent-123/stop',
+      undefined,
+      { retries: 1 },
+    );
+  });
+
+  it('does not replay a stop whose admission request times out before a response', async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal as AbortSignal;
+      const rejectOnAbort = () => {
+        const error = new Error('signal is aborted without reason');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (signal.aborted) rejectOnAbort();
+      else signal.addEventListener('abort', rejectOnAbort, { once: true });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const http = new HTTPClient('https://api.test.hypercli.com/agents', 'hyper_api_test', 10);
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    try {
+      await expect(
+        deployments.stop('11111111-1111-4111-8111-111111111111'),
+      ).rejects.toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out after 10ms',
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
   });
 
   it('passes self directly for status, lifecycle, and route operations', async () => {
@@ -492,8 +525,16 @@ describe('Agents SDK', () => {
     await deployments.removeRoute('self', 'web app');
 
     expect(http.get).toHaveBeenCalledWith('/deployments/self');
-    expect(http.post).toHaveBeenCalledWith('/deployments/self/start', {});
-    expect(http.post).toHaveBeenCalledWith('/deployments/self/stop');
+    expect(http.post).toHaveBeenCalledWith(
+      '/deployments/self/start',
+      {},
+      { retries: 1 },
+    );
+    expect(http.post).toHaveBeenCalledWith(
+      '/deployments/self/stop',
+      undefined,
+      { retries: 1 },
+    );
     expect(http.get).toHaveBeenCalledWith('/deployments/self/routes');
     expect(http.put).toHaveBeenCalledWith('/deployments/self/routes', {
       routes: routesResponse.routes,
@@ -947,6 +988,86 @@ describe('Agents SDK', () => {
     expect(agent.launchEpoch).toBe(10);
   });
 
+  it('reconciles authoritative state when a transition event is missed', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    installReadySubscription(deployments);
+
+    const waiting = deployments.waitRunning('agent-123', 1_000, 100, 10);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('polls authoritative state before the deployment event subscription is ready', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'subscribe').mockImplementation(async (_handler, options = {}) => {
+      if (options.signal?.aborted) return;
+      await new Promise<void>((resolve) => {
+        options.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    });
+
+    const waiting = deployments.waitRunning('agent-123', 1_000, 100, 10);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps polling when the deployment event subscription fails', async () => {
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'subscribe').mockRejectedValue(new Error('Deployment events unavailable'));
+
+    await expect(deployments.waitRunning('agent-123', 1_000, 1, 10)).resolves.toMatchObject({
+      state: 'RUNNING',
+      launchEpoch: 10,
+    });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
+  it('performs a final authoritative read at the timeout boundary', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    installReadySubscription(deployments);
+
+    const waiting = deployments.waitRunning('agent-123', 100, 1_000, 10);
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+    expect(get).toHaveBeenCalledTimes(2);
+  });
+
   it('includes the latest lifecycle diagnostics when waitRunning times out', async () => {
     vi.useFakeTimers();
     const http = {
@@ -1099,6 +1220,7 @@ describe('Agents SDK', () => {
         restart: false,
         runtime_scopes: ['models:*'],
       }),
+      { retries: 1 },
     );
 
     const handleResult = await deployments.get('coder');

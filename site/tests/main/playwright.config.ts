@@ -8,6 +8,7 @@ const baseURL = process.env.TEST_MAIN_BASE_URL?.trim();
 if (!baseURL) {
   throw new Error("Missing TEST_MAIN_BASE_URL in environment");
 }
+const artifactsDir = process.env.E2E_ARTIFACTS_DIR?.trim();
 
 export default defineConfig({
   testDir: ".",
@@ -15,7 +16,19 @@ export default defineConfig({
   fullyParallel: true,
   workers: 1,
   retries: 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  outputDir: artifactsDir ? path.join(artifactsDir, "test-results") : "test-results",
+  reporter: [
+    ["list"],
+    [
+      "html",
+      {
+        open: "never",
+        outputFolder: artifactsDir
+          ? path.join(artifactsDir, "playwright-report")
+          : "playwright-report",
+      },
+    ],
+  ],
   use: {
     baseURL,
     trace: "retain-on-failure",

@@ -93,8 +93,8 @@ export function CloudContent() {
       <HeroSection
         headline="Dedicated GPUs. Zero DevOps."
         subheadline="Launch dedicated GPU instances that scale with your workload. Full data isolation, per-second billing, and auto-shutdown when idle."
-        primaryCTA={{ label: "Launch Dedicated Instance", href: "#" }}
-        secondaryCTA={{ label: "See Security Architecture", href: "#" }}
+        primaryCTA={{ label: "Launch Dedicated Instance", href: "/gpus" }}
+        secondaryCTA={{ label: "See Security Architecture", href: "/security" }}
         trustBadges={[
           "SOC 2",
           "GDPR",
@@ -223,8 +223,8 @@ export function CloudContent() {
       <CTASection
         headline="Get Isolation Without the DevOps."
         body="Launch a dedicated GPU environment in minutes. Full compliance coverage, per-second billing, and zero idle costs."
-        primaryCTA={{ label: "Launch Dedicated Instance", href: "#" }}
-        secondaryCTA={{ label: "Talk to Sales", href: "#" }}
+        primaryCTA={{ label: "Launch Dedicated Instance", href: "/gpus" }}
+        secondaryCTA={{ label: "Talk to Sales", source: "preview-cloud-talk-to-sales" }}
       />
     </>
   )

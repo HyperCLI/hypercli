@@ -1,5 +1,17 @@
 import type { Metadata } from "next";
 import { Footer, GlassCard, Header } from "@hypercli/shared-ui";
+import {
+  AuroraFinalCta,
+  AuroraHero,
+  AuroraHeroHeading,
+  AuroraHeroLead,
+  MarketingActionGroup,
+  MarketingBand,
+  MarketingContainer,
+  MarketingEyebrow,
+  MarketingShell,
+  marketingCtaClassName,
+} from "@hypercli/shared-ui/marketing";
 import { CheckCircle2, Clock, Key, MessageCircle, Mic, Zap } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -123,112 +135,112 @@ function Snip({ lines }: { lines: SnipLine[] }) {
 
 export default function QuickstartPage() {
   return (
-    <div className="min-h-screen bg-background overflow-x-hidden">
-      <Header />
-      <main>
-        {/* Hero */}
-        <section className="relative px-6 pb-10 pt-26">
+    <MarketingShell header={<Header />} footer={<Footer />} headerClearance="section-nav">
+      {/* Hero */}
+      <AuroraHero
+        width="3xl"
+        className="pb-10 text-left"
+        backdrop={
           <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
             <div className="absolute -top-[12%] left-[8%] h-[440px] w-[440px] rounded-full bg-primary/15 blur-[110px]" />
             <div className="absolute -top-[4%] right-[10%] h-[360px] w-[360px] rounded-full bg-success/15 blur-[110px]" />
             <div className="absolute -bottom-[20%] left-[18%] h-[380px] w-[380px] rounded-full bg-chart-3/15 blur-[110px]" />
           </div>
-          <div className="relative mx-auto max-w-3xl">
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.13em] text-primary">Docs / Quickstart</p>
-            <h1 className="mb-5 text-5xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl">
-              Deploy your <span className="gradient-text-primary">first agent.</span>
-            </h1>
-            <p className="mb-6 max-w-2xl text-lg leading-relaxed text-text-secondary">
-              By the end of this page you'll have an always-on agent with its own cloud machine. You'll need a HyperCLI
-              account and Node 18+.
-            </p>
-            <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-5 py-2 text-sm font-semibold text-primary">
-              <Clock className="h-4 w-4" aria-hidden="true" />
-              About 5 minutes
-            </span>
-          </div>
-        </section>
+        }
+      >
+        <MarketingEyebrow className="mb-3">Docs / Quickstart</MarketingEyebrow>
+        <AuroraHeroHeading className="mb-5 lg:text-6xl">
+          Deploy your <span className="gradient-text-primary">first agent.</span>
+        </AuroraHeroHeading>
+        <AuroraHeroLead className="mx-0 mb-6">
+          By the end of this page you&apos;ll have an always-on agent with its own cloud machine. You&apos;ll need a HyperCLI
+          account and Node 18+.
+        </AuroraHeroLead>
+        <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-5 py-2 text-sm font-semibold text-primary">
+          <Clock className="h-4 w-4" aria-hidden="true" />
+          About 5 minutes
+        </span>
+      </AuroraHero>
 
-        {/* Steps */}
-        <section className="px-6 pb-16">
-          <div className="mx-auto max-w-3xl">
-            <div className="grid gap-4">
-              {STEPS.map((step, index) => (
-                <GlassCard key={step.title} className="flex flex-col gap-3 p-6">
-                  <div className="flex items-center gap-4">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                      {index + 1}
+      {/* Steps */}
+      <MarketingBand spacing="none" className="px-6 pb-16">
+        <MarketingContainer width="3xl">
+          <div className="grid gap-4">
+            {STEPS.map((step, index) => (
+              <GlassCard key={step.title} className="flex flex-col gap-3 p-6">
+                <div className="flex items-center gap-4">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                    {index + 1}
+                  </span>
+                  <p className="text-lg font-semibold text-foreground">
+                    {step.title}
+                    <span className="ml-2.5 rounded-full bg-success/10 px-2.5 py-0.5 align-middle text-xs font-semibold text-success">
+                      {step.time}
                     </span>
-                    <p className="text-lg font-semibold text-foreground">
-                      {step.title}
-                      <span className="ml-2.5 rounded-full bg-success/10 px-2.5 py-0.5 align-middle text-xs font-semibold text-success">
-                        {step.time}
-                      </span>
-                    </p>
-                  </div>
-                  {step.body && <p className="text-sm leading-relaxed text-text-secondary">{step.body}</p>}
-                  <Snip lines={step.snip} />
-                  {step.note && <p className="text-sm leading-relaxed text-text-secondary">{step.note}</p>}
-                </GlassCard>
-              ))}
-            </div>
-
-            <div className="mt-7 flex items-start gap-3 rounded-2xl bg-success/10 px-6 py-5">
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden="true" />
-              <p className="text-sm font-medium leading-relaxed text-success">
-                You now have an always-on machine with browser, voice, media generation, and memory — every capability,
-                no add-ons. It's already remembering this conversation.
-              </p>
-            </div>
+                  </p>
+                </div>
+                {step.body && <p className="text-sm leading-relaxed text-text-secondary">{step.body}</p>}
+                <Snip lines={step.snip} />
+                {step.note && <p className="text-sm leading-relaxed text-text-secondary">{step.note}</p>}
+              </GlassCard>
+            ))}
           </div>
-        </section>
 
-        {/* Where to next */}
-        <section className="border-t border-border px-6 py-24 text-center">
-          <div className="mx-auto max-w-6xl">
-            <h2 className="mb-10 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Where <span className="text-primary">to next.</span>
-            </h2>
-            <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
-              {NEXT_CARDS.map((card) => (
-                <GlassCard key={card.title} interactive className="p-6">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                    <card.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                  </div>
-                  <h3 className="mb-2 mt-4 text-lg font-semibold text-foreground">{card.title}</h3>
-                  <p className="text-sm leading-relaxed text-text-secondary">{card.description}</p>
-                </GlassCard>
-              ))}
-            </div>
+          <div className="mt-7 flex items-start gap-3 rounded-2xl bg-success/10 px-6 py-5">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-success" aria-hidden="true" />
+            <p className="text-sm font-medium leading-relaxed text-success">
+              You now have an always-on machine with browser, voice, media generation, and memory — every capability,
+              no add-ons. It&apos;s already remembering this conversation.
+            </p>
           </div>
-        </section>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* Closer */}
-        <section className="px-6 pb-18 pt-4">
-          <div className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-terminal-background px-8 py-20 text-center">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_70%_at_22%_0%,rgb(var(--button-primary-rgb)_/_0.24),transparent_60%),radial-gradient(50%_65%_at_82%_12%,rgb(108_232_196_/_0.15),transparent_60%),radial-gradient(45%_60%_at_55%_100%,rgb(169_126_255_/_0.15),transparent_65%)]"
-            />
-            <div className="relative">
-              <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-terminal-foreground sm:text-5xl">
-                Stuck? <span className="gradient-text-primary">Ask your agent.</span>
-              </h2>
-              <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">
-                It can read these docs. The full reference lives at docs.hypercli.com — the source of truth this page
-                defers to.
-              </p>
-              <a
-                href="https://docs.hypercli.com/cli/quickstart"
-                className="btn-primary inline-block rounded-full px-8 py-4 text-base font-semibold"
-              >
-                Read the full quickstart
-              </a>
-            </div>
+      {/* Where to next */}
+      <MarketingBand bordered className="text-center">
+        <MarketingContainer>
+          <h2 className="mb-10 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Where <span className="text-primary">to next.</span>
+          </h2>
+          <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
+            {NEXT_CARDS.map((card) => (
+              <GlassCard key={card.title} interactive className="p-6">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                  <card.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                </div>
+                <h3 className="mb-2 mt-4 text-lg font-semibold text-foreground">{card.title}</h3>
+                <p className="text-sm leading-relaxed text-text-secondary">{card.description}</p>
+              </GlassCard>
+            ))}
           </div>
-        </section>
-      </main>
-      <Footer />
-    </div>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Closer */}
+      <AuroraFinalCta
+        heading={
+          <>
+            Stuck? <span className="gradient-text-primary">Ask your agent.</span>
+          </>
+        }
+        description={
+          <>
+            It can read these docs. The full reference lives at docs.hypercli.com — the source of truth this page
+            defers to.
+          </>
+        }
+        descriptionClassName="mx-auto max-w-xl"
+        actions={
+          <MarketingActionGroup>
+            <a
+              href="https://docs.hypercli.com/cli/quickstart"
+              className={marketingCtaClassName({ size: "final" })}
+            >
+              Read the full quickstart
+            </a>
+          </MarketingActionGroup>
+        }
+      />
+    </MarketingShell>
   );
 }

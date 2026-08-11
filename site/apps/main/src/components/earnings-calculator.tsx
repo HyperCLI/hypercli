@@ -29,7 +29,7 @@ export function EarningsCalculator() {
       </div>
       <GlassCard className="border-primary/40 bg-primary/5 p-8 text-center">
         <p className="mb-1.5 text-sm text-text-secondary">Estimated annual data center share</p>
-        <p className="text-4xl font-extrabold tracking-tight text-primary">~${revenue.toLocaleString()}/yr</p>
+        <p className="text-4xl font-extrabold tracking-tight text-primary">~${revenue.toLocaleString("en-US")}/yr</p>
         <p className="mt-2.5 text-xs text-primary">Monthly payouts · per-job metering · full dashboard visibility</p>
       </GlassCard>
       <p className="mt-4 text-center text-xs text-text-muted">

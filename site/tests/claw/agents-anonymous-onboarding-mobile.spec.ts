@@ -97,6 +97,70 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   )).toBe(true);
 }
 
+async function expectLaunchEmptyStateFits(page: Page, allowVerticalScroll = false): Promise<void> {
+  await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
+  const emptyState = page.getByTestId("agent-launch-empty-state");
+  await expect(emptyState).toBeVisible();
+  await emptyState.evaluate((element) => { element.scrollTop = 0; });
+
+  const metrics = await emptyState.evaluate((element) => {
+    const stateBox = element.getBoundingClientRect();
+    const title = element.querySelector<HTMLElement>("h1");
+    const button = element.querySelector<HTMLElement>("button");
+    const examples = Array.from(element.querySelectorAll<HTMLElement>('[data-slot="agent-feature-empty-state-example"]'));
+    if (!title || !button || examples.length !== 3) throw new Error("Missing launch empty-state content");
+    const titleBox = title.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const horizontalOffenders = [title, button, ...examples].flatMap((item) => {
+      const box = item.getBoundingClientRect();
+      return box.left < stateBox.left - 1 || box.right > stateBox.right + 1
+        ? [{ text: item.textContent?.trim() ?? "", left: box.left, right: box.right }]
+        : [];
+    });
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      stateTop: stateBox.top,
+      stateBottom: stateBox.bottom,
+      titleTop: titleBox.top,
+      buttonBottom: buttonBox.bottom,
+      horizontalOffenders,
+    };
+  });
+
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
+  expect(metrics.titleTop).toBeGreaterThanOrEqual(metrics.stateTop - 1);
+  expect(metrics.horizontalOffenders).toEqual([]);
+
+  if (!allowVerticalScroll) {
+    expect(metrics.scrollHeight).toBeLessThanOrEqual(metrics.clientHeight + 1);
+    expect(metrics.buttonBottom).toBeLessThanOrEqual(metrics.stateBottom + 1);
+    return;
+  }
+
+  await emptyState.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+  const endMetrics = await emptyState.evaluate((element) => {
+    const stateBox = element.getBoundingClientRect();
+    const button = element.querySelector<HTMLElement>("button");
+    if (!button) throw new Error("Missing launch empty-state action");
+    const buttonBox = button.getBoundingClientRect();
+    return {
+      buttonTop: buttonBox.top,
+      buttonBottom: buttonBox.bottom,
+      stateTop: stateBox.top,
+      stateBottom: stateBox.bottom,
+      scrollTop: element.scrollTop,
+      maxScrollTop: element.scrollHeight - element.clientHeight,
+    };
+  });
+
+  expect(endMetrics.scrollTop).toBeGreaterThanOrEqual(endMetrics.maxScrollTop - 1);
+  expect(endMetrics.buttonTop).toBeGreaterThanOrEqual(endMetrics.stateTop - 1);
+  expect(endMetrics.buttonBottom).toBeLessThanOrEqual(endMetrics.stateBottom + 1);
+}
+
 async function readSavedDraftName(page: Page): Promise<string | null> {
   return page.evaluate(() => {
     const rawDraft = window.sessionStorage.getItem("hypercli-first-agent-draft");
@@ -123,11 +187,41 @@ test("keeps the mobile Privy email field touchable and restores the login wall",
   expect(forbiddenRequests).toEqual([]);
 });
 
+test("opens authentication when the browser does not provide crypto.randomUUID", async ({ page }) => {
+  const compatibilityErrors: string[] = [];
+  const recordCompatibilityError = (message: string) => {
+    if (/randomUUID|script tag while rendering/i.test(message)) compatibilityErrors.push(message);
+  };
+  page.on("console", (message) => recordCompatibilityError(message.text()));
+  page.on("pageerror", (error) => recordCompatibilityError(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(window.crypto, "randomUUID", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+  const forbiddenRequests = await prepareAnonymousFlow(page);
+
+  await page.goto("/dashboard/agents?plan=pro");
+  await expect.poll(() => page.evaluate(() => typeof crypto.randomUUID)).toBe("function");
+  await expect.poll(() => page.evaluate(() => crypto.randomUUID())).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  );
+
+  const emptyState = page.getByTestId("agent-launch-empty-state");
+  await emptyState.getByRole("button", { name: "Launch agent", exact: true }).tap();
+  await completeAuthenticationRoundTrip(page);
+
+  expect(compatibilityErrors).toEqual([]);
+  expect(forbiddenRequests).toEqual([]);
+});
+
 test("completes mobile previews and every dashboard authentication gate", async ({ page }) => {
   const forbiddenRequests = await prepareAnonymousFlow(page);
 
   await page.goto("/dashboard/agents?plan=pro");
   await expectAnonymousFlowComplete(page);
+  await expectLaunchEmptyStateFits(page);
 
   const previewSections = [
     ["Files", "Your files, working for you"],
@@ -143,6 +237,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
     await navigation.getByRole("button", { name: section, exact: true }).tap();
     await expect(navigation).toHaveCount(0);
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    await expectLaunchEmptyStateFits(page);
   }
 
   const desktopPreview = page.getByRole("heading", { name: "A browser built for action" }).locator("xpath=..");
@@ -180,6 +275,21 @@ test("completes mobile previews and every dashboard authentication gate", async 
   await expect(navigation).toHaveCount(0);
   await completeAuthenticationRoundTrip(page, "A browser built for action");
 
+  await expectNoHorizontalOverflow(page);
+  expect(forbiddenRequests).toEqual([]);
+});
+
+test("keeps the complete launch empty state reachable in a short phone viewport", async ({ page }) => {
+  const forbiddenRequests = await prepareAnonymousFlow(page);
+  await page.goto("/dashboard/agents?plan=pro");
+  await expectAnonymousFlowComplete(page);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--claw-safe-area-bottom-effective", "24px");
+  });
+
+  await expectLaunchEmptyStateFits(page, true);
   await expectNoHorizontalOverflow(page);
   expect(forbiddenRequests).toEqual([]);
 });

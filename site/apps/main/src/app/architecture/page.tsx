@@ -9,12 +9,11 @@ import {
   MarketingPageHero,
   NarrativeSplitSection,
 } from "@hypercli/shared-ui";
+import { MarketingShell } from "@hypercli/shared-ui/marketing";
 
 export default function Page() {
   return (
-    <div className="bg-background">
-      <Header />
-
+    <MarketingShell header={<Header />} footer={<Footer />} headerClearance="section-nav">
       <MarketingPageHero
         title="A Distributed Compute Fabric for Modern AI"
         description="An orchestration engine built for scale, precision, and real workloads."
@@ -144,8 +143,6 @@ export default function Page() {
         title="The Fabric Awaits."
         actions={[{ label: "See the Architecture in Action", showArrow: true }]}
       />
-
-      <Footer />
-    </div>
+    </MarketingShell>
   );
 }

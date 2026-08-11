@@ -4,7 +4,7 @@ import React from "react";
 import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
-import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentStartable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -82,6 +82,7 @@ interface AgentMainPanelProps {
   onShowInspector: () => void;
   showInspectorButton?: boolean;
   onStart: () => void;
+  onStop?: () => void;
   onReconnect: () => void;
 }
 
@@ -135,12 +136,13 @@ export function AgentMainPanel({
   onShowInspector,
   showInspectorButton = true,
   onStart,
+  onStop,
   onReconnect,
 }: AgentMainPanelProps) {
   const selectedAgentState = selectedAgent?.state ?? null;
   const selectedAgentDisplayName = selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent";
   const isLifecycleBusy = isAgentTransitionalState(selectedAgentState);
-  const isStartable = selectedAgentState === "STOPPED" || selectedAgentState === "ARCHIVED" || isAgentFailureState(selectedAgentState);
+  const isStartable = Boolean(selectedAgent && isAgentStartable(selectedAgent));
   const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
     if (!selectedAgent) return null;
     if (selectedAgent.state === "FAILED") {
@@ -150,17 +152,24 @@ export function AgentMainPanel({
         tone: "failed",
       };
     }
-    if (selectedAgent.state === "STOPPED" || selectedAgent.state === "ARCHIVED") {
+    if (selectedAgent.state === "STOPPED") {
       return {
-        label: selectedAgent.state === "ARCHIVED" ? "Archived" : "Stopped",
-        detail: selectedAgent.state === "ARCHIVED" ? "Start the agent to restore its files." : "Start the agent to chat.",
+        label: "Stopped",
+        detail: "Start the agent to chat.",
+        tone: "stopped",
+      };
+    }
+    if (selectedAgent.state === "ARCHIVED") {
+      return {
+        label: "Archived",
+        detail: "Start the agent to restore its verified archive.",
         tone: "stopped",
       };
     }
     if (selectedAgent.state === "CREATING") {
       return {
-        label: "Provisioning",
-        detail: "Reserving compute and preparing the workspace.",
+        label: "Creating",
+        detail: "Preparing persistent storage and admitting the runtime.",
         tone: "starting",
         loading: true,
       };
@@ -192,7 +201,7 @@ export function AgentMainPanel({
     if (selectedAgent.state === "ARCHIVING") {
       return {
         label: "Archiving",
-        detail: "Saving files before releasing the runtime.",
+        detail: "Verifying the cold archive before releasing runtime resources.",
         tone: "stopping",
         loading: true,
       };
@@ -246,14 +255,14 @@ export function AgentMainPanel({
     onOpenPlanCatalog,
     preferredPlanId,
     pendingSlotReleases,
-    launchLabel: "Start agent",
+    launchLabel: selectedAgent?.state === "ARCHIVED" ? "Restore agent" : "Start agent",
     launching: stoppedLaunchBusy,
     launchBlocked: stoppedLaunchBlocked,
     launchBlockedReason: stoppedLaunchBlockedReason,
     onLaunchAction: onStart,
   };
   const stoppedPanelContent = (() => {
-    if (selectedAgent?.state !== "STOPPED" && selectedAgent?.state !== "ARCHIVED") return null;
+    if (!isStartable) return null;
     if (currentPanel === "chat") {
       return <AgentEmptyState {...stoppedEmptyStateProps} />;
     }
@@ -289,7 +298,9 @@ export function AgentMainPanel({
       return (
         <AgentLoadingState
           title={selectedAgentState === "ARCHIVING" ? "Archiving agent" : "Stopping agent"}
-          detail={selectedAgentState === "ARCHIVING" ? "Saving files before releasing the runtime." : "Stopping the runtime and cleaning up the workspace."}
+          detail={selectedAgentState === "ARCHIVING"
+            ? "Verifying the cold archive before releasing runtime resources."
+            : "Stopping the runtime and cleaning up the workspace."}
           tone="loading"
           stage="complete"
         />
@@ -300,8 +311,8 @@ export function AgentMainPanel({
       const startupCopy =
         activeAgent.state === "CREATING"
           ? {
-              title: "Provisioning runtime",
-              detail: "Reserving compute and preparing the workspace.",
+              title: "Creating agent",
+              detail: "Preparing persistent storage and admitting the runtime.",
               stage: "runtime" as const,
             }
           : activeAgent.state === "RESTORING"
@@ -329,6 +340,8 @@ export function AgentMainPanel({
           tone="starting"
           stage={startupCopy.stage}
           guided
+          actionLabel={onStop ? "Stop agent" : undefined}
+          onAction={onStop}
         />
       );
     }

@@ -1,33 +1,45 @@
+import {
+  isAgentTransitionalState as isSdkAgentTransitionalState,
+  type AgentState as SdkAgentState,
+} from "@hypercli.com/sdk/agents";
 import type { AgentMeta } from "@/lib/avatar";
 import type { SlotInventory } from "@/lib/format";
 
-export type AgentState =
-  | "CREATING"
-  | "RESTORING"
-  | "STARTING"
-  | "RUNNING"
-  | "STOPPING"
-  | "STOPPED"
-  | "ARCHIVING"
-  | "ARCHIVED"
-  | "FAILED"
-  | "DELETED"
-  | (string & {});
+export type AgentState = SdkAgentState;
 export type JsonObject = Record<string, unknown>;
 
-export const AGENT_TRANSITIONAL_STATES: AgentState[] = ["CREATING", "RESTORING", "STARTING", "STOPPING", "ARCHIVING"];
-export const AGENT_FAILURE_STATES: AgentState[] = ["FAILED"];
-
 export function isAgentTransitionalState(state: AgentState | string | null | undefined): boolean {
-  return AGENT_TRANSITIONAL_STATES.includes(state as AgentState);
+  return typeof state === "string" && isSdkAgentTransitionalState(state);
 }
 
 export function isAgentFailureState(state: AgentState | string | null | undefined): boolean {
-  return AGENT_FAILURE_STATES.includes(state as AgentState);
+  return state?.toUpperCase() === "FAILED";
 }
 
 export function isAgentOffline(state: AgentState | string | null | undefined): boolean {
-  return state?.toUpperCase() === "STOPPED" || state?.toUpperCase() === "ARCHIVED";
+  const normalized = state?.toUpperCase();
+  return normalized === "STOPPED" || normalized === "ARCHIVED";
+}
+
+type AgentLifecycleActionState = Pick<Agent, "state" | "resourcesExist" | "isLaunchable">;
+
+export function isAgentStartable(agent: AgentLifecycleActionState): boolean {
+  if (agent.isLaunchable === false) return false;
+  const state = agent.state.toUpperCase();
+  return state === "STOPPED" || state === "ARCHIVED" || (state === "FAILED" && !agent.resourcesExist);
+}
+
+export function isAgentStoppable(agent: Pick<Agent, "state" | "resourcesExist">): boolean {
+  const state = agent.state.toUpperCase();
+  return state === "CREATING"
+    || state === "STARTING"
+    || state === "RESTORING"
+    || state === "RUNNING"
+    || (state === "FAILED" && agent.resourcesExist);
+}
+
+export function isAgentDeletable(agent: Pick<Agent, "state">): boolean {
+  return agent.state.toUpperCase() === "STOPPED";
 }
 
 export interface Agent {
@@ -38,6 +50,7 @@ export interface Agent {
   avatarUrl?: string | null;
   displayIdentity?: Record<string, unknown> | null;
   managed?: boolean | null;
+  isLaunchable: boolean;
   runtime?: string | null;
   gatewayId?: string | null;
   user_id: string;
@@ -48,12 +61,18 @@ export interface Agent {
   desktopUrl?: string | null;
   started_at: string | null;
   stopped_at: string | null;
+  archived_at: string | null;
+  reason: string | null;
   error: string | null;
+  message: string | null;
   created_at: string | null;
   updated_at: string | null;
   launchEpoch: number;
+  agentVersion: number;
   resourcesExist: boolean;
   namespaceExists: boolean;
+  clusterId: string | null;
+  archivedPath: string | null;
   launchConfig?: Record<string, unknown> | null;
   hasDesktop?: boolean;
   meta?: AgentMeta | null;

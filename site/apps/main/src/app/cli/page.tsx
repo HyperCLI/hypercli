@@ -1,6 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { GlassCard, Header, TerminalWindow, type TerminalLine } from "@hypercli/shared-ui";
+import {
+  AuroraFinalCta,
+  AuroraGlowFrame,
+  AuroraHero,
+  AuroraHeroHeading,
+  AuroraHeroLead,
+  MarketingActionGroup,
+  MarketingBand,
+  MarketingContainer,
+  MarketingEyebrow,
+  MarketingShell,
+  marketingCtaClassName,
+} from "@hypercli/shared-ui/marketing";
 import { BookOpen, Bot, Code, Cpu, Database, Image, Key, Mic, Package, SquareTerminal, User } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -131,184 +144,164 @@ function CliFooter() {
 
 export default function CliPage() {
   return (
-    <div className="min-h-screen bg-background overflow-x-hidden">
-      <Header />
-      <main>
-        {/* Hero */}
-        <section className="relative px-6 pb-20 pt-26 text-center">
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -top-[8%] left-[8%] h-[440px] w-[440px] rounded-full bg-primary/15 blur-[110px]" />
-            <div className="absolute -top-[2%] right-[9%] h-[360px] w-[360px] rounded-full bg-success/15 blur-[110px]" />
-            <div className="absolute -bottom-[16%] left-[16%] h-[380px] w-[380px] rounded-full bg-chart-3/15 blur-[110px]" />
-          </div>
-          <div className="relative mx-auto max-w-5xl">
-            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.13em] text-primary">The CLI</p>
-            <h1 className="mb-6 text-5xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl lg:text-7xl">
-              It's <span className="gradient-text-primary">in the name.</span>
-            </h1>
-            <p className="mx-auto mb-11 max-w-2xl text-lg leading-relaxed text-text-secondary">
-              One binary drives the whole platform — agents, GPUs, media, voice, memory, billing. If HyperCLI can do
-              it, <code className="rounded-md bg-primary/10 px-2 py-0.5 font-mono text-base text-primary">hyper</code>{" "}
-              can do it from your terminal.
-            </p>
+    <MarketingShell header={<Header />} footer={<CliFooter />} headerClearance="section-nav">
+      {/* Hero */}
+      <AuroraHero
+        backdropVariant="standard"
+        className="pb-20 [&_[data-slot=aurora-hero-backdrop]>div:first-child]:-top-[8%] [&_[data-slot=aurora-hero-backdrop]>div:last-child]:-bottom-[16%]"
+      >
+        <MarketingEyebrow>The CLI</MarketingEyebrow>
+        <AuroraHeroHeading>
+          It&apos;s <span className="gradient-text-primary">in the name.</span>
+        </AuroraHeroHeading>
+        <AuroraHeroLead>
+          One binary drives the whole platform — agents, GPUs, media, voice, memory, billing. If HyperCLI can do
+          it, <code className="rounded-md bg-primary/10 px-2 py-0.5 font-mono text-base text-primary">hyper</code>{" "}
+          can do it from your terminal.
+        </AuroraHeroLead>
 
-            <div className="relative mx-auto mb-11 max-w-2xl">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-[6%_-7%_-12%_-7%] bg-[radial-gradient(50%_65%_at_32%_60%,rgb(var(--button-primary-rgb)_/_0.20),transparent_70%),radial-gradient(50%_65%_at_72%_55%,rgb(108_232_196_/_0.16),transparent_70%)] blur-[34px]"
-              />
-              <TerminalWindow title="hyper — zsh" lines={TERMINAL_LINES} typed className="relative min-h-[330px] text-left" />
-            </div>
+        <AuroraGlowFrame className="mb-11 max-w-2xl">
+          <TerminalWindow title="hyper — zsh" lines={TERMINAL_LINES} typed className="relative min-h-[330px] text-left" />
+        </AuroraGlowFrame>
 
-            <div className="flex flex-wrap justify-center gap-3.5">
-              <a
-                href="https://docs.hypercli.com/cli/quickstart"
-                className="btn-primary inline-block rounded-full px-8 py-3.5 font-mono text-sm font-semibold"
-              >
-                pip install hypercli-cli
-              </a>
-              <a
-                href="https://docs.hypercli.com/cli/index"
-                className="btn-secondary inline-block rounded-full px-8 py-3.5 text-base font-semibold"
-              >
-                Read the CLI docs
-              </a>
-            </div>
-          </div>
-        </section>
+        <MarketingActionGroup>
+          <a
+            href="https://docs.hypercli.com/cli/quickstart"
+            className={marketingCtaClassName({ className: "font-mono text-sm" })}
+          >
+            pip install hypercli-cli
+          </a>
+          <a
+            href="https://docs.hypercli.com/cli/index"
+            className={marketingCtaClassName({ variant: "secondary" })}
+          >
+            Read the CLI docs
+          </a>
+        </MarketingActionGroup>
+      </AuroraHero>
 
-        {/* Everything is a command */}
-        <section className="border-t border-border px-6 py-24 text-center">
-          <div className="mx-auto max-w-6xl">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Everything is a <span className="text-primary">command.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              The whole surface, one verb away. Every block links to its reference.
-            </p>
-            <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-3">
-              {COMMAND_GROUPS.map((group) => (
-                <GlassCard key={group.title} interactive className="p-7">
-                  <h3 className="mb-5 flex items-center gap-3 text-lg font-semibold tracking-tight text-foreground">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                      <group.icon className="h-4.5 w-4.5 text-primary" aria-hidden="true" />
-                    </span>
-                    {group.title}
-                  </h3>
-                  {group.commands.map((command) => (
-                    <code
-                      key={command}
-                      className="mb-2.5 block overflow-x-auto whitespace-nowrap rounded-lg bg-surface-low px-4 py-2.5 font-mono text-xs text-text-secondary"
-                    >
-                      <span className="mr-2 select-none text-primary">$</span>
-                      {command}
-                    </code>
-                  ))}
-                  <a href={group.href} className="mt-2 inline-block text-sm font-semibold text-primary hover:underline">
-                    {group.linkLabel}
-                  </a>
-                </GlassCard>
-              ))}
-            </div>
-            <p className="mt-9 text-sm text-text-muted">
-              Plus a full TUI:{" "}
-              <code className="rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[13px] text-primary">hyper tui</code>{" "}
-              — live jobs, logs, and metrics without leaving the terminal.
-            </p>
-          </div>
-        </section>
-
-        {/* Your agent speaks it too */}
-        <section className="border-t border-border px-6 py-24 text-center">
-          <div className="mx-auto max-w-6xl rounded-3xl bg-surface-low px-6 py-16 sm:px-12">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Your agent <span className="text-primary">speaks it too.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              The CLI isn't just your interface — it's the shared language. The same commands you run are how your
-              agent manages itself.
-            </p>
-            <div className="grid gap-5 text-left md:grid-cols-2">
-              {PANES.map((pane) => (
-                <div key={pane.who} className="rounded-2xl bg-terminal-background p-7">
-                  <p className="mb-5 flex items-center gap-3 text-sm font-semibold text-terminal-foreground">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-hover/15">
-                      <pane.icon className="h-4 w-4 text-accent-hover" aria-hidden="true" />
-                    </span>
-                    {pane.who}
-                  </p>
-                  <div className="font-mono text-xs leading-loose text-terminal-muted">
-                    {pane.lines.map((line) => (
-                      <div key={line} className="whitespace-pre-wrap">
-                        <span className="mr-2 select-none text-accent-hover">$</span>
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="mx-auto mt-9 max-w-xl leading-relaxed text-text-secondary">
-              Anything you can script, it can script. Anything it does, you can read in plain command history —{" "}
-              <b className="font-semibold text-foreground">auditable by design, automatable by default.</b>
-            </p>
-          </div>
-        </section>
-
-        {/* Philosophy */}
-        <section className="border-t border-border px-6 py-24">
-          <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-2">
-            {PHILOSOPHY.map((item) => (
-              <GlassCard key={item.title} interactive className="p-7">
-                <h3 className="mb-2 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
-                  <item.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                  {item.title}
+      {/* Everything is a command */}
+      <MarketingBand bordered className="text-center">
+        <MarketingContainer>
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Everything is a <span className="text-primary">command.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            The whole surface, one verb away. Every block links to its reference.
+          </p>
+          <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-3">
+            {COMMAND_GROUPS.map((group) => (
+              <GlassCard key={group.title} interactive className="p-7">
+                <h3 className="mb-5 flex items-center gap-3 text-lg font-semibold tracking-tight text-foreground">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                    <group.icon className="h-4.5 w-4.5 text-primary" aria-hidden="true" />
+                  </span>
+                  {group.title}
                 </h3>
-                <p className="text-sm leading-relaxed text-text-secondary">{item.body}</p>
+                {group.commands.map((command) => (
+                  <code
+                    key={command}
+                    className="mb-2.5 block overflow-x-auto whitespace-nowrap rounded-lg bg-surface-low px-4 py-2.5 font-mono text-xs text-text-secondary"
+                  >
+                    <span className="mr-2 select-none text-primary">$</span>
+                    {command}
+                  </code>
+                ))}
+                <a href={group.href} className="mt-2 inline-block text-sm font-semibold text-primary hover:underline">
+                  {group.linkLabel}
+                </a>
               </GlassCard>
             ))}
           </div>
-        </section>
+          <p className="mt-9 text-sm text-text-muted">
+            Plus a full TUI:{" "}
+            <code className="rounded-md bg-primary/10 px-2 py-0.5 font-mono text-[13px] text-primary">hyper tui</code>{" "}
+            — live jobs, logs, and metrics without leaving the terminal.
+          </p>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* Closer */}
-        <section className="px-6 pb-18 pt-4">
-          <div className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-terminal-background px-8 py-20 text-center">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_70%_at_22%_0%,rgb(var(--button-primary-rgb)_/_0.24),transparent_60%),radial-gradient(50%_65%_at_82%_12%,rgb(108_232_196_/_0.15),transparent_60%),radial-gradient(45%_60%_at_55%_100%,rgb(169_126_255_/_0.15),transparent_65%)]"
-            />
-            <div className="relative">
-              <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-terminal-foreground sm:text-5xl">
-                Named after the thing
-                <br />
-                <span className="gradient-text-primary">we care about most.</span>
-              </h2>
-              <p className="mb-9 text-lg text-text-secondary">
-                Install it, sign in, and the whole platform is a tab-complete away.
-              </p>
-              <div className="flex flex-wrap justify-center gap-3.5">
-                <a
-                  href="https://docs.hypercli.com/cli/quickstart"
-                  className="btn-primary inline-block rounded-full px-8 py-4 font-mono text-sm font-semibold"
-                >
-                  pip install hypercli-cli
-                </a>
-                <a
-                  href="https://docs.hypercli.com/cli/quickstart"
-                  className="inline-block rounded-full border border-terminal-border px-8 py-4 text-base font-semibold text-terminal-foreground transition-colors hover:border-accent-hover hover:text-accent-hover"
-                >
-                  CLI quickstart
-                </a>
+      {/* Your agent speaks it too */}
+      <MarketingBand bordered className="text-center">
+        <MarketingContainer className="rounded-3xl bg-surface-low px-6 py-16 sm:px-12">
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Your agent <span className="text-primary">speaks it too.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            The CLI isn&apos;t just your interface — it&apos;s the shared language. The same commands you run are how your
+            agent manages itself.
+          </p>
+          <div className="grid gap-5 text-left md:grid-cols-2">
+            {PANES.map((pane) => (
+              <div key={pane.who} className="rounded-2xl bg-terminal-background p-7">
+                <p className="mb-5 flex items-center gap-3 text-sm font-semibold text-terminal-foreground">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-hover/15">
+                    <pane.icon className="h-4 w-4 text-accent-hover" aria-hidden="true" />
+                  </span>
+                  {pane.who}
+                </p>
+                <div className="font-mono text-xs leading-loose text-terminal-muted">
+                  {pane.lines.map((line) => (
+                    <div key={line} className="whitespace-pre-wrap">
+                      <span className="mr-2 select-none text-accent-hover">$</span>
+                      {line}
+                    </div>
+                  ))}
+                </div>
               </div>
-              <p className="mt-8 text-xs text-terminal-muted">
-                Commands shown are illustrative. The reference at docs.hypercli.com is the source of truth — this page
-                happily defers to it.
-              </p>
-            </div>
+            ))}
           </div>
-        </section>
-      </main>
-      <CliFooter />
-    </div>
+          <p className="mx-auto mt-9 max-w-xl leading-relaxed text-text-secondary">
+            Anything you can script, it can script. Anything it does, you can read in plain command history —{" "}
+            <b className="font-semibold text-foreground">auditable by design, automatable by default.</b>
+          </p>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Philosophy */}
+      <MarketingBand bordered>
+        <MarketingContainer width="4xl" className="grid gap-4 sm:grid-cols-2">
+          {PHILOSOPHY.map((item) => (
+            <GlassCard key={item.title} interactive className="p-7">
+              <h3 className="mb-2 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
+                <item.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                {item.title}
+              </h3>
+              <p className="text-sm leading-relaxed text-text-secondary">{item.body}</p>
+            </GlassCard>
+          ))}
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Closer */}
+      <AuroraFinalCta
+        heading={
+          <>
+            Named after the thing
+            <br />
+            <span className="gradient-text-primary">we care about most.</span>
+          </>
+        }
+        description="Install it, sign in, and the whole platform is a tab-complete away."
+        actions={
+          <MarketingActionGroup>
+            <a
+              href="https://docs.hypercli.com/cli/quickstart"
+              className={marketingCtaClassName({ size: "final", className: "font-mono text-sm" })}
+            >
+              pip install hypercli-cli
+            </a>
+            <a
+              href="https://docs.hypercli.com/cli/quickstart"
+              className={marketingCtaClassName({ variant: "terminal-secondary", size: "final" })}
+            >
+              CLI quickstart
+            </a>
+          </MarketingActionGroup>
+        }
+        footnote="Commands shown are illustrative. The reference at docs.hypercli.com is the source of truth — this page happily defers to it."
+        footnoteClassName="mt-8"
+      />
+    </MarketingShell>
   );
 }

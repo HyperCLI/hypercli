@@ -11,13 +11,14 @@ import {
   NarrativeSplitSection,
   PartnerFormModal,
 } from "@hypercli/shared-ui";
+import { MarketingShell } from "@hypercli/shared-ui/marketing";
 
 export default function PartnerPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const openPartnerModal = () => setIsModalOpen(true);
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background">
+    <>
       {/* Hidden form for Netlify to detect at build time */}
       <form name="partner-inquiry" data-netlify="true" netlify-honeypot="bot-field" hidden>
         <input type="hidden" name="form-name" value="partner-inquiry" />
@@ -30,9 +31,7 @@ export default function PartnerPage() {
         <textarea name="message" />
       </form>
 
-      <Header />
-
-      <main>
+      <MarketingShell header={<Header />} footer={<Footer />} headerClearance="section-nav">
         <MarketingPageHero
           title="A New Revenue Layer for AI."
           description="Deliver full AI systems to your clients. No infrastructure. No engineering. Just profit."
@@ -141,11 +140,9 @@ export default function PartnerPage() {
           title="Sell AI infrastructure without building it."
           actions={[{ label: "Join the Partner Network", onClick: openPartnerModal, showArrow: true }]}
         />
-      </main>
-
-      <Footer />
+      </MarketingShell>
 
       <PartnerFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
-    </div>
+    </>
   );
 }

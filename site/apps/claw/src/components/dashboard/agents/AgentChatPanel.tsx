@@ -14,7 +14,7 @@ import { createChatRenderId, isOpenClawEmptyReplyFailureText, type ChatMessage, 
 import { extractGitHubAgentSetupStatus, GITHUB_AGENT_SETUP_PROMPT, GITHUB_AGENT_VERIFY_PROMPT, shouldHideGitHubAgentSetupMessage } from "@/lib/github-cli-workspace";
 import { shouldHideTelegramAgentConfigMessage } from "@/lib/telegram-config-workspace";
 import { ChatMessageBubble, ChatThinkingIndicator, type ChatFileBytesReader } from "@/components/dashboard/ChatMessage";
-import type { Agent } from "@/app/dashboard/agents/types";
+import { isAgentStartable, isAgentStoppable, type Agent } from "@/app/dashboard/agents/types";
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
@@ -490,7 +490,7 @@ function caretIsOnLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
 
 function isLifecycleStartupStatus(status: AgentChatBootStatus): boolean {
   return status.status === "loading" && (
-    status.phase === "provisioning" ||
+    status.phase === "creating" ||
     status.phase === "restoring" ||
     status.phase === "booting"
   );
@@ -838,6 +838,8 @@ export function AgentChatPanel({
   }, [handleChatFileDrop]);
   const commandActions = React.useMemo<AgentSlashCommandActions>(() => ({
     ...slashCommandActions,
+    onStartAgent: isAgentStartable(selectedAgent) ? slashCommandActions?.onStartAgent : undefined,
+    onStopAgent: isAgentStoppable(selectedAgent) ? slashCommandActions?.onStopAgent : undefined,
     onTriggerFilePicker: slashCommandActions?.onTriggerFilePicker ?? triggerFilePicker,
     onOpenConnectionSuggestion: async (suggestion) => {
       if (suggestion.connectorId) {
@@ -849,7 +851,7 @@ export function AgentChatPanel({
     onOpenIntegrationChatCard: (integrationId) => {
       openIntegrationChatCard(integrationId);
     },
-  }), [onConnectionCta, openIntegrationChatCard, slashCommandActions, triggerFilePicker]);
+  }), [onConnectionCta, openIntegrationChatCard, selectedAgent, slashCommandActions, triggerFilePicker]);
   const slashInputActive = !recording && !audioUrl && chat.input.trimStart().startsWith("/") && !chat.input.trimStart().startsWith("//");
   const slashMenuDismissed = dismissedSlashInput === chat.input;
   const slashMenuOpen = slashInputActive && !slashMenuDismissed;
@@ -1033,7 +1035,9 @@ export function AgentChatPanel({
       connected: chat.connected,
       connecting: chat.connecting,
       hydrating: chat.hydrating,
-      error: chat.error,
+      error: selectedAgent.state === "FAILED"
+        ? selectedAgent.error || selectedAgent.message || selectedAgent.reason
+        : chat.error,
     }),
     [
       chat.connected,
@@ -1043,6 +1047,9 @@ export function AgentChatPanel({
       chat.hydrating,
       chat.ready,
       isSelectedRunning,
+      selectedAgent.error,
+      selectedAgent.message,
+      selectedAgent.reason,
       selectedAgent.state,
     ],
   );
@@ -1105,7 +1112,7 @@ export function AgentChatPanel({
     ? activeSessionSending ? "sm:pr-84" : "sm:pr-76"
     : activeSessionSending ? "sm:pr-40" : "sm:pr-32";
   const composerRightPadding = modelMenuAvailable
-    ? `max-sm:pb-14 max-sm:pr-5 ${desktopComposerRightPadding}`
+    ? `max-sm:pb-18 max-sm:pr-5 ${desktopComposerRightPadding}`
     : `${mobileComposerRightPadding} ${desktopComposerRightPadding}`;
   const composerMinHeight = modelMenuAvailable
     ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-24"
@@ -1113,7 +1120,7 @@ export function AgentChatPanel({
       ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-20"
       : "";
   const composerActionsLayout = modelMenuAvailable
-    ? "bottom-2 left-2 right-2 justify-between sm:bottom-auto sm:left-auto sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
+    ? "bottom-4 left-3 right-3 justify-between sm:bottom-auto sm:left-auto sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
     : composerHasText
       ? "right-2 top-[calc(50%-3px)] -translate-y-1/2 max-sm:top-1/2 max-sm:flex-col"
       : "right-2 top-[calc(50%-3px)] -translate-y-1/2";
@@ -1153,10 +1160,28 @@ export function AgentChatPanel({
     return () => observer.disconnect();
   }, [showComposer]);
   const originDenied = displayBootStatus.status === "error" && /another dashboard address/i.test(displayBootStatus.detail);
-  const errorActionLabel = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent ? "Stop agent" : "Retry";
-  const handleErrorAction = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent
-    ? () => { void slashCommandActions.onStopAgent?.(); }
-    : chat.retry;
+  const startupStopAction = (
+    selectedAgent.state === "CREATING" || selectedAgent.state === "STARTING" || selectedAgent.state === "RESTORING"
+  ) ? slashCommandActions?.onStopAgent : undefined;
+  const failedCleanupAction = selectedAgent.state === "FAILED" && isAgentStoppable(selectedAgent)
+    ? slashCommandActions?.onStopAgent
+    : undefined;
+  const failedRestartAction = selectedAgent.state === "FAILED" && isAgentStartable(selectedAgent)
+    ? slashCommandActions?.onStartAgent
+    : undefined;
+  const originRecoveryAction = originDenied && isSelectedRunning ? slashCommandActions?.onStopAgent : undefined;
+  const errorActionLabel = failedCleanupAction
+    ? "Clean up failed launch"
+    : failedRestartAction
+      ? "Start agent"
+      : originRecoveryAction
+        ? "Stop agent"
+        : selectedAgent.state === "FAILED"
+          ? undefined
+          : "Retry";
+  const handleErrorAction = failedCleanupAction ?? failedRestartAction ?? originRecoveryAction ?? (
+    selectedAgent.state === "FAILED" ? undefined : chat.retry
+  );
   const emptyChatContent = (() => {
     if (displayBootStatus.status === "loading") {
       return (
@@ -1165,6 +1190,8 @@ export function AgentChatPanel({
           guided={guidedLoadingReason !== null}
           heading={guidedLoadingReason === "initial" ? "Rejoining your teammate" : undefined}
           note={guidedLoadingReason === "initial" ? "Restoring your connection and recent conversation." : undefined}
+          actionLabel={startupStopAction ? "Stop agent" : undefined}
+          onAction={startupStopAction}
         />
       );
     }
@@ -1298,13 +1325,15 @@ export function AgentChatPanel({
           {transcriptError ? (
             <div role="alert" className="flex w-full items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-text-secondary">
               <span className="min-w-0 flex-1">{transcriptError.message}</span>
-              <button
-                type="button"
-                onClick={transcriptError.onAction}
-                className="shrink-0 rounded-lg border border-warning/35 px-2.5 py-1 font-medium text-foreground transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/35"
-              >
-                {transcriptError.actionLabel}
-              </button>
+              {transcriptError.actionLabel && transcriptError.onAction ? (
+                <button
+                  type="button"
+                  onClick={transcriptError.onAction}
+                  className="shrink-0 rounded-lg border border-warning/35 px-2.5 py-1 font-medium text-foreground transition-colors hover:bg-warning/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning/35"
+                >
+                  {transcriptError.actionLabel}
+                </button>
+              ) : null}
             </div>
           ) : null}
 

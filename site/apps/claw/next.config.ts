@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { networkInterfaces } from "node:os";
 import path from "path";
 
 import dotenv from "dotenv";
@@ -22,10 +23,23 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
+function localDevelopmentOrigins(): string[] {
+  const origins = new Set([
+    "127.0.0.1",
+    "localhost",
+    "10.*.*.*",
+    "192.168.*.*",
+  ]);
+  for (const addresses of Object.values(networkInterfaces())) {
+    for (const address of addresses ?? []) {
+      if (!address.internal && address.family === "IPv4") origins.add(address.address);
+    }
+  }
+  return [...origins];
+}
+
 const nextConfig: NextConfig = {
-  devIndicators: {
-    position: "bottom-right",
-  },
+  devIndicators: false,
   async headers() {
     return [
       {
@@ -41,10 +55,7 @@ const nextConfig: NextConfig = {
   },
   // Only allow dev proxy origins in development; never in production builds.
   ...(process.env.NODE_ENV !== "production" && {
-    allowedDevOrigins: [
-      "127.0.0.1",
-      "localhost",
-    ],
+    allowedDevOrigins: localDevelopmentOrigins(),
   }),
   transpilePackages: [
     "@hypercli.com/sdk",

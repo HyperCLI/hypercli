@@ -130,7 +130,7 @@ describe('coding agents', () => {
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       },
-    });
+    }, { retries: 1 });
     expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
   });
 

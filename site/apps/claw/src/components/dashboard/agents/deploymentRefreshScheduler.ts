@@ -19,21 +19,16 @@ export interface DeploymentSubscriptionRecoveryOptions {
   maxDelayMs?: number;
 }
 
-export function reconcileDeploymentSubscriptionReady(
-  scheduler: Pick<DeploymentRefreshScheduler, "invalidate">,
-  recovery: Pick<DeploymentSubscriptionRecovery, "markHealthy">,
-): void {
-  recovery.markHealthy();
-  // Events are edge-triggered. Reconcile the authoritative collection after
-  // every initial connection and reconnect so transitions during the socket
-  // gap cannot strand the UI in a stale lifecycle state.
-  scheduler.invalidate(true);
+export interface DeploymentSubscriptionRefreshOptions {
+  includeEnrichmentOnReady?: boolean;
+  includeEnrichmentOnTransition?: boolean;
 }
 
 /**
  * Recover one rejected event credential immediately, then bound repeated
  * token/socket failures with exponential backoff. State survives replacement
- * Deployments clients and resets only after an event or principal change.
+ * Deployments clients and resets after a ready handshake, event, or principal
+ * change.
  */
 export function createDeploymentSubscriptionRecovery(
   options: DeploymentSubscriptionRecoveryOptions = {},
@@ -146,5 +141,23 @@ export function createDeploymentRefreshScheduler(
       enrichmentPending = false;
       clearRetryTimer();
     },
+  };
+}
+
+export function createDeploymentSubscriptionRefreshHandlers(
+  scheduler: DeploymentRefreshScheduler,
+  recovery: DeploymentSubscriptionRecovery,
+  options: DeploymentSubscriptionRefreshOptions = {},
+) {
+  const invalidate = (includeEnrichment: boolean) => {
+    recovery.markHealthy();
+    scheduler.invalidate(includeEnrichment);
+  };
+
+  return {
+    // Events are edge-triggered. Readiness must reconcile the authoritative
+    // collection so a transition during a socket gap cannot strand the UI.
+    onReady: () => invalidate(options.includeEnrichmentOnReady ?? false),
+    onTransition: () => invalidate(options.includeEnrichmentOnTransition ?? false),
   };
 }

@@ -7,6 +7,7 @@ import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
+import { isAgentTransitionalState } from "@hypercli.com/sdk/agents";
 import type { StyleVariant, AgentStatus } from "../agentViewTypes";
 import {
   MOCK_CONFIG,
@@ -59,7 +60,7 @@ function normalizeState(state: string | null | undefined): string {
 function stateDotClass(state: string): string {
   if (state === "RUNNING") return "bg-primary";
   if (state === "FAILED") return "bg-destructive";
-  if (state === "CREATING" || state === "RESTORING" || state === "STARTING" || state === "STOPPING" || state === "ARCHIVING") return "bg-warning";
+  if (isAgentTransitionalState(state)) return "bg-warning";
   return "bg-text-muted";
 }
 
@@ -303,12 +304,14 @@ interface AgentCardModuleProps {
   sessions?: { key: string }[] | null;
   /** Start the agent (only shown when state is STOPPED/FAILED). */
   onStart?: () => void;
-  /** Stop the agent (only shown when state is RUNNING). */
+  /** Stop the agent or clean up resources from a failed launch. */
   onStop?: () => void;
   /** Loading flag for the start action. */
   starting?: boolean;
   /** Loading flag for the stop action. */
   stopping?: boolean;
+  /** The failed runtime still owns resources and must be cleaned up. */
+  cleanupRequired?: boolean;
   /** When true, the start button is disabled (e.g. tier capacity exhausted). */
   startBlocked?: boolean;
   /** Tooltip text for the disabled-start state. */
@@ -328,6 +331,7 @@ export function AgentCardModule({
   onStop,
   starting = false,
   stopping = false,
+  cleanupRequired = false,
   startBlocked = false,
   startBlockedReason,
 }: AgentCardModuleProps) {
@@ -350,13 +354,27 @@ export function AgentCardModule({
 
   // State-driven action button
   const isRunning = status.state === "RUNNING";
-  const isStopped = status.state === "STOPPED" || ["ARCHIVED", "FAILED", "DELETED"].includes(status.state as string);
-  const isTransitioning = !isRunning && !isStopped;
+  const isStopped = status.state === "STOPPED" || status.state === "ARCHIVED" || status.state === "FAILED";
+  const failedCleanupRequired = status.state === "FAILED" && cleanupRequired;
+  const startupCanBeCancelled = status.state === "CREATING" || status.state === "STARTING" || status.state === "RESTORING";
+  const isTransitioning = isAgentTransitionalState(status.state);
   const avatar = agentAvatar(agentName, agentMeta, agentAvatarUrl);
   const AvatarIcon = avatar.icon;
 
   const renderActionButton = () => {
-    if (isStopped && onStart) {
+    if ((isRunning || failedCleanupRequired || startupCanBeCancelled) && onStop) {
+      return (
+        <button
+          onClick={onStop}
+          disabled={stopping}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border text-text-secondary hover:bg-surface-low hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+          <span>{failedCleanupRequired ? "Clean up" : startupCanBeCancelled ? "Cancel" : "Stop"}</span>
+        </button>
+      );
+    }
+    if (isStopped && !failedCleanupRequired && onStart) {
       return (
         <TooltipHint label={startBlocked ? startBlockedReason : "Start agent"} disabled={starting || startBlocked}>
           <button
@@ -368,18 +386,6 @@ export function AgentCardModule({
             <span>Start</span>
           </button>
         </TooltipHint>
-      );
-    }
-    if (isRunning && onStop) {
-      return (
-        <button
-          onClick={onStop}
-          disabled={stopping}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border text-text-secondary hover:bg-surface-low hover:text-foreground transition-colors disabled:opacity-50"
-        >
-          {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-          <span>Stop</span>
-        </button>
       );
     }
     if (isTransitioning) {

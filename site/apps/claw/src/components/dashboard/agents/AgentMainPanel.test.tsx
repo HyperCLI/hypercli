@@ -508,7 +508,7 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.getByText("Chat-owned boot state")).toBeInTheDocument();
-    expect(screen.queryByText("Provisioning runtime")).not.toBeInTheDocument();
+    expect(screen.queryByText("Creating agent")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 
@@ -523,8 +523,25 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Files panel</div>,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
     expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
+  });
+
+  it("allows startup to be stopped from the outer loading stage", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STARTING" }));
+    const onStop = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedTransitioning: true,
+      isSelectedRunning: false,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+      panelContent: <div>Files panel</div>,
+      onStop,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
   });
 
   it("keeps creating agents covered when the transition flag is stale", () => {
@@ -538,7 +555,7 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Files panel</div>,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
     expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
@@ -554,7 +571,7 @@ describe("AgentMainPanel", () => {
       panelContent: <button type="button">Start agent</button>,
     });
 
-    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.getByText("Creating agent")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 

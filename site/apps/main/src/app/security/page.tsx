@@ -2,6 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { FAQBlock, Footer, GlassCard, Header } from "@hypercli/shared-ui";
 import {
+  AuroraFinalCta,
+  AuroraHero,
+  AuroraHeroHeading,
+  AuroraHeroLead,
+  MarketingBand,
+  MarketingContainer,
+  MarketingEyebrow,
+  MarketingShell,
+} from "@hypercli/shared-ui/marketing";
+import {
   Boxes,
   BrickWall,
   Check,
@@ -151,206 +161,183 @@ const FAQ_ITEMS = [
   },
 ];
 
-function Eyebrow({ children }: { children: React.ReactNode }) {
-  return <p className="mb-4 text-sm font-semibold uppercase tracking-[0.13em] text-primary">{children}</p>;
-}
-
 export default function SecurityPage() {
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background">
-      <Header />
-      <main>
-        {/* Hero + cert chips */}
-        <section className="relative px-6 pb-18 pt-26 text-center">
-          <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-            <div className="absolute -top-[10%] left-[8%] h-[440px] w-[440px] rounded-full bg-primary/15 blur-[110px]" />
-            <div className="absolute -top-[2%] right-[9%] h-[360px] w-[360px] rounded-full bg-success/15 blur-[110px]" />
-            <div className="absolute -bottom-[18%] left-[16%] h-[380px] w-[380px] rounded-full bg-chart-3/15 blur-[110px]" />
-          </div>
-          <div className="relative mx-auto max-w-5xl">
-            <Eyebrow>Security</Eyebrow>
-            <h1 className="mb-6 text-5xl font-extrabold leading-[1.05] tracking-tight text-foreground sm:text-6xl lg:text-7xl">
-              Security that's architecture,
-              <br />
-              <span className="gradient-text-primary">not a policy document.</span>
-            </h1>
-            <p className="mx-auto mb-9 max-w-2xl text-lg leading-relaxed text-text-secondary">
-              Credentials the model never sees. Agents on isolated machines with scoped keys they can't exceed. Models
-              you can audit down to the weights — because they're open. And when that's not enough, take the whole
-              stack inside your walls.
-            </p>
-            <div className="flex flex-wrap justify-center gap-3">
-              {CERT_CHIPS.map((chip) => (
-                <span
-                  key={chip.label}
-                  className="flex items-center gap-1.5 rounded-full border border-border-medium bg-surface px-4 py-2 text-sm font-medium text-text-secondary"
-                >
-                  <chip.icon className="h-4 w-4 text-primary" aria-hidden="true" />
-                  {chip.label}
+    <MarketingShell header={<Header />} footer={<Footer />} headerClearance="section-nav">
+      {/* Hero + cert chips */}
+      <AuroraHero backdropVariant="standard">
+        <MarketingEyebrow>Security</MarketingEyebrow>
+        <AuroraHeroHeading>
+          Security that&apos;s architecture,
+          <br />
+          <span className="gradient-text-primary">not a policy document.</span>
+        </AuroraHeroHeading>
+        <AuroraHeroLead className="mb-9">
+          Credentials the model never sees. Agents on isolated machines with scoped keys they can&apos;t exceed. Models
+          you can audit down to the weights — because they&apos;re open. And when that&apos;s not enough, take the whole
+          stack inside your walls.
+        </AuroraHeroLead>
+        <div className="flex flex-wrap justify-center gap-3">
+          {CERT_CHIPS.map((chip) => (
+            <span
+              key={chip.label}
+              className="flex items-center gap-1.5 rounded-full border border-border-medium bg-surface px-4 py-2 text-sm font-medium text-text-secondary"
+            >
+              <chip.icon className="h-4 w-4 text-primary" aria-hidden="true" />
+              {chip.label}
+            </span>
+          ))}
+        </div>
+      </AuroraHero>
+
+      {/* Compliance table */}
+      <MarketingBand bordered className="text-center">
+        <MarketingContainer width="3xl">
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Independently <span className="text-primary">verified.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            Real statuses, including the in-progress ones. Ask for the reports.
+          </p>
+          <div className="text-left">
+            <div className="hidden grid-cols-[170px_110px_1fr] gap-4 pb-2 text-xs font-semibold uppercase tracking-[0.06em] text-text-muted sm:grid">
+              <span>Standard</span>
+              <span>Status</span>
+              <span>Coverage</span>
+            </div>
+            {COMPLIANCE_ROWS.map((row) => (
+              <div
+                key={row.standard}
+                className="grid gap-2 border-t border-border py-4 text-sm sm:grid-cols-[170px_110px_1fr] sm:items-baseline sm:gap-4"
+              >
+                <span className="font-semibold text-foreground">{row.standard}</span>
+                <span>
+                  <span
+                    className={`inline-block rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${row.statusClass}`}
+                  >
+                    {row.status}
+                  </span>
                 </span>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Compliance table */}
-        <section className="border-t border-border px-6 py-24 text-center">
-          <div className="mx-auto max-w-3xl">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Independently <span className="text-primary">verified.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              Real statuses, including the in-progress ones. Ask for the reports.
-            </p>
-            <div className="text-left">
-              <div className="hidden grid-cols-[170px_110px_1fr] gap-4 pb-2 text-xs font-semibold uppercase tracking-[0.06em] text-text-muted sm:grid">
-                <span>Standard</span>
-                <span>Status</span>
-                <span>Coverage</span>
+                <span className="leading-relaxed text-text-secondary">{row.coverage}</span>
               </div>
-              {COMPLIANCE_ROWS.map((row) => (
-                <div
-                  key={row.standard}
-                  className="grid gap-2 border-t border-border py-4 text-sm sm:grid-cols-[170px_110px_1fr] sm:items-baseline sm:gap-4"
-                >
-                  <span className="font-semibold text-foreground">{row.standard}</span>
-                  <span>
-                    <span
-                      className={`inline-block rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${row.statusClass}`}
-                    >
-                      {row.status}
+            ))}
+          </div>
+        </MarketingContainer>
+      </MarketingBand>
+
+      {/* Does / never does */}
+      <MarketingBand spacing="compact">
+        <MarketingContainer className="rounded-3xl bg-surface px-6 py-16 text-center sm:px-12">
+          <h2 className="mb-12 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            What your agent does. <span className="text-primary">What it never does.</span>
+          </h2>
+          <div className="grid gap-4 text-left md:grid-cols-2">
+            <GlassCard className="p-7">
+              <h3 className="mb-5 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
+                <CircleCheck className="h-5 w-5 text-success" aria-hidden="true" />
+                Does
+              </h3>
+              <ul className="space-y-4">
+                {DOES.map((item) => (
+                  <li key={item.lead} className="flex items-start gap-2.5 text-sm leading-relaxed">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                    <span className="text-text-secondary">
+                      <b className="block font-semibold text-foreground">{item.lead}</b>
+                      {item.body}
                     </span>
-                  </span>
-                  <span className="leading-relaxed text-text-secondary">{row.coverage}</span>
-                </div>
-              ))}
-            </div>
+                  </li>
+                ))}
+              </ul>
+            </GlassCard>
+            <GlassCard className="p-7">
+              <h3 className="mb-5 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
+                <CircleX className="h-5 w-5 text-error" aria-hidden="true" />
+                Never does
+              </h3>
+              <ul className="space-y-4">
+                {NEVER_DOES.map((item) => (
+                  <li key={item.lead} className="flex items-start gap-2.5 text-sm leading-relaxed">
+                    <X className="mt-0.5 h-4 w-4 shrink-0 text-error" aria-hidden="true" />
+                    <span className="text-text-secondary">
+                      <b className="block font-semibold text-foreground">{item.lead}</b>
+                      {item.body}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </GlassCard>
           </div>
-        </section>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* Does / never does */}
-        <section className="px-6 py-12">
-          <div className="mx-auto max-w-6xl rounded-3xl bg-surface px-6 py-16 text-center sm:px-12">
-            <h2 className="mb-12 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              What your agent does. <span className="text-primary">What it never does.</span>
-            </h2>
-            <div className="grid gap-4 text-left md:grid-cols-2">
-              <GlassCard className="p-7">
-                <h3 className="mb-5 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
-                  <CircleCheck className="h-5 w-5 text-success" aria-hidden="true" />
-                  Does
-                </h3>
-                <ul className="space-y-4">
-                  {DOES.map((item) => (
-                    <li key={item.lead} className="flex items-start gap-2.5 text-sm leading-relaxed">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-                      <span className="text-text-secondary">
-                        <b className="block font-semibold text-foreground">{item.lead}</b>
-                        {item.body}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+      {/* AI-specific risks */}
+      <MarketingBand bordered className="text-center">
+        <MarketingContainer>
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            AI-specific risks, <span className="text-primary">handled in the architecture.</span>
+          </h2>
+          <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
+            Agents create attack surfaces normal SaaS doesn&apos;t have. Four controls keep them small.
+          </p>
+          <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
+            {RISKS.map((risk) => (
+              <GlassCard key={risk.title} interactive className="p-7">
+                <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                  <risk.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                </span>
+                <h3 className="mb-2 text-base font-bold tracking-tight text-foreground">{risk.title}</h3>
+                <p className="text-sm leading-relaxed text-text-secondary">{risk.body}</p>
               </GlassCard>
-              <GlassCard className="p-7">
-                <h3 className="mb-5 flex items-center gap-2.5 text-lg font-bold tracking-tight text-foreground">
-                  <CircleX className="h-5 w-5 text-error" aria-hidden="true" />
-                  Never does
-                </h3>
-                <ul className="space-y-4">
-                  {NEVER_DOES.map((item) => (
-                    <li key={item.lead} className="flex items-start gap-2.5 text-sm leading-relaxed">
-                      <X className="mt-0.5 h-4 w-4 shrink-0 text-error" aria-hidden="true" />
-                      <span className="text-text-secondary">
-                        <b className="block font-semibold text-foreground">{item.lead}</b>
-                        {item.body}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </GlassCard>
-            </div>
+            ))}
           </div>
-        </section>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* AI-specific risks */}
-        <section className="border-t border-border px-6 py-24 text-center">
-          <div className="mx-auto max-w-6xl">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              AI-specific risks, <span className="text-primary">handled in the architecture.</span>
-            </h2>
-            <p className="mx-auto mb-12 max-w-xl text-lg text-text-secondary">
-              Agents create attack surfaces normal SaaS doesn't have. Four controls keep them small.
-            </p>
-            <div className="grid gap-4 text-left sm:grid-cols-2 lg:grid-cols-4">
-              {RISKS.map((risk) => (
-                <GlassCard key={risk.title} interactive className="p-7">
-                  <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                    <risk.icon className="h-5 w-5 text-primary" aria-hidden="true" />
-                  </span>
-                  <h3 className="mb-2 text-base font-bold tracking-tight text-foreground">{risk.title}</h3>
-                  <p className="text-sm leading-relaxed text-text-secondary">{risk.body}</p>
-                </GlassCard>
-              ))}
-            </div>
-          </div>
-        </section>
+      {/* Open-weight audit */}
+      <MarketingBand spacing="compact">
+        <MarketingContainer width="3xl" className="rounded-3xl bg-surface px-6 py-16 text-center sm:px-12">
+          <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            The audit no closed lab <span className="text-primary">can offer.</span>
+          </h2>
+          <p className="mx-auto mb-5 max-w-xl text-lg leading-relaxed text-text-secondary">
+            Our models are open-weight. Your security team can inspect the exact artifacts that process your data —
+            not a model card, the weights. And if your requirements outgrow any shared cloud, the entire platform
+            deploys inside your walls, up to fully air-gapped.
+          </p>
+          <p className="font-semibold text-foreground">
+            Trust, then verify, then — if you want — take the keys.{" "}
+            <Link href="/self-hosted" className="text-primary hover:underline">
+              Explore Self-Hosted &rarr;
+            </Link>
+          </p>
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* Open-weight audit */}
-        <section className="px-6 py-12">
-          <div className="mx-auto max-w-3xl rounded-3xl bg-surface px-6 py-16 text-center sm:px-12">
-            <h2 className="mb-4 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              The audit no closed lab <span className="text-primary">can offer.</span>
-            </h2>
-            <p className="mx-auto mb-5 max-w-xl text-lg leading-relaxed text-text-secondary">
-              Our models are open-weight. Your security team can inspect the exact artifacts that process your data —
-              not a model card, the weights. And if your requirements outgrow any shared cloud, the entire platform
-              deploys inside your walls, up to fully air-gapped.
-            </p>
-            <p className="font-semibold text-foreground">
-              Trust, then verify, then — if you want — take the keys.{" "}
-              <Link href="/self-hosted" className="text-primary hover:underline">
-                Explore Self-Hosted &rarr;
-              </Link>
-            </p>
-          </div>
-        </section>
+      {/* FAQ */}
+      <MarketingBand bordered className="text-center">
+        <MarketingContainer width="3xl">
+          <h2 className="mb-10 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
+            Security <span className="text-primary">FAQ.</span>
+          </h2>
+          <FAQBlock items={FAQ_ITEMS} className="text-left" />
+        </MarketingContainer>
+      </MarketingBand>
 
-        {/* FAQ */}
-        <section className="border-t border-border px-6 py-24 text-center">
-          <div className="mx-auto max-w-3xl">
-            <h2 className="mb-10 text-4xl font-extrabold leading-[1.08] tracking-tight text-foreground sm:text-5xl">
-              Security <span className="text-primary">FAQ.</span>
-            </h2>
-            <FAQBlock items={FAQ_ITEMS} className="text-left" />
-          </div>
-        </section>
-
-        {/* Closer */}
-        <section className="px-6 pb-18 pt-4">
-          <div className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl bg-terminal-background px-8 py-20 text-center">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_70%_at_22%_0%,rgb(var(--button-primary-rgb)_/_0.24),transparent_60%),radial-gradient(50%_65%_at_82%_12%,rgb(108_232_196_/_0.15),transparent_60%),radial-gradient(45%_60%_at_55%_100%,rgb(169_126_255_/_0.15),transparent_65%)]"
-            />
-            <div className="relative">
-              <h2 className="mb-3.5 text-4xl font-extrabold leading-[1.08] tracking-tight text-terminal-foreground sm:text-5xl">
-                Security review coming?
-              </h2>
-              <p className="mx-auto mb-9 max-w-xl text-lg text-text-secondary">
-                Send your questionnaire — or skip a cycle and read the architecture first.
-              </p>
-              <ContactCta
-                source="security"
-                primaryLabel="Talk to engineering"
-                secondaryLabel="Get the architecture brief"
-                theme="dark"
-              />
-            </div>
-          </div>
-        </section>
-      </main>
-      <Footer />
-    </div>
+      {/* Closer */}
+      <AuroraFinalCta
+        heading="Security review coming?"
+        description="Send your questionnaire — or skip a cycle and read the architecture first."
+        descriptionClassName="mx-auto max-w-xl"
+        actions={
+          <ContactCta
+            source="security-talk-to-engineering"
+            secondarySource="security-architecture-brief"
+            primaryLabel="Talk to engineering"
+            secondaryLabel="Get the architecture brief"
+            theme="dark"
+          />
+        }
+      />
+    </MarketingShell>
   );
 }

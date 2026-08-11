@@ -1,3 +1,5 @@
+import Script from "next/script";
+
 import {
   DEFAULT_THEME,
   LEGACY_THEME_KEY,
@@ -101,9 +103,12 @@ export function ThemeScript({ nonce }: ThemeScriptProps) {
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
   const script = createThemeScript(process.env.NEXT_PUBLIC_COOKIE_DOMAIN || "", apiBaseUrl) + createThemeReconciliationScript(apiBaseUrl);
   return (
-    <script
+    // ThemeScript is mounted only from each app's root layout.
+    // eslint-disable-next-line @next/next/no-before-interactive-script-outside-document
+    <Script
       id="hypercli-theme-script"
       nonce={nonce}
+      strategy="beforeInteractive"
       dangerouslySetInnerHTML={{ __html: script }}
     />
   );

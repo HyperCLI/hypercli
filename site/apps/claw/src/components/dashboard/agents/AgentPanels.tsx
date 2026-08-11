@@ -11,7 +11,7 @@ import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/ga
 import { Button, Input, Switch, writeClipboardText } from "@hypercli/shared-ui";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
-import { isAgentFailureState, isAgentOffline, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentDeletable, isAgentOffline, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { SLACK_APP_HANDLE } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
@@ -50,6 +50,7 @@ import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
 import { agentDisplayLabel } from "./agentViewModel";
 import { AgentChatComposerShell } from "./AgentChatComposerShell";
+import { AgentFeatureEmptyState } from "./AgentFeatureEmptyState";
 
 interface SessionLike {
   connected: boolean;
@@ -655,6 +656,7 @@ const MANAGED_LAUNCH_ENV_PREFIXES = [
   "LAGOON_",
   "REEF_",
 ];
+const SECRET_ONLY_LAUNCH_ENV_KEYS = new Set(["OPENCLAW_GATEWAY_TOKEN"]);
 
 const PUBLIC_CANONICAL_LAUNCH_CONFIG_KEYS = new Set([
   "config",
@@ -812,7 +814,7 @@ function buildUpdatedLaunchConfig(
   const preservedEnv = Object.fromEntries(
     Object.entries(launchConfigEnv(agent)).filter(([key]) => (
       isManagedLaunchEnvKey(key) && !(key.startsWith("HYPER_") && isManagedLaunchEnvKey(key))
-      && key !== OPENCLAW_GATEWAY_TOKEN_ENV
+      && !SECRET_ONLY_LAUNCH_ENV_KEYS.has(key)
     )),
   );
   const managedHyperEnv = parseManagedHyperEnvText(managedHyperEnvText);
@@ -1223,17 +1225,21 @@ function AgentSectionSettingsContent({
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
-  const failedRuntimeNeedsCleanup = isAgentFailureState(agent.state) && agent.resourcesExist;
-  const canStartAgent = agent.state === "STOPPED" || agent.state === "ARCHIVED" || (isAgentFailureState(agent.state) && !agent.resourcesExist);
-  const canStopAgent = agent.state === "RUNNING" || failedRuntimeNeedsCleanup;
-  const stopping = Boolean(agentStopping || agent.state === "STOPPING");
+  const failedRuntimeNeedsCleanup = agent.state === "FAILED" && agent.resourcesExist;
+  const canStartAgent = isAgentStartable(agent);
+  const canStopAgent = isAgentStoppable(agent);
+  const canDeleteAgent = isAgentDeletable(agent);
+  const startupCanBeCancelled = agent.state === "CREATING" || agent.state === "STARTING" || agent.state === "RESTORING";
   const archiving = agent.state === "ARCHIVING";
-  const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping && !archiving));
+  const stopping = Boolean(agentStopping || agent.state === "STOPPING" || archiving);
+  const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping));
   const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
   const lifecycleDescription = canStopAgent
     ? failedRuntimeNeedsCleanup
       ? "Remove resources left behind by the failed launch"
-      : "Pause compute and disconnect the gateway"
+      : startupCanBeCancelled
+        ? "Cancel startup and release the admitted runtime"
+        : "Pause compute and disconnect the gateway"
     : canStartAgent
       ? (agentStartBlockedReason ?? "Start compute and reconnect the gateway")
       : agent.state === "RESTORING"
@@ -1257,9 +1263,9 @@ function AgentSectionSettingsContent({
           {canStopAgent || stopping || archiving ? (
             <button
               type="button"
-              aria-label={archiving ? "Archive in progress" : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              aria-label={archiving ? "Archiving agent" : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               onClick={onStopAgent}
-              disabled={!onStopAgent || lifecycleBusy}
+              disabled={!onStopAgent || stopping}
               className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
             >
               {archiving ? "Archiving..." : stopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
@@ -1552,13 +1558,15 @@ function AgentSectionSettingsContent({
             <div className="min-w-0">
               <p className="text-sm font-semibold leading-5 text-foreground">Delete agent</p>
               <p className="mt-1 max-w-[420px] text-sm leading-5 text-text-muted">
-                Permanently delete this agent and all related settings. This action cannot be undone.
+                {canDeleteAgent
+                  ? "Permanently delete this agent and all related settings. This action cannot be undone."
+                  : "Stop the agent and wait for cleanup to finish before deleting it."}
               </p>
             </div>
             <button
               type="button"
               onClick={onDeleteAgent}
-              disabled={!onDeleteAgent || agentDeleting}
+              disabled={!onDeleteAgent || agentDeleting || !canDeleteAgent}
               className={SETTINGS_FILLED_DANGER_BUTTON_CLASS}
             >
               {agentDeleting ? "Deleting..." : "Delete agent"}
@@ -2900,6 +2908,9 @@ export function AgentList({
       });
       const createdId = created.id ?? null;
       if (createdId) {
+        try {
+          await fetchAgents();
+        } catch {}
         const agentClient = createAgentClient(token);
         if (files.length > 0) {
           try {
@@ -2926,7 +2937,11 @@ export function AgentList({
             throw new Error(`Agent was created, but Domain assignment did not complete: ${detail}`);
           }
         }
-        await agentClient.startOpenClaw(createdId);
+        const accepted = await agentClient.start(createdId);
+        if (accepted.state.toUpperCase() !== "RUNNING") {
+          void Promise.resolve(fetchAgents()).catch(() => undefined);
+          await accepted.waitRunning();
+        }
         const agentsRefreshed = await fetchAgents();
         if (agentsRefreshed === false) {
           throw new Error("Agent was created, but agents could not be refreshed.");
@@ -3409,7 +3424,7 @@ export function AgentEmptyState({
       title="Your business, one chat"
       description="Talk to your entire business like it is one system. Your agent understands your context, remembers your workflows, and takes action across your stack."
       examples={examples}
-      cardMinHeightClass="min-h-[118px]"
+      cardMinHeightClass="md:min-h-[118px]"
       launchLabel={launchLabel}
       launching={launching}
       launchBlocked={launchBlocked}
@@ -3481,7 +3496,7 @@ function LaunchAgentCenteredEmptyStateContent({
   launching = false,
   launchBlocked = false,
   launchBlockedReason,
-  cardMinHeightClass = "min-h-[102px]",
+  cardMinHeightClass = "md:min-h-[102px]",
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -3492,59 +3507,25 @@ function LaunchAgentCenteredEmptyStateContent({
   launching?: boolean;
   launchBlocked?: boolean;
   launchBlockedReason?: string | null;
-  cardMinHeightClass?: "min-h-[102px]" | "min-h-[118px]";
+  cardMinHeightClass?: "md:min-h-[102px]" | "md:min-h-[118px]";
 }) {
   const launchButtonLabel = launching ? "Starting agent" : launchLabel;
   const launchDisabled = launching || launchBlocked;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
-      <div className="flex w-full max-w-[700px] flex-col items-center text-center">
-        <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-[7px] border border-border bg-surface-low text-foreground">
-          <Icon className="h-4 w-4" />
-        </div>
-
-        <h1 className="text-[30px] font-semibold leading-tight tracking-normal text-foreground sm:text-[34px]">
-          {title}
-        </h1>
-        <p className="mt-3 max-w-[610px] text-[13px] font-medium leading-5 text-text-muted sm:text-[14px]">
-          {description}
-        </p>
-
-        <div className="mt-8 grid w-full grid-cols-1 gap-4 md:grid-cols-3">
-          {examples.map((example, index) => (
-            <motion.div
-              key={example}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05, duration: 0.18, ease: "easeOut" }}
-              className={`flex ${cardMinHeightClass} flex-col items-center justify-center rounded-[7px] border border-foreground bg-background px-4 py-4 text-center text-[12px] font-semibold leading-4 text-text-muted`}
-            >
-              <Check className="mb-3 h-4 w-4 text-foreground" />
-              <span>{example}</span>
-            </motion.div>
-          ))}
-        </div>
-
-        <div className="mt-8">
-          <TooltipHint label={launchBlocked ? launchBlockedReason ?? "Start unavailable" : launchButtonLabel} disabled={launchDisabled}>
-            <motion.button
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.98 }}
-              type="button"
-              onClick={onLaunch}
-              disabled={launchDisabled}
-              className={`inline-flex h-9 items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
-                launching ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
-              }`}
-            >
-              {launchButtonLabel}
-              {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            </motion.button>
-          </TooltipHint>
-        </div>
-      </div>
-    </div>
+    <AgentFeatureEmptyState
+      icon={Icon}
+      title={title}
+      description={description}
+      examples={examples}
+      actionLabel={launchButtonLabel}
+      actionPending={launching}
+      actionDisabled={launchDisabled}
+      actionDisabledReason={launchBlockedReason}
+      onAction={onLaunch}
+      cardMinHeightClass={cardMinHeightClass}
+      testId="agent-launch-empty-state"
+    />
   );
 }
 

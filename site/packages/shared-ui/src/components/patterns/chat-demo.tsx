@@ -48,7 +48,7 @@ export function ChatDemo({ channel, agentName = "Aria", messages, className }: C
       {channel && (
         <div className="mb-4 flex items-center gap-2 border-b border-[#EEF2F7] pb-3">
           <span className="text-[15px] font-bold text-[#1F2937]"># {channel}</span>
-          <span className="ml-auto flex items-center gap-1.5 text-xs text-[#94A3B8]">
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-[#64748B]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#6CE8C4]" aria-hidden="true" />
             {agentName} is online
           </span>
@@ -63,7 +63,7 @@ export function ChatDemo({ channel, agentName = "Aria", messages, className }: C
               <div className="min-w-0">
                 <div className="mb-0.5 flex items-baseline gap-2">
                   <span className="text-sm font-semibold text-[#1F2937]">{message.author}</span>
-                  {message.time && <span className="text-[11.5px] text-[#94A3B8]">{message.time}</span>}
+                  {message.time && <span className="text-[11.5px] text-[#64748B]">{message.time}</span>}
                 </div>
                 <p className="text-[13.5px] leading-relaxed text-[#64748B] [&>b]:font-semibold [&>b]:text-[#1F2937]">
                   {message.text}

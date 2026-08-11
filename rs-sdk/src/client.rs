@@ -38,6 +38,7 @@ type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// callers avoid a transient NXDOMAIN by waiting locally instead of holding a
 /// backend transaction open.
 pub const DEFAULT_HOSTNAME_SETTLE_DELAY: Duration = Duration::from_secs(15);
+const DEFAULT_DEPLOYMENT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Deserialize)]
 struct DeploymentEventTokenResponse {
@@ -441,31 +442,54 @@ impl HyperCliClient {
         failure_states: &[&str],
         timeout: Duration,
     ) -> Result<Deployment, HyperCliError> {
+        self.wait_deployment_state_with_poll_interval(
+            deployment_id,
+            states,
+            failure_states,
+            timeout,
+            DEFAULT_DEPLOYMENT_STATE_POLL_INTERVAL,
+        )
+        .await
+    }
+
+    async fn wait_deployment_state_with_poll_interval(
+        &self,
+        deployment_id: &str,
+        states: &[&str],
+        failure_states: &[&str],
+        timeout: Duration,
+        poll_interval: Duration,
+    ) -> Result<Deployment, HyperCliError> {
         if states.is_empty() {
             return Err(HyperCliError::InvalidResponse(
                 "deployment wait states must not be empty".to_owned(),
             ));
         }
-        tokio::time::timeout(timeout, async {
-            let check = |deployment: Deployment| -> Result<Option<Deployment>, HyperCliError> {
-                if states
-                    .iter()
-                    .any(|state| deployment.state.eq_ignore_ascii_case(state))
-                {
-                    return Ok(Some(deployment));
-                }
-                if failure_states
-                    .iter()
-                    .any(|state| deployment.state.eq_ignore_ascii_case(state))
-                {
-                    return Err(HyperCliError::InvalidResponse(format!(
-                        "deployment entered {} while waiting for {}",
-                        deployment.state,
-                        states.join(", ")
-                    )));
-                }
-                Ok(None)
-            };
+        let check = |deployment: Deployment| -> Result<Option<Deployment>, HyperCliError> {
+            if states
+                .iter()
+                .any(|state| deployment.state.eq_ignore_ascii_case(state))
+            {
+                return Ok(Some(deployment));
+            }
+            if failure_states
+                .iter()
+                .any(|state| deployment.state.eq_ignore_ascii_case(state))
+            {
+                return Err(HyperCliError::InvalidResponse(format!(
+                    "deployment entered {} while waiting for {}",
+                    deployment.state,
+                    states.join(", ")
+                )));
+            }
+            Ok(None)
+        };
+        let effective_poll_interval = if poll_interval.is_zero() {
+            Duration::from_millis(1)
+        } else {
+            poll_interval
+        };
+        let waited = tokio::time::timeout(timeout, async {
             let mut retry_delay = Duration::from_millis(250);
             loop {
                 let mut socket = match self.connect_deployment_events().await {
@@ -486,39 +510,68 @@ impl HyperCliClient {
                 )? {
                     return Ok(deployment);
                 }
-                while let Some(message) = socket.next().await {
-                    let value = match message {
-                        Ok(Message::Text(value)) => value,
-                        Ok(Message::Ping(value)) => {
-                            if socket.send(Message::Pong(value)).await.is_err() {
-                                break;
+                let mut reconcile = tokio::time::interval(effective_poll_interval);
+                reconcile.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                reconcile.tick().await;
+                'socket: loop {
+                    tokio::select! {
+                        _ = reconcile.tick() => {
+                            if let Some(deployment) = check(
+                                self.async_get_json(&format!("deployments/{deployment_id}"))
+                                    .await?,
+                            )? {
+                                return Ok(deployment);
                             }
-                            continue;
                         }
-                        Ok(Message::Close(_)) | Err(_) => break,
-                        _ => continue,
-                    };
-                    let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref()) else {
-                        break;
-                    };
-                    if event.event_type != "deployment.transition"
-                        || event.agent_id != deployment_id
-                    {
-                        continue;
-                    }
-                    if let Some(deployment) = check(
-                        self.async_get_json(&format!("deployments/{deployment_id}"))
-                            .await?,
-                    )? {
-                        return Ok(deployment);
+                        message = socket.next() => {
+                            let Some(message) = message else { break 'socket; };
+                            let value = match message {
+                                Ok(Message::Text(value)) => value,
+                                Ok(Message::Ping(value)) => {
+                                    if socket.send(Message::Pong(value)).await.is_err() {
+                                        break 'socket;
+                                    }
+                                    continue;
+                                }
+                                Ok(Message::Close(_)) | Err(_) => break 'socket,
+                                _ => continue,
+                            };
+                            let Ok(event) = serde_json::from_str::<DeploymentEvent>(value.as_ref()) else {
+                                break 'socket;
+                            };
+                            if event.event_type != "deployment.transition"
+                                || event.agent_id != deployment_id
+                            {
+                                continue;
+                            }
+                            if let Some(deployment) = check(
+                                self.async_get_json(&format!("deployments/{deployment_id}"))
+                                    .await?,
+                            )? {
+                                return Ok(deployment);
+                            }
+                        }
                     }
                 }
                 tokio::time::sleep(retry_delay).await;
                 retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
             }
         })
-        .await
-        .map_err(|_| HyperCliError::Transport("deployment wait timed out".to_owned()))?
+        .await;
+        match waited {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(deployment) = check(
+                    self.async_get_json(&format!("deployments/{deployment_id}"))
+                        .await?,
+                )? {
+                    return Ok(deployment);
+                }
+                Err(HyperCliError::Transport(
+                    "deployment wait timed out".to_owned(),
+                ))
+            }
+        }
     }
 
     /// Wait for RUNNING using WebSocket wakeups and REST confirmation.
@@ -1690,6 +1743,88 @@ mod tests {
                 "deployment-1",
                 Duration::from_secs(2),
                 Some(Duration::ZERO),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(deployment.state, "RUNNING");
+        websocket.await.unwrap();
+        initial_state.assert_async().await;
+        running_state.assert_async().await;
+        token.assert_async().await;
+        drop(initial_state);
+        drop(running_state);
+        drop(token);
+        tokio::task::spawn_blocking(move || {
+            drop(event_client);
+            drop(server);
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wait_deployment_state_reconciles_when_transition_event_is_missed() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
+        let websocket = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = accept_async(stream).await.unwrap();
+            let _auth = socket.next().await.unwrap().unwrap();
+            socket
+                .send(Message::Text(json!({"type": "ready"}).to_string().into()))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+
+        let mut server = Server::new_async().await;
+        let initial_state = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"id": "deployment-1", "state": "STARTING"}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let running_state = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"id": "deployment-1", "state": "RUNNING"}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let token = server
+            .mock("POST", "/agents/deployments/events/token")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"token": "event-token", "ws_url": ws_url}).to_string())
+            .expect(1)
+            .create_async()
+            .await;
+        let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
+        let event_client = tokio::task::spawn_blocking(move || {
+            HyperCliClient::new(ClientConfig {
+                api_base,
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+            })
+            .unwrap()
+        })
+        .await
+        .unwrap();
+
+        let deployment = event_client
+            .wait_deployment_state_with_poll_interval(
+                "deployment-1",
+                &["RUNNING"],
+                &["STOPPED", "FAILED"],
+                Duration::from_secs(1),
+                Duration::from_millis(20),
             )
             .await
             .unwrap();

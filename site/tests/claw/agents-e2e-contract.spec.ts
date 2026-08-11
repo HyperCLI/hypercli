@@ -36,9 +36,10 @@ test("agents subscription observes the public deployment transition wire", () =>
   expect(subscriptionSpecSource).toContain('socket.on("framereceived"');
   expect(subscriptionSpecSource).toContain('frame.type === "ready"');
   expect(subscriptionSpecSource).toContain("beforeCreate: async () =>");
-  expect(subscriptionSpecSource).toContain('toEqual({ version: 1, type: "ready" })');
+  expect(subscriptionSpecSource).toContain('toEqual({ type: "ready" })');
   expect(subscriptionSpecSource).toContain('frame.type === "deployment.transition"');
-  expect(subscriptionSpecSource).toContain('expect(transition.version).toBe(1)');
+  expect(subscriptionSpecSource).toContain("frame.agent_id === createdAgentId");
+  expect(subscriptionSpecSource).not.toContain("deployment_id");
   expect(subscriptionSpecSource).toContain("const allowedKeys = new Set([");
   expect(subscriptionSpecSource).toContain('expect(Number.isInteger(transition.launch_epoch)).toBe(true)');
 });

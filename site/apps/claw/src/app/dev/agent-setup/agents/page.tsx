@@ -32,13 +32,16 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAccountProfileAvatar } from "@/hooks/useAccountProfileAvatar";
 import {
   AGENT_CLEANUP_START_MESSAGE,
-  AGENT_STOP_CLEANUP_COOLDOWN_MS,
   createAgentClient,
   createHyperAgentClient,
   createWorkspacesClient,
   createOpenClawAgent,
+  deleteStoppedAgent,
   isAgentCleanupConflictError,
-  startOpenClawAgent,
+  requestAgentStart,
+  startAgent,
+  stopAgent,
+  waitForAgentRunning,
 } from "@/lib/agent-client";
 import {
   createAgentMutationQueue,
@@ -47,7 +50,6 @@ import {
   persistAgentDisplayName,
 } from "@/lib/agent-profile-updates";
 import { formatCpu, formatMemory } from "@/lib/format";
-import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import type { ShellStatus } from "@/hooks/useAgentShell";
@@ -80,7 +82,7 @@ import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.c
 import type { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
-import { isAgentFailureState, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentDeletable, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import {
   describeAgentTierStartGuidance,
@@ -104,7 +106,7 @@ import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-che
 import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName, isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
-import { stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
@@ -124,6 +126,7 @@ import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import {
   createDeploymentRefreshScheduler,
+  createDeploymentSubscriptionRefreshHandlers,
   createDeploymentSubscriptionRecovery,
 } from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
@@ -141,6 +144,7 @@ import type { ChatPendingFile } from "@/lib/openclaw-chat";
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
+const AGENT_CLEANUP_CONFLICT_COOLDOWN_MS = 30_000;
 
 interface FetchAgentsOptions {
   preserveCurrentSnapshotOnError?: boolean;
@@ -295,6 +299,10 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   if (index === -1) {
     return [...prev, nextAgent];
   }
+  const currentAgent = prev[index];
+  if (nextAgent.agentVersion < currentAgent.agentVersion) {
+    return prev;
+  }
   const next = [...prev];
   next[index] = nextAgent;
   return next;
@@ -345,6 +353,7 @@ export default function DevAgentSetupAgentsPage() {
   const fetchAgentsInFlightRef = useRef<Promise<void> | null>(null);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
   const deletingAgentIdsRef = useRef<Set<string>>(new Set());
+  const cancelledStartAgentIdsRef = useRef<Set<string>>(new Set());
   const privatePrincipalRef = useRef<string | null>(user?.id ?? null);
   const [workspacesClient, setWorkspacesClient] = useState<WorkspacesAPI | null>(null);
   const [, setLoading] = useState(true);
@@ -367,7 +376,7 @@ export default function DevAgentSetupAgentsPage() {
     stoppedTimersRef.current.set(agentId, setTimeout(() => {
       setRecentlyStoppedIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
       stoppedTimersRef.current.delete(agentId);
-    }, AGENT_STOP_CLEANUP_COOLDOWN_MS));
+    }, AGENT_CLEANUP_CONFLICT_COOLDOWN_MS));
   }, []);
 
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
@@ -467,6 +476,7 @@ export default function DevAgentSetupAgentsPage() {
     fetchAgentsInFlightRef.current = null;
     agentMutationVersionsRef.current.clear();
     deletingAgentIdsRef.current.clear();
+    cancelledStartAgentIdsRef.current.clear();
     deploymentsRef.current = null;
     const nextPrincipal = user?.id ?? null;
     deploymentSubscriptionRecoveryRef.current.reset();
@@ -614,10 +624,14 @@ export default function DevAgentSetupAgentsPage() {
         rejectOnError: true,
       });
     });
-    void deployments.subscribe(() => {
-      deploymentSubscriptionRecoveryRef.current.markHealthy();
-      scheduler.invalidate();
-    }, { signal: controller.signal }).catch(() => {
+    const subscriptionRefresh = createDeploymentSubscriptionRefreshHandlers(
+      scheduler,
+      deploymentSubscriptionRecoveryRef.current,
+    );
+    void deployments.subscribe(subscriptionRefresh.onTransition, {
+      signal: controller.signal,
+      onReady: subscriptionRefresh.onReady,
+    }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
       setDeployments(null);
@@ -698,7 +712,7 @@ export default function DevAgentSetupAgentsPage() {
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
   const selectedAgentStartGuidance = useMemo(
     () =>
-      selectedAgent && (selectedAgent.state === "STOPPED" || isAgentFailureState(selectedAgent.state))
+      selectedAgent && isAgentStartable(selectedAgent)
         ? describeAgentTierStartGuidance(selectedAgent, budget)
         : null,
     [selectedAgent, budget],
@@ -1230,8 +1244,13 @@ export default function DevAgentSetupAgentsPage() {
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
+    cancelledStartAgentIdsRef.current.delete(agentId);
     const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
     const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
+    if (!agent || !isAgentStartable(agent)) {
+      setError(agent?.isLaunchable === false ? "This agent cannot be launched." : "The agent is not ready to start.");
+      return;
+    }
     const guidance = describeAgentTierStartGuidance(agent, budget);
     if (guidance) {
       if (guidance.availableTiers.length > 0) {
@@ -1245,16 +1264,25 @@ export default function DevAgentSetupAgentsPage() {
     setError(null);
     const generation = agentDataGenerationRef.current;
     try {
-      const startedAgent = await runAgentMutation(agentId, async () => {
+      const acceptedAgent = await runAgentMutation(agentId, async () => {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return startOpenClawAgent(token, agentId);
+        return requestAgentStart(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+            void fetchAgents({ preserveCurrentSnapshotOnError: true });
+          }
+        });
       });
-      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      if (!acceptedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      const startedAgent = await waitForAgentRunning(acceptedAgent);
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(startedAgent);
+      await fetchAgents({ preserveCurrentSnapshotOnError: true });
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (cancelledStartAgentIdsRef.current.has(agentId)) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -1279,6 +1307,7 @@ export default function DevAgentSetupAgentsPage() {
         setError(err instanceof Error ? err.message : "Failed to start agent");
       }
     } finally {
+      cancelledStartAgentIdsRef.current.delete(agentId);
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
   };
@@ -1292,7 +1321,7 @@ export default function DevAgentSetupAgentsPage() {
       const created = await createOpenClawAgent(token, {
         name: name || undefined,
         handle,
-        start: files.length === 0,
+        start: false,
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
         ...buildOpenClawLaunchOptions({
@@ -1306,16 +1335,16 @@ export default function DevAgentSetupAgentsPage() {
       });
       if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
+        applyAgentMutationResult(created);
         if (files.length > 0) {
           try {
             const agentClient = createAgentClient(token);
-            await stageAgentStarterFilesAndStart({
+            await uploadAgentStarterFiles({
               agentId: created.id,
               files,
               writeFileBytes: (agentId, path, content, destination) => (
                 agentClient.fileWriteBytes(agentId, path, content, destination)
               ),
-              startAgent: (agentId) => startOpenClawAgent(token, agentId),
             });
             if (generation !== agentDataGenerationRef.current) return null;
           } catch (uploadError) {
@@ -1325,6 +1354,21 @@ export default function DevAgentSetupAgentsPage() {
               : "Agent created, but starter files could not be uploaded.");
           }
           if (generation !== agentDataGenerationRef.current) return null;
+        }
+        cancelledStartAgentIdsRef.current.delete(created.id);
+        try {
+          const runningAgent = await startAgent(token, created.id, (accepted) => {
+            if (generation === agentDataGenerationRef.current) {
+              applyAgentMutationResult(accepted);
+              void fetchAgents({ preserveCurrentSnapshotOnError: true });
+            }
+          });
+          if (generation !== agentDataGenerationRef.current) return null;
+          applyAgentMutationResult(runningAgent);
+        } catch (startError) {
+          if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
+        } finally {
+          cancelledStartAgentIdsRef.current.delete(created.id);
         }
         await fetchAgents();
         if (generation !== agentDataGenerationRef.current) return null;
@@ -1343,28 +1387,43 @@ export default function DevAgentSetupAgentsPage() {
       setError(message);
       throw err;
     }
-  }, [fetchAgents, getToken]);
+  }, [applyAgentMutationResult, fetchAgents, getToken]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
+    cancelledStartAgentIdsRef.current.delete(agentId);
     const generation = agentDataGenerationRef.current;
     setStartingId(agentId);
     setError(null);
     setTierSelection(null);
     try {
-      const startedAgent = await runAgentMutation(agentId, async () => {
+      const acceptedAgent = await runAgentMutation(agentId, async () => {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const agentClient = createAgentClient(token);
+        const currentAgent = toAgentViewModel(await agentClient.get(agentId));
+        if (!isAgentStartable(currentAgent)) {
+          throw new Error(currentAgent.isLaunchable === false ? "This agent cannot be launched." : "The agent is not ready to start.");
+        }
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const resizedAgent = await agentClient.resize(agentId, { size: tier });
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         applyAgentMutationResult(resizedAgent);
-        return startOpenClawAgent(token, agentId);
+        return requestAgentStart(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+            void fetchAgents({ preserveCurrentSnapshotOnError: true });
+          }
+        });
       });
-      if (!startedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      if (!acceptedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      const startedAgent = await waitForAgentRunning(acceptedAgent);
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(startedAgent);
+      await fetchAgents({ preserveCurrentSnapshotOnError: true });
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (cancelledStartAgentIdsRef.current.has(agentId)) return;
       if (isAgentCleanupConflictError(err)) {
         markAgentCleanupCooldown(agentId);
         setError(AGENT_CLEANUP_START_MESSAGE);
@@ -1372,18 +1431,24 @@ export default function DevAgentSetupAgentsPage() {
         setError(err instanceof Error ? err.message : "Failed to resize and start agent");
       }
     } finally {
+      cancelledStartAgentIdsRef.current.delete(agentId);
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
-  }, [applyAgentMutationResult, getToken, markAgentCleanupCooldown, runAgentMutation]);
+  }, [applyAgentMutationResult, fetchAgents, getToken, markAgentCleanupCooldown, runAgentMutation]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
   const selectedAgentTierLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
-  const selectedAgentLaunchBlocked = selectedAgentTierLaunchBlocked || selectedAgentRecentlyStopped;
-  const selectedAgentStartBlockedTitle = selectedAgentRecentlyStopped
+  const selectedAgentNotLaunchable = selectedAgent?.isLaunchable === false;
+  const selectedAgentLaunchBlocked = selectedAgentTierLaunchBlocked || selectedAgentRecentlyStopped || selectedAgentNotLaunchable;
+  const selectedAgentStartBlockedTitle = selectedAgentNotLaunchable
+    ? "This agent cannot be launched"
+    : selectedAgentRecentlyStopped
     ? "Agent is finishing shutdown"
     : selectedAgentStartGuidance?.title;
-  const selectedAgentStartBlockedMessage = selectedAgentRecentlyStopped
+  const selectedAgentStartBlockedMessage = selectedAgentNotLaunchable
+    ? "Lifecycle controls are unavailable for this agent."
+    : selectedAgentRecentlyStopped
     ? "Wait a few seconds before starting this agent again."
     : selectedAgentStartGuidance?.message;
   const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
@@ -1402,6 +1467,14 @@ export default function DevAgentSetupAgentsPage() {
   );
 
   const handleStop = async (agentId: string) => {
+    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+    const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
+    if (!agent || !isAgentStoppable(agent)) {
+      setError("The agent is not ready to stop.");
+      return;
+    }
+    const cancellingStart = agent.state === "CREATING" || agent.state === "STARTING" || agent.state === "RESTORING";
+    if (cancellingStart) cancelledStartAgentIdsRef.current.add(agentId);
     const generation = agentDataGenerationRef.current;
     setStoppingId(agentId);
     setError(null);
@@ -1410,13 +1483,18 @@ export default function DevAgentSetupAgentsPage() {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return createAgentClient(token).stop(agentId);
+        return stopAgent(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+          }
+        });
       });
       if (!stoppedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(stoppedAgent);
-      markAgentCleanupCooldown(agentId);
+      await fetchAgents({ preserveCurrentSnapshotOnError: true });
     } catch (err) {
       if (generation !== agentDataGenerationRef.current) return;
+      if (cancellingStart) cancelledStartAgentIdsRef.current.delete(agentId);
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
       if (generation === agentDataGenerationRef.current) setStoppingId(null);
@@ -1425,6 +1503,11 @@ export default function DevAgentSetupAgentsPage() {
 
   const handleDelete = async (agentId: string) => {
     const generation = agentDataGenerationRef.current;
+    const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
+    if (!agentToDelete || !isAgentDeletable(agentToDelete)) {
+      setError("Stop the agent and wait for cleanup to finish before deleting it.");
+      return;
+    }
     deletingAgentIdsRef.current.add(agentId);
     setDeletingId(agentId);
     setError(null);
@@ -1432,7 +1515,7 @@ export default function DevAgentSetupAgentsPage() {
       const deleted = await runAgentMutation(agentId, async () => {
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current) return false;
-        await createAgentClient(token).delete(agentId);
+        await deleteStoppedAgent(token, agentId);
         return true;
       });
       if (!deleted || generation !== agentDataGenerationRef.current) return;
@@ -2113,6 +2196,7 @@ export default function DevAgentSetupAgentsPage() {
           agentCardDataById={agentCardDataById}
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
+          onCreateAgent={handleCreateFirstAgent}
           fetchAgents={fetchAgents}
           setError={setError}
           sidebarCreatorSignal={sidebarCreatorSignal}
@@ -2380,6 +2464,9 @@ export default function DevAgentSetupAgentsPage() {
                 void handleStart(selectedAgent.id);
               }
             }}
+            onStop={selectedAgent && isAgentStoppable(selectedAgent)
+              ? () => { void handleStop(selectedAgent.id); }
+              : undefined}
             onReconnect={() => {
               if (mainTab === "logs") reconnectLogs();
               if (mainTab === "shell") shellControllerRef.current?.reconnect();

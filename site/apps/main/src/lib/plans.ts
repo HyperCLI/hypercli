@@ -51,8 +51,8 @@ export const PLAN_TIERS: PlanTier[] = [
     tokensPerDay: "100M tokens/day, pooled",
     models: ["Kimi K3", "Qwen Embeddings", "Qwen TTS", "Render"],
     gaugePercent: 100,
-    cta: "Go Pro",
-    ctaNote: "Billed monthly · cancel anytime",
+    cta: "Join waitlist",
+    ctaNote: "Limited access · first come, first served",
   },
 ];
 

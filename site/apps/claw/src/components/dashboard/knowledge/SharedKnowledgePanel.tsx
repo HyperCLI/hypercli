@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { isAgentTransitionalState } from "@hypercli.com/sdk/agents";
 import type { Workspace, WorkspaceFile, WorkspaceGrant, WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { FileRow } from "@hypercli/shared-ui/files";
 import type { FileEntry } from "@hypercli/shared-ui/files";
@@ -87,8 +88,8 @@ function normalizeAgentState(state?: string | null): string {
 function agentStateDotClass(state?: string | null): string {
   if (state === "RUNNING") return "bg-success";
   if (state === "FAILED") return "bg-destructive";
-  if (state === "STOPPED" || state === "ARCHIVED" || state === "DELETED") return "bg-text-muted";
-  return "bg-warning";
+  if (state && isAgentTransitionalState(state)) return "bg-warning";
+  return "bg-text-muted";
 }
 
 function assignedAgentsForBase(base: KnowledgeBase, agentById: Map<string, SharedKnowledgeAgent>): SharedKnowledgeAgent[] {

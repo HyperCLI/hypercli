@@ -177,7 +177,7 @@ describe('HyperClaw agents SDK', () => {
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
       },
-    }));
+    }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
@@ -208,7 +208,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
       routes: {},
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClawPro defaults desktop image env and routes', async () => {
@@ -248,7 +248,7 @@ describe('HyperClaw agents SDK', () => {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },
       },
-    }));
+    }), { retries: 1 });
     expect(agent).toBeInstanceOf(OpenClawProAgent);
   });
 
@@ -287,7 +287,7 @@ describe('HyperClaw agents SDK', () => {
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: '60000',
         OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: '120',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClaw accepts workspace sync launch options', async () => {
@@ -317,7 +317,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_SYNC_READY_ONLY: '0',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'team-knowledge',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClaw lets explicit HYPER_API_BASE override the derived product API base', async () => {
@@ -341,7 +341,7 @@ describe('HyperClaw agents SDK', () => {
       env: expect.objectContaining({
         HYPER_API_BASE: 'https://api.override.test',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('createOpenClaw can disable workspace boot sync', async () => {
@@ -362,7 +362,7 @@ describe('HyperClaw agents SDK', () => {
       env: expect.objectContaining({
         HYPER_WORKSPACES_BOOT_SYNC: '0',
       }),
-    }));
+    }), { retries: 1 });
   });
 
   it('startOpenClaw defaults sync root', async () => {
@@ -396,7 +396,7 @@ describe('HyperClaw agents SDK', () => {
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
       },
-    }));
+    }), { retries: 1 });
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
@@ -974,6 +974,7 @@ describe('HyperClaw agents SDK', () => {
         command: ['nginx', '-g', 'daemon off;'],
         entrypoint: ['/docker-entrypoint.sh'],
       }),
+      { retries: 1 },
     );
     expect(agent).toBeInstanceOf(OpenClawAgent);
     expect((agent as OpenClawAgent).gatewayToken).toBeNull();
@@ -1031,6 +1032,7 @@ describe('HyperClaw agents SDK', () => {
           },
         },
       }),
+      { retries: 1 },
     );
     expect((post as any).mock.calls[0][1].meta.internal).toBeUndefined();
     expect(agent.meta).toEqual({
@@ -1379,11 +1381,61 @@ describe('HyperClaw agents SDK', () => {
     const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test', 10);
 
     await expect(client.post('/deployments/agent-1/shell/token', {})).rejects.toMatchObject({
-      name: 'AbortError',
+      name: 'TimeoutError',
+      message: 'Request timed out after 10ms',
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.stubGlobal('fetch', originalFetch);
+  });
+
+  it('HTTPClient normalizes lower-level transport timeouts', async () => {
+    const originalFetch = globalThis.fetch;
+    const transportError = Object.assign(new TypeError('fetch failed'), {
+      cause: { code: 'UND_ERR_CONNECT_TIMEOUT' },
+    });
+    const fetchMock = vi.fn().mockRejectedValue(transportError);
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test');
+
+    try {
+      await expect(client.post('/deployments/agent-1/stop', undefined, { retries: 1 })).rejects.toMatchObject({
+        name: 'TimeoutError',
+        message: 'Request timed out',
+        cause: transportError,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.stubGlobal('fetch', originalFetch);
+    }
+  });
+
+  it('HTTPClient preserves an external abort that wins the timeout race', async () => {
+    vi.useFakeTimers();
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const requestSignal = init?.signal as AbortSignal;
+      const rejectLater = () => setTimeout(() => reject(requestSignal.reason), 20);
+      if (requestSignal.aborted) rejectLater();
+      else requestSignal.addEventListener('abort', rejectLater, { once: true });
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test', 10);
+    const controller = new AbortController();
+    const cancellation = new Error('caller cancelled the request');
+
+    try {
+      const result = expect(client.post('/deployments/agent-1/stop', undefined, {
+        retries: 1,
+        signal: controller.signal,
+      })).rejects.toBe(cancellation);
+      controller.abort(cancellation);
+      await vi.runAllTimersAsync();
+      await result;
+    } finally {
+      vi.useRealTimers();
+      vi.stubGlobal('fetch', originalFetch);
+    }
   });
 
   it('logsConnect uses configured agents websocket base', async () => {

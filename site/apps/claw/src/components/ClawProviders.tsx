@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/crypto-random-uuid";
 import { ReactNode } from "react";
 import { AuroraPlanTierProvider, PrivyAuthBoundary, ThemeProvider, Toaster, TooltipProvider } from "@hypercli/shared-ui";
 import { AUTH_BASE_URL } from "@/lib/api";

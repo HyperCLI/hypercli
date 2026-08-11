@@ -12,7 +12,7 @@ const COMPETITORS = [
 ];
 
 function fmtMonthly(value: number) {
-  return `$${Math.round(value).toLocaleString()}/mo`;
+  return `$${Math.round(value).toLocaleString("en-US")}/mo`;
 }
 
 export function CostComparator() {

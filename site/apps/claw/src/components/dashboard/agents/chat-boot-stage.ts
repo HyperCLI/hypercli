@@ -4,7 +4,7 @@ import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleS
 export type AgentChatBootStatus =
   | {
       status: "loading";
-      phase: "provisioning" | "restoring" | "booting" | "stopping" | "archiving" | "gateway" | "workspace";
+      phase: "creating" | "restoring" | "booting" | "stopping" | "archiving" | "gateway" | "workspace";
       title: string;
       detail: string;
       tone: "starting" | "connecting" | "loading";
@@ -23,7 +23,7 @@ export type AgentChatBootStatus =
 export type AgentBootDisplayStatus = Extract<AgentChatBootStatus, { status: "loading" | "error" }>;
 
 const LOADING_PHASE_ORDER: Record<Extract<AgentChatBootStatus, { status: "loading" }>["phase"], number> = {
-  provisioning: 0,
+  creating: 0,
   restoring: 1,
   booting: 2,
   gateway: 3,
@@ -56,9 +56,9 @@ export function getAgentChatBootStatus({
   if (agentState === "CREATING") {
     return {
       status: "loading",
-      phase: "provisioning",
-      title: "Provisioning runtime",
-      detail: "Reserving compute and preparing the workspace.",
+      phase: "creating",
+      title: "Creating agent",
+      detail: "Preparing persistent storage and admitting the runtime.",
       tone: "starting",
       stage: "runtime",
     };
@@ -91,7 +91,7 @@ export function getAgentChatBootStatus({
       status: "error",
       phase: "error",
       title: "Agent failed",
-      detail: error || "The agent needs attention before it can run.",
+      detail: error || "The runtime could not complete its lifecycle operation.",
       stage: "runtime",
     };
   }
@@ -112,7 +112,7 @@ export function getAgentChatBootStatus({
       status: "loading",
       phase: "archiving",
       title: "Archiving agent",
-      detail: "Saving files before releasing the runtime.",
+      detail: "Verifying the cold archive before releasing runtime resources.",
       tone: "loading",
       stage: "complete",
     };

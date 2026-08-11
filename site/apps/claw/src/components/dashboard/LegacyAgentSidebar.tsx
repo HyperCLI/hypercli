@@ -12,8 +12,7 @@ import { agentAvatar, agentProfileImageUrl, type AgentMeta } from "@/lib/avatar"
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
 import { TooltipHint } from "@/components/ClawTooltip";
-
-type AgentState = "CREATING" | "RESTORING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "ARCHIVING" | "ARCHIVED" | "FAILED" | "DELETED";
+import { isAgentTransitionalState, type AgentState } from "@hypercli.com/sdk/agents";
 
 interface SidebarAgent {
   id: string;
@@ -159,7 +158,7 @@ export function LegacyAgentSidebar({
           <div>
             {agents.map((agent) => {
               const isSelected = selectedAgentId === agent.id;
-              const isTransitioning = ["CREATING", "RESTORING", "STARTING", "STOPPING", "ARCHIVING"].includes(agent.state);
+              const isTransitioning = isAgentTransitionalState(agent.state);
               const avatar = agentAvatar(agent.name || agent.id, agent.meta, agentProfileImageUrl(agent));
               const AvatarIcon = avatar.icon;
 

@@ -12,6 +12,7 @@ import {
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import type { FileEntry } from "@hypercli/shared-ui/files";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { useAgentDashboardDesktopViewport } from "@/hooks/useAgentDashboardViewport";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeAgentBrowserFilePath } from "@/lib/agent-file-path";
@@ -91,6 +92,7 @@ export default function AgentFilesPage() {
   const agentError = activeAgentLoad?.error ?? null;
   const agentLoading = Boolean(agentRequestKey && !activeAgentLoad);
   const [showFileSourceTabs] = useState(() => readFileSourceTabsPreference());
+  const isDesktopViewport = useAgentDashboardDesktopViewport();
 
   useEffect(() => {
     if (!agentRequestKey) return;
@@ -271,7 +273,7 @@ export default function AgentFilesPage() {
       showSourceTabs={showFileSourceTabs}
       connected={Boolean(agentId)}
       initialPreviewPath={initialFilePath}
-      isDesktopViewport
+      isDesktopViewport={isDesktopViewport}
       error={null}
       onListFiles={listFiles}
       onOpenFile={openFile}

@@ -343,6 +343,41 @@ async def test_wait_running_ignores_terminal_snapshot_from_older_runtime(monkeyp
     assert agent.launch_epoch == 10
 
 
+@pytest.mark.asyncio
+async def test_wait_running_reconciles_when_transition_event_is_missed(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    snapshots = iter(
+        (
+            {"id": "agent-123", "state": "STARTING", "launch_epoch": 10},
+            {"id": "agent-123", "state": "RUNNING", "launch_epoch": 10},
+        )
+    )
+    monkeypatch.setattr(deployments, "resolve_agent_id", lambda _value: "agent-123")
+    monkeypatch.setattr(
+        deployments,
+        "get",
+        lambda _value: Agent.from_dict(next(snapshots)),
+    )
+
+    async def subscribe(_handler, **kwargs):
+        await kwargs["on_ready"]()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(deployments, "subscribe", subscribe)
+
+    agent = await deployments.wait_running_async(
+        "agent-123",
+        timeout=0.2,
+        poll_interval=0.01,
+        minimum_launch_epoch=10,
+    )
+
+    assert agent.state == "RUNNING"
+    assert agent.launch_epoch == 10
+
+
 def _routes_response(**overrides):
     response = {
         "agent_id": "agent-123",

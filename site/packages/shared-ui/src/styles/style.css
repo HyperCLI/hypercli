@@ -9,6 +9,38 @@
   --hypercli-logo-full-image: url("/logos/hypercli-full-blue-light.svg");
 }
 
+:root {
+  --aurora-spectrum-mint-rgb: 108 232 196;
+  --aurora-spectrum-violet-rgb: 169 126 255;
+  --aurora-final-cta-gradient:
+    radial-gradient(
+      55% 70% at 22% 0%,
+      rgb(var(--button-primary-rgb) / 0.24),
+      transparent 60%
+    ),
+    radial-gradient(
+      50% 65% at 82% 12%,
+      rgb(var(--aurora-spectrum-mint-rgb) / 0.15),
+      transparent 60%
+    ),
+    radial-gradient(
+      45% 60% at 55% 100%,
+      rgb(var(--aurora-spectrum-violet-rgb) / 0.15),
+      transparent 65%
+    );
+  --aurora-media-halo-gradient:
+    radial-gradient(
+      50% 65% at 32% 60%,
+      rgb(var(--button-primary-rgb) / 0.2),
+      transparent 70%
+    ),
+    radial-gradient(
+      50% 65% at 72% 55%,
+      rgb(var(--aurora-spectrum-mint-rgb) / 0.16),
+      transparent 70%
+    );
+}
+
 /* HyperCLI base theme (Aurora palette). Applies to all apps. */
 :root,
 .dark,
@@ -49,12 +81,12 @@
   --accent-hover: #9db4ff;
   --accent-pressed: #4f7cff;
   --accent-subtle: rgba(93, 135, 255, 0.16);
-  --button-primary: #4f7cff;
+  --button-primary: #3d68e6;
   --button-primary-foreground: #ffffff;
-  --button-primary-hover: #5d87ff;
+  --button-primary-hover: #3157c7;
   --button-hover-foreground: #ffffff;
-  --button-primary-pressed: #3d68e6;
-  --button-primary-rgb: 79 124 255;
+  --button-primary-pressed: #2949aa;
+  --button-primary-rgb: 61 104 230;
   --selection-accent: #5d87ff;
   --selection-accent-foreground: #ffffff;
   --selection-accent-rgb: 93 135 255;
@@ -89,7 +121,7 @@
   --gradient-text: linear-gradient(to right, #e8edf4, #b9c4d6, #7c8ba1);
   --gradient-text-primary: linear-gradient(92deg, #9db4ff 5%, #6ce8c4 48%, #c9afff 100%);
   --radial-background: radial-gradient(ellipse at center, rgba(93, 135, 255, 0.07) 0%, #10151f 60%);
-  --focus-outline: rgba(93, 135, 255, 0.5);
+  --focus-outline: #9db4ff;
   --destructive: #ff6b81;
   --destructive-foreground: #10151f;
   --success: #6ce8c4;
@@ -150,29 +182,29 @@
   --card-foreground: #1f2937;
   --popover: #ffffff;
   --popover-foreground: #1f2937;
-  --primary: #4f7cff;
+  --primary: #3157c7;
   --primary-foreground: #ffffff;
-  --primary-hover: #3d68e6;
-  --primary-pressed: #2f56c4;
+  --primary-hover: #2949aa;
+  --primary-pressed: #223f91;
   --link: #3157c7;
   --secondary: #f7f9fc;
   --secondary-foreground: #64748b;
   --muted: #f7f9fc;
   --muted-foreground: #64748b;
-  --accent: #4f7cff;
+  --accent: #3157c7;
   --accent-foreground: #ffffff;
-  --accent-hover: #3d68e6;
-  --accent-pressed: #2f56c4;
+  --accent-hover: #2949aa;
+  --accent-pressed: #223f91;
   --accent-subtle: #eef2ff;
-  --button-primary: #4f7cff;
+  --button-primary: #3d68e6;
   --button-primary-foreground: #ffffff;
-  --button-primary-hover: #3d68e6;
-  --button-hover-foreground: #1f2937;
-  --button-primary-pressed: #2f56c4;
-  --button-primary-rgb: 79 124 255;
-  --selection-accent: #4f7cff;
+  --button-primary-hover: #3157c7;
+  --button-hover-foreground: #ffffff;
+  --button-primary-pressed: #2949aa;
+  --button-primary-rgb: 61 104 230;
+  --selection-accent: #3d68e6;
   --selection-accent-foreground: #ffffff;
-  --selection-accent-rgb: 79 124 255;
+  --selection-accent-rgb: 61 104 230;
   --selection-accent-soft: rgba(79, 124, 255, 0.1);
   --selection-accent-border: rgba(79, 124, 255, 0.3);
   --selection-background: #dde6ff;
@@ -204,7 +236,7 @@
   --gradient-text: linear-gradient(to right, #1f2937, #64748b, #94a3b8);
   --gradient-text-primary: linear-gradient(92deg, #4f7cff 5%, #6ce8c4 48%, #a97eff 100%);
   --radial-background: radial-gradient(ellipse at center, rgba(79, 124, 255, 0.06) 0%, #ffffff 62%);
-  --focus-outline: rgba(79, 124, 255, 0.5);
+  --focus-outline: #3d68e6;
   --destructive: #b02a3e;
   --destructive-foreground: #ffffff;
   --success: #0e7a5f;
@@ -265,26 +297,26 @@
   --card-foreground: #1f2937;
   --popover: #ffffff;
   --popover-foreground: #1f2937;
-  --primary: #4f7cff;
-  --primary-foreground: #10151f;
-  --primary-hover: #3d68e6;
-  --primary-pressed: #3157c7;
+  --primary: #3157c7;
+  --primary-foreground: #ffffff;
+  --primary-hover: #2949aa;
+  --primary-pressed: #223f91;
   --link: #3157c7;
   --secondary: #eef2f7;
   --secondary-foreground: #64748b;
   --muted: #f7f9fc;
   --muted-foreground: #64748b;
-  --accent: #4f7cff;
-  --accent-foreground: #10151f;
-  --accent-hover: #3d68e6;
-  --accent-pressed: #3157c7;
+  --accent: #3157c7;
+  --accent-foreground: #ffffff;
+  --accent-hover: #2949aa;
+  --accent-pressed: #223f91;
   --accent-subtle: #eef2ff;
-  --button-primary: #4f7cff;
+  --button-primary: #3d68e6;
   --button-primary-foreground: #ffffff;
-  --button-primary-hover: #3d68e6;
+  --button-primary-hover: #3157c7;
   --button-hover-foreground: #ffffff;
-  --button-primary-pressed: #3157c7;
-  --button-primary-rgb: 79 124 255;
+  --button-primary-pressed: #2949aa;
+  --button-primary-rgb: 61 104 230;
   --selection-accent: #3d68e6;
   --selection-accent-foreground: #ffffff;
   --selection-accent-rgb: 61 104 230;
@@ -319,7 +351,7 @@
   --gradient-text: linear-gradient(to right, #1f2937, #64748b, #94a3b8);
   --gradient-text-primary: linear-gradient(92deg, #4f7cff 5%, #6ce8c4 48%, #a97eff 100%);
   --radial-background: radial-gradient(circle at 16% 10%, rgba(79, 124, 255, 0.1), transparent 34%), radial-gradient(circle at 78% 16%, rgba(108, 232, 196, 0.1), transparent 31%), #ffffff;
-  --focus-outline: rgba(61, 104, 230, 0.52);
+  --focus-outline: #3d68e6;
   --destructive: #b02a3e;
   --destructive-foreground: #ffffff;
   --success: #0e7a5f;
@@ -394,12 +426,12 @@
   --accent-hover: #5d87ff;
   --accent-pressed: #4f7cff;
   --accent-subtle: rgba(93, 135, 255, 0.16);
-  --button-primary: #4f7cff;
+  --button-primary: #3d68e6;
   --button-primary-foreground: #ffffff;
-  --button-primary-hover: #3d68e6;
+  --button-primary-hover: #3157c7;
   --button-hover-foreground: #ffffff;
-  --button-primary-pressed: #3157c7;
-  --button-primary-rgb: 79 124 255;
+  --button-primary-pressed: #2949aa;
+  --button-primary-rgb: 61 104 230;
   --selection-accent: #9db4ff;
   --selection-accent-foreground: #10151f;
   --selection-accent-rgb: 157 180 255;
@@ -434,7 +466,7 @@
   --gradient-text: linear-gradient(to right, #e8edf4, #b9c4d6, #8f9db1);
   --gradient-text-primary: linear-gradient(92deg, #9db4ff 5%, #6ce8c4 48%, #c9afff 100%);
   --radial-background: radial-gradient(circle at 16% 10%, rgba(93, 135, 255, 0.18), transparent 34%), radial-gradient(circle at 78% 14%, rgba(108, 232, 196, 0.14), transparent 31%), #10151f;
-  --focus-outline: rgba(157, 180, 255, 0.58);
+  --focus-outline: #9db4ff;
   --destructive: #ff6b81;
   --destructive-foreground: #10151f;
   --success: #6ce8c4;
@@ -673,8 +705,11 @@ h6 {
 }
 
 *:focus-visible {
-  outline: 2px solid var(--focus-outline);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus-outline) !important;
+  outline-offset: 2px !important;
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--focus-outline) !important;
 }
 
 pre,
@@ -952,6 +987,37 @@ img.emoji {
 
 .glass-card.plan-pricing-card {
   border-top: 2px solid var(--plan-accent-strong);
+}
+
+.aurora-final-cta-backdrop {
+  background-image: var(--aurora-final-cta-gradient);
+}
+
+[data-slot="aurora-final-cta"] > [data-slot="marketing-container"] {
+  --focus-outline: var(--terminal-live);
+}
+
+.aurora-media-halo {
+  background-image: var(--aurora-media-halo-gradient);
+}
+
+.marketing-header-clearance-none {
+  --marketing-header-clearance: 0px;
+}
+
+.marketing-header-clearance-primary,
+.marketing-header-clearance-section-nav {
+  --marketing-header-clearance: 4rem;
+}
+
+.aurora-hero {
+  padding-top: calc(var(--marketing-header-clearance, 0px) + 4rem);
+}
+
+@media (min-width: 64rem) {
+  .marketing-header-clearance-section-nav {
+    --marketing-header-clearance: 6.75rem;
+  }
 }
 
 .animate-shimmer {

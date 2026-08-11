@@ -9,7 +9,7 @@ export const healthcareData: IndustryData = {
   hero: {
     headline: "AI That Treats Patient Data Like Patient Data.",
     subheadline: "HIPAA-ready infrastructure that stays inside your perimeter. PHI never leaves your environment. Full audit trails for OCR investigations.",
-    primaryCTA: { label: "Schedule HIPAA Review", href: "/preview/self-hosted" },
+    primaryCTA: { label: "Schedule HIPAA Review", source: "preview-healthcare-hipaa-review" },
     secondaryCTA: { label: "See Healthcare Architecture", href: "/preview/cloud" },
     trustBadges: ["HIPAA Ready", "SOC 2 Type II", "GDPR Compliant", "HITRUST In Progress"],
   },

@@ -51,6 +51,7 @@ import {
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
 import { OpenClawBootstrapStep, type OpenClawBootstrapStage } from "./OpenClawBootstrapStep";
+import { AgentLoadingState } from "./page-helpers";
 import {
   createFirstAgentWizardState,
   firstAgentWizardReducer,
@@ -1264,6 +1265,24 @@ export function FirstAgentSetupWizard({
           : availableLaunchPlan
             ? "Launch agent"
             : "Next step";
+
+  if (creating) {
+    return (
+      <div
+        aria-busy="true"
+        data-slot="agent-creation-loading"
+        className="h-full min-h-0 w-full flex-1"
+      >
+        <AgentLoadingState
+          title="Creating agent"
+          detail="Saving your setup and preparing persistent storage."
+          tone="starting"
+          stage="runtime"
+          guided
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={cx(
