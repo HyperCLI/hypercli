@@ -81,6 +81,13 @@ export function buildDashboardViewHref(
   return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
 }
 
+export function buildAgentSettingsHref(agentId?: string | null): string {
+  const params = new URLSearchParams({ view: "settings", settings: "agent" });
+  const normalizedAgentId = agentId?.trim();
+  if (normalizedAgentId) params.set("agentId", normalizedAgentId);
+  return `${DASHBOARD_AGENTS_PATH}?${params.toString()}`;
+}
+
 function appendSearchParams(params: URLSearchParams, searchParams: DashboardSearchParams) {
   Object.entries(searchParams).forEach(([key, value]) => {
     if (value == null) return;

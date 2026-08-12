@@ -239,7 +239,7 @@ export function TabLoadingState({
 
 // ── Gear Dropdown — center-panel selector + modal openers ──
 
-export type CenterPanel = "chat" | "files" | "integrations" | "skills" | "knowledge-hub" | "knowledge" | "members" | "scheduled" | "logs" | "shell" | "settings";
+export type CenterPanel = "chat" | "files" | "desktop" | "integrations" | "skills" | "knowledge-hub" | "knowledge" | "members" | "scheduled" | "logs" | "shell" | "settings";
 
 interface GearDropdownProps {
   currentPanel: CenterPanel;

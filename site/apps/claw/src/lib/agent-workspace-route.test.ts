@@ -5,6 +5,7 @@ import { buildAgentWorkspaceTabHref, resolveAgentRouteTab } from "./agent-worksp
 describe("agent workspace routes", () => {
   it("accepts supported workspace tabs and rejects unrelated sections", () => {
     expect(resolveAgentRouteTab(" files ")).toBe("files");
+    expect(resolveAgentRouteTab("desktop")).toBe("desktop");
     expect(resolveAgentRouteTab("settings")).toBe("settings");
     expect(resolveAgentRouteTab("members")).toBeNull();
     expect(resolveAgentRouteTab("openclaw")).toBe("openclaw");

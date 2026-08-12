@@ -45,6 +45,9 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
+          rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-agents-"*
+          E2E_IMAGE_FAMILY="e2e-agents" \
+          PRUNE_BUILD_CACHE=1 \
           IMAGE_TAG="e2e-agents-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
@@ -82,6 +85,17 @@ jobs:
           name: playwright-agents-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
+
+      - name: Cleanup local E2E resources
+        if: always()
+        continue-on-error: true
+        env:
+          E2E_IMAGE: ${{ steps.build-e2e.outputs.e2e_image }}
+        run: |
+          rm -rf -- "${PLAYWRIGHT_ARTIFACTS_DIR}"
+          if [[ -n "${E2E_IMAGE}" ]]; then
+            docker image rm "${E2E_IMAGE}" || true
+          fi
 
       - name: Cleanup isolated agents test user
         if: always() && env.AGENTS_E2E_USER_STATE_FILE != ''

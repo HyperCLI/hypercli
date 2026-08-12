@@ -230,7 +230,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
     ["Integrations", "Your stack, unified"],
     ["Skills", "Your expertise, reusable"],
     ["Scheduled", "Work that keeps moving"],
-    ["Desktop", "A browser built for action"],
+    ["Desktop", "Your agent's desktop"],
   ] as const;
 
   for (const [section, heading] of previewSections) {
@@ -242,14 +242,14 @@ test("completes mobile previews and every dashboard authentication gate", async 
     await expectLaunchEmptyStateFits(page);
   }
 
-  const desktopPreview = page.getByTestId("agent-launch-empty-state");
+  const desktopPreview = page.getByTestId("agent-desktop-empty-state");
   await desktopPreview.getByTestId("agent-launch-entry").tap();
-  await completeAuthenticationRoundTrip(page, "A browser built for action");
+  await completeAuthenticationRoundTrip(page, "Your agent's desktop");
 
   let navigation = await openMobileNavigation(page);
   await navigation.getByRole("button", { name: "Start free trial", exact: true }).tap();
   await expect(navigation).toHaveCount(0);
-  await completeAuthenticationRoundTrip(page, "A browser built for action");
+  await completeAuthenticationRoundTrip(page, "Your agent's desktop");
 
   navigation = await openMobileNavigation(page);
   const knowledgeHub = navigation.getByRole("button", { name: "Knowledge Hub", exact: true });
@@ -258,7 +258,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
   await expect(navigation).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Collections" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "New Collection" })).toHaveCount(0);
-  await completeAuthenticationRoundTrip(page, "A browser built for action");
+  await completeAuthenticationRoundTrip(page, "Your agent's desktop");
 
   navigation = await openMobileNavigation(page);
   await navigation.getByRole("button", { name: "Expand agents sidebar" }).tap();
@@ -266,7 +266,7 @@ test("completes mobile previews and every dashboard authentication gate", async 
   const roster = navigation.locator(".agents-roster-shell");
   await roster.getByTestId("agent-launch-entry").first().tap();
   await expect(navigation).toHaveCount(0);
-  await completeAuthenticationRoundTrip(page, "A browser built for action");
+  await completeAuthenticationRoundTrip(page, "Your agent's desktop");
 
   await expectNoHorizontalOverflow(page);
   expect(forbiddenRequests).toEqual([]);

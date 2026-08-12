@@ -415,6 +415,8 @@ export {
   AgentSidebarSkeleton,
 } from "./components/patterns/skeletons";
 export { ResourceCard } from "./components/patterns/resource-card";
+export { CatalogHeader, CatalogFilterGroup, CatalogFilterButton } from "./components/patterns/catalog-header";
+export type { CatalogHeaderProps, CatalogFilterGroupProps, CatalogFilterButtonProps } from "./components/patterns/catalog-header";
 export { PlaygroundTemplateCard, PlaygroundSectionHeader } from "./components/patterns/playground";
 export {
   TemplateDetailBadge,

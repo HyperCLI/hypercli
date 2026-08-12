@@ -700,6 +700,7 @@ export default function DevAgentSetupAgentsPage() {
   const stoppedTabLabel: Record<CenterPanel, string> = {
     chat: "Chat",
     files: "Files",
+    desktop: "Desktop",
     integrations: "Integrations",
     skills: "Skills",
     "knowledge-hub": "Knowledge Hub",

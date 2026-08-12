@@ -181,7 +181,7 @@ import {
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, type AgentSettingsSection } from "@/components/dashboard/agents/AgentPanels";
+import { AgentDesktopEmptyState, AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, type AgentSettingsSection } from "@/components/dashboard/agents/AgentPanels";
 import {
   AgentChatPanel,
   normalizeChatFileDropItems,
@@ -214,6 +214,8 @@ import {
   resolveSettingsSectionId,
   type SettingsSectionId,
 } from "@/components/dashboard/settings/SettingsMenu";
+import { SettingsCollectionSelector } from "@/components/dashboard/settings/SettingsCollectionSelector";
+import { SettingsAgentSelector } from "@/components/dashboard/settings/SettingsAgentSelector";
 import {
   useWorkspace,
   workspaceDisplayName,
@@ -246,6 +248,7 @@ import { buildAgentWorkspaceTabHref, resolveAgentRouteTab, type AgentRouteTab } 
 import { agentPrimarySurface } from "@/lib/agent-runtime-surface";
 import {
   ACCOUNT_PAGE_HREFS,
+  buildAgentSettingsHref,
   buildDashboardViewHref,
   buildKnowledgeHubHref,
   resolveDashboardView,
@@ -506,17 +509,6 @@ function agentTokenLimit(
   return entitlement && Number.isFinite(entitlement.tpdLimit) && entitlement.tpdLimit > 0
     ? entitlement.tpdLimit
     : null;
-}
-
-function agentFeatureAccess(
-  summary: HyperAgentSubscriptionSummary | null,
-  agentId: string | null,
-  feature: string,
-): boolean | undefined {
-  if (!agentId) return undefined;
-  const entitlement = summary?.entitlementItems.find((item) => item.activeAgentIds.includes(agentId));
-  const access = entitlement?.features?.[feature];
-  return typeof access === "boolean" ? access : undefined;
 }
 
 function normalizeBundle(value: unknown): SlotBundle {
@@ -1174,7 +1166,7 @@ function AgentsPageContent() {
   const dashboardView = isAuthenticated ? resolveDashboardView(requestedView) : null;
   const accountSettingsSection = resolveSettingsSectionId(searchParams.get("settings")) ?? "profile";
   const settingsAgentConfigurationActive = dashboardView === "settings" && (
-    accountSettingsSection === "agent" || accountSettingsSection === "memory-index"
+    (accountSettingsSection === "agent" && Boolean(requestedAgentId)) || accountSettingsSection === "memory-index"
   );
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
@@ -1343,6 +1335,11 @@ function AgentsPageContent() {
   const appliedIntegrationQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
   const appliedAgentTourEntryRef = useRef(false);
+  const focusScopedAgentSettingsRef = useRef(false);
+  const scopedAgentSettingsRef = useRef<HTMLElement | null>(null);
+  const focusAgentSettingsListRef = useRef(false);
+  const settingsAgentFilterRef = useRef<HTMLInputElement | null>(null);
+  const mobileSettingsMenuRef = useRef<HTMLElement | null>(null);
   const authenticationModalObservedRef = useRef(false);
   const authenticationLoginPendingRef = useRef(false);
   const embeddedCheckoutSelectionRequestRef = useRef(0);
@@ -1461,7 +1458,6 @@ function AgentsPageContent() {
     ? tokenUsageByAgent[selectedAgentId] ?? 0
     : null;
   const tokenLimit = agentTokenLimit(subscriptionSummary, selectedAgentId);
-  const desktopAccessAllowed = agentFeatureAccess(subscriptionSummary, selectedAgentId, "desktop");
   const dailyTokenLimit = subscriptionSummary
     ? Math.max(subscriptionSummary.entitlements?.pooledTpd ?? subscriptionSummary.pooledTpd ?? 0, 0)
     : null;
@@ -1550,14 +1546,16 @@ function AgentsPageContent() {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const isDesktopViewport = useAgentDashboardDesktopViewport(() => setMobileNavigationOpen(false));
   const [mobileRosterCollapsed, setMobileRosterCollapsed] = useState(true);
-  const [mobileSettingsMenuOpen, setMobileSettingsMenuOpen] = useState(() => !searchParams.has("settings"));
   const [agentOnboardingOverlay, setAgentOnboardingOverlay] = useState<AgentOnboardingOverlay>(null);
   const [anonymousDesktopPreviewOpen, setAnonymousDesktopPreviewOpen] = useState(false);
   const [anonymousPreviewSelectionMade, setAnonymousPreviewSelectionMade] = useState(false);
-  const agentTourOpen = AGENT_DASHBOARD_TOUR_ENABLED && !isAuthenticated && agentOnboardingOverlay === "tour";
+  const anonymousAgentPreviewMode = !authLoading && !isAuthenticated;
+  const agentTourOpen = AGENT_DASHBOARD_TOUR_ENABLED && anonymousAgentPreviewMode && agentOnboardingOverlay === "tour";
   const agentLauncherOpen = agentOnboardingOverlay === "launcher";
-  const anonymousAgentPreviewMode = !isAuthenticated;
   const anonymousDesktopPreviewMode = anonymousAgentPreviewMode && anonymousDesktopPreviewOpen;
+  const agentRosterTruthPending = authLoading || Boolean(
+    isAuthenticated && (agentsLoading || workspacesLoading || isAgentRosterLoading),
+  );
   const agentLauncherReturnHrefRef = useRef<string | null>(null);
   const setAgentTourOpen = useCallback((open: boolean) => {
     setAgentOnboardingOverlay((current) => open ? "tour" : current === "tour" ? null : current);
@@ -2900,11 +2898,14 @@ function AgentsPageContent() {
       requestedAgentId,
       currentAgentId,
     );
+    const agentRosterAuthoritative = agentDataPrincipalId === user?.id && !agentsLoadError;
 
     if (requestedAgentId && !availableAgentIdSet.has(requestedAgentId)) {
+      if (!agentRosterAuthoritative) return;
       appliedAgentSessionQueryRef.current = null;
       const params = new URLSearchParams(searchParams.toString());
-      if (nextAgentId) params.set("agentId", nextAgentId);
+      if (dashboardView === "settings" && accountSettingsSection === "agent") params.delete("agentId");
+      else if (nextAgentId) params.set("agentId", nextAgentId);
       else params.delete("agentId");
       params.delete("session");
       params.delete("integration");
@@ -2958,15 +2959,20 @@ function AgentsPageContent() {
     };
   }, [
     agentRosterError,
+    accountSettingsSection,
+    agentDataPrincipalId,
     agents,
+    agentsLoadError,
     agentsLoading,
     isAgentRosterLoading,
     requestedAgentId,
     requestedLegacyMainSession,
     requestedSessionKey,
+    dashboardView,
     router,
     searchParams,
     selectedAgentId,
+    user?.id,
     workspacesLoading,
   ]);
   const selectedOpenClawAgent = useMemo(
@@ -3011,6 +3017,7 @@ function AgentsPageContent() {
   const stoppedTabLabel: Record<CenterPanel, string> = {
     chat: "Chat",
     files: "Files",
+    desktop: "Desktop",
     "knowledge-hub": "Knowledge Hub",
     knowledge: "Shared knowledge",
     members: "Members",
@@ -5027,6 +5034,7 @@ function AgentsPageContent() {
 
   const selectedCenterPanel: CenterPanel =
     mainTab === "files" ||
+    mainTab === "desktop" ||
     mainTab === "integrations" ||
     mainTab === "skills" ||
     mainTab === "knowledge-hub" ||
@@ -5312,6 +5320,14 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     closeMobileNavigation();
   };
+  const openDesktopTab = () => {
+    setAnonymousDesktopPreviewOpen(false);
+    openAgentSurfaceRoute("desktop");
+    setOpenclawSettingsOpen(false);
+    selectMainTab("desktop");
+    setMobileShowChat(true);
+    closeMobileNavigation();
+  };
   const downloadAgentFileFromChat = useCallback(async (file: ChatPendingFile) => {
     const result = await readAgentFileBytesResult(file.path);
     const name = result.renamed
@@ -5428,23 +5444,22 @@ function AgentsPageContent() {
   const openDashboardUsage = () => openDashboardView("usage");
   const openDashboardHome = () => openDashboardView("overview");
   const openAccountSettings = () => {
-    setMobileSettingsMenuOpen(true);
     closeMobileNavigation();
     setOpenclawSettingsOpen(false);
+    const href = buildDashboardViewHref("settings");
     if (!isAuthenticated) {
       requestAuthentication({
         kind: "navigate",
-        href: `${dashboardViewHrefs.settings}&settings=profile`,
+        href,
       });
       return;
     }
-    router.push(`${dashboardViewHrefs.settings}&settings=profile`, { scroll: false });
+    router.push(href, { scroll: false });
   };
   const openAgentAccountSettings = () => {
-    setMobileSettingsMenuOpen(false);
     closeMobileNavigation();
     setOpenclawSettingsOpen(false);
-    const href = `${dashboardViewHrefs.settings}&settings=agent`;
+    const href = buildAgentSettingsHref(selectedAgent?.id);
     if (!isAuthenticated) {
       requestAuthentication({ kind: "navigate", href });
       return;
@@ -5459,7 +5474,28 @@ function AgentsPageContent() {
     params.delete("tab");
     params.delete("open");
     syncDashboardSearchParams(params, true);
-    setMobileSettingsMenuOpen(false);
+  };
+  const selectSettingsAgent = (agentId: string) => {
+    focusScopedAgentSettingsRef.current = true;
+    const params = new URLSearchParams({
+      view: "settings",
+      settings: "agent",
+      agentId,
+    });
+    syncDashboardSearchParams(params, true);
+  };
+  const openSettingsAgentList = () => {
+    focusAgentSettingsListRef.current = true;
+    syncDashboardSearchParams(new URLSearchParams({
+      view: "settings",
+      settings: "agent",
+    }), true);
+  };
+  const openMobileSettingsMenu = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("settings");
+    syncDashboardSearchParams(params, true);
+    window.setTimeout(() => mobileSettingsMenuRef.current?.focus(), 0);
   };
   const openScheduledTab = (draftCommand?: unknown) => {
     if (!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode) return;
@@ -5778,7 +5814,6 @@ function AgentsPageContent() {
           disabledReason={workspaceSidebarDisabledReason}
           allowAgentlessFeaturePreviews={anonymousAgentPreviewMode}
           desktopPreviewActive={anonymousDesktopPreviewMode}
-          desktopAccessAllowed={desktopAccessAllowed}
           scheduledDisabled={!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode}
           scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
           isDesktopViewport={false}
@@ -5805,9 +5840,8 @@ function AgentsPageContent() {
           onOpenIntegrations={openIntegrationsFromNavigation}
           onOpenSkills={openSkillsFromNavigation}
           onOpenScheduled={openScheduledFromNavigation}
-          onOpenDesktop={handleOpenDesktop}
+          onOpenDesktop={openDesktopTab}
           onOpenDesktopPreview={openDesktopPreviewFromNavigation}
-          openingDesktop={openingDesktopId === selectedAgent?.id}
           onOpenLogs={openLogsTab}
           onOpenShell={openShellTab}
           onShellIntent={prepareShell}
@@ -5986,8 +6020,55 @@ function AgentsPageContent() {
     </div>
   );
 
-  const settingsMembersHref = `${dashboardViewHrefs.settings}&settings=members`;
-  const showMobileSettingsMenu = mobileSettingsMenuOpen || !searchParams.has("settings");
+  const explicitSettingsAgent = requestedAgentId
+    ? accountAgents.find((agent) => agent.id === requestedAgentId) ?? null
+    : null;
+  const explicitSettingsAgentReady = Boolean(
+    explicitSettingsAgent && selectedAgent?.id === explicitSettingsAgent.id,
+  );
+  const agentSettingsSelector = (
+    <SettingsAgentSelector
+      agents={orderedRosterAgents}
+      loading={agentsLoading}
+      error={agentsLoadError}
+      onSelect={selectSettingsAgent}
+      onRetry={() => fetchAgents({ force: true }).then(() => undefined)}
+      onCreateAgent={openAgentLauncherFromCurrentSection}
+      filterInputRef={settingsAgentFilterRef}
+    />
+  );
+  useEffect(() => {
+    if (!explicitSettingsAgentReady || !focusScopedAgentSettingsRef.current) return;
+    focusScopedAgentSettingsRef.current = false;
+    const timeout = window.setTimeout(() => scopedAgentSettingsRef.current?.focus(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [explicitSettingsAgentReady]);
+  useEffect(() => {
+    if (requestedAgentId || accountSettingsSection !== "agent" || !focusAgentSettingsListRef.current) return;
+    focusAgentSettingsListRef.current = false;
+    const timeout = window.setTimeout(() => settingsAgentFilterRef.current?.focus(), 0);
+    return () => window.clearTimeout(timeout);
+  }, [accountSettingsSection, requestedAgentId]);
+  const renderScopedAgentSettings = (section: AgentSettingsSection) => explicitSettingsAgent ? (
+    explicitSettingsAgentReady ? (
+      <section
+        ref={scopedAgentSettingsRef}
+        aria-label={`${agentDisplayLabel(explicitSettingsAgent)} settings`}
+        tabIndex={-1}
+        className="h-full min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        {renderAgentSettingsPanel(section, false)}
+      </section>
+    ) : (
+      <div role="status" className="flex h-full items-center justify-center gap-2 bg-background px-6 text-sm text-text-muted">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        Opening agent settings
+      </div>
+    )
+  ) : agentSettingsSelector;
+
+  const settingsMembersHref = `${buildDashboardViewHref("settings", { agentId: requestedAgentId })}&settings=members`;
+  const showMobileSettingsMenu = !searchParams.has("settings");
   const settingsSectionContent = accountSettingsSection === "preferences" ? (
     <AccountSettingsPanel />
   ) : accountSettingsSection === "workspace" ? (
@@ -6028,7 +6109,7 @@ function AgentsPageContent() {
       </div>
     </div>
   ) : accountSettingsSection === "agent" ? (
-    renderAgentSettingsPanel("agent", false)
+    renderScopedAgentSettings("agent")
   ) : accountSettingsSection === "memory-index" ? (
     renderAgentSettingsPanel("index", false)
   ) : (
@@ -6038,8 +6119,17 @@ function AgentsPageContent() {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <SettingsSectionHeader
         activeSection={accountSettingsSection}
-        onBackToSettings={!isDesktopViewport ? () => setMobileSettingsMenuOpen(true) : undefined}
+        onBackToSettings={!isDesktopViewport ? openMobileSettingsMenu : undefined}
+        agentName={accountSettingsSection === "agent" && explicitSettingsAgent
+          ? agentDisplayLabel(explicitSettingsAgent)
+          : undefined}
+        onBackToAgents={accountSettingsSection === "agent" && explicitSettingsAgent
+          ? openSettingsAgentList
+          : undefined}
       />
+      {accountSettingsSection === "workspace" || accountSettingsSection === "members" ? (
+        <SettingsCollectionSelector />
+      ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">{settingsSectionContent}</div>
     </div>
   );
@@ -6379,7 +6469,6 @@ function AgentsPageContent() {
             disabledReason={workspaceSidebarDisabledReason}
             allowAgentlessFeaturePreviews={anonymousAgentPreviewMode}
             desktopPreviewActive={anonymousDesktopPreviewMode}
-            desktopAccessAllowed={desktopAccessAllowed}
             scheduledDisabled={!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode}
             scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
             isDesktopViewport={isDesktopViewport}
@@ -6402,9 +6491,8 @@ function AgentsPageContent() {
             onOpenIntegrations={openIntegrationsFromNavigation}
             onOpenSkills={openSkillsFromNavigation}
             onOpenScheduled={openScheduledFromNavigation}
-            onOpenDesktop={handleOpenDesktop}
+            onOpenDesktop={openDesktopTab}
             onOpenDesktopPreview={openDesktopPreviewFromNavigation}
-            openingDesktop={openingDesktopId === selectedAgent?.id}
             onOpenLogs={openLogsTab}
             onOpenShell={openShellTab}
             onShellIntent={prepareShell}
@@ -6426,11 +6514,10 @@ function AgentsPageContent() {
           isDesktopViewport={isDesktopViewport}
           mobileShowChat={mobileMainPanelVisible}
           selectedAgent={selectedAgent}
-          isAuthenticated={isAuthenticated}
           showAgentlessSectionPreviews={anonymousAgentPreviewMode}
           showAgentlessDesktopPreview={anonymousDesktopPreviewMode}
           hasAgents={agents.length > 0}
-          loadingInitialAgents={agentsLoading || isAgentRosterLoading}
+          loadingInitialAgents={agentRosterTruthPending}
           isSelectedRunning={Boolean(isSelectedRunning)}
           burstAgentId={burstAgentId}
           onBurstComplete={() => setBurstAgentId(null)}
@@ -6672,6 +6759,28 @@ function AgentsPageContent() {
                 onCreateDirectory: async (name) => {
                   await createAgentDirectory(`${OPENCLAW_WORKSPACE_PREFIX}/${name}`);
                 },
+              }}
+            />
+          ) : mainTab === "desktop" ? (
+            <AgentDesktopEmptyState
+              onCreate={() => undefined}
+              desktopEnabled={selectedAgent?.hasDesktop === true}
+              settingsHref={selectedAgentId
+                ? `${buildAgentSettingsHref(selectedAgentId)}#agent-desktop-setting`
+                : undefined}
+              launching={openingDesktopId === selectedAgent?.id}
+              launchBlocked={selectedAgent?.hasDesktop === true && (
+                selectedAgent.state !== "RUNNING" || !selectedAgent.hostname
+              )}
+              launchBlockedReason={selectedAgent?.hasDesktop === true
+                ? selectedAgent.state !== "RUNNING"
+                  ? "Start the agent before launching its desktop."
+                  : !selectedAgent.hostname
+                    ? "Desktop hostname is not ready."
+                    : undefined
+                : undefined}
+              onLaunchAction={() => {
+                if (selectedAgent?.hasDesktop) void handleOpenDesktop(selectedAgent);
               }}
             />
           ) : mainTab === "files" ? (
@@ -6931,14 +7040,19 @@ function AgentsPageContent() {
               settingsContent
             ) : (
               <div className="h-full min-h-0 bg-background">
-                <div className={showMobileSettingsMenu ? "h-full" : "hidden"}>
+                <section
+                  ref={mobileSettingsMenuRef}
+                  aria-label="Settings"
+                  tabIndex={-1}
+                  className={`${showMobileSettingsMenu ? "h-full" : "hidden"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring`}
+                >
                   <SettingsMenu
                     activeSection={accountSettingsSection}
                     backHref={selectedAgentHref}
                     onSectionChange={selectAccountSettingsSection}
                     className="w-full border-r-0"
                   />
-                </div>
+                </section>
                 <div className={showMobileSettingsMenu ? "hidden" : "h-full min-h-0"}>{settingsContent}</div>
               </div>
             )}

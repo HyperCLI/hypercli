@@ -342,7 +342,7 @@ describe("MembersSection", () => {
     expect(screen.getByRole("link", { name: "Manage" })).toHaveAttribute("href", "/dashboard/agents?section=members");
   });
 
-  it("renders grouped people and agents, snapshot counts and search, and the complete agent catalog", async () => {
+  it("renders grouped people and all account agents while preserving active access counts", async () => {
     const user = userEvent.setup();
     render(<MembersSection agents={accountAgents} />);
 
@@ -351,6 +351,9 @@ describe("MembersSection", () => {
     expect(screen.queryByText("user-1")).not.toBeInTheDocument();
     expect(screen.getByText("Alex Chen")).toBeInTheDocument();
     expect(screen.getByText("External Scout")).toBeInTheDocument();
+    expect(screen.getByText("Catalog Agent")).toBeInTheDocument();
+    expect(screen.getByText("No access")).toBeInTheDocument();
+    expect(screen.getByText("Not assigned")).toBeInTheDocument();
     expect(screen.getByText("@research-helper")).toBeInTheDocument();
     expect(screen.getByText("2 active grants")).toBeInTheDocument();
     expect(screen.getAllByText("Active")[0]).toHaveClass(
@@ -370,8 +373,8 @@ describe("MembersSection", () => {
     expect(screen.queryByText("Alex Chen")).not.toBeInTheDocument();
 
     fireEvent.change(search, { target: { value: "Catalog Agent" } });
-    expect(screen.getByText("No active people or agents match your search.")).toBeInTheDocument();
-    expect(screen.queryByText("Catalog Agent")).not.toBeInTheDocument();
+    expect(screen.getByText("Catalog Agent")).toBeInTheDocument();
+    expect(screen.getByText("No access")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Add access" }));
     await user.click(screen.getByRole("combobox", { name: "Type" }));
@@ -393,14 +396,17 @@ describe("MembersSection", () => {
     expect(screen.queryByText("Owner")).not.toBeInTheDocument();
   });
 
-  it("keeps an authoritative admin empty snapshot distinct from unavailable access", async () => {
+  it("shows account agents without access when the admin snapshot has no grants", async () => {
     mocks.workspaces.accessSnapshot.mockResolvedValue(adminSnapshot([], []));
 
     render(<MembersSection agents={accountAgents} />);
 
-    expect(await screen.findByText("No active direct access entries.")).toBeInTheDocument();
+    expect(await screen.findByText("Research Agent")).toBeInTheDocument();
+    expect(screen.getByText("Catalog Agent")).toBeInTheDocument();
+    expect(screen.getAllByText("No access")).toHaveLength(2);
     expect(within(summaryValue("People")).getByText("0")).toBeInTheDocument();
     expect(within(summaryValue("Agents")).getByText("0")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Remove (Research|Catalog) Agent/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Collection access is unavailable.")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -557,7 +563,10 @@ describe("MembersSection", () => {
 
     expect(screen.getByText("Product Admin")).toBeInTheDocument();
     expect(screen.queryByText("Jane Rivera")).not.toBeInTheDocument();
-    expect(screen.queryByText("Research Agent")).not.toBeInTheDocument();
+    expect(screen.queryByText("Alex Chen")).not.toBeInTheDocument();
+    expect(screen.queryByText("External Scout")).not.toBeInTheDocument();
+    expect(screen.getByText("Research Agent")).toBeInTheDocument();
+    expect(screen.getByText("Catalog Agent")).toBeInTheDocument();
   });
 
   it("shows a snapshot connection failure as unavailable rather than an empty directory", async () => {

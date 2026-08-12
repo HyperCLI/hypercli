@@ -41,8 +41,8 @@ describe("SettingsMenu", () => {
     expect(screen.getAllByRole("button").map((button) => button.textContent)).toEqual([
       "Profile",
       "Preferences",
-      "Agent",
-      "Knowledge Hub",
+      "Agents",
+      "Collections",
       "Members",
       "API Keys",
       "Billing",
@@ -71,7 +71,7 @@ describe("SettingsMenu", () => {
       />,
     );
 
-    ["Knowledge Hub", "Members", "API Keys", "Billing", "Plans", "Memory index"].forEach((label) => {
+    ["Collections", "Members", "API Keys", "Billing", "Plans", "Memory index"].forEach((label) => {
       fireEvent.click(screen.getByRole("button", { name: label }));
     });
 
@@ -90,8 +90,8 @@ describe("SettingsSectionHeader", () => {
   it.each([
     ["profile", "Profile"],
     ["preferences", "Preferences"],
-    ["agent", "Agent"],
-    ["workspace", "Knowledge Hub"],
+    ["agent", "Agents"],
+    ["workspace", "Collections"],
     ["members", "Members"],
     ["memory-index", "Memory index"],
   ] satisfies Array<[SettingsSectionId, string]>) (
@@ -133,5 +133,23 @@ describe("SettingsSectionHeader", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to settings" }));
 
     expect(onBackToSettings).toHaveBeenCalledOnce();
+  });
+
+  it("returns scoped agent settings to the agents list", () => {
+    const onBackToAgents = vi.fn();
+    render(
+      <SettingsSectionHeader
+        activeSection="agent"
+        agentName="Research"
+        onBackToAgents={onBackToAgents}
+      />,
+    );
+
+    const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(breadcrumb).toHaveTextContent("SettingsAgentsResearch");
+    expect(screen.getByRole("heading", { name: "Research", level: 1 })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to agents" }));
+    expect(onBackToAgents).toHaveBeenCalledOnce();
   });
 });

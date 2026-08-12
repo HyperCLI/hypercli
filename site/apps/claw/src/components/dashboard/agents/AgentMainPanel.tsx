@@ -30,7 +30,6 @@ interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
   selectedAgent: Agent | null;
-  isAuthenticated?: boolean;
   showAgentlessSectionPreviews?: boolean;
   showAgentlessDesktopPreview?: boolean;
   hasAgents?: boolean;
@@ -92,7 +91,6 @@ export function AgentMainPanel({
   isDesktopViewport,
   mobileShowChat,
   selectedAgent,
-  isAuthenticated = true,
   showAgentlessSectionPreviews = false,
   showAgentlessDesktopPreview = false,
   hasAgents = false,
@@ -431,7 +429,7 @@ export function AgentMainPanel({
           {persistentPanelContent}
           <div className="relative z-20 flex min-h-0 min-w-0 flex-1 bg-background">{launcherContent}</div>
         </div>
-      ) : !selectedAgent && (!isAuthenticated || showAgentlessSectionPreviews) ? (
+      ) : !selectedAgent && showAgentlessSectionPreviews ? (
         <div className="flex-1 min-h-0">
           {showAgentlessDesktopPreview ? (
             <AgentDesktopEmptyState

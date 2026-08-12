@@ -4,11 +4,43 @@ set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$(pwd)}"
 IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
-BUILD_CTX="${BUILD_CTX:-/tmp/hypercli-e2e-${IMAGE_TAG}}"
+BUILD_CTX="${BUILD_CTX:-${RUNNER_TEMP:-/tmp}/hypercli-e2e-${IMAGE_TAG}}"
 E2E_IMAGE="${E2E_IMAGE:-hypercli-e2e:${IMAGE_TAG}}"
+E2E_IMAGE_FAMILY="${E2E_IMAGE_FAMILY:-}"
+DOCKER_BUILD_LOCK="${DOCKER_BUILD_LOCK:-/tmp/hypercli-docker-build.lock}"
 
-rm -rf "${BUILD_CTX}"
-mkdir -p "${BUILD_CTX}"
+cleanup() {
+  rm -rf -- "${BUILD_CTX}"
+}
+
+trap cleanup EXIT
+
+exec 9>"${DOCKER_BUILD_LOCK}"
+flock 9
+
+if [[ -n "${E2E_IMAGE_FAMILY}" ]]; then
+  image_repository="${E2E_IMAGE%:*}"
+  mapfile -t stale_images < <(
+    docker image ls \
+      --filter "reference=${image_repository}:${E2E_IMAGE_FAMILY}-*" \
+      --format '{{.Repository}}:{{.Tag}}' \
+      | sort -u
+  )
+  if (( ${#stale_images[@]} > 0 )); then
+    docker image rm "${stale_images[@]}" >&2 || true
+  fi
+  rm -rf -- "/tmp/hypercli-e2e-${E2E_IMAGE_FAMILY}-"*
+fi
+
+if [[ "${PRUNE_BUILD_CACHE:-0}" == "1" ]]; then
+  docker builder prune \
+    --all \
+    --force \
+    --filter "until=${BUILD_CACHE_MAX_AGE:-24h}" >&2
+fi
+
+rm -rf -- "${BUILD_CTX}"
+mkdir -p -- "${BUILD_CTX}"
 
 copy_src() {
   local src="$1"

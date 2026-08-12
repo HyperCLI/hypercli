@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType, ReactNode } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, Loader2 } from "lucide-react";
 
@@ -13,6 +14,7 @@ interface AgentFeatureEmptyStateProps {
   examples: readonly string[];
   actionLabel: string;
   onAction: () => void;
+  actionHref?: string;
   actionIcon?: ReactNode;
   actionPending?: boolean;
   actionDisabled?: boolean;
@@ -28,6 +30,7 @@ export function AgentFeatureEmptyState({
   examples,
   actionLabel,
   onAction,
+  actionHref,
   actionIcon,
   actionPending = false,
   actionDisabled = false,
@@ -36,6 +39,7 @@ export function AgentFeatureEmptyState({
   testId = "agent-feature-empty-state",
 }: AgentFeatureEmptyStateProps) {
   const disabled = actionPending || actionDisabled;
+  const actionClassName = "inline-flex h-12 max-w-full items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-5 text-[14px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background md:h-10 md:px-4";
 
   return (
     <div
@@ -73,20 +77,31 @@ export function AgentFeatureEmptyState({
 
           <div className="mt-7 max-w-full md:mt-9">
             <TooltipHint label={disabled ? actionDisabledReason ?? actionLabel : actionLabel} disabled={disabled}>
-              <motion.button
-                whileHover={{ y: -1 }}
-                whileTap={{ scale: 0.98 }}
-                type="button"
-                data-testid="agent-launch-entry"
-                onClick={onAction}
-                disabled={disabled}
-                className={`inline-flex h-12 max-w-full items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-5 text-[14px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background md:h-10 md:px-4 ${
-                  actionPending ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
-                }`}
-              >
-                {actionLabel}
-                {actionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : actionIcon ?? <ArrowRight className="h-4 w-4" />}
-              </motion.button>
+              {actionHref && !disabled ? (
+                <Link
+                  href={actionHref}
+                  data-testid="agent-launch-entry"
+                  className={actionClassName}
+                >
+                  {actionLabel}
+                  {actionIcon ?? <ArrowRight className="h-4 w-4" />}
+                </Link>
+              ) : (
+                <motion.button
+                  whileHover={{ y: -1 }}
+                  whileTap={{ scale: 0.98 }}
+                  type="button"
+                  data-testid="agent-launch-entry"
+                  onClick={onAction}
+                  disabled={disabled}
+                  className={`${actionClassName} disabled:opacity-70 ${
+                    actionPending ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+                  }`}
+                >
+                  {actionLabel}
+                  {actionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : actionIcon ?? <ArrowRight className="h-4 w-4" />}
+                </motion.button>
+              )}
             </TooltipHint>
           </div>
         </div>

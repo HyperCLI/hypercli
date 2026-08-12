@@ -337,7 +337,6 @@ describe("ChatMessageBubble", () => {
       expect(fileReadBytes).toHaveBeenCalledWith(
         "agent-123",
         ".openclaw/workspace/bosquejo.png",
-        "auto",
         { maxBytes: 64 * 1024 * 1024, signal: expect.any(AbortSignal) },
       );
     });

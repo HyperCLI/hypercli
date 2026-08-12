@@ -26,6 +26,9 @@ jobs:
 
   build-site-builder:
     runs-on: self-hosted
+    concurrency:
+      group: hypercli-site-builder
+      cancel-in-progress: false
     env:
       SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
       SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
@@ -85,7 +88,7 @@ jobs:
             if ! changed_files="$(git diff --name-only "${before}" "${GITHUB_SHA}" 2>/dev/null)"; then
               should_build=true
               reason="unable-to-diff"
-            elif printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/docker/build-site\.Dockerfile|\.github/scripts/(build_site_image|site_container_entrypoint)\.sh|ts-sdk/package(-lock)?\.json|site/package(-lock)?\.json|site/(apps/(main|console|claw)|packages/shared-ui|mock-server)/package\.json)$'; then
+            elif printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/docker/build-site\.Dockerfile|\.github/scripts/(build_site_image|site_container_entrypoint)\.sh|ts-sdk/package-lock\.json|site/package-lock\.json)$'; then
               should_build=true
               reason="builder-inputs-changed"
             fi
@@ -104,6 +107,9 @@ jobs:
         if: ${{ steps.site_builder_changes.outputs.should_build == 'true' }}
         run: |
           set -euo pipefail
+          exec 9>/tmp/hypercli-docker-build.lock
+          flock 9
+          docker builder prune --all --force --filter "until=24h"
           IMAGE_TAG=latest \
           SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
           PUSH_IMAGE=1 \

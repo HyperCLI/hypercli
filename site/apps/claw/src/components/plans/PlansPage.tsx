@@ -972,7 +972,7 @@ export default function PlansPage() {
           <p className="text-xs text-text-secondary">No plans are available from the plan catalog right now.</p>
         </div>
       ) : (
-        <div className="grid overflow-hidden rounded-xl border border-border md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid overflow-hidden rounded-xl border border-border md:grid-cols-2 xl:grid-flow-col xl:grid-cols-none xl:auto-cols-fr">
           {displayProducts.map((product) => {
             const productBundleKey = bundleKey(product.bundle);
             const ownedByBundle = productBundleKey === "{}" ? 0 : (ownedBundles.get(productBundleKey) ?? 0);

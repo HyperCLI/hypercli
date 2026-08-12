@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import type { AgentSkillCreateRequest, AgentSkillRecoverRequest, AgentSkillRecoverResult, AgentSkillRecoveryCandidate } from "@hypercli.com/sdk/skills";
-import { FolderInput, Plus, Search, Settings2, TestTube2, Upload } from "lucide-react";
-import { Button, Switch, toast } from "@hypercli/shared-ui";
+import { FolderInput, Plus, Settings2, TestTube2, Upload } from "lucide-react";
+import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader, Switch, toast } from "@hypercli/shared-ui";
 import {
   SkillCard,
   SkillsEmptyState,
@@ -424,25 +424,53 @@ export function SkillsPanel({
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
-      <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-5 sm:py-5">
+      <CatalogHeader
+        title="Skills"
+        description="Add capabilities your agent can use."
+        actions={(
+          <>
+            <Button type="button" variant="outline" onClick={() => setImportOpen(true)} className="h-10 rounded-xl px-4 hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high">
+              Import skill
+              <Upload className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button type="button" onClick={() => setCreateOpen(true)} className="h-10 rounded-xl px-4">
+              Create skill
+              <Plus className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </>
+        )}
+        filters={(
+          <CatalogFilterGroup label="Filter skills">
+            {skillFilterOptions.map((filter) => {
+              const pressed = selectedFilters.includes(filter.id);
+              return (
+                <CatalogFilterButton
+                  key={filter.id}
+                  pressed={pressed}
+                  aria-label={`${filter.label} (${filter.count})`}
+                  onClick={() => setSelectedFilters((current) => current.includes(filter.id) ? current.filter((id) => id !== filter.id) : [...current, filter.id])}
+                >
+                  {filter.label}
+                </CatalogFilterButton>
+              );
+            })}
+            <CatalogFilterButton
+              pressed={selectedFilters.length === 0}
+              aria-label={`All skills (${skillRows.length})`}
+              onClick={() => setSelectedFilters([])}
+            >
+              All
+            </CatalogFilterButton>
+          </CatalogFilterGroup>
+        )}
+        searchValue={searchQuery}
+        searchLabel="Search skills"
+        searchPlaceholder="Search skills..."
+        onSearchValueChange={setSearchQuery}
+      />
+
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-5">
         <div className="space-y-4">
-          <div className="flex flex-row gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-[19px] font-semibold leading-tight text-foreground">Skills</h2>
-              <p className="mt-2 max-w-2xl text-[13px] leading-snug text-text-muted">Skills are instruction packs that teach your agent how and when to use tools.</p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setImportOpen(true)} className="min-h-9 hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"><Upload className="h-3.5 w-3.5" />Import</Button>
-              <Button type="button" size="sm" onClick={() => setCreateOpen(true)} className="min-h-9"><Plus className="h-3.5 w-3.5" />Create Skill</Button>
-            </div>
-          </div>
-
-          <label className="relative block">
-            <span className="sr-only">Search skills</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
-            <input type="text" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search skills..." className="h-10 w-full rounded-xl border border-border bg-surface-low/35 pl-10 pr-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50" />
-          </label>
-
           {visibleRecoveryCandidates.length > 0 && (
             <div className="flex flex-col gap-3 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 sm:flex-row sm:items-center">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-warning/25 bg-background/65"><FolderInput className="h-4 w-4 text-warning" /></span>
@@ -454,29 +482,6 @@ export function SkillsPanel({
             </div>
           )}
           {recoveryError && <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">{recoveryError}</p>}
-
-          <div role="group" aria-label="Filter skills" className="flex min-w-0 flex-nowrap items-center gap-4 overflow-x-auto py-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-[11px] font-semibold text-foreground">
-              <input type="checkbox" checked={selectedFilters.length === 0} onChange={() => setSelectedFilters([])} className="h-4 w-4 rounded border-border accent-primary" />
-              <span>All skills <span className="text-text-muted">({skillRows.length})</span></span>
-            </label>
-            {skillFilterOptions.map((filter, index) => {
-              const checked = selectedFilters.includes(filter.id);
-              const previous = skillFilterOptions[index - 1];
-              const startsGroup = index > 0 && previous?.group !== filter.group;
-              return (
-                <label key={filter.id} className={`flex shrink-0 cursor-pointer items-center gap-2 text-[11px] font-medium transition-colors ${checked ? "text-foreground" : "text-text-muted hover:text-foreground"} ${startsGroup ? "border-l border-border pl-4" : ""}`}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => setSelectedFilters((current) => current.includes(filter.id) ? current.filter((id) => id !== filter.id) : [...current, filter.id])}
-                    className="h-4 w-4 rounded border-border accent-primary"
-                  />
-                  <span>{filter.label} <span className="text-text-muted">({filter.count})</span></span>
-                </label>
-              );
-            })}
-          </div>
 
           {loading ? (
             <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />

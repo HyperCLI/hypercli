@@ -20,6 +20,7 @@ vi.mock("./AgentWorkspaceSidebar", () => ({
         <button type="button" onClick={() => (props.onOpenFiles as () => void)()}>Files</button>
         <button type="button" onClick={() => (props.onOpenIntegrations as () => void)()}>Integrations</button>
         <button type="button" onClick={() => (props.onOpenSkills as () => void)()}>Skills</button>
+        <button type="button" onClick={() => (props.onOpenDesktop as () => void)()}>Desktop</button>
         <button type="button" onClick={() => (props.onOpenOpenClaw as () => void)()}>OpenClaw Settings</button>
         <button type="button" onClick={() => (props.onOpenSettings as () => void)()}>Agent Settings</button>
         <button type="button" onClick={() => (props.onUpgrade as () => void)()}>Upgrade</button>
@@ -33,6 +34,7 @@ import { DashboardWorkspaceNavigation } from "./DashboardWorkspaceNavigation";
 const agent: Agent = {
   id: "agent-1",
   name: "Research",
+  isLaunchable: true,
   user_id: "user-1",
   state: "RUNNING",
   cpu_millicores: 1000,
@@ -40,9 +42,11 @@ const agent: Agent = {
   hostname: "agent.example.com",
   started_at: "2026-07-20T00:00:00Z",
   stopped_at: null,
+  archived_at: null,
   created_at: "2026-07-20T00:00:00Z",
   updated_at: "2026-07-20T00:00:00Z",
   launchEpoch: 0,
+  clusterId: null,
   meta: null,
 };
 
@@ -103,6 +107,7 @@ describe("DashboardWorkspaceNavigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
     fireEvent.click(screen.getByRole("button", { name: "OpenClaw Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Agent Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
@@ -111,13 +116,14 @@ describe("DashboardWorkspaceNavigation", () => {
       "/dashboard/agents?agentId=agent-1&tab=files",
       "/dashboard/agents?agentId=agent-1&tab=integrations",
       "/dashboard/agents?agentId=agent-1&tab=skills",
+      "/dashboard/agents?agentId=agent-1&tab=desktop",
       "/dashboard/agents?agentId=agent-1&tab=openclaw",
-      "/dashboard/agents?view=settings&settings=agent",
+      "/dashboard/agents?view=settings&settings=agent&agentId=agent-1",
       "/plans",
     ]);
   });
 
-  it("does not navigate agent actions before an agent is available", () => {
+  it("opens the generic settings selector but not agent actions before an agent is available", () => {
     render(
       <DashboardWorkspaceNavigation
         selectedAgent={null}
@@ -128,7 +134,9 @@ describe("DashboardWorkspaceNavigation", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
-    expect(mocks.push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Agent Settings" }));
+    expect(mocks.push).toHaveBeenCalledOnce();
+    expect(mocks.push).toHaveBeenCalledWith("/dashboard/agents?view=settings&settings=agent");
     expect(mocks.sidebarProps).toMatchObject({ selectedAgent: null, selectedSessionKey: null });
   });
 });

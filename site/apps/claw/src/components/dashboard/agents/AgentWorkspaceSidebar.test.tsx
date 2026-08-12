@@ -357,24 +357,16 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByRole("button", { name: /shared knowledge/i })).not.toBeInTheDocument();
   });
 
-  it("opens Desktop when the selected agent has access", () => {
-    const props = renderAgentWorkspaceSidebar({
-      desktopAccessAllowed: false,
-      selectedAgent: {
-        ...agent,
-        hasDesktop: true,
-        desktopUrl: "https://desktop-agent.example.com",
-      },
-    });
+  it("opens the Desktop page for the selected agent", () => {
+    const props = renderAgentWorkspaceSidebar();
 
     fireEvent.click(screen.getByRole("button", { name: "Desktop" }));
-    expect(props.onOpenDesktop).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-1", hasDesktop: true }));
+    expect(props.onOpenDesktop).toHaveBeenCalledWith(expect.objectContaining({ id: "agent-1" }));
     expect(props.onUpgrade).not.toHaveBeenCalled();
   });
 
-  it("opens Desktop when the plan allows it before route metadata updates", () => {
+  it("opens the Desktop page when Desktop is not enabled", () => {
     const props = renderAgentWorkspaceSidebar({
-      desktopAccessAllowed: true,
       selectedAgent: { ...agent, hasDesktop: false },
     });
 
@@ -383,17 +375,10 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onUpgrade).not.toHaveBeenCalled();
   });
 
-  it("keeps Desktop visible and opens upgrade when the entitlement denies access", () => {
-    const props = renderAgentWorkspaceSidebar({
-      desktopAccessAllowed: false,
-      selectedAgent: { ...agent, hasDesktop: false },
-    });
+  it("marks the Desktop page as active", () => {
+    renderAgentWorkspaceSidebar({ activeTab: "desktop" });
 
-    const desktop = screen.getByRole("button", { name: "Desktop" });
-    expect(desktop).toBeEnabled();
-    fireEvent.click(desktop);
-    expect(props.onUpgrade).toHaveBeenCalledOnce();
-    expect(props.onOpenDesktop).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Desktop" })).toHaveAttribute("aria-current", "page");
   });
 
   it("warms the Shell runtime only from Shell-specific navigation intent", () => {
@@ -1550,7 +1535,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     const newProject = screen.getByRole("button", { name: /new session/i });
     expect(newProject).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Desktop" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Desktop" })).toBeEnabled();
     fireEvent.click(newProject);
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));

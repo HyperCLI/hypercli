@@ -202,9 +202,11 @@ describe("IntegrationsDirectoryPanel", () => {
     const { container } = renderPanel({ initialCategory: null, initialPluginId: null });
 
     expect(await screen.findByRole("heading", { name: "Integrations" })).toBeInTheDocument();
+    expect(screen.getByText("Connect the tools your agent works with.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Channels" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search integrations" })).toHaveAttribute("placeholder", "Search integrations...");
     expect(screen.getByRole("button", { name: "Set up custom integration" })).toBeInTheDocument();
+    expect(screen.getByText("Custom integration")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Connect a custom service" })).toHaveTextContent("Setup runs here and pauses only when your approval is required.");
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("Telegram")).toBeInTheDocument();

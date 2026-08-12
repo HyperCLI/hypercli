@@ -220,7 +220,7 @@ describe("AgentMainPanel", () => {
     const onCreate = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
-      isAuthenticated: false,
+      showAgentlessSectionPreviews: true,
       loadingInitialAgents: true,
       onCreate,
     });
@@ -242,7 +242,6 @@ describe("AgentMainPanel", () => {
     const onCreate = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
-      isAuthenticated: false,
       showAgentlessSectionPreviews: true,
       loadingInitialAgents: true,
       currentPanel,
@@ -260,7 +259,6 @@ describe("AgentMainPanel", () => {
     const onCreate = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
-      isAuthenticated: false,
       showAgentlessSectionPreviews: true,
       showAgentlessDesktopPreview: true,
       loadingInitialAgents: true,

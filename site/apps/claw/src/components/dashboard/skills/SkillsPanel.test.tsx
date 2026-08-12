@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -93,11 +93,11 @@ describe("SkillsPanel", () => {
 
   it("renders installed skills and opens details", () => {
     renderPanel({ installedSkills: [providerSkill({ id: "weather", name: "Weather", description: "Weather forecasts.", hasScripts: true, hasReferences: true, hasAssets: true })] });
-    expect(screen.getByText("Create Skill")).toBeInTheDocument();
-    expect(screen.getByText("Skills are instruction packs that teach your agent how and when to use tools.")).toBeInTheDocument();
+    expect(screen.getByText("Create skill")).toBeInTheDocument();
+    expect(screen.getByText("Add capabilities your agent can use.")).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
     expect(screen.getByText("Weather")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /my skills.*1/i })).toHaveAttribute("aria-pressed", "true");
     const weatherCard = screen.getByText("Weather").closest("article");
     expect(weatherCard).not.toHaveTextContent("My skills");
     expect(weatherCard).not.toHaveTextContent("General");
@@ -136,16 +136,16 @@ describe("SkillsPanel", () => {
     expect(screen.queryByText("HyperCLI", { selector: "h3" })).not.toBeInTheDocument();
     expect(screen.queryByText("HyperCLI Voice", { selector: "h3" })).not.toBeInTheDocument();
     expect(screen.getByText("Notion")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /all skills.*3/i })).not.toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeChecked();
+    expect(screen.getByRole("button", { name: /all skills.*3/i })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /my skills.*1/i })).toHaveAttribute("aria-pressed", "true");
 
-    const hyperCliFilter = screen.getByRole("checkbox", { name: /hypercli.*2/i });
-    expect(hyperCliFilter).not.toBeChecked();
+    const hyperCliFilter = screen.getByRole("button", { name: /hypercli.*2/i });
+    expect(hyperCliFilter).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(hyperCliFilter);
     expect(screen.getByText("HyperCLI", { selector: "h3" })).toBeInTheDocument();
     expect(screen.getByText("HyperCLI Voice", { selector: "h3" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: /my skills.*1/i }));
+    fireEvent.click(screen.getByRole("button", { name: /my skills.*1/i }));
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
     expect(screen.queryByText("Weather")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
@@ -156,8 +156,8 @@ describe("SkillsPanel", () => {
       installedSkills: [providerSkill({ id: "hypercli", name: "HyperCLI", origin: "built-in" })],
     });
 
-    expect(screen.getByRole("checkbox", { name: /my skills.*0/i })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: /hypercli.*1/i })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: /my skills.*0/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /hypercli.*1/i })).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText("HyperCLI", { selector: "h3" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Teach it the way you like things done." })).toBeInTheDocument();
     expect(screen.getByText(/start with one task you repeat/i)).toBeInTheDocument();
@@ -259,18 +259,16 @@ describe("SkillsPanel", () => {
         providerSkill({ id: "weather", name: "Weather", category: "Lookups", origin: "extension", path: "skill:weather", directoryPath: "skill:weather" }),
       ],
     });
-    const filterCheckboxes = screen.getAllByRole("checkbox");
-    expect(filterCheckboxes[0]).toHaveAccessibleName(/all skills.*2/i);
-    expect(filterCheckboxes[0]).not.toBeChecked();
-    expect(filterCheckboxes[1]).toHaveAccessibleName(/my skills.*1/i);
-    expect(filterCheckboxes[1]).toBeChecked();
+    const filterGroup = within(screen.getByRole("group", { name: "Filter skills" }));
+    expect(filterGroup.getByRole("button", { name: /all skills.*2/i })).toHaveAttribute("aria-pressed", "false");
+    expect(filterGroup.getByRole("button", { name: /my skills.*1/i })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Notion")).toBeInTheDocument();
     expect(screen.queryByText("Weather")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: /extension.*1/i }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /my skills.*1/i }));
+    fireEvent.click(filterGroup.getByRole("button", { name: /extension.*1/i }));
+    fireEvent.click(filterGroup.getByRole("button", { name: /my skills.*1/i }));
     expect(screen.getByText("Weather")).toBeInTheDocument();
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("checkbox", { name: /lookups.*1/i }));
+    fireEvent.click(filterGroup.getByRole("button", { name: /lookups.*1/i }));
     expect(screen.getByText("Weather")).toBeInTheDocument();
     expect(screen.queryByText("Notion")).not.toBeInTheDocument();
   });
@@ -334,7 +332,7 @@ describe("SkillsPanel", () => {
     fireEvent.click(keepPreview);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.getByText("Github Helper", { selector: "h3" })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /my skills.*1/i })).toBeInTheDocument();
   });
 
   it("restores persisted drafts and removes them only after explicit discard", async () => {
@@ -493,7 +491,7 @@ describe("SkillsPanel", () => {
   it("imports skill files and can test the result", async () => {
     const onTestSkill = vi.fn(async () => undefined);
     renderPanel({ onTestSkill });
-    fireEvent.click(screen.getByRole("button", { name: /^import$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^import skill$/i }));
     expect(screen.getByRole("button", { name: /^cancel$/i })).toHaveClass("max-w-full");
     expect(screen.getByRole("button", { name: /^cancel$/i })).not.toHaveClass("w-full");
     const file = new File(["---\nname: imported-skill\ndescription: Imported skill preview.\n---\n# Imported Skill\n"], "imported-skill.md", { type: "text/markdown" });
@@ -508,13 +506,13 @@ describe("SkillsPanel", () => {
     expect(await screen.findByRole("button", { name: /keep as preview/i })).not.toHaveClass("w-full");
     fireEvent.click(await screen.findByRole("button", { name: /test skill/i }));
     await waitFor(() => expect(onTestSkill).toHaveBeenCalledWith(expect.objectContaining({ id: "imported-skill" })));
-    expect(screen.getByRole("checkbox", { name: /my skills.*1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /my skills.*1/i })).toBeInTheDocument();
   });
 
   it("persists imported skill files to the agent", async () => {
     const onCreateSkill = vi.fn(async () => ({ skillId: "imported-skill" }));
     renderPanel({ onCreateSkill, onRefreshSkills: vi.fn(async () => []) });
-    fireEvent.click(screen.getByRole("button", { name: /^import$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^import skill$/i }));
     const content = "Use this skill to summarize release notes.";
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File([content], "imported-skill.md", { type: "text/markdown" })] } });
@@ -531,7 +529,7 @@ describe("SkillsPanel", () => {
 
   it("rejects files other than Markdown and plain text", async () => {
     renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: /^import$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^import skill$/i }));
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["archive"], "skill.zip", { type: "application/zip" })] } });
     expect(await screen.findByText(/only \.md and \.txt files are supported/i)).toBeInTheDocument();
@@ -540,7 +538,7 @@ describe("SkillsPanel", () => {
 
   it("accepts plain-text skill files", async () => {
     renderPanel();
-    fireEvent.click(screen.getByRole("button", { name: /^import$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^import skill$/i }));
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["Use this skill to summarize release notes."], "release-notes.txt", { type: "text/plain" })] } });
     fireEvent.click(await screen.findByRole("button", { name: /review \(1\)/i }));

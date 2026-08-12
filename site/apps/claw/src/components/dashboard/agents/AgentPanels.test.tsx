@@ -155,7 +155,7 @@ vi.mock("@/lib/agent-client", () => ({
   })),
 }));
 
-import { AgentEmptyState, AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
+import { AgentDesktopEmptyState, AgentEmptyState, AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -460,6 +460,40 @@ describe("AgentEmptyState", () => {
     expect(screen.getByText(/Ask questions across Slack/).parentElement).toHaveClass("min-h-16", "items-center", "text-[13px]", "text-left", "md:flex-col", "md:min-h-[118px]");
     expect(screen.getByRole("button", { name: "Launch agent" })).toHaveClass("h-12", "md:h-10");
     expect(screen.getByTestId("agent-launch-entry")).toHaveAccessibleName("Launch agent");
+  });
+});
+
+describe("AgentDesktopEmptyState", () => {
+  it("launches Desktop when it is enabled", () => {
+    const onLaunchAction = vi.fn();
+    render(
+      <AgentDesktopEmptyState
+        onCreate={vi.fn()}
+        desktopEnabled
+        settingsHref="/dashboard/agents?view=settings&settings=agent&agentId=agent-1#agent-desktop-setting"
+        onLaunchAction={onLaunchAction}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Your agent's desktop" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Launch desktop" }));
+    expect(onLaunchAction).toHaveBeenCalledOnce();
+  });
+
+  it("links directly to the Desktop setting when it is disabled", () => {
+    const onLaunchAction = vi.fn();
+    const settingsHref = "/dashboard/agents?view=settings&settings=agent&agentId=agent-1#agent-desktop-setting";
+    render(
+      <AgentDesktopEmptyState
+        onCreate={vi.fn()}
+        desktopEnabled={false}
+        settingsHref={settingsHref}
+        onLaunchAction={onLaunchAction}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Enable in settings" })).toHaveAttribute("href", settingsHref);
+    expect(onLaunchAction).not.toHaveBeenCalled();
   });
 });
 

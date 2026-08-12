@@ -66,7 +66,7 @@ test("rotates agent sections and requires sign in before creation", async ({ pag
   await page.getByRole("button", { name: "Scheduled", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Work that keeps moving" })).toBeVisible();
   await page.getByRole("button", { name: "Desktop", exact: true }).click();
-  const desktopPreview = page.getByRole("heading", { name: "A browser built for action" }).locator("xpath=..");
+  const desktopPreview = page.getByTestId("agent-desktop-empty-state");
   await expect(desktopPreview).toBeVisible();
   await desktopPreview.getByRole("button", { name: "Launch agent", exact: true }).click();
   await expect(page.locator("#privy-modal-content")).toBeVisible();
@@ -74,7 +74,7 @@ test("rotates agent sections and requires sign in before creation", async ({ pag
   await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
   await page.locator("#privy-modal-content").getByRole("button", { name: "close modal" }).click();
   await expect(page.locator("#privy-modal-content")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "A browser built for action" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your agent's desktop" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);
   await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
   expect(forbiddenRequests).toEqual([]);

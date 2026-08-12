@@ -31,6 +31,9 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
+          rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-main-"*
+          E2E_IMAGE_FAMILY="e2e-main" \
+          PRUNE_BUILD_CACHE=1 \
           IMAGE_TAG="e2e-main-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
@@ -56,6 +59,17 @@ jobs:
           name: playwright-main-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
+
+      - name: Cleanup local E2E resources
+        if: always()
+        continue-on-error: true
+        env:
+          E2E_IMAGE: ${{ steps.build-e2e.outputs.e2e_image }}
+        run: |
+          rm -rf -- "${PLAYWRIGHT_ARTIFACTS_DIR}"
+          if [[ -n "${E2E_IMAGE}" ]]; then
+            docker image rm "${E2E_IMAGE}" || true
+          fi
 
       - name: Fail workflow on e2e failure
         if: steps.e2e.outcome == 'failure'

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { buildAgentWorkspaceTabHref, type AgentRouteTab } from "@/lib/agent-workspace-route";
-import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { buildAgentSettingsHref } from "@/lib/dashboard-route";
 import { AgentWorkspaceSidebar } from "./AgentWorkspaceSidebar";
 
 export function DashboardWorkspaceNavigation({
@@ -40,10 +40,11 @@ export function DashboardWorkspaceNavigation({
       onOpenIntegrations={() => openAgentTab("integrations")}
       onOpenSkills={() => openAgentTab("skills")}
       onOpenScheduled={() => openAgentTab("scheduled")}
+      onOpenDesktop={() => openAgentTab("desktop")}
       onOpenLogs={() => openAgentTab("logs")}
       onOpenShell={() => openAgentTab("shell")}
       onOpenOpenClaw={() => openAgentTab("openclaw")}
-      onOpenSettings={() => router.push(`${DASHBOARD_VIEW_HREFS.settings}&settings=agent`)}
+      onOpenSettings={() => router.push(buildAgentSettingsHref(selectedAgent?.id))}
       onUpgrade={() => router.push("/plans")}
     />
   );

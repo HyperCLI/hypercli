@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, ArrowRight, Cable, Loader2, MessageSquare, Plus, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, ArrowRight, Cable, Loader2, MessageSquare, Plus, RefreshCw } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
+import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader } from "@hypercli/shared-ui";
 
 import type { AgentGatewaySession } from "../agents/AgentGatewayProvider";
 import { IntegrationChatCardHost } from "../chat-integrations/IntegrationChatCardHost";
@@ -957,62 +958,62 @@ export function IntegrationsDirectoryPanel({
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
-      <div className="mx-auto w-full max-w-6xl">
-        <div className="border-b border-border px-5 py-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="order-1 shrink-0 text-[19px] font-semibold leading-none">Integrations</h2>
-            <div className="order-2 flex shrink-0 items-center gap-2" aria-label="Integration type">
-              <button type="button" aria-pressed={integrationFilter === "all"} onClick={() => setIntegrationFilter("all")} className={`h-9 rounded-full border px-4 text-[13px] font-semibold transition-colors ${integrationFilter === "all" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>All</button>
-              <button type="button" aria-pressed={integrationFilter === "messaging"} onClick={() => setIntegrationFilter("messaging")} className={`h-9 rounded-full border px-4 text-[13px] font-semibold transition-colors ${integrationFilter === "messaging" ? "border-foreground bg-foreground text-background" : "border-border bg-surface-low text-text-secondary hover:border-border-strong hover:text-foreground"}`}>Messaging</button>
-            </div>
-            <div className="order-4 flex min-w-0 basis-full items-center gap-2 lg:order-3 lg:ml-auto lg:min-w-[18rem] lg:basis-[22rem] lg:flex-1 xl:max-w-[480px]">
-              <label className="relative min-w-0 flex-1">
-                <span className="sr-only">Search integrations</span>
-                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search integrations..." className="h-9 w-full rounded-xl border border-border bg-input-background pl-10 pr-3 text-[13px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong focus:ring-2 focus:ring-ring" />
-              </label>
-              <button type="button" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh integrations" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-low text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:opacity-50">
-                <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-              </button>
-            </div>
-            <button type="button" onClick={() => selectChannel(CUSTOM_INTEGRATION_ID)} className="order-3 ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-selection-accent/30 bg-selection-accent/10 px-3 text-xs font-semibold text-selection-accent transition-colors hover:border-selection-accent/50 hover:bg-selection-accent/15 lg:order-4 lg:ml-0">
-              <Plus className="h-3.5 w-3.5" />
-              Set up custom integration
-            </button>
-          </div>
-        </div>
+      <CatalogHeader
+        title="Integrations"
+        description="Connect the tools your agent works with."
+        actions={(
+          <>
+            <Button type="button" variant="outline" size="icon" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh integrations" className="h-10 w-10 rounded-xl border-border bg-transparent text-text-secondary hover:bg-surface-high hover:text-foreground dark:bg-transparent dark:hover:bg-surface-high">
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            </Button>
+            <Button type="button" onClick={() => selectChannel(CUSTOM_INTEGRATION_ID)} aria-label="Set up custom integration" className="h-10 rounded-xl px-4">
+              Custom integration
+              <Plus className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </>
+        )}
+        filters={(
+          <CatalogFilterGroup label="Integration type">
+            <CatalogFilterButton pressed={integrationFilter === "all"} onClick={() => setIntegrationFilter("all")}>All</CatalogFilterButton>
+            <CatalogFilterButton pressed={integrationFilter === "messaging"} onClick={() => setIntegrationFilter("messaging")}>Messaging</CatalogFilterButton>
+          </CatalogFilterGroup>
+        )}
+        searchValue={searchQuery}
+        searchLabel="Search integrations"
+        searchPlaceholder="Search integrations..."
+        onSearchValueChange={setSearchQuery}
+      />
 
-        <div className="px-5 py-7">
-          {channelSnapshot?.partial ? (
-            <div role="status" className="mb-4 flex items-start gap-2 rounded-[10px] border border-warning/25 bg-warning/10 px-3.5 py-3 text-xs leading-5 text-warning">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              Some integration status checks did not complete{channelSnapshot.warnings?.length ? ` (${channelSnapshot.warnings.length})` : ""}. Saved settings remain available; refresh before relying on live health.
-            </div>
-          ) : null}
-          {loadingChannels ? (
-            <div className="flex items-center justify-center gap-3 py-14 text-sm text-text-muted">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Reading available integrations...
-            </div>
-          ) : loadError ? (
-            <div className="rounded-[12px] border border-destructive/30 bg-destructive/10 px-5 py-10 text-center">
-              <p className="text-sm text-destructive">This workspace could not report its integrations.</p>
-              <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-destructive/10">Try again</button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {filteredTiles.map((tile) => (
-                <IntegrationCard key={tile.id} tile={tile} onOpen={() => selectChannel(tile.id)} />
-              ))}
-              {filteredTiles.length === 0 ? (
-                <div className="rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center text-sm text-text-muted">
-                  {tiles.length === 0 ? "This workspace reports no integrations." : "No integrations match this search."}
-                </div>
-              ) : null}
-              <CustomIntegrationCallout onOpen={() => selectChannel(CUSTOM_INTEGRATION_ID)} />
-            </div>
-          )}
-        </div>
+      <div className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-5">
+        {channelSnapshot?.partial ? (
+          <div role="status" className="mb-4 flex items-start gap-2 rounded-[10px] border border-warning/25 bg-warning/10 px-3.5 py-3 text-xs leading-5 text-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            Some integration status checks did not complete{channelSnapshot.warnings?.length ? ` (${channelSnapshot.warnings.length})` : ""}. Saved settings remain available; refresh before relying on live health.
+          </div>
+        ) : null}
+        {loadingChannels ? (
+          <div className="flex items-center justify-center gap-3 py-14 text-sm text-text-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Reading available integrations...
+          </div>
+        ) : loadError ? (
+          <div className="rounded-[12px] border border-destructive/30 bg-destructive/10 px-5 py-10 text-center">
+            <p className="text-sm text-destructive">This workspace could not report its integrations.</p>
+            <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-destructive/10">Try again</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {filteredTiles.map((tile) => (
+              <IntegrationCard key={tile.id} tile={tile} onOpen={() => selectChannel(tile.id)} />
+            ))}
+            {filteredTiles.length === 0 ? (
+              <div className="rounded-[12px] border border-border bg-surface-low px-5 py-10 text-center text-sm text-text-muted">
+                {tiles.length === 0 ? "This workspace reports no integrations." : "No integrations match this search."}
+              </div>
+            ) : null}
+            <CustomIntegrationCallout onOpen={() => selectChannel(CUSTOM_INTEGRATION_ID)} />
+          </div>
+        )}
       </div>
     </div>
   );

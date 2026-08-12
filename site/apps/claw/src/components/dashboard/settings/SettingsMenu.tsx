@@ -32,8 +32,8 @@ export type SettingsSectionId =
 const SETTINGS_SECTION_LABELS: Record<SettingsSectionId, string> = {
   profile: "Profile",
   preferences: "Preferences",
-  agent: "Agent",
-  workspace: "Knowledge Hub",
+  agent: "Agents",
+  workspace: "Collections",
   members: "Members",
   "api-keys": "API Keys",
   billing: "Billing",
@@ -154,14 +154,19 @@ export function SettingsMenu({
 interface SettingsSectionHeaderProps {
   activeSection: SettingsSectionId;
   onBackToSettings?: () => void;
+  agentName?: string;
+  onBackToAgents?: () => void;
 }
 
 export function SettingsSectionHeader({
   activeSection,
   onBackToSettings,
+  agentName,
+  onBackToAgents,
 }: SettingsSectionHeaderProps) {
   const label = SETTINGS_SECTION_LABELS[activeSection];
   const isStandalone = activeSection === "plans" || activeSection === "billing" || activeSection === "api-keys";
+  const scopedAgentSettings = activeSection === "agent" && agentName && onBackToAgents;
 
   return (
     <header className="flex h-[calc(3.5rem+env(safe-area-inset-top))] shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 pt-[env(safe-area-inset-top)]">
@@ -201,8 +206,31 @@ export function SettingsSectionHeader({
                 <ChevronRight className="h-4 w-4" />
               </li>
               <li className="min-w-0">
-                <h1 className="truncate text-sm font-medium text-foreground">{label}</h1>
+                {scopedAgentSettings ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Back to agents"
+                    onClick={onBackToAgents}
+                    className="h-auto rounded-md p-0 font-medium text-text-muted hover:bg-transparent hover:text-foreground"
+                  >
+                    {label}
+                  </Button>
+                ) : (
+                  <h1 className="truncate text-sm font-medium text-foreground">{label}</h1>
+                )}
               </li>
+              {scopedAgentSettings ? (
+                <>
+                  <li aria-hidden="true" className="shrink-0 text-text-muted">
+                    <ChevronRight className="h-4 w-4" />
+                  </li>
+                  <li className="min-w-0">
+                    <h1 className="truncate text-sm font-medium text-foreground">{agentName}</h1>
+                  </li>
+                </>
+              ) : null}
             </ol>
           </nav>
         )}

@@ -939,12 +939,14 @@ function initialsFromName(name: string): string {
 }
 
 function AgentProfileSettingsRow({
+  id,
   label,
   description,
   children,
   minHeight = "min-h-[100px]",
   compact = false,
 }: {
+  id?: string;
   label: string;
   description?: string;
   children: React.ReactNode;
@@ -952,7 +954,7 @@ function AgentProfileSettingsRow({
   compact?: boolean;
 }) {
   return (
-    <div className={`grid min-w-0 grid-cols-1 gap-2 lg:grid-cols-[260px_minmax(0,440px)] lg:items-start lg:justify-between lg:gap-4 ${compact ? "min-h-0 py-4" : `${minHeight} py-5 lg:py-7`}`}>
+    <div id={id} className={`grid min-w-0 scroll-mt-6 grid-cols-1 gap-2 lg:grid-cols-[260px_minmax(0,440px)] lg:items-start lg:justify-between lg:gap-4 ${compact ? "min-h-0 py-4" : `${minHeight} py-5 lg:py-7`}`}>
       <div>
         <p className="text-sm font-semibold leading-5 text-foreground">{label}</p>
         {description ? <p className="mt-1 text-xs leading-5 text-text-muted">{description}</p> : null}
@@ -1461,7 +1463,7 @@ function AgentSectionSettingsContent({
             </AgentProfileSettingsRow>
           </div>
 
-          <AgentProfileSettingsRow label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
+          <AgentProfileSettingsRow id="agent-desktop-setting" label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
             <div className="flex h-9 items-center justify-end">
               <Switch
                 checked={desktopEnabled}
@@ -3722,29 +3724,42 @@ export function AgentScheduledEmptyState({
 
 export function AgentDesktopEmptyState({
   onCreate,
+  desktopEnabled,
+  settingsHref,
   launchLabel,
   launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
   onLaunchAction,
-}: AgentEmptyStateProps & AgentLaunchActionProps) {
+}: AgentEmptyStateProps & AgentLaunchActionProps & {
+  desktopEnabled?: boolean;
+  settingsHref?: string;
+}) {
+  const settingsRequired = desktopEnabled === false && Boolean(settingsHref);
+  const actionLabel = settingsRequired
+    ? "Enable in settings"
+    : launching
+      ? desktopEnabled === true ? "Opening desktop" : "Starting agent"
+      : launchLabel ?? (desktopEnabled === true ? "Launch desktop" : "Launch agent");
+
   return (
-    <LaunchAgentCenteredEmptyStateContent
+    <AgentFeatureEmptyState
       icon={Monitor}
-      title="A browser built for action"
-      description="Give your agent a protected browser desktop for visual work that goes beyond APIs, files, and chat."
+      title="Your agent's desktop"
+      description="The tools your team lives in don't all have APIs. With desktop and browser access, your agent works inside them anyway, filling forms, pulling reports, and clicking through the same interfaces your people do."
       examples={[
-        "Navigate web apps and complete multi-step browser workflows",
-        "Work with visual tools, dashboards, and sites that require direct interaction",
-        "Keep browser activity isolated inside the agent's dedicated workspace",
+        "Connect to any web-based tool, even legacy or partner systems with no API",
+        "Automate multi-step browser workflows from start to finish",
+        "See visual state, validate UI, and act on what appears on screen",
       ]}
-      launchLabel={launchLabel}
-      launchingLabel={launchingLabel}
-      launching={launching}
-      launchBlocked={launchBlocked}
-      launchBlockedReason={launchBlockedReason}
-      onLaunch={onLaunchAction ?? onCreate}
+      actionLabel={actionLabel}
+      actionHref={settingsRequired ? settingsHref : undefined}
+      actionPending={!settingsRequired && launching}
+      actionDisabled={!settingsRequired && launchBlocked}
+      actionDisabledReason={launchBlockedReason}
+      onAction={onLaunchAction ?? onCreate}
+      testId="agent-desktop-empty-state"
     />
   );
 }

@@ -90,7 +90,6 @@ interface AgentWorkspaceSidebarProps {
   disabledReason?: string;
   allowAgentlessFeaturePreviews?: boolean;
   desktopPreviewActive?: boolean;
-  desktopAccessAllowed?: boolean;
   scheduledDisabled?: boolean;
   scheduledDisabledReason?: string;
   isDesktopViewport: boolean;
@@ -132,7 +131,6 @@ interface AgentWorkspaceSidebarProps {
   onSetSessionPinned?: (sessionKey: string, pinned: boolean) => void;
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
   onDeleteSession?: (sessionKey: string) => Promise<void> | void;
-  openingDesktop?: boolean;
 }
 
 type WorkspaceItem = {
@@ -1038,7 +1036,6 @@ export function AgentWorkspaceSidebar({
   disabledReason = "Workspace is loading",
   allowAgentlessFeaturePreviews = false,
   desktopPreviewActive = false,
-  desktopAccessAllowed,
   scheduledDisabled = false,
   scheduledDisabledReason = "Scheduled workflows are not available yet.",
   isDesktopViewport,
@@ -1080,7 +1077,6 @@ export function AgentWorkspaceSidebar({
   onSetSessionPinned,
   onRenameSession,
   onDeleteSession,
-  openingDesktop = false,
 }: AgentWorkspaceSidebarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
@@ -1218,26 +1214,17 @@ export function AgentWorkspaceSidebar({
               ? undefined
               : "New sessions are unavailable.";
   const agentlessDesktopPreview = noSelectedAgent && allowAgentlessFeaturePreviews;
-  const desktopRequiresUpgrade = Boolean(
-    selectedAgent && selectedAgent.hasDesktop !== true && desktopAccessAllowed === false,
-  );
-  const openDesktopDisabledReason = desktopRequiresUpgrade
-    ? undefined
-    : disabled
-      ? disabledReason
-      : agentlessDesktopPreview
+  const openDesktopDisabledReason = disabled
+    ? disabledReason
+    : agentlessDesktopPreview
       ? onOpenDesktopPreview
         ? undefined
         : "Desktop preview is unavailable."
-        : noSelectedAgent
-          ? emptyStateReason
-          : agentNotRunning
-            ? stoppedReason
-            : !selectedAgent?.hostname
-              ? "Desktop hostname is not ready."
-              : onOpenDesktop
-                ? undefined
-                : "Desktop is unavailable.";
+      : noSelectedAgent
+        ? emptyStateReason
+        : onOpenDesktop
+          ? undefined
+          : "Desktop is unavailable.";
   const createNewSession = async () => {
     if (newSessionDisabledReason || !onCreateSession) return;
     setCreatingSession(true);
@@ -1277,17 +1264,12 @@ export function AgentWorkspaceSidebar({
     },
     {
       id: "desktop",
-      label: openingDesktop ? "Opening Desktop" : "Desktop",
-      icon: openingDesktop ? Loader2 : Monitor,
-      active: desktopPreviewActive,
-      busy: openingDesktop,
+      label: "Desktop",
+      icon: Monitor,
+      active: desktopPreviewActive || activeTab === "desktop",
       disabled: Boolean(openDesktopDisabledReason),
       disabledReason: openDesktopDisabledReason,
       onClick: () => {
-        if (desktopRequiresUpgrade) {
-          onUpgrade();
-          return;
-        }
         if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
         else onOpenDesktopPreview?.();
       },

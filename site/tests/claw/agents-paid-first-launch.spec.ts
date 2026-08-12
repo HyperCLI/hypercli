@@ -109,6 +109,13 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       display_name: "Paid First Agent",
       role: "admin",
     };
+    const generalWorkspace = {
+      id: "workspace-general",
+      name: "General",
+      slug: "general",
+      display_name: "General",
+      role: "admin",
+    };
 
     if (pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}/agents`)) {
       await route.fulfill({
@@ -130,7 +137,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}`) ? workspace : [workspace]),
+      body: JSON.stringify(pathName.endsWith(`/workspaces/${TEST_WORKSPACE_ID}`) ? workspace : [workspace, generalWorkspace]),
     });
   });
 

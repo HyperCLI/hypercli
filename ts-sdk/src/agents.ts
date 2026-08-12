@@ -42,6 +42,18 @@ import {
   type OpenClawConfigSchemaResponse,
   type OpenClawSlackRelayOptions,
 } from './openclaw/gateway.js';
+import {
+  OpenClawGatewayConnectionManager,
+  type OpenClawGatewayConnectionManagerOptions,
+  type OpenClawGatewayLease,
+} from './openclaw/connection-manager.js';
+export {
+  DEFAULT_OPENCLAW_GATEWAY_IDLE_TIMEOUT_MS,
+  DEFAULT_OPENCLAW_GATEWAY_MAX_CONNECTIONS,
+  OpenClawGatewayConnectionManager,
+  type OpenClawGatewayConnectionManagerOptions,
+  type OpenClawGatewayLease,
+} from './openclaw/connection-manager.js';
 import type {
   OpenClawTelegramConfigPatch,
   OpenClawWhatsAppConfigPatch,
@@ -1263,6 +1275,10 @@ function isTruthyEnv(value: unknown): boolean {
   return ['1', 'true', 'yes', 'on', 'enabled'].includes(String(value ?? '').trim().toLowerCase());
 }
 
+function isFalseyEnv(value: unknown): boolean {
+  return ['0', 'false', 'no', 'off', 'disabled'].includes(String(value ?? '').trim().toLowerCase());
+}
+
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -1330,14 +1346,19 @@ export function routesHaveDesktop(routes: unknown): boolean {
 
 export function launchConfigHasDesktop(launchConfig: unknown): boolean {
   if (!isPlainRecord(launchConfig)) return false;
-  if (isTruthyEnv(getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED'))) return true;
+  const desktopEnabled = getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED');
+  if (isFalseyEnv(desktopEnabled)) return false;
+  if (isTruthyEnv(desktopEnabled)) return true;
   return routesHaveDesktop(getLaunchConfigValue(launchConfig, 'routes'));
 }
 
 export function agentConfigHasDesktop(source: AgentDesktopConfigSource | null | undefined): boolean {
   if (!source) return false;
+  const launchConfig = source.launchConfig ?? source.launch_config;
+  const desktopEnabled = getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED');
+  if (isFalseyEnv(desktopEnabled)) return false;
   return (
-    launchConfigHasDesktop(source.launchConfig ?? source.launch_config) ||
+    launchConfigHasDesktop(launchConfig) ||
     routesHaveDesktop(source.routes)
   );
 }
@@ -2715,6 +2736,15 @@ export class HermesAgent extends Agent {
 export class OpenClawAgent extends Agent {
   public gatewayUrl: string | null;
   public gatewayToken: string | null;
+  private gatewayLaunchEpoch: number | null = null;
+
+  get gatewayConnectionKey(): string {
+    return `${this.id}:${this.gatewayLaunchEpoch ?? this.launchEpoch}:${this.gatewayUrl ?? ''}`;
+  }
+
+  get gatewayConnectionScope(): OpenClawGatewayConnectionManager | null {
+    return this._deployments?.openClawGateways ?? null;
+  }
 
   constructor(fields: AgentStateFields & { gatewayUrl?: string | null; gatewayToken?: string | null }) {
     super(fields);
@@ -2834,6 +2864,7 @@ export class OpenClawAgent extends Agent {
           if (!gatewayUrl) throw new Error('gateway Agent has no hostname');
           this.gatewayUrl = gatewayUrl;
           this.gatewayToken = gatewayToken;
+          this.gatewayLaunchEpoch = refreshed.launchEpoch;
           return {
             agent_id: this.id,
             gateway_url: gatewayUrl,
@@ -2863,31 +2894,57 @@ export class OpenClawAgent extends Agent {
     if (!this.gatewayUrl) {
       throw new Error('Agent has no OpenClaw gateway URL');
     }
-    const deployments = this.requireDeployments();
+    return new GatewayClient(this.gatewayOptions(this.gatewayUrl, this.gatewayToken, options));
+  }
 
-    return new GatewayClient({
-      url: this.gatewayUrl,
+  async acquireGateway(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+    contextOptions: GatewayContextWaitOptions = {},
+  ): Promise<OpenClawGatewayLease> {
+    const deployments = this.requireDeployments();
+    const generation = deployments.openClawGateways.generation(this.id);
+    const knownLaunchEpoch = this.gatewayLaunchEpoch ?? this.launchEpoch;
+    if (this.gatewayUrl && knownLaunchEpoch > 0) {
+      const existing = deployments.openClawGateways.acquireExisting({
+        deploymentId: this.id,
+        launchEpoch: knownLaunchEpoch,
+        generation,
+        options: this.gatewayOptions(this.gatewayUrl, this.gatewayToken, options),
+      });
+      if (existing) return existing;
+    }
+
+    const context = await this.waitForGatewayContext(contextOptions);
+    return deployments.openClawGateways.acquire({
+      deploymentId: this.id,
+      launchEpoch: context.launch_epoch,
+      generation,
+      options: this.gatewayOptions(context.gateway_url, context.gateway_token, options),
+    });
+  }
+
+  invalidateGatewayConnection(): void {
+    this.requireDeployments().openClawGateways.invalidate(this.id);
+    this.gatewayToken = null;
+    this.gatewayLaunchEpoch = null;
+  }
+
+  private gatewayOptions(
+    gatewayUrl: string,
+    gatewayToken: string | null,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'>,
+  ): GatewayOptions {
+    const deployments = this.requireDeployments();
+    return {
+      ...options,
+      url: gatewayUrl,
       token: undefined,
-      gatewayToken: options.gatewayToken ?? this.gatewayToken ?? undefined,
+      gatewayToken: options.gatewayToken ?? gatewayToken ?? undefined,
       deploymentId: options.deploymentId ?? this.id,
       apiKey: options.apiKey ?? deployments.agentApiKey,
       apiBase: options.apiBase ?? deployments.agentApiBase,
       autoApprovePairing: options.autoApprovePairing ?? true,
-      clientId: options.clientId,
-      clientMode: options.clientMode,
-      clientDisplayName: options.clientDisplayName,
-      clientVersion: options.clientVersion,
-      platform: options.platform,
-      instanceId: options.instanceId,
-      caps: options.caps,
-      origin: options.origin,
-      timeout: options.timeout,
-      onHello: options.onHello,
-      onClose: options.onClose,
-      onGap: options.onGap,
-      onProtocolError: options.onProtocolError,
-      onPairing: options.onPairing,
-    });
+    };
   }
 
   async connect(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewayClient> {
@@ -3607,6 +3664,7 @@ export class Deployments {
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
   private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'postRaw' | 'put' | 'patch' | 'delete'>;
+  public readonly openClawGateways: OpenClawGatewayConnectionManager;
 
   constructor(
     private readonly http: HTTPClient,
@@ -3614,12 +3672,18 @@ export class Deployments {
     agentApiBase?: string,
     agentsWsUrl?: string,
     requestTimeout?: number,
+    openClawGatewayOptions: OpenClawGatewayConnectionManagerOptions = {},
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
     this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || getConfigValue('AGENTS_WS_URL') || defaultAgentsWsUrl(this.apiBase));
     const agentTimeout = requestTimeout ?? (http instanceof HTTPClient ? (http as any).timeout : undefined);
     this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey, agentTimeout) : http;
+    this.openClawGateways = new OpenClawGatewayConnectionManager(openClawGatewayOptions);
+  }
+
+  dispose(): void {
+    this.openClawGateways.dispose();
   }
 
   get agentApiKey(): string {
@@ -4430,6 +4494,7 @@ export class Deployments {
       undefined,
       { retries: 1 },
     );
+    this.openClawGateways.invalidate(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -4505,7 +4570,9 @@ export class Deployments {
 
   async delete(agentIdOrName: string): Promise<Record<string, any>> {
     const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.delete(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    const result = await this.agentHttp.delete<Record<string, any>>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    this.openClawGateways.invalidate(agentId);
+    return result;
   }
 
   async refreshToken(agentIdOrName: string): Promise<AgentTokenResponse> {

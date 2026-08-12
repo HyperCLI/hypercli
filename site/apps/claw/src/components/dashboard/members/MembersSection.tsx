@@ -55,6 +55,10 @@ type MembersSectionProps = {
   agentsLoading?: boolean;
 };
 
+type MemberDirectoryRow =
+  | { kind: "access"; entry: WorkspaceAccessEntry }
+  | { kind: "agent"; agent: MembersSectionAgent };
+
 type WorkspaceAccessState = {
   workspaceId: string | null;
   snapshot: WorkspaceAccessSnapshot | null;
@@ -124,6 +128,11 @@ function localDateTimeToIso(value: string): string | undefined {
 
 function agentName(agent: MembersSectionAgent): string {
   return agent.displayName?.trim() || agent.name?.trim() || agent.id;
+}
+
+function agentSecondaryLabel(agent: MembersSectionAgent): string {
+  const handle = agent.handle?.trim().replace(/^@/, "");
+  return handle ? `@${handle}` : agent.id;
 }
 
 function subjectKey(subjectType: string, subjectId: string): string {
@@ -358,6 +367,17 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
   const snapshotGrants = hasFullDirectory
     ? snapshot!.grants!.filter((grant) => grant.workspaceId === selectedWorkspaceId)
     : [];
+  const agentsWithDirectAccess = new Set(
+    directory
+      .filter((entry) => entry.subjectType === "agent")
+      .map((entry) => entry.subjectId),
+  );
+  const directoryRows: MemberDirectoryRow[] = [
+    ...directory.map((entry) => ({ kind: "access" as const, entry })),
+    ...agents
+      .filter((agent) => !agentsWithDirectAccess.has(agent.id))
+      .map((agent) => ({ kind: "agent" as const, agent })),
+  ];
 
   const subjectLabel = (subject: Pick<WorkspaceAccessEntry, "subjectType" | "subjectId" | "displayName" | "displaySlug">): string => {
     if (subject.subjectType === "agent") {
@@ -382,18 +402,38 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
     return subject.subjectId;
   };
 
+  const directoryRowLabel = (row: MemberDirectoryRow): string => (
+    row.kind === "access" ? subjectLabel(row.entry) : agentName(row.agent)
+  );
+
+  const directoryRowSecondaryLabel = (row: MemberDirectoryRow): string => (
+    row.kind === "access" ? subjectSecondaryLabel(row.entry) : agentSecondaryLabel(row.agent)
+  );
+
   const normalizedQuery = query.trim().toLowerCase();
-  const displayedDirectory = directory.filter((entry) => {
+  const displayedDirectory = directoryRows.filter((row) => {
     if (!normalizedQuery) return true;
-    return [
-      subjectLabel(entry),
-      subjectSecondaryLabel(entry),
-      entry.displayName || "",
-      entry.displaySlug || "",
-      entry.subjectId,
-      entry.subjectType,
-      entry.role,
-    ].some((value) => value.toLowerCase().includes(normalizedQuery));
+    const values = row.kind === "access"
+      ? [
+          directoryRowLabel(row),
+          directoryRowSecondaryLabel(row),
+          row.entry.displayName || "",
+          row.entry.displaySlug || "",
+          row.entry.subjectId,
+          row.entry.subjectType,
+          row.entry.role,
+        ]
+      : [
+          directoryRowLabel(row),
+          directoryRowSecondaryLabel(row),
+          row.agent.displayName || "",
+          row.agent.name || "",
+          row.agent.handle || "",
+          row.agent.id,
+          "agent",
+          "no access",
+        ];
+    return values.some((value) => value.toLowerCase().includes(normalizedQuery));
   });
   const activePeople = directory.filter((entry) => entry.subjectType === "user").length;
   const activeAgents = directory.filter((entry) => entry.subjectType === "agent").length;
@@ -629,7 +669,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
 
               <div className="overflow-hidden rounded-2xl border border-border bg-surface-low/20">
                 <div className="flex flex-col items-start gap-3 border-b border-border px-4 py-4 text-left sm:flex-row sm:items-center sm:px-5">
-                   <div className="min-w-0 self-start text-left"><h2 className="text-[14px] font-semibold text-foreground">Collection direct access</h2><p className="mt-0.5 text-[11px] text-text-muted">Active grouped people and agents for {workspaceName(selectedWorkspace)}.</p></div>
+                   <div className="min-w-0 self-start text-left"><h2 className="text-[14px] font-semibold text-foreground">Collection access</h2><p className="mt-0.5 text-[11px] text-text-muted">People with direct access and all account agents for {workspaceName(selectedWorkspace)}.</p></div>
                   <div className="flex w-full gap-2 sm:ml-auto sm:w-auto">
                     <label className="relative block min-w-0 flex-1 sm:w-64"><span className="sr-only">Search members</span><Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search access" className="h-9 w-full rounded-xl border border-border bg-background/45 pl-9 pr-3 text-[12px] text-foreground outline-none placeholder:text-text-muted focus:border-foreground/60" /></label>
                     {canManageAccess ? <button ref={accessTriggerRef} type="button" aria-expanded={accessOpen} aria-controls="workspace-access-form" onClick={() => {
@@ -646,21 +686,24 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
                   </div>
                 </div>
 
-                <div role="table" aria-label="Collection direct access">
+                <div role="table" aria-label="Collection access directory">
                   <div role="row" className="sr-only lg:not-sr-only lg:grid lg:grid-cols-[minmax(0,1.4fr)_150px_150px_110px] lg:gap-4 lg:border-b lg:border-border lg:bg-background/20 lg:px-5 lg:py-2.5"><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Principal</span><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Status</span><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Role</span><span role="columnheader" className="text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Action</span></div>
                   {displayedDirectory.length === 0 ? (
-                    <div role="row"><div role="cell" aria-colspan={4} className="px-5 py-10 text-center text-[12px] text-text-muted">{query ? "No active people or agents match your search." : "No active direct access entries."}</div></div>
-                  ) : displayedDirectory.map((entry) => {
-                    const label = subjectLabel(entry);
+                    <div role="row"><div role="cell" aria-colspan={4} className="px-5 py-10 text-center text-[12px] text-text-muted">{query ? "No people or agents match your search." : "No active direct access entries."}</div></div>
+                  ) : displayedDirectory.map((row) => {
+                    const entry = row.kind === "access" ? row.entry : null;
+                    const subjectType = row.kind === "access" ? row.entry.subjectType : "agent";
+                    const subjectId = row.kind === "access" ? row.entry.subjectId : row.agent.id;
+                    const label = directoryRowLabel(row);
                     return (
-                      <div key={subjectKey(entry.subjectType, entry.subjectId)} role="row" className="grid gap-4 px-4 py-4 transition-colors hover:bg-surface-low/45 sm:px-5 lg:grid-cols-[minmax(0,1.4fr)_150px_150px_110px] lg:items-center">
+                      <div key={subjectKey(subjectType, subjectId)} role="row" className="grid gap-4 px-4 py-4 transition-colors hover:bg-surface-low/45 sm:px-5 lg:grid-cols-[minmax(0,1.4fr)_150px_150px_110px] lg:items-center">
                         <div role="cell" className="flex min-w-0 items-center gap-3">
-                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${entry.subjectType === "user" ? "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)]" : "border-border bg-background/45 text-text-secondary"}`}>{entry.subjectType === "agent" ? <Bot className="h-4 w-4" /> : <span className="text-[10px] font-semibold">{accountInitials(label, entry.subjectId)}</span>}</span>
-                          <span className="min-w-0"><span className="block truncate text-[13px] font-medium text-foreground">{label}</span><span className="mt-1 block truncate text-[11px] text-text-muted">{subjectSecondaryLabel(entry)}</span></span>
+                          <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${subjectType === "user" ? "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-[var(--selection-accent)]" : "border-border bg-background/45 text-text-secondary"}`}>{subjectType === "agent" ? <Bot className="h-4 w-4" /> : <span className="text-[10px] font-semibold">{accountInitials(label, subjectId)}</span>}</span>
+                          <span className="min-w-0"><span className="block truncate text-[13px] font-medium text-foreground">{label}</span><span className="mt-1 block truncate text-[11px] text-text-muted">{directoryRowSecondaryLabel(row)}</span></span>
                         </div>
-                        <div role="cell"><Badge variant="active" className="rounded-full px-2.5 py-1 text-[10px]"><Check className="h-3 w-3" /> Active</Badge><span className="mt-1 block text-[10px] text-text-muted">{entry.grants.length} active {entry.grants.length === 1 ? "grant" : "grants"}</span></div>
-                        <div role="cell" className="text-[12px] capitalize text-text-secondary">{entry.role}</div>
-                        <div role="cell"><button type="button" aria-label={`Remove ${label}`} onClick={() => setPendingRevokeEntry(entry)} disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Remove</button></div>
+                        <div role="cell">{entry ? <><Badge variant="active" className="rounded-full px-2.5 py-1 text-[10px]"><Check className="h-3 w-3" /> Active</Badge><span className="mt-1 block text-[10px] text-text-muted">{entry.grants.length} active {entry.grants.length === 1 ? "grant" : "grants"}</span></> : <Badge variant="secondary" className="rounded-full px-2.5 py-1 text-[10px] text-text-muted"><LockKeyhole className="h-3 w-3" /> No access</Badge>}</div>
+                        <div role="cell" className="text-[12px] capitalize text-text-secondary">{entry?.role ?? "Not assigned"}</div>
+                        <div role="cell">{entry ? <button type="button" aria-label={`Remove ${label}`} onClick={() => setPendingRevokeEntry(entry)} disabled={busy} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> Remove</button> : <span className="text-[11px] text-text-muted">No action</span>}</div>
                       </div>
                     );
                   })}

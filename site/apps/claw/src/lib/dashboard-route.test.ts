@@ -5,6 +5,7 @@ import {
   DASHBOARD_VIEW_HREFS,
   KNOWLEDGE_HUB_HREF,
   buildAgentLauncherHref,
+  buildAgentSettingsHref,
   buildAgentTrialHref,
   buildAuthenticatedClawHomeHref,
   buildDashboardAgentsRedirectHref,
@@ -39,6 +40,13 @@ describe("dashboard routes", () => {
       session: "session focus",
     })).toBe(
       "/dashboard/agents?view=usage&agentId=agent%2Fone&session=session+focus",
+    );
+  });
+
+  it("builds generic and agent-scoped settings links", () => {
+    expect(buildAgentSettingsHref()).toBe("/dashboard/agents?view=settings&settings=agent");
+    expect(buildAgentSettingsHref(" agent/one ")).toBe(
+      "/dashboard/agents?view=settings&settings=agent&agentId=agent%2Fone",
     );
   });
 

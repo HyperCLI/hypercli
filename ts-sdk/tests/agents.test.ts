@@ -13,6 +13,7 @@ import {
   flattenLaunchConfig,
   launchConfigHasDesktop,
   OpenClawAgent,
+  OpenClawGatewayConnectionManager,
   OpenClawProAgent,
   attachSlackRelayAgent,
   getSlackInstallStatus,
@@ -1759,10 +1760,18 @@ describe('Agents SDK', () => {
 
   it('detects desktop from explicit launch config and hydrated routes only', () => {
     expect(launchConfigHasDesktop({ env: { OPENCLAW_DESKTOP_ENABLED: '1' } })).toBe(true);
+    expect(launchConfigHasDesktop({
+      env: { OPENCLAW_DESKTOP_ENABLED: '0' },
+      routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } },
+    })).toBe(false);
     expect(launchConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } } })).toBe(true);
     expect(launchConfigHasDesktop({ routes: { browser: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
     expect(launchConfigHasDesktop({ image: 'ghcr.io/hypercli/hypercli-openclaw:pro-prod' })).toBe(false);
     expect(agentConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
+    expect(agentConfigHasDesktop({
+      launchConfig: { env: { OPENCLAW_DESKTOP_ENABLED: 'false' } },
+      routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } },
+    })).toBe(false);
   });
 
   it('flattens launch config and exposes desktop capability on agents', () => {
@@ -2214,5 +2223,282 @@ describe('Agents SDK', () => {
 
     await expect(contextPromise).rejects.toMatchObject({ name: 'AbortError' });
     expect((deployments.get.mock.calls[0]?.[1] as { signal: AbortSignal }).signal.aborted).toBe(true);
+  });
+
+  it('reuses a warm OpenClaw gateway across refreshed Agent objects', async () => {
+    const close = vi.fn();
+    const setGatewayToken = vi.fn();
+    const client = { close, setGatewayToken } as any;
+    const clientFactory = vi.fn(() => client);
+    const openClawGateways = new OpenClawGatewayConnectionManager({ clientFactory });
+    const snapshot = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state: 'RUNNING',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    const deployments = {
+      agentApiKey: 'hyper_api_test',
+      agentApiBase: 'https://api.test.hypercli.com/agents',
+      openClawGateways,
+      get: vi.fn().mockResolvedValue(snapshot),
+      secret: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        key: 'OPENCLAW_GATEWAY_TOKEN',
+        value: 'gw-fetched',
+        launch_epoch: 3,
+      }),
+    } as unknown as Deployments;
+    const firstAgent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state: 'RUNNING',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    firstAgent._deployments = deployments;
+
+    const firstLease = await firstAgent.acquireGateway({ clientId: 'openclaw-control-ui', clientMode: 'webchat' });
+    firstLease.release();
+
+    const refreshedAgent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state: 'RUNNING',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    refreshedAgent._deployments = deployments;
+    const secondLease = await refreshedAgent.acquireGateway({ clientId: 'openclaw-control-ui', clientMode: 'webchat' });
+
+    expect(secondLease.client).toBe(firstLease.client);
+    expect(clientFactory).toHaveBeenCalledTimes(1);
+    expect(deployments.get).toHaveBeenCalledTimes(2);
+    expect(deployments.secret).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
+
+    secondLease.release();
+    openClawGateways.dispose();
+  });
+
+  it('moves pooled lifecycle callbacks to the current gateway lease', () => {
+    const close = vi.fn();
+    const setGatewayToken = vi.fn();
+    let clientOptions: any;
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: (options) => {
+        clientOptions = options;
+        return { close, setGatewayToken } as any;
+      },
+    });
+    const firstGap = vi.fn();
+    const secondGap = vi.fn();
+    const request = (onGap: () => void, gatewayToken: string) => ({
+      deploymentId: 'agent-123',
+      launchEpoch: 3,
+      generation: manager.generation('agent-123'),
+      options: {
+        url: 'wss://openclaw-test.hypercli.com',
+        gatewayToken,
+        clientId: 'openclaw-control-ui',
+        clientMode: 'webchat',
+        onGap,
+      },
+    });
+
+    const firstLease = manager.acquire(request(firstGap, 'gw-old'));
+    firstLease.release();
+    const secondLease = manager.acquireExisting(request(secondGap, 'gw-new'));
+
+    expect(secondLease?.client).toBe(firstLease.client);
+    expect(setGatewayToken).toHaveBeenLastCalledWith('gw-new');
+    clientOptions.onGap({ expected: 2, received: 4 });
+    expect(firstGap).not.toHaveBeenCalled();
+    expect(secondGap).toHaveBeenCalledTimes(1);
+
+    secondLease?.release();
+    manager.dispose();
+  });
+
+  it('evicts the oldest idle gateway above the configured connection bound', async () => {
+    vi.useFakeTimers();
+    const clients: Array<{ close: ReturnType<typeof vi.fn>; setGatewayToken: ReturnType<typeof vi.fn> }> = [];
+    const manager = new OpenClawGatewayConnectionManager({
+      maxConnections: 2,
+      idleTimeoutMs: 100,
+      clientFactory: () => {
+        const client = { close: vi.fn(), setGatewayToken: vi.fn() };
+        clients.push(client);
+        return client as any;
+      },
+    });
+    const acquire = (deploymentId: string) => manager.acquire({
+      deploymentId,
+      launchEpoch: 1,
+      generation: manager.generation(deploymentId),
+      options: { url: `wss://${deploymentId}.example.test` },
+    });
+
+    acquire('agent-a').release();
+    await vi.advanceTimersByTimeAsync(1);
+    acquire('agent-b').release();
+    await vi.advanceTimersByTimeAsync(1);
+    const current = acquire('agent-c');
+
+    expect(manager.size).toBe(2);
+    expect(clients[0].close).toHaveBeenCalledTimes(1);
+    expect(clients[1].close).not.toHaveBeenCalled();
+    expect(clients[2].close).not.toHaveBeenCalled();
+
+    current.release();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(manager.size).toBe(0);
+  });
+
+  it('replaces a pooled gateway when the deployment launch context changes', () => {
+    const clients: Array<{ close: ReturnType<typeof vi.fn>; setGatewayToken: ReturnType<typeof vi.fn> }> = [];
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: () => {
+        const client = { close: vi.fn(), setGatewayToken: vi.fn() };
+        clients.push(client);
+        return client as any;
+      },
+    });
+    const first = manager.acquire({
+      deploymentId: 'agent-123',
+      launchEpoch: 1,
+      generation: manager.generation('agent-123'),
+      options: { url: 'wss://launch-1.example.test' },
+    });
+    first.release();
+
+    const second = manager.acquire({
+      deploymentId: 'agent-123',
+      launchEpoch: 2,
+      generation: manager.generation('agent-123'),
+      options: { url: 'wss://launch-2.example.test' },
+    });
+
+    expect(second.client).not.toBe(first.client);
+    expect(clients[0].close).toHaveBeenCalledTimes(1);
+    second.release();
+    manager.dispose();
+  });
+
+  it('rejects an older gateway context after a newer launch epoch is pooled', () => {
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: () => ({ close: vi.fn(), setGatewayToken: vi.fn() }) as any,
+    });
+    const generation = manager.generation('agent-123');
+    const current = manager.acquire({
+      deploymentId: 'agent-123',
+      launchEpoch: 4,
+      generation,
+      options: { url: 'wss://launch-4.example.test' },
+    });
+
+    expect(() => manager.acquire({
+      deploymentId: 'agent-123',
+      launchEpoch: 3,
+      generation,
+      options: { url: 'wss://launch-3.example.test' },
+    })).toThrow(/stale.*launch epoch 3 < 4/i);
+    expect(manager.size).toBe(1);
+
+    current.release();
+    manager.dispose();
+  });
+
+  it('rejects acquisitions invalidated while gateway context is resolving', () => {
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: () => ({ close: vi.fn(), setGatewayToken: vi.fn() }) as any,
+    });
+    const generation = manager.generation('agent-123');
+
+    manager.invalidate('agent-123');
+
+    expect(() => manager.acquire({
+      deploymentId: 'agent-123',
+      launchEpoch: 3,
+      generation,
+      options: { url: 'wss://launch-3.example.test' },
+    })).toThrow(/acquisition.*invalidated/i);
+    manager.dispose();
+  });
+
+  it('does not repopulate a disposed gateway manager', () => {
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: () => ({ close: vi.fn(), setGatewayToken: vi.fn() }) as any,
+    });
+    const generation = manager.generation('agent-123');
+
+    manager.dispose();
+
+    expect(() => manager.acquire({
+      deploymentId: 'agent-123',
+      launchEpoch: 3,
+      generation,
+      options: { url: 'wss://launch-3.example.test' },
+    })).toThrow(/manager is disposed/i);
+  });
+
+  it('allows active leases above the warm connection cap and trims them as they release', () => {
+    const clients: Array<{ close: ReturnType<typeof vi.fn>; setGatewayToken: ReturnType<typeof vi.fn> }> = [];
+    const manager = new OpenClawGatewayConnectionManager({
+      maxConnections: 6,
+      clientFactory: () => {
+        const client = { close: vi.fn(), setGatewayToken: vi.fn() };
+        clients.push(client);
+        return client as any;
+      },
+    });
+    const leases = Array.from({ length: 7 }, (_, index) => {
+      const deploymentId = `agent-${index}`;
+      return manager.acquire({
+        deploymentId,
+        launchEpoch: 1,
+        generation: manager.generation(deploymentId),
+        options: { url: `wss://${deploymentId}.example.test` },
+      });
+    });
+
+    expect(manager.size).toBe(7);
+    expect(clients.every((client) => client.close.mock.calls.length === 0)).toBe(true);
+
+    leases[0].release();
+    expect(manager.size).toBe(6);
+    expect(clients[0].close).toHaveBeenCalledTimes(1);
+
+    for (const lease of leases.slice(1)) lease.release();
+    manager.dispose();
+  });
+
+  it('retires a non-reusable gateway only after its final active lease releases', () => {
+    const close = vi.fn();
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: () => ({ close, setGatewayToken: vi.fn() }) as any,
+    });
+    const request = {
+      deploymentId: 'agent-123',
+      launchEpoch: 1,
+      generation: manager.generation('agent-123'),
+      options: { url: 'wss://agent-123.example.test' },
+    };
+    const first = manager.acquire(request);
+    const second = manager.acquireExisting(request);
+
+    first.release({ retain: false });
+    expect(close).not.toHaveBeenCalled();
+    expect(manager.size).toBe(1);
+
+    expect(manager.acquireExisting(request)).toBeNull();
+    const replacement = manager.acquire(request);
+    expect(replacement.client).not.toBe(first.client);
+    expect(manager.size).toBe(2);
+
+    second?.release();
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(manager.size).toBe(1);
+
+    replacement.release();
+    manager.dispose();
   });
 });
