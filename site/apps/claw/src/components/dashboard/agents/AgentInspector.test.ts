@@ -34,4 +34,24 @@ describe("AgentInspector lifecycle status", () => {
       cleanupRequired: false,
     });
   });
+
+  it("keeps archived agents restore-only", () => {
+    const agent = toAgentViewModel(buildSdkAgent({ state: "ARCHIVED" }));
+
+    expect(buildAgentInspectorActionState(agent)).toEqual({
+      canStart: false,
+      canStop: false,
+      cleanupRequired: false,
+    });
+  });
+
+  it("keeps storage-only restore non-stoppable", () => {
+    const agent = toAgentViewModel(buildSdkAgent({ state: "RESTORING" }));
+
+    expect(buildAgentInspectorActionState(agent)).toEqual({
+      canStart: false,
+      canStop: false,
+      cleanupRequired: false,
+    });
+  });
 });

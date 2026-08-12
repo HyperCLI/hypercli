@@ -1301,18 +1301,41 @@ describe("AgentSettingsPanel", () => {
       expect(onStartAgent).not.toHaveBeenCalled();
   });
 
-  it("allows restart after cleanup reaches stopped", () => {
+  it("offers start and archive after cleanup reaches stopped", () => {
     const onStartAgent = vi.fn();
+    const onArchiveAgent = vi.fn();
     renderAgentSettingsPanel({
       agent: { ...agent, state: "STOPPED" },
       onStartAgent,
+      onArchiveAgent,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
 
+    fireEvent.click(screen.getByRole("button", { name: "Archive agent" }));
     fireEvent.click(screen.getByRole("button", { name: "Start agent" }));
+    expect(onArchiveAgent).toHaveBeenCalledTimes(1);
     expect(onStartAgent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Restore agent" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clean up failed launch" })).not.toBeInTheDocument();
+  });
+
+  it("offers restore instead of start for an archived agent", () => {
+    const onStartAgent = vi.fn();
+    const onRestoreAgent = vi.fn();
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "ARCHIVED" },
+      onStartAgent,
+      onRestoreAgent,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore agent" }));
+
+    expect(onRestoreAgent).toHaveBeenCalledTimes(1);
+    expect(onStartAgent).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Start agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive agent" })).not.toBeInTheDocument();
   });
 
   it("renders archiving as cleanup rather than startup", () => {
@@ -1948,7 +1971,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
 
-  it.each(["CREATING", "STARTING", "RESTORING"] as const)(
+  it.each(["CREATING", "STARTING"] as const)(
     "allows %s startup to be cancelled",
     (state) => {
       const onStopAgent = vi.fn();
@@ -1965,6 +1988,20 @@ describe("AgentSettingsPanel", () => {
       expect(onStopAgent).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("keeps a restoring runtime busy until it reaches stopped", () => {
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "RESTORING" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    const restoreButton = screen.getByRole("button", { name: "Restoring agent" });
+    expect(restoreButton).toBeDisabled();
+    expect(restoreButton).toHaveTextContent("Restoring...");
+    expect(screen.getByText("Agent is restoring files")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop agent" })).not.toBeInTheDocument();
+  });
 
   it("saves desktop and workspace launch settings as managed config", async () => {
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);

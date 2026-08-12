@@ -499,6 +499,34 @@ export async function stopAgent(apiKey: string, agentId: string, onAccepted?: Ag
   );
 }
 
+export async function archiveAgent(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
+  const agentClient = createAgentClient(apiKey);
+  const accepted = await agentClient.archive(agentId);
+  onAccepted?.(accepted);
+  if (accepted.state.toUpperCase() === "ARCHIVED") return accepted;
+  return agentClient.waitForState(
+    accepted.id,
+    ["ARCHIVED"],
+    AGENT_LIFECYCLE_TIMEOUT_MS,
+    ["FAILED", "DELETED"],
+    accepted.launchEpoch,
+  );
+}
+
+export async function restoreAgent(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
+  const agentClient = createAgentClient(apiKey);
+  const accepted = await agentClient.restore(agentId);
+  onAccepted?.(accepted);
+  if (accepted.state.toUpperCase() === "STOPPED") return accepted;
+  return agentClient.waitForState(
+    accepted.id,
+    ["STOPPED"],
+    AGENT_LIFECYCLE_TIMEOUT_MS,
+    ["FAILED", "DELETED"],
+    accepted.launchEpoch,
+  );
+}
+
 export async function deleteStoppedAgent(apiKey: string, agentId: string): Promise<Record<string, unknown>> {
   const agentClient = createAgentClient(apiKey);
   const current = await agentClient.get(agentId);

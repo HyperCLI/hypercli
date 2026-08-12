@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, requestAgentStart, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
+import { archiveAgent, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -11,11 +11,13 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
     deploymentsInstance: {
       createOpenClaw: vi.fn(),
       createOpenClawPro: vi.fn(),
+      archive: vi.fn(),
       delete: vi.fn(),
       get: vi.fn(),
       list: vi.fn(),
       start: vi.fn(),
       startOpenClaw: vi.fn(),
+      restore: vi.fn(),
       stop: vi.fn(),
       waitForState: vi.fn(),
     },
@@ -67,10 +69,12 @@ describe("agent-client", () => {
     deploymentsInstance.get.mockReset();
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
+    deploymentsInstance.archive.mockReset();
     deploymentsInstance.delete.mockReset();
     deploymentsInstance.list.mockReset();
     deploymentsInstance.start.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
+    deploymentsInstance.restore.mockReset();
     deploymentsInstance.stop.mockReset();
     deploymentsInstance.waitForState.mockReset();
     getSlackInstallStatus.mockReset();
@@ -217,6 +221,47 @@ describe("agent-client", () => {
     expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
       "agent-123",
       ["STOPPED", "ARCHIVING", "ARCHIVED"],
+      300_000,
+      ["FAILED", "DELETED"],
+      9,
+    );
+  });
+
+  it("archives a stopped agent and waits for the verified archive", async () => {
+    const accepted = { id: "agent-123", state: "ARCHIVING", launchEpoch: 9 };
+    const archived = { id: "agent-123", state: "ARCHIVED", launchEpoch: 9 };
+    const onAccepted = vi.fn();
+    deploymentsInstance.archive.mockResolvedValue(accepted);
+    deploymentsInstance.waitForState.mockResolvedValue(archived);
+
+    await expect(archiveAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(archived);
+
+    expect(deploymentsInstance.archive).toHaveBeenCalledWith("agent-123");
+    expect(onAccepted).toHaveBeenCalledWith(accepted);
+    expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
+      "agent-123",
+      ["ARCHIVED"],
+      300_000,
+      ["FAILED", "DELETED"],
+      9,
+    );
+  });
+
+  it("restores an archived agent to stopped without starting compute", async () => {
+    const accepted = { id: "agent-123", state: "RESTORING", launchEpoch: 9 };
+    const stopped = { id: "agent-123", state: "STOPPED", launchEpoch: 9 };
+    const onAccepted = vi.fn();
+    deploymentsInstance.restore.mockResolvedValue(accepted);
+    deploymentsInstance.waitForState.mockResolvedValue(stopped);
+
+    await expect(restoreAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(stopped);
+
+    expect(deploymentsInstance.restore).toHaveBeenCalledWith("agent-123");
+    expect(deploymentsInstance.start).not.toHaveBeenCalled();
+    expect(onAccepted).toHaveBeenCalledWith(accepted);
+    expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
+      "agent-123",
+      ["STOPPED"],
       300_000,
       ["FAILED", "DELETED"],
       9,

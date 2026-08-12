@@ -122,7 +122,19 @@ state; treat it as unknown rather than as no plan.
 
 ## OpenClaw Agents
 
-OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, and `sync_root` are generic deployment options. A nonblank `sync_root` enables Reef persistence; no separate `sync_enabled` field is serialized. The OpenClaw helpers add defaults such as routes, image, and `sync_root=/home/node`.
+OpenClaw uses the generic deployment launch surface. `registry_url`,
+`registry_auth`, and `sync_root` are generic deployment options. A nonblank
+`sync_root` enables Reef persistence; no separate `sync_enabled` field is
+serialized. On generic create, no include/exclude policy means the complete
+root, while `sync_include=[]` means sync nothing. Steady Reef synchronization
+is PVC-to-object-storage upload/overwrite, not a two-way mirror: ordinary
+filesystem deletes are not propagated, and remote-to-PVC copying occurs only
+during explicit cold restore. Files API writes/deletes do perform targeted
+remote operations. The OpenClaw helpers add routes, image,
+`sync_root=/home/node`, and cache/Workspace exclusions by default. Coding
+helpers instead inject the runtime-specific include defaults documented in
+[`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
+nullable policy at create time to select the whole root.
 
 ```python
 agent = client.deployments.create_openclaw(

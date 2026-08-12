@@ -188,6 +188,17 @@ from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
 Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into
 `buzz-acp`.
 
+For a generic `CreateDeploymentRequest`, a nonblank `sync_root` with neither
+policy field selects the complete root except Reef's internal metadata paths.
+An explicit empty `sync_include` selects nothing; an empty `sync_exclude`
+excludes nothing; and a nonempty include takes precedence. Typed Buzz requests
+inject the selected runtime's documented include default instead of using the
+generic whole-root behavior. Reef continuously uploads new and changed allowed
+files from the PVC to object storage, but it is not a two-way mirror and does
+not propagate ordinary filesystem deletions. Files API deletes are targeted
+remote deletes. Object storage is copied back to the PVC only during explicit
+cold restore; ordinary start reuses the retained PVC.
+
 The renderer writes timeout and response-policy values but does not perform the
 Desktop provider's cross-field validation. It has no structured Buzz provider
 field, so direct Goose callers must supply `GOOSE_PROVIDER` when needed.

@@ -222,6 +222,11 @@ Accepted create/start options:
 - `entrypoint`
 - `restart`
 - `image`
+- `sync_root`
+- `sync_include`
+- `sync_exclude`
+- `sync_uid`
+- `sync_gid`
 - `registry_url`
 - `registry_auth`
 - `gateway_token`
@@ -233,6 +238,21 @@ are generic launch options. They belong to the base deployment contract, not
 to OpenClaw specifically. Omit `restart` to preserve the platform default, or
 set `restart=False` for a one-shot process that should leave the deployment
 stopped after its main container exits.
+
+A nonblank `sync_root` enables a retained PVC. On generic create, omitting both
+policy fields (or passing an explicit nullable policy) selects the whole root;
+`sync_exclude=[]` also excludes nothing. `sync_include=[]` is deliberately
+different and selects no user paths. A nonempty include list wins over an
+exclude list. Every path is relative to `sync_root`, and Reef always excludes
+its internal `.reef-sync/**` and `.reef-sync-upload/**` paths.
+
+This is not a continuous two-way mirror. Steady synchronization uploads new
+and changed allowed files from the PVC to object storage without propagating
+ordinary filesystem deletions. Files API writes and deletes perform targeted
+remote operations. Data is copied from object storage to the PVC only during
+an explicit cold restore; ordinary start reuses the retained PVC. See
+[Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
+and the complete lifecycle and full-PVC archive semantics.
 
 `env` and `secrets` are separate string dictionaries. A key cannot appear in
 both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gateway_token`
@@ -282,6 +302,10 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   defaults to the standard `openclaw` and `desktop` routes when omitted
 - `sync_root`
   defaults to `/home/node`
+- `sync_exclude`
+  defaults to the OpenClaw cache policy: Workspace projections under
+  `shared/**`, nested package caches, memory-reindex scratch files, and browser
+  caches are excluded
 - no separate sync boolean is serialized; normalized `sync_root` is the sole
   persistence switch
 - `heartbeat`

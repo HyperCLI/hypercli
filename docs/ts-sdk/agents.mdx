@@ -213,6 +213,21 @@ Omit `restart` to preserve the platform default, or set `restart: false` for a
 one-shot process that should leave the deployment stopped after its main
 container exits.
 
+On generic create, omitting both policy fields (or passing an explicit nullable
+policy) selects the whole sync root; `syncExclude: []` also excludes nothing.
+`syncInclude: []` is deliberately different and selects no user paths. A
+nonempty include list wins over an exclude list. Every path is relative to
+`syncRoot`, and Reef always excludes its internal `.reef-sync/**` and
+`.reef-sync-upload/**` paths.
+
+This is not a continuous two-way mirror. Steady synchronization uploads new
+and changed allowed files from the PVC to object storage without propagating
+ordinary filesystem deletions. Files API writes and deletes perform targeted
+remote operations. Data is copied from object storage to the PVC only during
+an explicit cold restore; ordinary start reuses the retained PVC. See
+[Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
+and the complete lifecycle and full-PVC archive semantics.
+
 `env` and `secrets` are separate string records. A key cannot appear in both.
 The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gatewayToken` (or the
 same key in `secrets`) only when intentionally replacing it. Otherwise the
@@ -261,6 +276,10 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   defaults to the standard `openclaw` and `desktop` routes when omitted
 - `syncRoot`
   defaults to `/home/node`
+- `syncExclude`
+  defaults to the OpenClaw cache policy: Workspace projections under
+  `shared/**`, nested package caches, memory-reindex scratch files, and browser
+  caches are excluded
 - `heartbeat`
   maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
 

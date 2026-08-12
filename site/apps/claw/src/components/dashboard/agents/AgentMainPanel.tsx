@@ -47,6 +47,7 @@ interface AgentMainPanelProps {
     onSelect: () => void;
   } | null;
   startingId: string | null;
+  restoringId?: string | null;
   recentlyStoppedIds: Set<string>;
   selectedAgentLaunchBlocked: boolean;
   selectedAgentStartGuidanceTitle?: string | null;
@@ -82,6 +83,7 @@ interface AgentMainPanelProps {
   onShowInspector: () => void;
   showInspectorButton?: boolean;
   onStart: () => void;
+  onRestore?: () => void;
   onStop?: () => void;
   onReconnect: () => void;
 }
@@ -104,6 +106,7 @@ export function AgentMainPanel({
   chatConnecting,
   sessionReturnTarget = null,
   startingId,
+  restoringId = null,
   recentlyStoppedIds,
   selectedAgentLaunchBlocked,
   selectedAgentStartGuidanceTitle,
@@ -136,6 +139,7 @@ export function AgentMainPanel({
   onShowInspector,
   showInspectorButton = true,
   onStart,
+  onRestore,
   onStop,
   onReconnect,
 }: AgentMainPanelProps) {
@@ -162,7 +166,7 @@ export function AgentMainPanel({
     if (selectedAgent.state === "ARCHIVED") {
       return {
         label: "Archived",
-        detail: "Start the agent to restore its verified archive.",
+        detail: "Restore the verified archive before starting the agent.",
         tone: "stopped",
       };
     }
@@ -177,7 +181,7 @@ export function AgentMainPanel({
     if (selectedAgent.state === "RESTORING") {
       return {
         label: "Restoring files",
-        detail: "Restoring the agent home directory before boot.",
+        detail: "Restoring the agent home directory to stopped storage.",
         tone: "starting",
         loading: true,
       };
@@ -240,12 +244,17 @@ export function AgentMainPanel({
     return () => window.clearTimeout(timeout);
   }, [burstAgentId, onBurstComplete, selectedAgent?.id, selectedAgent?.state]);
 
-  const stoppedLaunchBusy = Boolean(selectedAgent && startingId === selectedAgent.id);
+  const archived = selectedAgentState === "ARCHIVED";
+  const stoppedLaunchBusy = Boolean(selectedAgent && (
+    archived ? restoringId === selectedAgent.id : startingId === selectedAgent.id
+  ));
   const stoppedLaunchCooldown = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
-  const stoppedLaunchBlocked = selectedAgentLaunchBlocked || stoppedLaunchCooldown;
-  const stoppedLaunchBlockedReason = stoppedLaunchCooldown
-    ? "Agent is finishing shutdown. Try again shortly."
-    : selectedAgentStartGuidanceTitle;
+  const stoppedLaunchBlocked = archived ? !onRestore : selectedAgentLaunchBlocked || stoppedLaunchCooldown;
+  const stoppedLaunchBlockedReason = archived
+    ? onRestore ? null : "Restore action is unavailable here."
+    : stoppedLaunchCooldown
+      ? "Agent is finishing shutdown. Try again shortly."
+      : selectedAgentStartGuidanceTitle;
   const stoppedEmptyStateProps = {
     onCreate,
     onCreateAgent,
@@ -255,14 +264,15 @@ export function AgentMainPanel({
     onOpenPlanCatalog,
     preferredPlanId,
     pendingSlotReleases,
-    launchLabel: selectedAgent?.state === "ARCHIVED" ? "Restore agent" : "Start agent",
+    launchLabel: archived ? "Restore agent" : "Start agent",
+    launchingLabel: archived ? "Restoring agent" : "Starting agent",
     launching: stoppedLaunchBusy,
     launchBlocked: stoppedLaunchBlocked,
     launchBlockedReason: stoppedLaunchBlockedReason,
-    onLaunchAction: onStart,
+    onLaunchAction: archived ? onRestore : onStart,
   };
   const stoppedPanelContent = (() => {
-    if (!isStartable) return null;
+    if (!isStartable && !archived) return null;
     if (currentPanel === "chat") {
       return <AgentEmptyState {...stoppedEmptyStateProps} />;
     }
@@ -318,7 +328,7 @@ export function AgentMainPanel({
           : activeAgent.state === "RESTORING"
             ? {
                 title: "Restoring files",
-                detail: "Restoring the agent home directory before boot.",
+                detail: "Restoring the agent home directory to stopped storage.",
                 stage: "runtime" as const,
               }
           : activeAgent.state === "STARTING"

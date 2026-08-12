@@ -851,6 +851,18 @@ def build_agent_config(
 
     Returns a tuple of (launch_config, gateway_token). A gateway token is only
     included when explicitly supplied.
+
+    A nonblank ``sync_root`` enables retained storage. In a create payload,
+    leaving both policy arguments unset (or explicitly clearing one with
+    ``None``) selects the whole root; ``sync_exclude=[]`` also excludes
+    nothing, while ``sync_include=[]`` intentionally selects no user paths.
+    Includes win when both modes are supplied. Paths are relative to
+    ``sync_root``. Existing agents inherit their immutable storage policy on
+    ordinary start.
+
+    Reef steadily uploads allowed PVC changes without propagating ordinary
+    filesystem deletions. Remote data is copied back only by explicit cold
+    restore; Files API writes and deletes perform targeted remote operations.
     """
     return _build_agent_launch(
         config,
@@ -2942,9 +2954,19 @@ class Deployments:
             config: Optional config overrides.
             env: Optional environment variables to pass through to the pod.
             secrets: Optional secret environment variables to pass through to the pod.
+            sync_root: Absolute runtime mount path for retained PVC storage.
+            sync_include: Relative paths to upload/restore. An explicit empty
+                list selects no user paths; ``None`` selects the whole root.
+            sync_exclude: Relative patterns omitted from whole-root mode. An
+                empty list excludes nothing. Ignored when an include is active.
         Returns:
             Agent, normally in ``CREATING``. Wait for ``STOPPED`` before file
             access or calling :meth:`start`.
+
+        Steady Reef synchronization is PVC-to-object-storage upload/overwrite,
+        not a continuous two-way mirror. Ordinary filesystem deletes are not
+        propagated; Files API deletes are. Remote-to-PVC copying occurs only
+        during explicit cold restore.
         """
         effective_api_server_key: str | None = None
         if runtime == "hermes-agent":
@@ -3023,6 +3045,12 @@ class Deployments:
         workspaces_sync: dict | bool | None = None,
         runtime: ManagedAgentRuntime = "openclaw",
     ) -> Agent:
+        """Create OpenClaw with retained ``/home/node`` and cache exclusions.
+
+        Unlike generic create, omitted sync policy arguments select the
+        OpenClaw cache/Workspace exclusion policy. Pass ``sync_include=None``
+        or ``sync_exclude=None`` to request whole-root persistence explicitly.
+        """
         effective_sync_include, effective_sync_exclude = _resolve_openclaw_sync_policy(
             sync_include=sync_include,
             sync_exclude=sync_exclude,
@@ -3237,6 +3265,11 @@ class Deployments:
         buzz_enabled: bool = False,
         buzz: BuzzLaunchConfig | None = None,
     ) -> Agent:
+        """Create a coding runtime with its runtime-specific include default.
+
+        An explicit nullable sync policy opts out of that helper default and
+        selects whole-root persistence. ``sync_include=[]`` selects nothing.
+        """
         if buzz_enabled and buzz is not None:
             raise ValueError("buzz_enabled cannot be combined with buzz")
         if (buzz_enabled or buzz is not None) and command is not None:
@@ -3846,6 +3879,10 @@ class Deployments:
 
         Returns:
             Updated Agent snapshot.
+
+        With no launch overrides, start reuses the retained PVC and stored sync
+        policy; it does not pull object storage into the PVC. Cold restore is a
+        separate lifecycle operation.
         """
         if _is_self_agent_ref(agent_id):
             overrides = {

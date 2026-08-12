@@ -697,10 +697,14 @@ pub struct CreateDeploymentRequest {
     pub entrypoint: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    /// Absolute runtime mount path for retained PVC storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_root: Option<String>,
+    /// Relative selected paths. `Some(vec![])` intentionally selects nothing.
+    /// `None`, with no exclude policy, selects the complete sync root.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_include: Option<Vec<String>>,
+    /// Relative exclusions from whole-root mode. An empty vector excludes nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_exclude: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -781,14 +785,19 @@ pub struct StartDeploymentRequest {
     pub entrypoint: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
+    /// Absolute runtime mount path for retained PVC storage.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_root: Option<String>,
+    /// A create-time present-null selects the complete root; an empty value selects nothing.
+    /// Existing deployments retain their creation-time storage policy.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "deserialize_present_nullable"
     )]
     pub sync_include: Option<Nullable<Vec<String>>>,
+    /// A create-time present-null or empty value excludes nothing from whole-root mode.
+    /// Existing deployments retain their creation-time storage policy.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

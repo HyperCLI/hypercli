@@ -26,14 +26,13 @@ type AgentLifecycleActionState = Pick<Agent, "state" | "isLaunchable">;
 export function isAgentStartable(agent: AgentLifecycleActionState): boolean {
   if (agent.isLaunchable === false) return false;
   const state = agent.state.toUpperCase();
-  return state === "STOPPED" || state === "ARCHIVED";
+  return state === "STOPPED";
 }
 
 export function isAgentStoppable(agent: Pick<Agent, "state">): boolean {
   const state = agent.state.toUpperCase();
   return state === "CREATING"
     || state === "STARTING"
-    || state === "RESTORING"
     || state === "RUNNING"
     || state === "FAILED";
 }

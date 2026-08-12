@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -462,10 +462,14 @@ interface AgentSettingsPanelProps {
   onProfileAvatarChange?: (avatarUrl: string | null, file?: File) => void;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
+  onArchiveAgent?: () => void;
+  onRestoreAgent?: () => void;
   onDeleteAgent?: () => void;
   onLogout?: () => void | Promise<void>;
   agentStarting?: boolean;
   agentStopping?: boolean;
+  agentArchiving?: boolean;
+  agentRestoring?: boolean;
   agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
@@ -1167,9 +1171,13 @@ function AgentSectionSettingsContent({
   agentSettingsSuccess,
   onStartAgent,
   onStopAgent,
+  onArchiveAgent,
+  onRestoreAgent,
   onDeleteAgent,
   agentStarting,
   agentStopping,
+  agentArchiving,
+  agentRestoring,
   agentDeleting,
   agentStartBlocked,
   agentStartBlockedReason,
@@ -1208,9 +1216,13 @@ function AgentSectionSettingsContent({
   agentSettingsSuccess?: string | null;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
+  onArchiveAgent?: () => void;
+  onRestoreAgent?: () => void;
   onDeleteAgent?: () => void;
   agentStarting?: boolean;
   agentStopping?: boolean;
+  agentArchiving?: boolean;
+  agentRestoring?: boolean;
   agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
@@ -1223,27 +1235,32 @@ function AgentSectionSettingsContent({
   const canStartAgent = isAgentStartable(agent);
   const canStopAgent = isAgentStoppable(agent);
   const canDeleteAgent = isAgentDeletable(agent);
-  const startupCanBeCancelled = agent.state === "CREATING" || agent.state === "STARTING" || agent.state === "RESTORING";
-  const archiving = agent.state === "ARCHIVING";
-  const stopping = Boolean(agentStopping || agent.state === "STOPPING" || archiving);
+  const startupCanBeCancelled = agent.state === "CREATING" || agent.state === "STARTING";
+  const stopped = agent.state === "STOPPED";
+  const archived = agent.state === "ARCHIVED";
+  const archiving = Boolean(agentArchiving || agent.state === "ARCHIVING");
+  const restoring = Boolean(agentRestoring || agent.state === "RESTORING");
+  const stopping = Boolean(agentStopping || agent.state === "STOPPING");
   const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping));
-  const lifecycleBusy = Boolean(agentStarting || agentStopping || isAgentTransitionalState(agent.state));
-  const lifecycleDescription = canStopAgent
+  const lifecycleBusy = Boolean(agentStarting || agentStopping || agentArchiving || agentRestoring || isAgentTransitionalState(agent.state));
+  const lifecycleDescription = archiving
+    ? "Agent is archiving"
+    : restoring
+      ? "Agent is restoring files"
+      : canStopAgent
     ? failedRuntimeNeedsCleanup
       ? "Remove resources left behind by the failed launch"
       : startupCanBeCancelled
         ? "Cancel startup and release the admitted runtime"
         : "Pause compute and disconnect the gateway"
-    : canStartAgent
+    : stopped && canStartAgent
       ? (agentStartBlockedReason ?? "Start compute and reconnect the gateway")
-      : agent.state === "RESTORING"
-        ? "Agent is restoring files"
+      : archived
+        ? "Restore the verified archive to persistent storage"
       : agent.state === "CREATING" || agent.state === "STARTING"
         ? "Agent is starting"
       : agent.state === "STOPPING"
           ? "Agent is stopping"
-        : agent.state === "ARCHIVING"
-          ? "Agent is archiving"
           : "Lifecycle controls are unavailable";
 
   return (
@@ -1254,31 +1271,74 @@ function AgentSectionSettingsContent({
             <p className="text-sm font-semibold leading-5 text-foreground">Agent runtime</p>
             <p className="mt-1 text-sm leading-5 text-text-muted">{lifecycleDescription}</p>
           </div>
-          {canStopAgent || stopping || archiving ? (
+          {archiving ? (
             <button
               type="button"
-              aria-label={archiving ? "Archiving agent" : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              aria-label="Archiving agent"
+              disabled
+              className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
+            >
+              Archiving...
+              <Archive className="h-3.5 w-3.5" />
+            </button>
+          ) : restoring ? (
+            <button
+              type="button"
+              aria-label="Restoring agent"
+              disabled
+              className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 text-xs font-medium text-[var(--selection-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Restoring...
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          ) : canStopAgent || stopping ? (
+            <button
+              type="button"
+              aria-label={failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               onClick={onStopAgent}
               disabled={!onStopAgent || stopping}
               className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
             >
-              {archiving ? "Archiving..." : stopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              {stopping ? "Stopping..." : failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
               <Square className="h-3 w-3 fill-current" />
             </button>
-          ) : (
-            <TooltipHint label={agentStartBlockedReason ?? "Start agent"} disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}>
+          ) : stopped ? (
+            <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                aria-label="Start agent"
-                onClick={onStartAgent}
-                disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
-                className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Archive agent"
+                onClick={onArchiveAgent}
+                disabled={!onArchiveAgent || lifecycleBusy}
+                className={`${SETTINGS_SMALL_BUTTON_CLASS} gap-2`}
               >
-                {starting ? "Starting..." : "Start agent"}
-                <Play className="h-3.5 w-3.5 fill-current" />
+                Archive
+                <Archive className="h-3.5 w-3.5" />
               </button>
-            </TooltipHint>
-          )}
+              <TooltipHint label={agentStartBlockedReason ?? "Start agent"} disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}>
+                <button
+                  type="button"
+                  aria-label="Start agent"
+                  onClick={onStartAgent}
+                  disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
+                  className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {starting ? "Starting..." : "Start agent"}
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                </button>
+              </TooltipHint>
+            </div>
+          ) : archived ? (
+            <button
+              type="button"
+              aria-label="Restore agent"
+              onClick={onRestoreAgent}
+              disabled={!onRestoreAgent || lifecycleBusy}
+              className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Restore
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
 
         <h2 className="text-xl font-semibold leading-tight text-foreground">Agent Settings</h2>
@@ -1757,10 +1817,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onProfileAvatarChange,
     onStartAgent,
     onStopAgent,
+    onArchiveAgent,
+    onRestoreAgent,
     onDeleteAgent,
     onLogout,
     agentStarting = false,
     agentStopping = false,
+    agentArchiving = false,
+    agentRestoring = false,
     agentDeleting = false,
     agentStartBlocked = false,
     agentStartBlockedReason = null,
@@ -2468,9 +2532,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             agentSettingsSuccess={agentSettingsSuccess}
             onStartAgent={onStartAgent}
             onStopAgent={onStopAgent}
+            onArchiveAgent={onArchiveAgent}
+            onRestoreAgent={onRestoreAgent}
             onDeleteAgent={onDeleteAgent}
             agentStarting={agentStarting}
             agentStopping={agentStopping}
+            agentArchiving={agentArchiving}
+            agentRestoring={agentRestoring}
             agentDeleting={agentDeleting}
             agentStartBlocked={agentStartBlocked}
             agentStartBlockedReason={agentStartBlockedReason}
@@ -3233,6 +3301,7 @@ type AgentEmptyStateProps = {
 
 type AgentLaunchActionProps = {
   launchLabel?: string;
+  launchingLabel?: string;
   launching?: boolean;
   launchBlocked?: boolean;
   launchBlockedReason?: string | null;
@@ -3366,6 +3435,7 @@ export function AgentEmptyState({
   preferredPlanId,
   pendingSlotReleases,
   launchLabel,
+  launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
@@ -3405,6 +3475,7 @@ export function AgentEmptyState({
       examples={examples}
       cardMinHeightClass="md:min-h-[118px]"
       launchLabel={launchLabel}
+      launchingLabel={launchingLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
@@ -3422,6 +3493,7 @@ export function AgentFilesEmptyState({
   onOpenPlanCatalog,
   pendingSlotReleases,
   launchLabel,
+  launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
@@ -3457,6 +3529,7 @@ export function AgentFilesEmptyState({
         "Extract insights, summaries, action items, and data from PDFs, docs, and presentations automatically",
       ]}
       launchLabel={launchLabel}
+      launchingLabel={launchingLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
@@ -3472,6 +3545,7 @@ function LaunchAgentCenteredEmptyStateContent({
   examples,
   onLaunch,
   launchLabel = "Launch agent",
+  launchingLabel = "Starting agent",
   launching = false,
   launchBlocked = false,
   launchBlockedReason,
@@ -3483,12 +3557,13 @@ function LaunchAgentCenteredEmptyStateContent({
   examples: string[];
   onLaunch: () => void;
   launchLabel?: string;
+  launchingLabel?: string;
   launching?: boolean;
   launchBlocked?: boolean;
   launchBlockedReason?: string | null;
   cardMinHeightClass?: "md:min-h-[102px]" | "md:min-h-[118px]";
 }) {
-  const launchButtonLabel = launching ? "Starting agent" : launchLabel;
+  const launchButtonLabel = launching ? launchingLabel : launchLabel;
   const launchDisabled = launching || launchBlocked;
 
   return (
@@ -3517,6 +3592,7 @@ export function AgentIntegrationsEmptyState({
   onOpenPlanCatalog,
   pendingSlotReleases,
   launchLabel,
+  launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
@@ -3552,6 +3628,7 @@ export function AgentIntegrationsEmptyState({
         "Build cross-platform automations that work across your existing stack",
       ]}
       launchLabel={launchLabel}
+      launchingLabel={launchingLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
@@ -3569,6 +3646,7 @@ export function AgentSkillsEmptyState({
   onOpenPlanCatalog,
   pendingSlotReleases,
   launchLabel,
+  launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
@@ -3604,6 +3682,7 @@ export function AgentSkillsEmptyState({
         "Standardize onboarding, reporting, sales research, QA, support, and operations workflows",
       ]}
       launchLabel={launchLabel}
+      launchingLabel={launchingLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
@@ -3615,6 +3694,7 @@ export function AgentSkillsEmptyState({
 export function AgentScheduledEmptyState({
   onCreate,
   launchLabel,
+  launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
@@ -3631,6 +3711,7 @@ export function AgentScheduledEmptyState({
         "Review upcoming runs and adjust schedules as priorities change",
       ]}
       launchLabel={launchLabel}
+      launchingLabel={launchingLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}
@@ -3642,6 +3723,7 @@ export function AgentScheduledEmptyState({
 export function AgentDesktopEmptyState({
   onCreate,
   launchLabel,
+  launchingLabel,
   launching,
   launchBlocked,
   launchBlockedReason,
@@ -3658,6 +3740,7 @@ export function AgentDesktopEmptyState({
         "Keep browser activity isolated inside the agent's dedicated workspace",
       ]}
       launchLabel={launchLabel}
+      launchingLabel={launchingLabel}
       launching={launching}
       launchBlocked={launchBlocked}
       launchBlockedReason={launchBlockedReason}

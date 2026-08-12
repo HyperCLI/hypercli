@@ -11,6 +11,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
   type EmptyStateMockProps = {
     onCreate: () => void;
     launchLabel?: string;
+    launchingLabel?: string;
     launching?: boolean;
     launchBlocked?: boolean;
     launchBlockedReason?: string | null;
@@ -25,6 +26,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     function EmptyStateButton({
       onCreate,
       launchLabel,
+      launchingLabel,
       launching,
       launchBlocked,
       onLaunchAction,
@@ -43,7 +45,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
             onClick={onCreateWorkspace ?? onLaunchAction ?? onCreate}
             disabled={Boolean(launching || launchBlocked || (!workspaceSetupRequired && creationDisabledReason))}
           >
-            {workspaceSetupRequired ? "Create your first Collection" : launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
+            {workspaceSetupRequired ? "Create your first Collection" : launching ? launchingLabel ?? "Starting agent" : launchLabel ?? defaultButtonLabel}
           </button>
           {workspaceName && hasAccountAgents && onOpenMembers ? (
             <button type="button" onClick={onOpenMembers}>Add an existing agent in Members</button>
@@ -613,13 +615,28 @@ describe("AgentMainPanel", () => {
   it("keeps archived restoration as an explicit lifecycle action", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "ARCHIVED" }));
     const onStart = vi.fn();
-    renderAgentMainPanel({ selectedAgent, onStart });
+    const onRestore = vi.fn();
+    renderAgentMainPanel({ selectedAgent, onStart, onRestore });
 
     const restore = screen.getByRole("button", { name: "Restore agent" });
     fireEvent.click(restore);
 
-    expect(onStart).toHaveBeenCalledOnce();
+    expect(onRestore).toHaveBeenCalledOnce();
+    expect(onStart).not.toHaveBeenCalled();
     expect(screen.queryByRole("tablist", { name: /file source/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps archived restore available without runtime capacity and disables it while pending", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "ARCHIVED" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      selectedAgentLaunchBlocked: true,
+      restoringId: selectedAgent.id,
+      onRestore: vi.fn(),
+    });
+
+    const restore = screen.getByRole("button", { name: "Restoring agent" });
+    expect(restore).toBeDisabled();
   });
 
   it("renders files panel content for a stopped agent", () => {

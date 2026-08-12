@@ -28,6 +28,7 @@ import { useAccountProfileName } from "@/hooks/useAccountProfileName";
 import { useAgentDashboardDesktopViewport } from "@/hooks/useAgentDashboardViewport";
 import {
   AGENT_CLEANUP_START_MESSAGE,
+  archiveAgent,
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
@@ -35,6 +36,7 @@ import {
   deleteStoppedAgent,
   isAgentCleanupConflictError,
   requestAgentStart,
+  restoreAgent,
   startAgent,
   stopAgent,
   waitForCreatedAgentStopped,
@@ -1306,6 +1308,8 @@ function AgentsPageContent() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
   const [recentlyStoppedIds, setRecentlyStoppedIds] = useState<Set<string>>(new Set());
   const [pendingSlotReleases, setPendingSlotReleases] = useState<Record<string, number>>({});
@@ -1743,6 +1747,8 @@ function AgentsPageContent() {
     setDeletingId(null);
     setStartingId(null);
     setStoppingId(null);
+    setArchivingId(null);
+    setRestoringId(null);
     setOpeningDesktopId(null);
     setRecentlyStoppedIds(new Set());
     setTierSelection(null);
@@ -3468,7 +3474,7 @@ function AgentsPageContent() {
     if (selectedAgent.state === "ARCHIVED") {
       return {
         label: "Archived",
-        detail: "Start the agent to restore its verified archive.",
+        detail: "Restore the verified archive before starting the agent.",
         tone: "stopped",
       };
     }
@@ -3485,7 +3491,7 @@ function AgentsPageContent() {
     if (selectedAgent.state === "RESTORING") {
       return {
         label: "Restoring files",
-        detail: "Restoring the agent home directory before boot.",
+        detail: "Restoring the agent home directory to stopped storage.",
         tone: "starting",
         loading: true,
       };
@@ -4312,7 +4318,7 @@ function AgentsPageContent() {
       setError("The agent is not ready to stop.");
       return;
     }
-    const cancellingStart = agent.state === "CREATING" || agent.state === "STARTING" || agent.state === "RESTORING";
+    const cancellingStart = agent.state === "CREATING" || agent.state === "STARTING";
     if (cancellingStart) cancelledStartAgentIdsRef.current.add(agentId);
     const generation = agentDataGenerationRef.current;
     setStoppingId(agentId);
@@ -4341,6 +4347,66 @@ function AgentsPageContent() {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
       if (generation === agentDataGenerationRef.current) setStoppingId(null);
+    }
+  };
+
+  const handleArchive = async (agentId: string) => {
+    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+    if (sdkAgent?.state.toUpperCase() !== "STOPPED") {
+      setError("Stop the agent before archiving it.");
+      return;
+    }
+    const generation = agentDataGenerationRef.current;
+    setArchivingId(agentId);
+    setError(null);
+    try {
+      const archivedAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return archiveAgent(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+          }
+        });
+      });
+      if (!archivedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(archivedAgent);
+    } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
+      setError(err instanceof Error ? err.message : "Failed to archive agent");
+    } finally {
+      if (generation === agentDataGenerationRef.current) setArchivingId(null);
+    }
+  };
+
+  const handleRestore = async (agentId: string) => {
+    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+    if (sdkAgent?.state.toUpperCase() !== "ARCHIVED") {
+      setError("Only an archived agent can be restored.");
+      return;
+    }
+    const generation = agentDataGenerationRef.current;
+    setRestoringId(agentId);
+    setError(null);
+    try {
+      const restoredAgent = await runAgentMutation(agentId, async () => {
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        const token = await getToken();
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        return restoreAgent(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+          }
+        });
+      });
+      if (!restoredAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(restoredAgent);
+    } catch (err) {
+      if (generation !== agentDataGenerationRef.current) return;
+      setError(err instanceof Error ? err.message : "Failed to restore agent");
+    } finally {
+      if (generation === agentDataGenerationRef.current) setRestoringId(null);
     }
   };
 
@@ -5779,6 +5845,12 @@ function AgentsPageContent() {
     onStopAgent: () => {
       if (selectedAgent) void handleStop(selectedAgent.id);
     },
+    onArchiveAgent: () => {
+      if (selectedAgent) void handleArchive(selectedAgent.id);
+    },
+    onRestoreAgent: () => {
+      if (selectedAgent) void handleRestore(selectedAgent.id);
+    },
     onDeleteAgent: () => {
       if (selectedAgent) {
         setPendingAgentDelete({ id: selectedAgent.id, name: agentDisplayLabel(selectedAgent) });
@@ -5787,6 +5859,8 @@ function AgentsPageContent() {
     onLogout: logout,
     agentStarting: selectedAgentStarting,
     agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
+    agentArchiving: Boolean(selectedAgent && archivingId === selectedAgent.id),
+    agentRestoring: Boolean(selectedAgent && restoringId === selectedAgent.id),
     agentDeleting: Boolean(selectedAgent && deletingId === selectedAgent.id),
     agentStartBlocked: selectedAgentLaunchBlocked,
     agentStartBlockedReason: selectedAgentStartBlockedTitle,
@@ -6367,6 +6441,7 @@ function AgentsPageContent() {
            sessionReturnTarget={selectedSessionReturnTarget}
           surfaceHeader={knowledgeSurfaceHeader}
           startingId={startingId}
+          restoringId={restoringId}
           recentlyStoppedIds={recentlyStoppedIds}
           selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
           selectedAgentStartGuidanceTitle={selectedAgentStartBlockedTitle}
@@ -6764,6 +6839,11 @@ function AgentsPageContent() {
           onStart={() => {
             if (selectedAgent) {
               void handleStart(selectedAgent.id);
+            }
+          }}
+          onRestore={() => {
+            if (selectedAgent) {
+              void handleRestore(selectedAgent.id);
             }
           }}
           onStop={selectedAgent && isAgentStoppable(selectedAgent)

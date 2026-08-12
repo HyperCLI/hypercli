@@ -22,7 +22,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
-| OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | Full `/home/node` (no include or exclude policy) | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
+| OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
 | Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. Its HTTP API Server uses a separate generated `API_SERVER_KEY`. | Full `/opt/data` (no include or exclude policy), UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. The API key is write-only launch material; a later list/get cannot recover it. |
 
 Claude Code, Codex, and Kimi Code images expose the normalized
@@ -55,36 +55,62 @@ The coding-runtime defaults are ordinary launch settings, not a hidden
 platform blacklist. Python uses `sync_include` and `sync_exclude`; TypeScript
 uses `syncInclude` and `syncExclude`.
 
-<Warning>
-These are the current SDK launch-contract defaults. End-to-end selective
-restore, continuous sync, finalization, and archive-only restore require a
-matching managed-control-plane rollout. A backend that does not yet
-understand the policy fields retains the historical full-root behavior.
-</Warning>
-
 - A custom include list replaces the runtime default.
 - A custom exclude list selects full-root-minus-excludes mode when no include
   list is active.
 - Include wins when both custom policies are supplied; the clients serialize
   only the active policy.
 - An explicit empty include list means sync nothing.
-- Supplying a sync root with neither policy field synchronizes the complete
-  root (`/home/node` for the ACP/OpenClaw families, `/opt/data` for Hermes).
+- On generic create, supplying a sync root with neither policy field selects
+  the complete root (`/home/node` for the ACP/OpenClaw families, `/opt/data`
+  for Hermes). Explicit `null` has the same full-root meaning. An empty
+  exclude list also excludes nothing.
 - Paths are relative to the sync root. Do not use absolute paths or `..`.
 
-OpenClaw deliberately remains full-root by default because its gateway config,
-workspace, channel state, and other runtime data span the home directory.
-Hermes likewise remains full-root under `/opt/data`, where its runtime state is
-owned by UID/GID 10000.
+The OpenClaw helpers do not use the generic full-root default. They exclude
+`shared/**` (Workspace projections), `.openclaw/npm/**/node_modules/**`,
+`.openclaw/agents/**/agent/*.sqlite.memory-reindex-*`,
+`.openclaw/agents/**/agent/*.sqlite.reindex-lock.sqlite*`, and the browser
+`Code Cache/**`, `GPUCache/**`, `ShaderCache/**`, `GrShaderCache/**`, and
+`optimization_guide_model_store/**` trees. Pass an explicit `null` policy at
+creation when full-root persistence is intentional.
+Hermes does use full-root persistence under `/opt/data`, where its runtime
+state is owned by UID/GID 10000.
 Coding runtimes default to the smallest roots needed to preserve their native
 configuration, credentials, and state. HyperCLI Workspace projections under
 `/home/node/shared` are a separate feature and are not added to a coding
 runtime's selected backup paths automatically.
 
 Older deployments whose stored launch contract has neither policy field retain
-the historical full-root behavior. Changing a stored policy affects the next
-runtime start; it does not retroactively remove data from an already-running
-container.
+the historical full-root behavior. The sync root and policy are retained
+storage settings chosen at creation; ordinary starts inherit them rather than
+reselecting the storage contract.
+
+## Data-flow and deletion semantics
+
+The policy selects paths inside the persistent volume; it does not create a
+continuous two-way filesystem. While the retained Reef pod is running, allowed
+files flow from the PVC to the cluster object mirror. New and changed files are
+uploaded, but an ordinary process deleting a file from the mounted filesystem
+does not delete the remote object. A delete made through the authenticated
+Files API is different: it performs a targeted local delete and a targeted
+remote delete.
+
+Remote objects flow back to the PVC only during an explicit cold restore.
+Create does not import an old object prefix, and an ordinary start reuses the
+existing PVC without pulling remote changes. Cold restore overwrites the
+selected scope and removes selected local files that are absent from the
+restore source. Reef always reserves `.reef-sync/**` and
+`.reef-sync-upload/**`; those internal paths are excluded even in full-root
+mode.
+
+Archive is a storage-lifecycle boundary rather than another selective-sync
+pass. After the runtime and steady watcher are quiescent, it copies and verifies
+the complete PVC minus Reef's two internal paths, regardless of the user's
+include/exclude policy, and then evicts the cluster-local object prefix. This
+captures ordinary local deletions exactly in the committed archive. An empty
+include still selects no user objects during restore; consequently, a cold
+restore with that policy cannot currently prove a selected source and fails.
 
 ## Container families
 

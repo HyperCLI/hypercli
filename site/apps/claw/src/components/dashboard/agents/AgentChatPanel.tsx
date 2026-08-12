@@ -1151,7 +1151,7 @@ export function AgentChatPanel({
   }, [showComposer]);
   const originDenied = displayBootStatus.status === "error" && /another dashboard address/i.test(displayBootStatus.detail);
   const startupStopAction = (
-    selectedAgent.state === "CREATING" || selectedAgent.state === "STARTING" || selectedAgent.state === "RESTORING"
+    selectedAgent.state === "CREATING" || selectedAgent.state === "STARTING"
   ) ? slashCommandActions?.onStopAgent : undefined;
   const failedCleanupAction = selectedAgent.state === "FAILED" && isAgentStoppable(selectedAgent)
     ? slashCommandActions?.onStopAgent

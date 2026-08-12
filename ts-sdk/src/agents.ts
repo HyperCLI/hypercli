@@ -592,8 +592,17 @@ export interface BuildAgentConfigOptions {
   command?: string[] | null;
   entrypoint?: string[] | null;
   image?: string | null;
+  /** Absolute runtime mount path for retained PVC storage. */
   syncRoot?: string | null;
+  /**
+   * Relative paths selected for steady upload and cold restore. An explicit
+   * empty array selects no user paths; null selects the whole sync root.
+   */
   syncInclude?: readonly string[] | null;
+  /**
+   * Relative patterns excluded from whole-root mode. An empty array excludes
+   * nothing. Ignored when a non-null include policy is supplied.
+   */
   syncExclude?: readonly string[] | null;
   syncUid?: number | null;
   syncGid?: number | null;

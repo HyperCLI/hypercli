@@ -147,7 +147,19 @@ state. Consumers should represent that as unknown, never as an explicit no.
 
 ### OpenClaw Agents
 
-OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, and `syncRoot` are generic deployment options; synchronization is enabled when `syncRoot` is present and disabled when it is absent. The OpenClaw helpers only add defaults such as routes, image, and `syncRoot=/home/node`.
+OpenClaw uses the generic deployment launch surface. `registryUrl`,
+`registryAuth`, and `syncRoot` are generic deployment options. A nonblank
+`syncRoot` enables Reef persistence. On generic create, no include/exclude
+policy means the complete root, while `syncInclude: []` means sync nothing.
+Steady Reef synchronization is PVC-to-object-storage upload/overwrite, not a
+two-way mirror: ordinary filesystem deletes are not propagated, and
+remote-to-PVC copying occurs only during explicit cold restore. Files API
+writes/deletes do perform targeted remote operations. The OpenClaw helpers add
+routes, image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by
+default. Coding helpers instead inject the runtime-specific include defaults
+documented in
+[`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
+nullable policy at create time to select the whole root.
 
 ```typescript
 const agent = await client.deployments.createOpenClaw({
