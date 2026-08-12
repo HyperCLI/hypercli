@@ -105,6 +105,49 @@ def test_cleanup_attempts_both_projections_when_hyperclaw_delete_fails(
     assert errors == ["HyperClaw cleanup failed: agents delete failed"]
 
 
+def test_cleanup_waits_for_stopping_agents_before_deleting_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = str(uuid.uuid4())
+    state = MODULE.BootstrapState(
+        orchestra_api_base="https://api.dev.hypercli.com/api",
+        agents_admin_base="https://api.agents.dev.hypercli.com",
+        orchestra_user_id=user_id,
+        hyperclaw_user_id=user_id,
+        email="fresh@example.com",
+    )
+    calls: list[str] = []
+    sleeps: list[float] = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append(url)
+        if "api.agents.dev" in url and calls.count(url) == 1:
+            return MODULE.Response(
+                409,
+                {
+                    "detail": {
+                        "message": "User still owns non-deleted Agents",
+                        "agents": [{"id": "agent-1", "state": "STOPPING"}],
+                    }
+                },
+                '{"detail":{"message":"User still owns non-deleted Agents"}}',
+            )
+        return MODULE.Response(204, {}, "")
+
+    monkeypatch.setattr(MODULE, "_request", fake_request)
+    monkeypatch.setattr(MODULE.time, "sleep", sleeps.append)
+
+    errors = MODULE.cleanup(state, admin_key="admin-key")
+
+    assert errors == []
+    assert calls == [
+        f"https://api.agents.dev.hypercli.com/admin/users/{user_id}",
+        f"https://api.agents.dev.hypercli.com/admin/users/{user_id}",
+        f"https://api.dev.hypercli.com/api/admin/users/{user_id}",
+    ]
+    assert sleeps == [MODULE.CLEANUP_SETTLE_DELAY_SECONDS]
+
+
 def test_partial_bootstrap_failure_removes_orchestra_projection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

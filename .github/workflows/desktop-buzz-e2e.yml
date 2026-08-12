@@ -104,6 +104,12 @@ jobs:
       HYPERCLI_DESKTOP_APP: ${{ github.workspace }}/desktop/src-tauri/target/debug/HyperCLI
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Normalize workspace ownership
+        shell: bash
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
 
       - name: Bootstrap isolated Buzz E2E user with slots
         shell: bash

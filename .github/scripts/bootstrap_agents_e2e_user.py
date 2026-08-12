@@ -21,6 +21,8 @@ from urllib.request import Request, urlopen
 DEFAULT_PRODUCT_BASE = "https://api.dev.hypercli.com"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
+CLEANUP_SETTLE_ATTEMPTS = 24
+CLEANUP_SETTLE_DELAY_SECONDS = 5.0
 
 
 @dataclass(frozen=True)
@@ -193,12 +195,23 @@ def cleanup(state: BootstrapState, *, admin_key: str | None = None) -> list[str]
     errors: list[str] = []
     if state.hyperclaw_user_id:
         try:
-            _request(
-                "DELETE",
-                f"{state.agents_admin_base}/admin/users/{state.hyperclaw_user_id}",
-                admin_key=key,
-                expected=(200, 204, 404),
-            )
+            response: Response | None = None
+            for attempt in range(1, CLEANUP_SETTLE_ATTEMPTS + 1):
+                response = _request(
+                    "DELETE",
+                    f"{state.agents_admin_base}/admin/users/{state.hyperclaw_user_id}",
+                    admin_key=key,
+                    expected=(200, 204, 404, 409),
+                )
+                if response.status != 409:
+                    break
+                if attempt < CLEANUP_SETTLE_ATTEMPTS:
+                    time.sleep(CLEANUP_SETTLE_DELAY_SECONDS)
+            if response is not None and response.status == 409:
+                raise RuntimeError(
+                    "Agents did not settle before user cleanup: "
+                    f"{response.status} {response.text}"
+                )
         except Exception as error:  # cleanup must continue to Orchestra
             errors.append(f"HyperClaw cleanup failed: {error}")
 
