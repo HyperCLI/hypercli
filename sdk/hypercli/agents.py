@@ -20,7 +20,7 @@ import re
 import secrets
 import shlex
 import time
-from typing import TYPE_CHECKING, Awaitable, Callable, ClassVar, Literal, Optional, Any, AsyncIterator, NotRequired, TypeVar, TypedDict
+from typing import TYPE_CHECKING, Awaitable, Callable, ClassVar, Literal, Optional, Any, AsyncIterator, NotRequired, TypeVar, TypedDict, cast
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
@@ -188,6 +188,16 @@ ManagedAgentRuntime = Literal[
     "goose",
     "kimi-code",
 ]
+AgentSize = Literal["small", "medium", "large"]
+_AGENT_SIZES = frozenset({"small", "medium", "large"})
+
+
+def _parse_agent_size(value: object, *, field_name: str) -> AgentSize:
+    if not isinstance(value, str) or value not in _AGENT_SIZES:
+        raise ValueError(f"{field_name} must be one of: small, medium, large")
+    return cast(AgentSize, value)
+
+
 CodingAgentRuntime = Literal["buzz-agent", "opencode", "codex", "claude-code", "goose", "kimi-code"]
 
 DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
@@ -1073,6 +1083,13 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "relay_key": data.get("relay_key") if isinstance(data.get("relay_key"), dict) else None,
         "cpu": data.get("cpu", 0),
         "memory": data.get("memory", 0),
+        "requested_size": (
+            _parse_agent_size(
+                data.get("requested_size"), field_name="Agent requested_size"
+            )
+            if data.get("requested_size") is not None
+            else None
+        ),
         "hostname": data.get("hostname"),
         "tags": list(data.get("tags") or []),
         "jwt_token": data.get("jwt_token"),
@@ -1654,7 +1671,7 @@ class AgentSlot:
     id: str
     entitlement_id: str | None
     plan_id: str
-    size: str
+    size: AgentSize
     agent_id: str | None
     occupied: bool
     expires_at: datetime | None = None
@@ -1666,7 +1683,7 @@ class AgentSlot:
             id=str(data.get("id") or ""),
             entitlement_id=str(data["entitlement_id"]) if data.get("entitlement_id") else None,
             plan_id=str(data.get("plan_id") or ""),
-            size=str(data.get("size") or ""),
+            size=_parse_agent_size(data.get("size"), field_name="Agent slot size"),
             agent_id=str(agent_id) if agent_id else None,
             occupied=bool(data.get("occupied", agent_id is not None)),
             expires_at=_parse_dt(data.get("expires_at")),
@@ -1739,6 +1756,7 @@ class Agent:
     relay_key: Optional[dict] = None
     cpu: int = 0              # cores
     memory: int = 0           # GB
+    requested_size: AgentSize | None = None
     hostname: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     jwt_token: Optional[str] = None

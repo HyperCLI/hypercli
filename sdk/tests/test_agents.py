@@ -71,6 +71,18 @@ def test_agent_from_dict_hydrates_launch_epoch_and_future_state():
     assert agent.launch_epoch == 4
 
 
+def test_agent_from_dict_parses_requested_size_and_rejects_unknown_size():
+    agent = Agent.from_dict(
+        {"id": "agent-123", "state": "RUNNING", "requested_size": "large"}
+    )
+
+    assert agent.requested_size == "large"
+    with pytest.raises(ValueError, match="small, medium, large"):
+        Agent.from_dict(
+            {"id": "agent-123", "state": "RUNNING", "requested_size": "huge"}
+        )
+
+
 @pytest.mark.asyncio
 async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     http = MagicMock(spec=HTTPClient)

@@ -3027,7 +3027,7 @@ mod tests {
             .update_deployment("deployment-1", &request)
             .unwrap();
 
-        assert_eq!(deployment.requested_size.as_deref(), Some("large"));
+        assert_eq!(deployment.requested_size, Some(crate::AgentSize::Large));
         assert_eq!(deployment.launch_config.as_map()["env"]["EDITOR"], "nvim");
         mock.assert();
     }

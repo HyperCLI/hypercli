@@ -999,7 +999,7 @@ pub struct Deployment {
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
-    pub requested_size: Option<String>,
+    pub requested_size: Option<AgentSize>,
     #[serde(default)]
     pub archived_at: Option<String>,
     #[serde(default)]
@@ -1336,6 +1336,22 @@ mod tests {
         };
 
         assert_eq!(capacity.largest_available_size(), Some(AgentSize::Large));
+    }
+
+    #[test]
+    fn deployment_rejects_unknown_requested_size() {
+        let valid: Deployment = serde_json::from_value(serde_json::json!({
+            "id": "agent-1",
+            "requested_size": "large"
+        }))
+        .unwrap();
+        assert_eq!(valid.requested_size, Some(AgentSize::Large));
+
+        assert!(serde_json::from_value::<Deployment>(serde_json::json!({
+            "id": "agent-1",
+            "requested_size": "huge"
+        }))
+        .is_err());
     }
 
     #[test]

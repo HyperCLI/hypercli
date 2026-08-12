@@ -1,4 +1,11 @@
-export type AgentSlotSize = 'small' | 'medium' | 'large' | (string & {});
+export type AgentSlotSize = 'small' | 'medium' | 'large';
+
+export function parseAgentSlotSize(value: unknown, fieldName = 'Agent slot size'): AgentSlotSize {
+  if (value !== 'small' && value !== 'medium' && value !== 'large') {
+    throw new Error(`${fieldName} must be one of: small, medium, large`);
+  }
+  return value;
+}
 
 export interface AgentSlotInventory {
   granted: number;
@@ -27,7 +34,7 @@ export function agentSlotFromDict(data: Record<string, any>): AgentSlot {
     id: String(data.id || ''),
     entitlementId: data.entitlement_id ? String(data.entitlement_id) : null,
     planId: String(data.plan_id || ''),
-    size: String(data.size || '') as AgentSlotSize,
+    size: parseAgentSlotSize(data.size),
     agentId,
     occupied: data.occupied === undefined ? agentId !== null : Boolean(data.occupied),
     expiresAt: parseAgentSlotDate(data.expires_at),

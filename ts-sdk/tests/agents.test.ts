@@ -42,6 +42,13 @@ describe('Agents SDK', () => {
     vi.unstubAllGlobals();
   });
 
+  it('parses requested size and rejects unknown wire sizes', () => {
+    expect(Agent.fromDict({ id: 'agent-1', state: 'RUNNING', requested_size: 'large' }).requestedSize)
+      .toBe('large');
+    expect(() => Agent.fromDict({ id: 'agent-1', state: 'RUNNING', requested_size: 'huge' }))
+      .toThrow('small, medium, large');
+  });
+
   it('adds the current browser origin to OpenClaw launch env by default', () => {
     vi.stubGlobal('location', { origin: 'https://agents.hypercli.com' });
 

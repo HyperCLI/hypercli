@@ -5,11 +5,14 @@ import { randomFillSync } from 'node:crypto';
 import NodeWebSocket from 'ws';
 import {
   agentSlotFromDict,
+  parseAgentSlotSize,
   type AgentSlot,
   type AgentSlotInventory,
+  type AgentSlotSize,
 } from './agent-slots.js';
 export {
   agentSlotFromDict,
+  parseAgentSlotSize,
   type AgentSlot,
   type AgentSlotInventory,
   type AgentSlotSize,
@@ -1154,6 +1157,7 @@ export interface AgentStateFields {
   relayKey?: AgentRelayKey | null;
   cpu: number;
   memory: number;
+  requestedSize?: AgentSlotSize | null;
   hostname?: string | null;
   tags?: string[];
   jwtToken?: string | null;
@@ -1190,6 +1194,7 @@ export interface AgentHydrationData {
   relay_key?: AgentRelayKey | null;
   cpu?: number;
   memory?: number;
+  requested_size?: unknown;
   hostname?: string | null;
   tags?: string[] | null;
   jwt_token?: string | null;
@@ -1571,6 +1576,9 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     relayKey: data.relay_key ?? null,
     cpu: data.cpu ?? 0,
     memory: data.memory ?? 0,
+    requestedSize: data.requested_size == null
+      ? null
+      : parseAgentSlotSize(data.requested_size, 'Agent requested_size'),
     hostname: data.hostname ?? null,
     tags: Array.isArray(data.tags) ? data.tags : [],
     jwtToken: data.jwt_token ?? null,
@@ -2005,6 +2013,7 @@ export class Agent {
   public readonly relayKey: AgentRelayKey | null;
   public readonly cpu: number;
   public readonly memory: number;
+  public readonly requestedSize: AgentSlotSize | null;
   public readonly hostname: string | null;
   public readonly tags: string[];
   public jwtToken: string | null;
@@ -2041,6 +2050,7 @@ export class Agent {
     this.relayKey = fields.relayKey ? structuredClone(fields.relayKey) : null;
     this.cpu = fields.cpu;
     this.memory = fields.memory;
+    this.requestedSize = fields.requestedSize ?? null;
     this.hostname = fields.hostname ?? null;
     this.tags = [...(fields.tags ?? [])];
     this.jwtToken = fields.jwtToken ?? null;
