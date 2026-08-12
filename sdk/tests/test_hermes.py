@@ -106,6 +106,7 @@ def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> 
     assert body["env"]["API_SERVER_KEY"] == "s" * 43
     assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
     assert body["secrets"] == {"CUSTOM_TOKEN": "start-secret"}
+    assert "image" not in body
     assert agent.api_server_key == "s" * 43
 
 

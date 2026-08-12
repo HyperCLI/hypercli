@@ -4357,7 +4357,7 @@ export class Deployments {
     const effectiveOptions: StartAgentOptions = {
       ...options,
       env,
-      image: defaultHermesAgentImage(options.image),
+      ...(options.image !== undefined ? { image: options.image } : {}),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,

@@ -3986,7 +3986,7 @@ class Deployments:
             ),
             command=command,
             entrypoint=entrypoint,
-            image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
+            image=image,
             sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
             sync_include=sync_include,
             sync_exclude=sync_exclude,

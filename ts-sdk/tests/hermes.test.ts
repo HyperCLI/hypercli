@@ -80,6 +80,7 @@ describe('Hermes deployment lifecycle', () => {
     expect(first.apiServerKey).not.toBe(second.apiServerKey);
     expect(post.mock.calls[0][1].routes.hermes).toEqual({ port: 8642, auth: false, prefix: 'hermes-api' });
     expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
+    expect(post.mock.calls[0][1]).not.toHaveProperty('image');
   });
 
   it('accepts a strong explicit server key and rejects weak keys', async () => {
