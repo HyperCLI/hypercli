@@ -356,10 +356,12 @@ class BuzzLaunchConfig:
             "NOSTR_PRIVATE_KEY": self.private_key_nsec,
         }
 
-# Public file access is one Reef-backed, workspace-relative API. S3 is reserved
+# Public file access is one Reef-backed, sync-root-relative API. S3 is reserved
 # for archive/restore internals and gateway RPCs remain available through the
 # explicit gateway client instead of being multiplexed into these methods.
 OPENCLAW_SYNC_ROOT = "/home/node"
+# Retained for callers that want to address the conventional OpenClaw workspace;
+# the generic files API no longer applies this prefix implicitly.
 OPENCLAW_WORKSPACE_PREFIX = ".openclaw/workspace"
 
 
@@ -368,48 +370,24 @@ def strip_rel_prefix(path: str) -> str:
     return re.sub(r"^/+", "", re.sub(r"^(?:\./)+", "", path))
 
 
-def resolve_workspace_file_path(path: str) -> str:
-    """Resolve one relative workspace path to the Reef sync-root-relative path."""
-    if path.startswith("/"):
-        raise ValueError("agent file paths must be relative to the workspace")
-    rel = strip_rel_prefix(path)
+def resolve_sync_root_file_path(path: str) -> str:
+    """Normalize one path relative to the Agent's configured Reef sync root."""
+    normalized = path.replace("\\", "/")
+    if normalized.startswith("/"):
+        raise ValueError("agent file paths must be relative to the sync root")
+    rel = strip_rel_prefix(normalized)
     if ".." in rel.replace("\\", "/").split("/"):
-        raise ValueError("agent file paths must stay within the workspace")
-    prefix = f"{OPENCLAW_WORKSPACE_PREFIX}/"
-    if rel == OPENCLAW_WORKSPACE_PREFIX or rel.startswith(prefix):
-        return rel
-    return f"{OPENCLAW_WORKSPACE_PREFIX}/{rel}" if rel else OPENCLAW_WORKSPACE_PREFIX
-
-
-def workspace_relative_file_entry(entry: dict) -> dict:
-    """Project a Reef sync-root entry back into the public workspace namespace."""
-    projected = dict(entry)
-    raw_path = projected.get("path")
-    if not isinstance(raw_path, str):
-        return projected
-    prefix = f"{OPENCLAW_WORKSPACE_PREFIX}/"
-    normalized = raw_path.lstrip("/")
-    if normalized == OPENCLAW_WORKSPACE_PREFIX:
-        projected["path"] = ""
-    elif normalized.startswith(prefix):
-        projected["path"] = normalized[len(prefix) :]
-    return projected
+        raise ValueError("agent file paths must stay within the sync root")
+    return "" if rel == "." else rel
 
 
 def normalize_writable_backend_file_path(path: str) -> str:
-    """Return a relative workspace path accepted by the public files API."""
-    normalized = path.replace("\\", "/")
-    if normalized.startswith("/"):
-        raise ValueError("agent file paths must be relative to the workspace")
-    if ".." in normalized.split("/"):
-        raise ValueError(
-            "paths containing '..' are not writable; agent file paths must stay within the workspace."
-        )
-    return strip_rel_prefix(normalized)
+    """Return a safe sync-root-relative path accepted by the public files API."""
+    return resolve_sync_root_file_path(path)
 
 
 class AgentFiles:
-    """Reef-backed file access scoped to an agent's workspace."""
+    """Reef-backed file access scoped to an agent's configured sync root."""
 
     def __init__(
         self,
@@ -1939,7 +1917,7 @@ class Agent:
 
     @property
     def files(self) -> AgentFiles:
-        """Reef-backed files scoped to this agent's workspace."""
+        """Reef-backed files scoped to this agent's configured sync root."""
         return AgentFiles(self, self._require_deployments())
 
     def files_list(self, path: str = "") -> list[dict]:
@@ -4436,9 +4414,9 @@ class Deployments:
         return ExecResult.from_dict(resp.json())
 
     def files_list(self, pod: Agent | str, path: str = "") -> list[dict]:
-        """List a relative workspace path through the Reef file API."""
+        """List a path relative to the Agent's configured Reef sync root."""
         agent_id = self._agent_id_for_target(pod)
-        resolved_path = resolve_workspace_file_path(path)
+        resolved_path = resolve_sync_root_file_path(path)
         url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(resolved_path)}"
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.get(url, headers=self._file_headers())
@@ -4446,17 +4424,14 @@ class Deployments:
             raise APIError(resp.status_code, resp.text)
         payload = resp.json()
         return [
-            workspace_relative_file_entry(entry)
-            for entry in [
-                *(payload.get("directories") or []),
-                *(payload.get("files") or []),
-            ]
+            *(payload.get("directories") or []),
+            *(payload.get("files") or []),
         ]
 
     def file_read_bytes_with_metadata(self, pod: Agent | str, path: str) -> dict[str, Any]:
-        """Read a relative workspace file through the Reef file API."""
+        """Read a sync-root-relative file through the Reef file API."""
         agent_id = self._agent_id_for_target(pod)
-        resolved_path = resolve_workspace_file_path(path)
+        resolved_path = resolve_sync_root_file_path(path)
         url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(resolved_path)}"
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.get(url, headers=self._file_headers())
@@ -4473,7 +4448,7 @@ class Deployments:
         return {"content": resp.content, "mime_type": content_type or None}
 
     def file_read_bytes(self, pod: Agent | str, path: str) -> bytes:
-        """Read a relative workspace file through the Reef file API."""
+        """Read a sync-root-relative file through the Reef file API."""
         return self.file_read_bytes_with_metadata(pod, path).get("content", b"")
 
     def file_read(self, pod: Agent | str, path: str) -> str:
@@ -4481,8 +4456,8 @@ class Deployments:
         return self.file_read_bytes(pod, path).decode(errors="replace")
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
-        """Write bytes to a relative workspace path through Reef."""
-        path = resolve_workspace_file_path(normalize_writable_backend_file_path(path))
+        """Write bytes to a sync-root-relative path through Reef."""
+        path = normalize_writable_backend_file_path(path)
         if len(content) > AGENT_FILE_MAX_BYTES:
             raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
         agent_id = self._agent_id_for_target(pod)
@@ -4506,8 +4481,8 @@ class Deployments:
         path: str,
         recursive: bool = False,
     ) -> dict:
-        """Delete a relative workspace file or directory through Reef."""
-        path = resolve_workspace_file_path(normalize_writable_backend_file_path(path))
+        """Delete a sync-root-relative file or directory through Reef."""
+        path = normalize_writable_backend_file_path(path)
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.delete(

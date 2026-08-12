@@ -130,7 +130,9 @@ root, while `sync_include=[]` means sync nothing. Steady Reef synchronization
 is PVC-to-object-storage upload/overwrite, not a two-way mirror: ordinary
 filesystem deletes are not propagated, and remote-to-PVC copying occurs only
 during explicit cold restore. Files API writes/deletes do perform targeted
-remote operations. The OpenClaw helpers add routes, image,
+remote operations. File paths are relative to `sync_root`, and
+`files_list("")` lists the complete root, including dot-directories. The
+OpenClaw helpers add routes, image,
 `sync_root=/home/node`, and cache/Workspace exclusions by default. Coding
 helpers instead inject the runtime-specific include defaults documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit

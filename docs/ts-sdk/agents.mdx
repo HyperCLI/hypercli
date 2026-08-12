@@ -534,12 +534,19 @@ Important methods:
 const result = await agent.exec("uname -a", { timeout: 30 });
 console.log(result.stdout, result.exitCode);
 
-await agent.fileWrite("/workspace/notes.txt", "hello");
-const text = await agent.fileRead("/workspace/notes.txt");
+const rootEntries = await agent.filesList("");
+console.log(rootEntries.map((entry) => entry.path));
 
-await agent.cpTo("./local.txt", "/workspace/local.txt");
-await agent.cpFrom("/workspace/output.log", "./output.log");
+await agent.fileWrite(".openclaw/workspace/notes.txt", "hello");
+const text = await agent.fileRead(".openclaw/workspace/notes.txt");
+
+await agent.cpTo("./local.txt", ".openclaw/workspace/local.txt");
+await agent.cpFrom(".openclaw/workspace/output.log", "./output.log");
 ```
+
+File paths are relative to the Agent's configured `syncRoot`.
+`filesList("")` lists that root, including dot-directories such as
+`.openclaw`; absolute paths and `..` traversal are rejected.
 
 ## Logs And Shell
 

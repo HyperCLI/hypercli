@@ -14,8 +14,10 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useAgentDashboardDesktopViewport } from "@/hooks/useAgentDashboardViewport";
 import { agentDisplayLabel, toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { createAgentClient } from "@/lib/agent-client";
-import { normalizeAgentBrowserFilePath } from "@/lib/agent-file-path";
-import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
+import {
+  launchConfigSyncRoot,
+  normalizeAgentBrowserFilePath,
+} from "@/lib/agent-file-path";
 import type { AgentFileEntry } from "@/types";
 import { OpenClawAgent } from "@hypercli.com/sdk/agents";
 
@@ -164,6 +166,10 @@ export default function AgentFilesPage() {
   }, [agentId, getToken]);
 
   const agentView = useMemo(() => agent ? toAgentViewModel(agent) : null, [agent]);
+  const filesSyncRoot = useMemo(
+    () => launchConfigSyncRoot(agent?.launchConfig),
+    [agent],
+  );
 
   if (agentLoading) {
     return (
@@ -191,7 +197,7 @@ export default function AgentFilesPage() {
     <AgentFilesPanel
       agentId={agentId}
       agentName={agentView ? agentDisplayLabel(agentView) : "Agent"}
-      rootPath={OPENCLAW_WORKSPACE_PREFIX}
+      rootPath={filesSyncRoot}
       connected={Boolean(agentId)}
       initialPreviewPath={initialFilePath}
       isDesktopViewport={isDesktopViewport}

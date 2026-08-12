@@ -2030,28 +2030,38 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
             assert params is None
-            if url.endswith("/deployments/agent-123/files/.openclaw/workspace/workspace"):
+            if url.endswith("/deployments/agent-123/files/"):
+                return FakeResponse(
+                    json_data={
+                        "directories": [
+                            {"name": ".openclaw", "path": ".openclaw/", "type": "directory"},
+                            {"name": "workspace", "path": "workspace/", "type": "directory"},
+                        ],
+                        "files": [{"name": "AGENTS.md", "path": "AGENTS.md", "type": "file"}],
+                    }
+                )
+            if url.endswith("/deployments/agent-123/files/workspace"):
                 return FakeResponse(
                     json_data={
                         "directories": [
                             {
                                 "name": "dir",
-                                "path": ".openclaw/workspace/workspace/dir/",
+                                "path": "workspace/dir/",
                                 "type": "directory",
                             }
                         ],
                         "files": [
                             {
                                 "name": "a.txt",
-                                "path": ".openclaw/workspace/workspace/a.txt",
+                                "path": "workspace/a.txt",
                                 "type": "file",
                             }
                         ],
                     }
                 )
-            if url.endswith("/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt"):
+            if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
                 return FakeResponse(content=b"hello", headers={"content-type": "text/plain"})
-            if url.endswith("/deployments/agent-123/files/.openclaw/workspace/.openclaw"):
+            if url.endswith("/deployments/agent-123/files/.openclaw"):
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2077,8 +2087,8 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                     }
                 )
             assert url.endswith((
-                "/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt",
-                "/deployments/agent-123/files/.openclaw/workspace/AGENTS.md",
+                "/deployments/agent-123/files/workspace/a.txt",
+                "/deployments/agent-123/files/AGENTS.md",
             ))
             assert params is None
             assert content in {b"payload", b"instructions"}
@@ -2086,7 +2096,7 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         def delete(self, url, headers=None, params=None):
             assert url.endswith((
-                "/deployments/agent-123/files/.openclaw/workspace/workspace/a.txt",
+                "/deployments/agent-123/files/workspace/a.txt",
             ))
             assert params is None
             return FakeResponse(json_data={"status": "ok"})
@@ -2094,8 +2104,14 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
     with patch("hypercli.agents.httpx.Client", FakeClient):
         agent = Agent(id="agent-123", user_id="user-456", state="RUNNING")
 
+        root_entries = agents_client.files_list(agent)
         entries = agents_client.files_list(agent, "workspace")
         hidden_entries = agents_client.files_list(agent, ".openclaw")
+        assert root_entries == [
+            {"name": ".openclaw", "path": ".openclaw/", "type": "directory"},
+            {"name": "workspace", "path": "workspace/", "type": "directory"},
+            {"name": "AGENTS.md", "path": "AGENTS.md", "type": "file"},
+        ]
         assert entries == [
             {"name": "dir", "path": "workspace/dir/", "type": "directory"},
             {"name": "a.txt", "path": "workspace/a.txt", "type": "file"},
@@ -2115,11 +2131,11 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         }
         with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
             agents_client.file_read(agent, ".openclaw")
-        with pytest.raises(ValueError, match="workspace"):
+        with pytest.raises(ValueError, match="sync root"):
             agents_client.files_list(agent, "/")
-        with pytest.raises(ValueError, match="workspace"):
+        with pytest.raises(ValueError, match="sync root"):
             agents_client.file_write(agent, "/etc/hosts", "blocked")
-        with pytest.raises(ValueError, match="workspace"):
+        with pytest.raises(ValueError, match="sync root"):
             agents_client.file_delete(agent, "/etc/hosts")
 
 

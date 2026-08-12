@@ -21,7 +21,7 @@ function makeAgent() {
   return { agent, deployments };
 }
 
-describe('Reef-only workspace file client', () => {
+describe('Reef-only sync-root file client', () => {
   it('delegates without source or destination selectors', async () => {
     const { agent, deployments } = makeAgent();
 

@@ -1,4 +1,4 @@
-"""The public agent file client is Reef-only and workspace-relative."""
+"""The public agent file client is Reef-only and sync-root-relative."""
 from unittest.mock import Mock
 
 import pytest
@@ -48,13 +48,13 @@ def test_agent_files_delegate_without_source_or_destination_selectors():
 
 
 @pytest.mark.parametrize("path", ["/etc/hosts", "../outside", "notes/../../outside"])
-def test_deployments_file_paths_cannot_escape_workspace(path):
+def test_deployments_file_paths_cannot_escape_sync_root(path):
     deployments = Deployments(
         Mock(api_key="test"),
         api_key="test",
         api_base="https://api.test.hypercli.com",
     )
-    with pytest.raises(ValueError, match="workspace"):
+    with pytest.raises(ValueError, match="sync root"):
         deployments.file_write("agent-123", path, "blocked")
 
 

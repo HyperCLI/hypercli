@@ -55,6 +55,32 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(".openclaw/workspace/projects"));
   });
 
+  it("uses the synchronized home as the browser root and navigates back from the workspace", async () => {
+    const onListFiles = vi.fn(async (path?: string) => {
+      if (path === "") {
+        return [{ name: ".openclaw", path: ".openclaw", type: "directory" as const }];
+      }
+      if (path === ".openclaw") {
+        return [{ name: "workspace", path: "workspace", type: "directory" as const }];
+      }
+      return [{ name: "README.md", path: "README.md", type: "file" as const }];
+    });
+    renderFilesPanel({ rootPath: "/home/node", onListFiles });
+
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(""));
+    expect(screen.getByRole("button", { name: "Up one folder" })).toBeDisabled();
+
+    fireEvent.click(await screen.findByRole("button", { name: ".openclaw" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(".openclaw"));
+    fireEvent.click(await screen.findByRole("button", { name: "workspace" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(".openclaw/workspace"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Up one folder" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(".openclaw"));
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith(""));
+  });
+
   it("opens an absolute synchronized preview through a relative API path", async () => {
     const onOpenFile = vi.fn(async () => "content");
     renderFilesPanel({

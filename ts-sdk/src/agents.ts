@@ -974,40 +974,25 @@ export interface AgentFileReadBytesResult {
   mimeType?: string;
 }
 
-/** Public file access is Reef-backed and scoped to the agent workspace. */
+/** Public file access is Reef-backed and scoped to the agent's configured sync root. */
 export const OPENCLAW_SYNC_ROOT = '/home/node';
+/** Convenience path for callers that explicitly want the conventional OpenClaw workspace. */
 export const OPENCLAW_WORKSPACE_PREFIX = '.openclaw/workspace';
 
-function resolveWorkspaceFilePath(path: string): string {
-  if (path.startsWith('/')) {
-    throw new Error('agent file paths must be relative to the workspace');
+function resolveSyncRootFilePath(path: string): string {
+  const normalized = path.replace(/\\/g, '/');
+  if (normalized.startsWith('/')) {
+    throw new Error('agent file paths must be relative to the sync root');
   }
-  const rel = stripRelPrefix(path);
-  if (rel.replace(/\\/g, '/').split('/').includes('..')) {
-    throw new Error('agent file paths must stay within the workspace');
+  const rel = stripRelPrefix(normalized);
+  if (rel.split('/').includes('..')) {
+    throw new Error('agent file paths must stay within the sync root');
   }
-  if (rel === OPENCLAW_WORKSPACE_PREFIX || rel.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)) return rel;
-  return rel ? `${OPENCLAW_WORKSPACE_PREFIX}/${rel}` : OPENCLAW_WORKSPACE_PREFIX;
-}
-
-function workspaceRelativeFileEntry(entry: AgentFileEntry): AgentFileEntry {
-  if (typeof entry.path !== 'string') return { ...entry };
-  const normalized = entry.path.replace(/^\/+/, '');
-  const prefix = `${OPENCLAW_WORKSPACE_PREFIX}/`;
-  if (normalized === OPENCLAW_WORKSPACE_PREFIX) return { ...entry, path: '' };
-  if (normalized.startsWith(prefix)) return { ...entry, path: normalized.slice(prefix.length) };
-  return { ...entry };
+  return rel === '.' ? '' : rel;
 }
 
 function normalizeWritableBackendFilePath(path: string): string {
-  const normalized = path.replace(/\\/g, '/');
-  if (normalized.startsWith('/')) {
-    throw new Error('agent file paths must be relative to the workspace');
-  }
-  if (normalized.split('/').includes('..')) {
-    throw new Error("paths containing '..' are not writable; writes and deletes must stay within the sync root.");
-  }
-  return stripRelPrefix(normalized);
+  return resolveSyncRootFilePath(path);
 }
 
 /** Strip leading `./` segments and slashes without eating a dotfile's dot. */
@@ -1036,7 +1021,7 @@ function agentRoutesStateFromData(data: AgentRoutesHydrationData): AgentRoutesSt
   };
 }
 
-/** Reef-backed file access scoped to an agent's workspace. */
+/** Reef-backed file access scoped to an agent's configured sync root. */
 export class AgentFiles {
   constructor(
     private readonly agent: Agent,
@@ -2208,7 +2193,7 @@ export class Agent {
     return this.requireDeployments().exec(this, command, options);
   }
 
-  /** Reef-backed files scoped to this agent's workspace. */
+  /** Reef-backed files scoped to this agent's configured sync root. */
   get files(): AgentFiles {
     return new AgentFiles(this, this.requireDeployments());
   }
@@ -4602,11 +4587,11 @@ export class Deployments {
   }
 
   async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {
-    const resolvedPath = resolveWorkspaceFilePath(path);
+    const resolvedPath = resolveSyncRootFilePath(path);
     const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodeFilePath(resolvedPath)}`);
     const payload = (await response.json()) as AgentDirectoryListing;
-    return [...(payload.directories ?? []), ...(payload.files ?? [])].map(workspaceRelativeFileEntry);
+    return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
 
   async fileReadBytesWithMetadata(
@@ -4614,7 +4599,7 @@ export class Deployments {
     path: string,
     options?: AgentFileReadOptions,
   ): Promise<AgentFileReadBytesResult> {
-    const resolvedPath = resolveWorkspaceFilePath(path);
+    const resolvedPath = resolveSyncRootFilePath(path);
     const agentId = await this.agentIdFor(target);
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodeFilePath(resolvedPath)}`, {
       redirect: 'follow',
@@ -4658,7 +4643,7 @@ export class Deployments {
     path: string,
     content: Uint8Array | ArrayBuffer | string,
   ): Promise<Record<string, any>> {
-    path = resolveWorkspaceFilePath(normalizeWritableBackendFilePath(path));
+    path = normalizeWritableBackendFilePath(path);
     const encodedPath = encodeFilePath(path);
     const bytes = toUint8Array(content);
     if (bytes.byteLength > AGENT_FILE_MAX_BYTES) {
@@ -4682,7 +4667,7 @@ export class Deployments {
     path: string,
     options: { recursive?: boolean } = {},
   ): Promise<Record<string, any>> {
-    path = resolveWorkspaceFilePath(normalizeWritableBackendFilePath(path));
+    path = normalizeWritableBackendFilePath(path);
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams();
     if (options.recursive) params.set('recursive', 'true');
