@@ -314,7 +314,7 @@ def wait_until_processed(
 @app.command("sync")
 def sync(
     workspace: str | None = typer.Argument(None, help="Shared knowledge slug or ID"),
-    output_dir: Path = typer.Option(Path.home() / "workspaces", "--output-dir", "--output", "-o", help="Local shared knowledge root"),
+    output_dir: Path = typer.Option(Path.home() / "shared", "--output-dir", "--output", "-o", help="Local shared knowledge root"),
     all_workspaces: bool = typer.Option(False, "--all", help="Sync all shared knowledge accessible to the subject"),
     agent_id: str | None = typer.Option(None, "--agent-id", help="Sync as an agent subject"),
     user_id: str | None = typer.Option(None, "--user-id", help="Sync as a user subject"),

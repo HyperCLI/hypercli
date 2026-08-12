@@ -556,9 +556,10 @@ def build_openclaw_memory_index_env(memory_index: dict | None = None) -> dict[st
 def build_openclaw_workspaces_sync_env(workspaces_sync: dict | bool | None = None) -> dict[str, str]:
     """Build OpenClaw Workspaces boot-sync environment variables.
 
-    Shared knowledge sync defaults on for OpenClaw launch helpers, but callers can
-    pass False or {"enabled": False} to disable it, or override the output
-    directory, ready-only behavior, and single-workspace target.
+    Shared knowledge sync defaults on for OpenClaw launch helpers. Callers can
+    pass False or {"enabled": False} to disable it, tune ready-only behavior or
+    the single-Workspace target here, and override the output directory with
+    ``HYPER_WORKSPACES_DIR`` in the launch environment.
     """
     if workspaces_sync is False:
         return {"HYPER_WORKSPACES_BOOT_SYNC": "0"}
@@ -566,7 +567,9 @@ def build_openclaw_workspaces_sync_env(workspaces_sync: dict | bool | None = Non
     if options.get("enabled") is False:
         return {"HYPER_WORKSPACES_BOOT_SYNC": "0"}
     if options.get("output_dir") is not None or options.get("dir") is not None:
-        raise ValueError("OpenClaw Workspaces always sync to $HOME/shared")
+        raise ValueError(
+            "Set HYPER_WORKSPACES_DIR in env to override the Workspaces directory"
+        )
     env = dict(OPENCLAW_WORKSPACES_ENV_DEFAULTS)
     if options.get("enabled") is not None:
         env["HYPER_WORKSPACES_BOOT_SYNC"] = _env_bool(options["enabled"])
@@ -3038,8 +3041,6 @@ class Deployments:
             **build_openclaw_memory_index_env(memory_index),
             **dict(env or {}),
         }
-        if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
-            effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
         return self.create(
             name=name,
             handle=handle,
@@ -3267,8 +3268,6 @@ class Deployments:
                 if existing is not None and existing != value:
                     raise ValueError(f"{key} conflicts between env and secrets")
                 effective_secrets[key] = value
-        if effective_env.get("HYPER_WORKSPACES_BOOT_SYNC") != "0":
-            effective_env["HYPER_WORKSPACES_DIR"] = "/home/node/shared"
         if buzz is not None:
             for key in BUZZ_RESERVED_ENV_KEYS:
                 effective_env.pop(key, None)

@@ -195,6 +195,22 @@ def test_create_coding_agent_honors_runtime_scope_override():
     assert posted["runtime_scopes"] == ["models:*"]
 
 
+def test_create_coding_agent_honors_workspaces_directory_override():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("codex")
+
+    deployments._post = fake_post
+    deployments.create_codex(
+        env={"HYPER_WORKSPACES_DIR": "/home/node/custom-shared"},
+    )
+
+    assert posted["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/custom-shared"
+
+
 @pytest.mark.parametrize(
     ("kwargs", "expected_include", "expected_exclude", "expect_full_root"),
     [

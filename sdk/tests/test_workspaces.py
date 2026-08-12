@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -908,3 +909,24 @@ def test_markdown_file_finds_single_file(monkeypatch):
         {"workspace": "demo", "path": "docs/source.md", "index": 1},
         "agent-1",
     )
+
+
+def test_sync_all_uses_workspace_ids_when_slugs_are_ambiguous(monkeypatch, tmp_path: Path):
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+    workspaces = [
+        SimpleNamespace(id="workspace-1", slug="general"),
+        SimpleNamespace(id="workspace-2", slug="general"),
+    ]
+    calls: list[str] = []
+    monkeypatch.setattr(api, "list", lambda **_kwargs: workspaces)
+
+    def sync_manifest(workspace_ref, *_args, **_kwargs):
+        calls.append(workspace_ref)
+        return [f"{workspace_ref}.md"]
+
+    monkeypatch.setattr(api, "sync_manifest", sync_manifest)
+
+    synced = api.sync_all(str(tmp_path), agent_id="agent-1")
+
+    assert calls == ["workspace-1", "workspace-2"]
+    assert synced == {"general": ["workspace-2.md"]}

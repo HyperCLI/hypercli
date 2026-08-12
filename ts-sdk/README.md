@@ -162,6 +162,8 @@ default. Coding helpers instead inject the runtime-specific include defaults
 documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
 nullable policy at create time to select the whole root.
+Both helper families default `HYPER_WORKSPACES_DIR` to `/home/node/shared` and
+preserve an explicit value supplied in the launch `env`.
 
 ```typescript
 const agent = await client.deployments.createOpenClaw({

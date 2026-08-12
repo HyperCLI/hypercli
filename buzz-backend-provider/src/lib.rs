@@ -981,10 +981,8 @@ fn build_launch_request_with_inference_base(
     }
     env.insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
-    env.insert(
-        "HYPER_WORKSPACES_DIR".to_owned(),
-        "/home/node/shared".to_owned(),
-    );
+    env.entry("HYPER_WORKSPACES_DIR".to_owned())
+        .or_insert_with(|| "/home/node/shared".to_owned());
     env.insert(
         "HYPER_WORKSPACES_SYNC_READY_ONLY".to_owned(),
         "1".to_owned(),
@@ -1019,7 +1017,6 @@ const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
     "BUZZ_ACP_REQUIRE_REPLY",
     "CLAUDE_CODE_EXECUTABLE",
     "HYPER_WORKSPACES_BOOT_SYNC",
-    "HYPER_WORKSPACES_DIR",
     "HYPER_WORKSPACES_SYNC_READY_ONLY",
     "HYPER_WORKSPACES_SYNC_WORKSPACE",
 ];
@@ -1781,7 +1778,10 @@ mod tests {
                 ("buzz_auth_tag".into(), "mixed-case-forgery".into()),
                 ("BUZZ_MANAGED_AGENT".into(), "forged".into()),
                 ("BUZZ_MANAGED_AGENT_START_NONCE".into(), "forged".into()),
-                ("HYPER_WORKSPACES_DIR".into(), "/tmp/forged".into()),
+                (
+                    "HYPER_WORKSPACES_DIR".into(),
+                    "/home/node/custom-shared".into(),
+                ),
             ]),
             owner_pubkey: Some("b".repeat(64)),
         });
@@ -1824,7 +1824,10 @@ mod tests {
         );
         assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "acp,--profile,hosted");
         assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], "");
-        assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/shared");
+        assert_eq!(
+            request.env["HYPER_WORKSPACES_DIR"],
+            "/home/node/custom-shared"
+        );
     }
 
     #[test]
@@ -2055,7 +2058,7 @@ mod tests {
                 ("BUZZ_ACP_DEDUP".to_owned(), "drop".to_owned()),
                 (
                     "HYPER_WORKSPACES_DIR".to_owned(),
-                    "/tmp/not-allowed".to_owned(),
+                    "/home/node/custom-shared".to_owned(),
                 ),
             ]);
             let request = build_launch_request(
@@ -2098,7 +2101,10 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_SESSION_TITLE"], "Wrong");
             assert_eq!(request.env["BUZZ_ACP_MULTIPLE_EVENT_HANDLING"], "queue");
             assert_eq!(request.env["BUZZ_ACP_DEDUP"], "drop");
-            assert_eq!(request.env["HYPER_WORKSPACES_DIR"], "/home/node/shared");
+            assert_eq!(
+                request.env["HYPER_WORKSPACES_DIR"],
+                "/home/node/custom-shared"
+            );
             assert_eq!(
                 request.env["RUST_LOG"],
                 "buzz_acp=info,pool::prompt=info,acp::stream=off"

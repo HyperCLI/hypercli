@@ -3763,9 +3763,6 @@ export class Deployments {
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...(options.env ?? {}),
     };
-    if (effectiveOptions.env.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
-      effectiveOptions.env.HYPER_WORKSPACES_DIR = '/home/node/shared';
-    }
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
@@ -3850,9 +3847,6 @@ export class Deployments {
         throw new Error(`${key} conflicts between env and secrets`);
       }
       effectiveSecrets[key] = value;
-    }
-    if (effectiveEnv.HYPER_WORKSPACES_BOOT_SYNC !== '0') {
-      effectiveEnv.HYPER_WORKSPACES_DIR = '/home/node/shared';
     }
     if (options.buzz) {
       for (const key of BUZZ_RESERVED_ENV_KEYS) delete effectiveEnv[key];

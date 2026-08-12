@@ -442,6 +442,35 @@ def test_workspaces_sync_invokes_cli(monkeypatch, tmp_path: Path):
     }
 
 
+def test_workspaces_sync_defaults_to_home_shared(monkeypatch):
+    import hypercli_cli.workspaces as workspaces_mod
+
+    captured = {}
+
+    class _FakeWorkspaces:
+        def sync_manifest(
+            self,
+            workspace,
+            output_dir,
+            *,
+            user_id=None,
+            agent_id=None,
+            ready_only=False,
+        ):
+            captured["output_dir"] = output_dir
+            return []
+
+    monkeypatch.setattr(workspaces_mod, "_get_workspaces", lambda: _FakeWorkspaces())
+
+    result = runner.invoke(
+        app,
+        ["workspaces", "sync", "demo", "--agent-id", "agent-1"],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["output_dir"] == str(Path.home() / "shared")
+
+
 def test_workspaces_sync_all_invokes_cli(monkeypatch, tmp_path: Path):
     import hypercli_cli.workspaces as workspaces_mod
 

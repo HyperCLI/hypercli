@@ -347,6 +347,31 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
+  it('createOpenClaw preserves an explicit Workspaces directory override', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({
+      name: 'test-agent',
+      dryRun: true,
+      env: { HYPER_WORKSPACES_DIR: '/home/node/custom-shared' },
+    });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        HYPER_WORKSPACES_DIR: '/home/node/custom-shared',
+      }),
+    }), { retries: 1 });
+  });
+
   it('createOpenClaw can disable workspace boot sync', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',

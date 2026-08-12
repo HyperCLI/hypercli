@@ -104,7 +104,7 @@ The synced layout is deterministic:
 ~/shared/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
 ```
 
-OpenClaw agents always project Workspaces into `/home/node/shared`. Boot sync is enabled by `HYPER_WORKSPACES_BOOT_SYNC=1`; `HYPER_WORKSPACES_SYNC_READY_ONLY` and `HYPER_WORKSPACES_SYNC_WORKSPACE` adjust ready-only behavior or select one Workspace. `HYPER_WORKSPACES_DIR` is managed and fixed for OpenClaw agents.
+OpenClaw SDK launches default Workspace projections to `/home/node/shared`. Boot sync is enabled by `HYPER_WORKSPACES_BOOT_SYNC=1`; `HYPER_WORKSPACES_SYNC_READY_ONLY` and `HYPER_WORKSPACES_SYNC_WORKSPACE` adjust ready-only behavior or select one Workspace. Set `HYPER_WORKSPACES_DIR` explicitly in the launch environment to override that default.
 
 ## Search
 

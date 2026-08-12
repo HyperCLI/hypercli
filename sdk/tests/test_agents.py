@@ -1561,6 +1561,36 @@ def test_create_openclaw_allows_hyper_api_base_override(agents_client):
         assert posted_json["env"]["HYPER_API_BASE"] == "https://api.override.test"
 
 
+def test_create_openclaw_allows_workspaces_directory_override(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch(
+        "hypercli.agents.secrets.token_hex",
+        return_value="gw-token-123",
+    ):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(
+            name="test-agent",
+            env={"HYPER_WORKSPACES_DIR": "/home/node/custom-shared"},
+        )
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert (
+            posted_json["env"]["HYPER_WORKSPACES_DIR"]
+            == "/home/node/custom-shared"
+        )
+
+
 def test_create_openclaw_accepts_memory_index_options(agents_client):
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
         mock_client = MagicMock()
@@ -1632,8 +1662,8 @@ def test_create_openclaw_accepts_workspaces_sync_options(agents_client):
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_WORKSPACE"] == "team-knowledge"
 
 
-def test_create_openclaw_rejects_custom_workspaces_directory(agents_client):
-    with pytest.raises(ValueError, match=r"always sync to \$HOME/shared"):
+def test_create_openclaw_rejects_workspaces_directory_in_typed_options(agents_client):
+    with pytest.raises(ValueError, match="Set HYPER_WORKSPACES_DIR in env"):
         agents_client.create_openclaw(
             name="test-agent",
             workspaces_sync={"output_dir": "/home/node/CustomWorkspaces"},

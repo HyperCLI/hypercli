@@ -899,7 +899,7 @@ class WorkspacesAPI:
         synced: dict[str, list[str]] = {}
         for workspace in self.list(user_id=user_id, agent_id=agent_id):
             synced[workspace.slug] = self.sync_manifest(
-                workspace.slug,
+                workspace.id,
                 output_dir,
                 user_id=user_id,
                 agent_id=agent_id,

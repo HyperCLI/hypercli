@@ -94,12 +94,12 @@ The synced layout is:
 ~/shared/<workspace-slug>/<source-folder>/.tomd/<source-stem>.md
 ```
 
-OpenClaw boot sync always projects into `/home/node/shared` and runs before the gateway starts when boot sync is enabled.
+OpenClaw boot sync defaults to `/home/node/shared` and runs before the gateway starts when boot sync is enabled. Launches may override `HYPER_WORKSPACES_DIR`; the boot-sync job and runtime receive the same resolved launch environment.
 
 | Environment variable | Default | Meaning |
 | --- | --- | --- |
 | `HYPER_WORKSPACES_BOOT_SYNC` | `1` | Enable Workspaces sync during OpenClaw startup |
-| `HYPER_WORKSPACES_DIR` | `/home/node/shared` | Managed, fixed projection root |
+| `HYPER_WORKSPACES_DIR` | `/home/node/shared` | Projection root; an explicit launch environment value overrides the SDK default |
 | `HYPER_WORKSPACES_SYNC_READY_ONLY` | `1` | Sync only finished projections |
 | `HYPER_WORKSPACES_SYNC_WORKSPACE` | unset | Optional single Workspace slug or ID |
 

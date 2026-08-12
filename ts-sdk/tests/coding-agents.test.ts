@@ -145,6 +145,21 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1].runtime_scopes).toEqual(['models:*']);
   });
 
+  it('honors a coding-agent Workspaces directory override', async () => {
+    const post = vi.fn().mockResolvedValue(response('codex'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createCodex({
+      env: { HYPER_WORKSPACES_DIR: '/home/node/custom-shared' },
+    });
+
+    expect(post.mock.calls[0][1].env.HYPER_WORKSPACES_DIR).toBe('/home/node/custom-shared');
+  });
+
   it.each([
     [{ syncInclude: null }, undefined, undefined],
     [{ syncExclude: null }, undefined, undefined],

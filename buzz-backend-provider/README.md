@@ -189,7 +189,8 @@ caller-supplied deployment request, leaving image policy to the provider or
 application.
 
 The provider keeps `sync_root=/home/node` for persistence and Files API access.
-`/home/node/shared` is reserved for HyperCLI Workspace projections. The
+It defaults `HYPER_WORKSPACES_DIR` to `/home/node/shared` for HyperCLI
+Workspace projections and preserves an explicit caller environment value. The
 Buzz-specialized image entrypoint reconciles the standard nest after mount and
 runs the harness from `/home/node/.buzz`; OpenCode and Codex use its canonical
 `AGENTS.md`, and Claude Code creates `CLAUDE.md -> AGENTS.md`.
