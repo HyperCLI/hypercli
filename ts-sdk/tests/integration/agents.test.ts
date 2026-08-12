@@ -70,32 +70,31 @@ describe("TS SDK integration: agents", () => {
 
   agentsIt("creates an exact-agent child key that only sees one agent", async () => {
     const client = createIntegrationClient();
-    let createdA: { id: string; tier: string };
-    let createdB: { id: string; tier: string };
+    let createdA: { id: string; tier: string } | undefined;
+    let createdB: { id: string; tier: string } | undefined;
     try {
-      createdA = await createAgentWithAvailableTier(client, {
-        name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-        tags: ["team=dev", "suite=ts-integration"],
-      });
-      createdB = await createAgentWithAvailableTier(client, {
-        name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-        tags: ["team=ops", "suite=ts-integration"],
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (
-        message.includes("No available entitlement slots")
-        || message.includes("no connected clusters are advertising that tag")
-      ) {
-        console.warn(`Skipping exact-agent child key smoke: ${message}`);
-        return;
+      try {
+        createdA = await createAgentWithAvailableTier(client, {
+          name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+          tags: ["team=dev", "suite=ts-integration"],
+        });
+        createdB = await createAgentWithAvailableTier(client, {
+          name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+          tags: ["team=ops", "suite=ts-integration"],
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (
+          message.includes("No available entitlement slots")
+          || message.includes("no connected clusters are advertising that tag")
+        ) {
+          console.warn(`Skipping exact-agent child key smoke: ${message}`);
+          return;
+        }
+        throw error;
       }
-      throw error;
-    }
-    const agentA = await client.deployments.get(createdA.id);
-    const agentB = await client.deployments.get(createdB.id);
-
-    try {
+      const agentA = await client.deployments.get(createdA.id);
+      const agentB = await client.deployments.get(createdB.id);
       const child = await client.deployments.createScopedKey(agentA.id, "ts-scoped-child");
       const scoped = new HyperCLI({
         apiKey: process.env.TEST_API_KEY,
@@ -126,9 +125,9 @@ describe("TS SDK integration: agents", () => {
       await expect(deniedCreate).rejects.toBeInstanceOf(APIError);
       await expect(deniedCreate).rejects.toMatchObject({ statusCode: 403 });
     } finally {
-      await client.deployments.delete(agentA.id);
-      await client.deployments.delete(agentB.id);
+      if (createdA) await client.deployments.delete(createdA.id).catch(() => {});
+      if (createdB) await client.deployments.delete(createdB.id).catch(() => {});
     }
-  });
+  }, 720_000);
 
 });
