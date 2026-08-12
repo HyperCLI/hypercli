@@ -1839,6 +1839,14 @@ export async function launchClawAgentAndWaitForGateway(
       await startResponseSettled;
       expect(acceptedStart?.id).toBe(created.id);
     } else {
+      await deployments.waitForState(
+        created.id,
+        ["STOPPED"],
+        timeout,
+        ["FAILED", "DELETED"],
+        Number(created.launchEpoch ?? created.launch_epoch ?? 0),
+        2_000,
+      );
       acceptedStart = await deployments.start(created.id);
     }
     const acceptedLaunchEpoch = Number(
@@ -2013,7 +2021,6 @@ export async function launchClawAgentAndWaitForGateway(
         name: `agents-e2e-${Date.now()}`,
         size: "large",
         env: { OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: controlUiOrigin },
-        start: false,
         openClawRoutes: { includeDesktop: false },
       }),
       { watchBrowserCreateResponse: false },

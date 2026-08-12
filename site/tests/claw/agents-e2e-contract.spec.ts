@@ -34,7 +34,7 @@ test("agents launch canary exercises the canonical lifecycle contract", () => {
   expect(authFixtureSource).toContain("expect(response.request().postDataJSON()).toEqual({})");
   expect(authFixtureSource).toContain("acceptedStart?.launchEpoch ?? acceptedStart?.launch_epoch");
   expect(authFixtureSource).toContain("waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch)");
-  expect(authFixtureSource).toContain('start: false');
+  expect(authFixtureSource).not.toContain('start: false');
   expect(subscriptionSpecSource).toContain("stopClawAgentAndWaitStopped(page, createdAgentId)");
   expect(authFixtureSource).toContain('["STOPPED"]');
 });
