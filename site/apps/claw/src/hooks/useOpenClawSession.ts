@@ -75,6 +75,10 @@ import {
   sameChatHistoryTarget,
 } from "@/lib/openclaw-chat-history-state";
 import {
+  controlUiAllowedOriginsFromLaunchConfig,
+  currentControlUiOrigin,
+} from "@/lib/control-ui-origin";
+import {
   type OpenClawSessionRecord,
   OPENCLAW_NEW_SESSION_TITLE,
   applyOpenClawSessionTitleMap,
@@ -129,7 +133,7 @@ const GATEWAY_CONNECTING_STALL_MESSAGE =
   "Timed out opening the agent session. The gateway is still reconnecting in the background.";
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
-  "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
+  "This agent does not allow connections from this dashboard address. Did you create it from another dashboard?";
 
 type ChatHistoryUpdate = Extract<ChatHistoryAction, { type: "apply-update" }>["update"];
 
@@ -679,7 +683,23 @@ function mergeOpenClawConfigPatch(
 }
 
 function stringifyErrorForSearch(value: unknown): string {
-  if (value instanceof Error) return value.message;
+  if (value instanceof Error) {
+    const codedError = value as Error & {
+      code?: unknown;
+      gatewayCode?: unknown;
+      details?: unknown;
+    };
+    const details = (() => {
+      try {
+        return JSON.stringify(codedError.details);
+      } catch {
+        return "";
+      }
+    })();
+    return [codedError.message, codedError.code, codedError.gatewayCode, details]
+      .filter((part): part is string => typeof part === "string")
+      .join(" ");
+  }
   if (typeof value === "string") return value;
   try {
     return JSON.stringify(value);
@@ -704,9 +724,24 @@ function extractErrorMessage(value: unknown, seen = new WeakSet<object>()): stri
   return null;
 }
 
-function formatOpenClawConnectionError(value: unknown): string {
+function formatOriginList(origins: string[]): string {
+  if (origins.length <= 1) return origins[0] ?? "";
+  if (origins.length === 2) return `${origins[0]} or ${origins[1]}`;
+  return `${origins.slice(0, -1).join(", ")}, or ${origins.at(-1)}`;
+}
+
+function originDeniedMessage(launchConfig: unknown): string {
+  const allowedOrigins = controlUiAllowedOriginsFromLaunchConfig(launchConfig);
+  const currentOrigin = currentControlUiOrigin();
+  if (allowedOrigins.length === 0 || !currentOrigin) return OPENCLAW_ORIGIN_DENIED_MESSAGE;
+  return `This agent allows connections from ${formatOriginList(allowedOrigins)}, but you opened it from ${currentOrigin}. Did you create it from the other dashboard?`;
+}
+
+function formatOpenClawConnectionError(value: unknown, launchConfig?: unknown): string {
   const searchable = stringifyErrorForSearch(value);
-  if (/origin not allowed/i.test(searchable)) return OPENCLAW_ORIGIN_DENIED_MESSAGE;
+  if (/CONTROL_UI_ORIGIN_NOT_ALLOWED|origin not allowed/i.test(searchable)) {
+    return originDeniedMessage(launchConfig);
+  }
   return extractErrorMessage(value) ?? GENERIC_OPENCLAW_CONNECTION_ERROR;
 }
 
@@ -1506,11 +1541,11 @@ export function useOpenClawSession(
               return;
             }
             if (closeError?.message) {
-              setError(formatOpenClawConnectionError(closeError));
+              setError(formatOpenClawConnectionError(closeError, sessionAgent.launchConfig));
               return;
             }
             if (code !== 1000 && reason) {
-              const formattedReason = formatOpenClawConnectionError(reason);
+              const formattedReason = formatOpenClawConnectionError(reason, sessionAgent.launchConfig);
               setError(formattedReason === reason ? `Disconnected: ${formattedReason}` : formattedReason);
               return;
             }
@@ -1573,14 +1608,14 @@ export function useOpenClawSession(
           setGateway(null);
           setStatus("disconnected");
           resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
-          setError(formatOpenClawConnectionError(e));
+          setError(formatOpenClawConnectionError(e, sessionAgent.launchConfig));
         });
       } catch (e: unknown) {
         if (!active) return;
         setGateway(null);
         setStatus("disconnected");
         resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
-        setError(formatOpenClawConnectionError(e));
+        setError(formatOpenClawConnectionError(e, sessionAgent.launchConfig));
       }
     })();
 

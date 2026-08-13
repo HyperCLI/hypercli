@@ -335,6 +335,18 @@ authenticated deployment read, environment, or exec surfaces may expose them.
 The default `RUST_LOG` filter disables `acp::stream` content logging; overriding
 it can expose generated text in container logs.
 
+Persisted launch values can be changed one key at a time while an agent is
+stopped:
+
+```typescript
+await agent.setEnv('LOG_LEVEL', 'debug');
+await agent.deleteEnv('LOG_LEVEL');
+await agent.setSecret('SERVICE_TOKEN', token);
+await agent.deleteSecret('SERVICE_TOKEN');
+```
+
+Secret mutations return metadata only and never echo the secret value.
+
 ### OpenClaw Gateway Chat Attachments
 
 ```typescript

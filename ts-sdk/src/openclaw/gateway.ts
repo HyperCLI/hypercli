@@ -1287,7 +1287,13 @@ const INITIAL_BACKOFF_MS = 800;
 const MAX_BACKOFF_MS = 15_000;
 const BACKOFF_MULTIPLIER = 1.7;
 const OPERATOR_ROLE = "operator";
-const OPERATOR_SCOPES = ["operator.admin", "operator.approvals", "operator.pairing"];
+const OPERATOR_SCOPES = [
+  "operator.admin",
+  "operator.read",
+  "operator.write",
+  "operator.approvals",
+  "operator.pairing",
+];
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const EPHEMERAL_SESSION_PREFIX = "session-hypercli-ephemeral-";
 const EPHEMERAL_RUN_ID_SUPPRESSION_MS = DEFAULT_AGENT_TIMEOUT + 5 * 60_000;

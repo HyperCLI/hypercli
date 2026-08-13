@@ -1719,6 +1719,25 @@ class DeploymentEvent:
         )
 
 
+@dataclass(frozen=True)
+class AgentLaunchValueMutation:
+    """Result of setting or deleting one persisted launch environment value."""
+
+    agent_id: str
+    key: str
+    present: bool
+    launch_epoch: int
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AgentLaunchValueMutation":
+        return cls(
+            agent_id=str(data.get("agent_id") or ""),
+            key=str(data.get("key") or ""),
+            present=bool(data.get("present", False)),
+            launch_epoch=int(data.get("launch_epoch") or 0),
+        )
+
+
 @dataclass
 class AgentCapacity:
     """Typed deployment-list envelope including stored and running capacity."""
@@ -1879,6 +1898,14 @@ class Agent:
             raise RuntimeError("agent env belongs to an older launch epoch")
         return dict(data.get("env") or {})
 
+    def set_env(self, key: str, value: str) -> AgentLaunchValueMutation:
+        """Set one persisted non-secret launch environment value while stopped."""
+        return self._require_deployments().set_env(self.id, key, value)
+
+    def delete_env(self, key: str) -> AgentLaunchValueMutation:
+        """Delete one persisted non-secret launch environment value while stopped."""
+        return self._require_deployments().delete_env(self.id, key)
+
     def secret_names(self) -> list[str]:
         """Return names of deployment secrets without revealing their values."""
         data = self._require_deployments().secret_names(self.id)
@@ -1892,6 +1919,14 @@ class Agent:
         if int(data.get("launch_epoch") or 0) < self.launch_epoch:
             raise RuntimeError("agent secret belongs to an older launch epoch")
         return str(data.get("value") or "")
+
+    def set_secret(self, key: str, value: str) -> AgentLaunchValueMutation:
+        """Set one persisted launch secret while stopped without echoing its value."""
+        return self._require_deployments().set_secret(self.id, key, value)
+
+    def delete_secret(self, key: str) -> AgentLaunchValueMutation:
+        """Delete one persisted launch secret while stopped."""
+        return self._require_deployments().delete_secret(self.id, key)
 
     def wait_running(self, timeout: float = 300.0, poll_interval: float = 5.0) -> "Agent":
         wait_kwargs: dict[str, int] = {}
@@ -4393,6 +4428,23 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env")
 
+    def set_env(self, agent_id: str, key: str, value: str) -> AgentLaunchValueMutation:
+        """Set one non-secret launch environment value while the agent is stopped."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_key = quote(str(key), safe="")
+        data = self._patch(
+            f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env/{resolved_key}",
+            json={"value": str(value)},
+        )
+        return AgentLaunchValueMutation.from_dict(data)
+
+    def delete_env(self, agent_id: str, key: str) -> AgentLaunchValueMutation:
+        """Delete one non-secret launch environment value while the agent is stopped."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_key = quote(str(key), safe="")
+        data = self._delete(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/env/{resolved_key}")
+        return AgentLaunchValueMutation.from_dict(data)
+
     def secret_names(self, agent_id: str) -> dict[str, Any]:
         """List the deployment's secret names without exposing their values."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
@@ -4403,6 +4455,23 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         resolved_key = quote(str(key), safe="")
         return self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/secrets/{resolved_key}")
+
+    def set_secret(self, agent_id: str, key: str, value: str) -> AgentLaunchValueMutation:
+        """Set one launch secret while stopped without expecting its value back."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_key = quote(str(key), safe="")
+        data = self._patch(
+            f"{AGENTS_API_PREFIX}/{resolved_agent_id}/secrets/{resolved_key}",
+            json={"value": str(value)},
+        )
+        return AgentLaunchValueMutation.from_dict(data)
+
+    def delete_secret(self, agent_id: str, key: str) -> AgentLaunchValueMutation:
+        """Delete one launch secret while the agent is stopped."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_key = quote(str(key), safe="")
+        data = self._delete(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/secrets/{resolved_key}")
+        return AgentLaunchValueMutation.from_dict(data)
 
     def exec(self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
         """Execute a one-shot command on a running agent via the backend exec API.

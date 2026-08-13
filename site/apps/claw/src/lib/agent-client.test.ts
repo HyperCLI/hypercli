@@ -15,6 +15,7 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
       delete: vi.fn(),
       get: vi.fn(),
       list: vi.fn(),
+      setEnv: vi.fn(),
       start: vi.fn(),
       startOpenClaw: vi.fn(),
       restore: vi.fn(),
@@ -67,11 +68,17 @@ describe("agent-client", () => {
     delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK;
     delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS;
     deploymentsInstance.get.mockReset();
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "RUNNING",
+      runtime: "openclaw",
+    });
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
     deploymentsInstance.archive.mockReset();
     deploymentsInstance.delete.mockReset();
     deploymentsInstance.list.mockReset();
+    deploymentsInstance.setEnv.mockReset();
     deploymentsInstance.start.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
     deploymentsInstance.restore.mockReset();
@@ -127,13 +134,56 @@ describe("agent-client", () => {
     };
     const onAccepted = vi.fn();
     deploymentsInstance.start.mockResolvedValue(accepted);
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "openclaw",
+    });
+    deploymentsInstance.setEnv.mockResolvedValue({ launch_epoch: 6 });
 
     await expect(startAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(running);
 
     expect(deploymentsInstance.start).toHaveBeenCalledWith("agent-123");
+    expect(deploymentsInstance.setEnv).toHaveBeenCalledWith(
+      "agent-123",
+      "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN",
+      window.location.origin,
+    );
+    expect(deploymentsInstance.setEnv.mock.invocationCallOrder[0]).toBeLessThan(
+      deploymentsInstance.start.mock.invocationCallOrder[0],
+    );
     expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
     expect(onAccepted).toHaveBeenCalledWith(accepted);
     expect(accepted.waitRunning).toHaveBeenCalledWith(300_000);
+  });
+
+  it("does not start when the stopped OpenClaw origin patch fails", async () => {
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "openclaw-pro",
+    });
+    deploymentsInstance.setEnv.mockRejectedValue(new Error("Origin update rejected"));
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).rejects.toThrow("Origin update rejected");
+
+    expect(deploymentsInstance.setEnv).toHaveBeenCalledTimes(1);
+    expect(deploymentsInstance.start).not.toHaveBeenCalled();
+  });
+
+  it("starts non-OpenClaw agents without patching their launch environment", async () => {
+    const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "claude-code",
+    });
+    deploymentsInstance.start.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
+    expect(deploymentsInstance.start).toHaveBeenCalledWith("agent-123");
   });
 
   it("returns an already-running accepted start without opening another wait", async () => {
@@ -177,7 +227,7 @@ describe("agent-client", () => {
     await vi.runAllTimersAsync();
     await result;
 
-    expect(deploymentsInstance.get).toHaveBeenCalledTimes(4);
+    expect(deploymentsInstance.get).toHaveBeenCalledTimes(5);
     expect(onAccepted).not.toHaveBeenCalled();
   });
 

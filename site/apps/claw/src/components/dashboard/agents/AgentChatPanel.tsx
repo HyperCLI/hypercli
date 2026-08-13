@@ -1149,7 +1149,6 @@ export function AgentChatPanel({
     observer.observe(textarea);
     return () => observer.disconnect();
   }, [showComposer]);
-  const originDenied = displayBootStatus.status === "error" && /another dashboard address/i.test(displayBootStatus.detail);
   const startupStopAction = (
     selectedAgent.state === "CREATING" || selectedAgent.state === "STARTING"
   ) ? slashCommandActions?.onStopAgent : undefined;
@@ -1159,17 +1158,14 @@ export function AgentChatPanel({
   const failedRestartAction = selectedAgent.state === "FAILED" && isAgentStartable(selectedAgent)
     ? slashCommandActions?.onStartAgent
     : undefined;
-  const originRecoveryAction = originDenied && isSelectedRunning ? slashCommandActions?.onStopAgent : undefined;
   const errorActionLabel = failedCleanupAction
     ? "Clean up failed launch"
     : failedRestartAction
       ? "Start agent"
-      : originRecoveryAction
-        ? "Stop agent"
-        : selectedAgent.state === "FAILED"
+      : selectedAgent.state === "FAILED"
           ? undefined
           : "Retry";
-  const handleErrorAction = failedCleanupAction ?? failedRestartAction ?? originRecoveryAction ?? (
+  const handleErrorAction = failedCleanupAction ?? failedRestartAction ?? (
     selectedAgent.state === "FAILED" ? undefined : chat.retry
   );
   const defaultEmptyHistoryReady = displayBootStatus.status === "ready" &&

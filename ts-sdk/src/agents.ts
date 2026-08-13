@@ -286,6 +286,17 @@ export interface AgentEnvResponse {
   launch_epoch: number;
 }
 
+/** Minimal response from mutating one stored launch-environment key. */
+export interface AgentEnvMutationResponse {
+  agent_id: string;
+  key: string;
+  present: boolean;
+  launch_epoch: number;
+}
+
+/** Minimal response from mutating one stored launch secret; values are never returned. */
+export type AgentSecretMutationResponse = AgentEnvMutationResponse;
+
 export interface AgentSecretNamesResponse {
   agent_id: string;
   names: string[];
@@ -2204,6 +2215,14 @@ export class Agent {
     return response.env;
   }
 
+  async setEnv(key: string, value: string): Promise<AgentEnvMutationResponse> {
+    return this.requireDeployments().setEnv(this.id, key, value);
+  }
+
+  async deleteEnv(key: string): Promise<AgentEnvMutationResponse> {
+    return this.requireDeployments().deleteEnv(this.id, key);
+  }
+
   async secretNames(): Promise<string[]> {
     const response = await this.requireDeployments().secretNames(this.id);
     if (response.launch_epoch < this.launchEpoch) {
@@ -2218,6 +2237,14 @@ export class Agent {
       throw new Error('agent Secret belongs to an older launch epoch');
     }
     return response.value;
+  }
+
+  async setSecret(key: string, value: string): Promise<AgentSecretMutationResponse> {
+    return this.requireDeployments().setSecret(this.id, key, value);
+  }
+
+  async deleteSecret(key: string): Promise<AgentSecretMutationResponse> {
+    return this.requireDeployments().deleteSecret(this.id, key);
   }
 
   async exec(command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
@@ -4623,6 +4650,30 @@ export class Deployments {
       : this.agentHttp.get(path, undefined, requestOptions);
   }
 
+  async setEnv(
+    agentIdOrName: string,
+    key: string,
+    value: string,
+  ): Promise<AgentEnvMutationResponse> {
+    if (!key) throw new Error('env key is required');
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    return this.agentHttp.patch<AgentEnvMutationResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/env/${encodeURIComponent(key)}`,
+      { value },
+    );
+  }
+
+  async deleteEnv(
+    agentIdOrName: string,
+    key: string,
+  ): Promise<AgentEnvMutationResponse> {
+    if (!key) throw new Error('env key is required');
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    return this.agentHttp.delete<AgentEnvMutationResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/env/${encodeURIComponent(key)}`,
+    );
+  }
+
   async secretNames(
     agentIdOrName: string,
     requestOptions: RequestOverrides = {},
@@ -4644,6 +4695,30 @@ export class Deployments {
     return Object.keys(requestOptions).length === 0
       ? this.agentHttp.get(path)
       : this.agentHttp.get(path, undefined, requestOptions);
+  }
+
+  async setSecret(
+    agentIdOrName: string,
+    key: string,
+    value: string,
+  ): Promise<AgentSecretMutationResponse> {
+    if (!key) throw new Error('secret key is required');
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    return this.agentHttp.patch<AgentSecretMutationResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
+      { value },
+    );
+  }
+
+  async deleteSecret(
+    agentIdOrName: string,
+    key: string,
+  ): Promise<AgentSecretMutationResponse> {
+    if (!key) throw new Error('secret key is required');
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    return this.agentHttp.delete<AgentSecretMutationResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
+    );
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {

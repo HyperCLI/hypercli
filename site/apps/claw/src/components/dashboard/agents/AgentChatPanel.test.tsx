@@ -3527,26 +3527,32 @@ describe("AgentChatPanel", () => {
 
   it("shows the retry action when the gateway reports an error", () => {
     const retry = vi.fn();
+    const longError = "Gateway handshake failed because this dashboard origin is not present in the agent allowlist. The full explanation must remain readable without clipping.";
     renderAgentChatPanel({
       chat: buildChat({
-        error: "Gateway handshake failed",
+        error: longError,
         retry,
       }),
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("alert", { name: /could not connect gateway handshake failed/i })).toBeInTheDocument();
+    const alert = screen.getByRole("alert", { name: new RegExp(`could not connect ${longError}`, "i") });
+    const detail = within(alert).getByText(longError);
+    expect(detail).toBeVisible();
+    expect(detail).toHaveClass("whitespace-pre-wrap", "[overflow-wrap:anywhere]");
+    expect(detail).not.toHaveClass("truncate");
     const retryButton = screen.getByRole("button", { name: /retry/i });
+    expect(retryButton).toBeVisible();
     fireEvent.click(retryButton);
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
-  it("offers to stop the agent when the gateway origin allowlist is stale", () => {
+  it("keeps Retry available for a contextual gateway origin error", () => {
     const retry = vi.fn();
     const onStopAgent = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
-        error: "This agent was opened from another dashboard address. Stop and start it from this page, then retry.",
+        error: "This agent allows connections from https://agents.hypercli.com, but you opened it from https://agents.feat.hypercli.com. Did you create it from the other dashboard?",
         retry,
       }),
       isSelectedRunning: true,
@@ -3555,11 +3561,10 @@ describe("AgentChatPanel", () => {
       },
     });
 
-    expect(screen.getByRole("alert", { name: /another dashboard address/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
-    const stopButton = screen.getByRole("button", { name: /stop agent/i });
-    fireEvent.click(stopButton);
-    expect(onStopAgent).toHaveBeenCalledTimes(1);
-    expect(retry).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert", { name: /agents\.hypercli\.com.*agents\.feat\.hypercli\.com/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /stop agent/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(onStopAgent).not.toHaveBeenCalled();
   });
 });

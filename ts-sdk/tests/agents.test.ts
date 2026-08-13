@@ -486,6 +486,105 @@ describe('Agents SDK', () => {
     );
   });
 
+  it('sets and deletes one URL-encoded launch env key without replacing the env map', async () => {
+    const setResult = { agent_id: 'agent-123', key: 'OPENCLAW/ORIGIN', present: true, launch_epoch: 7 };
+    const deleteResult = { ...setResult, present: false };
+    const patch = vi.fn().mockResolvedValue(setResult);
+    const deleteRequest = vi.fn().mockResolvedValue(deleteResult);
+    const deployments = new Deployments(
+      { patch, delete: deleteRequest } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.setEnv('agent-123', 'OPENCLAW/ORIGIN', 'https://agents.hypercli.com'))
+      .resolves.toEqual(setResult);
+    await expect(deployments.deleteEnv('agent-123', 'OPENCLAW/ORIGIN'))
+      .resolves.toEqual(deleteResult);
+
+    expect(patch).toHaveBeenCalledWith(
+      '/deployments/agent-123/env/OPENCLAW%2FORIGIN',
+      { value: 'https://agents.hypercli.com' },
+    );
+    expect(patch.mock.calls[0]?.[1]).toEqual({ value: 'https://agents.hypercli.com' });
+    expect(deleteRequest).toHaveBeenCalledWith('/deployments/agent-123/env/OPENCLAW%2FORIGIN');
+  });
+
+  it('exposes one-key env mutation helpers on bound agents', async () => {
+    const result = { agent_id: 'agent-123', key: 'KEY', present: true, launch_epoch: 8 };
+    const patch = vi.fn().mockResolvedValue(result);
+    const deleteRequest = vi.fn().mockResolvedValue({ ...result, present: false });
+    const deployments = new Deployments(
+      {
+        get: vi.fn().mockResolvedValue({
+          id: 'agent-123',
+          user_id: 'user-456',
+          state: 'STOPPED',
+        }),
+        patch,
+        delete: deleteRequest,
+      } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agent = await deployments.get('agent-123');
+
+    await agent.setEnv('KEY', 'value');
+    await agent.deleteEnv('KEY');
+
+    expect(patch).toHaveBeenCalledWith('/deployments/agent-123/env/KEY', { value: 'value' });
+    expect(deleteRequest).toHaveBeenCalledWith('/deployments/agent-123/env/KEY');
+  });
+
+  it('sets and deletes one URL-encoded secret without returning its value', async () => {
+    const result = { agent_id: 'agent-123', key: 'OPENCLAW/TOKEN', present: true, launch_epoch: 9 };
+    const patch = vi.fn().mockResolvedValue(result);
+    const deleteRequest = vi.fn().mockResolvedValue({ ...result, present: false });
+    const deployments = new Deployments(
+      { patch, delete: deleteRequest } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const setResult = await deployments.setSecret('agent-123', 'OPENCLAW/TOKEN', 'top-secret');
+    const deleteResult = await deployments.deleteSecret('agent-123', 'OPENCLAW/TOKEN');
+
+    expect(patch).toHaveBeenCalledWith(
+      '/deployments/agent-123/secrets/OPENCLAW%2FTOKEN',
+      { value: 'top-secret' },
+    );
+    expect(deleteRequest).toHaveBeenCalledWith('/deployments/agent-123/secrets/OPENCLAW%2FTOKEN');
+    expect(setResult).toEqual(result);
+    expect(setResult).not.toHaveProperty('value');
+    expect(deleteResult).not.toHaveProperty('value');
+  });
+
+  it('exposes one-key secret mutation helpers on bound agents', async () => {
+    const result = { agent_id: 'agent-123', key: 'KEY', present: true, launch_epoch: 9 };
+    const patch = vi.fn().mockResolvedValue(result);
+    const deleteRequest = vi.fn().mockResolvedValue({ ...result, present: false });
+    const deployments = new Deployments(
+      {
+        get: vi.fn().mockResolvedValue({
+          id: 'agent-123',
+          user_id: 'user-456',
+          state: 'STOPPED',
+        }),
+        patch,
+        delete: deleteRequest,
+      } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agent = await deployments.get('agent-123');
+
+    await agent.setSecret('KEY', 'secret-value');
+    await agent.deleteSecret('KEY');
+
+    expect(patch).toHaveBeenCalledWith('/deployments/agent-123/secrets/KEY', { value: 'secret-value' });
+    expect(deleteRequest).toHaveBeenCalledWith('/deployments/agent-123/secrets/KEY');
+  });
+
   it('keeps create, start, stop, archive, and restore as distinct lifecycle commands', async () => {
     const agentId = '11111111-1111-4111-8111-111111111111';
     const post = vi.fn()

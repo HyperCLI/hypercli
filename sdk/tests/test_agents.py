@@ -20,6 +20,7 @@ from hypercli.agents import (
     AGENTS_API_PREFIX,
     Agent,
     AgentCapacity,
+    AgentLaunchValueMutation,
     AgentRoutes,
     DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_OPENCLAW_IMAGE,
@@ -1161,6 +1162,36 @@ def test_agent_reads_environment_and_exact_secrets_through_bound_deployments():
     manager.env.assert_called_once_with("agent-123")
     manager.secret_names.assert_called_once_with("agent-123")
     manager.secret.assert_called_once_with("agent-123", "API_TOKEN")
+
+
+def test_agent_mutates_environment_and_secrets_through_bound_deployments():
+    manager = Mock()
+    mutation = AgentLaunchValueMutation(
+        agent_id="agent-123",
+        key="API_TOKEN",
+        present=True,
+        launch_epoch=10,
+    )
+    manager.set_env.return_value = mutation
+    manager.delete_env.return_value = mutation
+    manager.set_secret.return_value = mutation
+    manager.delete_secret.return_value = mutation
+    agent = Agent(
+        id="agent-123",
+        user_id="user-456",
+        state="stopped",
+        launch_epoch=10,
+        _deployments=manager,
+    )
+
+    assert agent.set_env("MODE", "prod") is mutation
+    assert agent.delete_env("MODE") is mutation
+    assert agent.set_secret("API_TOKEN", "secret-value") is mutation
+    assert agent.delete_secret("API_TOKEN") is mutation
+    manager.set_env.assert_called_once_with("agent-123", "MODE", "prod")
+    manager.delete_env.assert_called_once_with("agent-123", "MODE")
+    manager.set_secret.assert_called_once_with("agent-123", "API_TOKEN", "secret-value")
+    manager.delete_secret.assert_called_once_with("agent-123", "API_TOKEN")
 
 
 def test_agent_rejects_secret_from_older_launch_epoch():
@@ -2780,6 +2811,44 @@ def test_deployments_environment_and_secret_routes(agents_client):
         call(f"{AGENTS_API_PREFIX}/agent-123/env"),
         call(f"{AGENTS_API_PREFIX}/agent-123/secrets"),
         call(f"{AGENTS_API_PREFIX}/agent-123/secrets/A%2FB"),
+    ]
+
+
+def test_deployments_environment_and_secret_mutation_routes(agents_client):
+    agents_client.resolve_agent_id = Mock(return_value="agent-123")
+    agents_client._patch = Mock(
+        side_effect=[
+            {"agent_id": "agent-123", "key": "A/B", "present": True, "launch_epoch": 4},
+            {"agent_id": "agent-123", "key": "SECRET/KEY", "present": True, "launch_epoch": 4},
+        ]
+    )
+    agents_client._delete = Mock(
+        side_effect=[
+            {"agent_id": "agent-123", "key": "A/B", "present": False, "launch_epoch": 4},
+            {"agent_id": "agent-123", "key": "SECRET/KEY", "present": False, "launch_epoch": 4},
+        ]
+    )
+
+    env_set = agents_client.set_env("openclaw-test", "A/B", "value")
+    env_deleted = agents_client.delete_env("openclaw-test", "A/B")
+    secret_set = agents_client.set_secret("openclaw-test", "SECRET/KEY", "secret-value")
+    secret_deleted = agents_client.delete_secret("openclaw-test", "SECRET/KEY")
+
+    assert env_set == AgentLaunchValueMutation("agent-123", "A/B", True, 4)
+    assert env_deleted == AgentLaunchValueMutation("agent-123", "A/B", False, 4)
+    assert secret_set == AgentLaunchValueMutation("agent-123", "SECRET/KEY", True, 4)
+    assert secret_deleted == AgentLaunchValueMutation("agent-123", "SECRET/KEY", False, 4)
+    assert not hasattr(secret_set, "value")
+    assert agents_client._patch.call_args_list == [
+        call(f"{AGENTS_API_PREFIX}/agent-123/env/A%2FB", json={"value": "value"}),
+        call(
+            f"{AGENTS_API_PREFIX}/agent-123/secrets/SECRET%2FKEY",
+            json={"value": "secret-value"},
+        ),
+    ]
+    assert agents_client._delete.call_args_list == [
+        call(f"{AGENTS_API_PREFIX}/agent-123/env/A%2FB"),
+        call(f"{AGENTS_API_PREFIX}/agent-123/secrets/SECRET%2FKEY"),
     ]
 
 

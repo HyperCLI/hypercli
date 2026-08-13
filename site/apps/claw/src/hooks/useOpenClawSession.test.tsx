@@ -7450,21 +7450,96 @@ describe("useOpenClawSession", () => {
     }
   });
 
-  it("turns gateway origin denials into actionable UI copy", async () => {
+  it("explains gateway origin denials using the safe configured env origin", async () => {
     const gateway = buildGateway("connecting");
-    gateway.connect.mockRejectedValue({ detail: "origin not allowed (open the Control UI from the gateway host or allow it in gateway.controlUi.allowedOrigins)" });
+    gateway.connect.mockRejectedValue(Object.assign(new Error("Gateway request failed"), {
+      gatewayCode: "CONTROL_UI_ORIGIN_NOT_ALLOWED",
+      details: { token: "raw-gateway-token-must-not-leak" },
+    }));
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
+      launchConfig: {
+        env: {
+          OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://agents.feat.hypercli.com/private?token=launch-secret",
+        },
+      },
     };
 
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
 
-    await waitFor(() => expect(result.current.error).toBe("This agent was opened from another dashboard address. Stop and start it from this page, then retry."));
-    expect(result.current.error).not.toMatch(/allowedOrigins/);
+    await waitFor(() => expect(result.current.error).toBe(
+      `This agent allows connections from https://agents.feat.hypercli.com, but you opened it from ${window.location.origin}. Did you create it from the other dashboard?`,
+    ));
+    expect(result.current.error).not.toMatch(/raw-gateway-token|launch-secret|private/);
     expect(result.current.connecting).toBe(false);
+    unmount();
+  });
+
+  it("lists multiple normalized config origins for an origin denial", async () => {
+    const gateway = buildGateway("connecting");
+    gateway.connect.mockRejectedValue({ detail: "origin not allowed" });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+      launchConfig: {
+        config: {
+          gateway: {
+            controlUi: {
+              allowedOrigins: [
+                "https://agents.hypercli.com/path",
+                "https://agents.feat.hypercli.com",
+                "https://agents.hypercli.com/duplicate",
+              ],
+            },
+          },
+        },
+      },
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+    await waitFor(() => expect(result.current.error).toBe(
+      `This agent allows connections from https://agents.hypercli.com or https://agents.feat.hypercli.com, but you opened it from ${window.location.origin}. Did you create it from the other dashboard?`,
+    ));
+    unmount();
+  });
+
+  it("uses generic origin-denial copy when configured origins are unsafe", async () => {
+    const gateway = buildGateway("connecting");
+    gateway.connect.mockRejectedValue({
+      detail: "origin not allowed",
+      token: "gateway-secret-must-not-leak",
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+      launchConfig: {
+        env: {
+          OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "javascript:alert('launch-secret-must-not-leak')",
+        },
+        config: {
+          gateway: {
+            controlUi: {
+              allowedOrigins: ["not a URL with another-secret", "https://user:password@example.com"],
+            },
+          },
+        },
+      },
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+    await waitFor(() => expect(result.current.error).toBe(
+      "This agent does not allow connections from this dashboard address. Did you create it from another dashboard?",
+    ));
+    expect(result.current.error).not.toMatch(/secret|password|javascript|gateway/);
     unmount();
   });
 

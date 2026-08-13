@@ -320,6 +320,19 @@ authenticated deployment read, environment, or exec surfaces may expose them.
 The default `RUST_LOG` filter disables `acp::stream` content logging; overriding
 it can expose generated text in container logs.
 
+Persisted launch environment values can be changed one key at a time while an
+agent is stopped:
+
+```python
+agent.set_env("LOG_LEVEL", "debug")
+agent.delete_env("LOG_LEVEL")
+agent.set_secret("SERVICE_TOKEN", token)
+agent.delete_secret("SERVICE_TOKEN")
+```
+
+These methods return `AgentLaunchValueMutation` metadata. Secret writes never
+echo the secret value in their response.
+
 ## OpenClaw Node Egress
 
 The Python SDK includes an experimental reference implementation for user-owned

@@ -451,6 +451,8 @@ describe("GatewayClient", () => {
     expect(request.params.role).toBe("operator");
     expect(request.params.scopes).toEqual([
       "operator.admin",
+      "operator.read",
+      "operator.write",
       "operator.approvals",
       "operator.pairing",
     ]);

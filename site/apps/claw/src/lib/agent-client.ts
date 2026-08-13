@@ -7,6 +7,11 @@ import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
 import { generateAgentName, isGeneratedAgentName } from "./agent-name";
+import {
+  controlUiAllowedOriginsFromLaunchConfig,
+  currentControlUiOrigin,
+  parseControlUiAllowedOrigins,
+} from "./control-ui-origin";
 
 interface AgentUiMeta {
   avatar?: {
@@ -40,38 +45,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cloneRecord<T>(value: T): T {
   return structuredClone(value);
-}
-
-function normalizeOrigin(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  try {
-    return new URL(trimmed).origin;
-  } catch {
-    return trimmed.replace(/\/+$/, "");
-  }
-}
-
-function parseAllowedOrigins(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map(normalizeOrigin).filter((origin): origin is string => Boolean(origin));
-  }
-
-  if (typeof value !== "string") return [];
-  const trimmed = value.trim();
-  if (!trimmed) return [];
-
-  if (trimmed.startsWith("[")) {
-    try {
-      return parseAllowedOrigins(JSON.parse(trimmed));
-    } catch {}
-  }
-
-  return trimmed
-    .split(/[,\s]+/)
-    .map(normalizeOrigin)
-    .filter((origin): origin is string => Boolean(origin));
 }
 
 function errorText(value: unknown): string {
@@ -210,12 +183,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 function currentUiOrigin(): string | null {
-  if (typeof window === "undefined") return null;
-  return normalizeOrigin(window.location?.origin);
+  return currentControlUiOrigin();
 }
 
 function configuredUiOrigins(): string[] {
-  return parseAllowedOrigins(process.env[CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV]);
+  return parseControlUiAllowedOrigins(process.env[CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV]);
 }
 
 function configuredUiOriginLock(): boolean {
@@ -226,8 +198,7 @@ function configuredUiOriginLock(): boolean {
 }
 
 function configAllowedOrigins(config: unknown): string[] {
-  if (!isRecord(config) || !isRecord(config.gateway) || !isRecord(config.gateway.controlUi)) return [];
-  return parseAllowedOrigins(config.gateway.controlUi.allowedOrigins);
+  return controlUiAllowedOriginsFromLaunchConfig({ config });
 }
 
 function stripConfigAllowedOrigins(config: unknown): Record<string, unknown> {
@@ -341,7 +312,7 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions>
   }
 
   const origins = [
-    ...parseAllowedOrigins(env[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
+    ...parseControlUiAllowedOrigins(env[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
     ...configAllowedOrigins(options.config),
     ...configuredOrigins,
     ...(origin ? [origin] : []),
@@ -442,6 +413,15 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
 
 export async function requestAgentStart(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
   const agentClient = createAgentClient(apiKey);
+  const current = await agentClient.get(agentId);
+  const runtime = current.runtime?.trim().toLowerCase();
+  if (current.state.toUpperCase() === "STOPPED" && (runtime === "openclaw" || runtime === "openclaw-pro")) {
+    const origin = currentControlUiOrigin();
+    if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
+    // This mutation is deliberately separate from start timeout reconciliation:
+    // a failed or ambiguous origin update must never be mistaken for an admitted start.
+    await agentClient.setEnv(current.id, CONTROL_UI_ALLOWED_ORIGIN_ENV, origin);
+  }
   let accepted: SdkAgent;
   try {
     accepted = await agentClient.start(agentId);

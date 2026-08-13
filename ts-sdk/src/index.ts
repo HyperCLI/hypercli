@@ -271,6 +271,8 @@ export {
   type AgentSlotInventory,
   type AgentSlotSize,
   type AgentTokenResponse,
+  type AgentEnvMutationResponse,
+  type AgentSecretMutationResponse,
   type BootstrapInferenceMessage,
   type BootstrapInferenceResponseFormat,
   type BootstrapInferenceResult,
