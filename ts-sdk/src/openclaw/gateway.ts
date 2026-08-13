@@ -152,6 +152,13 @@ export interface GatewayOptions {
   onPairing?: (pairing: GatewayPairingState | null) => void;
 }
 
+export interface GatewayConnectOptions {
+  /** Cancel only this caller's wait for the initial authenticated hello. */
+  signal?: AbortSignal;
+  /** Bound this caller's wait for the initial authenticated hello. */
+  timeoutMs?: number;
+}
+
 export interface GatewayEvent {
   type: string;
   event: string;
@@ -2810,6 +2817,10 @@ function shouldPauseReconnectAfterAuthFailure(detailCode: string | null, pending
   return !pendingDeviceTokenRetry;
 }
 
+function isConcurrentPairingApproval(error: unknown): boolean {
+  return error instanceof Error && /unknown request\s*id/i.test(error.message);
+}
+
 type GatewaySocket = WebSocket | NodeWebSocket;
 
 function isSocketOpen(ws: GatewaySocket | null): boolean {
@@ -2877,11 +2888,14 @@ export class GatewayClient {
   private connectNonce: string | null = null;
   private connectSent = false;
   private pendingConnectError: GatewayErrorShape | null = null;
+  private pendingConnectTerminal = false;
+  private pairingApprovalInFlight = false;
   private pairingState: GatewayPairingState | null = null;
   private autoApproveAttemptedRequestIds = new Set<string>();
   private authTokenMismatchRetried = false;
   private deviceTokenMismatchRetried = false;
   private pendingDeviceTokenRetry = false;
+  private lifecycleGeneration = 0;
   private lastSeq: number | null = null;
   private connectPromise: Promise<void> | null = null;
   private resolveConnectPromise: (() => void) | null = null;
@@ -3151,9 +3165,33 @@ export class GatewayClient {
     }));
   }
 
-  /** Connect and keep reconnecting until stopped */
-  connect(): Promise<void> {
-    return this.start();
+  /** Connect and wait for the first authenticated hello. */
+  connect(options: GatewayConnectOptions = {}): Promise<void> {
+    if (options.signal?.aborted) {
+      return Promise.reject(this.connectWaitAbortError(options.signal));
+    }
+    const connection = this.start();
+    if (options.signal === undefined && options.timeoutMs === undefined) return connection;
+    const timeoutMs = options.timeoutMs ?? this.defaultTimeout;
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (callback: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", abort);
+        callback();
+      };
+      const abort = () => finish(() => reject(this.connectWaitAbortError(options.signal)));
+      const timer = setTimeout(() => {
+        finish(() => reject(new Error(`gateway connect timed out after ${timeoutMs}ms`)));
+      }, Math.max(0, timeoutMs));
+      options.signal?.addEventListener("abort", abort, { once: true });
+      connection.then(
+        () => finish(resolve),
+        (error) => finish(() => reject(error)),
+      );
+    });
   }
 
   start(): Promise<void> {
@@ -3168,8 +3206,37 @@ export class GatewayClient {
         this.rejectConnectPromise = reject;
       });
     }
-    this.openSocket();
-    return this.connectPromise;
+    const connection = this.connectPromise;
+    try {
+      this.openSocket();
+    } catch (error) {
+      this.setConnectionState("disconnected");
+      this.rejectInitialConnect(error);
+    }
+    return connection;
+  }
+
+  private connectWaitAbortError(signal?: AbortSignal): Error {
+    if (signal?.reason instanceof Error) return signal.reason;
+    const error = new Error("gateway connect cancelled");
+    error.name = "AbortError";
+    return error;
+  }
+
+  private resolveInitialConnect(): void {
+    const resolve = this.resolveConnectPromise;
+    this.connectPromise = null;
+    this.resolveConnectPromise = null;
+    this.rejectConnectPromise = null;
+    resolve?.();
+  }
+
+  private rejectInitialConnect(error: unknown): void {
+    const reject = this.rejectConnectPromise;
+    this.connectPromise = null;
+    this.resolveConnectPromise = null;
+    this.rejectConnectPromise = null;
+    reject?.(error instanceof Error ? error : new Error(String(error)));
   }
 
   /** Close permanently and stop reconnecting */
@@ -3178,12 +3245,15 @@ export class GatewayClient {
   }
 
   stop(): void {
+    this.lifecycleGeneration += 1;
     this.closed = true;
     this.connected = false;
     this.setConnectionState("disconnected");
     this.connectSent = false;
     this.connectNonce = null;
     this.pendingConnectError = null;
+    this.pendingConnectTerminal = false;
+    this.pairingApprovalInFlight = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -3200,12 +3270,7 @@ export class GatewayClient {
     const stoppedError = new Error("gateway client stopped");
     this.flushPending(stoppedError);
     this.notifyInternalStreamClose(stoppedError);
-    if (this.rejectConnectPromise) {
-      this.rejectConnectPromise(new Error("gateway client stopped"));
-    }
-    this.connectPromise = null;
-    this.resolveConnectPromise = null;
-    this.rejectConnectPromise = null;
+    this.rejectInitialConnect(new Error("gateway client stopped"));
   }
 
   private updatePairingState(pairing: GatewayPairingState | null): void {
@@ -3215,7 +3280,11 @@ export class GatewayClient {
     } else {
       clearPendingPairing(this.storageScope(), this.role);
     }
-    this.onPairing?.(pairing);
+    try {
+      this.onPairing?.(pairing);
+    } catch {
+      // Pairing callbacks are observational and must not affect the transport FSM.
+    }
   }
 
   private canAutoApprovePairing(): boolean {
@@ -3286,11 +3355,11 @@ export class GatewayClient {
 
     if (useBrowserSocket) {
       ws.onopen = () => {
-        this.queueConnect();
+        this.queueConnect(ws);
       };
 
       ws.onmessage = (event: { data?: unknown }) => {
-        this.handleMessage(String(event.data ?? ""));
+        this.handleMessage(String(event.data ?? ""), ws);
       };
 
       ws.onerror = () => {
@@ -3305,10 +3374,10 @@ export class GatewayClient {
 
     const nodeWs = ws as NodeWebSocket;
     nodeWs.on("open", () => {
-      this.queueConnect();
+      this.queueConnect(ws);
     });
     nodeWs.on("message", (data: NodeWebSocket.RawData) => {
-      this.handleMessage(typeof data === "string" ? data : data.toString());
+      this.handleMessage(typeof data === "string" ? data : data.toString(), ws);
     });
     nodeWs.on("error", () => {
       // Close handling covers retries and surfaced errors.
@@ -3318,14 +3387,15 @@ export class GatewayClient {
     });
   }
 
-  private queueConnect(): void {
+  private queueConnect(ws: GatewaySocket): void {
+    if (this.ws !== ws || this.closed) return;
     this.connectNonce = null;
     this.connectSent = false;
     if (this.connectTimer) {
       clearTimeout(this.connectTimer);
     }
     this.connectTimer = setTimeout(() => {
-      if (!this.ws || !isSocketOpen(this.ws) || this.closed || this.connectSent) {
+      if (this.ws !== ws || !isSocketOpen(ws) || this.closed || this.connectSent) {
         return;
       }
       if (!this.connectNonce) {
@@ -3333,7 +3403,7 @@ export class GatewayClient {
           code: "CONNECT_CHALLENGE_TIMEOUT",
           message: "gateway connect challenge timeout",
         };
-        this.ws.close(RECONNECT_CLOSE_CODE, "connect challenge timeout");
+        ws.close(RECONNECT_CLOSE_CODE, "connect challenge timeout");
       }
     }, CONNECT_TIMER_MS);
   }
@@ -3347,7 +3417,13 @@ export class GatewayClient {
     this.backoffMs = Math.min(this.backoffMs * BACKOFF_MULTIPLIER, MAX_BACKOFF_MS);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      this.openSocket();
+      try {
+        this.openSocket();
+      } catch (error) {
+        this.pendingConnectError = toCloseError(error);
+        this.setConnectionState("disconnected");
+        this.scheduleReconnect();
+      }
     }, delay);
   }
 
@@ -3374,12 +3450,12 @@ export class GatewayClient {
     }
     const error = this.pendingConnectError;
     this.pendingConnectError = null;
+    const terminal = this.pendingConnectTerminal;
+    this.pendingConnectTerminal = false;
     const closeError = new Error(`gateway closed (${code}): ${reason || "no reason"}`);
     this.flushPending(closeError);
     this.notifyInternalStreamClose(closeError);
-    this.onClose?.({ code, reason, error });
     if (!this.closed) {
-      this.onDisconnect?.();
       const detailCode =
         error && typeof error === "object"
           ? readConnectErrorCode(new GatewayRequestError({
@@ -3388,9 +3464,24 @@ export class GatewayClient {
               details: error.details,
             }))
           : null;
-      if (!shouldPauseReconnectAfterAuthFailure(detailCode, this.pendingDeviceTokenRetry)) {
+      if (this.pairingApprovalInFlight) {
+        // The approval result owns the next transition. A late successful
+        // approval opens one fresh socket; a failure rejects the initial hello.
+      } else if (terminal || shouldPauseReconnectAfterAuthFailure(detailCode, this.pendingDeviceTokenRetry)) {
+        this.rejectInitialConnect(error ? new GatewayRequestError(error) : closeError);
+      } else {
         this.scheduleReconnect();
       }
+      try {
+        this.onDisconnect?.();
+      } catch {
+        // Disconnect callbacks are observational and must not affect the FSM.
+      }
+    }
+    try {
+      this.onClose?.({ code, reason, error });
+    } catch {
+      // Close callbacks are observational and must not affect the FSM.
     }
   }
 
@@ -3408,7 +3499,9 @@ export class GatewayClient {
       return;
     }
 
+    const socket = this.ws;
     this.connectSent = true;
+    const lifecycleGeneration = this.lifecycleGeneration;
     if (this.connectTimer) {
       clearTimeout(this.connectTimer);
       this.connectTimer = null;
@@ -3418,6 +3511,7 @@ export class GatewayClient {
     let storedDeviceToken: string | null = null;
     try {
       identity = await loadOrCreateDeviceIdentity();
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
       storedDeviceToken = loadStoredDeviceToken(
         identity.deviceId,
         this.storageScope(),
@@ -3444,6 +3538,7 @@ export class GatewayClient {
         nonce,
       });
       const signature = await signDevicePayload(identity.privateKey, payload);
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
 
       const auth: Record<string, string> = {};
       if (authToken) auth.token = authToken;
@@ -3489,6 +3584,7 @@ export class GatewayClient {
         { timeoutMs: this.defaultTimeout },
         true,
       );
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
 
       if (hello?.auth?.deviceToken) {
         this.deviceToken = hello.auth.deviceToken;
@@ -3513,16 +3609,17 @@ export class GatewayClient {
       this.pendingDeviceTokenRetry = false;
       this.updatePairingState(null);
 
-      if (this.resolveConnectPromise) {
-        this.resolveConnectPromise();
-      }
-      this.connectPromise = null;
-      this.resolveConnectPromise = null;
-      this.rejectConnectPromise = null;
+      this.resolveInitialConnect();
 
-      this.onHello?.(hello);
+      try {
+        this.onHello?.(hello);
+      } catch {
+        // Hello callbacks are observational and must not affect an authenticated socket.
+      }
     } catch (error) {
+      if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
       this.pendingConnectError = toCloseError(error);
+      this.pendingConnectTerminal = false;
       const detailCode = readConnectErrorCode(error);
       const requestId = readConnectPairingRequestId(error);
 
@@ -3534,6 +3631,7 @@ export class GatewayClient {
         clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
         this.connectSent = false;
         this.pendingConnectError = null;
+        this.pendingConnectTerminal = false;
         this.pendingDeviceTokenRetry = false;
         await this.sendConnect();
         return;
@@ -3551,6 +3649,7 @@ export class GatewayClient {
         this.pendingDeviceTokenRetry = true;
         this.connectSent = false;
         this.pendingConnectError = null;
+        this.pendingConnectTerminal = false;
         await this.sendConnect();
         return;
       }
@@ -3563,12 +3662,16 @@ export class GatewayClient {
           // Auto-approve silently — don't emit intermediate pairing states
           // that would cause UI flicker in the dashboard.
           this.autoApproveAttemptedRequestIds.add(requestId);
+          this.pairingApprovalInFlight = true;
           try {
             await this.approvePairingRequest(requestId);
+            if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) return;
+            this.pairingApprovalInFlight = false;
             this.pendingConnectError = {
               code: "PAIRING_APPROVED",
               message: "Pairing approved, reconnecting",
             };
+            this.pendingConnectTerminal = false;
             this.connectSent = false;
             if (!this.ws || !isSocketOpen(this.ws)) {
               this.openSocket();
@@ -3577,16 +3680,35 @@ export class GatewayClient {
             this.ws.close(RECONNECT_CLOSE_CODE, "pairing approved");
             return;
           } catch (approvalError) {
-            this.pendingConnectError = toCloseError(approvalError);
-            this.updatePairingState({
-              requestId,
-              role: this.role,
-              gatewayUrl: this.url,
-              ...(identity ? { deviceId: identity.deviceId } : {}),
-              status: "failed",
-              updatedAtMs: Date.now(),
-              error: approvalError instanceof Error ? approvalError.message : String(approvalError),
-            });
+            if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) return;
+            this.pairingApprovalInFlight = false;
+            if (isConcurrentPairingApproval(approvalError)) {
+              this.pendingConnectError = {
+                code: "PAIRING_APPROVED",
+                message: "Pairing was already approved, reconnecting",
+              };
+              this.pendingConnectTerminal = false;
+              if (!this.ws) {
+                this.openSocket();
+                return;
+              }
+            } else {
+              this.pendingConnectError = toCloseError(approvalError);
+              this.pendingConnectTerminal = true;
+              this.updatePairingState({
+                requestId,
+                role: this.role,
+                gatewayUrl: this.url,
+                ...(identity ? { deviceId: identity.deviceId } : {}),
+                status: "failed",
+                updatedAtMs: Date.now(),
+                error: approvalError instanceof Error ? approvalError.message : String(approvalError),
+              });
+              if (!this.ws) {
+                this.rejectInitialConnect(approvalError);
+                return;
+              }
+            }
           }
         } else {
           // No auto-approve — surface pairing state so the UI can prompt.
@@ -3598,7 +3720,15 @@ export class GatewayClient {
             status: "pending",
             updatedAtMs: Date.now(),
           });
+          this.pendingConnectTerminal = true;
         }
+      }
+      if (
+        detailCode === CONNECT_ERROR_AUTH_RATE_LIMITED
+        || detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH
+        || (detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && this.deviceTokenMismatchRetried)
+      ) {
+        this.pendingConnectTerminal = true;
       }
       if (this.ws) {
         this.ws.close(RECONNECT_CLOSE_CODE, "connect failed");
@@ -3606,7 +3736,8 @@ export class GatewayClient {
     }
   }
 
-  private handleMessage(raw: string): void {
+  private handleMessage(raw: string, sourceSocket?: GatewaySocket): void {
+    if (sourceSocket && this.ws !== sourceSocket) return;
     const decoded = decodeGatewayFrame(raw);
     if (!decoded.ok) {
       this.reportProtocolError(decoded.error);

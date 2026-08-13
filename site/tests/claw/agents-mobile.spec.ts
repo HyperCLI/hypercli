@@ -126,7 +126,6 @@ async function seedAuth(page: Page): Promise<void> {
     });
     window.localStorage.setItem("claw_auth_token", token);
     window.localStorage.setItem("app_auth_token", token);
-    window.localStorage.setItem("claw_e2e_openclaw_connected", "1");
   }, TEST_JWT);
 }
 
@@ -343,13 +342,6 @@ async function openMobileAgentsDashboard(page: Page, primaryAgent = mobileAgent)
     "content",
     /width=device-width.*interactive-widget=resizes-visual/,
   );
-  await expect.poll(async () => page.evaluate(() => ({
-    e2eConnected: window.localStorage.getItem("claw_e2e_openclaw_connected"),
-    webdriver: window.navigator.webdriver,
-  }))).toEqual({
-    e2eConnected: "1",
-    webdriver: true,
-  });
   await expect
     .poll(
       async () => {

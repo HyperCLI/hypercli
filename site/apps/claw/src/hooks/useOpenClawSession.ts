@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentChannelSummary, AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 import type { AgentRuntimeDescriptor } from "@hypercli.com/sdk/connectors";
-import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { OpenClawAgent, OpenClawGatewayLease } from "@hypercli.com/sdk/agents";
 import {
   OpenClawChannelsProvider,
   normalizeOpenClawChannelsSnapshot,
@@ -115,12 +115,10 @@ import { cronScheduleLabel } from "@/lib/cron-jobs";
 import { useConnectorWorkflow } from "@/hooks/useConnectorWorkflow";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 
-const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
 const OPENCLAW_SESSION_TITLE_STORAGE_PREFIX = "openclaw.sessionTitles.v1";
 const OPENCLAW_SESSION_LIST_STORAGE_PREFIX = "openclaw.sessions.v1";
 const OPENCLAW_SESSION_LIST_CACHE_TTL_MS = 5 * 60_000;
 const OPENCLAW_DELETED_SESSION_TOMBSTONE_TTL_MS = 30_000;
-const GATEWAY_CONNECTING_STALL_MS = 30_000;
 const GATEWAY_STATUS_CACHE_TTL_MS = 5_000;
 const OPENCLAW_PASSIVE_COMPLETION_REFRESH_DEBOUNCE_MS = 100;
 const OPENCLAW_STREAM_PUBLICATION_INTERVAL_MS = 32;
@@ -129,8 +127,6 @@ const OPENCLAW_TEMPORARY_CHAT_TITLE = "Private chat";
 const OPENCLAW_TEMPORARY_CHAT_CLEANUP_TIMEOUT = Symbol("temporary-chat-cleanup-timeout");
 const CHAT_IMAGE_READ_CONCURRENCY = 4;
 const WHATSAPP_GATEWAY_READY_TIMEOUT_MS = 120_000;
-const GATEWAY_CONNECTING_STALL_MESSAGE =
-  "Timed out opening the agent session. The gateway is still reconnecting in the background.";
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent does not allow connections from this dashboard address. Did you create it from another dashboard?";
@@ -336,15 +332,6 @@ interface ActiveChatStreamEntry {
 }
 
 type DeletedSessionTombstones = Record<string, number>;
-
-function hasSeededE2EConnection(): boolean {
-  if (typeof window === "undefined" || !window.navigator.webdriver) return false;
-  try {
-    return window.localStorage.getItem(E2E_OPENCLAW_CONNECTED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
 
 function sessionTitleStorageKey(agentId: string): string {
   return `${OPENCLAW_SESSION_TITLE_STORAGE_PREFIX}:${agentId}`;
@@ -915,8 +902,6 @@ export function useOpenClawSession(
   const temporaryChatStartingAgentIdRef = useRef<string | null>(null);
   const temporaryChatStartPromiseRef = useRef<Promise<void> | null>(null);
   const temporaryChatEndPromiseRef = useRef<Promise<void> | null>(null);
-  const seededE2EConnection = hasSeededE2EConnection();
-
   useEffect(() => {
     latestAgentRef.current = agent;
   }, [agent]);
@@ -1462,17 +1447,10 @@ export function useOpenClawSession(
   }, [cancelAndClearActiveChatStreams, clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory, revokeChatSendAuthority]);
 
   useEffect(() => {
-    if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
-    const timeout = window.setTimeout(() => {
-      setError((current) => current ?? GATEWAY_CONNECTING_STALL_MESSAGE);
-    }, GATEWAY_CONNECTING_STALL_MS);
-    return () => window.clearTimeout(timeout);
-  }, [agentId, enabled, error, ready, seededE2EConnection, status]);
-
-  useEffect(() => {
     let active = true;
     const gatewayContextAbortController = new AbortController();
     let localGateway: GatewayClient | null = null;
+    let localGatewayLease: OpenClawGatewayLease | null = null;
     let unsubscribeConnectionState: (() => void) | null = null;
     let appliedConnectionState: GatewayConnectionState | null = null;
     const activeChatStreams = activeChatStreamsRef.current;
@@ -1487,19 +1465,13 @@ export function useOpenClawSession(
     chatHistoryRefreshRef.current = null;
     clearGatewayStatusCaches();
 
-    if (enabled && seededE2EConnection) {
-      setGateway(null);
-      setStatus("connected");
-      setError(null);
-      setHydrating(false);
-      setReady(true);
-      return () => {
-        active = false;
-      };
-    }
-
     const sessionAgent = latestAgentRef.current;
-    if (!enabled || !agentId || !sessionAgent || typeof sessionAgent.connect !== "function") {
+    if (
+      !enabled
+      || !agentId
+      || !sessionAgent
+      || typeof sessionAgent.acquireConnectedGateway !== "function"
+    ) {
       setGateway(null);
       setStatus("disconnected");
       setError(null);
@@ -1518,11 +1490,7 @@ export function useOpenClawSession(
     void (async () => {
       try {
         markDashboardPerformance("gateway-context-start");
-        await sessionAgent.waitForGatewayContext({ signal: gatewayContextAbortController.signal });
-        if (!active) return;
-        markDashboardPerformance("gateway-context-ready");
-        measureDashboardPerformance("gateway-context", "gateway-context-start", "gateway-context-ready");
-        const client = sessionAgent.gateway({
+        const lease = await sessionAgent.acquireConnectedGateway({
           autoApprovePairing: true,
           clientId: "openclaw-control-ui",
           clientMode: "webchat",
@@ -1551,7 +1519,18 @@ export function useOpenClawSession(
             }
             setError(null);
           },
+        }, {
+          signal: gatewayContextAbortController.signal,
+          timeoutMs: 30_000,
         });
+        if (!active) {
+          lease.release();
+          return;
+        }
+        localGatewayLease = lease;
+        const client = lease.client;
+        markDashboardPerformance("gateway-context-ready");
+        measureDashboardPerformance("gateway-context", "gateway-context-start", "gateway-context-ready");
         localGateway = client;
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
@@ -1603,13 +1582,6 @@ export function useOpenClawSession(
         };
         applyState(client.state);
         unsubscribeConnectionState = client.onConnectionState(applyState);
-        void client.connect().catch((e: unknown) => {
-          if (!active) return;
-          setGateway(null);
-          setStatus("disconnected");
-          resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
-          setError(formatOpenClawConnectionError(e, sessionAgent.launchConfig));
-        });
       } catch (e: unknown) {
         if (!active) return;
         setGateway(null);
@@ -1632,9 +1604,9 @@ export function useOpenClawSession(
       if (temporaryLease?.gateway === localGateway) {
         void temporaryLease.session.close().catch(() => undefined);
       }
-      localGateway?.close();
+      localGatewayLease?.release();
     };
-  }, [enabled, agentId, retrySignal, seededE2EConnection, cancelAndClearActiveChatStreams, clearGatewayStatusCaches, requestChatStreamCancellation, resetSessionStateForDisconnect]);
+  }, [enabled, agentId, retrySignal, cancelAndClearActiveChatStreams, clearGatewayStatusCaches, requestChatStreamCancellation, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -1913,16 +1885,13 @@ export function useOpenClawSession(
     const sameRestoreTarget = Boolean(
       cacheRestoreTargetRef.current && sameChatHistoryTarget(cacheRestoreTargetRef.current, target),
     );
-    const nextPhase: OpenClawHistoryPhase = seededE2EConnection
-      ? "ready"
-      : historyHydrationEnabled && enabled && agentId
-        ? "loading"
-        : "idle";
+    const nextPhase: OpenClawHistoryPhase = historyHydrationEnabled && enabled && agentId
+      ? "loading"
+      : "idle";
     setHistoryState((current) => {
       if (!sameRestoreTarget || current.targetKey !== targetKey) return { targetKey, phase: nextPhase };
       if (nextPhase === "loading" && current.phase === "idle") return { targetKey, phase: "loading" };
       if (nextPhase === "idle" && current.phase === "loading") return { targetKey, phase: "idle" };
-      if (nextPhase === "ready" && current.phase !== "ready") return { targetKey, phase: "ready" };
       return current;
     });
     if (sameRestoreTarget && !activeSessionReadOnly && !activeSessionIsEphemeral) return;
@@ -1936,7 +1905,7 @@ export function useOpenClawSession(
     }
     const restoredMessages = liveMessages ?? readCachedOpenClawChatHistory(agentId, activeSessionKey);
     dispatchChatHistory({ type: "restore-cache", messages: restoredMessages }, target);
-  }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, dispatchChatHistory, enabled, historyHydrationEnabled, seededE2EConnection]);
+  }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, dispatchChatHistory, enabled, historyHydrationEnabled]);
 
   useEffect(() => {
     if (
@@ -4409,8 +4378,8 @@ export function useOpenClawSession(
     runShellProposal: runConnectorShellProposal,
   });
 
-  const connected = seededE2EConnection || (status === "connected" && !hydrating && (historyHydrationEnabled ? ready : true));
-  const connecting = seededE2EConnection || Boolean(error)
+  const connected = status === "connected" && !hydrating && (historyHydrationEnabled ? ready : true);
+  const connecting = Boolean(error)
     ? false
     : status === "connecting" || hydrating || (historyHydrationEnabled && status === "connected" && !ready);
   const activeSessions = activeSessionRecords;
@@ -4430,7 +4399,6 @@ export function useOpenClawSession(
     !activeSessionReadOnly &&
     connected &&
     (
-      seededE2EConnection ||
       (activeTemporaryChat && temporaryChatState === "active") ||
       chatTargetHasSendAuthority(activeSessionTarget, gateway, activeGatewaySessionKey)
     )
@@ -4470,7 +4438,7 @@ export function useOpenClawSession(
     status,
     error,
     ready,
-    gatewayConnected: seededE2EConnection || status === "connected",
+    gatewayConnected: status === "connected",
     connected,
     connecting,
     hydrating,

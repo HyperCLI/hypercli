@@ -787,16 +787,18 @@ describe('HyperClaw agents SDK', () => {
 
     const waitReady = vi.fn().mockResolvedValue({ gateway: { mode: 'local' } });
     const close = vi.fn();
-    vi.spyOn(agent, 'gateway').mockReturnValue({
-      waitReady,
-      close,
+    const release = vi.fn();
+    vi.spyOn(agent, 'acquireConnectedGateway').mockResolvedValue({
+      client: { waitReady, close },
+      release,
     } as any);
 
     const result = await agent.waitReady(90_000, { retryIntervalMs: 250, probe: 'status' });
 
     expect(result.gateway.mode).toBe('local');
     expect(waitReady).toHaveBeenCalledWith(90_000, { retryIntervalMs: 250, probe: 'status' });
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('OpenClawAgent gateway helper wrappers delegate to the GatewayClient surface', async () => {
@@ -823,8 +825,9 @@ describe('HyperClaw agents SDK', () => {
       yield { type: 'content', text: 'chunk-1' };
       yield { type: 'done' };
     });
+    const release = vi.fn();
 
-    vi.spyOn(agent, 'connect').mockResolvedValue({
+    const gatewayClient = {
       close,
       configPatch,
       modelsList,
@@ -836,6 +839,11 @@ describe('HyperClaw agents SDK', () => {
       sendChat,
       chatSend,
       cronList,
+    } as any;
+    vi.spyOn(agent, 'connect').mockResolvedValue(gatewayClient);
+    vi.spyOn(agent, 'acquireConnectedGateway').mockResolvedValue({
+      client: gatewayClient,
+      release,
     } as any);
 
     await agent.configPatch({ gateway: { mode: 'local' } });
@@ -893,7 +901,8 @@ describe('HyperClaw agents SDK', () => {
 
     await expect(agent.cronList()).resolves.toEqual([{ id: 'job-1' }]);
     expect(cronList).toHaveBeenCalledTimes(1);
-    expect(close).toHaveBeenCalledTimes(11);
+    expect(release).toHaveBeenCalledTimes(11);
+    expect(close).not.toHaveBeenCalled();
   });
 
   it('OpenClawAgent waitRunning still delegates to Deployments.waitRunning', async () => {

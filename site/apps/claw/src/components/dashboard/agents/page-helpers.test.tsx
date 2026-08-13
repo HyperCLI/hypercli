@@ -52,7 +52,7 @@ describe("AgentLaunchPrompt", () => {
       <AgentLaunchPrompt label="Logs" launching={true} onLaunch={onLaunch} blockedTitle="Starting" />,
     );
 
-    expect(screen.getByText("Booting agent")).toBeInTheDocument();
+    expect(screen.getByText("Starting agent")).toBeInTheDocument();
     expect(screen.getByText("Starting the runtime and gateway.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent to use logs/i })).not.toBeInTheDocument();
     expect(onLaunch).not.toHaveBeenCalled();

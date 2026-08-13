@@ -622,10 +622,15 @@ Important additions:
 - `injectNumCtxForOpenAICompat`
 - `models`
 
-`waitForGatewayContext()` refreshes the Agent, derives `wss://${agent.hostname}`,
-and reads exactly `OPENCLAW_GATEWAY_TOKEN` through `secret()`. Both reads must
-belong to the same `launchEpoch`; the helper retries while startup projections
-are catching up. There is no OpenClaw-specific REST gateway-context endpoint.
+`waitForGatewayContext()` waits for an exact Agent projection to become
+`RUNNING`, reads `OPENCLAW_GATEWAY_TOKEN` once through `secret()`, and confirms
+that the Agent is still `RUNNING` at the same `launchEpoch` before deriving
+`wss://${agent.hostname}`. The Secret is canonical stored configuration replayed
+across launches, so its response envelope does not need to match the current
+Agent epoch. Secret read and validation failures surface immediately rather than
+polling the sensitive endpoint. The resolved token is held on the live Agent
+instance only; it is not persisted to browser storage by this helper. There is
+no OpenClaw-specific REST gateway-context endpoint.
 
 To mint a child key for one exact agent:
 

@@ -455,6 +455,7 @@ export {
 export {
   GatewayClient,
   type GatewayOptions,
+  type GatewayConnectOptions,
   type GatewayEvent,
   type GatewayProtocolErrorCode,
   type GatewayProtocolErrorInfo,

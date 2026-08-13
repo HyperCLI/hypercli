@@ -26,6 +26,7 @@ interface AgentChatGatewayRequest {
 interface MockAgentChatOptions {
   createReturnsMain?: boolean;
   deferParallelReplies?: boolean;
+  gatewaySecretLaunchEpoch?: number;
   legacyMainHistory?: boolean;
   legacyMainTitle?: string;
   mainOnly?: boolean;
@@ -64,8 +65,16 @@ function sessionSelect(page: Page, sessionKey: string) {
 async function mockAgentChat(
   page: Page,
   options: MockAgentChatOptions = {},
-): Promise<{ requests: AgentChatGatewayRequest[] }> {
-  const tracker = { requests: [] as AgentChatGatewayRequest[] };
+): Promise<{
+  requests: AgentChatGatewayRequest[];
+  secretReads: Record<string, number>;
+  exactAgentReads: Record<string, number>;
+}> {
+  const tracker = {
+    requests: [] as AgentChatGatewayRequest[],
+    secretReads: {} as Record<string, number>,
+    exactAgentReads: {} as Record<string, number>,
+  };
   await page.exposeFunction("__recordAgentChatGatewayRequest", (request: AgentChatGatewayRequest) => {
     tracker.requests.push(request);
   });
@@ -476,6 +485,7 @@ async function mockAgentChat(
     if (/\/agents\/deployments\/agent-[12]$/.test(pathName)) {
       const secondaryAgent = pathName.endsWith("agent-2");
       const agentId = secondaryAgent ? "agent-2" : "agent-1";
+      tracker.exactAgentReads[agentId] = (tracker.exactAgentReads[agentId] ?? 0) + 1;
       await route.fulfill(json({
         id: agentId,
         name: secondaryAgent ? "Secondary Agent" : "Primary Agent",
@@ -492,11 +502,12 @@ async function mockAgentChat(
 
     if (/\/agents\/deployments\/agent-[12]\/secrets\/OPENCLAW_GATEWAY_TOKEN$/.test(pathName)) {
       const agentId = pathName.includes("agent-2") ? "agent-2" : "agent-1";
+      tracker.secretReads[agentId] = (tracker.secretReads[agentId] ?? 0) + 1;
       await route.fulfill(json({
         agent_id: agentId,
         key: "OPENCLAW_GATEWAY_TOKEN",
         value: `gateway-token-${agentId}`,
-        launch_epoch: 1,
+        launch_epoch: options.gatewaySecretLaunchEpoch ?? 1,
       }));
       return;
     }
@@ -514,6 +525,38 @@ async function expectSessionBefore(page: Page, firstKey: string, secondKey: stri
     return Boolean(first && second && first.y < second.y);
   }).toBe(true);
 }
+
+test("a replayed gateway Secret bootstraps one root connection without persisting the canonical Secret", async ({ page }) => {
+  const tracker = await mockAgentChat(page, { gatewaySecretLaunchEpoch: 0 });
+
+  await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByTestId("agent-chat-composer")).toBeVisible();
+  await expect.poll(() => tracker.requests.filter(({ method }) => method === "connect").length).toBe(1);
+  expect(tracker.secretReads["agent-1"]).toBe(1);
+  expect(tracker.exactAgentReads["agent-1"]).toBe(2);
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & {
+      __agentChatNavigationGatewayCalls?: { urls: string[] };
+    }).__agentChatNavigationGatewayCalls?.urls ?? []
+  ))).toEqual(["wss://agent-1.example.test"]);
+
+  await page.waitForTimeout(1_000);
+  expect(tracker.requests.filter(({ method }) => method === "connect")).toHaveLength(1);
+  expect(tracker.secretReads["agent-1"]).toBe(1);
+  expect(tracker.exactAgentReads["agent-1"]).toBe(2);
+
+  const persistedBrowserState = await page.evaluate(() => ({
+    localStorage: Array.from({ length: window.localStorage.length }, (_, index) => (
+      window.localStorage.getItem(window.localStorage.key(index) ?? "")
+    )),
+    sessionStorage: Array.from({ length: window.sessionStorage.length }, (_, index) => (
+      window.sessionStorage.getItem(window.sessionStorage.key(index) ?? "")
+    )),
+    cookies: document.cookie,
+  }));
+  expect(JSON.stringify(persistedBrowserState)).not.toContain("gateway-token-agent-1");
+});
 
 test("a ready empty session fits within the desktop transcript", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1040 });

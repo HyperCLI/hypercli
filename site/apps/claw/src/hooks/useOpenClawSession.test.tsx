@@ -34,6 +34,7 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     },
     connect: vi.fn(async () => undefined),
     close: vi.fn(),
+    releaseLease: vi.fn(),
     onConnectionState: vi.fn((handler: (state: TestGatewayConnectionState) => void) => {
       connectionHandlers.push(handler);
       if (connectionState === "connected") handler("connected");
@@ -141,6 +142,16 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function acquireConnectedGatewayFixture(this: any, options: unknown) {
+  await this.waitForGatewayContext?.();
+  const client = this.gateway(options);
+  await client.connect();
+  return {
+    client,
+    release: client.releaseLease,
+  };
+}
+
 function controlledChatStream() {
   type StreamResult = IteratorResult<ChatEvent, void>;
   const queuedResults: StreamResult[] = [];
@@ -182,21 +193,27 @@ describe("useOpenClawSession", () => {
 
   it("connects with the canonical OpenClaw Control UI identity", async () => {
     const gateway = buildGateway();
+    const release = vi.fn();
     const agent = {
       id: "agent-1",
-      connect: vi.fn(),
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
+      acquireConnectedGateway: vi.fn(async () => ({ client: gateway, release })),
     };
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
     await waitFor(() => expect(result.current.ready).toBe(true));
-    expect(agent.gateway).toHaveBeenCalledWith(expect.objectContaining({
+    expect(agent.acquireConnectedGateway).toHaveBeenCalledWith(expect.objectContaining({
       autoApprovePairing: true,
       clientId: "openclaw-control-ui",
       clientMode: "webchat",
-    }));
+    }), expect.objectContaining({ timeoutMs: 30_000 }));
+    expect(agent.waitForGatewayContext).not.toHaveBeenCalled();
+    expect(agent.gateway).not.toHaveBeenCalled();
+    expect(gateway.connect).not.toHaveBeenCalled();
     unmount();
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(gateway.close).not.toHaveBeenCalled();
   });
 
   it("routes ephemeral prompts through the connected SDK gateway client", async () => {
@@ -204,6 +221,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -232,6 +250,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -298,6 +317,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -325,6 +345,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -372,6 +393,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -427,6 +449,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -460,6 +483,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -511,6 +535,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -566,6 +591,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -598,6 +624,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -636,6 +663,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -687,6 +715,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -746,6 +775,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -777,6 +807,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -807,6 +838,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -837,6 +869,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -873,6 +906,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       webLoginStart: vi.fn(async () => ({ connected: false, message: "Scan QR", qrDataUrl: "data:image/png;base64,cXI=" })),
@@ -904,6 +938,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       webLoginStart: vi.fn()
@@ -924,6 +959,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(),
@@ -963,6 +999,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => ({
@@ -1013,6 +1050,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
@@ -1042,6 +1080,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => ({
@@ -1093,6 +1132,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async () => ({
@@ -1121,6 +1161,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => ({
@@ -1154,6 +1195,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => ({
@@ -1193,6 +1235,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => command === "openclaw plugins list --json"
@@ -1219,6 +1262,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-slack-install",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => {
@@ -1267,6 +1311,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-slack-ready",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async (command: string) => ({
@@ -1328,6 +1373,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-preload",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1362,6 +1408,7 @@ describe("useOpenClawSession", () => {
       id: "agent-1",
       launchConfig: { image: "ghcr.io/hypercli/openclaw@sha256:exact" },
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
@@ -1403,6 +1450,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async () => ({ exitCode: 1, stdout: "", stderr: "No pending Telegram pairing request." })),
@@ -1599,6 +1647,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1668,6 +1717,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1729,6 +1779,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1761,6 +1812,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1818,6 +1870,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1860,6 +1913,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1915,6 +1969,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1936,6 +1991,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1968,6 +2024,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -1985,6 +2042,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2025,6 +2083,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2083,6 +2142,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2116,6 +2176,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2166,6 +2227,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2201,6 +2263,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2232,6 +2295,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2268,6 +2332,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2318,6 +2383,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2376,6 +2442,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2446,6 +2513,7 @@ describe("useOpenClawSession", () => {
     const firstAgent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => firstGateway),
     };
@@ -2471,6 +2539,7 @@ describe("useOpenClawSession", () => {
     const secondAgent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => secondGateway),
     };
@@ -2513,6 +2582,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2545,6 +2615,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2593,6 +2664,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2614,6 +2686,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2635,6 +2708,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2674,6 +2748,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "main",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2717,6 +2792,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "main",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2760,6 +2836,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2791,6 +2868,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2826,6 +2904,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2863,6 +2942,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2910,12 +2990,14 @@ describe("useOpenClawSession", () => {
     const firstAgent = {
       id: "agent-first",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => firstGateway),
     };
     const secondAgent = {
       id: "agent-second",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => secondGateway),
     };
@@ -2949,6 +3031,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -2981,6 +3064,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3017,6 +3101,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "main",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3059,6 +3144,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3119,6 +3205,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3196,6 +3283,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3238,6 +3326,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3298,6 +3387,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3366,6 +3456,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3425,6 +3516,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3473,6 +3565,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3517,6 +3610,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3589,6 +3683,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3628,6 +3723,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3688,6 +3784,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3734,6 +3831,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3796,6 +3894,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3829,6 +3928,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3867,6 +3967,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -3923,6 +4024,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4016,6 +4118,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4063,6 +4166,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4145,6 +4249,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4208,6 +4313,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4268,6 +4374,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4374,6 +4481,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4447,6 +4555,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4515,6 +4624,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4576,6 +4686,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4607,6 +4718,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4672,6 +4784,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4713,6 +4826,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4746,6 +4860,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4778,6 +4893,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4803,6 +4919,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4850,6 +4967,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4884,6 +5002,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4917,6 +5036,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4949,6 +5069,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -4994,6 +5115,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5075,6 +5197,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5117,6 +5240,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5166,6 +5290,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5203,6 +5328,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5247,6 +5373,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5299,6 +5426,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5397,6 +5525,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5438,6 +5567,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5489,6 +5619,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5543,6 +5674,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5615,6 +5747,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5656,6 +5789,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5686,6 +5820,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5714,6 +5849,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5744,6 +5880,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5772,6 +5909,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5811,6 +5949,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5847,6 +5986,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5872,6 +6012,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5894,6 +6035,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5937,6 +6079,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -5976,6 +6119,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6009,6 +6153,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6049,6 +6194,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6084,6 +6230,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6120,6 +6267,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6159,6 +6307,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6194,6 +6343,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6229,6 +6379,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6270,6 +6421,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6328,6 +6480,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6366,6 +6519,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6391,6 +6545,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6433,6 +6588,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6469,6 +6625,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6559,6 +6716,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6588,6 +6746,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6651,6 +6810,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6716,6 +6876,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6810,6 +6971,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6868,6 +7030,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6917,6 +7080,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -6986,6 +7150,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7053,6 +7218,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7116,6 +7282,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7167,6 +7334,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7208,6 +7376,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7244,6 +7413,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn()
         .mockReturnValueOnce(firstGateway)
@@ -7260,7 +7430,8 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(agent.gateway).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(result.current.connected).toBe(true));
-    expect(firstGateway.close).toHaveBeenCalledTimes(1);
+    expect(firstGateway.releaseLease).toHaveBeenCalledTimes(1);
+    expect(firstGateway.close).not.toHaveBeenCalled();
     expect(secondGateway.connect).toHaveBeenCalledTimes(1);
     unmount();
   });
@@ -7276,6 +7447,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7313,6 +7485,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7337,6 +7510,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn()
         .mockReturnValueOnce(firstGateway)
@@ -7379,6 +7553,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn()
         .mockReturnValueOnce(firstGateway)
@@ -7417,37 +7592,26 @@ describe("useOpenClawSession", () => {
   });
 
   it("surfaces a retryable error when opening the gateway session stalls", async () => {
-    const originalSetTimeout = window.setTimeout.bind(window);
-    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
-    type WindowSetTimeoutMock = Parameters<typeof setTimeoutSpy.mockImplementation>[0];
-    const setTimeoutMock: WindowSetTimeoutMock = (handler, timeout) => {
-      if (timeout === 30_000 && typeof handler === "function") {
-        handler(undefined);
-        return 0 as unknown as ReturnType<WindowSetTimeoutMock>;
-      }
-      return originalSetTimeout(handler, timeout) as unknown as ReturnType<WindowSetTimeoutMock>;
-    };
-    setTimeoutSpy.mockImplementation(setTimeoutMock);
-    const gateway = buildGateway("connecting");
+    const connectError = new Error("Timed out opening the agent session");
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
-      gateway: vi.fn(() => gateway),
+      gateway: vi.fn(),
+      acquireConnectedGateway: vi.fn(async () => {
+        throw connectError;
+      }),
     };
 
-    try {
-      const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
 
-      await waitFor(() => expect(agent.gateway).toHaveBeenCalledTimes(1));
-      await waitFor(() => expect(result.current.error).toMatch(/Timed out opening the agent session/i));
-      expect(result.current.connected).toBe(false);
-      expect(result.current.connecting).toBe(false);
-      expect(gateway.connect).toHaveBeenCalledTimes(1);
-      unmount();
-    } finally {
-      setTimeoutSpy.mockRestore();
-    }
+    await waitFor(() => expect(agent.acquireConnectedGateway).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.error).toMatch(/Timed out opening the agent session/i));
+    expect(result.current.connected).toBe(false);
+    expect(result.current.connecting).toBe(false);
+    expect(agent.gateway).not.toHaveBeenCalled();
+    unmount();
   });
 
   it("explains gateway origin denials using the safe configured env origin", async () => {
@@ -7459,6 +7623,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       launchConfig: {
@@ -7484,6 +7649,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       launchConfig: {
@@ -7518,6 +7684,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       launchConfig: {
@@ -7549,6 +7716,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn((options: { onClose?: (info: any) => void }) => {
         onClose = options.onClose ?? null;
@@ -7578,6 +7746,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7596,6 +7765,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7613,6 +7783,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
@@ -7642,12 +7813,14 @@ describe("useOpenClawSession", () => {
     const firstAgent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
     const refreshedAgent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => buildGateway()),
     };
@@ -7675,12 +7848,14 @@ describe("useOpenClawSession", () => {
     const firstAgent = {
       id: "deploy-1",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => firstGateway),
     };
     const secondAgent = {
       id: "deploy-2",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => secondGateway),
     };
@@ -7718,6 +7893,7 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };

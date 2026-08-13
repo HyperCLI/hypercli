@@ -48,6 +48,8 @@ copy_src() {
   if command -v rsync >/dev/null 2>&1; then
     rsync -a \
       --exclude 'node_modules' \
+      --exclude '.env' \
+      --exclude '.env.*' \
       --exclude '.next' \
       --exclude '.turbo' \
       --exclude '.cache' \
@@ -69,6 +71,7 @@ copy_src() {
       "${dest}/coverage" \
       "${dest}/playwright-report" \
       "${dest}/test-results"
+    find "${dest}" -type f \( -name '.env' -o -name '.env.*' \) -delete
   fi
 }
 

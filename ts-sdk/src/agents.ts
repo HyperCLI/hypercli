@@ -316,6 +316,17 @@ export interface GatewayContextWaitOptions {
   signal?: AbortSignal;
 }
 
+interface OpenClawGatewayContextFlight {
+  deploymentId: string;
+  controller: AbortController;
+  promise: Promise<AgentGatewayContext>;
+  waiters: number;
+  settled: boolean;
+}
+
+const OPENCLAW_GATEWAY_CONTEXT_FLIGHT_TIMEOUT_MS = 300_000;
+const OPENCLAW_GATEWAY_CONTEXT_FLIGHT_RETRY_INTERVAL_MS = 1_000;
+
 export interface OpenClawOperationsSnapshot {
   sessions: GatewaySessionsListResult | null;
   cronJobs: any[] | null;
@@ -2864,47 +2875,55 @@ export class OpenClawAgent extends Agent {
           signal: controller.signal,
           timeout: Math.max(1, remainingMs),
         };
+        let refreshed: Agent;
         try {
-          const refreshed = await runWithAbort(deployments.get(this.id, requestOptions));
+          refreshed = await runWithAbort(deployments.get(this.id, requestOptions));
           if (refreshed.launchEpoch < this.launchEpoch) {
             throw new Error('gateway Agent belongs to an older launch epoch');
           }
           if (refreshed.state.toUpperCase() !== 'RUNNING') {
             throw new Error(`gateway Agent is ${refreshed.state}, not RUNNING`);
           }
-          const secret = await runWithAbort(
-            deployments.secret(this.id, 'OPENCLAW_GATEWAY_TOKEN', requestOptions),
-          );
-          if (secret.launch_epoch !== refreshed.launchEpoch) {
-            throw new Error('gateway Secret and Agent belong to different launch epochs');
-          }
-          const gatewayToken = secret.value.trim();
-          if (!gatewayToken) throw new Error('OPENCLAW_GATEWAY_TOKEN is empty');
-          const confirmed = await runWithAbort(deployments.get(this.id, requestOptions));
-          if (
-            confirmed.launchEpoch !== refreshed.launchEpoch
-            || confirmed.state.toUpperCase() !== 'RUNNING'
-          ) {
-            throw new Error('gateway Agent changed while its Secret was resolved');
-          }
-          const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(confirmed.hostname);
-          if (!gatewayUrl) throw new Error('gateway Agent has no hostname');
-          this.gatewayUrl = gatewayUrl;
-          this.gatewayToken = gatewayToken;
-          this.gatewayLaunchEpoch = refreshed.launchEpoch;
-          return {
-            agent_id: this.id,
-            gateway_url: gatewayUrl,
-            gateway_token: gatewayToken,
-            launch_epoch: refreshed.launchEpoch,
-          };
         } catch (error) {
+          if (error instanceof APIError && [401, 403, 404].includes(error.statusCode)) {
+            throw error;
+          }
           lastError = error;
+          const remainingAfterRequestMs = deadline - Date.now();
+          if (remainingAfterRequestMs <= 0) throw timeoutError();
+          const retryDelayMs = Math.min(Math.max(0, retryIntervalMs), remainingAfterRequestMs);
+          await waitForRetry(retryDelayMs);
+          continue;
         }
-        const remainingAfterRequestMs = deadline - Date.now();
-        if (remainingAfterRequestMs <= 0) throw timeoutError();
-        const retryDelayMs = Math.min(Math.max(0, retryIntervalMs), remainingAfterRequestMs);
-        await waitForRetry(retryDelayMs);
+
+        // RUNNING is the lifecycle boundary at which the current gateway Secret
+        // must be readable. The Secret is canonical stored configuration replayed
+        // across launches, not an epoch-versioned browser credential. Fence the
+        // read with exact Agent snapshots instead of rejecting an older Secret
+        // envelope epoch or polling the sensitive endpoint on failure.
+        const secret = await runWithAbort(
+          deployments.secret(this.id, 'OPENCLAW_GATEWAY_TOKEN', requestOptions),
+        );
+        const gatewayToken = secret.value.trim();
+        if (!gatewayToken) throw new Error('OPENCLAW_GATEWAY_TOKEN is empty');
+        const confirmed = await runWithAbort(deployments.get(this.id, requestOptions));
+        if (
+          confirmed.launchEpoch !== refreshed.launchEpoch
+          || confirmed.state.toUpperCase() !== 'RUNNING'
+        ) {
+          throw new Error('gateway Agent changed while its Secret was resolved');
+        }
+        const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(confirmed.hostname);
+        if (!gatewayUrl) throw new Error('gateway Agent has no hostname');
+        this.gatewayUrl = gatewayUrl;
+        this.gatewayToken = gatewayToken;
+        this.gatewayLaunchEpoch = refreshed.launchEpoch;
+        return {
+          agent_id: this.id,
+          gateway_url: gatewayUrl,
+          gateway_token: gatewayToken,
+          launch_epoch: refreshed.launchEpoch,
+        };
       }
     } finally {
       clearTimeout(timeoutId);
@@ -2941,7 +2960,10 @@ export class OpenClawAgent extends Agent {
       if (existing) return existing;
     }
 
-    const context = await this.waitForGatewayContext(contextOptions);
+    const context = await deployments.resolveOpenClawGatewayContext(this, contextOptions);
+    this.gatewayUrl = context.gateway_url;
+    this.gatewayToken = context.gateway_token;
+    this.gatewayLaunchEpoch = context.launch_epoch;
     return deployments.openClawGateways.acquire({
       deploymentId: this.id,
       launchEpoch: context.launch_epoch,
@@ -2950,8 +2972,35 @@ export class OpenClawAgent extends Agent {
     });
   }
 
+  /** Acquire the deployment-scoped gateway and wait for its authenticated hello. */
+  async acquireConnectedGateway(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+    contextOptions: GatewayContextWaitOptions = {},
+  ): Promise<OpenClawGatewayLease> {
+    const timeoutMs = contextOptions.timeoutMs ?? 30_000;
+    const deadline = Date.now() + timeoutMs;
+    const deployments = this.requireDeployments();
+    const generation = deployments.openClawGateways.generation(this.id);
+    const lease = await this.acquireGateway(options, contextOptions);
+    try {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) throw new Error('Timed out connecting to the OpenClaw gateway');
+      await lease.client.connect({
+        signal: contextOptions.signal,
+        timeoutMs: remainingMs,
+      });
+      if (deployments.openClawGateways.generation(this.id) !== generation) {
+        throw new Error(`OpenClaw gateway connection for ${this.id} was invalidated`);
+      }
+      return lease;
+    } catch (error) {
+      lease.release({ retain: false });
+      throw error;
+    }
+  }
+
   invalidateGatewayConnection(): void {
-    this.requireDeployments().openClawGateways.invalidate(this.id);
+    this.requireDeployments().invalidateOpenClawGateway(this.id);
     this.gatewayToken = null;
     this.gatewayLaunchEpoch = null;
   }
@@ -2983,71 +3032,49 @@ export class OpenClawAgent extends Agent {
     return client;
   }
 
-  /** Run a fn against a connected gateway client, then close it. */
-  private async withGateway<T>(fn: (client: GatewayClient) => Promise<T>): Promise<T> {
-    const client = await this.connect();
+  /** Run one operation against the deployment-scoped managed gateway. */
+  private async withGateway<T>(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'>,
+    fn: (client: GatewayClient) => Promise<T>,
+    contextOptions: GatewayContextWaitOptions = {},
+  ): Promise<T> {
+    const lease = await this.acquireConnectedGateway(options, contextOptions);
     try {
-      return await fn(client);
+      return await fn(lease.client);
     } finally {
-      client.close();
+      lease.release();
     }
   }
 
   async gatewayStatus(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
-    const client = await this.connect(options);
-    try {
-      return await client.status();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.status());
   }
 
   async waitReady(
     timeoutMs = 300_000,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWaitReadyOptions = {},
   ): Promise<Record<string, any>> {
-    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
-      await this.waitForGatewayContext();
-    }
-    const client = this.gateway(options);
-    try {
-      return await client.waitReady(timeoutMs, {
+    return this.withGateway(options, (client) => (
+      client.waitReady(timeoutMs, {
         retryIntervalMs: options.retryIntervalMs,
         probe: options.probe,
-      });
-    } finally {
-      client.close();
-    }
+      })
+    ), { timeoutMs: options.timeout });
   }
 
   async configGet(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
-    const client = await this.connect(options);
-    try {
-      return await client.configGet();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.configGet());
   }
 
   async configSchema(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<OpenClawConfigSchemaResponse> {
-    const client = await this.connect(options);
-    try {
-      return await client.configSchema();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.configSchema());
   }
 
   async configPatch(
     patch: Record<string, any>,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<void> {
-    const client = await this.connect(options);
-    try {
-      await client.configPatch(patch);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(options, (client) => client.configPatch(patch));
   }
 
   async configureSlackRelay(
@@ -3055,8 +3082,7 @@ export class OpenClawAgent extends Agent {
     gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
   ): Promise<void> {
     const { accountId, ...connectOptions } = gatewayOptions;
-    const client = await this.connect(connectOptions);
-    try {
+    await this.withGateway(connectOptions, async (client) => {
       if ('relay' in options) {
         await client.configureSlackRelay(options, accountId);
       } else {
@@ -3065,9 +3091,7 @@ export class OpenClawAgent extends Agent {
           gatewayId: options.gatewayId ?? this.gatewayId ?? `agent:${this.id}`,
         });
       }
-    } finally {
-      client.close();
-    }
+    });
   }
 
   async configureSlackSocket(
@@ -3075,12 +3099,7 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
   ): Promise<void> {
     const { accountId, ...gatewayOptions } = options;
-    const client = await this.connect(gatewayOptions);
-    try {
-      await client.configureSlackSocket(config, accountId);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(gatewayOptions, (client) => client.configureSlackSocket(config, accountId));
   }
 
   async configureSlackHttp(
@@ -3088,12 +3107,7 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
   ): Promise<void> {
     const { accountId, ...gatewayOptions } = options;
-    const client = await this.connect(gatewayOptions);
-    try {
-      await client.configureSlackHttp(config, accountId);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(gatewayOptions, (client) => client.configureSlackHttp(config, accountId));
   }
 
   async configureTelegram(
@@ -3101,12 +3115,7 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
   ): Promise<void> {
     const { accountId, ...gatewayOptions } = options;
-    const client = await this.connect(gatewayOptions);
-    try {
-      await client.configureTelegram(config, accountId);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(gatewayOptions, (client) => client.configureTelegram(config, accountId));
   }
 
   async configureWhatsapp(
@@ -3114,62 +3123,32 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & { accountId?: string } = {},
   ): Promise<void> {
     const { accountId, ...gatewayOptions } = options;
-    const client = await this.connect(gatewayOptions);
-    try {
-      await client.configureWhatsapp(config, accountId);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(gatewayOptions, (client) => client.configureWhatsapp(config, accountId));
   }
 
   async configApply(
     config: Record<string, any>,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<void> {
-    const client = await this.connect(options);
-    try {
-      await client.configApply(config);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(options, (client) => client.configApply(config));
   }
 
   async modelsList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
-    const client = await this.connect(options);
-    try {
-      return await client.modelsList();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.modelsList());
   }
 
   async sessionsList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
-    const client = await this.connect(options);
-    try {
-      return await client.sessionsList();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.sessionsList());
   }
 
   async sessionsListResult(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewaySessionsListResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.sessionsListResult();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.sessionsListResult());
   }
 
   async operationsSnapshot(
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<OpenClawOperationsSnapshot> {
-    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
-      await this.waitForGatewayContext({ timeoutMs: options.timeout });
-    }
-    const client = this.gateway(options);
-    try {
-      await client.connect();
+    return this.withGateway(options, async (client) => {
       const [sessionsResult, cronResult] = await Promise.allSettled([
         client.sessionsListResult(),
         client.cronList(),
@@ -3187,9 +3166,7 @@ export class OpenClawAgent extends Agent {
         failures,
         capturedAt: Date.now(),
       };
-    } finally {
-      client.close();
-    }
+    }, { timeoutMs: options.timeout });
   }
 
   async *chatSend(
@@ -3199,13 +3176,13 @@ export class OpenClawAgent extends Agent {
       attachments?: ChatAttachment[];
     } = {},
   ): AsyncGenerator<ChatEvent> {
-    const client = await this.connect(options);
+    const lease = await this.acquireConnectedGateway(options);
     try {
-      for await (const event of client.chatSend(message, sessionKey, options.attachments)) {
+      for await (const event of lease.client.chatSend(message, sessionKey, options.attachments)) {
         yield event;
       }
     } finally {
-      client.close();
+      lease.release();
     }
   }
 
@@ -3216,12 +3193,9 @@ export class OpenClawAgent extends Agent {
       channel?: string;
     } = {},
   ): Promise<Record<string, any>> {
-    const client = await this.connect(options);
-    try {
-      return await client.channelsStatus(options.probe ?? false, options.timeoutMs, options.channel);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => (
+      client.channelsStatus(options.probe ?? false, options.timeoutMs, options.channel)
+    ));
   }
 
   async channelsStart(
@@ -3229,12 +3203,7 @@ export class OpenClawAgent extends Agent {
     accountId?: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
-    const client = await this.connect(options);
-    try {
-      return await client.channelsStart(channel, accountId);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.channelsStart(channel, accountId));
   }
 
   async channelsStop(
@@ -3242,12 +3211,7 @@ export class OpenClawAgent extends Agent {
     accountId?: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
-    const client = await this.connect(options);
-    try {
-      return await client.channelsStop(channel, accountId);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.channelsStop(channel, accountId));
   }
 
   async channelsLogout(
@@ -3255,105 +3219,71 @@ export class OpenClawAgent extends Agent {
     accountId?: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
-    const client = await this.connect(options);
-    try {
-      return await client.channelsLogout(channel, accountId);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.channelsLogout(channel, accountId));
   }
 
   async webLoginStart(
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWebLoginStartOptions = {},
   ): Promise<GatewayWebLoginStartResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.webLoginStart({
+    return this.withGateway(options, (client) => (
+      client.webLoginStart({
         force: options.force,
         timeoutMs: options.timeoutMs,
         verbose: options.verbose,
         accountId: options.accountId,
-      });
-    } finally {
-      client.close();
-    }
+      })
+    ));
   }
 
   async webLoginWait(
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWebLoginWaitOptions = {},
   ): Promise<GatewayWebLoginWaitResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.webLoginWait({
+    return this.withGateway(options, (client) => (
+      client.webLoginWait({
         timeoutMs: options.timeoutMs,
         accountId: options.accountId,
         currentQrDataUrl: options.currentQrDataUrl,
-      });
-    } finally {
-      client.close();
-    }
+      })
+    ));
   }
 
   async integrationsAuthStart(
     params: GatewayIntegrationAuthStartParams,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<GatewayIntegrationAuthStartResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.integrationsAuthStart(params);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.integrationsAuthStart(params));
   }
 
   async integrationsAuthStatus(
     params: GatewayIntegrationAuthStatusParams,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<GatewayIntegrationAuthStatusResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.integrationsAuthStatus(params);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.integrationsAuthStatus(params));
   }
 
   async integrationsStatus(
     params: GatewayIntegrationStatusParams = {},
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<GatewayIntegrationStatusResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.integrationsStatus(params);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.integrationsStatus(params));
   }
 
   async integrationsDisconnect(
     params: GatewayIntegrationDisconnectParams,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<GatewayIntegrationDisconnectResult> {
-    const client = await this.connect(options);
-    try {
-      return await client.integrationsDisconnect(params);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.integrationsDisconnect(params));
   }
 
   async workspaceFiles(
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<{ agentId: string; files: any[] }> {
-    const client = await this.connect(options);
-    try {
+    return this.withGateway(options, async (client) => {
       const agents = await client.agentsList();
       const agentId = agents[0]?.id ?? 'main';
       const files = await client.filesList(agentId);
       return { agentId, files };
-    } finally {
-      client.close();
-    }
+    });
   }
 
   async fileGet(
@@ -3361,8 +3291,7 @@ export class OpenClawAgent extends Agent {
     agentId?: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<string> {
-    const client = await this.connect(options);
-    try {
+    return this.withGateway(options, async (client) => {
       let resolvedAgentId: string;
       if (agentId) {
         resolvedAgentId = agentId;
@@ -3371,9 +3300,7 @@ export class OpenClawAgent extends Agent {
         resolvedAgentId = agents[0]?.id ?? 'main';
       }
       return await client.fileGet(resolvedAgentId, name);
-    } finally {
-      client.close();
-    }
+    });
   }
 
   async fileSet(
@@ -3382,8 +3309,7 @@ export class OpenClawAgent extends Agent {
     agentId?: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<void> {
-    const client = await this.connect(options);
-    try {
+    await this.withGateway(options, async (client) => {
       let resolvedAgentId: string;
       if (agentId) {
         resolvedAgentId = agentId;
@@ -3392,9 +3318,7 @@ export class OpenClawAgent extends Agent {
         resolvedAgentId = agents[0]?.id ?? 'main';
       }
       await client.fileSet(resolvedAgentId, name, content);
-    } finally {
-      client.close();
-    }
+    });
   }
 
   async chatHistory(
@@ -3402,12 +3326,7 @@ export class OpenClawAgent extends Agent {
     limit = 50,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<any[]> {
-    const client = await this.connect(options);
-    try {
-      return await client.chatHistory(sessionKey, limit);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.chatHistory(sessionKey, limit));
   }
 
   async chatSendMessage(
@@ -3418,17 +3337,14 @@ export class OpenClawAgent extends Agent {
       attachments?: ChatAttachment[];
     } = {},
   ): Promise<any> {
-    const client = await this.connect(options);
-    try {
-      return await client.sendChat(
+    return this.withGateway(options, (client) => (
+      client.sendChat(
         message,
         options.sessionKey,
         options.agentId,
         options.attachments,
-      );
-    } finally {
-      client.close();
-    }
+      )
+    ));
   }
 
   private async mutateConfig(
@@ -3631,48 +3547,28 @@ export class OpenClawAgent extends Agent {
   }
 
   async cronList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
-    const client = await this.connect(options);
-    try {
-      return await client.cronList();
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.cronList());
   }
 
   async cronAdd(
     job: Record<string, any>,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<any> {
-    const client = await this.connect(options);
-    try {
-      return await client.cronAdd(job);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.cronAdd(job));
   }
 
   async cronRemove(
     jobId: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<void> {
-    const client = await this.connect(options);
-    try {
-      await client.cronRemove(jobId);
-    } finally {
-      client.close();
-    }
+    await this.withGateway(options, (client) => client.cronRemove(jobId));
   }
 
   async cronRun(
     jobId: string,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<any> {
-    const client = await this.connect(options);
-    try {
-      return await client.cronRun(jobId);
-    } finally {
-      client.close();
-    }
+    return this.withGateway(options, (client) => client.cronRun(jobId));
   }
 }
 
@@ -3692,6 +3588,7 @@ export class Deployments {
   private readonly agentsWsUrl: string;
   private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'postRaw' | 'put' | 'patch' | 'delete'>;
   public readonly openClawGateways: OpenClawGatewayConnectionManager;
+  private readonly openClawGatewayContextFlights = new Map<string, OpenClawGatewayContextFlight>();
 
   constructor(
     private readonly http: HTTPClient,
@@ -3710,7 +3607,104 @@ export class Deployments {
   }
 
   dispose(): void {
+    for (const flight of this.openClawGatewayContextFlights.values()) {
+      flight.controller.abort(new Error('Agent deployments client disposed'));
+    }
+    this.openClawGatewayContextFlights.clear();
     this.openClawGateways.dispose();
+  }
+
+  async resolveOpenClawGatewayContext(
+    agent: OpenClawAgent,
+    options: GatewayContextWaitOptions = {},
+  ): Promise<AgentGatewayContext> {
+    if (options.signal?.aborted) {
+      if (options.signal.reason instanceof Error) throw options.signal.reason;
+      const error = new Error('OpenClaw gateway context wait cancelled');
+      error.name = 'AbortError';
+      throw error;
+    }
+    const generation = this.openClawGateways.generation(agent.id);
+    const key = `${agent.id}:${generation}:${agent.launchEpoch}`;
+    let flight = this.openClawGatewayContextFlights.get(key);
+    if (!flight) {
+      const controller = new AbortController();
+      flight = {
+        deploymentId: agent.id,
+        controller,
+        promise: agent.waitForGatewayContext({
+          timeoutMs: OPENCLAW_GATEWAY_CONTEXT_FLIGHT_TIMEOUT_MS,
+          retryIntervalMs: OPENCLAW_GATEWAY_CONTEXT_FLIGHT_RETRY_INTERVAL_MS,
+          signal: controller.signal,
+        }),
+        waiters: 0,
+        settled: false,
+      };
+      this.openClawGatewayContextFlights.set(key, flight);
+      const settledFlight = flight;
+      flight.promise.then(
+        () => {
+          settledFlight.settled = true;
+          if (this.openClawGatewayContextFlights.get(key) === settledFlight) {
+            this.openClawGatewayContextFlights.delete(key);
+          }
+        },
+        () => {
+          settledFlight.settled = true;
+          if (this.openClawGatewayContextFlights.get(key) === settledFlight) {
+            this.openClawGatewayContextFlights.delete(key);
+          }
+        },
+      );
+    }
+
+    flight.waiters += 1;
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    try {
+      return await new Promise<AgentGatewayContext>((resolve, reject) => {
+        let settled = false;
+        const finish = (callback: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          options.signal?.removeEventListener('abort', abort);
+          callback();
+        };
+        const abort = () => finish(() => {
+          if (options.signal?.reason instanceof Error) reject(options.signal.reason);
+          else {
+            const error = new Error('OpenClaw gateway context wait cancelled');
+            error.name = 'AbortError';
+            reject(error);
+          }
+        });
+        const timer = setTimeout(() => {
+          finish(() => reject(new Error('Timed out waiting for OpenClaw gateway context')));
+        }, Math.max(0, timeoutMs));
+        options.signal?.addEventListener('abort', abort, { once: true });
+        flight?.promise.then(
+          (context) => finish(() => resolve(context)),
+          (error) => finish(() => reject(error)),
+        );
+      });
+    } finally {
+      flight.waiters = Math.max(0, flight.waiters - 1);
+      if (flight.waiters === 0 && !flight.settled) {
+        if (this.openClawGatewayContextFlights.get(key) === flight) {
+          this.openClawGatewayContextFlights.delete(key);
+        }
+        flight.controller.abort(new Error('OpenClaw gateway context has no waiters'));
+      }
+    }
+  }
+
+  invalidateOpenClawGateway(agentId: string): void {
+    for (const [key, flight] of this.openClawGatewayContextFlights) {
+      if (flight.deploymentId !== agentId) continue;
+      flight.controller.abort(new Error(`OpenClaw gateway context for ${agentId} was invalidated`));
+      this.openClawGatewayContextFlights.delete(key);
+    }
+    this.openClawGateways.invalidate(agentId);
   }
 
   get agentApiKey(): string {
@@ -4196,6 +4190,7 @@ export class Deployments {
     handler: (event: DeploymentEvent) => void | Promise<void>,
     options: DeploymentSubscribeOptions = {},
   ): Promise<void> {
+    const stableConnectionMs = 10_000;
     let retryDelay = 250;
     const waitBeforeReconnect = async () => {
       let abortRetry: () => void = () => {};
@@ -4221,6 +4216,8 @@ export class Deployments {
         }>(`${DEPLOYMENTS_API_PREFIX}/events/token`, undefined, { signal: options.signal });
         const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
         const ws = new WebSocketImpl(token.ws_url);
+        let readyAt: number | null = null;
+        let closedAt: number | null = null;
         await new Promise<void>((resolve, reject) => {
           let opened = false;
           let ready = false;
@@ -4243,9 +4240,9 @@ export class Deployments {
                   throw new Error('Deployment event socket did not send ready');
                 }
                 ready = true;
+                readyAt = Date.now();
                 clearTimeout(readyTimer);
                 await options.onReady?.();
-                retryDelay = 250;
                 return;
               }
               if (
@@ -4262,6 +4259,7 @@ export class Deployments {
           });
           ws.addEventListener('error', () => reject(new Error('Deployment event WebSocket failed')));
           ws.addEventListener('close', () => {
+            closedAt = Date.now();
             clearTimeout(readyTimer);
             options.signal?.removeEventListener('abort', abort);
             processing.then(resolve, reject);
@@ -4269,7 +4267,19 @@ export class Deployments {
           if (options.signal?.aborted) abort();
           void opened;
         });
-        if (!options.signal?.aborted) await waitBeforeReconnect();
+        if (!options.signal?.aborted) {
+          // A `ready` frame followed by an immediate close is not a healthy
+          // stream. Reset only after a useful stable interval so reconnects
+          // and their authoritative REST resyncs retain exponential backoff.
+          if (
+            readyAt !== null
+            && closedAt !== null
+            && closedAt - readyAt >= stableConnectionMs
+          ) {
+            retryDelay = 250;
+          }
+          await waitBeforeReconnect();
+        }
       } catch (error) {
         if (options.signal?.aborted) break;
         if (error instanceof APIError && [401, 403].includes(error.statusCode)) throw error;
@@ -4390,7 +4400,9 @@ export class Deployments {
         {},
         { retries: 1 },
       );
-      return this.hydrateAgent(data);
+      const agent = this.hydrateAgent(data);
+      this.invalidateOpenClawGateway(agent.id);
+      return agent;
     }
     const provided = Object.keys(options).filter(
       (key) => options[key as keyof StartAgentOptions] !== undefined,
@@ -4402,6 +4414,7 @@ export class Deployments {
         {},
         { retries: 1 },
       );
+      this.invalidateOpenClawGateway(agentId);
       return this.hydrateAgent(data);
     }
     const { config } = buildAgentConfig(options.config ?? {}, options);
@@ -4412,6 +4425,7 @@ export class Deployments {
       body,
       { retries: 1 },
     );
+    if (!options.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -4521,7 +4535,7 @@ export class Deployments {
       undefined,
       { retries: 1 },
     );
-    this.openClawGateways.invalidate(agentId);
+    this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -4533,6 +4547,7 @@ export class Deployments {
       undefined,
       { retries: 1 },
     );
+    this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -4544,6 +4559,7 @@ export class Deployments {
       undefined,
       { retries: 1 },
     );
+    this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -4598,7 +4614,7 @@ export class Deployments {
   async delete(agentIdOrName: string): Promise<Record<string, any>> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const result = await this.agentHttp.delete<Record<string, any>>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
-    this.openClawGateways.invalidate(agentId);
+    this.invalidateOpenClawGateway(agentId);
     return result;
   }
 
@@ -4704,10 +4720,12 @@ export class Deployments {
   ): Promise<AgentSecretMutationResponse> {
     if (!key) throw new Error('secret key is required');
     const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.patch<AgentSecretMutationResponse>(
+    const result = await this.agentHttp.patch<AgentSecretMutationResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
       { value },
     );
+    if (key === 'OPENCLAW_GATEWAY_TOKEN') this.invalidateOpenClawGateway(agentId);
+    return result;
   }
 
   async deleteSecret(
@@ -4716,9 +4734,11 @@ export class Deployments {
   ): Promise<AgentSecretMutationResponse> {
     if (!key) throw new Error('secret key is required');
     const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.delete<AgentSecretMutationResponse>(
+    const result = await this.agentHttp.delete<AgentSecretMutationResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
     );
+    if (key === 'OPENCLAW_GATEWAY_TOKEN') this.invalidateOpenClawGateway(agentId);
+    return result;
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {

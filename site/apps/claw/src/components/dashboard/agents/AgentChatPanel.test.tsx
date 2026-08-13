@@ -2889,7 +2889,7 @@ describe("AgentChatPanel", () => {
       fireEvent.click(startCommand);
     });
 
-    expect(screen.getAllByText("Start action is unavailable here.")).toHaveLength(2);
+    expect(screen.getAllByText("Agent is failed.")).toHaveLength(2);
     expect(onStartAgent).not.toHaveBeenCalled();
   });
 
