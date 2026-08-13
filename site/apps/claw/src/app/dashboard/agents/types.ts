@@ -23,22 +23,50 @@ export function isAgentOffline(state: AgentState | string | null | undefined): b
 
 type AgentLifecycleActionState = Pick<Agent, "state" | "isLaunchable">;
 
+export type AgentLaunchLifecycleAction = "start" | "restore" | null;
+
+export interface AgentLifecycleControls {
+  launchAction: AgentLaunchLifecycleAction;
+  canStop: boolean;
+  canArchive: boolean;
+  canDelete: boolean;
+  transitioning: boolean;
+}
+
+export function resolveAgentLifecycleControls(
+  agent: AgentLifecycleActionState | Pick<Agent, "state" | "isLaunchable"> | null | undefined,
+): AgentLifecycleControls {
+  const state = agent?.state.toUpperCase() ?? "";
+  const transitioning = isAgentTransitionalState(state);
+  return {
+    launchAction: state === "ARCHIVED"
+      ? "restore"
+      : state === "STOPPED" && agent?.isLaunchable !== false
+        ? "start"
+        : null,
+    canStop: state === "CREATING" || state === "STARTING" || state === "RUNNING" || state === "FAILED",
+    canArchive: state === "STOPPED",
+    canDelete: state === "STOPPED",
+    transitioning,
+  };
+}
+
+export function resolveAgentLaunchLifecycleAction(
+  agent: AgentLifecycleActionState | null | undefined,
+): AgentLaunchLifecycleAction {
+  return resolveAgentLifecycleControls(agent).launchAction;
+}
+
 export function isAgentStartable(agent: AgentLifecycleActionState): boolean {
-  if (agent.isLaunchable === false) return false;
-  const state = agent.state.toUpperCase();
-  return state === "STOPPED";
+  return resolveAgentLaunchLifecycleAction(agent) === "start";
 }
 
 export function isAgentStoppable(agent: Pick<Agent, "state">): boolean {
-  const state = agent.state.toUpperCase();
-  return state === "CREATING"
-    || state === "STARTING"
-    || state === "RUNNING"
-    || state === "FAILED";
+  return resolveAgentLifecycleControls({ ...agent, isLaunchable: true }).canStop;
 }
 
 export function isAgentDeletable(agent: Pick<Agent, "state">): boolean {
-  return agent.state.toUpperCase() === "STOPPED";
+  return resolveAgentLifecycleControls({ ...agent, isLaunchable: true }).canDelete;
 }
 
 export interface Agent {

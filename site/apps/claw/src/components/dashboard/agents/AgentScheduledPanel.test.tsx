@@ -19,7 +19,7 @@ function renderPanel(overrides: Partial<ComponentProps<typeof AgentScheduledPane
     onCreate: vi.fn(async () => undefined),
     onRun: vi.fn(async () => undefined),
     onDelete: vi.fn(async () => undefined),
-    onStartAgent: vi.fn(async () => undefined),
+    onLaunchAgent: vi.fn(async () => undefined),
     ...overrides,
   };
 
@@ -28,20 +28,34 @@ function renderPanel(overrides: Partial<ComponentProps<typeof AgentScheduledPane
 
 describe("AgentScheduledPanel", () => {
   it("uses the shared Schedule preview before starting the agent", () => {
-    const onStartAgent = vi.fn();
-    renderPanel({ isSelectedRunning: false, connected: false, onStartAgent });
+    const onLaunchAgent = vi.fn();
+    renderPanel({ isSelectedRunning: false, connected: false, onLaunchAgent });
 
     const emptyState = screen.getByTestId("agent-scheduled-empty-state");
     expect(screen.getByRole("heading", { name: "Work that keeps moving" })).toBeInTheDocument();
     expect(emptyState.querySelectorAll('[data-slot="agent-feature-empty-state-example"]')).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: /start agent/i }));
-    expect(onStartAgent).toHaveBeenCalledTimes(1);
+    expect(onLaunchAgent).toHaveBeenCalledTimes(1);
   });
 
   it("disables start when the selected lifecycle snapshot is not launchable", () => {
-    renderPanel({ isSelectedRunning: false, connected: false, onStartAgent: undefined });
+    renderPanel({ isSelectedRunning: false, connected: false, onLaunchAgent: undefined });
 
     expect(screen.getByRole("button", { name: /start agent/i })).toBeDisabled();
+  });
+
+  it("uses restore semantics for an archived agent", () => {
+    const onLaunchAgent = vi.fn();
+    renderPanel({
+      isSelectedRunning: false,
+      connected: false,
+      onLaunchAgent,
+      launchActionLabel: "Restore agent",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore agent" }));
+    expect(onLaunchAgent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 
   it("renders a disconnected gateway error without a loading animation", () => {

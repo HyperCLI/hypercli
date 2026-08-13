@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { archiveAgent, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
+import { archiveAgent, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -63,6 +63,38 @@ vi.mock("@hypercli/shared-ui", () => ({
 }));
 
 describe("agent-client", () => {
+  it("classifies stale lifecycle conflicts without treating service failures as stale state", () => {
+    expect(isAgentLifecycleStateConflictError({
+      statusCode: 409,
+      detail: "Agent storage must finish explicit restore before start",
+    })).toBe(true);
+    expect(isAgentLifecycleStateConflictError({
+      statusCode: 503,
+      detail: "Lagoon unavailable: Agent has no active Lagoon control socket",
+    })).toBe(false);
+    expect(isAgentLifecycleStateConflictError({
+      statusCode: 409,
+      detail: "Agent is cleaning up",
+    })).toBe(true);
+  });
+
+  it("does not post start when its authoritative preflight is archived", async () => {
+    const observed = vi.fn();
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "ARCHIVED",
+      runtime: "openclaw",
+    });
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123", undefined, observed)).rejects.toThrow(
+      "Agent is archived. Restore it before starting.",
+    );
+
+    expect(observed).toHaveBeenCalledWith(expect.objectContaining({ state: "ARCHIVED" }));
+    expect(deploymentsInstance.start).not.toHaveBeenCalled();
+    expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK;
@@ -188,6 +220,7 @@ describe("agent-client", () => {
 
   it("returns an already-running accepted start without opening another wait", async () => {
     const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8, waitRunning: vi.fn() };
+    deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPED", runtime: "claude-code" });
     deploymentsInstance.start.mockResolvedValue(accepted);
 
     await expect(startAgent("hyper_api_test", "agent-123")).resolves.toBe(accepted);
@@ -200,7 +233,9 @@ describe("agent-client", () => {
     const running = { id: "agent-123", state: "RUNNING", launchEpoch: 8, waitRunning: vi.fn() };
     const onAccepted = vi.fn();
     deploymentsInstance.start.mockRejectedValue(timeout);
-    deploymentsInstance.get.mockResolvedValue(running);
+    deploymentsInstance.get
+      .mockResolvedValueOnce({ id: "agent-123", state: "STOPPED", runtime: "claude-code" })
+      .mockResolvedValue(running);
 
     await expect(startAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(running);
 
@@ -233,6 +268,7 @@ describe("agent-client", () => {
 
   it("can release the mutation queue after the accepted start snapshot", async () => {
     const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8, waitRunning: vi.fn() };
+    deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPED", runtime: "claude-code" });
     deploymentsInstance.start.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);

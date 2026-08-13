@@ -26,6 +26,7 @@ type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta"> & 
 };
 type ListedAgent = Awaited<ReturnType<Deployments["list"]>>[number];
 type AgentLifecycleAccepted = (agent: SdkAgent) => void;
+type AgentLifecycleObserved = (agent: SdkAgent) => void;
 
 const CONTROL_UI_ALLOWED_ORIGIN_ENV = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN";
 const CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK";
@@ -80,6 +81,11 @@ function isAgentLifecycleTimeout(value: unknown): boolean {
 export function isAgentCleanupConflictError(value: unknown): boolean {
   const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
   return statusCode === 409 && /clean(?:ed|ing) up|cleanup/i.test(errorText(value));
+}
+
+export function isAgentLifecycleStateConflictError(value: unknown): boolean {
+  const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
+  return statusCode === 409;
 }
 
 function isAgentCreateSpecVisibilityError(value: unknown): boolean {
@@ -411,9 +417,24 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   }
 }
 
-export async function requestAgentStart(apiKey: string, agentId: string, onAccepted?: AgentLifecycleAccepted): Promise<SdkAgent> {
+export async function requestAgentStart(
+  apiKey: string,
+  agentId: string,
+  onAccepted?: AgentLifecycleAccepted,
+  onObserved?: AgentLifecycleObserved,
+): Promise<SdkAgent> {
   const agentClient = createAgentClient(apiKey);
   const current = await agentClient.get(agentId);
+  onObserved?.(current);
+  if (current.state.toUpperCase() !== "STOPPED") {
+    const state = current.state.toUpperCase() || "UNKNOWN";
+    throw Object.assign(
+      new Error(state === "ARCHIVED"
+        ? "Agent is archived. Restore it before starting."
+        : `Agent is ${state.toLowerCase()} and cannot be started.`),
+      { statusCode: 409 },
+    );
+  }
   const runtime = current.runtime?.trim().toLowerCase();
   if (current.state.toUpperCase() === "STOPPED" && (runtime === "openclaw" || runtime === "openclaw-pro")) {
     const origin = currentControlUiOrigin();

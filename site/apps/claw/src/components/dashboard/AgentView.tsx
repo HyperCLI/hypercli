@@ -160,8 +160,10 @@ export function AgentView({
   onCronAdd,
   onMarketplaceClick,
   onAgentStart,
+  onAgentRestore,
   onAgentStop,
   agentStarting = false,
+  agentRestoring = false,
   agentStopping = false,
   agentCleanupRequired = false,
   agentStartBlocked = false,
@@ -703,8 +705,10 @@ export function AgentView({
                 connections={agentConnectionsProp}
                 sessions={agentSessionsProp}
                 onStart={onAgentStart}
+                onRestore={onAgentRestore}
                 onStop={onAgentStop}
                 starting={agentStarting}
+                restoring={agentRestoring}
                 stopping={agentStopping}
                 cleanupRequired={agentCleanupRequired}
                 startBlocked={agentStartBlocked}

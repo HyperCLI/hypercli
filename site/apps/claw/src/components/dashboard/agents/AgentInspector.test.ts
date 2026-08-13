@@ -20,6 +20,7 @@ describe("AgentInspector lifecycle status", () => {
 
     expect(buildAgentInspectorActionState(agent)).toEqual({
       canStart: false,
+      canRestore: false,
       canStop: true,
       cleanupRequired: true,
     });
@@ -30,6 +31,7 @@ describe("AgentInspector lifecycle status", () => {
 
     expect(buildAgentInspectorActionState(agent)).toEqual({
       canStart: true,
+      canRestore: false,
       canStop: false,
       cleanupRequired: false,
     });
@@ -40,6 +42,7 @@ describe("AgentInspector lifecycle status", () => {
 
     expect(buildAgentInspectorActionState(agent)).toEqual({
       canStart: false,
+      canRestore: true,
       canStop: false,
       cleanupRequired: false,
     });
@@ -50,6 +53,7 @@ describe("AgentInspector lifecycle status", () => {
 
     expect(buildAgentInspectorActionState(agent)).toEqual({
       canStart: false,
+      canRestore: false,
       canStop: false,
       cleanupRequired: false,
     });

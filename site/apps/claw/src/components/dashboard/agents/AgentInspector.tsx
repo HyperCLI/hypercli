@@ -5,7 +5,7 @@ import { Sheet, SheetContent } from "@hypercli/shared-ui";
 
 import { AgentView } from "@/components/dashboard/AgentView";
 import type { AgentViewProps } from "@/components/dashboard/agentViewTypes";
-import { isAgentStartable, isAgentStoppable, type Agent } from "@/app/dashboard/agents/types";
+import { resolveAgentLifecycleControls, type Agent } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
 
@@ -39,9 +39,11 @@ export function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolea
 }
 
 export function buildAgentInspectorActionState(selectedAgent: Agent) {
+  const controls = resolveAgentLifecycleControls(selectedAgent);
   return {
-    canStart: isAgentStartable(selectedAgent),
-    canStop: isAgentStoppable(selectedAgent),
+    canStart: controls.launchAction === "start",
+    canRestore: controls.launchAction === "restore",
+    canStop: controls.canStop,
     cleanupRequired: selectedAgent.state === "FAILED",
   };
 }
@@ -57,7 +59,7 @@ export function AgentInspector({
   viewProps,
 }: AgentInspectorProps) {
   if (!selectedAgent) return null;
-  const { canStart, canStop, cleanupRequired } = buildAgentInspectorActionState(selectedAgent);
+  const { canStart, canRestore, canStop, cleanupRequired } = buildAgentInspectorActionState(selectedAgent);
 
   const inspector = (
     <AgentView
@@ -69,6 +71,7 @@ export function AgentInspector({
       onTabChange={onTabChange}
       agentStatus={buildAgentStatus(selectedAgent, isSelectedRunning)}
       onAgentStart={canStart ? viewProps.onAgentStart : undefined}
+      onAgentRestore={canRestore ? viewProps.onAgentRestore : undefined}
       onAgentStop={canStop ? viewProps.onAgentStop : undefined}
       agentCleanupRequired={cleanupRequired}
       agentStartBlocked={!canStart || viewProps.agentStartBlocked}

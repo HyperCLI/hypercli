@@ -303,10 +303,14 @@ interface AgentCardModuleProps {
   onStart?: () => void;
   /** Stop the agent or clean up resources from a failed launch. */
   onStop?: () => void;
+  /** Restore an archived agent. */
+  onRestore?: () => void;
   /** Loading flag for the start action. */
   starting?: boolean;
   /** Loading flag for the stop action. */
   stopping?: boolean;
+  /** Loading flag for restore. */
+  restoring?: boolean;
   /** The failed runtime still owns resources and must be cleaned up. */
   cleanupRequired?: boolean;
   /** When true, the start button is disabled (e.g. tier capacity exhausted). */
@@ -326,8 +330,10 @@ export function AgentCardModule({
   sessions: sessionsProp,
   onStart,
   onStop,
+  onRestore,
   starting = false,
   stopping = false,
+  restoring = false,
   cleanupRequired = false,
   startBlocked = false,
   startBlockedReason,
@@ -351,7 +357,8 @@ export function AgentCardModule({
 
   // State-driven action button
   const isRunning = status.state === "RUNNING";
-  const isStopped = status.state === "STOPPED" || status.state === "ARCHIVED" || status.state === "FAILED";
+  const isArchived = status.state === "ARCHIVED";
+  const isStopped = status.state === "STOPPED" || status.state === "FAILED";
   const failedCleanupRequired = status.state === "FAILED" && cleanupRequired;
   const startupCanBeCancelled = status.state === "CREATING" || status.state === "STARTING" || status.state === "RESTORING";
   const isTransitioning = isAgentTransitionalState(status.state);
@@ -368,6 +375,19 @@ export function AgentCardModule({
         >
           {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
           <span>{failedCleanupRequired ? "Clean up" : startupCanBeCancelled ? "Cancel" : "Stop"}</span>
+        </button>
+      );
+    }
+    if (isArchived && onRestore) {
+      return (
+        <button
+          onClick={onRestore}
+          disabled={restoring}
+          aria-label="Restore agent"
+          className="flex items-center gap-1.5 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25 disabled:cursor-wait disabled:opacity-50"
+        >
+          {restoring ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+          <span>{restoring ? "Restoring" : "Restore"}</span>
         </button>
       );
     }

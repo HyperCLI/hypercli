@@ -32,7 +32,8 @@ interface AgentScheduledPanelProps {
   onUpdate?: (jobId: string, job: CronJobInput) => Promise<void> | void;
   onRun: (jobId: string) => Promise<void> | void;
   onDelete: (jobId: string) => Promise<void> | void;
-  onStartAgent?: () => Promise<void> | void;
+  onLaunchAgent?: () => Promise<void> | void;
+  launchActionLabel?: "Start agent" | "Restore agent";
   initialCommand?: string | null;
 }
 
@@ -289,7 +290,8 @@ export function AgentScheduledPanel({
   onUpdate,
   onRun,
   onDelete,
-  onStartAgent,
+  onLaunchAgent,
+  launchActionLabel = "Start agent",
   initialCommand = null,
 }: AgentScheduledPanelProps) {
   const normalizedSessionOptions = React.useMemo(() => normalizeSessionOptions(sessionOptions, sessionKey), [sessionOptions, sessionKey]);
@@ -488,10 +490,10 @@ export function AgentScheduledPanel({
             "Send each task to the right conversation with the context it needs",
             "Review upcoming runs and adjust schedules as priorities change",
           ]}
-          actionLabel="Start agent"
-          actionDisabled={!onStartAgent}
-          actionDisabledReason="This agent cannot be started right now."
-          onAction={() => { void onStartAgent?.(); }}
+          actionLabel={launchActionLabel}
+          actionDisabled={!onLaunchAgent}
+          actionDisabledReason="This agent lifecycle action is unavailable right now."
+          onAction={() => { void onLaunchAgent?.(); }}
           testId="agent-scheduled-empty-state"
         />
       </section>

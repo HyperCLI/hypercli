@@ -2656,7 +2656,11 @@ export function ErrorBanner({
               </div>
             </div>
           ) : (
-            <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive flex items-center justify-between">
+            <div
+              role="alert"
+              data-testid="agent-error-banner"
+              className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive flex items-center justify-between"
+            >
               <span>{error}</span>
               <button onClick={onDismiss} className="ml-2 hover:text-foreground">
                 <X className="w-3.5 h-3.5" />

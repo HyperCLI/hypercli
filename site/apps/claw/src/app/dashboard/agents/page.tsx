@@ -35,6 +35,7 @@ import {
   createPublicHyperAgentClient,
   deleteStoppedAgent,
   isAgentCleanupConflictError,
+  isAgentLifecycleStateConflictError,
   requestAgentStart,
   restoreAgent,
   startAgent,
@@ -48,6 +49,8 @@ import {
   mergeAgentListAfterMutations,
   persistAgentCanonicalName,
   persistAgentDisplayName,
+  shouldReplaceAgentSnapshot,
+  upsertAgentSnapshot,
 } from "@/lib/agent-profile-updates";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
@@ -95,7 +98,7 @@ import {
 } from "@hypercli/shared-ui";
 import { inferFileMimeType, isAudioFileReference, isFileTypeReference, isImageFileReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
-import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { DeploymentEvent, Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
@@ -105,7 +108,7 @@ import type {
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
-import { isAgentDeletable, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "./types";
+import { isAgentDeletable, isAgentStartable, isAgentStoppable, isAgentTransitionalState, resolveAgentLaunchLifecycleAction } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -1048,16 +1051,6 @@ function isAgentDirectoryMarkerEntry(entry: AgentFileEntry): boolean {
   return name === AGENT_DIRECTORY_MARKER_NAME;
 }
 
-function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
-  const index = prev.findIndex((agent) => agent.id === nextAgent.id);
-  if (index === -1) {
-    return [...prev, nextAgent];
-  }
-  const next = [...prev];
-  next[index] = nextAgent;
-  return next;
-}
-
 function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
   return prev.filter((agent) => agent.id !== agentId);
 }
@@ -1363,7 +1356,7 @@ function AgentsPageContent() {
   }, []);
   const applyAgentMutationResult = useCallback((updatedAgent: SdkAgent) => {
     markAgentMutation(updatedAgent.id);
-    setSdkAgents((current) => upsertSdkAgent(current, updatedAgent));
+    setSdkAgents((current) => upsertAgentSnapshot(current, updatedAgent));
   }, [markAgentMutation]);
   const revokeAgentAvatarObjectUrl = useCallback((agentId: string) => {
     const objectUrl = agentAvatarObjectUrlsRef.current.get(agentId);
@@ -2105,6 +2098,7 @@ function AgentsPageContent() {
           listedAgents,
           mutationVersionsAtRequest,
           agentMutationVersionsRef.current,
+          shouldReplaceAgentSnapshot,
         ));
         setAgentDataPrincipalId(principalId);
         setSelectedSessionKeysByAgent((current) => {
@@ -2183,7 +2177,25 @@ function AgentsPageContent() {
       deploymentSubscriptionRecoveryRef.current,
       { includeEnrichmentOnReady: true, includeEnrichmentOnTransition: true },
     );
-    void deployments.subscribe(subscriptionRefresh.onTransition, {
+    const reconcileTransition = async (event: DeploymentEvent) => {
+      try {
+        await runAgentMutation(event.agent_id, async () => {
+          if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
+          const exactAgent = await deployments.get(event.agent_id, { signal: controller.signal });
+          if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
+          applyAgentMutationResult(exactAgent);
+        });
+      } catch {
+        // The coalesced collection reconciliation below is the fallback when
+        // an event-triggered exact read races deletion or transient I/O.
+      } finally {
+        // The exact read advances the per-Agent UI immediately. The coalesced
+        // collection read remains the deletion/reconnect safety net and keeps
+        // capacity enrichment synchronized.
+        subscriptionRefresh.onTransition();
+      }
+    };
+    void deployments.subscribe(reconcileTransition, {
       signal: controller.signal,
       onReady: subscriptionRefresh.onReady,
     }).catch(() => {
@@ -2201,7 +2213,7 @@ function AgentsPageContent() {
       scheduler.dispose();
       controller.abort();
     };
-  }, [deployments, fetchAgents, isAuthenticated, user?.id]);
+  }, [applyAgentMutationResult, deployments, fetchAgents, isAuthenticated, runAgentMutation, user?.id]);
 
   const handleOpenDesktop = useCallback(async (agent: Agent) => {
     const desktopBaseUrl = agent.desktopUrl || (agent.hostname ? `https://desktop-${agent.hostname}` : "");
@@ -3892,6 +3904,25 @@ function AgentsPageContent() {
 
   // ── Actions ──
 
+  const refreshExactAgentAfterLifecycleConflict = useCallback(async (
+    agentId: string,
+    token: string,
+    generation: number,
+    error: unknown,
+    cancelled = false,
+  ) => {
+    if (!isAgentLifecycleStateConflictError(error) || cancelled) return;
+    try {
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      const refreshedAgent = await createAgentClient(token).get(agentId);
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(refreshedAgent);
+    } catch {
+      // Keep the original lifecycle conflict as the user-visible error. A
+      // failed reconciliation must not replace or hide the rejected action.
+    }
+  }, [applyAgentMutationResult]);
+
   const handleStart = async (agentId: string) => {
     cancelledStartAgentIdsRef.current.delete(agentId);
     const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
@@ -3917,12 +3948,27 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return requestAgentStart(token, agentId, (accepted) => {
-          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
-            applyAgentMutationResult(accepted);
-            invalidateAgentCapacity();
-          }
-        });
+        try {
+          return await requestAgentStart(token, agentId, (accepted) => {
+            if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+              applyAgentMutationResult(accepted);
+              invalidateAgentCapacity();
+            }
+          }, (observed) => {
+            if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+              applyAgentMutationResult(observed);
+            }
+          });
+        } catch (error) {
+          await refreshExactAgentAfterLifecycleConflict(
+            agentId,
+            token,
+            generation,
+            error,
+            cancelledStartAgentIdsRef.current.has(agentId),
+          );
+          throw error;
+        }
       });
       if (!acceptedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       const startedAgent = await waitForAgentRunning(acceptedAgent);
@@ -4247,7 +4293,10 @@ function AgentsPageContent() {
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const agentClient = createAgentClient(token);
-        const currentAgent = toAgentViewModel(await agentClient.get(agentId));
+        const currentSdkAgent = await agentClient.get(agentId);
+        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
+        applyAgentMutationResult(currentSdkAgent);
+        const currentAgent = toAgentViewModel(currentSdkAgent);
         if (!isAgentStartable(currentAgent)) {
           throw new Error(currentAgent.isLaunchable === false ? "This agent cannot be launched." : "The agent is not ready to start.");
         }
@@ -4255,12 +4304,27 @@ function AgentsPageContent() {
         const resizedAgent = await agentClient.resize(agentId, { size: tier });
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         applyAgentMutationResult(resizedAgent);
-        return requestAgentStart(token, agentId, (accepted) => {
-          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
-            applyAgentMutationResult(accepted);
-            invalidateAgentCapacity();
-          }
-        });
+        try {
+          return await requestAgentStart(token, agentId, (accepted) => {
+            if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+              applyAgentMutationResult(accepted);
+              invalidateAgentCapacity();
+            }
+          }, (observed) => {
+            if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+              applyAgentMutationResult(observed);
+            }
+          });
+        } catch (error) {
+          await refreshExactAgentAfterLifecycleConflict(
+            agentId,
+            token,
+            generation,
+            error,
+            cancelledStartAgentIdsRef.current.has(agentId),
+          );
+          throw error;
+        }
       });
       if (!acceptedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       const startedAgent = await waitForAgentRunning(acceptedAgent);
@@ -4280,7 +4344,7 @@ function AgentsPageContent() {
       cancelledStartAgentIdsRef.current.delete(agentId);
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
-  }, [applyAgentMutationResult, getToken, invalidateAgentCapacity, markAgentCleanupCooldown, runAgentMutation]);
+  }, [applyAgentMutationResult, getToken, invalidateAgentCapacity, markAgentCleanupCooldown, refreshExactAgentAfterLifecycleConflict, runAgentMutation]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
@@ -4298,6 +4362,7 @@ function AgentsPageContent() {
     ? "Wait a few seconds before starting this agent again."
     : selectedAgentStartGuidance?.message;
   const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
+  const selectedAgentLaunchLifecycleAction = resolveAgentLaunchLifecycleAction(selectedAgent);
   const workspaceSidebarDisabled = agentsLoading && !anonymousAgentPreviewMode;
   const workspaceSidebarDisabledReason = getWorkspaceSidebarDisabledReason({
     agentsLoading,
@@ -4401,11 +4466,16 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return restoreAgent(token, agentId, (accepted) => {
-          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
-            applyAgentMutationResult(accepted);
-          }
-        });
+        try {
+          return await restoreAgent(token, agentId, (accepted) => {
+            if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+              applyAgentMutationResult(accepted);
+            }
+          });
+        } catch (error) {
+          await refreshExactAgentAfterLifecycleConflict(agentId, token, generation, error);
+          throw error;
+        }
       });
       if (!restoredAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(restoredAgent);
@@ -6909,9 +6979,16 @@ function AgentsPageContent() {
               onDelete={async (jobId) => {
                 await chat.removeCron(jobId);
               }}
-              onStartAgent={selectedAgent && isAgentStartable(selectedAgent)
-                ? async () => { await handleStart(selectedAgent.id); }
+              onLaunchAgent={selectedAgent && selectedAgentLaunchLifecycleAction
+                ? async () => {
+                    if (selectedAgentLaunchLifecycleAction === "restore") {
+                      await handleRestore(selectedAgent.id);
+                    } else {
+                      await handleStart(selectedAgent.id);
+                    }
+                  }
                 : undefined}
+              launchActionLabel={selectedAgentLaunchLifecycleAction === "restore" ? "Restore agent" : "Start agent"}
               initialCommand={scheduledInitialCommand?.command ?? null}
             />
           ) : mainTab === "settings" ? (
@@ -6990,8 +7067,10 @@ function AgentsPageContent() {
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
               onMarketplaceClick: openIntegrationsTab,
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
+              onAgentRestore: () => { if (selectedAgent) void handleRestore(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,
+              agentRestoring: Boolean(selectedAgent && restoringId === selectedAgent.id),
               agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
               agentStartBlocked: selectedAgentLaunchBlocked,
               agentStartBlockedReason: selectedAgentStartBlockedTitle,

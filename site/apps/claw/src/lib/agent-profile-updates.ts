@@ -42,6 +42,7 @@ export function mergeAgentListAfterMutations<TAgent extends { id: string }>(
   listedAgents: TAgent[],
   versionsAtRequest: ReadonlyMap<string, number>,
   currentVersions: ReadonlyMap<string, number>,
+  shouldReplaceCurrent: (current: TAgent, incoming: TAgent) => boolean = () => true,
 ): TAgent[] {
   const currentById = new Map(currentAgents.map((agent) => [agent.id, agent]));
   const listedIds = new Set(listedAgents.map((agent) => agent.id));
@@ -51,13 +52,45 @@ export function mergeAgentListAfterMutations<TAgent extends { id: string }>(
   const merged = listedAgents.map((agent) => {
     const current = currentById.get(agent.id);
     if (!current) return agent;
-    return changedDuringRequest(agent.id) ? current : agent;
+    return changedDuringRequest(agent.id) || !shouldReplaceCurrent(current, agent) ? current : agent;
   });
 
   for (const agent of currentAgents) {
     if (!listedIds.has(agent.id) && changedDuringRequest(agent.id)) merged.push(agent);
   }
   return merged;
+}
+
+type VersionedAgentSnapshot = {
+  launchEpoch: number;
+  updatedAt?: Date | null;
+};
+
+export function shouldReplaceAgentSnapshot(
+  current: VersionedAgentSnapshot,
+  incoming: VersionedAgentSnapshot,
+): boolean {
+  if (incoming.launchEpoch !== current.launchEpoch) {
+    return incoming.launchEpoch > current.launchEpoch;
+  }
+  const currentUpdatedAt = current.updatedAt?.getTime();
+  const incomingUpdatedAt = incoming.updatedAt?.getTime();
+  if (currentUpdatedAt !== undefined && incomingUpdatedAt !== undefined) {
+    return incomingUpdatedAt >= currentUpdatedAt;
+  }
+  return true;
+}
+
+export function upsertAgentSnapshot<TAgent extends { id: string } & VersionedAgentSnapshot>(
+  agents: TAgent[],
+  incoming: TAgent,
+): TAgent[] {
+  const index = agents.findIndex((agent) => agent.id === incoming.id);
+  if (index === -1) return [...agents, incoming];
+  if (!shouldReplaceAgentSnapshot(agents[index], incoming)) return agents;
+  const next = [...agents];
+  next[index] = incoming;
+  return next;
 }
 
 export function createAgentMutationQueue() {

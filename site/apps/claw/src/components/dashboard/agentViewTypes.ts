@@ -172,10 +172,14 @@ export interface AgentViewProps {
   onMarketplaceClick?: () => void;
   /** Start the agent (AgentCardModule). */
   onAgentStart?: () => void;
+  /** Restore an archived agent (AgentCardModule). */
+  onAgentRestore?: () => void;
   /** Stop the agent (AgentCardModule). */
   onAgentStop?: () => void;
   /** Loading flag for start. */
   agentStarting?: boolean;
+  /** Loading flag for restore. */
+  agentRestoring?: boolean;
   /** Loading flag for stop. */
   agentStopping?: boolean;
   /** The failed runtime still owns resources and must be cleaned up before restart. */

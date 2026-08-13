@@ -9,6 +9,7 @@ const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 test("deployment subscription invalidation reloads the authoritative REST snapshot", async ({ page }) => {
   let agentName = "Before Event";
   let deploymentListGets = 0;
+  let exactDeploymentGets = 0;
   let enrichmentGets = 0;
   let listFailuresRemaining = 0;
 
@@ -153,6 +154,27 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
       return;
     }
 
+    if (pathName.endsWith("/agents/deployments/agent-1") && method === "GET") {
+      exactDeploymentGets += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "agent-1",
+          name: agentName,
+          user_id: "user-1",
+          state: "STOPPED",
+          cpu: 1,
+          memory: 2,
+          hostname: "agent-1.hypercli.app",
+          launch_epoch: 3,
+          created_at: "2026-08-06T00:00:00Z",
+          updated_at: "2026-08-13T00:00:00Z",
+        }),
+      });
+      return;
+    }
+
     if (pathName.endsWith("/agents/subscriptions/summary") && method === "GET") {
       enrichmentGets += 1;
       await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
@@ -189,6 +211,7 @@ test("deployment subscription invalidation reloads the authoritative REST snapsh
     });
   });
 
+  await expect.poll(() => exactDeploymentGets).toBeGreaterThan(0);
   await expect.poll(() => deploymentListGets).toBeGreaterThan(beforeEvent);
   await expect(page.getByText("After Event", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Before Event", { exact: true })).toHaveCount(0);

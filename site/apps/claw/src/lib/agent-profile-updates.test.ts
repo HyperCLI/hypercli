@@ -6,6 +6,8 @@ import {
   mergeAgentListAfterMutations,
   persistAgentCanonicalName,
   persistAgentDisplayName,
+  shouldReplaceAgentSnapshot,
+  upsertAgentSnapshot,
 } from "./agent-profile-updates";
 
 describe("managedAgentHandleFromDisplayName", () => {
@@ -83,6 +85,28 @@ describe("agent profile updates", () => {
     )).toEqual([
       { id: "agent-1", state: "STARTING" },
     ]);
+  });
+
+  it("never regresses an Agent to an older launch epoch", () => {
+    const archived = { id: "agent-1", state: "ARCHIVED", launchEpoch: 5, updatedAt: null };
+    const staleStopped = { id: "agent-1", state: "STOPPED", launchEpoch: 4, updatedAt: null };
+
+    expect(shouldReplaceAgentSnapshot(archived, staleStopped)).toBe(false);
+    expect(upsertAgentSnapshot([archived], staleStopped)).toEqual([archived]);
+    expect(mergeAgentListAfterMutations(
+      [archived],
+      [staleStopped],
+      new Map(),
+      new Map(),
+      shouldReplaceAgentSnapshot,
+    )).toEqual([archived]);
+  });
+
+  it("uses updated time to order snapshots within one launch epoch", () => {
+    const starting = { id: "agent-1", state: "STARTING", launchEpoch: 6, updatedAt: new Date("2026-08-13T00:00:02Z") };
+    const staleStopped = { id: "agent-1", state: "STOPPED", launchEpoch: 6, updatedAt: new Date("2026-08-13T00:00:01Z") };
+
+    expect(upsertAgentSnapshot([starting], staleStopped)).toEqual([starting]);
   });
 
   it("routes canonical names by explicit external provenance", async () => {

@@ -624,6 +624,25 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("tablist", { name: /file source/i })).not.toBeInTheDocument();
   });
 
+  it("binds the fallback panel restore label and callback to the same archived action", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "ARCHIVED" }));
+    const onStart = vi.fn();
+    const onRestore = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "shell",
+      stoppedTabLabel: "Shell",
+      panelContent: <div>Shell panel</div>,
+      onStart,
+      onRestore,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Restore agent" }));
+    expect(onRestore).toHaveBeenCalledOnce();
+    expect(onStart).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
   it("keeps archived restore available without runtime capacity and disables it while pending", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "ARCHIVED" }));
     renderAgentMainPanel({

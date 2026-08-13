@@ -4,7 +4,7 @@ import React from "react";
 import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
-import { isAgentStartable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentTransitionalState, resolveAgentLaunchLifecycleAction } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -142,9 +142,10 @@ export function AgentMainPanel({
   onReconnect,
 }: AgentMainPanelProps) {
   const selectedAgentState = selectedAgent?.state ?? null;
+  const launchLifecycleAction = resolveAgentLaunchLifecycleAction(selectedAgent);
   const selectedAgentDisplayName = selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent";
   const isLifecycleBusy = isAgentTransitionalState(selectedAgentState);
-  const isStartable = Boolean(selectedAgent && isAgentStartable(selectedAgent));
+  const hasLaunchLifecycleAction = launchLifecycleAction !== null;
   const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
     if (!selectedAgent) return null;
     if (selectedAgent.state === "FAILED") {
@@ -242,7 +243,8 @@ export function AgentMainPanel({
     return () => window.clearTimeout(timeout);
   }, [burstAgentId, onBurstComplete, selectedAgent?.id, selectedAgent?.state]);
 
-  const archived = selectedAgentState === "ARCHIVED";
+  const archived = launchLifecycleAction === "restore";
+  const lifecycleLaunchHandler = archived ? onRestore : launchLifecycleAction === "start" ? onStart : undefined;
   const stoppedLaunchBusy = Boolean(selectedAgent && (
     archived ? restoringId === selectedAgent.id : startingId === selectedAgent.id
   ));
@@ -267,10 +269,10 @@ export function AgentMainPanel({
     launching: stoppedLaunchBusy,
     launchBlocked: stoppedLaunchBlocked,
     launchBlockedReason: stoppedLaunchBlockedReason,
-    onLaunchAction: archived ? onRestore : onStart,
+    onLaunchAction: lifecycleLaunchHandler,
   };
   const stoppedPanelContent = (() => {
-    if (!isStartable && !archived) return null;
+    if (!hasLaunchLifecycleAction) return null;
     if (currentPanel === "chat") {
       return <AgentEmptyState {...stoppedEmptyStateProps} />;
     }
@@ -373,16 +375,22 @@ export function AgentMainPanel({
       return panelContent;
     }
 
-    if (!isSelectedRunning && isStartable) {
+    if (!isSelectedRunning && hasLaunchLifecycleAction && lifecycleLaunchHandler) {
       return (
         <AgentLaunchPrompt
           label={stoppedTabLabel}
           launching={stoppedLaunchBusy}
-          onLaunch={onStart}
-          blockedTitle={selectedAgentStartGuidanceTitle}
-          blockedMessage={blockedMessage}
-          suggestedTierActions={suggestedTierActions}
-          footnote={currentPanel === "shell" ? "Start the agent to open a terminal session." : undefined}
+          onLaunch={lifecycleLaunchHandler}
+          actionLabel={archived ? "Restore agent" : "Start agent"}
+          launchingLabel={archived ? "Restoring agent" : "Booting agent"}
+          blockedTitle={archived ? stoppedLaunchBlockedReason : selectedAgentStartGuidanceTitle}
+          blockedMessage={archived ? stoppedLaunchBlockedReason : blockedMessage}
+          suggestedTierActions={archived ? undefined : suggestedTierActions}
+          footnote={currentPanel === "shell"
+            ? archived
+              ? "Restore the agent before opening a terminal session."
+              : "Start the agent to open a terminal session."
+            : undefined}
         />
       );
     }

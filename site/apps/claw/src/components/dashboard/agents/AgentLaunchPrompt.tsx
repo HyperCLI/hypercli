@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, Plus } from "lucide-react";
+import { Play, Plus, RotateCcw } from "lucide-react";
 
 import { AgentStartupLoadingVisual } from "@/components/dashboard/AgentStartupLoadingVisual";
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -9,6 +9,8 @@ interface AgentLaunchPromptProps {
   label: string;
   launching: boolean;
   onLaunch: () => void;
+  actionLabel?: string;
+  launchingLabel?: string;
   blockedTitle?: string | null;
   blockedMessage?: string | null;
   suggestedTierActions?: Array<{ label: string; onSelect: () => void }> | null;
@@ -19,19 +21,23 @@ export function AgentLaunchPrompt({
   label,
   launching,
   onLaunch,
+  actionLabel = "Start agent",
+  launchingLabel = "Starting agent",
   blockedTitle,
   blockedMessage,
   suggestedTierActions,
   footnote = "Files remain available while stopped.",
 }: AgentLaunchPromptProps) {
   const blocked = Boolean(blockedMessage);
+  const restoring = actionLabel.toLowerCase().startsWith("restore");
+  const ActionIcon = restoring ? RotateCcw : Play;
 
   if (launching) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center overflow-hidden px-4 py-3 sm:px-5 sm:py-4">
         <AgentStartupLoadingVisual
-          title="Booting agent"
-          detail="Starting the runtime and gateway."
+          title={launchingLabel}
+          detail={restoring ? "Restoring the verified archive to stopped storage." : "Starting the runtime and gateway."}
         />
       </div>
     );
@@ -41,26 +47,26 @@ export function AgentLaunchPrompt({
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-md text-center">
         <div className="mb-4 flex justify-center">
-          <TooltipHint label={blockedTitle || "Start agent"} disabled={blocked}>
+          <TooltipHint label={blockedTitle || actionLabel} disabled={blocked}>
             <button
               onClick={onLaunch}
               disabled={blocked}
               className="flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
-              aria-label={`Start agent to use ${label}`}
+              aria-label={`${actionLabel} to use ${label}`}
             >
-              <Play className="h-6 w-6" />
+              <ActionIcon className="h-6 w-6" />
             </button>
           </TooltipHint>
         </div>
-        <p className="text-base text-foreground">{`Start Agent to Use ${label}`}</p>
-        <TooltipHint label={blockedTitle || "Start agent"} disabled={blocked}>
+        <p className="text-base text-foreground">{`${actionLabel} to use ${label}`}</p>
+        <TooltipHint label={blockedTitle || actionLabel} disabled={blocked}>
           <button
             onClick={onLaunch}
             disabled={blocked}
             className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
           >
-            <Play className="h-4 w-4" />
-            <span>Start Agent</span>
+            <ActionIcon className="h-4 w-4" />
+            <span>{actionLabel}</span>
           </button>
         </TooltipHint>
         {blockedMessage && (

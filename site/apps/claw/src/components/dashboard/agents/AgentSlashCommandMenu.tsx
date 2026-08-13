@@ -403,7 +403,7 @@ function buildSlashCommands(): SlashCommand[] {
         if (["CREATING", "STARTING", "RESTORING"].includes(normalized)) {
           return "Agent lifecycle work is still in progress.";
         }
-        if (!["STOPPED", "ARCHIVED", "FAILED"].includes(normalized)) {
+        if (normalized !== "STOPPED") {
           return `Agent is ${agentLifecycleLabel(selectedAgentState, false)}.`;
         }
         return actions.onStartAgent ? true : "Start action is unavailable here.";
