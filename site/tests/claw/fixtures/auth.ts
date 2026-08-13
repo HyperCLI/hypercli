@@ -1061,6 +1061,72 @@ async function gotoLocalReturnUrl(page: Page, localReturnUrl: string): Promise<v
   throw lastAbortError;
 }
 
+async function responseFailureDetail(response: Awaited<ReturnType<Page["waitForResponse"]>>): Promise<string> {
+  const fallback = `HTTP ${response.status()}`;
+  try {
+    const body = await response.json() as Record<string, unknown>;
+    const detail = body.detail ?? body.error ?? body.message;
+    return typeof detail === "string" && detail.trim() ? detail.trim() : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export async function waitForBrowserAgentStartOrLaunchError(
+  page: Page,
+  timeout = 90_000,
+): Promise<DeploymentRecord> {
+  const startOutcome = page
+    .waitForResponse(
+      (response) => response.request().method() === "POST"
+        && /\/agents\/deployments\/[^/]+\/start$/.test(new URL(response.url()).pathname),
+      { timeout },
+    )
+    .then(async (response) => {
+      if (!response.ok()) {
+        throw new Error(`Agent start request failed with ${response.status()}: ${await responseFailureDetail(response)}`);
+      }
+      expect(response.request().postDataJSON()).toEqual({});
+      return (await response.json()) as DeploymentRecord;
+    })
+    .then(
+      (agent) => ({ kind: "start" as const, agent }),
+      (error: unknown) => ({ kind: "failure" as const, error }),
+    );
+  const launchError = page.getByTestId("agent-error-banner");
+  const visibleErrorOutcome = launchError
+    .waitFor({ state: "visible", timeout })
+    .then(async () => ({
+      kind: "failure" as const,
+      error: new Error((await launchError.textContent())?.trim() || "Agent launch failed before start"),
+    }))
+    .catch(() => new Promise<never>(() => {}));
+
+  const outcome = await Promise.race([startOutcome, visibleErrorOutcome]);
+  if (outcome.kind === "failure") throw outcome.error;
+  return outcome.agent;
+}
+
+export async function waitForBrowserAgentStartOrCleanup(
+  startOutcome: Promise<DeploymentRecord>,
+  deployments: DeploymentsClientLike,
+  created: DeploymentRecord,
+): Promise<DeploymentRecord> {
+  try {
+    return await startOutcome;
+  } catch (error) {
+    try {
+      await deleteDeployment(deployments, created.id);
+      console.log(`[agents-launch] cleaned up pre-start failed agent id=${created.id}`);
+    } catch (cleanupError) {
+      console.log(`[agents-launch] pre-start cleanup failed id=${created.id} error=${
+        cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+      }`);
+    }
+    throw error;
+  }
+}
+
 export async function completeStripeCheckout(
   page: Page,
   returnBaseUrl: string = getOptionalEnv("TEST_TOPUP_CONSOLE_BASE_URL") ||
@@ -1783,17 +1849,9 @@ export async function launchClawAgentAndWaitForGateway(
       .catch((error) => {
         createResponseError = error instanceof Error ? error.message : String(error);
       }) : Promise.resolve();
-    const startResponseSettled = watchBrowserCreateResponse ? page
-      .waitForResponse(
-        (response) => response.request().method() === "POST"
-          && /\/agents\/deployments\/[^/]+\/start$/.test(new URL(response.url()).pathname),
-        { timeout: 90_000 },
-      )
-      .then(async (response) => {
-        if (!response.ok()) throw new Error(`Agent start request failed with ${response.status()}`);
-        expect(response.request().postDataJSON()).toEqual({});
-        acceptedStart = (await response.json()) as DeploymentRecord;
-      }) : Promise.resolve();
+    const startResponseSettled: Promise<DeploymentRecord> | null = watchBrowserCreateResponse
+      ? waitForBrowserAgentStartOrLaunchError(page)
+      : null;
     let launchSubmitted = false;
     try {
       const directAgent = await clickCreate();
@@ -1836,8 +1894,17 @@ export async function launchClawAgentAndWaitForGateway(
     expect(created).toBeTruthy();
     expect(created.id).toBeTruthy();
     if (watchBrowserCreateResponse) {
-      await startResponseSettled;
-      expect(acceptedStart?.id).toBe(created.id);
+      try {
+        expect(startResponseSettled).not.toBeNull();
+        acceptedStart = await waitForBrowserAgentStartOrCleanup(startResponseSettled!, deployments, created);
+        expect(acceptedStart?.id).toBe(created.id);
+      } catch (error) {
+        console.log(`[agents-launch] pre-start workflow failed ${JSON.stringify({
+          id: created.id,
+          error: error instanceof Error ? error.message : String(error),
+        })}`);
+        throw error;
+      }
     } else {
       await deployments.waitForState(
         created.id,

@@ -241,6 +241,7 @@ npx playwright test \
   tests/claw/agents-subscription.spec.ts \
   tests/claw/agents-deployment-events.spec.ts \
   tests/claw/agents-archived-lifecycle.spec.ts \
+  tests/claw/agents-launch-helper.spec.ts \
   tests/claw/dev-agent-setup-deployment-events.spec.ts \
   tests/claw/agents-chat-navigation.spec.ts
 desktop_status=$?
