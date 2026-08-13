@@ -92,6 +92,9 @@ jobs:
         env:
           E2E_IMAGE: ${{ steps.build-e2e.outputs.e2e_image }}
         run: |
+          if [[ -d "${PLAYWRIGHT_ARTIFACTS_DIR}" ]]; then
+            sudo chown -R "$(id -u):$(id -g)" "${PLAYWRIGHT_ARTIFACTS_DIR}"
+          fi
           rm -rf -- "${PLAYWRIGHT_ARTIFACTS_DIR}"
           if [[ -n "${E2E_IMAGE}" ]]; then
             docker image rm "${E2E_IMAGE}" || true

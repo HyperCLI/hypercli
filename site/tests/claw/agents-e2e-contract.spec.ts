@@ -39,6 +39,14 @@ test("agents launch canary exercises the canonical lifecycle contract", () => {
   expect(authFixtureSource).toContain('["STOPPED"]');
 });
 
+test("agents launch diagnostics preserve accepted and terminal state evidence", () => {
+  expect(authFixtureSource).toContain("[agents-launch] start accepted");
+  expect(authFixtureSource).toContain("createdLaunchEpoch");
+  expect(authFixtureSource).toContain("acceptedLaunchEpoch");
+  expect(authFixtureSource).toContain("agentError: latest.error ?? null");
+  expect(authFixtureSource).toContain("waitError: error instanceof Error");
+});
+
 test("agents subscription retry permits immutable canceled history", () => {
   expect(subscriptionSpecSource).toContain("beforeSummary.activeSubscriptions).toHaveLength(0)");
   expect(subscriptionSpecSource).toContain("filter((subscription) => subscription.isCurrent)");

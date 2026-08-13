@@ -1854,7 +1854,16 @@ export async function launchClawAgentAndWaitForGateway(
     );
     expect(Number.isInteger(acceptedLaunchEpoch)).toBe(true);
     expect(acceptedLaunchEpoch).toBeGreaterThan(0);
-    console.log(`[agents-launch] created id=${created.id} state=${created.state ?? "unknown"}`);
+    console.log(
+      `[agents-launch] start accepted ${JSON.stringify({
+        id: created.id,
+        createdState: created.state ?? "unknown",
+        createdLaunchEpoch: Number(created.launchEpoch ?? created.launch_epoch ?? 0),
+        acceptedState: acceptedStart?.state ?? "unknown",
+        acceptedLaunchEpoch,
+        acceptedHostname: acceptedStart?.hostname ?? null,
+      })}`
+    );
 
     try {
       await captureStep(page, "agents-11-created");
@@ -1991,12 +2000,12 @@ export async function launchClawAgentAndWaitForGateway(
         `[agents-launch] readiness failed ${JSON.stringify({
           id: created.id,
           state: latest.state ?? "unknown",
-          error: latest.error ?? null,
+          agentError: latest.error ?? null,
           createdAt: latest.createdAt ?? null,
           updatedAt: latest.updatedAt ?? null,
           hostname: latest.hostname ?? null,
           inspectionError,
-          error: error instanceof Error ? error.message : String(error),
+          waitError: error instanceof Error ? error.message : String(error),
         })}`
       );
       await deleteDeployment(deployments, created.id)
