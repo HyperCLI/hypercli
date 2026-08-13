@@ -507,13 +507,7 @@ fn apply_existing_size_parallelism(
     existing: &Deployment,
     enabled: bool,
 ) {
-    let size = match existing.requested_size.as_deref() {
-        Some("small") => Some(AgentSize::Small),
-        Some("medium") => Some(AgentSize::Medium),
-        Some("large") => Some(AgentSize::Large),
-        _ => None,
-    };
-    if let Some(size) = size {
+    if let Some(size) = existing.requested_size {
         apply_size_based_parallelism(request, size, enabled);
     }
 }
@@ -1456,6 +1450,17 @@ mod tests {
             apply_size_based_parallelism(&mut request, AgentSize::Large, false);
             assert_eq!(request.env["BUZZ_ACP_AGENTS"], concrete);
         }
+    }
+
+    #[test]
+    fn existing_typed_size_sets_parallelism() {
+        let mut deployment = readiness_deployment("stopped", 1);
+        deployment.requested_size = Some(AgentSize::Medium);
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+
+        apply_existing_size_parallelism(&mut request, &deployment, true);
+
+        assert_eq!(request.env["BUZZ_ACP_AGENTS"], "5");
     }
 
     #[test]

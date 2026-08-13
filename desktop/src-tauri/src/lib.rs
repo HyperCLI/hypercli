@@ -616,7 +616,9 @@ impl From<Deployment> for DesktopAgent {
             state: normalized_state(&deployment.state),
             tags: deployment.tags,
             hostname: deployment.hostname,
-            requested_size: deployment.requested_size,
+            requested_size: deployment
+                .requested_size
+                .map(|size| size.as_str().to_owned()),
             is_buzz,
             agent_public_key,
             native_auth_runtime,
@@ -1413,7 +1415,9 @@ fn get_agent_detail_blocking(agent_id: String) -> Result<DesktopAgentDetail, Str
         name: env_value(&env, "BUZZ_ACP_DISPLAY_NAME").unwrap_or(deployment.name),
         runtime: runtime_id(runtime).to_owned(),
         state: normalized_state(&deployment.state),
-        size: deployment.requested_size,
+        size: deployment
+            .requested_size
+            .map(|size| size.as_str().to_owned()),
         instructions: env_value(&env, "BUZZ_ACP_SYSTEM_PROMPT").unwrap_or_default(),
         avatar_url: env_value(&env, "BUZZ_PROFILE_PICTURE"),
         model: env_value(&env, "BUZZ_ACP_MODEL"),
@@ -1803,8 +1807,7 @@ fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<Desk
     }
 
     let requested_size = parse_editor_size(input.size.as_deref())?;
-    let size_changed =
-        requested_size.filter(|size| current.requested_size.as_deref() != Some(size.as_str()));
+    let size_changed = requested_size.filter(|size| current.requested_size != Some(*size));
     let deployment_name = buzz_agent_public_key(&current)
         .map(|public_key| hypercli_sdk::canonical_deployment_name(input.name.trim(), &public_key))
         .unwrap_or_else(|| current.name.clone());
@@ -3520,7 +3523,7 @@ mod tests {
             cluster_id: None,
             hostname: Some("maverick.hypercli.app".to_owned()),
             tags: vec!["buzz_agent=public-key".to_owned()],
-            requested_size: Some("large".to_owned()),
+            requested_size: Some(AgentSize::Large),
             archived_at: None,
             launch_epoch: 0,
             launch_config: Default::default(),
@@ -3552,7 +3555,7 @@ mod tests {
                 "app=buzz".to_owned(),
                 "buzz_agent=79be667ef9dcbbac".to_owned(),
             ],
-            requested_size: Some("large".to_owned()),
+            requested_size: Some(AgentSize::Large),
             archived_at: None,
             launch_epoch: 0,
             launch_config: DeploymentLaunchConfig::from_map(launch_config),
