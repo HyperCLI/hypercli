@@ -3172,20 +3172,23 @@ export class GatewayClient {
     }
     const connection = this.start();
     if (options.signal === undefined && options.timeoutMs === undefined) return connection;
-    const timeoutMs = options.timeoutMs ?? this.defaultTimeout;
+    const timeoutMs = options.timeoutMs;
     return new Promise<void>((resolve, reject) => {
       let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
       const finish = (callback: () => void) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timer);
+        if (timer) clearTimeout(timer);
         options.signal?.removeEventListener("abort", abort);
         callback();
       };
       const abort = () => finish(() => reject(this.connectWaitAbortError(options.signal)));
-      const timer = setTimeout(() => {
-        finish(() => reject(new Error(`gateway connect timed out after ${timeoutMs}ms`)));
-      }, Math.max(0, timeoutMs));
+      if (timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          finish(() => reject(new Error(`gateway connect timed out after ${timeoutMs}ms`)));
+        }, Math.max(0, timeoutMs));
+      }
       options.signal?.addEventListener("abort", abort, { once: true });
       connection.then(
         () => finish(resolve),

@@ -4509,6 +4509,64 @@ describe("GatewayClient", () => {
     expect(client.pendingPairing).toBeNull();
   });
 
+  it("keeps a signal-only waiter alive while pairing approval exceeds the RPC timeout", async () => {
+    let resolveApproval!: (value: unknown) => void;
+    const approval = new Promise((resolve) => {
+      resolveApproval = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => approval) as any);
+    const controller = new AbortController();
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+      defaultTimeout: 10,
+    });
+
+    let settled = false;
+    const connecting = client.connect({ signal: controller.signal }).finally(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing first websocket instance");
+    firstSocket.emitChallenge("nonce-slow-pairing");
+    const firstRequest = await parseFirstRequest(firstSocket);
+    firstSocket.emitConnectError(
+      firstRequest.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-slow", reason: "not-paired" },
+    );
+    firstSocket.close(1008, "pairing required");
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(settled).toBe(false);
+    expect(MockWebSocket.instances).toHaveLength(1);
+
+    resolveApproval({
+      ok: true,
+      json: async () => ({ exit_code: 0, stdout: "approved", stderr: "" }),
+    });
+    await flushMicrotasks(8);
+
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) {
+      throw new Error("Missing websocket after slow pairing approval");
+    }
+    secondSocket.emitChallenge("nonce-after-slow-pairing");
+    const secondRequest = await parseFirstRequest(secondSocket);
+    secondSocket.emitHello(secondRequest.id, "device-token-after-slow-pairing");
+
+    await connecting;
+    expect(client.isConnected).toBe(true);
+    expect(MockWebSocket.instances).toHaveLength(2);
+  });
+
 });
 
 async function collectResultFrames(ws: MockWebSocket, method: string) {

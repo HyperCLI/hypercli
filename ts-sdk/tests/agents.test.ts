@@ -2728,6 +2728,8 @@ describe('Agents SDK', () => {
     expect(get.mock.calls.filter(([path]) => !String(path).includes('/secrets/'))).toHaveLength(2);
     expect(get.mock.calls.filter(([path]) => String(path).includes('/secrets/'))).toHaveLength(1);
     expect(gateway.connect).toHaveBeenCalledTimes(2);
+    expect(gateway.connect).toHaveBeenNthCalledWith(1, { signal: undefined });
+    expect(gateway.connect).toHaveBeenNthCalledWith(2, { signal: undefined });
 
     resolveHello();
     const [firstLease, secondLease] = await Promise.all([firstAcquisition, secondAcquisition]);

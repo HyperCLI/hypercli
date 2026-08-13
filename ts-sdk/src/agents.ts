@@ -2977,17 +2977,12 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
     contextOptions: GatewayContextWaitOptions = {},
   ): Promise<OpenClawGatewayLease> {
-    const timeoutMs = contextOptions.timeoutMs ?? 30_000;
-    const deadline = Date.now() + timeoutMs;
     const deployments = this.requireDeployments();
     const generation = deployments.openClawGateways.generation(this.id);
     const lease = await this.acquireGateway(options, contextOptions);
     try {
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) throw new Error('Timed out connecting to the OpenClaw gateway');
       await lease.client.connect({
         signal: contextOptions.signal,
-        timeoutMs: remainingMs,
       });
       if (deployments.openClawGateways.generation(this.id) !== generation) {
         throw new Error(`OpenClaw gateway connection for ${this.id} was invalidated`);
