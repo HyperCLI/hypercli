@@ -25,8 +25,10 @@ import {
 } from "lucide-react";
 import type { FileEntry } from "./types";
 import { formatFileSize, getFileBackupBadge } from "./FileRow";
+import { formatFileTechnicalDetails } from "./error-details";
 import { parseZipPreview } from "./zip-preview";
 import { inferFileMimeType, isFileByteContent, resolveFileType, type ResolvedFileType } from "./file-types";
+import { RecoveryState } from "../components/patterns/recovery";
 import { writeClipboardText } from "../utils/browser-clipboard";
 import { TooltipHint } from "../components/ui/tooltip";
 
@@ -50,6 +52,7 @@ export interface FilePreviewProps {
   showClose?: boolean;
   onSave?: (path: string, content: string) => Promise<void>;
   onDownload?: (entry: FileEntry) => void;
+  onRetry?: () => void;
   renderMarkdown?: FilePreviewMarkdownRenderer;
   copyText?: (text: string) => boolean | Promise<boolean>;
 }
@@ -170,6 +173,7 @@ export function FilePreview({
   showClose = true,
   onSave,
   onDownload,
+  onRetry,
   renderMarkdown,
   copyText = writeClipboardText,
 }: FilePreviewProps) {
@@ -218,7 +222,7 @@ export function FilePreview({
     try {
       return { data: parseZipPreview(content), error: null };
     } catch (err) {
-      return { data: null, error: err instanceof Error ? err.message : "Could not preview archive." };
+      return { data: null, error: formatFileTechnicalDetails(err) ?? "The archive contents could not be read." };
     }
   }, [content, previewType]);
   const htmlPreviewDocument = useMemo(
@@ -242,7 +246,7 @@ export function FilePreview({
     try {
       await onSave(entry.path, editContent);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : "Failed to save file");
+      setSaveError(formatFileTechnicalDetails(err) ?? "The save request was unavailable.");
     } finally {
       setSaving(false);
     }
@@ -380,9 +384,32 @@ export function FilePreview({
         )}
 
         {error && (
-          <div role="alert" className="flex flex-col items-center justify-center h-full gap-2 px-6">
-            <AlertCircle className="w-6 h-6 text-destructive" />
-            <p className="text-center text-xs text-destructive">{error}</p>
+          <div className="flex h-full items-center justify-center">
+            <RecoveryState
+              presentation="empty"
+              icon={AlertCircle}
+              title={onRetry ? "Try again to preview this file" : onDownload ? "Download this file to continue" : "Return to the folder and try again"}
+              description={onRetry && onDownload
+                ? "The file is still available. Retry the preview or download it to continue."
+                : onRetry
+                  ? "The file is still available. Try the preview once more."
+                  : onDownload
+                    ? "The file is still available. Download it to continue."
+                    : "The file is still available. Return to the folder and open it again."}
+              technicalDetails={formatFileTechnicalDetails(error)}
+              detailsLabel="Technical details"
+              primaryAction={onRetry
+                ? { label: "Try again", onAction: onRetry }
+                : onDownload
+                  ? { label: "Download", onAction: () => onDownload(entry), icon: Download }
+                  : undefined}
+              secondaryAction={onRetry && onDownload
+                ? { label: "Download", onAction: () => onDownload(entry), icon: Download }
+                : undefined}
+              announcement="assertive"
+              headingLevel={3}
+              className="min-h-full max-w-xl px-6 py-8"
+            />
           </div>
         )}
 
@@ -494,9 +521,20 @@ export function FilePreview({
             ) : previewType === "archive" ? (
               <div className="flex min-h-full flex-col">
                 {archivePreview?.error ? (
-                  <div className="flex flex-col items-center justify-center h-full gap-2 px-6">
-                    <AlertCircle className="w-6 h-6 text-destructive" />
-                    <p className="text-center text-xs text-destructive">{archivePreview.error}</p>
+                  <div className="flex min-h-72 flex-1 items-center justify-center">
+                    <RecoveryState
+                      presentation="empty"
+                      icon={FileArchive}
+                      title={onDownload ? "Download this archive to inspect it" : "Try opening this archive another way"}
+                      description="The archive is still available. Download it or use another archive viewer to continue."
+                      technicalDetails={formatFileTechnicalDetails(archivePreview.error)}
+                      detailsLabel="Technical details"
+                      primaryAction={onDownload
+                        ? { label: "Download", onAction: () => onDownload(entry), icon: Download }
+                        : undefined}
+                      headingLevel={3}
+                      className="min-h-72 max-w-xl px-6 py-8"
+                    />
                   </div>
                 ) : archivePreview?.data ? (
                   <>
@@ -599,9 +637,25 @@ export function FilePreview({
       </div>
 
       {saveError && (
-        <div role="alert" className="border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-[10px] text-destructive">
-          {saveError}
-        </div>
+        <RecoveryState
+          presentation="compact"
+          icon={Save}
+          title="Try saving again"
+          description="Your edits are still here and have not been discarded."
+          technicalDetails={formatFileTechnicalDetails(saveError)}
+          detailsLabel="Technical details"
+          primaryAction={{
+            label: "Save again",
+            pendingLabel: "Saving...",
+            pending: saving,
+            onAction: () => { void handleSave(); },
+          }}
+          onDismiss={() => setSaveError(null)}
+          dismissLabel="Dismiss save message"
+          announcement="assertive"
+          headingLevel={3}
+          className="mx-3 mb-2 flex-shrink-0"
+        />
       )}
 
       {/* Dirty state footer */}

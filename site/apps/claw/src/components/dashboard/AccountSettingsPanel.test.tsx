@@ -535,4 +535,54 @@ describe("AccountSettingsPanel", () => {
     expect(billingMocks.hyperAgent.redeemGrantCode).not.toHaveBeenCalledWith("promo-123", expect.anything());
     expect(await screen.findByText(/Code activated\. Pro Plan is now active/i)).toBeInTheDocument();
   });
+
+  it("does not claim cancellation failed when the outcome is ambiguous", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    billingMocks.hyperAgent.cancelSubscription.mockRejectedValueOnce(
+      new Error("POST /subscriptions/sub_123 body={private} returned 504"),
+    );
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    await screen.findByRole("heading", { name: "Active Bundles" });
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(screen.getByRole("button", { name: /cancel pro plan at period end/i }));
+
+    expect(await screen.findByRole("heading", { name: "Check billing before retrying cancellation" })).toBeVisible();
+    expect(screen.getByText(/Refresh billing before sending this request again/i)).toBeVisible();
+    expect(screen.queryByText(/POST \/subscriptions/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Cancellation scheduled/i)).not.toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
+  it("does not render missing subscription data as an empty billing account", async () => {
+    billingMocks.hyperAgent.subscriptionSummary.mockRejectedValueOnce(
+      new Error("GET /subscriptions/summary?token=private-token returned 503"),
+    );
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    expect(await screen.findByRole("heading", { name: "Retry to load billing" })).toBeVisible();
+    expect(screen.queryByText(/GET \/subscriptions\/summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Active Bundles" })).not.toBeInTheDocument();
+    expect(screen.queryByText("No active paid subscription returned by billing data.")).not.toBeInTheDocument();
+  });
+
+  it("keeps an ambiguous code outcome inline without exposing the response", async () => {
+    const user = userEvent.setup();
+    billingMocks.hyperAgent.redeemGrantCode.mockRejectedValueOnce(
+      new Error("POST /grants/redeem body={code:private-code} returned 504"),
+    );
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    await screen.findByRole("heading", { name: "Active Bundles" });
+    await user.click(screen.getByRole("button", { name: "Redeem code" }));
+    await user.type(screen.getByLabelText("Activation code"), "private-code");
+    await user.click(screen.getByRole("button", { name: "Activate Code" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Check your plan before submitting this code again. We could not confirm whether it was activated.",
+    );
+    expect(screen.getByLabelText("Activation code")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.queryByText(/POST \/grants\/redeem/i)).not.toBeInTheDocument();
+  });
 });

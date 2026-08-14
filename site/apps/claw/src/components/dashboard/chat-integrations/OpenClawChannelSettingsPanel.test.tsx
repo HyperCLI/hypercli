@@ -1,16 +1,9 @@
-import type { ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AgentChannel, AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorsProvider, AgentRuntimeDescriptor } from "@hypercli.com/sdk/connectors";
 import { describe, expect, it, vi } from "vitest";
 
 import { OpenClawChannelSettingsPanel } from "./OpenClawChannelSettingsPanel";
-
-vi.mock("@hypercli/shared-ui", () => ({
-  Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-}));
 
 const runtime: AgentRuntimeDescriptor = {
   provider: "openclaw",
@@ -190,8 +183,8 @@ describe("OpenClawChannelSettingsPanel", () => {
     await screen.findByLabelText("Telegram direct-message policy");
     fireEvent.focus(screen.getByRole("button", { name: "How to change Telegram privacy mode" }));
 
-    expect(await screen.findByText(/Open BotFather, send \/setprivacy/i)).toBeInTheDocument();
-    expect(screen.getByText(/choose Enable to limit group messages or Disable to receive all group messages/i)).toBeInTheDocument();
+    expect((await screen.findAllByText(/Open BotFather, send \/setprivacy/i)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/choose Enable to limit group messages or Disable to receive all group messages/i).length).toBeGreaterThan(0);
   });
 
   it("updates Telegram privacy mode from the latest connection test", async () => {
@@ -326,8 +319,8 @@ describe("OpenClawChannelSettingsPanel", () => {
     expect(screen.getByText("Missing")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remove configuration" }));
     expect(provider.removeConfig).not.toHaveBeenCalled();
-    const confirm = screen.getByRole("button", { name: "Confirm remove" });
-    expect(confirm).toHaveFocus();
+    const confirm = screen.getByRole("button", { name: "Remove Slack configuration" });
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
     fireEvent.click(confirm);
 
     await waitFor(() => expect(provider.removeConfig).toHaveBeenCalledWith("slack", "work"));
@@ -348,7 +341,7 @@ describe("OpenClawChannelSettingsPanel", () => {
 
     await screen.findByText("Socket Mode credentials");
     fireEvent.click(screen.getByRole("button", { name: "Remove configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Slack configuration" }));
 
     await waitFor(() => expect(provider.removeConfig).toHaveBeenCalledWith("slack"));
     expect(await screen.findByText(/configuration removed.*status refresh was unavailable/i)).toBeInTheDocument();
@@ -495,7 +488,10 @@ describe("OpenClawChannelSettingsPanel", () => {
     await screen.findByText("Socket Mode credentials");
     fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Slack bot identity is unavailable");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Slack is configured but not ready yet");
+    expect(screen.queryByText("Slack bot identity is unavailable")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("Slack bot identity is unavailable")).toBeInTheDocument();
   });
 
   it("offers explicit WhatsApp re-pair without invoking it during ordinary settings", async () => {

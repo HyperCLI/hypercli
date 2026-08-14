@@ -99,8 +99,8 @@ export function PluginConfigPanel({
         },
       });
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+    } catch {
+      setError(`${plugin.displayName} settings were not saved. Review the values and try again.`);
     } finally {
       setSaving(false);
     }
@@ -249,7 +249,7 @@ export function PluginConfigPanel({
       </div>
 
       {error && (
-        <p className="text-xs text-[var(--error)]">{error}</p>
+        <p role="alert" className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>
       )}
 
       <div className="flex justify-end gap-2 pt-2">

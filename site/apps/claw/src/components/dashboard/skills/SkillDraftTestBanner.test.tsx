@@ -27,4 +27,19 @@ describe("SkillDraftTestBanner", () => {
     expect(onOpenDraft).toHaveBeenCalledOnce();
     await waitFor(() => expect(onSaveDraft).toHaveBeenCalledOnce());
   });
+
+  it("uses safe recovery copy when saving the draft fails", async () => {
+    renderWithClient(
+      <SkillDraftTestBanner
+        testSession={testSession}
+        onOpenDraft={vi.fn()}
+        onSaveDraft={vi.fn(async () => { throw new Error("provider stack: private-path"); })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /save to agent/i }));
+
+    expect(await screen.findByText(/draft is still local/i)).toBeInTheDocument();
+    expect(screen.queryByText(/provider stack|private-path/i)).not.toBeInTheDocument();
+  });
 });

@@ -14,6 +14,7 @@ import type {
 import type { OpenClawWhatsAppProgressEvent } from "@hypercli.com/sdk/openclaw/whatsapp";
 import { AlertTriangle, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, RefreshCw, Trash2, X } from "lucide-react";
 import { motion } from "framer-motion";
+import { ConfirmDialog, RecoveryDetails } from "@hypercli/shared-ui";
 
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 import {
@@ -210,12 +211,12 @@ function channelConfig(channelId: AdditionalChannelConnectorId, values: FieldVal
   };
 }
 
-function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
+function buttonClass(tone: "primary" | "secondary" | "caution" = "secondary") {
   if (tone === "primary") {
     return "inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--channel-accent)] px-3 text-xs font-black uppercase tracking-[0.12em] text-[var(--channel-accent-foreground)] transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
-  if (tone === "danger") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-destructive transition-all hover:-translate-y-0.5 hover:bg-destructive/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+  if (tone === "caution") {
+    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-warning/35 bg-warning/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-warning transition-all hover:-translate-y-0.5 hover:bg-warning/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
   return "inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-surface-low/70 px-3 text-xs font-black uppercase tracking-[0.12em] text-text-secondary backdrop-blur transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
 }
@@ -262,6 +263,8 @@ export function ChannelChatConnectorCard({
   const [saving, setSaving] = useState(false);
   const [probing, setProbing] = useState(false);
   const [localError, setError] = useState<string | null>(null);
+  const [technicalDetails, setTechnicalDetails] = useState<string | null>(null);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [localWhatsAppPairingStatus, setWhatsAppPairingStatus] = useState<WhatsAppPairingStatus>("idle");
   const [localWhatsAppQrDataUrl, setWhatsAppQrDataUrl] = useState<string | null>(null);
   const [localWhatsAppPairingMessage, setWhatsAppPairingMessage] = useState<string | null>(null);
@@ -279,8 +282,11 @@ export function ChannelChatConnectorCard({
       : localMode;
   const configured = persistedWhatsAppPairing?.status === "connected" || (localRuntimeConfigured ?? configuredFromConfig);
   const error = persistedWhatsAppPairing?.status === "failed"
-    ? persistedWhatsAppPairing.error ?? "WhatsApp pairing failed."
+    ? "WhatsApp pairing stopped. Check the agent connection and generate a new code."
     : localError;
+  const displayedTechnicalDetails = persistedWhatsAppPairing?.status === "failed"
+    ? persistedWhatsAppPairing.error?.trim() || technicalDetails
+    : technicalDetails;
   const whatsAppPairingStatus: WhatsAppPairingStatus = persistedWhatsAppPairing?.status === "starting"
     ? "preparing"
     : persistedWhatsAppPairing?.status === "waiting"
@@ -292,7 +298,7 @@ export function ChannelChatConnectorCard({
     ? persistedWhatsAppPairing.qrDataUrl
     : localWhatsAppQrDataUrl;
   const whatsAppPairingMessage = persistedWhatsAppPairing
-    ? persistedWhatsAppPairing.message
+    ? "Scan this code with WhatsApp to link your phone."
     : localWhatsAppPairingMessage;
   const whatsAppSetupProgress = persistedWhatsAppPairing?.progress ?? localWhatsAppSetupProgress;
   const canConfigure = connected && Boolean(channelsProvider?.configure || connectorsProvider || onSaveConfig);
@@ -370,7 +376,8 @@ export function ChannelChatConnectorCard({
         if (account) {
           return {
             success: false,
-            message: account.lastError?.trim() || `${definition.displayName} is configured but not healthy yet.`,
+            message: `${definition.displayName} is configured but not ready yet. Review its saved settings and retry.`,
+            technicalDetails: account.lastError?.trim() || undefined,
           };
         }
         if (channel && channel.accounts.length > 1) {
@@ -402,6 +409,7 @@ export function ChannelChatConnectorCard({
     setMode("verifying");
     setProbing(true);
     let failureMessage = "WhatsApp was linked, but it is not online yet.";
+    let failureTechnicalDetails: string | null = null;
     for (let attempt = 0; attempt < WHATSAPP_VERIFY_ATTEMPTS; attempt += 1) {
       const result = await probeConnection();
       if (whatsAppPairingRequestRef.current !== requestId) return;
@@ -411,10 +419,12 @@ export function ChannelChatConnectorCard({
         return;
       }
       failureMessage = result.message || failureMessage;
+      failureTechnicalDetails = result.technicalDetails?.trim() || failureTechnicalDetails;
       if (attempt < WHATSAPP_VERIFY_ATTEMPTS - 1) await sleep(WHATSAPP_VERIFY_INTERVAL_MS);
     }
     if (whatsAppPairingRequestRef.current !== requestId) return;
     setError(failureMessage);
+    setTechnicalDetails(failureTechnicalDetails);
     setMode("failed");
     setProbing(false);
   }
@@ -424,6 +434,7 @@ export function ChannelChatConnectorCard({
     whatsAppPairingRequestRef.current = requestId;
     setMode("setup");
     setError(null);
+    setTechnicalDetails(null);
     setWhatsAppQrDataUrl(null);
     setWhatsAppPairingMessage(null);
     setWhatsAppSetupProgress([]);
@@ -489,7 +500,7 @@ export function ChannelChatConnectorCard({
 
       let currentQrDataUrl = started.qrDataUrl;
       setWhatsAppQrDataUrl(currentQrDataUrl);
-      setWhatsAppPairingMessage(started.message || "Scan this code with WhatsApp to link your phone.");
+      setWhatsAppPairingMessage("Scan this code with WhatsApp to link your phone.");
       setWhatsAppPairingStatus("waiting");
       if (onWhatsAppPairingStart) return;
 
@@ -509,14 +520,15 @@ export function ChannelChatConnectorCard({
         }
         currentQrDataUrl = result.qrDataUrl;
         setWhatsAppQrDataUrl(currentQrDataUrl);
-        setWhatsAppPairingMessage(result.message || "The pairing code was refreshed. Scan the latest code.");
+        setWhatsAppPairingMessage("The pairing code was refreshed. Scan the latest code.");
       }
       throw new Error("WhatsApp pairing timed out. Generate a new code to try again.");
     } catch (cause) {
       if (whatsAppPairingRequestRef.current !== requestId) return;
       setWhatsAppPairingStatus("idle");
       setWhatsAppQrDataUrl(null);
-      setError(cause instanceof Error ? cause.message : "Could not start WhatsApp pairing.");
+      setError("WhatsApp pairing did not start. Check the agent connection and generate a new code.");
+      setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
     }
   };
 
@@ -585,11 +597,13 @@ export function ChannelChatConnectorCard({
     setMode("verifying");
     setProbing(true);
     setError(null);
+    setTechnicalDetails(null);
     const result = await probeConnection();
     if (result.success) {
       setMode("ready");
     } else {
-      setError(result.message ?? `${definition.displayName} is configured but not reachable yet.`);
+      setError(result.message ?? `${definition.displayName} is configured but not ready yet. Review its settings and retry.`);
+      setTechnicalDetails(result.technicalDetails?.trim() || null);
       setMode("failed");
     }
     setProbing(false);
@@ -599,6 +613,7 @@ export function ChannelChatConnectorCard({
     if (!canRemove) return;
     setSaving(true);
     setError(null);
+    setTechnicalDetails(null);
     try {
       if (channelsProvider?.removeConfig && channelsProvider.read) {
         const snapshot = await channelsProvider.read({ channelId });
@@ -626,8 +641,9 @@ export function ChannelChatConnectorCard({
       setWorkflow(null);
       setRuntimeInstructions(null);
       setMode("overview");
+      setDisconnectConfirmOpen(false);
     } catch {
-      setError(`Could not disconnect ${definition.displayName}.`);
+      setError(`${definition.displayName} is still connected. Check the agent connection and try disconnecting again.`);
     } finally {
       setSaving(false);
     }
@@ -671,7 +687,7 @@ export function ChannelChatConnectorCard({
       : mode === "ready"
         ? accountName ? `Connected as ${accountName}.` : `${definition.displayName} can receive messages.`
         : definition.description;
-  const tone = mode === "ready" ? "var(--selection-accent)" : mode === "failed" || error ? "var(--destructive)" : "var(--border)";
+  const tone = mode === "ready" ? "var(--selection-accent)" : mode === "failed" || error ? "var(--warning)" : "var(--border)";
   const inputSlots = definition.fields.map((field) => `${channelId}.${field.key}` as ConnectorWorkflowInputSlot);
   const inputFallback = {
     id: "required-settings",
@@ -790,7 +806,12 @@ export function ChannelChatConnectorCard({
 
       {mode === "setup" || mode === "saved" || mode === "verifying" || mode === "ready" || mode === "failed" || error || !connected ? (
         <div className="relative z-10 space-y-3 border-t border-border bg-surface-low/70 px-4 py-4 text-xs leading-5 text-text-secondary backdrop-blur-md sm:px-5">
-          {error ? <p role="alert" className="rounded-2xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">{error}</p> : null}
+          {error ? (
+            <div className="rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
+              <p role="alert">{error}</p>
+              {displayedTechnicalDetails ? <RecoveryDetails label="Technical details" technicalDetails={displayedTechnicalDetails} className="mt-2 text-left" /> : null}
+            </div>
+          ) : null}
           {!connected ? (
             <div className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -936,7 +957,7 @@ export function ChannelChatConnectorCard({
             <button type="button" className={buttonClass()} disabled={probing || (!connectorsProvider && !channelsProvider)} onClick={() => void verify()}>
               <RefreshCw className="h-3.5 w-3.5" />Test
             </button>
-            <button type="button" className={buttonClass("danger")} disabled={!canRemove || saving} onClick={() => void disconnect()}>
+            <button type="button" className={buttonClass("caution")} disabled={!canRemove || saving} onClick={() => setDisconnectConfirmOpen(true)}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}Disconnect
             </button>
           </>
@@ -951,6 +972,15 @@ export function ChannelChatConnectorCard({
         {onOpenIntegrationDetails && !advancedSlackTransport ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
         {onDismiss ? <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button> : null}
       </div>
+      <ConfirmDialog
+        open={disconnectConfirmOpen}
+        title={`Disconnect ${definition.displayName}?`}
+        message={`This removes the saved ${definition.displayName} configuration from this workspace. The agent will stop receiving ${definition.displayName} messages until it is connected again.`}
+        confirmLabel={`Disconnect ${definition.displayName}`}
+        loading={saving}
+        onConfirm={() => void disconnect()}
+        onCancel={() => { if (!saving) setDisconnectConfirmOpen(false); }}
+      />
     </section>
   );
 }

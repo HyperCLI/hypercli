@@ -39,6 +39,7 @@ export const NAV_URLS = {
   cli: IS_MAIN_SITE ? '/cli' : `${MAIN_SITE_URL}/cli`,
   quickstart: IS_MAIN_SITE ? '/quickstart' : `${MAIN_SITE_URL}/quickstart`,
   inference: IS_MAIN_SITE ? '/inference' : `${MAIN_SITE_URL}/inference`,
+  integrations: IS_MAIN_SITE ? '/integrations' : `${MAIN_SITE_URL}/integrations`,
   slack: IS_MAIN_SITE ? '/slack' : `${MAIN_SITE_URL}/slack`,
 
   // Solutions pages

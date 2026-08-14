@@ -404,6 +404,7 @@ export { ThemeToggle, type ThemeToggleProps } from "./components/ThemeToggle";
 export { ThemeSelector, type ThemeSelectorProps } from "./components/ThemeSelector";
 export { GlassCard, SurfaceCard, MetricCard } from "./components/patterns/surface-card";
 export { StatusNotice, EmptyState, LoadingState } from "./components/patterns/feedback";
+export { RecoveryDetails, RecoveryDialog, RecoveryState } from "./components/patterns/recovery";
 export { ConfirmDialog } from "./components/patterns/confirm-dialog";
 export { SlideOver } from "./components/patterns/slide-over";
 export {
@@ -452,6 +453,12 @@ export {
 export { PricingCard, CapabilityList } from "./components/patterns/pricing-card";
 export type { SurfaceCardProps, MetricCardProps } from "./components/patterns/surface-card";
 export type { NoticeTone } from "./components/patterns/feedback";
+export type {
+  RecoveryAction,
+  RecoveryDetailsProps,
+  RecoveryDialogProps,
+  RecoveryStateProps,
+} from "./components/patterns/recovery";
 export type { ConfirmDialogProps } from "./components/patterns/confirm-dialog";
 export type { SlideOverProps } from "./components/patterns/slide-over";
 export type { ResourceCardProps, ResourceCardStatus } from "./components/patterns/resource-card";

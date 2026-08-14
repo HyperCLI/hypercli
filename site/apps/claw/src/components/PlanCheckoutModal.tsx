@@ -7,14 +7,13 @@ import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
 import {
   buildStripeCheckoutReturnUrl,
-  clearPendingPlanCheckout,
   createPlanCheckoutAttemptId,
   writePendingPlanCheckout,
   type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
-import { notifyBillingPlanChanged } from "@hypercli/shared-ui";
+import { notifyBillingPlanChanged, RecoveryState } from "@hypercli/shared-ui";
 
 interface EthereumProvider {
   request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -23,6 +22,11 @@ interface EthereumProvider {
 interface WalletState {
   client: WalletClient;
   address: string;
+}
+
+interface CheckoutRecovery {
+  title: string;
+  description: string;
 }
 
 let walletState: WalletState | null = null;
@@ -147,7 +151,7 @@ export function PlanCheckoutModal({
 }: PlanCheckoutModalProps) {
   const [method, setMethod] = useState<PaymentMethod>("card");
   const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CheckoutRecovery | null>(null);
   const [success, setSuccess] = useState(false);
   const [walletAddress, setWalletAddress] = useState<string | null>(
     () => getWalletState()?.address ?? null
@@ -204,11 +208,12 @@ export function PlanCheckoutModal({
       });
       if (!canContinue()) return;
       window.location.href = data.checkoutUrl;
-    } catch (err) {
+    } catch {
       if (!canContinue()) return;
-      setError(
-        err instanceof Error ? err.message : "Failed to create checkout session"
-      );
+      setError({
+        title: "Retry to open secure checkout",
+        description: "Checkout did not open. Retry when you are ready to continue.",
+      });
       setProcessing(false);
     }
   };
@@ -220,9 +225,12 @@ export function PlanCheckoutModal({
       const wallet = await connectWallet();
       if (!canContinue()) return;
       setWalletAddress(wallet.address);
-    } catch (err: any) {
+    } catch {
       if (!canContinue()) return;
-      setError(err.message || "Failed to connect wallet");
+      setError({
+        title: "Retry to connect your wallet",
+        description: "The wallet connection did not finish. Unlock or reopen your wallet, then retry.",
+      });
     } finally {
       if (canContinue()) setProcessing(false);
     }
@@ -270,19 +278,15 @@ export function PlanCheckoutModal({
         if (!canContinue()) return;
         handleClose();
       }, 2000);
-    } catch (err: any) {
+    } catch {
       if (!canContinue()) return;
-      if (pendingCheckout) clearPendingPlanCheckout(principalId, pendingCheckout);
-      let msg = "Payment failed. Please try again.";
-      if (err.response?.data?.detail) {
-        msg =
-          typeof err.response.data.detail === "string"
-            ? err.response.data.detail
-            : JSON.stringify(err.response.data.detail);
-      } else if (err.message) {
-        msg = err.message;
-      }
-      setError(msg);
+      setError(pendingCheckout ? {
+        title: "Check billing before retrying payment",
+        description: "Review your wallet and billing activity before starting another payment. We could not confirm whether the USDC payment completed.",
+      } : {
+        title: "Retry to prepare your payment",
+        description: "The payment request did not start. Reconnect your wallet, then retry.",
+      });
     } finally {
       if (canContinue()) setProcessing(false);
     }
@@ -326,6 +330,7 @@ export function PlanCheckoutModal({
             <button
               onClick={handleClose}
               disabled={processing}
+              aria-label="Close checkout"
               className="text-text-muted hover:text-foreground transition-colors disabled:opacity-50"
             >
               <X className="w-5 h-5" />
@@ -451,9 +456,13 @@ export function PlanCheckoutModal({
 
               {/* Error */}
               {error && (
-                <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
-                  {error}
-                </div>
+                <RecoveryState
+                  presentation="compact"
+                  announcement="assertive"
+                  title={error.title}
+                  description={error.description}
+                  className="mb-4"
+                />
               )}
 
               {/* Submit */}

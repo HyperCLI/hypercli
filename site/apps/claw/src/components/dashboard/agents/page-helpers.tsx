@@ -11,6 +11,7 @@ import {
   Settings,
   TerminalSquare,
 } from "lucide-react";
+import { RecoveryState } from "@hypercli/shared-ui";
 import {
   GATEWAY_LOADING_DETAIL,
   GATEWAY_LOADING_TITLE,
@@ -32,11 +33,14 @@ export class OpenClawErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="p-6 text-sm text-destructive">
-          <p className="font-semibold">OpenClaw config render error</p>
-          <pre className="mt-2 text-xs whitespace-pre-wrap">{this.state.error.message}</pre>
-          <button onClick={() => this.setState({ error: null })} className="mt-2 text-xs underline">Retry</button>
-        </div>
+        <RecoveryState
+          presentation="panel"
+          title="Try again to open these settings"
+          description="The settings view paused while rendering. Your saved configuration was not changed."
+          technicalDetails={this.state.error.message}
+          primaryAction={{ label: "Try again", onAction: () => this.setState({ error: null }) }}
+          className="m-6"
+        />
       );
     }
     return this.props.children;
@@ -98,9 +102,9 @@ const AGENT_STATUS_CHIP_STYLES: Record<AgentStatusTone, { shell: string; dot: st
     text: "text-text-secondary",
   },
   failed: {
-    shell: "border-destructive/25 bg-destructive/10",
-    dot: "bg-destructive",
-    text: "text-destructive",
+    shell: "border-warning/25 bg-warning/10",
+    dot: "bg-warning",
+    text: "text-warning",
   },
 };
 
@@ -200,6 +204,7 @@ export function AgentLoadingState({
         note={note}
         title={resolvedTitle}
         detail={resolvedDetail}
+        technicalDetails={bootStatus?.status === "error" ? bootStatus.technicalDetail : undefined}
         status={resolvedStatus}
         actionLabel={actionLabel}
         onAction={onAction}

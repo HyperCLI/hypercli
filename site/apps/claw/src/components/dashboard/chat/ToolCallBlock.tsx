@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { RecoveryDetails } from "@hypercli/shared-ui";
 import { getToolCallClass } from "./bubbleStyles";
-import { buildToolCallView, extractImagePath } from "./helpers";
+import { buildToolCallView, extractImagePath, TOOL_CALL_REVIEW_MESSAGE } from "./helpers";
 import { ToolCallDisclosureButton, ToolCallSectionList } from "./ToolCallPresentation";
 import { AuthImage } from "./AuthImage";
 import { DirectoryVisualization, parseDirectoryVisualization } from "./DirectoryVisualization";
@@ -40,8 +41,11 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
       <ToolCallDisclosureButton view={view} isOpen={isOpen} detailId={detailId} onClick={() => onToggle(index)} />
       {isOpen && (
         <div id={detailId} className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
+          {view.isFailed && (
+            <p className="leading-relaxed text-text-secondary">{TOOL_CALL_REVIEW_MESSAGE}</p>
+          )}
           <ToolCallSectionList sections={[view.argsSection]} />
-          {directoryListing && (
+          {directoryListing && !view.isFailed && (
             <DirectoryVisualization
               title="Directory result"
               rootPath={directoryListing.rootPath}
@@ -49,7 +53,17 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
               truncated={directoryListing.truncated}
             />
           )}
-          <ToolCallSectionList sections={[directoryListing ? null : view.resultSection]} />
+          {view.isFailed ? (
+            view.resultSection && (
+              <RecoveryDetails
+                label="Technical details"
+                technicalDetails={view.resultSection.text}
+                className="rounded-lg border border-border bg-background/25"
+              />
+            )
+          ) : (
+            <ToolCallSectionList sections={[directoryListing ? null : view.resultSection]} />
+          )}
         </div>
       )}
       {imageFile && (

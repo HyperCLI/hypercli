@@ -113,7 +113,7 @@ export function extractReadableSummary(raw: string, maxLen: number): string {
           return msg.length > maxLen ? `${msg.slice(0, maxLen)}…` : msg;
         }
         if (parsed.ok === true) return "Success";
-        if (parsed.ok === false) return "Failed";
+        if (parsed.ok === false) return "Needs review";
       }
     } catch { /* fall through to raw slice */ }
   }
@@ -124,6 +124,46 @@ const TOOL_ARG_SUMMARY_KEYS = ["command", "cmd", "query", "url", "pattern", "glo
 const TOOL_PATH_KEYS = new Set(["path", "file_path", "filePath", "fullPath"]);
 
 export type ToolCallViewStatus = "running" | "done" | "failed" | "called";
+
+export const TOOL_CALL_REVIEW_MESSAGE = "This action did not finish. Review any completed changes before retrying the request.";
+
+export interface SystemMessagePresentation {
+  text: string;
+  tone: "neutral" | "attention";
+  ariaLabel: string;
+}
+
+const TECHNICAL_SYSTEM_MESSAGE_PATTERNS = [
+  /^(?:HE)?Error\s*:/i,
+  /^(?:API|provider|gateway) error\b/i,
+  /^Assistant response failed\s*:/i,
+  /\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT)\b/i,
+  /\b(?:status(?:Code)?|error(?:Code|Type)?|request(?:Id|_id))\s*[:=]/i,
+  /\b(?:provider|upstream|OpenAI|Anthropic|Gemini|Bedrock)\b.*\b(?:error|failed|response|status|unavailable)\b/i,
+  /(?:^|\n)\s*at\s+\S+/,
+  /\b(?:Traceback|stack trace|exception)\b/i,
+  /^[\[{]\s*["']?(?:error|code|message)["']?\s*:/i,
+];
+
+export function presentSystemMessage(content: string): SystemMessagePresentation {
+  const text = content.trim();
+  const isStoppedNotice = /^reply stopped$/i.test(text);
+  const isTechnical = TECHNICAL_SYSTEM_MESSAGE_PATTERNS.some((pattern) => pattern.test(text));
+
+  if (isTechnical || !text) {
+    return {
+      text: "This reply did not finish. Try again when you're ready.",
+      tone: "attention",
+      ariaLabel: "Reply needs attention",
+    };
+  }
+
+  return {
+    text,
+    tone: isStoppedNotice ? "neutral" : "attention",
+    ariaLabel: isStoppedNotice ? "Reply stopped" : "Chat notice",
+  };
+}
 
 export interface ToolCallViewSection {
   label: string;
@@ -369,7 +409,7 @@ function summarizeStructuredResult(raw: string, maxLen: number): string {
     if (!record) return "";
     if (typeof record.error === "string" && record.error.trim()) return clipSummary(`Error: ${record.error}`, maxLen);
     if (record.ok === true) return "Success";
-    if (record.ok === false) return "Failed";
+    if (record.ok === false) return "Needs review";
     return "";
   } catch {
     return "";
@@ -489,7 +529,7 @@ export function deriveToolCallStackStatus(
 function toolCallStatusLabel(status: ToolCallViewStatus): string {
   if (status === "running") return "Running";
   if (status === "done") return "Done";
-  if (status === "failed") return "Failed";
+  if (status === "failed") return "Needs review";
   return "Called";
 }
 
@@ -521,7 +561,7 @@ export function buildToolCallView(
     hasResult,
     isRunning,
     isFailed,
-    summary: toolCallSummary(tc),
+    summary: isFailed ? "Review before retrying" : toolCallSummary(tc),
     argsSection,
     resultSection,
     sections,
@@ -545,12 +585,15 @@ export function buildToolCallStackView(
   const stackStatus = deriveToolCallStackStatus(toolCalls, options);
   const allReturned = returnedCount === toolCalls.length;
   const progressText = allReturned
-    ? (failedCount > 0 ? `${failedCount} failed` : "")
+    ? (failedCount > 0 ? `${failedCount} of ${toolCalls.length} ${failedCount === 1 ? "needs" : "need"} review` : "")
     : `${returnedCount}/${toolCalls.length} returned`;
+  const statusLabel = allReturned && failedCount > 0
+    ? "Completed with issues"
+    : toolCallStatusLabel(stackStatus.status);
 
   return {
     status: stackStatus.status,
-    statusLabel: toolCallStatusLabel(stackStatus.status),
+    statusLabel,
     isRunning: stackStatus.isRunning,
     isFailed: stackStatus.isFailed,
     allReturned,

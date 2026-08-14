@@ -12,9 +12,9 @@ import {
   FolderOpen,
   Home,
   Loader2,
+  RotateCcw,
   Upload,
   WifiOff,
-  X,
 } from "lucide-react";
 
 import { FileBreadcrumbs } from "./FileBreadcrumbs";
@@ -28,8 +28,10 @@ import { FilesDirectoryTree } from "./FilesDirectoryTree";
 import { FilesEmptyState } from "./FilesEmptyState";
 import { FilesSearchBar } from "./FilesSearchBar";
 import { FilesUploadZone } from "./FilesUploadZone";
+import { formatFileTechnicalDetails } from "./error-details";
 import type { FileEntry, FileSortDir, FileSortKey } from "./types";
 import { decodeUtf8FileContent, inferFileMimeType, isFileByteContent, resolveFileType, shouldReadFileAsBytes } from "./file-types";
+import { RecoveryDetails, RecoveryState } from "../components/patterns/recovery";
 import { downloadFileBytes } from "../utils/download-file";
 import { writeClipboardText } from "../utils/browser-clipboard";
 import { TooltipHint } from "../components/ui/tooltip";
@@ -41,6 +43,12 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
 ];
 const MAX_TEXT_PREVIEW_BYTES = 4 * 1024 * 1024;
 const MAX_INLINE_PREVIEW_BYTES = 64 * 1024 * 1024;
+
+interface FileFeedbackIssue {
+  message: string;
+  description?: string;
+  technicalDetails?: string;
+}
 
 /**
  * Which file-access path panel operations are routed through:
@@ -350,7 +358,7 @@ export function AgentFilesPanel({
   const [showUpload, setShowUpload] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
-  const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [newFolderError, setNewFolderError] = useState<FileFeedbackIssue | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [sortKey, setSortKey] = useState<FileSortKey>("name");
   const [sortDir, setSortDir] = useState<FileSortDir>("asc");
@@ -365,7 +373,7 @@ export function AgentFilesPanel({
   ));
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<FileFeedbackIssue | null>(null);
   const listRequestIdRef = useRef(0);
   const viewRevisionRef = useRef(0);
 
@@ -466,13 +474,13 @@ export function AgentFilesPanel({
           setFiles(markFileBackupComparisonUnavailable(
             nextFiles,
             sourceMode === "backup" ? "backup" : "live",
-            err instanceof Error ? err.message : "Could not compare latest backup.",
+            "Backup comparison is temporarily unavailable.",
           ));
         }
       }
     } catch (err) {
       if (requestId === listRequestIdRef.current) {
-        setListError(err instanceof Error ? err.message : "Failed to load files");
+        setListError(formatFileTechnicalDetails(err) ?? "The folder listing was unavailable.");
         if (!cachedFiles) setFiles([]);
       }
     } finally {
@@ -552,7 +560,11 @@ export function AgentFilesPanel({
   const currentSourceAvailable = connected && !currentSourceDisabledReason;
   const filesBootStatus = useMemo(() => {
     if (effectiveError) {
-      return { status: "error" as const, title: "Files error", detail: effectiveError };
+      return {
+        status: "error" as const,
+        title: "Try again to load this folder",
+        detail: "Your workspace is unchanged. Check the connection, then try once more.",
+      };
     }
     if (filesLoading) {
       return {
@@ -667,7 +679,7 @@ export function AgentFilesPanel({
       setPreviewContent(decodedContent ?? result.content);
     } catch (err) {
       if (requestId === previewRequestIdRef.current) {
-        setPreviewError(err instanceof Error ? err.message : "Failed to load file");
+        setPreviewError(formatFileTechnicalDetails(err) ?? "The file preview was unavailable.");
       }
     } finally {
       if (requestId === previewRequestIdRef.current) {
@@ -733,9 +745,14 @@ export function AgentFilesPanel({
       }
       if (viewRevision === viewRevisionRef.current) await loadFiles();
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Delete failed";
       if (viewRevision === viewRevisionRef.current) {
-        setActionError(`Could not delete ${entry.name}: ${detail}`);
+        setActionError({
+          message: `Try again to delete "${entry.name}"`,
+          description: entry.type === "directory"
+            ? "The folder and everything inside it are still in your workspace."
+            : "The file is still in your workspace.",
+          technicalDetails: formatFileTechnicalDetails(err),
+        });
       }
     }
   }
@@ -766,7 +783,7 @@ export function AgentFilesPanel({
     const trimmedName = newFolderName.trim();
     const validationError = validateNewFolderName(trimmedName);
     if (validationError) {
-      setNewFolderError(validationError);
+      setNewFolderError({ message: validationError });
       return;
     }
 
@@ -783,7 +800,10 @@ export function AgentFilesPanel({
       }
     } catch (err) {
       if (viewRevision === viewRevisionRef.current) {
-        setNewFolderError(err instanceof Error ? err.message : "Failed to create folder.");
+        setNewFolderError({
+          message: "Try again to create this folder.",
+          technicalDetails: formatFileTechnicalDetails(err),
+        });
       }
     } finally {
       setCreatingFolder(false);
@@ -806,9 +826,12 @@ export function AgentFilesPanel({
       downloadBytes(nextName, result.content, inferFileMimeType(nextEntry));
       if (nextPath !== entry.path && viewRevision === viewRevisionRef.current) void loadFiles();
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Download failed";
       if (viewRevision === viewRevisionRef.current) {
-        setActionError(`Could not download ${entry.name}: ${detail}`);
+        setActionError({
+          message: `Try again to download "${entry.name}"`,
+          description: "The file is unchanged and remains available in this folder.",
+          technicalDetails: formatFileTechnicalDetails(err),
+        });
       }
     }
   }
@@ -881,6 +904,7 @@ export function AgentFilesPanel({
       onClose={clearPreview}
       onSave={onSaveFile && previewWritable ? handleSaveFile : undefined}
       onDownload={onDownloadFileBytes && !(isGatewaySource && shouldReadFileAsBytes(previewEntry)) ? handleDownloadFile : undefined}
+      onRetry={() => { void handleOpenFile(previewEntry); }}
       renderMarkdown={renderMarkdown}
       copyText={copyText}
     />
@@ -933,7 +957,7 @@ export function AgentFilesPanel({
           <div className="flex items-center gap-1 text-[10px] text-warning">
             {filesBootStatus?.status === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
             <span>
-              {filesBootStatus?.title ?? (effectiveError ? "Files error" : "Unavailable")}
+              {effectiveError ? "Needs attention" : filesBootStatus?.title ?? "Unavailable"}
             </span>
           </div>
         )}
@@ -1046,17 +1070,35 @@ export function AgentFilesPanel({
       </div>
 
       {actionError && (
-        <div role="alert" className="flex flex-shrink-0 items-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-[10px] text-destructive">
-          <span className="min-w-0 flex-1 truncate">{actionError}</span>
-          <button
-            type="button"
-            aria-label="Dismiss file action error"
-            onClick={() => setActionError(null)}
-            className="flex h-5 w-5 items-center justify-center rounded hover:bg-destructive/10"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
+        <RecoveryState
+          presentation="compact"
+          icon={RotateCcw}
+          title={actionError.message}
+          description={actionError.description ?? "Check the connection, then try once more."}
+          technicalDetails={actionError.technicalDetails}
+          detailsLabel="Technical details"
+          onDismiss={() => setActionError(null)}
+          dismissLabel="Dismiss file action error"
+          announcement="assertive"
+          headingLevel={3}
+          className="mx-3 mt-2 flex-shrink-0"
+        />
+      )}
+
+      {effectiveError && files.length > 0 && !actionError && (
+        <RecoveryState
+          presentation="compact"
+          icon={WifiOff}
+          title="Try again to refresh this folder"
+          description="The current file list is still available while you reconnect."
+          technicalDetails={formatFileTechnicalDetails(effectiveError)}
+          detailsLabel="Technical details"
+          primaryAction={connected && !currentSourceDisabledReason
+            ? { label: "Try again", onAction: () => { void loadFiles(); } }
+            : undefined}
+          headingLevel={3}
+          className="mx-3 mt-2 flex-shrink-0"
+        />
       )}
 
       <AnimatePresence>
@@ -1086,11 +1128,24 @@ export function AgentFilesPanel({
                     if (newFolderError) setNewFolderError(null);
                   }}
                   placeholder="Folder name"
-                  className="h-8 w-full rounded-lg border border-border bg-surface-low px-3 text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-[var(--selection-accent)]"
+                  aria-invalid={newFolderError ? "true" : undefined}
+                  aria-describedby={newFolderError ? "agent-files-new-folder-error" : undefined}
+                  className={`h-8 w-full rounded-lg border bg-surface-low px-3 text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-[var(--selection-accent)] ${
+                    newFolderError ? "border-warning/60" : "border-border"
+                  }`}
                   autoComplete="off"
                   disabled={creatingFolder}
                 />
-                {newFolderError && <p className="mt-1 text-[10px] text-destructive">{newFolderError}</p>}
+                {newFolderError && (
+                  <div id="agent-files-new-folder-error" className="mt-1 text-[10px] text-warning">
+                    <p role="alert">{newFolderError.message}</p>
+                    <RecoveryDetails
+                      label="Technical details"
+                      technicalDetails={newFolderError.technicalDetails}
+                      className="mt-1 text-foreground"
+                    />
+                  </div>
+                )}
               </div>
               <button
                 type="submit"
@@ -1187,7 +1242,7 @@ export function AgentFilesPanel({
                 kind={emptyKind}
                 searchQuery={searchQuery}
                 errorMessage={effectiveError ?? undefined}
-                onRetry={emptyKind === "error" ? loadFiles : undefined}
+                onRetry={emptyKind === "error" && connected && !currentSourceDisabledReason ? loadFiles : undefined}
                 title={
                   emptyKind === "loading"
                     ? filesBootStatus?.title ?? "Loading files"

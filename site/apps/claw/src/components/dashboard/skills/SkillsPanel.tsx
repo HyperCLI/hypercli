@@ -3,7 +3,7 @@
 import * as React from "react";
 import type { AgentSkillCreateRequest, AgentSkillRecoverRequest, AgentSkillRecoverResult, AgentSkillRecoveryCandidate } from "@hypercli.com/sdk/skills";
 import { FolderInput, Plus, Settings2, TestTube2, Upload } from "lucide-react";
-import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader, Switch, toast } from "@hypercli/shared-ui";
+import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader, RecoveryDetails, Switch, toast } from "@hypercli/shared-ui";
 import {
   SkillCard,
   SkillsEmptyState,
@@ -291,15 +291,15 @@ export function SkillsPanel({
   const handleTest = async (skill: AgentSkill) => {
     try {
       await onTestSkill(skill);
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : `Could not test ${skill.name}.`);
+    } catch {
+      toast.warning(`The ${skill.name} test did not start. Check the agent connection and try again.`);
     }
   };
 
   const handleToggle = async (row: SkillListRow, enabled: boolean) => {
     if (togglingSkillId) return;
     if (row.localPreview) {
-      toast.error("Save this draft to the agent before changing its active state.");
+      toast.info("Save this draft to the agent before changing whether it is active.");
       return;
     }
     setTogglingSkillId(row.skill.id);
@@ -309,8 +309,8 @@ export function SkillsPanel({
       await onUpdateSkill(row.skill.id, { enabled, env: entry.env ?? {} });
       setConfigOverrides((current) => ({ ...current, [row.skill.id]: { ...current[row.skill.id], enabled, env: entry.env } }));
       toast.success(`${row.skill.name} ${enabled ? "activated" : "disabled"}.`);
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : `Could not ${enabled ? "activate" : "disable"} ${row.skill.name}.`);
+    } catch {
+      toast.warning(`${row.skill.name} was not ${enabled ? "activated" : "disabled"}. Reconnect the agent and try again.`);
     } finally {
       setTogglingSkillId(null);
     }
@@ -352,15 +352,16 @@ export function SkillsPanel({
       try {
         await onRefreshSkills?.();
       } catch {
-        toast.error("The skills were saved, but the catalog could not be refreshed. Reload to see them.");
+        toast.warning("The skills were saved. Refresh Skills to see the latest catalog.");
       }
       for (const id of savedIds) await skillDrafts.discard(id);
     }
 
     const failures = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
     if (failures.length > 0) {
-      const firstMessage = failures[0]?.reason instanceof Error ? failures[0].reason.message : "A skill could not be saved.";
-      throw new Error(savedIds.size > 0 ? `${savedIds.size} saved; ${failures.length} failed. ${firstMessage}` : firstMessage);
+      throw new Error(savedIds.size > 0
+        ? `${savedIds.size} saved; ${failures.length} remain as local drafts. Reconnect the agent and try again.`
+        : "The skills remain as local drafts. Reconnect the agent and try saving again.");
     }
   };
 
@@ -382,7 +383,7 @@ export function SkillsPanel({
     try {
       await onRefreshSkills?.();
     } catch {
-      toast.error("The skill was moved, but the catalog could not be refreshed. Reload to see it.");
+      toast.warning("The skill was moved. Refresh Skills to see it in the catalog.");
     }
     return result;
   };
@@ -481,12 +482,21 @@ export function SkillsPanel({
               <Button type="button" size="sm" onClick={() => setRecoveryCandidateId(visibleRecoveryCandidates[0]!.id)} className="shrink-0">Review files</Button>
             </div>
           )}
-          {recoveryError && <p className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">{recoveryError}</p>}
+          {recoveryError && (
+            <div className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+              <p role="status">Workspace skill files could not be checked. Refresh Skills to try again.</p>
+              <RecoveryDetails label="Technical details" technicalDetails={recoveryError} className="mt-2 text-left" />
+            </div>
+          )}
 
           {loading ? (
             <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />
           ) : error || skillDrafts.error ? (
-            <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">{error || skillDrafts.error}</div>
+            <div className="rounded-2xl border border-border bg-surface-low/25 px-5 py-10 text-center text-sm text-text-muted">
+              <p role="alert" className="text-foreground">Skills are not available yet. Reconnect the agent or allow browser storage, then try again.</p>
+              <RecoveryDetails label="Technical details" technicalDetails={error || undefined} className="mx-auto mt-3 max-w-xl text-left" />
+              {onRefreshSkills ? <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSkills().catch(() => undefined)} className="mt-4">Refresh Skills</Button> : null}
+            </div>
           ) : showFirstSkillInvitation ? (
             <section data-slot="skills-first-use" className="flex min-h-[min(520px,58dvh)] items-center justify-center px-3 py-12 text-center sm:px-8 sm:py-16">
               <div className="w-full max-w-2xl">

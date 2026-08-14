@@ -9,9 +9,8 @@ import {
   ExternalLink,
   Loader2,
   LogIn,
-  ShieldAlert,
 } from "lucide-react";
-import { HYPERCLI_LOGO_FULL_SRC } from "@hypercli/shared-ui";
+import { HYPERCLI_LOGO_FULL_SRC, RecoveryState } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 
 // Hard allowlist: the only redirect targets this page will ever send a token
@@ -37,6 +36,7 @@ function buildCallbackUrl(redirectUri: string, token: string): string {
 }
 
 type RedirectParamStatus = "checking" | "valid" | "invalid";
+type SessionRecovery = { title: string; description: string };
 
 function CardShell({ children }: { children: React.ReactNode }) {
   return (
@@ -62,9 +62,8 @@ export default function DesktopLoginPage() {
 
   const [paramStatus, setParamStatus] = useState<RedirectParamStatus>("checking");
   const [redirectUri, setRedirectUri] = useState<string>(DEFAULT_REDIRECT_URI);
-  const [rejectedRedirectUri, setRejectedRedirectUri] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [tokenError, setTokenError] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<SessionRecovery | null>(null);
   const [tokenRevealed, setTokenRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -82,7 +81,6 @@ export default function DesktopLoginPage() {
       setRedirectUri(raw);
       setParamStatus("valid");
     } else {
-      setRejectedRedirectUri(raw);
       setParamStatus("invalid");
     }
   }, []);
@@ -111,8 +109,11 @@ export default function DesktopLoginPage() {
         autoRedirectTriggered.current = true;
         openApp(jwt);
       }
-    } catch (err) {
-      setTokenError(err instanceof Error ? err.message : "Could not fetch a session token");
+    } catch {
+      setTokenError({
+        title: "Retry to reopen the desktop session",
+        description: "The secure handoff did not finish. Retry to open a new session for the desktop app.",
+      });
     }
   }, [getToken, openApp]);
 
@@ -136,21 +137,13 @@ export default function DesktopLoginPage() {
   if (paramStatus === "invalid") {
     return (
       <CardShell>
-        <div className="flex items-center gap-2 text-destructive">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          <h1 className="text-base font-semibold">Invalid redirect address</h1>
-        </div>
-        <p className="mt-3 text-sm text-text-muted">
-          This sign-in page can only hand credentials to known HyperCLI
-          desktop app callbacks. The requested redirect address is not
-          allowed:
-        </p>
-        <p className="mt-2 break-all rounded-md bg-surface-low px-3 py-2 font-mono text-xs text-text-secondary">
-          {rejectedRedirectUri}
-        </p>
-        <p className="mt-3 text-sm text-text-muted">
-          Close this window and start sign-in again from the app.
-        </p>
+        <h1 className="sr-only">Invalid redirect address</h1>
+        <RecoveryState
+          presentation="compact"
+          announcement="assertive"
+          title="Restart sign-in from the desktop app"
+          description="This sign-in link cannot return safely to the app. Close this window and begin again from the desktop app."
+        />
       </CardShell>
     );
   }
@@ -182,7 +175,13 @@ export default function DesktopLoginPage() {
           app.
         </p>
         {authError && flowState === "error" && (
-          <p className="mt-3 text-xs text-destructive">{authError}</p>
+          <RecoveryState
+            presentation="compact"
+            announcement="assertive"
+            title="Retry to reopen sign-in"
+            description="Sign-in did not finish. Start it again when you are ready."
+            className="mt-3"
+          />
         )}
         <button
           type="button"
@@ -199,18 +198,14 @@ export default function DesktopLoginPage() {
   if (tokenError) {
     return (
       <CardShell>
-        <div className="flex items-center gap-2 text-destructive">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          <h1 className="text-base font-semibold">Could not get a token</h1>
-        </div>
-        <p className="mt-3 break-words text-sm text-text-muted">{tokenError}</p>
-        <button
-          type="button"
-          onClick={() => void fetchTokenAndRedirect()}
-          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-primary/15 px-4 py-2.5 text-sm font-semibold text-primary transition-colors hover:bg-primary/25"
-        >
-          Try again
-        </button>
+        <h1 className="sr-only">Could not get a token</h1>
+        <RecoveryState
+          presentation="compact"
+          announcement="assertive"
+          title={tokenError.title}
+          description={tokenError.description}
+          primaryAction={{ label: "Try again", onAction: () => { void fetchTokenAndRedirect(); } }}
+        />
       </CardShell>
     );
   }

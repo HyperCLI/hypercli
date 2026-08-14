@@ -119,9 +119,9 @@ function SkillsImportModalContent({
         nextItems.forEach((item) => byId.set(item.id, item));
         return Array.from(byId.values());
       });
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current) return;
-      setError(cause instanceof Error ? cause.message : "Could not read the selected skill file.");
+      setError("That file could not be read. Choose a local .md or .txt file and try again.");
     }
   };
 
@@ -139,9 +139,9 @@ function SkillsImportModalContent({
       } else {
         handleClose();
       }
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current) return;
-      setError(cause instanceof Error ? cause.message : "Failed to import skills.");
+      setError("The selected skills were not imported. Remove duplicate or empty files, then try again.");
     } finally {
       if (operation === operationRef.current) setImporting(false);
     }
@@ -157,9 +157,13 @@ function SkillsImportModalContent({
       await callback?.(importedItems);
       if (operation !== operationRef.current) return;
       handleClose();
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current) return;
-      setError(cause instanceof Error ? cause.message : `Failed to ${action === "keep-preview" ? "keep the preview" : action} imported skills.`);
+      setError(action === "activate"
+        ? "The imported skills remain local. Reconnect the agent and try saving again."
+        : action === "test"
+          ? "The test did not start. Keep the imported skills open and try again."
+          : "The previews could not be kept in this browser. Check browser storage and try again.");
     } finally {
       if (operation === operationRef.current) setConfirmationAction(null);
     }
@@ -223,9 +227,9 @@ function SkillsImportModalContent({
           )}
 
            {stage === "confirmation" && importedItems && (
-             <SkillConfirmationPanel title={confirmationTitle ?? `${importedItems.length} skill${importedItems.length === 1 ? "" : "s"} imported`} description={confirmationDescription ?? "Save the imported skills to the agent, test them first, or keep them as previews."} activateLabel={activateLabel} onActivate={onActivate ? () => void handleConfirmation("activate") : undefined} onTest={onTest ? () => void handleConfirmation("test") : undefined} onKeepPreview={() => void handleConfirmation("keep-preview")} keepPreviewLabel={keepPreviewLabel} pendingAction={confirmationAction} error={error} />
-           )}
-          {error && stage !== "confirmation" && <p className="mt-3 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-[11px] leading-snug text-error">{error}</p>}
+             <SkillConfirmationPanel title={confirmationTitle ?? `${importedItems.length} skill${importedItems.length === 1 ? "" : "s"} imported`} description={confirmationDescription ?? "Save the imported skills to the agent, test them first, or keep them as previews."} activateLabel={activateLabel} onActivate={onActivate ? () => void handleConfirmation("activate") : undefined} onTest={onTest ? () => void handleConfirmation("test") : undefined} onKeepPreview={() => void handleConfirmation("keep-preview")} keepPreviewLabel={keepPreviewLabel} pendingAction={confirmationAction} />
+            )}
+          {error && <p role="alert" className="mt-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-snug text-warning">{error}</p>}
         </div>
 
         {stage !== "confirmation" && (

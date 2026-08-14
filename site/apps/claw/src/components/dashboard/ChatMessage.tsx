@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
+import { RecoveryDetails } from "@hypercli/shared-ui";
 import {
   isOpenClawEmptyReplyFailureText,
   OPENCLAW_EMPTY_REPLY_NOTICE,
@@ -34,7 +35,12 @@ import { AudioPlayer } from "@/components/dashboard/chat/AudioPlayer";
 import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
 import { getToolCallClass } from "@/components/dashboard/chat/bubbleStyles";
 import { DirectoryVisualization, parseDirectoryVisualization } from "@/components/dashboard/chat/DirectoryVisualization";
-import { buildToolCallStackView, buildToolCallView } from "@/components/dashboard/chat/helpers";
+import {
+  buildToolCallStackView,
+  buildToolCallView,
+  presentSystemMessage,
+  TOOL_CALL_REVIEW_MESSAGE,
+} from "@/components/dashboard/chat/helpers";
 import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { ToolCallDisclosureButton, ToolCallSectionList, ToolCallStatusFrame } from "@/components/dashboard/chat/ToolCallPresentation";
 import { TimestampDisplay } from "@/components/dashboard/chat/TimestampDisplay";
@@ -972,8 +978,11 @@ function ToolCallDisclosure({
       <ToolCallDisclosureButton view={view} isOpen={isOpen} detailId={detailId} onClick={() => onToggle(index, defaultOpen)} />
       {isOpen && (
         <div id={detailId} className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
+          {view.isFailed && (
+            <p className="leading-relaxed text-text-secondary">{TOOL_CALL_REVIEW_MESSAGE}</p>
+          )}
           <ToolCallSectionList sections={[view.argsSection]} />
-          {directoryListing && (
+          {directoryListing && !view.isFailed && (
             <DirectoryVisualization
               title="Directory result"
               rootPath={directoryListing.rootPath}
@@ -981,7 +990,17 @@ function ToolCallDisclosure({
               truncated={directoryListing.truncated}
             />
           )}
-          <ToolCallSectionList sections={[directoryListing ? null : view.resultSection]} />
+          {view.isFailed ? (
+            view.resultSection && (
+              <RecoveryDetails
+                label="Technical details"
+                technicalDetails={view.resultSection.text}
+                className="rounded-lg border border-border bg-background/25"
+              />
+            )
+          ) : (
+            <ToolCallSectionList sections={[directoryListing ? null : view.resultSection]} />
+          )}
         </div>
       )}
     </div>
@@ -1004,6 +1023,7 @@ function ToolCallStackDisclosure({
 
   const rawPending = toolCalls.some((tc) => tc.result === undefined) && isStreaming;
   const stackView = buildToolCallStackView(toolCalls, { isStreaming, pendingTimedOut });
+  const presentationStatus = stackView.allReturned && stackView.failedCount > 0 ? "failed" : stackView.status;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -1014,7 +1034,7 @@ function ToolCallStackDisclosure({
   return (
     <motion.div
       layout
-      className={`${getToolCallClass(themeVariant, stackView.status)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
+      className={`${getToolCallClass(themeVariant, presentationStatus)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
       transition={{ layout: { duration: 0.2, ease: "easeOut" } }}
     >
       <button
@@ -1034,7 +1054,7 @@ function ToolCallStackDisclosure({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate font-medium text-foreground">{toolCalls.length} tool calls</span>
-            <ToolCallStatusFrame status={stackView.status} />
+            <ToolCallStatusFrame status={presentationStatus} label={stackView.statusLabel} />
           </span>
           <span className="mt-0.5 block truncate text-text-muted">
             {stackView.summary}
@@ -1163,16 +1183,18 @@ export function ChatMessageBubble({
   const isIncompleteReply = isOpenClawEmptyReplyFailureText(message.content);
 
   if (isSystem) {
-    const isStoppedNotice = /^reply stopped$/i.test(message.content.trim());
-    const isNeutralNotice = isStoppedNotice || isIncompleteReply;
+    const systemMessage = presentSystemMessage(message.content);
+    const noticeText = isIncompleteReply ? OPENCLAW_EMPTY_REPLY_NOTICE : systemMessage.text;
+    const noticeLabel = isIncompleteReply ? "Incomplete reply" : systemMessage.ariaLabel;
+    const isNeutralNotice = !isIncompleteReply && systemMessage.tone === "neutral";
     return (
       <div className="flex min-w-0 max-w-full justify-center">
         <div
-          role={isIncompleteReply ? "status" : undefined}
-          aria-label={isIncompleteReply ? "Incomplete reply" : undefined}
-          className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isNeutralNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-destructive/20 bg-destructive/10 text-destructive"}`}
+          role="status"
+          aria-label={noticeLabel}
+          className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isNeutralNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-warning/30 bg-warning/10 text-text-secondary"}`}
         >
-          {isIncompleteReply ? OPENCLAW_EMPTY_REPLY_NOTICE : message.content}
+          {noticeText}
           {onRetryFailedReply ? (
             <div>
               <FailedReplyRetryButton

@@ -14,15 +14,17 @@ export interface SkillDraftTestBannerProps {
 
 export function SkillDraftTestBanner({ testSession, onOpenDraft, onSaveDraft }: SkillDraftTestBannerProps) {
   const [saving, setSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
 
   const handleSave = async () => {
     if (!onSaveDraft || saving) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await onSaveDraft();
       toast.success(`${testSession.skillName} saved to the agent.`);
-    } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not save the skill draft.");
+    } catch {
+      setSaveError("The draft is still local. Reconnect the agent and try saving again.");
     } finally {
       setSaving(false);
     }
@@ -38,6 +40,7 @@ export function SkillDraftTestBanner({ testSession, onOpenDraft, onSaveDraft }: 
         </div>
         <Button type="button" variant="outline" size="sm" onClick={onOpenDraft} className="h-7 min-h-0 px-2 text-[10px] hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high">Open draft</Button>
         {onSaveDraft && <Button type="button" size="sm" disabled={saving} onClick={() => void handleSave()} className="h-7 min-h-0 px-2 text-[10px]">{saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}{saving ? "Saving..." : "Save to agent"}</Button>}
+        {saveError && <p role="alert" className="basis-full rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">{saveError}</p>}
       </div>
     </div>
   );

@@ -182,7 +182,10 @@ describe("PlansPage", () => {
     renderWithClient(<PlansPage />);
 
     expect(await screen.findByText("Billing data could not be loaded. Retry before checkout.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Retry to load billing" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Billing unavailable" })).toBeDisabled();
+    expect(screen.getByText("Active bundle details will appear after billing is refreshed.")).toBeVisible();
+    expect(screen.queryByText(/No active bundles yet/i)).not.toBeInTheDocument();
 
     mocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSummary());
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -219,6 +222,18 @@ describe("PlansPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Catalog Pro" })).toBeVisible();
     await waitFor(() => expect(mocks.hyperAgent.plans).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not turn an unavailable catalog into empty-plan billing claims", async () => {
+    mocks.hyperAgent.plans.mockRejectedValue(new Error("GET /agents/plans returned 503"));
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByRole("heading", { name: "Retry to load available plans" })).toBeVisible();
+    expect(screen.getByText("Active bundle details will appear after the plan catalog is refreshed.")).toBeVisible();
+    expect(screen.getByText("Plan options will appear after the plan catalog is refreshed.")).toBeVisible();
+    expect(screen.getByText("Unavailable")).toBeVisible();
+    expect(screen.queryByText(/No active bundles yet/i)).not.toBeInTheDocument();
   });
 
   it("renders catalog plans when subscription summary hangs", async () => {

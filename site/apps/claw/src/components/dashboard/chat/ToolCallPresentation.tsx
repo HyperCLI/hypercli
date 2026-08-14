@@ -6,12 +6,12 @@ import { getToolCallStatusClass } from "./bubbleStyles";
 import type { ToolCallView, ToolCallViewSection, ToolCallViewStatus } from "./helpers";
 import { TooltipHint } from "@/components/ClawTooltip";
 
-export function ToolCallStatusFrame({ status }: { status: ToolCallViewStatus }) {
-  const label = status === "running" ? "Running" : status === "failed" ? "Failed" : status === "done" ? "Done" : "Called";
+export function ToolCallStatusFrame({ status, label }: { status: ToolCallViewStatus; label?: string }) {
+  const visibleLabel = label ?? (status === "running" ? "Running" : status === "failed" ? "Needs review" : status === "done" ? "Done" : "Called");
 
   return (
     <span className={`shrink-0 rounded-[4px] border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${getToolCallStatusClass(status)}`}>
-      {label}
+      {visibleLabel}
     </span>
   );
 }
@@ -39,7 +39,7 @@ export function ToolCallDisclosureButton({
         <span className="min-w-0 max-w-[45%] truncate font-medium text-foreground">
           {view.displayName}
         </span>
-        <ToolCallStatusFrame status={view.status} />
+        <ToolCallStatusFrame status={view.status} label={view.statusLabel} />
         {!isOpen && view.summary && (
           <span className="ml-1 min-w-0 flex-1 truncate text-text-muted">{view.summary}</span>
         )}

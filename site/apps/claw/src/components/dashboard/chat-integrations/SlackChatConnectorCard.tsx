@@ -2,6 +2,7 @@
 
 import type { ComponentProps, CSSProperties } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
+import { RecoveryDetails } from "@hypercli/shared-ui";
 
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
 import { ChannelChatConnectorCard } from "./ChannelChatConnectorCard";
@@ -285,7 +286,10 @@ function SlackChatConnectorCardContent({
           </div>
         )}
         {slackRelaySetup.error ? (
-          <p role="alert" className="rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">{slackRelaySetup.error}</p>
+          <div className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
+            <p role="alert">Slack setup did not finish. Refresh the connection status, then retry the current step.</p>
+            <RecoveryDetails label="Technical details" technicalDetails={slackRelaySetup.error} className="mt-2 text-left" />
+          </div>
         ) : null}
         {channelProps.onOpenIntegrationDetails ? (
           <button type="button" className={buttonClass()} onClick={channelProps.onOpenIntegrationDetails}>

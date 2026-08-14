@@ -1,10 +1,11 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 import type { AgentChannel, AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorsProvider, AgentRuntimeDescriptor } from "@hypercli.com/sdk/connectors";
+import { ConfirmDialog, RecoveryDetails } from "@hypercli/shared-ui";
 import {
   AlertTriangle,
   Check,
@@ -96,7 +97,7 @@ const INPUT_CLASS = "mt-1.5 h-10 w-full rounded-lg border border-border bg-input
 const LABEL_CLASS = "text-[10px] font-bold uppercase tracking-[0.14em] text-text-muted";
 const SECONDARY_BUTTON = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-border bg-surface-low px-3 text-xs font-semibold text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--channel-accent)] disabled:cursor-not-allowed disabled:opacity-45";
 const PRIMARY_BUTTON = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-[var(--channel-accent)] px-3.5 text-xs font-black uppercase tracking-[0.1em] text-[var(--channel-accent-foreground)] transition-[filter,transform] hover:-translate-y-px hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--channel-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-45";
-const DANGER_BUTTON = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:cursor-not-allowed disabled:opacity-45";
+const CAUTION_BUTTON = "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 text-xs font-semibold text-warning transition-colors hover:bg-warning/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning disabled:cursor-not-allowed disabled:opacity-45";
 
 function initialForm(channelId: OpenClawConfiguredChannelId): ChannelFormState {
   const safe = parseOpenClawChannelConfig(channelId, undefined);
@@ -222,10 +223,10 @@ export function OpenClawChannelSettingsPanel({
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const [operation, setOperation] = useState<Operation>(null);
   const [error, setError] = useState<string | null>(null);
+  const [technicalDetails, setTechnicalDetails] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [telegramPrivacyProbe, setTelegramPrivacyProbe] = useState<{ scope: string; mode: TelegramPrivacyMode } | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const confirmRemoveRef = useRef<HTMLButtonElement>(null);
   const selectedAccountId = accountSelection.channelId === channelId && accountSelection.accountId && knownAccountIds.includes(accountSelection.accountId)
     ? accountSelection.accountId
     : preferredAccountId;
@@ -275,13 +276,10 @@ export function OpenClawChannelSettingsPanel({
     };
   }, [channelId, name, provider, readConfigOperation, readScope, selectedAccountId]);
 
-  useEffect(() => {
-    if (confirmingRemove) confirmRemoveRef.current?.focus();
-  }, [confirmingRemove]);
-
   const setField = <K extends keyof ChannelFormState>(field: K, value: ChannelFormState[K]) => {
     setForm((current) => ({ ...current, [field]: value }));
     setError(null);
+    setTechnicalDetails(null);
     setNotice(null);
   };
 
@@ -366,6 +364,7 @@ export function OpenClawChannelSettingsPanel({
     if (typeof update !== "function") return;
     setOperation("save");
     setError(null);
+    setTechnicalDetails(null);
     setNotice(null);
     try {
       let patch: Record<string, unknown>;
@@ -463,6 +462,7 @@ export function OpenClawChannelSettingsPanel({
     }
     setOperation("probe");
     setError(null);
+    setTechnicalDetails(null);
     setNotice(null);
     try {
       const snapshot = await read.call(provider, { channelId, probe: true });
@@ -477,11 +477,12 @@ export function OpenClawChannelSettingsPanel({
         });
       }
       if (!refreshedAccount) {
-        setError(`Could not identify the selected ${name} account after testing.`);
+        setError(`Choose the ${name} account again, then retry the connection test.`);
       } else if (refreshedAccount.configured && refreshedAccount.running === true && refreshedAccount.healthState === "healthy") {
         setNotice("Connection test passed. Connection status refreshed.");
       } else {
-        setError(refreshedAccount.lastError?.trim() || `${name} is configured but not healthy yet.`);
+        setError(`${name} is configured but not ready yet. Review the saved settings, then retry.`);
+        setTechnicalDetails(refreshedAccount.lastError?.trim() || null);
       }
       await refresh();
     } catch {
@@ -499,6 +500,7 @@ export function OpenClawChannelSettingsPanel({
     }
     setOperation("remove");
     setError(null);
+    setTechnicalDetails(null);
     setNotice(null);
     try {
       const resolvedRemovalAccountId = resolvedAccountId ?? selectedAccountId;
@@ -508,7 +510,7 @@ export function OpenClawChannelSettingsPanel({
       if (removalAccountId) await removeConfig.call(provider, channelId, removalAccountId);
       else await removeConfig.call(provider, channelId);
     } catch {
-      setError(`Could not remove the ${name} configuration.`);
+      setError(`${name} is still configured. Check the agent connection and try removing it again.`);
       setOperation(null);
       return;
     }
@@ -705,7 +707,7 @@ export function OpenClawChannelSettingsPanel({
                 <label className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-xs text-text-secondary">
                   <input type="checkbox" aria-label={`Enable Slack channel ${index + 1}`} checked={rule.enabled} onChange={(event) => updateSlackChannel(index, "enabled", event.target.checked)} className="h-4 w-4 accent-[var(--channel-accent)]" /> Enabled
                 </label>
-                <button type="button" aria-label={`Remove Slack channel ${index + 1}`} className={DANGER_BUTTON} onClick={() => setField("slackChannels", form.slackChannels.filter((_, ruleIndex) => ruleIndex !== index))}>
+                 <button type="button" aria-label={`Remove Slack channel ${index + 1}`} className={CAUTION_BUTTON} onClick={() => setField("slackChannels", form.slackChannels.filter((_, ruleIndex) => ruleIndex !== index))}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -838,7 +840,12 @@ export function OpenClawChannelSettingsPanel({
           </div>
         ) : null}
         {!canReadConfig ? <div role="alert" className="rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">This agent cannot read integration settings.</div> : null}
-        {error ? <div role="alert" className="rounded-xl border border-destructive/35 bg-destructive/10 px-3.5 py-3 text-xs text-destructive">{error}</div> : null}
+        {error ? (
+          <div className="rounded-xl border border-warning/35 bg-warning/10 px-3.5 py-3 text-xs text-warning">
+            <p role="alert">{error}</p>
+            {technicalDetails ? <RecoveryDetails label="Technical details" technicalDetails={technicalDetails} className="mt-2 text-left" /> : null}
+          </div>
+        ) : null}
         {notice ? <div role="status" className="flex items-center gap-2 rounded-xl border border-selection-accent/25 bg-selection-accent/10 px-3.5 py-3 text-xs text-selection-accent"><Check className="h-4 w-4" />{notice}</div> : null}
 
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_240px]">
@@ -959,21 +966,22 @@ export function OpenClawChannelSettingsPanel({
 
         <footer className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface-low p-3.5">
           <div className="min-w-0">
-            {!confirmingRemove ? (
-              <button type="button" className={DANGER_BUTTON} disabled={!connected || !canRemove || busy} onClick={() => setConfirmingRemove(true)}><Trash2 className="h-3.5 w-3.5" /> Remove configuration</button>
-            ) : (
-              <div role="group" aria-label={`Confirm removal of ${name} configuration`} className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-text-secondary">Remove this account configuration?</span>
-                <button ref={confirmRemoveRef} type="button" className={DANGER_BUTTON} disabled={busy} onClick={() => void remove()}>{operation === "remove" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />} Confirm remove</button>
-                <button type="button" className={SECONDARY_BUTTON} disabled={busy} onClick={() => setConfirmingRemove(false)}>Cancel</button>
-              </div>
-            )}
+            <button type="button" className={CAUTION_BUTTON} disabled={!connected || !canRemove || busy} onClick={() => setConfirmingRemove(true)}><Trash2 className="h-3.5 w-3.5" /> Remove configuration</button>
           </div>
           <button type="button" className={PRIMARY_BUTTON} disabled={!connected || !canUpdate || loading || busy} onClick={() => void save()}>
             {operation === "save" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save settings
           </button>
         </footer>
       </div>
+      <ConfirmDialog
+        open={confirmingRemove}
+        title={`Remove ${name} configuration?`}
+        message={`This removes the selected ${name} account configuration from this workspace. Inherited or environment-backed settings may continue to configure it.`}
+        confirmLabel={`Remove ${name} configuration`}
+        loading={operation === "remove"}
+        onConfirm={() => void remove()}
+        onCancel={() => { if (operation !== "remove") setConfirmingRemove(false); }}
+      />
     </section>
   );
 }

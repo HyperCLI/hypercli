@@ -3,8 +3,33 @@ import { expect, test, type Page } from "@playwright/test";
 const MARKETING_ROUTES = [
   {
     path: "/",
-    heading: "100 million tokens of Kimi K3. Every day. One flat price.",
+    heading: "Your agent never sleeps. Your bill never moves.",
     desktopHeaderHeight: 64,
+  },
+  {
+    path: "/integrations",
+    heading: "Plug your agent into everything you already use.",
+    desktopHeaderHeight: 64,
+    referenceHeroSpacing: true,
+    customFinalCta: true,
+  },
+  {
+    path: "/integrations/google-drive",
+    heading: "Google Drive",
+    desktopHeaderHeight: 64,
+    referenceDetailSpacing: true,
+  },
+  {
+    path: "/integrations/google-docs",
+    heading: "Google Docs",
+    desktopHeaderHeight: 64,
+    referenceDetailSpacing: true,
+  },
+  {
+    path: "/integrations/google-calendar",
+    heading: "Google Calendar",
+    desktopHeaderHeight: 64,
+    referenceDetailSpacing: true,
   },
   {
     path: "/developers",
@@ -113,7 +138,9 @@ async function expectMarketingLayout(
   await expect(page.locator('[data-slot="marketing-shell"]')).toHaveCount(1);
   await expect(page.locator('[data-slot="marketing-main"]')).toHaveCount(1);
   await expect(page.locator('[data-slot="aurora-hero"]')).toHaveCount(1);
-  await expect(page.locator('[data-slot="aurora-final-cta"]')).toHaveCount(1);
+  await expect(page.locator('[data-slot="aurora-final-cta"]')).toHaveCount(
+    "customFinalCta" in route && route.customFinalCta ? 0 : 1,
+  );
   await expect(page.getByRole("main")).toHaveCount(1);
   await expect(page.getByRole("heading", { level: 1, name: route.heading })).toHaveCount(1);
 
@@ -133,12 +160,31 @@ async function expectMarketingLayout(
     };
   });
 
-  const expectedHeaderHeight = viewport.width >= 1024 ? route.desktopHeaderHeight : 64;
-  const expectedHeroPadding = expectedHeaderHeight + 64;
+  const isHome = route.path === "/";
+  const expectedHeaderHeight = isHome
+    ? viewport.width >= 640
+      ? 66
+      : 58
+    : viewport.width >= 1024
+      ? route.desktopHeaderHeight
+      : 64;
+  const expectedHeroPadding = isHome
+    ? expectedHeaderHeight + (viewport.width >= 640 ? 92 : 60)
+    : "referenceHeroSpacing" in route && route.referenceHeroSpacing
+      ? expectedHeaderHeight + (viewport.width > 640 ? 88 : 56)
+      : "referenceDetailSpacing" in route && route.referenceDetailSpacing
+        ? expectedHeaderHeight + (viewport.width > 640 ? 64 : 44)
+      : expectedHeaderHeight + 64;
   expect(Math.abs(geometry.headerHeight - expectedHeaderHeight)).toBeLessThanOrEqual(3);
   expect(Math.abs(geometry.heroPaddingTop - expectedHeroPadding)).toBeLessThanOrEqual(1);
   expect(geometry.headingTop).toBeGreaterThanOrEqual(geometry.headerBottom + 32);
   expect(geometry.hasHorizontalOverflow).toBe(false);
+}
+
+async function expectHydrated(page: Page) {
+  await expect(page.locator("body")).toHaveAttribute("data-theme", /aurora-(?:dark|light)/, {
+    timeout: 30_000,
+  });
 }
 
 for (const route of MARKETING_ROUTES) {
@@ -162,7 +208,7 @@ test.describe("locale-safe hydration", () => {
   test.use({ locale: "de-DE" });
 
   for (const route of [
-    { path: "/", expectedValue: "$54,000/mo" },
+    { path: "/", expectedValue: "$27,000/mo" },
     { path: "/inference", expectedValue: "$27,000/mo" },
     { path: "/data-center", expectedValue: "~$700,000/yr" },
   ]) {
@@ -178,6 +224,114 @@ test.describe("locale-safe hydration", () => {
   }
 });
 
+test("uses the approved hero copy and keeps Pro qualification on the homepage", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  const hero = page.locator('[data-slot="aurora-hero"]');
+  await expect(hero.locator('[data-slot="aurora-hero-lead"]')).toHaveText(
+    "An always-on agent with its own machine — browser, voice, media, memory — powered by Kimi K3, the largest open model ever released. 100 million tokens a day. One flat price.",
+  );
+  await expect(page.getByRole("button", { name: "Join waitlist" })).toHaveCount(1);
+});
+
+test("reveals homepage sections on scroll and preserves reduced-motion rendering", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expectHydrated(page);
+
+  const motionRoot = page.locator("[data-home-motion-root]");
+  await expect(motionRoot).toHaveAttribute("data-home-motion-ready", "true", { timeout: 30_000 });
+
+  const channelHeading = page.getByRole("heading", {
+    name: "One agent. Its own machine. Every channel you live in.",
+  });
+  await expect(channelHeading).toHaveCSS("opacity", "0");
+  await expect(channelHeading).toHaveCSS("font-size", "70px");
+  const channelLead = channelHeading.locator("xpath=following-sibling::p[1]");
+  await expect(channelLead).toHaveCSS("font-size", "22.5px");
+
+  await channelHeading.scrollIntoViewIfNeeded();
+  await expect(channelHeading).toHaveAttribute("data-home-revealed", "true");
+  await expect(channelHeading).toHaveCSS("opacity", "1");
+  await expect(page.locator(".home-channel-spoke")).toHaveCount(6);
+  await expect(page.locator(".home-channel-lines line")).toHaveCount(6);
+  expect(
+    await page.locator(".home-channel-core span").evaluate((element) => getComputedStyle(element).backgroundImage),
+  ).toContain("hypercli-icon-blue.svg");
+
+  const differentiation = page.getByRole("heading", {
+    name: "It doesn't wait. It doesn't sleep. It doesn't forget.",
+  });
+  await differentiation.scrollIntoViewIfNeeded();
+  await expect(differentiation).toHaveCSS("font-size", "70px");
+  const actions = differentiation.locator("xpath=following-sibling::div[1]");
+  await expect(actions.getByRole("link", { name: "Meet yours →" })).toBeVisible();
+  await expect(actions.getByRole("link", { name: "Watch a night's work →" })).toBeVisible();
+  const cards = differentiation.locator("xpath=following-sibling::div[2]");
+  expect((await actions.boundingBox())!.y).toBeLessThan((await cards.boundingBox())!.y);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expect(motionRoot).toHaveAttribute("data-home-motion-ready", "reduced", { timeout: 30_000 });
+  await expect(channelHeading).toHaveCSS("opacity", "1");
+});
+
+test("restores canonical homepage plan cards and keeps the plan note with them", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expectHydrated(page);
+
+  const pricing = page.locator("#pricing");
+  await pricing.scrollIntoViewIfNeeded();
+  const cards = pricing.locator('[data-slot="home-pricing-tier-card"]');
+  await expect(cards).toHaveCount(3);
+  await expect(cards.nth(0)).toContainText("$39");
+  await expect(cards.nth(1)).toContainText("$79");
+  await expect(cards.nth(2)).toContainText("$149");
+  await expect(pricing).toContainText(
+    "7-day free trial on every plan · Cancel anytime · Fair use, not fine print",
+  );
+  const finalCta = page.locator('[data-slot="aurora-final-cta"]');
+  await expect(finalCta).not.toContainText("Fair use, not fine print");
+  await expect(finalCta).toContainText("100M/day of Kimi K3, flat");
+  await expect(finalCta).toContainText("A whole machine per agent — not a chatbot");
+  await expect(finalCta).toContainText("Open weights — an exit you'll never need");
+  await expect(finalCta).toContainText(
+    "7-day free trial · No per-token pricing, ever · It never buys or ships anything without you",
+  );
+
+  await cards.nth(2).getByRole("button", { name: "Join waitlist" }).click();
+  const waitlist = page.getByRole("dialog", { name: "Join the Pro waitlist" });
+  await expect(waitlist.locator('input[name="source"]')).toHaveValue("home-pricing-pro-waitlist");
+});
+
+test("renders the homepage Slack demo in both Aurora color modes", async ({ page }) => {
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await expectHydrated(page);
+
+  const chat = page.locator('[data-slot="chat-demo"]');
+  await chat.scrollIntoViewIfNeeded();
+  await expect(chat).toHaveCSS("background-color", "rgb(27, 35, 49)");
+  await expect(chat.getByText("On it — checking all six tonight. Everything in this thread by 7am.")).toHaveCSS(
+    "color",
+    "rgb(185, 196, 214)",
+  );
+
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
+  await expect(chat).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});
+
+test("keeps the homepage footer at the compact reference density", async ({ page }) => {
+  await page.setViewportSize({ width: 954, height: 900 });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  const footer = page.locator("footer");
+  const footerHeight = await footer.evaluate((element) => element.getBoundingClientRect().height);
+  expect(footerHeight).toBeLessThan(400);
+  await expect(footer.getByRole("heading", { level: 3 })).toHaveCount(4);
+  await expect(footer.getByRole("link", { name: "HyperCLI home" })).toBeHidden();
+  await expect(footer.getByText("HyperCLI, Inc.", { exact: true })).toBeVisible();
+});
+
 test("switches header clearance at the desktop navigation breakpoint", async ({ page }) => {
   const route = MARKETING_ROUTES.find(({ path }) => path === "/developers");
   expect(route).toBeTruthy();
@@ -188,6 +342,7 @@ test("switches header clearance at the desktop navigation breakpoint", async ({ 
 test("condenses non-home desktop navigation after scrolling", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 900 });
   await page.goto("/developers", { waitUntil: "domcontentloaded" });
+  await expectHydrated(page);
 
   const header = page.locator("header").first();
   await expect(header).toHaveAttribute("data-condensed", "false");
@@ -236,6 +391,7 @@ test("offers a keyboard skip link to the marketing main content", async ({ page 
 
 test("keeps light-theme marketing accents at AA contrast", async ({ page }) => {
   await page.goto("/developers", { waitUntil: "domcontentloaded" });
+  await expectHydrated(page);
   await page.getByRole("button", { name: "Switch to light mode" }).click();
   await expect(page.locator("body")).toHaveAttribute("data-theme", "aurora-light");
 

@@ -27,6 +27,9 @@ export default function Home() {
             title="Welcome to HyperCLI Agents"
             description="Sign in to continue to your agents"
             tokenStorageKey="claw_auth_token"
+            securityNote="A secure one-time code will be sent to your email."
+            errorMessage="Sign-in did not finish. Retry to reopen the session."
+            errorTone="neutral"
           />
         )}
       </div>

@@ -35,7 +35,7 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
         try {
           nextRecoveryCandidates = await provider.listRecoveryCandidates();
         } catch (cause) {
-          nextRecoveryError = cause instanceof Error ? cause.message : "Could not inspect workspace skill files.";
+          nextRecoveryError = cause instanceof Error && cause.message.trim() ? cause.message.trim() : "Workspace skill inspection unavailable.";
         }
       }
       if (requestId === requestIdRef.current) {
@@ -48,7 +48,7 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
       if (requestId === requestIdRef.current) {
         setSkills([]);
         setRecoveryCandidates([]);
-        setError(cause instanceof Error ? cause.message : "Failed to load app skills.");
+        setError(cause instanceof Error && cause.message.trim() ? cause.message.trim() : "Skills catalog unavailable.");
       }
       throw cause;
     } finally {
@@ -77,7 +77,7 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
     const requestId = (documentRequestIdsRef.current.get(skillId) ?? 0) + 1;
     documentRequestIdsRef.current.set(skillId, requestId);
     setSkills((current) => current.map((skill) => skill.id === skillId
-      ? { ...skill, documentState: "loading", documentError: undefined }
+      ? { ...skill, documentState: "loading", documentError: undefined, documentDiagnostic: undefined }
       : skill));
     try {
       const document = await provider.readDocument(skillId);
@@ -86,14 +86,20 @@ export function useAgentSkills({ enabled, connected, provider }: UseAgentSkillsO
         if (skill.id !== skillId) return skill;
         return document
           ? applySkillDocument(skill, document.content)
-          : { ...skill, contentLoaded: false, documentState: "unavailable", documentError: undefined };
+          : { ...skill, contentLoaded: false, documentState: "unavailable", documentError: undefined, documentDiagnostic: undefined };
       }));
       return document;
     } catch (cause) {
       if (documentRequestIdsRef.current.get(skillId) === requestId) {
-        const message = cause instanceof Error ? cause.message : "Failed to load skill instructions.";
+        const diagnostic = cause instanceof Error && cause.message.trim() ? cause.message.trim() : undefined;
         setSkills((current) => current.map((skill) => skill.id === skillId
-          ? { ...skill, contentLoaded: false, documentState: "error", documentError: message }
+          ? {
+              ...skill,
+              contentLoaded: false,
+              documentState: "error",
+              documentError: "Retry loading the instructions. If this continues, reconnect the agent.",
+              documentDiagnostic: diagnostic,
+            }
           : skill));
       }
       throw cause;

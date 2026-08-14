@@ -505,6 +505,18 @@
   --terminal-live: #6ce8c4;
 }
 
+/*
+  Product surfaces can opt into a recovery-first feedback palette without
+  changing the semantic colors used by other apps. Explicit language, icons,
+  and confirmation copy continue to carry urgency; red is not required.
+*/
+[data-feedback-palette="calm"] {
+  --destructive: var(--selection-accent);
+  --destructive-foreground: var(--selection-accent-foreground);
+  --error: var(--selection-accent);
+  --chart-5: var(--warning);
+}
+
 [data-theme="aurora-light"][data-plan-tier="solo"],
 [data-theme="aurora-light"] [data-plan-tier="solo"] {
   --plan-accent: #3d68e6;

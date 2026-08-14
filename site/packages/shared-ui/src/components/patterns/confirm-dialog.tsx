@@ -1,8 +1,17 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, X } from "lucide-react";
-import { cn } from "../ui/utils";
+import { AlertTriangle, Check } from "lucide-react";
+
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../ui/alert-dialog";
+import { Button } from "../ui/button";
 
 export interface ConfirmDialogProps {
   open: boolean;
@@ -26,68 +35,46 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={onCancel}
-        >
-          <motion.div
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="confirm-dialog-title"
-            aria-describedby="confirm-dialog-description"
-            initial={{ scale: 0.95, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.95, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className="glass-card mx-4 w-full max-w-sm p-6"
-            onClick={(event) => event.stopPropagation()}
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !loading) onCancel();
+      }}
+    >
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-3xl border-border bg-background p-0 shadow-2xl sm:max-w-lg">
+        <div className="overflow-y-auto px-5 py-6 sm:px-7 sm:py-7">
+          <div className="flex items-start gap-4">
+            <span
+              aria-hidden="true"
+              className="flex size-12 shrink-0 items-center justify-center rounded-2xl border border-border bg-surface-high text-text-secondary"
+            >
+              {danger ? <AlertTriangle className="size-5" /> : <Check className="size-5" />}
+            </span>
+            <AlertDialogHeader className="min-w-0 flex-1 text-left">
+              <AlertDialogTitle className="text-balance text-lg font-semibold leading-6 tracking-[-0.02em] text-foreground sm:text-xl">
+                {title}
+              </AlertDialogTitle>
+              <AlertDialogDescription className="mt-1 text-sm leading-6 text-text-secondary">
+                {message}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+          </div>
+        </div>
+        <AlertDialogFooter className="flex-row justify-end gap-2 border-t border-border bg-surface-low/35 px-5 py-4 sm:px-7">
+          <AlertDialogCancel disabled={loading} className="min-h-10 flex-1 rounded-xl sm:flex-none">
+            Cancel
+          </AlertDialogCancel>
+          <Button
+            type="button"
+            onClick={onConfirm}
+            disabled={loading}
+            aria-busy={loading || undefined}
+            className="min-h-10 flex-1 rounded-xl px-4 sm:flex-none"
           >
-            <div className="mb-4 flex items-start gap-3">
-              {danger && (
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-destructive/10">
-                  <AlertTriangle className="h-5 w-5 text-destructive" />
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 id="confirm-dialog-title" className="text-base font-semibold text-foreground">
-                    {title}
-                  </h3>
-                  <button type="button" onClick={onCancel} className="text-text-muted transition-colors hover:text-foreground">
-                    <X className="h-4 w-4" />
-                    <span className="sr-only">Cancel</span>
-                  </button>
-                </div>
-                <p id="confirm-dialog-description" className="mt-1 text-sm text-text-secondary">
-                  {message}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={onCancel} className="btn-secondary rounded-lg px-4 py-2 text-sm font-medium">
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={loading}
-                className={cn(
-                  "rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-60",
-                  danger ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : "btn-primary",
-                )}
-              >
-                {loading ? "..." : confirmLabel}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+            {loading ? "Working..." : confirmLabel}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

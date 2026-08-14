@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ExternalLink, Check, Loader2, AlertCircle } from "lucide-react";
 import type { TokenField } from "./plugin-registry";
 import { usePluginVerification } from "@/hooks/usePluginVerification";
@@ -37,6 +37,7 @@ export function TokenSetupWizard({
   const [step, setStep] = useState<"form" | "connecting" | "verifying" | "done">("form");
   const [values, setValues] = useState<Record<string, string>>({});
   const [connectError, setConnectError] = useState<string | null>(null);
+  const formId = useId();
 
   const verification = usePluginVerification({
     pluginId,
@@ -77,8 +78,8 @@ export function TokenSetupWizard({
         setStep("verifying");
         verification.startVerification();
       }
-    } catch (err) {
-      setConnectError(err instanceof Error ? err.message : "Failed to connect");
+    } catch {
+      setConnectError(`${displayName} was not connected. Check the required values and try again.`);
       setStep("form");
     }
   };
@@ -111,28 +112,34 @@ export function TokenSetupWizard({
 
         {/* Input fields */}
         <div className="space-y-4">
-          {fields.map((field) => (
-            <div key={field.key} className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground">
-                {field.label}
-                {field.required && <span className="text-[var(--error)] ml-0.5">*</span>}
-              </label>
-              {field.helpText && (
-                <p className="text-xs text-text-tertiary">{field.helpText}</p>
-              )}
-              <input
-                type={field.sensitive ? "password" : "text"}
-                value={values[field.key] ?? ""}
-                onChange={(e) => setValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
-                placeholder={field.placeholder}
-                className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
-              />
-            </div>
-          ))}
+          {fields.map((field) => {
+            const fieldId = `${formId}-${field.key}`;
+            return (
+              <div key={field.key} className="space-y-1.5">
+                <label htmlFor={fieldId} className="text-sm font-medium text-foreground">
+                  {field.label}
+                  {field.required && <span className="ml-1 text-warning">(required)</span>}
+                </label>
+                {field.helpText && (
+                  <p className="text-xs text-text-tertiary">{field.helpText}</p>
+                )}
+                <input
+                  id={fieldId}
+                  type={field.sensitive ? "password" : "text"}
+                  required={field.required}
+                  aria-required={field.required || undefined}
+                  value={values[field.key] ?? ""}
+                  onChange={(e) => setValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                  placeholder={field.placeholder}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
+                />
+              </div>
+            );
+          })}
         </div>
 
         {connectError && (
-          <div className="flex items-start gap-2 text-sm text-[var(--error)]">
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>{connectError}</span>
           </div>
@@ -174,7 +181,7 @@ export function TokenSetupWizard({
         {verification.verifyError ? (
           <>
             <AlertCircle className="w-8 h-8 text-warning" />
-            <p className="text-sm text-text-secondary text-center">{verification.verifyError}</p>
+            <p role="alert" className="text-center text-sm text-warning">The connection check did not finish. Retry now, or continue and test it later.</p>
             <div className="flex gap-2">
               <button
                 onClick={verification.retryVerification}
@@ -186,7 +193,7 @@ export function TokenSetupWizard({
                 onClick={() => { setStep("done"); onVerified?.(); }}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-text-secondary hover:bg-[var(--surface-low)] transition-colors"
               >
-                Skip
+                Continue without test
               </button>
             </div>
           </>

@@ -39,7 +39,13 @@ import {
 } from "@/lib/plan-checkout-state";
 import { bundleKey, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import type { SdkAgent } from "@/types";
-import { notifyBillingPlanChanged, resolveCatalogPlanTier, type PlanTier } from "@hypercli/shared-ui";
+import {
+  notifyBillingPlanChanged,
+  RecoveryDetails,
+  RecoveryState,
+  resolveCatalogPlanTier,
+  type PlanTier,
+} from "@hypercli/shared-ui";
 
 interface DisplayProduct {
   id: string;
@@ -68,6 +74,11 @@ interface CheckoutPlan {
     burstTpm: number;
     rpm: number;
   };
+}
+
+interface PlanRecovery {
+  title: string;
+  description: string;
 }
 
 type CheckoutSyncState = {
@@ -211,6 +222,21 @@ function formatShortDate(value: Date | null | undefined): string {
   return value.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
+function billingSourceLabel(provider: string): string {
+  const normalized = provider.toLowerCase();
+  if (normalized === "stripe") return "Card billing";
+  if (normalized === "x402") return "USDC billing";
+  return "Account billing";
+}
+
+function billingStatusLabel(status: string): string {
+  return status
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1).toLowerCase()}`)
+    .join(" ") || "Status unavailable";
+}
+
 function PlanIcon({ name, className = "h-5 w-5" }: { name: string; className?: string }) {
   const normalized = name.toLowerCase();
   if (normalized.includes("solo") || normalized.includes("free")) return <CircleDot className={className} />;
@@ -234,7 +260,7 @@ export default function PlansPage() {
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
   const [mutatingSubscriptionId, setMutatingSubscriptionId] = useState<string | null>(null);
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
-  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<PlanRecovery | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemingCode, setRedeemingCode] = useState(false);
@@ -604,17 +630,25 @@ export default function PlansPage() {
     setSubscriptionNotice(null);
     setSubscriptionError(null);
     setMutatingSubscriptionId(subscription.id);
+    let cancellationConfirmed = false;
     try {
       const agentClient = createHyperAgentClient(await getToken());
       const result = await agentClient.cancelSubscription(subscription.id);
       if (!result.ok) {
-        throw new Error(result.message || "Failed to cancel subscription");
+        throw new Error(result.message || "The cancellation request was not confirmed.");
       }
-      setSubscriptionNotice(result.message || "Subscription cancellation scheduled");
+      cancellationConfirmed = true;
+      setSubscriptionNotice("Cancellation scheduled");
       await refreshPlan();
       notifyBillingPlanChanged();
-    } catch (error) {
-      setSubscriptionError(error instanceof Error ? error.message : "Failed to cancel subscription");
+    } catch {
+      setSubscriptionError(cancellationConfirmed ? {
+        title: "Refresh to confirm cancellation details",
+        description: "The cancellation was scheduled, but the latest billing details did not load. Refresh to see the updated period end.",
+      } : {
+        title: "Check billing before retrying cancellation",
+        description: "Refresh billing before sending this request again. We could not confirm whether the cancellation was applied.",
+      });
     } finally {
       setMutatingSubscriptionId(null);
     }
@@ -632,13 +666,17 @@ export default function PlansPage() {
     const normalizedCode = code.trim();
     if (!normalizedCode) {
       setSubscriptionNotice(null);
-      setSubscriptionError("Enter a code to activate it.");
+      setSubscriptionError({
+        title: "Enter an activation code",
+        description: "Enter the complete code before activating it.",
+      });
       return;
     }
 
     setSubscriptionNotice(null);
     setSubscriptionError(null);
     setRedeemingCode(true);
+    let activationConfirmed = false;
     try {
       const agentClient = createHyperAgentClient(await getToken());
       const result = await agentClient.redeemGrantCode(normalizedCode);
@@ -646,12 +684,19 @@ export default function PlansPage() {
       const expiryLabel = result.entitlement.expiresAt
         ? ` until ${result.entitlement.expiresAt.toLocaleDateString()}`
         : "";
+      activationConfirmed = true;
       setSubscriptionNotice(`Code activated. ${planLabel} is now active${expiryLabel}.`);
       setShowRedeemModal(false);
       await refreshPlan();
       notifyBillingPlanChanged();
-    } catch (error) {
-      setSubscriptionError(error instanceof Error ? error.message : "Failed to activate code");
+    } catch {
+      setSubscriptionError(activationConfirmed ? {
+        title: "Refresh to see the activated plan",
+        description: "The code was activated, but the latest plan details did not load. Refresh billing to see the updated capacity.",
+      } : {
+        title: "Check your plan before retrying activation",
+        description: "Check your plan before submitting this code again. We could not confirm whether it was activated.",
+      });
     } finally {
       setRedeemingCode(false);
     }
@@ -697,17 +742,30 @@ export default function PlansPage() {
     <div className="text-left">
       <h1 className="sr-only">Plans</h1>
 
-      {checkoutSync && (
+      {checkoutSync?.status === "pending" ? (
+        <RecoveryState
+          presentation="compact"
+          title="Retry to refresh billing status"
+          description={checkoutSync.message}
+          primaryAction={{
+            label: "Refresh",
+            onAction: () => { void refreshCheckoutEntitlements(checkoutSync.pending); },
+          }}
+          onDismiss={() => setCheckoutSync(null)}
+          dismissLabel="Dismiss"
+          className="mb-4"
+        />
+      ) : checkoutSync ? (
         <div
-          className={`glass-card mb-4 flex items-start justify-between gap-3 p-3 ${
-            checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
+          className={`glass-card mb-4 flex items-start justify-between gap-3 border p-3 ${
+            checkoutSync.status === "cancelled"
               ? "border border-warning/30"
-              : "border border-[rgb(var(--selection-accent-rgb)_/_0.24)]"
+              : "border-[rgb(var(--selection-accent-rgb)_/_0.24)]"
           }`}
         >
           <p
             className={`text-xs ${
-              checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
+              checkoutSync.status === "cancelled"
                 ? "text-warning"
                 : "text-[var(--selection-accent)]"
             }`}
@@ -715,15 +773,6 @@ export default function PlansPage() {
             {checkoutSync.message}
           </p>
           <div className="flex shrink-0 items-center gap-3">
-            {checkoutSync.status === "pending" && (
-              <button
-                type="button"
-                onClick={() => { void refreshCheckoutEntitlements(checkoutSync.pending); }}
-                className="text-xs font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
-              >
-                Refresh
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setCheckoutSync(null)}
@@ -733,22 +782,22 @@ export default function PlansPage() {
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       {billingError && (
-        <div className="glass-card mb-4 flex items-center justify-between gap-3 border border-destructive/30 p-3">
-          <p className="text-xs text-destructive">{billingError}</p>
-          <button
-            type="button"
-            onClick={() => {
+        <RecoveryState
+          presentation="compact"
+          title="Retry to load billing"
+          description={billingError}
+          primaryAction={{
+            label: "Retry",
+            onAction: () => {
               setBillingError(null);
               void refreshPlan();
-            }}
-            className="text-xs font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
-          >
-            Retry
-          </button>
-        </div>
+            },
+          }}
+          className="mb-4"
+        />
       )}
 
       {subscriptionNotice && (
@@ -758,18 +807,27 @@ export default function PlansPage() {
       )}
 
       {subscriptionError && (
-        <div className="glass-card mb-4 border border-destructive/30 p-3">
-          <p className="text-xs text-destructive">{subscriptionError}</p>
-        </div>
+        <RecoveryState
+          presentation="compact"
+          title={subscriptionError.title}
+          description={subscriptionError.description}
+          primaryAction={{ label: "Refresh billing", onAction: () => { void refreshPlan(); } }}
+          onDismiss={() => setSubscriptionError(null)}
+          className="mb-4"
+        />
       )}
 
       {catalogError && (
-        <div className="glass-card mb-4 border border-destructive/30 p-3">
-          <p className="text-xs text-destructive">{catalogError}</p>
-        </div>
+        <RecoveryState
+          presentation="compact"
+          title="Retry to load available plans"
+          description={catalogError}
+          primaryAction={{ label: "Retry", onAction: () => { void refreshPlan(); } }}
+          className="mb-4"
+        />
       )}
 
-      {(summary || currentPlan) && (
+      {summary && (
         <section aria-label="Plan summary" className="grid gap-3 lg:grid-cols-3">
           <div className="relative min-h-24 rounded-xl border border-border bg-surface-low p-3">
             <div className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-lg bg-surface-high text-text-muted">
@@ -792,9 +850,11 @@ export default function PlansPage() {
               <WalletCards className="h-4 w-4" />
             </div>
             <p className="pr-12 text-sm font-semibold text-foreground">Monthly spend</p>
-            <p className="mt-2 pr-12 text-[1.4rem] font-bold tracking-tight text-foreground">${monthlySpend.toLocaleString()}</p>
+            <p className="mt-2 pr-12 text-[1.4rem] font-bold tracking-tight text-foreground">
+              {catalogError ? "Unavailable" : `$${monthlySpend.toLocaleString()}`}
+            </p>
             <p className="mt-0.5 pr-12 text-xs text-text-muted">
-              {billingResetAt ? `Renews ${formatShortDate(billingResetAt)}` : "No recurring renewal"}
+              {catalogError ? "Plan prices are unavailable" : billingResetAt ? `Renews ${formatShortDate(billingResetAt)}` : "No recurring renewal"}
             </p>
           </div>
         </section>
@@ -804,7 +864,15 @@ export default function PlansPage() {
 
       <section aria-labelledby="active-bundles-heading">
         <h2 id="active-bundles-heading" className="mb-3 text-lg font-semibold tracking-tight text-foreground">Active Bundles</h2>
-        {activeBundles.length === 0 ? (
+        {!billingReady ? (
+          <div className="rounded-xl border border-dashed border-border px-4 py-6 text-xs text-text-secondary">
+            Active bundle details will appear after billing is refreshed.
+          </div>
+        ) : catalogError ? (
+          <div className="rounded-xl border border-dashed border-border px-4 py-6 text-xs text-text-secondary">
+            Active bundle details will appear after the plan catalog is refreshed.
+          </div>
+        ) : activeBundles.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border px-4 py-6 text-xs text-text-secondary">
             No active bundles yet. Choose a plan below to add agent capacity.
           </div>
@@ -905,7 +973,7 @@ export default function PlansPage() {
         )}
       </section>
 
-      {legacySubscriptions.length > 0 && (
+      {!catalogError && legacySubscriptions.length > 0 && (
         <div className="mt-8">
           <div className="mb-3">
             <h2 className="text-[0.9375rem] font-semibold text-foreground">Legacy Active Plans</h2>
@@ -922,8 +990,8 @@ export default function PlansPage() {
                     <p className="mt-1 text-xs text-text-secondary">Inference only legacy entitlement</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{subscription.provider}</p>
-                    <p className="mt-1 text-xs text-foreground">{subscription.status.toLowerCase()}</p>
+                    <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{billingSourceLabel(subscription.provider)}</p>
+                    <p className="mt-1 text-xs text-foreground">{billingStatusLabel(subscription.status)}</p>
                   </div>
                 </div>
                 <div className="mt-3 space-y-2 text-xs text-text-secondary">
@@ -933,7 +1001,11 @@ export default function PlansPage() {
                     {formatTokens(subscription.planTpd)}
                   </p>
                 </div>
-                <div className="mt-4 break-all font-mono text-xs text-text-muted">{subscription.id}</div>
+                <RecoveryDetails
+                  label="Subscription details"
+                  technicalDetails={`Reference: ${subscription.id.slice(0, 8)}...${subscription.id.slice(-4)}`}
+                  className="mt-4"
+                />
                 {subscription.canCancel && !subscription.cancelAtPeriodEnd && (
                   <button
                     type="button"
@@ -969,7 +1041,11 @@ export default function PlansPage() {
 
       {displayProducts.length === 0 ? (
         <div className="glass-card p-4">
-          <p className="text-xs text-text-secondary">No plans are available from the plan catalog right now.</p>
+          <p className="text-xs text-text-secondary">
+            {catalogError
+              ? "Plan options will appear after the plan catalog is refreshed."
+              : "No plans are available from the plan catalog right now."}
+          </p>
         </div>
       ) : (
         <div className="grid overflow-hidden rounded-xl border border-border md:grid-cols-2 xl:grid-flow-col xl:grid-cols-none xl:auto-cols-fr">
@@ -1066,7 +1142,7 @@ export default function PlansPage() {
       <ActivateCodeModal
         isOpen={showRedeemModal}
         processing={redeemingCode}
-        error={subscriptionError}
+        error={subscriptionError?.description ?? null}
         onClose={() => setShowRedeemModal(false)}
         onSubmit={handleRedeemCode}
       />

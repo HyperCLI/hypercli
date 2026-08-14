@@ -1,6 +1,19 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@hypercli/shared-ui", async () => ({
+  ...(await import("../../../../../../packages/shared-ui/src/components/ui/tooltip")),
+  RecoveryDetails: (await import("../../../../../../packages/shared-ui/src/components/patterns/recovery")).RecoveryDetails,
+}));
+
+vi.mock("@hypercli/shared-ui/files", async () => {
+  const fileTypes = await import("../../../../../../packages/shared-ui/src/files/file-types");
+  return {
+    ...fileTypes,
+    formatFileSize: (bytes?: number) => bytes === undefined ? "" : `${bytes} B`,
+  };
+});
+
 vi.mock("./AuthImage", () => ({
   AuthImage: () => <div data-testid="auth-image" />,
 }));
@@ -48,7 +61,7 @@ describe("ToolCallStack", () => {
     expect(screen.queryByText(/0\/4 returned/)).not.toBeInTheDocument();
   });
 
-  it("marks the stack failed when the latest returned tool call failed", () => {
+  it("marks a completed stack with a failed tool as completed with issues", () => {
     const failedToolCalls = toolCalls.map((toolCall, index) => (
       index === toolCalls.length - 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
     ));
@@ -56,11 +69,12 @@ describe("ToolCallStack", () => {
     render(<ToolCallStack toolCalls={failedToolCalls} themeVariant="off" />);
 
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
-    expect(stackButton).toHaveTextContent("Failed");
-    expect(stackButton).toHaveTextContent("1 failed");
+    expect(stackButton).toHaveTextContent("Completed with issues");
+    expect(stackButton).toHaveTextContent("1 of 4 needs review");
+    expect(stackButton).not.toHaveTextContent("Failed");
   });
 
-  it("settles back to done when a successful tool call follows a failure", () => {
+  it("keeps completed-with-issues copy when a successful tool follows a failure", () => {
     const recoveredToolCalls = toolCalls.map((toolCall, index) => (
       index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
     ));
@@ -68,8 +82,18 @@ describe("ToolCallStack", () => {
     render(<ToolCallStack toolCalls={recoveredToolCalls} themeVariant="off" />);
 
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
-    expect(stackButton).toHaveTextContent("Done");
-    expect(stackButton).toHaveTextContent("1 failed");
+    expect(stackButton).toHaveTextContent("Completed with issues");
+    expect(stackButton).toHaveTextContent("1 of 4 needs review");
+  });
+
+  it("uses no destructive classes for completed stacks that need review", () => {
+    const failedToolCalls = toolCalls.map((toolCall, index) => (
+      index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
+    ));
+
+    const { container } = render(<ToolCallStack toolCalls={failedToolCalls} themeVariant="v2" />);
+
+    expect(container.innerHTML).not.toContain("destructive");
   });
 
   it("shows running when the latest tool call is still pending", () => {

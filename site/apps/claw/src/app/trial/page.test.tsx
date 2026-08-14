@@ -33,6 +33,18 @@ vi.mock("@/components/dashboard/DashboardShell", () => ({
 vi.mock("@hypercli/shared-ui", () => ({
   HyperCLILogo: () => <div>HyperCLI</div>,
   PrivyLoginPanel: () => <div>Login</div>,
+  RecoveryState: ({ id, title, description, primaryAction }: {
+    id?: string;
+    title: ReactNode;
+    description: ReactNode;
+    primaryAction?: { label: ReactNode; onAction: () => void };
+  }) => (
+    <section id={id} role="alert">
+      <h3>{title}</h3>
+      <p>{description}</p>
+      {primaryAction ? <button onClick={primaryAction.onAction}>{primaryAction.label}</button> : null}
+    </section>
+  ),
   notifyBillingPlanChanged: mocks.notifyBillingPlanChanged,
 }));
 
@@ -66,5 +78,20 @@ describe("TrialPage", () => {
 
     expect(screen.getByText("Login")).toBeInTheDocument();
     expect(document.querySelector("#trial-page-login")).not.toBeNull();
+  });
+
+  it("uses ambiguous recovery copy when trial activation cannot be confirmed", async () => {
+    mocks.claimTrialEntitlement.mockRejectedValueOnce(
+      new Error("POST /agents/trial token=private-trial-token returned 504"),
+    );
+    render(<TrialPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
+
+    expect(await screen.findByRole("heading", { name: "Check your plan, then retry the trial" })).toBeVisible();
+    expect(screen.getByText(/Review your plan before sending another request/i)).toBeVisible();
+    expect(screen.queryByText(/POST \/agents\/trial/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry trial request" })).toBeVisible();
+    expect(document.querySelector("#trial-claim-error")).not.toBeNull();
   });
 });

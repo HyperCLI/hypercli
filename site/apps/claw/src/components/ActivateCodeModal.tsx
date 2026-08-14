@@ -12,12 +12,14 @@ import {
   DialogTitle,
   Input,
   Label,
+  RecoveryDetails,
 } from "@hypercli/shared-ui";
 
 interface ActivateCodeModalProps {
   isOpen: boolean;
   processing: boolean;
   error: string | null;
+  technicalDetails?: string | null;
   onClose: () => void;
   onSubmit: (code: string) => Promise<void>;
 }
@@ -40,6 +42,7 @@ export function ActivateCodeModal(props: ActivateCodeModalProps) {
 function ActivateCodeModalContent({
   processing,
   error,
+  technicalDetails,
   onSubmit,
 }: Omit<ActivateCodeModalProps, "isOpen">) {
   const inputId = useId();
@@ -114,10 +117,13 @@ function ActivateCodeModalContent({
           </div>
 
           {error ? (
-            <div id={errorId} role="alert" className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-xs leading-4 text-destructive">
-              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <p>{error}</p>
-            </div>
+            <>
+              <div id={errorId} role="alert" className="flex items-start gap-2 rounded-xl border border-border bg-surface-high/70 px-3 py-2.5 text-xs leading-4 text-foreground">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-secondary" aria-hidden="true" />
+                <p>{error}</p>
+              </div>
+              <RecoveryDetails label="What happened" technicalDetails={technicalDetails ?? undefined} />
+            </>
           ) : null}
         </div>
 

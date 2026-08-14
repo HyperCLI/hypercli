@@ -71,8 +71,8 @@ export function ConnectorAuthorizationGuide({
       });
       setApproved(true);
       onApproved?.();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The authorization code could not be approved.");
+    } catch {
+      setError(`The code was not approved. Request a new ${flow.codeLength}-character code and try again.`);
     } finally {
       setApproving(false);
     }
@@ -128,7 +128,7 @@ export function ConnectorAuthorizationGuide({
             className="mt-2 h-12 w-full rounded-xl border border-border bg-background px-3 font-mono text-lg font-bold uppercase tracking-[0.18em] text-foreground outline-none placeholder:text-text-muted focus:border-selection-accent"
           />
           <p className="mt-2 text-[11px] leading-4 text-text-muted">The code expires after {flow.expiresInMinutes} minutes.</p>
-          {error ? <p role="alert" className="mt-2 text-xs text-destructive">{error}</p> : null}
+           {error ? <p role="alert" className="mt-2 text-xs text-warning">{error}</p> : null}
           {!provider?.approveAuthorization ? (
             <p role="alert" className="mt-2 text-xs text-warning">Code approval is not available in this workspace.</p>
           ) : null}

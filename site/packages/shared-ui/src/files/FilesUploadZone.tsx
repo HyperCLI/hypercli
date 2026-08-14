@@ -11,6 +11,8 @@ import {
   FileIcon,
 } from "lucide-react";
 import type { UploadItem } from "./types";
+import { formatFileTechnicalDetails } from "./error-details";
+import { RecoveryDetails, RecoveryState } from "../components/patterns/recovery";
 import { TooltipHint } from "../components/ui/tooltip";
 
 // ── Constants ──
@@ -77,12 +79,20 @@ interface DroppedItemSnapshot {
   file: File | null;
 }
 
+interface UploadFeedbackIssue {
+  message: string;
+  description?: string;
+  technicalDetails?: string;
+}
+
+type UploadItemWithDetails = UploadItem & { technicalDetails?: string };
+
 // ── Component ──
 
 export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, compact = false }: FilesUploadZoneProps) {
   const [dragOver, setDragOver] = useState(false);
-  const [uploads, setUploads] = useState<UploadItem[]>([]);
-  const [dropError, setDropError] = useState<string | null>(null);
+  const [uploads, setUploads] = useState<UploadItemWithDetails[]>([]);
+  const [dropError, setDropError] = useState<UploadFeedbackIssue | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFiles = useCallback(async ({ files, directories }: DroppedFileSelection) => {
@@ -92,14 +102,14 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
       }
     }
 
-    const items: UploadItem[] = files.map(({ file, relativePath }) => ({
+    const items: UploadItemWithDetails[] = files.map(({ file, relativePath }) => ({
       id: `${relativePath}-${Date.now()}-${Math.random()}`,
       file,
       relativePath,
       targetPath: joinUploadPath(currentPath, relativePath),
       progress: 0,
       status: file.size > MAX_FILE_SIZE ? "error" as const : "pending" as const,
-      error: file.size > MAX_FILE_SIZE ? `File exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit` : undefined,
+      error: file.size > MAX_FILE_SIZE ? `Choose a file smaller than ${MAX_FILE_SIZE / 1024 / 1024} MB.` : undefined,
     }));
 
     setUploads((prev) => [...prev, ...items]);
@@ -127,7 +137,12 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
         setUploads((prev) =>
           prev.map((u) =>
             u.id === item.id
-              ? { ...u, status: "error", error: err instanceof Error ? err.message : "Upload failed" }
+              ? {
+                  ...u,
+                  status: "error",
+                  error: "Try uploading this file again.",
+                  technicalDetails: formatFileTechnicalDetails(err),
+                }
               : u,
           ),
         );
@@ -140,7 +155,7 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
     if (!item) return;
 
     setUploads((prev) =>
-      prev.map((u) => (u.id === itemId ? { ...u, status: "uploading", progress: 10, error: undefined } : u)),
+      prev.map((u) => (u.id === itemId ? { ...u, status: "uploading", progress: 10, error: undefined, technicalDetails: undefined } : u)),
     );
 
     try {
@@ -153,7 +168,12 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
       setUploads((prev) =>
         prev.map((u) =>
           u.id === itemId
-            ? { ...u, status: "error", error: err instanceof Error ? err.message : "Upload failed" }
+            ? {
+                ...u,
+                status: "error",
+                error: "Try uploading this file again.",
+                technicalDetails: formatFileTechnicalDetails(err),
+              }
             : u,
         ),
       );
@@ -184,7 +204,7 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
     void readDroppedFileSelection(e.dataTransfer)
       .then((selection) => processFiles(selection))
       .catch((cause: unknown) => {
-        setDropError(formatDropError(cause));
+        setDropError(formatDropFeedback(cause));
       });
   }, [processFiles]);
 
@@ -202,7 +222,7 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
         })),
         directories: [],
       }).catch((cause: unknown) => {
-        setDropError(formatDropError(cause));
+        setDropError(formatDropFeedback(cause));
       });
       e.target.value = "";
     }
@@ -234,7 +254,20 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
         </span>
       </motion.div>
 
-      {dropError ? <p role="alert" className="text-[10px] text-destructive">{dropError}</p> : null}
+      {dropError ? (
+        <RecoveryState
+          presentation="compact"
+          icon={AlertCircle}
+          title={dropError.message}
+          description={dropError.description ?? "The selection may have changed while it was being read."}
+          technicalDetails={dropError.technicalDetails}
+          detailsLabel="Technical details"
+          onDismiss={() => setDropError(null)}
+          dismissLabel="Dismiss upload message"
+          announcement="assertive"
+          headingLevel={3}
+        />
+      ) : null}
 
       <input
         ref={fileInputRef}
@@ -269,7 +302,7 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
                   </motion.div>
                 )}
                 {item.status === "done" && <CheckCircle2 className="w-3 h-3 text-[var(--selection-accent)]" />}
-                {item.status === "error" && <AlertCircle className="w-3 h-3 text-destructive" />}
+                {item.status === "error" && <AlertCircle className="w-3 h-3 text-warning" />}
                 {item.status === "pending" && <FileIcon className="w-3 h-3 text-text-muted" />}
 
                 {/* Name + progress */}
@@ -286,7 +319,14 @@ export function FilesUploadZone({ currentPath, onUpload, onCreateDirectory, comp
                     </div>
                   )}
                   {item.error && (
-                    <p className="truncate text-[9px] text-destructive">{item.error}</p>
+                    <>
+                      <p role="alert" className="truncate text-[9px] text-warning">{item.error}</p>
+                      <RecoveryDetails
+                        label="Technical details"
+                        technicalDetails={item.technicalDetails}
+                        className="mt-1 text-foreground"
+                      />
+                    </>
                   )}
                 </div>
 
@@ -330,7 +370,7 @@ async function readFileAsBytes(file: File): Promise<Uint8Array> {
       if (reader.result instanceof ArrayBuffer) {
         resolve(new Uint8Array(reader.result));
       } else {
-        reject(new Error("Failed to read file"));
+        reject(new Error("The file could not be read."));
       }
     };
     reader.onerror = () => reject(
@@ -383,9 +423,12 @@ function directoryReadError(name: string, cause: unknown): unknown {
   return new Error(`Could not read folder "${name}".`);
 }
 
-function formatDropError(cause: unknown): string {
-  if (cause instanceof Error && cause.message) return cause.message;
-  return "The folder could not be read. It may have been moved or removed while it was being added.";
+function formatDropFeedback(cause: unknown): UploadFeedbackIssue {
+  return {
+    message: "Try adding these files again.",
+    description: "The selection may have moved or changed while it was being read.",
+    technicalDetails: formatFileTechnicalDetails(cause),
+  };
 }
 
 function readDroppedFile(entry: DroppedFileEntry): Promise<File> {

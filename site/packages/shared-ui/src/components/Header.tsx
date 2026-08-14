@@ -77,6 +77,7 @@ function detectTrack(pathname: string): TrackId | null {
 }
 
 export interface HeaderProps {
+  homepage?: boolean;
   loginApiBaseUrl?: string;
   loginTokenStorageKey?: string;
 }
@@ -93,7 +94,7 @@ function TurnkeyLogoutBridge({ register }: { register: (logout: (() => Promise<v
   return null;
 }
 
-export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: HeaderProps = {}) {
+export default function Header({ homepage = false, loginApiBaseUrl, loginTokenStorageKey }: HeaderProps = {}) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isCondensed, setIsCondensed] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
@@ -156,7 +157,7 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
   useEffect(() => {
     const desktopQuery = window.matchMedia("(min-width: 1024px)");
     const updateHeader = () => {
-      setIsCondensed(pathname !== "/" && desktopQuery.matches && window.scrollY > HEADER_COLLAPSE_SCROLL_Y);
+      setIsCondensed(!homepage && desktopQuery.matches && window.scrollY > HEADER_COLLAPSE_SCROLL_Y);
     };
 
     updateHeader();
@@ -166,7 +167,7 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
       window.removeEventListener("scroll", updateHeader);
       desktopQuery.removeEventListener("change", updateHeader);
     };
-  }, [pathname]);
+  }, [homepage, pathname]);
 
   return (
     <>
@@ -177,8 +178,12 @@ export default function Header({ loginApiBaseUrl, loginTokenStorageKey }: Header
           mobileMenuOpen ? "bg-background" : "bg-background/80"
         } backdrop-blur-lg border-b border-border`}
       >
-        <div className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${isCondensed ? "lg:hidden" : ""}`}>
-          <nav className="flex items-center justify-between h-16">
+        <div
+          className={`${homepage ? "max-w-[1120px] px-6" : "max-w-[1400px] px-4 sm:px-6 lg:px-8"} mx-auto ${
+            isCondensed ? "lg:hidden" : ""
+          }`}
+        >
+          <nav className={`flex items-center justify-between ${homepage ? "h-[58px] sm:h-[66px]" : "h-16"}`}>
             {/* Logo */}
             <Link
               href={NAV_URLS.home}

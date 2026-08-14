@@ -36,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="scroll-smooth" data-theme="aurora-dark" data-color-mode="dark" data-plan-tier="solo" suppressHydrationWarning>
+    <html lang="en" className="scroll-smooth" data-theme="aurora-dark" data-color-mode="dark" data-plan-tier="solo" data-feedback-palette="calm" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico?v=aurora1" sizes="any" />
         <link rel="icon" href="/favicon-32x32.png?v=aurora1" type="image/png" sizes="32x32" />

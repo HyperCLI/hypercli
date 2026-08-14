@@ -18,6 +18,8 @@ export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRec
   );
   const [recovering, setRecovering] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const skillIdInputId = React.useId();
+  const skillIdErrorId = `${skillIdInputId}-error`;
 
   const validSkillId = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(skillId);
 
@@ -28,8 +30,8 @@ export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRec
     try {
       await onRecover({ candidateId: candidate.id, skillId, paths: selectedPaths });
       onClose();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not organize the workspace skill.");
+    } catch {
+      setError("The files were not moved. Review the selection, then try again.");
     } finally {
       setRecovering(false);
     }
@@ -59,13 +61,15 @@ export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRec
             <label className="block">
               <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Skill ID</span>
               <input
+                id={skillIdInputId}
                 value={skillId}
                 onChange={(event) => { setSkillId(event.target.value.trim().toLowerCase()); setError(null); }}
                 disabled={recovering}
                 className="h-9 w-full rounded-xl border border-border bg-surface-low/45 px-3 font-mono text-xs text-foreground outline-none transition-colors focus:border-primary/50 disabled:opacity-60"
                 aria-invalid={!validSkillId}
+                aria-describedby={!validSkillId ? skillIdErrorId : undefined}
               />
-              {!validSkillId && <span className="mt-1.5 block text-[10px] text-error">Use lowercase letters, numbers, and single hyphens.</span>}
+              {!validSkillId && <span id={skillIdErrorId} role="alert" className="mt-1.5 block text-[10px] text-warning">Use lowercase letters, numbers, and single hyphens.</span>}
             </label>
 
             <div>
@@ -106,7 +110,7 @@ export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRec
               </div>
             </div>
 
-            {error && <p className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">{error}</p>}
+            {error && <p role="alert" className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
         </div>
 
         <footer className="flex shrink-0 flex-col-reverse gap-2 border-t border-border px-5 py-3 sm:flex-row sm:justify-end">

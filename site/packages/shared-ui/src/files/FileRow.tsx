@@ -100,7 +100,7 @@ export function getFileBackupBadge(comparison: FileBackupComparison | undefined,
     return {
       label: "Not backed up",
       title: backupTooltipLines(comparison, "Not backed up", "No matching backup copy found."),
-      className: "border-destructive/35 bg-destructive text-destructive",
+      className: "border-warning/35 bg-warning text-warning",
     };
   }
   if (comparison.status === "backup-only") {
@@ -299,7 +299,7 @@ export function FileRow({
                 <MenuButton icon={Copy} label="Copy path" onClick={() => { setMenuOpen(false); onCopyPath(entry); }} />
               )}
               {onDelete && (
-                <MenuButton icon={Trash2} label="Delete" danger onClick={() => { setMenuOpen(false); onDelete(entry); }} />
+                <MenuButton icon={Trash2} label="Delete" warning onClick={() => { setMenuOpen(false); onDelete(entry); }} />
               )}
             </div>
           </motion.div>
@@ -314,20 +314,20 @@ export function FileRow({
 function MenuButton({
   icon: Icon,
   label,
-  danger,
+  warning,
   onClick,
 }: {
   icon: LucideIcon;
   label: string;
-  danger?: boolean;
+  warning?: boolean;
   onClick: () => void;
 }) {
   return (
     <button
       onClick={onClick}
       className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] transition-colors ${
-        danger
-          ? "text-destructive hover:bg-destructive/10"
+        warning
+          ? "text-warning hover:bg-warning/10"
           : "text-foreground hover:bg-surface-low"
       }`}
     >

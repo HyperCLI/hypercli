@@ -25,11 +25,12 @@ describe("ActivateCodeModal", () => {
   });
 
   it("associates activation errors with the code field", () => {
-    render(
+    const { container } = render(
       <ActivateCodeModal
         isOpen
         processing={false}
         error="This code is no longer valid."
+        technicalDetails="requestId=req-123"
         onClose={vi.fn()}
         onSubmit={vi.fn(async () => undefined)}
       />,
@@ -38,6 +39,10 @@ describe("ActivateCodeModal", () => {
     expect(screen.getByRole("dialog", { name: "Activate a code" })).toBeInTheDocument();
     expect(screen.getByLabelText("Activation code")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("alert")).toHaveTextContent("This code is no longer valid.");
+    expect(screen.queryByText("requestId=req-123")).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("destructive");
+    fireEvent.click(screen.getByRole("button", { name: "What happened" }));
+    expect(screen.getByText("requestId=req-123")).toBeVisible();
   });
 
   it("uses the close control as the only dismissal path", () => {

@@ -15,6 +15,7 @@ export type AgentChatBootStatus =
       phase: "error";
       title: string;
       detail: string;
+      technicalDetail?: string;
       stage: AgentLifecycleStage;
     }
   | { status: "ready" }
@@ -90,8 +91,8 @@ export function getAgentChatBootStatus({
     return {
       status: "error",
       phase: "error",
-      title: "Agent failed",
-      detail: "Needs attention before it can run.",
+      title: "Review this agent before restarting",
+      detail: "Clean up the interrupted launch, then start the agent again.",
       stage: "runtime",
     };
   }
@@ -122,8 +123,9 @@ export function getAgentChatBootStatus({
     return {
       status: "error",
       phase: "error",
-      title: "Could not connect",
-      detail: error,
+      title: "Try again to reconnect",
+      detail: "The agent connection was interrupted. Your saved conversation is still available.",
+      technicalDetail: error,
       stage: gatewayConnected ? "complete" : "gateway",
     };
   }
@@ -190,7 +192,8 @@ export function getAgentGatewayPanelBootStatus({
   connectingDetail,
   waitingTitle = "Waiting for gateway",
   waitingDetail,
-  errorTitle = "Could not connect",
+  errorTitle = "Try again to reconnect",
+  errorDetail = "The connection was interrupted. Your saved work is still available.",
 }: {
   connected: boolean;
   connecting?: boolean;
@@ -203,13 +206,15 @@ export function getAgentGatewayPanelBootStatus({
   waitingTitle?: string;
   waitingDetail: string;
   errorTitle?: string;
+  errorDetail?: string;
 }): AgentBootDisplayStatus | null {
   if (error) {
     return {
       status: "error",
       phase: "error",
       title: errorTitle,
-      detail: error,
+      detail: errorDetail,
+      technicalDetail: error,
       stage: connected ? "complete" : "gateway",
     };
   }

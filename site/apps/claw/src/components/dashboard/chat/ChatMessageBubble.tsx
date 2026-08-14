@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 
 import type { ChatMessageProps } from "./types";
 import { getEntranceProps, getBubbleClasses } from "./bubbleStyles";
+import { presentSystemMessage } from "./helpers";
 import { useTypewriter } from "./useTypewriter";
 import { useInlineAudio } from "./useInlineAudio";
 import { AudioPlayer } from "./AudioPlayer";
@@ -62,10 +63,15 @@ export function ChatMessageBubble({
 
   // ── System message ──
   if (isSystem) {
+    const systemMessage = presentSystemMessage(message.content);
     return (
       <div className="flex min-w-0 max-w-full justify-center">
-        <div className="max-w-[85%] break-words rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive [overflow-wrap:anywhere]">
-          {message.content}
+        <div
+          role="status"
+          aria-label={systemMessage.ariaLabel}
+          className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${systemMessage.tone === "neutral" ? "border-border bg-surface-low/70 text-text-muted" : "border-warning/30 bg-warning/10 text-text-secondary"}`}
+        >
+          {systemMessage.text}
         </div>
       </div>
     );

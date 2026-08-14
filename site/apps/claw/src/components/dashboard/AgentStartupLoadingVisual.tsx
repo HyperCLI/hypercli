@@ -64,6 +64,7 @@ export interface AgentStartupLoadingVisualProps {
   note?: string;
   title?: string;
   detail?: string;
+  technicalDetails?: string;
   className?: string;
   status?: "loading" | "error";
   actionLabel?: string;
@@ -178,6 +179,7 @@ export function AgentStartupLoadingVisual(props: AgentStartupLoadingVisualProps)
       <AgentGatewayErrorVisual
         title={props.title}
         detail={props.detail}
+        technicalDetails={props.technicalDetails}
         className={props.className}
         actionLabel={props.actionLabel}
         onAction={props.onAction}

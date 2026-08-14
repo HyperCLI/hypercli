@@ -35,6 +35,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
 
   const rawPending = toolCalls.some((tc) => tc.result === undefined) && isStreaming;
   const stackView = buildToolCallStackView(toolCalls, { isStreaming, pendingTimedOut });
+  const presentationStatus = stackView.allReturned && stackView.failedCount > 0 ? "failed" : stackView.status;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -49,7 +50,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
   return (
     <motion.div
       layout
-      className={`${getToolCallClass(themeVariant, stackView.status)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
+      className={`${getToolCallClass(themeVariant, presentationStatus)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
       transition={{ layout: { duration: 0.2, ease: "easeOut" } }}
     >
       <button
@@ -69,7 +70,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate font-medium text-foreground">{toolCalls.length} tool calls</span>
-            <ToolCallStatusFrame status={stackView.status} />
+            <ToolCallStatusFrame status={presentationStatus} label={stackView.statusLabel} />
           </span>
           <span className="mt-0.5 block truncate text-text-muted">
             {stackView.summary}

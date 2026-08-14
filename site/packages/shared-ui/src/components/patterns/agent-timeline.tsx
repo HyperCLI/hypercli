@@ -18,7 +18,7 @@ export function AgentTimeline({ title, events, footer, className }: AgentTimelin
     <div className={cn("relative mx-auto max-w-xl text-left", className)}>
       {title && <h3 className="mb-6 text-lg font-semibold text-terminal-foreground">{title}</h3>}
       <ol
-        className="relative space-y-5 pl-0 before:absolute before:bottom-2 before:left-[82px] before:top-2 before:w-0.5 before:rounded-full before:bg-[linear-gradient(180deg,rgba(157,180,255,0.5),rgba(108,232,196,0.35),rgba(201,175,255,0.4))] before:content-['']"
+        className="relative space-y-5 pl-0 before:absolute before:bottom-2 before:left-[87.5px] before:top-2 before:w-0.5 before:rounded-full before:bg-[linear-gradient(180deg,rgba(157,180,255,0.5),rgba(108,232,196,0.35),rgba(201,175,255,0.4))] before:content-['']"
       >
         {events.map((event, index) => (
           <li key={index} className="flex items-start gap-5">

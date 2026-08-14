@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TelegramChatConnectorCard } from "./TelegramChatConnectorCard";
 import type { ConnectorWorkflow } from "@/lib/connector-workflow";
@@ -53,6 +53,10 @@ function provider(): AgentConnectorsProvider {
 }
 
 describe("TelegramChatConnectorCard", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("uses the selection accent for controls while retaining Telegram branding", () => {
     const { container } = render(
       <TelegramChatConnectorCard connected config={null} configSchema={null} connectorsProvider={provider()} />,
@@ -519,6 +523,48 @@ describe("TelegramChatConnectorCard", () => {
     expect(onOpenIntegrationDetails).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps Telegram probe diagnostics closed and redacts bot tokens", async () => {
+    const leakedToken = "987654321:ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const onSaveConfig = vi.fn(async () => undefined);
+    const onChannelProbe = vi.fn(async () => ({
+      channels: {
+        telegram: {
+          configured: true,
+          running: false,
+          probe: { error: `Telegram rejected ${leakedToken}` },
+        },
+      },
+    }));
+
+    render(
+      <TelegramChatConnectorCard
+        connected
+        config={null}
+        configSchema={telegramSchema}
+        onSaveConfig={onSaveConfig}
+        onChannelProbe={onChannelProbe}
+        onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
+    fireEvent.change(await screen.findByPlaceholderText(/enter bot token/i), { target: { value: validToken } });
+    chooseAccessOptions();
+    fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /step 2: test the connection/i }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(screen.getByText(/connection is not ready yet/i)).toBeInTheDocument();
+    expect(screen.queryByText(leakedToken)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("Telegram rejected [redacted token]")).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(leakedToken);
+  });
+
   it("stays on the final Telegram message step if the gateway restarts while saving", async () => {
     const onSaveConfig = vi.fn(async () => {
       throw new Error("gateway closed (1012): restart");
@@ -670,6 +716,10 @@ describe("TelegramChatConnectorCard", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /disconnect/i }));
+
+    expect(onSaveConfig).not.toHaveBeenCalled();
+    expect(screen.getByRole("alertdialog", { name: /disconnect telegram/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Telegram" }));
 
     await waitFor(() => expect(onSaveConfig).toHaveBeenCalledWith({ channels: { telegram: null } }));
   });

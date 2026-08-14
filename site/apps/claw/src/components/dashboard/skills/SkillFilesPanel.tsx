@@ -113,7 +113,7 @@ export function SkillFilesPanel({
         defaultSource="agent"
         showSourceTabs={false}
         isDesktopViewport={isDesktopViewport}
-        error={!localPreview && !canAccessInstalledFiles ? "Skill files are unavailable for this agent." : null}
+        error={!localPreview && !canAccessInstalledFiles ? "Reconnect the agent, then retry loading this skill's files." : null}
         onListFiles={listFiles}
         onOpenFile={readFile}
         onOpenFileBytes={readFileBytes}

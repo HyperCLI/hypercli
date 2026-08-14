@@ -6,6 +6,19 @@ import { createAgentClient } from "@/lib/agent-client";
 import { normalizeHistoryMessage, OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
 import { ChatMessageBubble, ChatThinkingIndicator } from "./ChatMessage";
 
+vi.mock("@hypercli/shared-ui", async () => ({
+  ...(await import("../../../../../packages/shared-ui/src/components/ui/tooltip")),
+  RecoveryDetails: (await import("../../../../../packages/shared-ui/src/components/patterns/recovery")).RecoveryDetails,
+}));
+
+vi.mock("@hypercli/shared-ui/files", async () => {
+  const fileTypes = await import("../../../../../packages/shared-ui/src/files/file-types");
+  return {
+    ...fileTypes,
+    formatFileSize: (bytes?: number) => bytes === undefined ? "" : `${bytes} B`,
+  };
+});
+
 function expectBoundedMediaRead(readFileBytes: unknown, path: string) {
   expect(readFileBytes).toHaveBeenCalledWith(path, {
     maxBytes: 64 * 1024 * 1024,
@@ -225,14 +238,25 @@ describe("ChatMessageBubble", () => {
     expect(notice).not.toHaveClass("text-[#d05f5f]");
   });
 
-  it("uses semantic destructive colors for system errors", () => {
+  it("uses calm amber styling for generic system notices", () => {
     render(<ChatMessageBubble message={{ role: "system", content: "Connection failed" }} />);
 
     expect(screen.getByText("Connection failed")).toHaveClass(
-      "border-destructive/20",
-      "bg-destructive/10",
-      "text-destructive",
+      "border-warning/30",
+      "bg-warning/10",
+      "text-text-secondary",
     );
+    expect(screen.getByText("Connection failed").className).not.toContain("destructive");
+  });
+
+  it("replaces technical system provider errors with calm recovery copy", () => {
+    const rawProviderError = "Error: provider request failed statusCode=503 requestId=req-private";
+    const { container } = render(<ChatMessageBubble message={{ role: "system", content: rawProviderError }} />);
+
+    const notice = screen.getByRole("status", { name: "Reply needs attention" });
+    expect(notice).toHaveTextContent("This reply did not finish. Try again when you're ready.");
+    expect(container).not.toHaveTextContent(rawProviderError);
+    expect(container.innerHTML).not.toContain("destructive");
   });
 
   it("renders empty-reply failures as a neutral retryable notice", () => {
@@ -1660,6 +1684,66 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("Result ready")).toBeInTheDocument();
     expect(screen.queryByText(rawResult)).not.toBeInTheDocument();
     expect(screen.queryByText(rawArgs)).not.toBeInTheDocument();
+  });
+
+  it("shows failed tool recovery copy before closed technical details", () => {
+    const rawProviderError = "provider request failed: statusCode=503 requestId=req-private";
+    const result = `Error: ${JSON.stringify({ error: rawProviderError })}`;
+    const { container } = render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: [{
+            name: "web_search",
+            args: JSON.stringify({ query: "recovery-first tool UX" }),
+            result,
+          }],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    expect(screen.getByText("Review before retrying")).toBeInTheDocument();
+    expect(screen.queryByText(/provider request failed/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Web Search/i }));
+
+    expect(screen.getByText("This action did not finish. Review any completed changes before retrying the request.")).toBeInTheDocument();
+    expect(screen.getByText("Query")).toBeInTheDocument();
+    expect(screen.queryByText(/provider request failed/)).not.toBeInTheDocument();
+
+    const technicalDetails = screen.getByRole("button", { name: "Technical details" });
+    expect(technicalDetails).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(technicalDetails);
+
+    expect(technicalDetails).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText(`Error: ${rawProviderError}`)).toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("destructive");
+  });
+
+  it("labels completed tool groups with failures as completed with issues", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            { id: "one", name: "one", args: "{}", result: '{"ok":true}' },
+            { id: "two", name: "two", args: "{}", result: 'Error: {"error":"Search failed"}' },
+            { id: "three", name: "three", args: "{}", result: '{"ok":true}' },
+            { id: "four", name: "four", args: "{}", result: '{"ok":true}' },
+          ],
+        }}
+        themeVariant="v2"
+      />,
+    );
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Completed with issues");
+    expect(stackButton).toHaveTextContent("1 of 4 needs review");
+    expect(stackButton).not.toHaveTextContent("Failed");
+    expect(container.innerHTML).not.toContain("destructive");
   });
 
   it("counts empty results in stacked tool-call progress", () => {

@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { FileEntry, TreeNode, FileSortKey, FileSortDir } from "./types";
 import { FileRow } from "./FileRow";
+import { ConfirmDialog } from "../components/patterns/confirm-dialog";
 
 // ── Types ──
 
@@ -15,7 +16,7 @@ interface FilesDirectoryTreeProps {
   showHidden?: boolean;
   onOpenFile: (entry: FileEntry) => void;
   onOpenDirectory?: (entry: FileEntry) => void;
-  onDeleteFile?: (entry: FileEntry) => void;
+  onDeleteFile?: (entry: FileEntry) => void | Promise<void>;
   onRenameFile?: (entry: FileEntry, newName: string) => void;
   onDownloadFile?: (entry: FileEntry) => void;
   canDownloadFile?: (entry: FileEntry) => boolean;
@@ -138,7 +139,7 @@ function TreeLevel({
   searchQuery?: string;
   onOpenFile: (entry: FileEntry) => void;
   onOpenDirectory?: (entry: FileEntry) => void;
-  onDeleteFile?: (entry: FileEntry) => void;
+  onDeleteFile?: (entry: FileEntry) => void | Promise<void>;
   onRenameFile?: (entry: FileEntry, newName: string) => void;
   onDownloadFile?: (entry: FileEntry) => void;
   canDownloadFile?: (entry: FileEntry) => boolean;
@@ -219,6 +220,8 @@ export function FilesDirectoryTree({
   onCopyPath,
 }: FilesDirectoryTreeProps) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [pendingDeleteEntry, setPendingDeleteEntry] = useState<FileEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const toggleExpand = useCallback((path: string) => {
     setExpandedPaths((prev) => {
@@ -249,20 +252,45 @@ export function FilesDirectoryTree({
     return sortEntries(filtered, sortKey, sortDir);
   }, [entries, searchQuery, isSearching, showHidden, sortKey, sortDir]);
 
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDeleteEntry || !onDeleteFile || deleting) return;
+    setDeleting(true);
+    try {
+      await onDeleteFile(pendingDeleteEntry);
+      setDeleting(false);
+      setPendingDeleteEntry(null);
+    } catch {
+      setDeleting(false);
+    }
+  }, [deleting, onDeleteFile, pendingDeleteEntry]);
+
   return (
-    <TreeLevel
-      nodes={displayNodes}
-      depth={0}
-      expandedPaths={expandedPaths}
-      onToggle={toggleExpand}
-      searchQuery={isSearching ? searchQuery : undefined}
-      onOpenFile={onOpenFile}
-      onOpenDirectory={onOpenDirectory}
-      onDeleteFile={onDeleteFile}
-      onRenameFile={onRenameFile}
-      onDownloadFile={onDownloadFile}
-      canDownloadFile={canDownloadFile}
-      onCopyPath={onCopyPath}
-    />
+    <>
+      <TreeLevel
+        nodes={displayNodes}
+        depth={0}
+        expandedPaths={expandedPaths}
+        onToggle={toggleExpand}
+        searchQuery={isSearching ? searchQuery : undefined}
+        onOpenFile={onOpenFile}
+        onOpenDirectory={onOpenDirectory}
+        onDeleteFile={onDeleteFile ? setPendingDeleteEntry : undefined}
+        onRenameFile={onRenameFile}
+        onDownloadFile={onDownloadFile}
+        canDownloadFile={canDownloadFile}
+        onCopyPath={onCopyPath}
+      />
+      <ConfirmDialog
+        open={pendingDeleteEntry !== null}
+        title={pendingDeleteEntry?.type === "directory" ? "Delete this folder?" : "Delete this file?"}
+        message={pendingDeleteEntry?.type === "directory"
+          ? `This removes "${pendingDeleteEntry.name}" and everything inside it. This action cannot be undone.`
+          : `This removes "${pendingDeleteEntry?.name ?? "this file"}" from the workspace. This action cannot be undone.`}
+        confirmLabel={pendingDeleteEntry?.type === "directory" ? "Delete folder" : "Delete file"}
+        loading={deleting}
+        onConfirm={() => { void confirmDelete(); }}
+        onCancel={() => setPendingDeleteEntry(null)}
+      />
+    </>
   );
 }

@@ -12,8 +12,19 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@hypercli/shared-ui", () => ({
   HyperCLILogo: () => <div>HyperCLI</div>,
-  PrivyLoginPanel: ({ onSuccess }: { onSuccess?: () => void }) => (
-    <div data-testid="login-panel" data-has-redirect={onSuccess ? "true" : "false"} />
+  PrivyLoginPanel: ({ onSuccess, errorMessage, errorTone, securityNote }: {
+    onSuccess?: () => void;
+    errorMessage?: string;
+    errorTone?: string;
+    securityNote?: string;
+  }) => (
+    <div
+      data-testid="login-panel"
+      data-has-redirect={onSuccess ? "true" : "false"}
+      data-error-message={errorMessage}
+      data-error-tone={errorTone}
+      data-security-note={securityNote}
+    />
   ),
 }));
 
@@ -56,6 +67,15 @@ describe("Claw login page", () => {
     render(<Home />);
 
     expect(screen.getByTestId("login-panel")).toHaveAttribute("data-has-redirect", "false");
+    expect(screen.getByTestId("login-panel")).toHaveAttribute("data-error-tone", "neutral");
+    expect(screen.getByTestId("login-panel")).toHaveAttribute(
+      "data-error-message",
+      "Sign-in did not finish. Retry to reopen the session.",
+    );
+    expect(screen.getByTestId("login-panel")).toHaveAttribute(
+      "data-security-note",
+      "A secure one-time code will be sent to your email.",
+    );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
 });

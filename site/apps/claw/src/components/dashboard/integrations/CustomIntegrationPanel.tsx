@@ -67,8 +67,8 @@ function heroCopy(
   }
   if (error) {
     return match
-      ? { title: "Setup failed", subtitle: "No setup result was accepted. Review the error and try again." }
-      : { title: "Could not verify integration", subtitle: "No integration match was accepted. Review the error and try again." };
+      ? { title: "Retry setup", subtitle: "Review the confirmed service, then start another private setup run." }
+      : { title: "Review integration details", subtitle: "Check the service name and documentation URL, then try again." };
   }
   if (result?.status === "complete") return { title: service ? `${service} ready` : "Integration ready", subtitle: result.summary };
   if (result?.status === "needs_user_action") return { title: service ? `Finish ${service} setup` : "Finish setup", subtitle: result.summary };
@@ -129,8 +129,8 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
       setMatch(buildCustomIntegrationMatch(draft));
       setResult(null);
       setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The integration request is invalid.");
+    } catch {
+      setError("Check the service name and documentation URL, then review the integration again.");
     }
   };
 
@@ -143,8 +143,8 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
         previousResult: result,
         confirmedStepIds: confirmedIds,
       });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The setup request is invalid.");
+    } catch {
+      setError("Review the confirmed service details, then start setup again.");
       return;
     }
 
@@ -172,8 +172,8 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
       let parsed: CustomIntegrationRunResult;
       try {
         parsed = parseCustomIntegrationRunResult(response);
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "The agent returned an invalid setup result.");
+      } catch {
+        setError("The setup response was incomplete, so no result was accepted. Retry the private setup run.");
         return;
       }
       setResult(parsed);
@@ -181,7 +181,7 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
       setActivities((current) => current.includes("Setup run finished") ? current : [...current, "Setup run finished"].slice(-5));
     } catch {
       if (operation !== operationRef.current || controller.signal.aborted) return;
-      setError("The private setup session could not finish. Raw error details were hidden for safety.");
+      setError("The private setup session stopped before it finished. Retry setup; private diagnostics remain hidden.");
     } finally {
       if (operation === operationRef.current) {
         setRunning(false);
@@ -266,7 +266,7 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
 
       <div className="relative z-10 space-y-3 border-t border-border bg-surface-low/70 px-4 py-4 text-xs leading-5 text-text-secondary backdrop-blur-md sm:px-5">
         {error ? (
-          <p role="alert" className="flex items-start gap-2 rounded-2xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">
+          <p role="alert" className="flex items-start gap-2 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /> {error}
           </p>
         ) : null}

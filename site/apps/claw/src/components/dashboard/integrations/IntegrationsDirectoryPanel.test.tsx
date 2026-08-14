@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
-import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
+import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -89,7 +89,7 @@ const channelsProvider: AgentChannelsProvider = {
 
 const connectorsProvider: AgentConnectorsProvider = {
   runtime: { provider: "openclaw", version: "test", capabilities: ["channels.status"] },
-  list: vi.fn(async (options) => options?.connectorId === "github" ? [{
+  list: vi.fn(async (options): Promise<AgentConnectorDescriptor[]> => options?.connectorId === "github" ? [{
     connectorId: "github",
     configured: false,
     authenticated: false,
@@ -465,7 +465,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.getByText(/status is not currently reported/i)).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Discord is not available" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remove configuration" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Discord configuration" }));
 
     await waitFor(() => expect(provider.removeConfig).toHaveBeenCalledWith("discord"));
     expect(onRefreshChannels).toHaveBeenCalledWith(true);
@@ -589,7 +589,8 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("access_denied");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Slack setup did not finish");
+    expect(screen.queryByText("access_denied")).not.toBeInTheDocument();
     expect(sdkMocks.getSlackInstallStatus).not.toHaveBeenCalled();
   });
 

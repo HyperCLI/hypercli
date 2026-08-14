@@ -17,8 +17,10 @@ import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { FilesDirectoryTree } from "./FilesDirectoryTree";
 import { FilePreview, type FilePreviewMarkdownRenderer } from "./FilePreview";
 import { FilesEmptyState } from "./FilesEmptyState";
+import { formatFileTechnicalDetails } from "./error-details";
 import { writeClipboardText } from "../utils/browser-clipboard";
 import { decodeUtf8FileContent, isFileByteContent, resolveFileType, shouldReadFileAsBytes } from "./file-types";
+import { RecoveryState } from "../components/patterns/recovery";
 import { TooltipHint } from "../components/ui/tooltip";
 
 // ── Types ──
@@ -65,6 +67,7 @@ export function FilesDrawer({
   const [sortKey, setSortKey] = useState<FileSortKey>("name");
   const [sortDir, setSortDir] = useState<FileSortDir>("asc");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const [actionError, setActionError] = useState<{ message: string; technicalDetails?: string } | null>(null);
 
   // Preview state
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
@@ -88,6 +91,7 @@ export function FilesDrawer({
 
   const handleClose = useCallback(() => {
     clearPreview();
+    setActionError(null);
     onClose();
   }, [clearPreview, onClose]);
 
@@ -120,7 +124,7 @@ export function FilesDrawer({
       ];
       setFiles(entries);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load files");
+      setError(formatFileTechnicalDetails(err) ?? "The folder listing was unavailable.");
     } finally {
       setLoading(false);
     }
@@ -189,7 +193,7 @@ export function FilesDrawer({
       }
     } catch (err) {
       if (requestId === previewRequestIdRef.current) {
-        setPreviewError(err instanceof Error ? err.message : "Failed to load file");
+        setPreviewError(formatFileTechnicalDetails(err) ?? "The file preview was unavailable.");
       }
     } finally {
       if (requestId === previewRequestIdRef.current) setPreviewLoading(false);
@@ -205,6 +209,7 @@ export function FilesDrawer({
 
   const handleDeleteFile = useCallback(async (entry: FileEntry) => {
     if (!callbacks) return;
+    setActionError(null);
     try {
       await callbacks.onDeleteFile(entry.path);
       setFiles((prev) => prev.filter((f) => f.path !== entry.path));
@@ -212,8 +217,10 @@ export function FilesDrawer({
         clearPreview();
       }
     } catch (err) {
-      // TODO: show toast
-      console.error("Delete failed:", err);
+      setActionError({
+        message: `Try again to delete "${entry.name}"`,
+        technicalDetails: formatFileTechnicalDetails(err),
+      });
     }
   }, [callbacks, clearPreview, previewEntry]);
 
@@ -370,6 +377,20 @@ export function FilesDrawer({
               </button>
             </div>
 
+            {actionError ? (
+              <RecoveryState
+                presentation="compact"
+                title={actionError.message}
+                description="The item is still in this folder. Open its file actions when you are ready to try again."
+                technicalDetails={actionError.technicalDetails}
+                detailsLabel="Technical details"
+                onDismiss={() => setActionError(null)}
+                dismissLabel="Dismiss file action error"
+                headingLevel={3}
+                className="mx-3 mt-3 flex-shrink-0"
+              />
+            ) : null}
+
             {/* Toolbar: search + breadcrumbs */}
             <div className="px-3 pt-3 pb-2 space-y-2 flex-shrink-0">
               <FilesSearchBar
@@ -396,6 +417,7 @@ export function FilesDrawer({
                     unavailableReason={previewUnavailableReason}
                     onClose={clearPreview}
                     onSave={callbacks ? handleSaveFile : undefined}
+                    onRetry={() => { void handleOpenFile(previewEntry); }}
                     renderMarkdown={renderMarkdown}
                     copyText={copyText}
                   />

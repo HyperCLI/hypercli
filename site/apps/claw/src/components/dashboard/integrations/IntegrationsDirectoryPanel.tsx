@@ -395,7 +395,7 @@ function RuntimeStatusNotice({
             ) : slackPreparation?.status === "ready" ? (
               <p className="mt-2 text-xs text-text-secondary">Slack support is installed. Waiting for live status.</p>
             ) : null}
-            {slackPreparation?.error ? <p role="alert" className="mt-2 text-xs text-destructive">{slackPreparation.error}</p> : null}
+            {slackPreparation?.error ? <p role="alert" className="mt-2 text-xs text-warning">{slackPreparation.error}</p> : null}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -424,7 +424,7 @@ function SlackPreparationBanner({
   return (
     <section className="mb-4 flex items-center justify-between gap-4 rounded-xl border border-border bg-surface-low p-4">
       <div className="flex min-w-0 items-center gap-2 text-xs text-text-secondary">
-        {state?.status === "error" ? <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" /> : <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
+        {state?.status === "error" ? <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> : <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
         <span role={state?.status === "error" ? "alert" : "status"}>
           {state?.error ?? "Preparing Slack support. The gateway will reconnect automatically."}
         </span>
@@ -497,13 +497,13 @@ export function IntegrationsDirectoryPanel({
       .then(([channels, snapshot]) => {
         if (!cancelled) setChannelState({ provider: channelsProvider, channels, snapshot, error: null });
       })
-      .catch((cause) => {
+      .catch(() => {
         if (!cancelled) {
           setChannelState({
             provider: channelsProvider,
             channels: [],
             snapshot: null,
-            error: cause instanceof Error ? cause.message : "Could not read available integrations.",
+            error: "Reconnect the agent, then refresh integrations.",
           });
         }
       });
@@ -552,12 +552,12 @@ export function IntegrationsDirectoryPanel({
           github: githubConnectors.find((connector) => connector.connectorId === "github") ?? null,
         });
       }
-    } catch (cause) {
+    } catch {
       setChannelState({
         provider: channelsProvider,
         channels: [],
         snapshot: null,
-        error: cause instanceof Error ? cause.message : "Could not refresh available integrations.",
+        error: "Reconnect the agent, then refresh integrations again.",
       });
     } finally {
       setRefreshing(false);
@@ -612,8 +612,8 @@ export function IntegrationsDirectoryPanel({
       await operation();
       await refreshIntegrations();
       setSlackPreparationState({ operation, status: "ready", error: null });
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "Could not update Slack support.";
+    } catch {
+      const message = "Slack support was not prepared. Check the agent connection and retry.";
       setSlackPreparationState({
         operation,
         status: "error",
@@ -641,9 +641,9 @@ export function IntegrationsDirectoryPanel({
       if (slackRelayOperationRef.current !== operationId) return null;
       dispatchSlackRelay({ type: "check-success", installStatus: status });
       return status;
-    } catch (cause) {
+    } catch {
       if (slackRelayOperationRef.current !== operationId) return null;
-      dispatchSlackRelay({ type: "check-error", error: cause instanceof Error ? cause.message : "Could not check Slack installation." });
+      dispatchSlackRelay({ type: "check-error", error: "Slack status could not be checked. Sign in again or retry." });
       return null;
     }
   }, [getToken, isAuthenticated]);
@@ -660,7 +660,7 @@ export function IntegrationsDirectoryPanel({
     }
     dispatchSlackRelay({
       type: "check-error",
-      error: slackOAuthError || "Slack OAuth did not complete.",
+      error: "Slack authorization did not finish. Return to Slack and approve access, or try connecting again.",
     });
   }, [agentId, refreshSlackInstallStatus, requestedChannelId, slackOAuthError, slackOAuthResult]);
 
@@ -698,9 +698,9 @@ export function IntegrationsDirectoryPanel({
       });
       if (onRefreshChannels) await onRefreshChannels(true);
       else await refreshIntegrations();
-    } catch (cause) {
+    } catch {
       if (slackRelayOperationRef.current !== operationId) return;
-      dispatchSlackRelay({ type: "configure-error", error: cause instanceof Error ? cause.message : "Could not configure hosted Slack relay." });
+      dispatchSlackRelay({ type: "configure-error", error: "Slack is authorized but was not attached to this agent. Retry attaching it." });
     }
   }, [
     agentId,
@@ -828,7 +828,7 @@ export function IntegrationsDirectoryPanel({
       const connectionStatusDetail = loadingChannels
         ? `Checking the live ${selectedTile.displayName} connection. Saved settings remain available while status loads.`
         : reportedChannelsError || loadError
-          ? `Live status could not be refreshed. Saved settings remain available. ${reportedChannelsError || loadError}`
+          ? "Saved settings remain available. Reconnect the agent, then refresh live status."
           : channelSnapshot?.partial
             ? `The agent returned an incomplete integration snapshot. Saved settings remain available while status is refreshed.`
             : `A saved configuration exists, but the agent is not currently publishing live ${selectedTile.displayName} status. You can safely review settings or refresh status.`;
@@ -997,9 +997,9 @@ export function IntegrationsDirectoryPanel({
             Reading available integrations...
           </div>
         ) : loadError ? (
-          <div className="rounded-[12px] border border-destructive/30 bg-destructive/10 px-5 py-10 text-center">
-            <p className="text-sm text-destructive">This workspace could not report its integrations.</p>
-            <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-destructive/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-destructive/10">Try again</button>
+          <div className="rounded-[12px] border border-warning/30 bg-warning/10 px-5 py-10 text-center">
+            <p role="alert" className="text-sm text-foreground">Integrations are not available yet. Reconnect the agent, then refresh this list.</p>
+            <button type="button" onClick={() => void refreshIntegrations()} className="mt-4 rounded-lg border border-warning/30 px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-warning/10">Refresh integrations</button>
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">

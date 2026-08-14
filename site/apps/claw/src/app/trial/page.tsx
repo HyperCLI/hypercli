@@ -2,27 +2,18 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { HyperCLILogo, PrivyLoginPanel, notifyBillingPlanChanged } from "@hypercli/shared-ui";
+import { HyperCLILogo, PrivyLoginPanel, RecoveryState, notifyBillingPlanChanged } from "@hypercli/shared-ui";
 import DashboardShell from "@/components/dashboard/DashboardShell";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
 
 type TrialClaimState = "idle" | "claiming" | "success";
-
-function trialClaimErrorMessage(error: unknown): string {
-  if (error && typeof error === "object" && "detail" in error) {
-    const detail = String((error as { detail?: unknown }).detail ?? "").trim();
-    if (detail) return detail;
-  }
-  return error instanceof Error && error.message
-    ? error.message
-    : "Trial access could not be started. Try again.";
-}
+type TrialRecovery = { title: string; description: string };
 
 export default function TrialPage() {
   const { getToken, isAuthenticated, isLoading } = useAgentAuth();
   const [claimState, setClaimState] = useState<TrialClaimState>("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TrialRecovery | null>(null);
 
   if (isLoading) {
     return (
@@ -41,6 +32,9 @@ export default function TrialPage() {
             title="Start your free trial"
             description="Sign in to continue. No payment method is required."
             tokenStorageKey="claw_auth_token"
+            securityNote="A secure one-time code will be sent to your email."
+            errorMessage="Sign-in did not finish. Retry to reopen the session."
+            errorTone="neutral"
           />
         </div>
       </main>
@@ -57,9 +51,12 @@ export default function TrialPage() {
       await client.subscriptionSummary().catch(() => null);
       notifyBillingPlanChanged();
       setClaimState("success");
-    } catch (claimError) {
+    } catch {
       setClaimState("idle");
-      setError(trialClaimErrorMessage(claimError));
+      setError({
+        title: "Check your plan, then retry the trial",
+        description: "Review your plan before sending another request. We could not confirm whether trial access started.",
+      });
     }
   };
 
@@ -78,7 +75,7 @@ export default function TrialPage() {
           {claimState === "success" ? (
             <div id="trial-claim-success" className="trial-claim-success mt-8 rounded-xl border border-success/30 bg-success/10 p-5" role="status">
               <h2 className="text-lg font-semibold text-foreground">Trial access is ready</h2>
-              <p className="mt-2 text-sm text-text-secondary">Your account limits and agent capacity have been refreshed.</p>
+              <p className="mt-2 text-sm text-text-secondary">Your trial entitlement is active and ready to use.</p>
               <Link id="trial-continue-button" className="trial-continue-button btn-primary mt-5 inline-flex min-h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold" href="/dashboard/agents">
                 Continue to Agents
               </Link>
@@ -95,7 +92,15 @@ export default function TrialPage() {
                 {claimState === "claiming" ? "Starting trial…" : "Start free trial"}
               </button>
               {error ? (
-                <p id="trial-claim-error" className="trial-claim-error mt-4 text-sm text-destructive" role="alert">{error}</p>
+                <RecoveryState
+                  id="trial-claim-error"
+                  presentation="compact"
+                  announcement="assertive"
+                  title={error.title}
+                  description={error.description}
+                  primaryAction={{ label: "Retry trial request", onAction: () => { void claimTrial(); } }}
+                  className="trial-claim-error mt-4"
+                />
               ) : null}
             </div>
           )}

@@ -31,17 +31,17 @@ export function CatalogHeader({
   return (
     <header data-slot="catalog-header" className={cn("border-b border-border bg-background px-4 py-5 sm:px-5", className)}>
       <div className="mx-auto w-full max-w-6xl">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-4 sm:!flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold leading-tight text-foreground">{title}</h2>
             <p className="mt-1 max-w-2xl text-sm leading-snug text-text-muted">{description}</p>
           </div>
-          {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">{actions}</div> : null}
+          {actions ? <div className="flex w-full flex-wrap items-center gap-2 sm:!w-auto sm:shrink-0 sm:justify-end">{actions}</div> : null}
         </div>
 
-        <div className="mt-8 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="mt-8 flex flex-col gap-3 md:!flex-row md:items-center md:justify-between">
           {filters ? <div className="min-w-0 md:flex-1">{filters}</div> : null}
-          <label className="relative block w-full md:w-[min(42vw,30rem)] md:shrink-0">
+          <label className="relative block w-full md:!w-[min(42vw,30rem)] md:shrink-0">
             <span className="sr-only">{searchLabel}</span>
             <Search aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-text-muted" />
             <Input

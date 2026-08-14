@@ -1,10 +1,71 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
 import { expect, test } from "@playwright/test";
+import { sanitizeDeploymentTransition } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
+
+test("deployment transition diagnostics retain only bounded sanitized fields", () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWNyZXQifQ.sensitive-signature";
+  const longToken = "a".repeat(64);
+  const awsSecret = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789+/ab";
+  const credentialsUrl = "https://diagnostic-user:short-password@example.test/path";
+  const transition = sanitizeDeploymentTransition({
+    type: "deployment.transition",
+    agent_id: "agent-123",
+    state: "STOPPING\n",
+    launch_epoch: 2,
+    reason: "launch_failed",
+    error: `workspace_sync_failed Authorization: Bearer ${jwt}`,
+    message: `first line\nsecond line ${credentialsUrl} token=${longToken} API key: short-value AWS_SECRET_ACCESS_KEY=${awsSecret} password: correct horse battery staple`,
+    resources_exist: true,
+    nested: { api_key: "must-not-be-stringified" },
+  });
+
+  expect(Object.keys(transition)).toEqual([
+    "agent_id",
+    "state",
+    "launch_epoch",
+    "reason",
+    "error",
+    "message",
+  ]);
+  expect(transition.agent_id).toBe("agent-123");
+  expect(transition.state).toBe("STOPPING");
+  expect(transition.launch_epoch).toBe(2);
+  expect(transition.reason).toBe("launch_failed");
+  expect(transition.message).not.toContain("\n");
+  expect(JSON.stringify(transition)).not.toContain(jwt);
+  expect(JSON.stringify(transition)).not.toContain(longToken);
+  expect(JSON.stringify(transition)).not.toContain("short-password");
+  expect(JSON.stringify(transition)).not.toContain("short-value");
+  expect(JSON.stringify(transition)).not.toContain(awsSecret);
+  expect(JSON.stringify(transition)).not.toContain("correct horse battery staple");
+  expect(JSON.stringify(transition)).not.toContain("must-not-be-stringified");
+
+  expect(sanitizeDeploymentTransition({
+    agent_id: { value: "agent-123" },
+    state: 1,
+    launch_epoch: "2",
+    reason: [],
+    error: {},
+    message: null,
+  })).toEqual({
+    agent_id: null,
+    state: null,
+    launch_epoch: null,
+    reason: null,
+    error: null,
+    message: null,
+  });
+
+  const bounded = sanitizeDeploymentTransition({ message: `line\u0000break ${"word ".repeat(300)}` });
+  expect(bounded.message).not.toContain("\u0000");
+  expect(bounded.message?.length).toBeLessThanOrEqual(1_000);
+  expect(bounded.message).toMatch(/\.\.\.$/);
+});
 
 test("deployment subscription invalidation reloads the authoritative REST snapshot", async ({ page }) => {
   let agentName = "Before Event";

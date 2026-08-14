@@ -29,6 +29,7 @@ import {
   CollapsibleTrigger,
   InvoiceStatusBadge,
   Progress,
+  RecoveryState,
   Separator,
   Skeleton,
   Table,
@@ -104,6 +105,11 @@ interface BillingInvoiceRow {
   context?: string;
 }
 
+interface BillingRecovery {
+  title: string;
+  description: string;
+}
+
 const BILLING_TIER_ORDER = ["free", "small", "medium", "large"];
 
 function formatAgentsAmount(receipt: ReceiptRecord): string {
@@ -123,9 +129,10 @@ function humanizePlanId(planId: string | null | undefined): string {
 }
 
 function formatProvider(provider: string | null | undefined): string {
-  if (!provider) return "Provider unavailable";
-  if (provider.toLowerCase() === "stripe") return "Stripe";
-  return humanizePlanId(provider);
+  if (!provider) return "Billing source unavailable";
+  if (provider.toLowerCase() === "stripe") return "Card billing";
+  if (provider.toLowerCase() === "x402") return "USDC billing";
+  return "Account billing";
 }
 
 function formatStatus(status: string | null | undefined): string {
@@ -274,7 +281,7 @@ function describePaymentMethod(
   const provider = subscription?.provider?.toLowerCase();
   if (provider === "stripe") return "Stripe card on file";
   if (provider === "x402") return "USDC wallet payments";
-  if (provider) return `${formatProvider(provider)} payment method`;
+  if (provider) return "Account payment method";
   if (receipts.some((receipt) => String(receipt.meta?.payment_method).toLowerCase() === "stripe")) {
     return "Stripe card on file";
   }
@@ -393,7 +400,7 @@ function getReceiptContext(receipt: ReceiptRecord): string {
     : [];
   const paymentMethod = String(receipt.meta?.payment_method || "").toLowerCase();
   if (agentLabels.length > 0) return `Agent: ${agentLabels.join(", ")}`;
-  if (tags.length > 0) return `Tags: ${tags.join(", ")}`;
+  if (tags.length > 0) return "Tagged entitlement";
   return paymentMethod === "x402" ? "Onchain USDC entitlement" : "Pooled account capacity";
 }
 
@@ -628,18 +635,18 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   const [redeemingCode, setRedeemingCode] = useState(false);
   const [paymentMethodOpening, setPaymentMethodOpening] = useState(false);
   const [mutatingSubscriptionId, setMutatingSubscriptionId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<BillingRecovery | null>(null);
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
-  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
-  const [redeemError, setRedeemError] = useState<string | null>(null);
-  const [paymentMethodError, setPaymentMethodError] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<BillingRecovery | null>(null);
+  const [redeemError, setRedeemError] = useState<BillingRecovery | null>(null);
+  const [paymentMethodError, setPaymentMethodError] = useState<BillingRecovery | null>(null);
 
   const fetchBillingData = useCallback(async (): Promise<BillingLoadResult> => {
     const token = await getToken();
     const hyperAgent = createHyperAgentClient(token);
     const [paymentsData, subscriptionSummary, listedAgents, usageHistory] = await Promise.all([
       getAgentPayments(hyperAgent),
-      hyperAgent.subscriptionSummary().catch(() => null),
+      hyperAgent.subscriptionSummary(),
       createAgentClient(token).list().catch(() => [] as SdkAgent[]),
       hyperAgent.usageHistory(1).catch(() => null),
     ]);
@@ -673,9 +680,12 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
       try {
         const data = await fetchBillingData();
         if (!cancelled) applyBillingData(data);
-      } catch (loadError) {
+      } catch {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load billing records");
+          setError({
+            title: "Retry to load billing",
+            description: "Billing activity is temporarily unavailable. Retry to reopen the latest account view.",
+          });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -733,7 +743,10 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
       const portalUrl = await createPaymentMethodUpdatePortalUrl(hyperAgent);
       openBillingPortalUrl(portalUrl);
     } catch {
-      setPaymentMethodError("Unable to open payment settings. Please try again.");
+      setPaymentMethodError({
+        title: "Retry to open card settings",
+        description: "Card settings did not open. Retry when you are ready to continue.",
+      });
     } finally {
       setPaymentMethodOpening(false);
     }
@@ -745,15 +758,23 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
     setSubscriptionNotice(null);
     setSubscriptionError(null);
     setMutatingSubscriptionId(subscription.id);
+    let cancellationConfirmed = false;
     try {
       const hyperAgent = createHyperAgentClient(await getToken());
       const result = await hyperAgent.cancelSubscription(subscription.id);
-      if (!result.ok) throw new Error(result.message || "Failed to cancel subscription");
-      setSubscriptionNotice(result.message || "Subscription cancellation scheduled");
+      if (!result.ok) throw new Error(result.message || "The cancellation request was not confirmed.");
+      cancellationConfirmed = true;
+      setSubscriptionNotice("Cancellation scheduled");
       await refreshBilling();
       notifyBillingPlanChanged();
-    } catch (mutationError) {
-      setSubscriptionError(mutationError instanceof Error ? mutationError.message : "Failed to cancel subscription");
+    } catch {
+      setSubscriptionError(cancellationConfirmed ? {
+        title: "Refresh to confirm cancellation details",
+        description: "The cancellation was scheduled, but the latest billing details did not load. Refresh to see the updated period end.",
+      } : {
+        title: "Check billing before retrying cancellation",
+        description: "Refresh billing before sending this request again. We could not confirm whether the cancellation was applied.",
+      });
     } finally {
       setMutatingSubscriptionId(null);
     }
@@ -762,12 +783,16 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   const handleRedeemCode = async (code: string) => {
     const normalizedCode = code.trim();
     if (!normalizedCode) {
-      setRedeemError("Enter a code to activate it.");
+      setRedeemError({
+        title: "Enter an activation code",
+        description: "Enter the complete code before activating it.",
+      });
       return;
     }
     setRedeemError(null);
     setSubscriptionNotice(null);
     setRedeemingCode(true);
+    let activationConfirmed = false;
     try {
       const hyperAgent = createHyperAgentClient(await getToken());
       const result = await hyperAgent.redeemGrantCode(normalizedCode);
@@ -775,27 +800,69 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
       const expiryLabel = result.entitlement.expiresAt
         ? ` until ${result.entitlement.expiresAt.toLocaleDateString()}`
         : "";
+      activationConfirmed = true;
       setSubscriptionNotice(`Code activated. ${planLabel} is now active${expiryLabel}.`);
       setShowRedeemModal(false);
       await refreshBilling();
       notifyBillingPlanChanged();
-    } catch (redemptionError) {
-      setRedeemError(redemptionError instanceof Error ? redemptionError.message : "Failed to activate code");
+    } catch {
+      const presentation = activationConfirmed ? {
+        title: "Refresh to see the activated plan",
+        description: "The code was activated, but the latest plan details did not load. Refresh billing to see the updated capacity.",
+      } : {
+        title: "Check your plan before retrying activation",
+        description: "Check your plan before submitting this code again. We could not confirm whether it was activated.",
+      };
+      if (activationConfirmed) setSubscriptionError(presentation);
+      else setRedeemError(presentation);
     } finally {
       setRedeemingCode(false);
     }
   };
 
+  const handleRetryBilling = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await refreshBilling();
+    } catch {
+      setError({
+        title: "Retry to load billing",
+        description: "Billing activity is temporarily unavailable. Retry to reopen the latest account view.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const hasNotice = Boolean(error || subscriptionNotice || subscriptionError);
+  const billingUnavailable = Boolean(error && loadedAt === 0 && !loading);
   const notices = (
     <div aria-live="polite" className="space-y-3">
-      {error ? <Alert variant="destructive" className="px-3 py-2 text-[0.65625rem] leading-4">{error}</Alert> : null}
+      {error ? (
+        <RecoveryState
+          presentation="compact"
+          announcement="off"
+          title={error.title}
+          description={error.description}
+          primaryAction={{ label: "Retry", onAction: () => { void handleRetryBilling(); } }}
+        />
+      ) : null}
       {subscriptionNotice ? (
         <Alert className="border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] px-3 py-2 text-[0.65625rem] leading-4 text-[var(--selection-accent)]">
           {subscriptionNotice}
         </Alert>
       ) : null}
-      {subscriptionError ? <Alert variant="destructive" className="px-3 py-2 text-[0.65625rem] leading-4">{subscriptionError}</Alert> : null}
+      {subscriptionError ? (
+        <RecoveryState
+          presentation="compact"
+          announcement="off"
+          title={subscriptionError.title}
+          description={subscriptionError.description}
+          primaryAction={{ label: "Refresh billing", onAction: () => { void handleRetryBilling(); } }}
+          onDismiss={() => setSubscriptionError(null)}
+        />
+      ) : null}
     </div>
   );
 
@@ -822,7 +889,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
 
       <TabsContent value="overview" className="m-0 pt-6">
         {notices}
-        <div className={hasNotice ? "mt-5" : undefined}>
+        {!billingUnavailable ? <div className={hasNotice ? "mt-5" : undefined}>
           {loading ? (
             <BillingLoadingState activeTab="overview" />
           ) : (
@@ -950,7 +1017,16 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                             )}
                           </div>
                         </div>
-                        {paymentMethodError ? <p className="mt-3 text-[0.65625rem] leading-4 text-destructive">{paymentMethodError}</p> : null}
+                        {paymentMethodError ? (
+                          <RecoveryState
+                            presentation="compact"
+                            title={paymentMethodError.title}
+                            description={paymentMethodError.description}
+                            primaryAction={{ label: "Retry", onAction: () => { void handleManagePaymentMethod(); } }}
+                            onDismiss={() => setPaymentMethodError(null)}
+                            className="mt-3"
+                          />
+                        ) : null}
                         <div className="mt-4 divide-y divide-border border-t border-border">
                           {subscriptions.length > 0 ? subscriptions.map((subscription) => {
                             const canCancel = subscription.canCancel && !subscription.cancelAtPeriodEnd;
@@ -964,7 +1040,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                                 {canCancel ? (
                                   <Button
                                     type="button"
-                                    variant="destructive"
+                                    variant="outline"
                                     size="lg"
                                     onClick={() => { void handleCancelSubscription(subscription); }}
                                     disabled={Boolean(mutatingSubscriptionId)}
@@ -1025,20 +1101,20 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
               </Card>
             </div>
           )}
-        </div>
+        </div> : null}
       </TabsContent>
 
       <TabsContent value="invoices" className="m-0 pt-6">
         {notices}
-        <div className={hasNotice ? "mt-5" : undefined}>
+        {!billingUnavailable ? <div className={hasNotice ? "mt-5" : undefined}>
           {loading ? <BillingLoadingState activeTab="invoices" /> : <InvoiceTable rows={invoiceRows} />}
-        </div>
+        </div> : null}
       </TabsContent>
 
       <ActivateCodeModal
         isOpen={showRedeemModal}
         processing={redeemingCode}
-        error={redeemError}
+        error={redeemError?.description ?? null}
         onClose={() => {
           if (redeemingCode) return;
           setShowRedeemModal(false);

@@ -20,6 +20,9 @@ export interface PrivyLoginPanelProps {
   fallbackLabel?: string;
   showTurnkeyFallback?: boolean;
   turnkeyTitle?: string;
+  securityNote?: string;
+  errorMessage?: string;
+  errorTone?: "destructive" | "neutral";
 }
 
 export interface PrivyLoginModalProps extends PrivyLoginPanelProps {
@@ -84,6 +87,9 @@ export function PrivyLoginPanel({
   fallbackLabel = "Turnkey Login",
   showTurnkeyFallback = false,
   turnkeyTitle = "Welcome to HyperCLI",
+  securityNote = "Secure email OTP via Privy.",
+  errorMessage,
+  errorTone = "destructive",
 }: PrivyLoginPanelProps) {
   const { ready, authenticated, login, getAccessToken } = usePrivy();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -156,9 +162,16 @@ export function PrivyLoginPanel({
       )}
 
       {error && (
-        <div className="w-full rounded-lg border border-destructive/40 bg-destructive/10 p-3">
-          <p className="text-sm text-destructive whitespace-pre-wrap break-words">
-            {error}
+        <div
+          role="alert"
+          className={`w-full rounded-lg border p-3 ${
+            errorTone === "neutral"
+              ? "border-border bg-surface-high/70"
+              : "border-destructive/40 bg-destructive/10"
+          }`}
+        >
+          <p className={`text-sm whitespace-pre-wrap break-words ${errorTone === "neutral" ? "text-foreground" : "text-destructive"}`}>
+            {errorMessage ?? error}
           </p>
         </div>
       )}
@@ -180,7 +193,7 @@ export function PrivyLoginPanel({
       )}
 
       <p className="text-xs text-[var(--color-text)] opacity-50 text-center">
-        Secure email OTP via Privy.
+        {securityNote}
       </p>
     </div>
   );

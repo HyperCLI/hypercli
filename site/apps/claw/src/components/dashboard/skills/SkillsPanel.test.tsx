@@ -210,7 +210,7 @@ describe("SkillsPanel", () => {
         agentName="Agent"
         draftScope={{ ownerId: "test@example.com", agentId: "agent-1" }}
         connected
-        installedSkills={[providerSkill({ content: "", body: "", contentLoaded: false, documentState: "error", documentError: "file API unavailable" })]}
+        installedSkills={[providerSkill({ content: "", body: "", contentLoaded: false, documentState: "error", documentError: "Retry loading the instructions.", documentDiagnostic: "file API unavailable" })]}
         loading={false}
         error={null}
         requestedSkillId="notion"
@@ -219,8 +219,11 @@ describe("SkillsPanel", () => {
         onTestSkill={vi.fn(async () => undefined)}
       />,
     );
+    expect(screen.getByText(/instructions are not available yet/i)).toBeInTheDocument();
+    expect(screen.queryByText("file API unavailable")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
     expect(screen.getByText("file API unavailable")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
     await waitFor(() => expect(onLoadSkillDocument).toHaveBeenCalledTimes(2));
   });
 
@@ -456,7 +459,8 @@ describe("SkillsPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /save skill/i }));
     fireEvent.click(await screen.findByRole("button", { name: /save to agent/i }));
 
-    expect(await screen.findByText("managed storage unavailable")).toBeInTheDocument();
+    expect(await screen.findByText(/skill remains a local draft/i)).toBeInTheDocument();
+    expect(screen.queryByText("managed storage unavailable")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /keep as preview/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /keep as preview/i }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

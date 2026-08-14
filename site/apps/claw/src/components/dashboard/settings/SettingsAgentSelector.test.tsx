@@ -82,6 +82,19 @@ describe("SettingsAgentSelector", () => {
     expect(screen.queryByRole("button", { name: "Open settings for writer" })).not.toBeInTheDocument();
   });
 
+  it("switches between grid and row layouts", () => {
+    renderSelector();
+
+    const agentList = screen.getByRole("list", { name: "Agents" });
+    expect(agentList).toHaveAttribute("data-layout", "grid");
+    expect(screen.getByRole("radio", { name: "Grid view" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("radio", { name: "Rows view" }));
+
+    expect(agentList).toHaveAttribute("data-layout", "rows");
+    expect(screen.getByRole("radio", { name: "Rows view" })).toBeChecked();
+  });
+
   it("shows a loading state before the initial roster arrives", () => {
     renderSelector({ agents: [], loading: true });
 

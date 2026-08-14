@@ -312,7 +312,10 @@ describe("ChannelChatConnectorCard", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /^test$/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Bot identity check failed");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Slack is configured but not ready yet");
+    expect(screen.queryByText("Bot identity check failed")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("Bot identity check failed")).toBeInTheDocument();
     expect(channelProvider.read).toHaveBeenCalledWith({ channelId: "slack", probe: true });
   });
 
@@ -448,7 +451,10 @@ describe("ChannelChatConnectorCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not install WhatsApp support. Network unavailable.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("WhatsApp pairing did not start");
+    expect(screen.queryByText("Could not install WhatsApp support. Network unavailable.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("Could not install WhatsApp support. Network unavailable.")).toBeInTheDocument();
     expect(onWebLoginStart).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: /try again/i })).toBeEnabled();
   });
@@ -554,7 +560,10 @@ describe("ChannelChatConnectorCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /start setup/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Config rejected");
+    expect(await screen.findByRole("alert")).toHaveTextContent("WhatsApp pairing did not start");
+    expect(screen.queryByText("Config rejected")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("Config rejected")).toBeInTheDocument();
     expect(onWebLoginStart).not.toHaveBeenCalled();
   });
 
@@ -573,6 +582,8 @@ describe("ChannelChatConnectorCard", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /disconnect/i }));
+    expect(onSaveConfig).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Slack" }));
     await waitFor(() => expect(onSaveConfig).toHaveBeenCalledWith({ channels: { slack: null } }));
   });
 
@@ -596,6 +607,8 @@ describe("ChannelChatConnectorCard", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /disconnect/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Slack" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("choose the account to disconnect");
     expect(channelProvider.removeConfig).not.toHaveBeenCalled();

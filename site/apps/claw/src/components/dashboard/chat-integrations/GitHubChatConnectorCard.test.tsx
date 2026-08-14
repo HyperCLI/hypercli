@@ -362,7 +362,10 @@ describe("GitHubChatConnectorCard", () => {
       fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
     });
 
-    expect(await screen.findByText("GitHub authorization service is temporarily unavailable.")).toBeInTheDocument();
+    expect(await screen.findByText(/GitHub authorization did not start/i)).toBeInTheDocument();
+    expect(screen.queryByText("GitHub authorization service is temporarily unavailable.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("GitHub authorization service is temporarily unavailable.")).toBeInTheDocument();
     expect(onStartAgentGitHubSetup).not.toHaveBeenCalled();
   });
 });

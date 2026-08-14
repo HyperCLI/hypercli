@@ -9,6 +9,8 @@ import {
   Upload,
 } from "lucide-react";
 import { EmptyState } from "../components/patterns/feedback";
+import { RecoveryState } from "../components/patterns/recovery";
+import { formatFileTechnicalDetails } from "./error-details";
 
 // ── Types ──
 
@@ -47,47 +49,53 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, title, descri
     );
   }
 
-  const config: Record<Exclude<FilesEmptyStateKind, "loading">, {
+  if (kind === "error") {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center">
+        <RecoveryState
+          presentation="empty"
+          icon={AlertCircle}
+          title={title ?? "Try again to load this folder"}
+          description={description ?? "Your workspace is unchanged. Check the connection, then try once more."}
+          technicalDetails={formatFileTechnicalDetails(errorMessage)}
+          detailsLabel="Technical details"
+          primaryAction={onRetry ? { label: "Retry", onAction: onRetry } : undefined}
+          headingLevel={3}
+          className="min-h-72 max-w-none px-4 py-8"
+        />
+      </div>
+    );
+  }
+
+  const config: Record<Exclude<FilesEmptyStateKind, "loading" | "error">, {
     icon: typeof FolderOpen;
     title: string;
     description: string;
-    iconColor: string;
   }> = {
     "no-files": {
       icon: FolderOpen,
       title: "No files yet",
       description: "This workspace is empty - upload files or let your agent create them",
-      iconColor: "text-text-muted/40",
     },
     "no-results": {
       icon: Search,
       title: `No files matching '${searchQuery ?? ""}'`,
       description: "Try a different search term or clear the filter",
-      iconColor: "text-text-muted/40",
-    },
-    error: {
-      icon: AlertCircle,
-      title: "Failed to load files",
-      description: errorMessage ?? "Something went wrong while loading workspace files",
-      iconColor: "text-destructive",
     },
     offline: {
       icon: WifiOff,
       title: "Agent offline",
       description: "Start your agent to browse its workspace files",
-      iconColor: "text-text-muted/40",
     },
   };
 
-  const c = config[kind as Exclude<FilesEmptyStateKind, "loading">];
+  const c = config[kind];
   return (
     <EmptyState
       icon={c.icon}
       title={title ?? c.title}
       description={description ?? c.description}
-      tone={kind === "error" ? "danger" : "neutral"}
-      actionLabel={kind === "error" && onRetry ? "Retry" : undefined}
-      onAction={kind === "error" ? onRetry : undefined}
+      tone="neutral"
       footnote={
         kind === "no-files" ? (
           <span className="inline-flex items-center gap-1.5">

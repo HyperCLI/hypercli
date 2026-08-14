@@ -19,6 +19,7 @@ import type {
   GatewayIntegrationStatusResult,
   OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/openclaw/gateway";
+import { ConfirmDialog, RecoveryDetails } from "@hypercli/shared-ui";
 
 import { schemaPathExists } from "@/components/dashboard/directory/directory-utils";
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -35,7 +36,7 @@ import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 const GITHUB_SCOPES = ["repo", "read:org", "gist"];
 
 type ConnectorStep = "checking" | "idle" | "starting" | "pending" | "connected" | "failed";
-type GitHubCardTone = "neutral" | "primary" | "warning" | "danger" | "info";
+type GitHubCardTone = "neutral" | "primary" | "warning" | "info";
 
 interface GitHubChatConnectorCardProps {
   connected: boolean;
@@ -106,12 +107,12 @@ function authFailed(result: GatewayIntegrationAuthStatusResult): boolean {
   return ["failed", "error", "expired", "denied", "cancelled", "canceled"].includes(status);
 }
 
-function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
+function buttonClass(tone: "primary" | "secondary" | "caution" = "secondary") {
   if (tone === "primary") {
     return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
-  if (tone === "danger") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-destructive transition-all hover:-translate-y-0.5 hover:bg-destructive/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+  if (tone === "caution") {
+    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-warning/35 bg-warning/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-warning transition-all hover:-translate-y-0.5 hover:bg-warning/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
   return "inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-surface-low/70 px-3 text-xs font-black uppercase tracking-[0.12em] text-text-secondary backdrop-blur transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
 }
@@ -120,7 +121,6 @@ const CARD_TONE_CLASS: Record<GitHubCardTone, string> = {
   neutral: "border-border",
   primary: "border-selection-accent/40",
   warning: "border-warning/40",
-  danger: "border-destructive/40",
   info: "border-primary/40",
 };
 
@@ -128,7 +128,6 @@ const HERO_TONE_CLASS: Record<GitHubCardTone, string> = {
   neutral: "text-foreground/82",
   primary: "text-selection-accent",
   warning: "text-warning",
-  danger: "text-destructive",
   info: "text-primary",
 };
 
@@ -136,7 +135,6 @@ const ICON_TONE_CLASS: Record<GitHubCardTone, string> = {
   neutral: "text-foreground/24",
   primary: "text-selection-accent/40",
   warning: "text-warning/40",
-  danger: "text-destructive/40",
   info: "text-primary/40",
 };
 
@@ -244,7 +242,7 @@ function agentPhaseIndex(status: GitHubAgentSetupStatus, started: boolean): numb
 
 function agentHeroLabel(status: GitHubAgentSetupStatus, started: boolean, sending: boolean): string {
   if (sending || (started && status.phase === "idle")) return SETUP_PROGRESS_STEP_LABELS[0];
-  if (status.phase === "failed") return "Connection failed";
+  if (status.phase === "failed") return "Retry connection";
   const activeIndex = agentPhaseIndex(status, started);
   return activeIndex >= 0 ? SETUP_PROGRESS_STEP_LABELS[activeIndex] ?? "Connect GitHub" : "Connect GitHub";
 }
@@ -279,7 +277,7 @@ function managedHeroLabel(step: ConnectorStep, userCode: string): string {
     case "connected":
       return "GitHub connected";
     case "failed":
-      return "Connection failed";
+      return "Retry connection";
     case "idle":
     default:
       return "Connect GitHub";
@@ -297,7 +295,7 @@ function managedHeroSubtitle(step: ConnectorStep): string {
     case "connected":
       return "GitHub is connected.";
     case "failed":
-      return "GitHub connection did not complete.";
+      return "Review the sign-in step, then start the connection again.";
     case "idle":
     default:
       return "Connect GitHub for this workspace.";
@@ -330,6 +328,7 @@ export function GitHubChatConnectorCard({
   const [runtimeSetup, setRuntimeSetup] = React.useState<AgentConnectorRuntimeSetupResult | null>(null);
   const [entry, setEntry] = React.useState<GatewayIntegrationStatusEntry | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [technicalDetails, setTechnicalDetails] = React.useState<string | null>(null);
   const [agentSetupStarted, setAgentSetupStarted] = React.useState(false);
   const [agentSetupSending, setAgentSetupSending] = React.useState(false);
   const [agentSetupVerifying, setAgentSetupVerifying] = React.useState(false);
@@ -337,6 +336,7 @@ export function GitHubChatConnectorCard({
   const [copiedCode, setCopiedCode] = React.useState(false);
   const [codeRippleActive, setCodeRippleActive] = React.useState(false);
   const [disconnecting, setDisconnecting] = React.useState(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = React.useState(false);
   const [generatedWorkflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
   const workflow = cachedWorkflow ?? generatedWorkflow;
   const [workflowLoading, setWorkflowLoading] = React.useState(false);
@@ -382,10 +382,12 @@ export function GitHubChatConnectorCard({
     lastFocusVerifyRef.current = now;
     setAgentSetupVerifying(true);
     setError(null);
+    setTechnicalDetails(null);
     try {
       await onVerifyAgentGitHubSetup();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not ask the agent to check GitHub.");
+      setError("GitHub could not be checked. Return from GitHub, then try verifying again.");
+      setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
     } finally {
       setAgentSetupVerifying(false);
     }
@@ -449,7 +451,8 @@ export function GitHubChatConnectorCard({
       })
       .catch((cause) => {
         if (cancelled) return;
-        setError(cause instanceof Error ? cause.message : "Could not read GitHub connection status.");
+        setError("GitHub status is not available yet. Check the agent connection and refresh.");
+        setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
         setStep("idle");
       });
     return () => {
@@ -480,7 +483,8 @@ export function GitHubChatConnectorCard({
             return;
           }
           if (result.state === "failed") {
-            setError(result.error || "GitHub authorization did not complete.");
+            setError("GitHub authorization did not finish. Start the connection again and approve the new code.");
+            setTechnicalDetails(result.error?.trim() || null);
             setStep("failed");
           }
           return;
@@ -503,12 +507,14 @@ export function GitHubChatConnectorCard({
           return;
         }
         if (authFailed(result)) {
-          setError(result.error || "GitHub authorization did not complete.");
+          setError("GitHub authorization did not finish. Start the connection again and approve the new code.");
+          setTechnicalDetails(result.error?.trim() || null);
           setStep("failed");
         }
       } catch (cause) {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Could not check GitHub authorization status.");
+          setError("GitHub authorization could not be checked. Return from GitHub, then retry.");
+          setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
           setStep("failed");
         }
       }
@@ -553,13 +559,15 @@ export function GitHubChatConnectorCard({
     setSettingUpCopyIndex(0);
     setCopiedCode(false);
     setError(null);
+    setTechnicalDetails(null);
     try {
       if (!onStartAgentGitHubSetup) {
         throw new Error("Ask the agent to set up GitHub from chat; this page cannot start the setup prompt automatically.");
       }
       await onStartAgentGitHubSetup();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not ask the agent to set up GitHub.");
+      setError("GitHub setup did not start. Check the agent connection and try again.");
+      setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
     } finally {
       setAgentSetupSending(false);
     }
@@ -567,6 +575,7 @@ export function GitHubChatConnectorCard({
 
   const start = async () => {
     setError(null);
+    setTechnicalDetails(null);
     setAuthStart(null);
     setRuntimeSetup(null);
     setWorkflow(null);
@@ -602,7 +611,8 @@ export function GitHubChatConnectorCard({
         await startAgentSetup();
         return;
       }
-      setError(cause instanceof Error ? cause.message : "Could not start GitHub authorization.");
+      setError("GitHub authorization did not start. Check the agent connection and try again.");
+      setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
       setStep("failed");
     }
   };
@@ -632,13 +642,16 @@ export function GitHubChatConnectorCard({
     if (!onDisconnect) return;
     setDisconnecting(true);
     setError(null);
+    setTechnicalDetails(null);
     try {
       await onDisconnect({ integrationId: "github", connectionId: entry?.connectionId, revoke: true });
       setEntry(null);
       setAuthStart(null);
       setStep("idle");
+      setDisconnectConfirmOpen(false);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not disconnect GitHub.");
+      setError("GitHub is still connected. Check the agent connection and try disconnecting again.");
+      setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
     } finally {
       setDisconnecting(false);
     }
@@ -673,9 +686,9 @@ export function GitHubChatConnectorCard({
     ? agentSetupSucceeded
       ? "primary"
       : agentSetupFailed
-        ? "danger"
+        ? "warning"
         : "neutral"
-    : visibleStep === "connected" ? "primary" : visibleStep === "failed" ? "danger" : visibleStep === "idle" ? "neutral" : "warning";
+    : visibleStep === "connected" ? "primary" : visibleStep === "failed" ? "warning" : visibleStep === "idle" ? "neutral" : "warning";
   const heroLabel = workflowActive
     ? workflow ? "Setup guide" : workflowLoading ? "Preparing setup" : "Guidance unavailable"
     : agentFlowActive
@@ -691,13 +704,14 @@ export function GitHubChatConnectorCard({
     : visibleStep === "starting" || visibleStep === "pending");
 
   return (
-    <GitHubSignalCard
-      tone={tone}
-      heroLabel={heroLabel}
-      heroSubtitle={heroSubtitle}
-      iconLoading={iconLoading}
-      actions={(
-        <>
+    <>
+      <GitHubSignalCard
+        tone={tone}
+        heroLabel={heroLabel}
+        heroSubtitle={heroSubtitle}
+        iconLoading={iconLoading}
+        actions={(
+          <>
           {workflowActive ? (
             effectiveWorkflowUnavailable ? (
               <button type="button" className={buttonClass("primary")} disabled={workflowLoading} onClick={() => void generateWorkflow()}>
@@ -740,7 +754,7 @@ export function GitHubChatConnectorCard({
                 </button>
               )}
               {onDisconnect && (
-                <button type="button" className={buttonClass("danger")} disabled={disconnecting} onClick={() => void disconnect()}>
+                <button type="button" className={buttonClass("caution")} disabled={disconnecting} onClick={() => setDisconnectConfirmOpen(true)}>
                   {disconnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   Disconnect
                 </button>
@@ -749,10 +763,15 @@ export function GitHubChatConnectorCard({
           )}
           {onOpenIntegrationDetails && <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button>}
           {onDismiss && <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button>}
-        </>
+          </>
+        )}
+      >
+      {error && (
+        <div className="mb-2 rounded-md border border-warning/25 bg-warning/10 px-2.5 py-2 text-warning">
+          <p role="alert">{error}</p>
+          {technicalDetails ? <RecoveryDetails label="Technical details" technicalDetails={technicalDetails} className="mt-2 text-left" /> : null}
+        </div>
       )}
-    >
-      {error && <p className="mb-2 rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-destructive">{error}</p>}
       {workflowActive ? (
         <ConnectorWorkflowGuide
           workflow={workflow}
@@ -821,6 +840,16 @@ export function GitHubChatConnectorCard({
       ) : (
         null
       )}
-    </GitHubSignalCard>
+      </GitHubSignalCard>
+      <ConfirmDialog
+        open={disconnectConfirmOpen}
+        title="Disconnect GitHub?"
+        message="This revokes the saved GitHub connection for this workspace. The agent will need a new authorization before it can use GitHub again."
+        confirmLabel="Disconnect GitHub"
+        loading={disconnecting}
+        onConfirm={() => void disconnect()}
+        onCancel={() => { if (!disconnecting) setDisconnectConfirmOpen(false); }}
+      />
+    </>
   );
 }

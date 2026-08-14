@@ -6,6 +6,7 @@ import { ACCOUNT_PAGE_HREFS } from "@/lib/dashboard-route";
 import { useParams } from "next/navigation";
 import {
   ReceiptDetailCard,
+  RecoveryState,
   type ReceiptRecord,
 } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -64,6 +65,8 @@ function mapPayment(payment: AgentPayment): ReceiptRecord {
   };
 }
 
+type ReceiptRecovery = { title: string; description: string };
+
 export default function BillingDetailPage() {
   const { getToken } = useAgentAuth();
   const params = useParams<{ id: string }>();
@@ -75,7 +78,8 @@ export default function BillingDetailPage() {
   ]);
   const [paidByLines, setPaidByLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReceiptRecovery | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     if (!params?.id) return;
@@ -118,9 +122,12 @@ export default function BillingDetailPage() {
           ...(billing.company_billing?.address?.length ? billing.company_billing.address : ["HyperCLI Agents", "Agents billing"]),
           supportEmail,
         ]);
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load receipt");
+          setError({
+            title: "Retry to open this receipt",
+            description: "The receipt did not load. Retry to reopen the latest billing record.",
+          });
         }
       } finally {
         if (!cancelled) {
@@ -133,7 +140,7 @@ export default function BillingDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [getToken, params?.id]);
+  }, [getToken, loadAttempt, params?.id]);
 
   return (
     <div className="space-y-6">
@@ -146,9 +153,13 @@ export default function BillingDetailPage() {
           Loading receipt...
         </div>
       ) : error ? (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
+        <RecoveryState
+          presentation="panel"
+          announcement="assertive"
+          title={error.title}
+          description={error.description}
+          primaryAction={{ label: "Retry receipt", onAction: () => setLoadAttempt((attempt) => attempt + 1) }}
+        />
       ) : receipt ? (
         <ReceiptDetailCard
           receipt={receipt}

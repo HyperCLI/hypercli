@@ -112,10 +112,9 @@ export function AgentEmptyHistory({
       title: "Uses Your Tools",
       description: "Securely connect to your apps, APIs, and accounts so your agent can work across the software you already use.",
       icon: Plug,
-      showIntegrationIcons: true,
       actions: actions?.onOpenIntegrations ? [{
-        label: "Browse integrations",
-        ariaLabel: "Open Integrations",
+        label: "Connect Any Tool",
+        ariaLabel: "Connect Any Tool",
         onClick: () => actions.onOpenIntegrations?.(),
       }] : [],
     },
@@ -131,11 +130,8 @@ export function AgentEmptyHistory({
       title: "Works Where You Work",
       description: "Available in the tools your team already uses.",
       icon: MessagesSquare,
-      actions: actions?.onOpenIntegrationChatCard ? [{
-        label: "Connect Slack",
-        ariaLabel: "Connect Slack",
-        onClick: () => actions.onOpenIntegrationChatCard?.("slack"),
-      }] : [],
+      showIntegrationIcons: true,
+      actions: [],
     },
   ];
 
@@ -176,7 +172,7 @@ export function AgentEmptyHistory({
                 <h3 className="text-sm font-semibold leading-5 text-foreground">{capability.title}</h3>
                 <p className="mt-0.5 text-xs leading-[1.15rem] text-text-secondary">{capability.description}</p>
               </div>
-              {capability.actions.length > 0 ? (
+              {capability.actions.length > 0 || (capability.showIntegrationIcons && actions?.onOpenIntegrationChatCard) ? (
                 <div className="agent-empty-history-capability-actions col-start-2 flex flex-wrap items-center gap-1.5">
                   {capability.showIntegrationIcons && actions?.onOpenIntegrationChatCard ? (
                     <ul aria-label="Featured integrations" className="mr-1 flex -space-x-1">

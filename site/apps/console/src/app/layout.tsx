@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Figtree } from "next/font/google";
-import Script from "next/script";
 import "./globals.css";
 import { AuthRouteBoundary, Providers, ThemeScript } from "@hypercli/shared-ui";
 
@@ -36,7 +35,6 @@ export default function RootLayout({
             {children}
           </AuthRouteBoundary>
         </Providers>
-        <Script src="https://unpkg.com/twemoji@14.0.2/dist/twemoji.min.js" crossOrigin="anonymous" strategy="afterInteractive" />
       </body>
     </html>
   );

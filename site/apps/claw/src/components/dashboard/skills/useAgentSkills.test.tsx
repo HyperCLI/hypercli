@@ -51,7 +51,11 @@ describe("useAgentSkills", () => {
 
     await waitFor(() => expect(result.current.skills).toHaveLength(1));
     await act(async () => { await expect(result.current.loadDocument("weather")).rejects.toThrow("file API unavailable"); });
-    expect(result.current.skills[0]).toMatchObject({ documentState: "error", documentError: "file API unavailable" });
+    expect(result.current.skills[0]).toMatchObject({
+      documentState: "error",
+      documentError: "Retry loading the instructions. If this continues, reconnect the agent.",
+      documentDiagnostic: "file API unavailable",
+    });
 
     await act(async () => { await result.current.loadDocument("weather"); });
     expect(result.current.skills[0]).toMatchObject({ documentState: "loaded", contentLoaded: true });

@@ -2,6 +2,7 @@
 
 import { AlertTriangle, ArrowRight, Check, Copy, ExternalLink, Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
+import { RecoveryDetails } from "@hypercli/shared-ui";
 
 import { ResourceImage } from "@/components/ResourceImage";
 import { ApprovalCard, type ApprovalState } from "@/components/dashboard/chat/ApprovalCard";
@@ -61,11 +62,13 @@ interface ConnectorWorkflowGuideProps {
 export interface ConnectorWorkflowVerificationResult {
   success: boolean;
   message?: string;
+  technicalDetails?: string;
 }
 
 type VerificationState = {
   status: "testing" | "success" | "error";
   message?: string;
+  technicalDetails?: string;
 };
 
 function externalLinkLabel(url: string): string {
@@ -422,7 +425,7 @@ export function ConnectorWorkflowGuide({
                           }}
                         />
                         {commandErrors[step.id] ? (
-                          <p role="alert" className="mt-2 text-destructive">The command did not complete. Review the workspace and try again.</p>
+                           <p role="alert" className="mt-2 text-warning">The command did not complete. Review the workspace state, then approve it again.</p>
                         ) : null}
                       </div>
                     ) : null}
@@ -434,7 +437,9 @@ export function ConnectorWorkflowGuide({
                             <p className="mt-1 text-xs leading-5 text-text-muted">
                               {verificationState?.status === "testing"
                                 ? "Checking authentication and connection health..."
-                                : verificationState?.message ?? verificationDisabledReason ?? "Run a live check using the saved channel settings."}
+                                 : verificationState?.status === "error"
+                                   ? "Review the saved settings, then retry the connection check."
+                                   : verificationState?.message ?? verificationDisabledReason ?? "Run a live check using the saved channel settings."}
                             </p>
                           </div>
                           <button
@@ -448,12 +453,14 @@ export function ConnectorWorkflowGuide({
                               }));
                               try {
                                 const result = await onVerifyConnection();
-                                setVerificationStates((current) => ({
-                                  ...current,
-                                  [verificationKey]: {
-                                    status: result.success ? "success" : "error",
-                                    message: result.message,
-                                  },
+                                 const technicalDetails = !result.success && result.technicalDetails?.trim() ? result.technicalDetails.trim() : undefined;
+                                 setVerificationStates((current) => ({
+                                   ...current,
+                                   [verificationKey]: {
+                                     status: result.success ? "success" : "error",
+                                     message: result.success ? result.message : "The connection is not ready yet. Review the saved settings and retry.",
+                                     technicalDetails,
+                                   },
                                 }));
                                 if (result.success) {
                                   setCompletionState((current) => {
@@ -464,7 +471,7 @@ export function ConnectorWorkflowGuide({
                               } catch {
                                 setVerificationStates((current) => ({
                                   ...current,
-                                  [verificationKey]: { status: "error", message: "Could not test the connection right now." },
+                                  [verificationKey]: { status: "error", message: "The connection could not be checked. Reconnect the agent and retry." },
                                 }));
                               }
                             }}
@@ -491,9 +498,12 @@ export function ConnectorWorkflowGuide({
                             <Check className="h-4 w-4 shrink-0" /> Connection test passed.
                           </p>
                         ) : verificationState?.status === "error" ? (
-                          <p role="alert" className="mt-3 flex items-start gap-2 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {verificationState.message ?? "The connection is not reachable yet."}
-                          </p>
+                           <div className="mt-3 rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-warning">
+                             <p role="alert" className="flex items-start gap-2">
+                               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {verificationState.message ?? "The connection is not ready yet. Review the saved settings and retry."}
+                             </p>
+                             {verificationState.technicalDetails ? <RecoveryDetails label="Technical details" technicalDetails={verificationState.technicalDetails} className="mt-2 text-left" /> : null}
+                           </div>
                         ) : null}
                       </div>
                     ) : null}

@@ -41,6 +41,7 @@ export interface AgentSkill {
   contentLoaded?: boolean;
   documentState: "idle" | "loading" | "loaded" | "unavailable" | "error";
   documentError?: string;
+  documentDiagnostic?: string;
 }
 
 export const MAX_SKILL_DRAFT_TEST_CHARS = 12_000;

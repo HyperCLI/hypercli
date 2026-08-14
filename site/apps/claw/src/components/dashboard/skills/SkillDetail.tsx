@@ -5,6 +5,7 @@ import { ArrowLeft, FileText, Loader2, Save, Settings2, TestTube2, Trash2 } from
 import {
   Button,
   ConfirmDialog,
+  RecoveryDetails,
   toast,
 } from "@hypercli/shared-ui";
 import { SkillMarkdownEditor, SkillRequirementNotice, SkillStatusPill } from "@hypercli/shared-ui/skills";
@@ -158,10 +159,8 @@ export function SkillDetail({
       onConfigured(skill.id, { enabled, env: cleanEnv });
       setEnvEdits({});
       toast.success(`${skill.name} configuration saved.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save skill configuration.";
-      setSaveError(message);
-      toast.error(message);
+    } catch {
+      setSaveError("The configuration was not saved. Check the agent connection and try again.");
     } finally {
       setSaving(false);
     }
@@ -176,10 +175,8 @@ export function SkillDetail({
       setContentEdit(null);
       setEditing(false);
       toast.success(localPreview ? `${skill.name} updated for this session.` : `${skill.name} saved to the agent.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save skill instructions.";
-      setContentError(message);
-      toast.error(message);
+    } catch {
+      setContentError("The instructions were not saved. Keep this editor open and try again.");
     } finally {
       setContentSaving(false);
     }
@@ -209,10 +206,8 @@ export function SkillDetail({
     try {
       await onSaveToAgent(contentDraft);
       toast.success(`${skill.name} saved to the agent.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save skill to the agent.";
-      setPersistError(message);
-      toast.error(message);
+    } catch {
+      setPersistError("The draft is still stored in this browser. Reconnect the agent and try saving again.");
     } finally {
       setPersisting(false);
     }
@@ -224,8 +219,8 @@ export function SkillDetail({
     try {
       await onDiscardDraft();
       toast.success(`${skill.name} draft discarded.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to discard the skill draft.");
+    } catch {
+      setPersistError("The draft is still in this browser. Try discarding it again.");
       setDiscarding(false);
     }
   };
@@ -257,14 +252,14 @@ export function SkillDetail({
               </div>
             </div>
             <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
-              {localPreview && onDiscardDraft && <Button type="button" variant="outline" size="sm" onClick={() => setDiscardConfirmOpen(true)} disabled={discarding} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] text-error hover:bg-error/10 hover:text-error"><Trash2 className="h-3.5 w-3.5" />Discard</Button>}
+              {localPreview && onDiscardDraft && <Button type="button" variant="outline" size="sm" onClick={() => setDiscardConfirmOpen(true)} disabled={discarding} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] text-text-secondary hover:bg-surface-high hover:text-foreground"><Trash2 className="h-3.5 w-3.5" />Discard draft</Button>}
               {localPreview && onSaveToAgent && <Button type="button" size="sm" onClick={() => void handleSaveToAgent()} disabled={persisting} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px]">{persisting ? <Loader2 className="animate-spin" /> : <Save className="h-3.5 w-3.5" />}{persisting ? "Saving..." : "Save to agent"}</Button>}
               {skill.editable && <Button type="button" variant={editing ? "secondary" : "outline"} size="sm" onClick={() => { setActiveTab("overview"); setEditing(true); }} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"><Settings2 className="h-3.5 w-3.5" />Edit instructions</Button>}
               <Button type="button" variant="outline" size="sm" onClick={onTest} className="h-8 min-h-0 gap-1.5 px-2.5 text-[11px] hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"><TestTube2 className="h-3.5 w-3.5" />Test in new session</Button>
             </div>
           </div>
         </header>
-        {persistError && <p className="mt-3 rounded-lg border border-error/25 bg-error/10 px-3 py-2 text-[11px] text-error">{persistError}</p>}
+        {persistError && <p role="alert" className="mt-3 rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">{persistError}</p>}
 
         {filesAvailable && (
           <div role="tablist" aria-label={`${skill.name} details`} className="mt-4 flex gap-1 border-b border-border">
@@ -314,7 +309,7 @@ export function SkillDetail({
               applyLabel={localPreview ? "Update draft" : "Save to agent"}
               renderPreview={(content) => <SkillMarkdown content={content} />}
             />
-            {contentError && <p className="rounded-lg border border-error/25 bg-error/10 px-3 py-2 text-[11px] text-error">{contentError}</p>}
+            {contentError && <p role="alert" className="rounded-lg border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">{contentError}</p>}
           </section>
         ) : (
           <div id={`${skill.id}-overview-panel`} role={filesAvailable ? "tabpanel" : undefined} aria-labelledby={filesAvailable ? `${skill.id}-overview-tab` : undefined} className="mt-5">
@@ -327,8 +322,9 @@ export function SkillDetail({
                       <div role="status" className="flex items-center gap-2 text-[12px] text-text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading instructions...</div>
                     ) : skill.documentState === "error" ? (
                       <div className="space-y-2">
-                        <p className="text-[12px] leading-relaxed text-error">{skill.documentError || "Could not load skill instructions."}</p>
-                        {onLoadDocument && <Button type="button" variant="outline" size="sm" onClick={() => void onLoadDocument().catch(() => undefined)}>Retry</Button>}
+                        <p role="alert" className="text-[12px] leading-relaxed text-warning">The instructions are not available yet. Retry now, or reconnect the agent if this continues.</p>
+                        {skill.documentDiagnostic ? <RecoveryDetails label="Technical details" technicalDetails={skill.documentDiagnostic} /> : null}
+                        {onLoadDocument && <Button type="button" variant="outline" size="sm" onClick={() => void onLoadDocument().catch(() => undefined)}>Retry loading</Button>}
                       </div>
                     ) : skill.documentState === "unavailable" ? (
                       <p className="text-[12px] leading-relaxed text-text-muted">Detailed instructions are not exposed by this agent.</p>
@@ -358,7 +354,7 @@ export function SkillDetail({
                           </label>
                         ))}
                       </div>
-                      {saveError && <p className="mt-3 text-[11px] text-error">{saveError}</p>}
+                      {saveError && <p role="alert" className="mt-3 text-[11px] text-warning">{saveError}</p>}
                       <TooltipHint label={requiredEnvMissing ? "Enter the required environment values first." : "Save skill configuration."} disabled={!canSaveSetup}>
                         <Button type="button" size="sm" onClick={handleSaveSetup} disabled={!canSaveSetup} className="mt-3 w-full sm:w-auto">{saving ? <Loader2 className="animate-spin" /> : null}{saving ? "Saving..." : "Save configuration"}</Button>
                       </TooltipHint>
@@ -389,9 +385,8 @@ export function SkillDetail({
       <ConfirmDialog
         open={discardConfirmOpen}
         title="Discard skill draft?"
-        message="This removes the draft and its local test history from this browser. Messages already sent to chat are not removed."
+        message="This removes the browser-only draft and its local test history. Messages already sent to chat will remain."
         confirmLabel="Discard draft"
-        danger
         loading={discarding}
         onConfirm={() => void handleDiscardDraft()}
         onCancel={() => { if (!discarding) setDiscardConfirmOpen(false); }}

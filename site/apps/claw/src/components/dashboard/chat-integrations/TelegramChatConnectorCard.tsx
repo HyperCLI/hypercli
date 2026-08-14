@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import { ConfirmDialog, RecoveryDetails } from "@hypercli/shared-ui";
 
 import { isPluginConnected, schemaPathExists } from "@/components/dashboard/directory/directory-utils";
 import { INTEGRATION_BRAND_LOGOS } from "@/components/dashboard/integrations/integration-brand-icons";
@@ -63,7 +64,7 @@ interface TelegramChatConnectorCardProps {
   directSetup?: boolean;
 }
 
-type TelegramTone = "neutral" | "primary" | "warning" | "danger";
+type TelegramTone = "neutral" | "primary" | "warning";
 type TelegramMode = "overview" | "setup" | "saved" | "finish" | "verifying" | "ready" | "failed" | "manage";
 type DmPolicy = "allowlist" | "pairing" | "open" | "disabled";
 type GroupPolicy = "allowlist" | "open" | "disabled";
@@ -82,7 +83,6 @@ const CARD_TONE_CLASS: Record<TelegramTone, string> = {
   neutral: "border-border",
   primary: "border-[var(--channel-accent-border)]",
   warning: "border-warning/40",
-  danger: "border-destructive/40",
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -170,12 +170,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function buttonClass(tone: "primary" | "secondary" | "danger" = "secondary") {
+function buttonClass(tone: "primary" | "secondary" | "caution" = "secondary") {
   if (tone === "primary") {
     return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
-  if (tone === "danger") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-destructive/35 bg-destructive/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-destructive transition-all hover:-translate-y-0.5 hover:bg-destructive/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+  if (tone === "caution") {
+    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-warning/35 bg-warning/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-warning transition-all hover:-translate-y-0.5 hover:bg-warning/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
   }
   return "inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-surface-low/70 px-3 text-xs font-black uppercase tracking-[0.12em] text-text-secondary backdrop-blur transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
 }
@@ -274,6 +274,8 @@ export function TelegramChatConnectorCard({
   const [probeStatus, setProbeStatus] = React.useState<Record<string, unknown> | null>(null);
   const [displayName, setDisplayName] = React.useState<string | null>(storedDisplayName);
   const [error, setError] = React.useState<string | null>(null);
+  const [technicalDetails, setTechnicalDetails] = React.useState<string | null>(null);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = React.useState(false);
   const [showManualFallback, setShowManualFallback] = React.useState(false);
   const [generatedWorkflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
   const workflow = cachedWorkflow ?? generatedWorkflow;
@@ -345,6 +347,7 @@ export function TelegramChatConnectorCard({
 
     const attempts = options.poll ? VERIFY_ATTEMPTS : 1;
     let failureMessage = "Telegram settings were saved, but the bot is not reachable yet.";
+    let failureTechnicalDetails: string | null = null;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         if (connectorsProvider) {
@@ -374,15 +377,21 @@ export function TelegramChatConnectorCard({
           setProbing(false);
           return { success: true, message: nextDisplayName ? `Telegram is online as @${nextDisplayName}.` : "Telegram is online for this workspace." };
         }
-        failureMessage = telegramProbeError(status) ?? failureMessage;
+        failureTechnicalDetails = telegramProbeError(status) ?? failureTechnicalDetails;
         if (!options.poll || attempt === attempts - 1) {
-          if (!options.inline) setError(failureMessage);
+          if (!options.inline) {
+            setError(failureMessage);
+            setTechnicalDetails(failureTechnicalDetails);
+          }
         }
       } catch (cause) {
         if (requestIdRef.current !== requestId) return { success: false };
         if (!options.poll || attempt === attempts - 1) {
-          failureMessage = redactTelegramSecrets(cause instanceof Error ? cause.message : "Could not test Telegram right now.");
-          if (!options.inline) setError(failureMessage);
+          failureTechnicalDetails = redactTelegramSecrets(cause instanceof Error ? cause.message : "Telegram connection check unavailable.");
+          if (!options.inline) {
+            setError("Telegram could not be checked right now. Reconnect the agent and retry.");
+            setTechnicalDetails(failureTechnicalDetails);
+          }
         }
       }
 
@@ -394,7 +403,7 @@ export function TelegramChatConnectorCard({
       else setSetupVerified(false);
       setProbing(false);
     }
-    return { success: false, message: failureMessage };
+    return { success: false, message: failureMessage, technicalDetails: failureTechnicalDetails ?? undefined };
   };
 
   React.useEffect(() => () => {
@@ -415,6 +424,7 @@ export function TelegramChatConnectorCard({
     const accessSettings = currentTelegramAccessSettings();
     setSaving(true);
     setError(null);
+    setTechnicalDetails(null);
     setShowManualFallback(false);
     try {
       if (connectorsProvider) {
@@ -443,10 +453,10 @@ export function TelegramChatConnectorCard({
       const protectedConfig = isProtectedConfigError(cause);
       setShowManualFallback(protectedConfig);
       setError(configured && protectedConfig
-        ? "Could not patch Telegram settings from here. The agent can update the selected non-secret access controls directly."
+        ? "Use the agent action below to apply the selected non-secret access controls. The saved bot token will stay unchanged."
         : configured
-          ? "Could not patch Telegram settings from here. Try again."
-          : null);
+          ? "Telegram settings were not updated. Review the access choices and try again."
+          : "Telegram was not connected. Check the bot token and access choices, then try again.");
       setMode("setup");
     } finally {
       setSaving(false);
@@ -459,6 +469,7 @@ export function TelegramChatConnectorCard({
     requestIdRef.current = requestId;
     setSaving(true);
     setError(null);
+    setTechnicalDetails(null);
     try {
       await onSaveConfig({ channels: { telegram: null } });
       if (requestIdRef.current !== requestId) return;
@@ -467,8 +478,9 @@ export function TelegramChatConnectorCard({
       setSettingsSaved(false);
       setSetupVerified(false);
       setMode("overview");
+      setDisconnectConfirmOpen(false);
     } catch {
-      setError("Could not disconnect Telegram. Try again.");
+      setError("Telegram is still connected. Check the agent connection and try disconnecting again.");
     } finally {
       setSaving(false);
     }
@@ -484,6 +496,7 @@ export function TelegramChatConnectorCard({
 
     setSaving(true);
     setError(null);
+    setTechnicalDetails(null);
     setShowManualFallback(false);
     try {
       const accessSettings = currentTelegramAccessSettings();
@@ -497,8 +510,9 @@ export function TelegramChatConnectorCard({
       setAuthorizationApproved(false);
       setMode("finish");
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : "The agent could not update Telegram access settings.";
-      setError(redactTelegramSecrets(message));
+      const diagnostic = cause instanceof Error ? cause.message : "Telegram access update unavailable.";
+      setError("Telegram access settings were not updated. Review the choices and try again.");
+      setTechnicalDetails(redactTelegramSecrets(diagnostic));
       setMode("failed");
     } finally {
       setSaving(false);
@@ -559,7 +573,7 @@ export function TelegramChatConnectorCard({
     : !connected || !runtimeAvailable
       ? "warning"
       : effectiveMode === "failed" || error
-        ? "danger"
+        ? "warning"
         : "neutral";
   const heroLabel = effectiveMode === "finish"
     ? "Message Telegram"
@@ -914,7 +928,12 @@ export function TelegramChatConnectorCard({
         transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
         className="relative z-10 origin-top overflow-hidden border-t border-border bg-surface-low/70 px-4 py-4 text-xs leading-5 text-text-secondary backdrop-blur-md sm:px-5"
       >
-        {error ? <p role="alert" className="mb-3 rounded-md border border-destructive/25 bg-destructive/10 px-2.5 py-2 text-destructive">{error}</p> : null}
+        {error ? (
+          <div className="mb-3 rounded-md border border-warning/25 bg-warning/10 px-2.5 py-2 text-warning">
+            <p role="alert">{error}</p>
+            {technicalDetails ? <RecoveryDetails label="Technical details" technicalDetails={redactTelegramSecrets(technicalDetails)} className="mt-2 text-left" /> : null}
+          </div>
+        ) : null}
         {showManualFallback ? (
           <div className="mb-3 rounded-2xl border border-warning/25 bg-warning/10 p-3 text-warning">
             <p className="font-semibold text-foreground">Settings fallback</p>
@@ -1020,7 +1039,7 @@ export function TelegramChatConnectorCard({
             </div>
           ) : null
         ) : effectiveMode === "failed" ? (
-          <div className="flex items-start gap-3 rounded-2xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-destructive">
+          <div className="flex items-start gap-3 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>Telegram is not reachable yet. Check the token, make sure the bot exists, then retry.</p>
           </div>
@@ -1093,7 +1112,7 @@ export function TelegramChatConnectorCard({
               </a>
             ) : null}
             <button type="button" className={buttonClass()} disabled={!canConfigure || saving} onClick={beginSetup}>Reconfigure</button>
-            <button type="button" className={buttonClass("danger")} disabled={!canConfigure || saving} onClick={() => void disconnectTelegram()}>
+            <button type="button" className={buttonClass("caution")} disabled={!canConfigure || saving} onClick={() => setDisconnectConfirmOpen(true)}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               Disconnect
             </button>
@@ -1106,7 +1125,7 @@ export function TelegramChatConnectorCard({
             </button>
             <button type="button" className={buttonClass()} disabled={!canConfigure || saving} onClick={beginSetup}>Edit settings</button>
             {configured ? (
-              <button type="button" className={buttonClass("danger")} disabled={!canConfigure || saving} onClick={() => void disconnectTelegram()}>
+              <button type="button" className={buttonClass("caution")} disabled={!canConfigure || saving} onClick={() => setDisconnectConfirmOpen(true)}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 Disconnect
               </button>
@@ -1121,7 +1140,7 @@ export function TelegramChatConnectorCard({
               </a>
             ) : null}
             <button type="button" className={buttonClass()} disabled={!canConfigure || saving} onClick={beginSetup}>Reconfigure</button>
-            <button type="button" className={buttonClass("danger")} disabled={!canConfigure || saving} onClick={() => void disconnectTelegram()}>
+            <button type="button" className={buttonClass("caution")} disabled={!canConfigure || saving} onClick={() => setDisconnectConfirmOpen(true)}>
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               Disconnect
             </button>
@@ -1138,6 +1157,15 @@ export function TelegramChatConnectorCard({
         {onOpenIntegrationDetails && !showSettingsHandoff ? <button type="button" className={buttonClass()} onClick={onOpenIntegrationDetails}>Open in integrations</button> : null}
         {onDismiss ? <button type="button" className={buttonClass()} onClick={onDismiss}><X className="h-3.5 w-3.5" />Dismiss</button> : null}
       </div>
+      <ConfirmDialog
+        open={disconnectConfirmOpen}
+        title="Disconnect Telegram?"
+        message="This removes the saved Telegram configuration from this workspace, so the agent will stop receiving Telegram messages until it is connected again."
+        confirmLabel="Disconnect Telegram"
+        loading={saving}
+        onConfirm={() => void disconnectTelegram()}
+        onCancel={() => { if (!saving) setDisconnectConfirmOpen(false); }}
+      />
     </section>
   );
 }

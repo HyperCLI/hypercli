@@ -23,8 +23,8 @@ export function useSkillDrafts(scope: SkillDraftScope) {
       if (!cancelled && records.length > 0) {
         setDrafts(records);
       }
-    }).catch((cause) => {
-      if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not load local skill drafts.");
+    }).catch(() => {
+      if (!cancelled) setError("Allow browser storage, then reopen Skills to load local drafts.");
     });
     return () => { cancelled = true; };
   }, [stableScope]);

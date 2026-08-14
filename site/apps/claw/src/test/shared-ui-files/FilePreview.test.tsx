@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -179,7 +179,38 @@ describe("FilePreview", () => {
       />,
     );
 
+    expect(screen.getByRole("heading", { name: "Try opening this archive another way" })).toBeInTheDocument();
+    expect(screen.queryByText(/does not look like a ZIP archive/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
     expect(screen.getByText(/does not look like a ZIP archive/i)).toBeInTheDocument();
+  });
+
+  it("keeps preview errors action-led and redacts closed technical details", () => {
+    const onRetry = vi.fn();
+    render(
+      <FilePreview
+        entry={{ name: "notes.txt", path: "notes.txt", type: "file" }}
+        content={null}
+        loading={false}
+        error="Authorization: Bearer preview-secret-token"
+        onRetry={onRetry}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Try again to preview this file");
+    expect(alert).toHaveTextContent("The file is still available");
+    expect(alert).toHaveTextContent("Try the preview once more");
+    expect(screen.queryByText(/preview-secret-token/i)).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Technical details" }));
+    expect(alert).toHaveTextContent("Authorization: [redacted]");
+    expect(alert).not.toHaveTextContent("preview-secret-token");
+
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
   it("renders markdown preview and toggles to raw source", () => {
@@ -474,7 +505,12 @@ describe("FilePreview", () => {
     const editor = screen.getByRole("textbox", { name: "notes.txt contents" });
     fireEvent.change(editor, { target: { value: "updated" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Write was rejected");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Try saving again");
+    expect(alert).toHaveTextContent("Your edits are still here");
+    expect(screen.queryByText("Write was rejected")).not.toBeInTheDocument();
+    fireEvent.click(within(alert).getByRole("button", { name: "Technical details" }));
+    expect(alert).toHaveTextContent("Write was rejected");
     expect(editor).toHaveValue("updated");
   });
 

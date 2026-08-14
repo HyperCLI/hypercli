@@ -105,9 +105,9 @@ export function useSlackRelaySetup({
       if (operationRef.current !== operationId) return null;
       dispatch({ type: "check-success", installStatus: status });
       return status;
-    } catch (cause) {
+    } catch {
       if (operationRef.current !== operationId) return null;
-      dispatch({ type: "check-error", error: cause instanceof Error ? cause.message : "Could not check Slack installation." });
+      dispatch({ type: "check-error", error: "Slack status could not be checked. Sign in again or retry." });
       return null;
     }
   }, [getToken, isAuthenticated]);
@@ -141,9 +141,9 @@ export function useSlackRelaySetup({
       if (operationRef.current !== operationId) return;
       dispatch({ type: "configure-success", installStatus: result.status });
       await onRefreshChannels?.(true);
-    } catch (cause) {
+    } catch {
       if (operationRef.current !== operationId) return;
-      dispatch({ type: "configure-error", error: cause instanceof Error ? cause.message : "Could not configure hosted Slack relay." });
+      dispatch({ type: "configure-error", error: "Slack is authorized but was not attached to this agent. Retry attaching it." });
     }
   }, [agentId, channelsProvider, getToken, onRefreshChannels]);
 

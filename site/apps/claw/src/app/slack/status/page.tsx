@@ -5,17 +5,34 @@ import { DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
 import { useEffect, useState } from "react";
 import { Loader2, MessageSquare } from "lucide-react";
 import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { RecoveryDetails, RecoveryState } from "@hypercli/shared-ui";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
 type LoadState = "loading" | "ready" | "error" | "login";
+type SlackRecovery = { title: string; description: string };
+
+function redactSlackReference(value: string | null | undefined): string | null {
+  const normalized = value?.replace(/[^a-z0-9_-]/gi, "").slice(0, 80);
+  if (!normalized) return null;
+  if (normalized.length < 4) return "[hidden]";
+  return `${normalized.slice(0, 1)}...${normalized.slice(-2)}`;
+}
+
+function formatSlackUpdatedAt(value: string | null | undefined): string {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString();
+}
 
 export default function SlackStatusPage() {
   const { getToken, isAuthenticated, isLoading, login } = useAgentAuth();
   const [state, setState] = useState<LoadState>("loading");
   const [status, setStatus] = useState<SlackInstallStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SlackRecovery | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     if (isLoading) {
@@ -27,7 +44,10 @@ export default function SlackStatusPage() {
       return;
     }
     if (!SLACK_RELAY_BASE_URL) {
-      setError("Slack relay is not configured for this environment.");
+      setError({
+        title: "Return to settings to continue",
+        description: "Slack connections are not available from this environment. Open settings to choose another next step.",
+      });
       setState("error");
       return;
     }
@@ -43,16 +63,19 @@ export default function SlackStatusPage() {
           setStatus(nextStatus);
           setState("ready");
         }
-      } catch (err) {
+      } catch {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Could not load Slack status.");
+        setError({
+          title: "Retry to check Slack",
+          description: "The latest Slack connection status did not load. Retry to check the workspace again.",
+        });
         setState("error");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [getToken, isAuthenticated, isLoading]);
+  }, [getToken, isAuthenticated, isLoading, loadAttempt]);
 
   const connected = status?.connected === true;
 
@@ -90,30 +113,41 @@ export default function SlackStatusPage() {
           ) : state === "loading" ? (
             <p className="text-sm leading-6 text-text-muted">Checking Slack connection...</p>
           ) : state === "error" ? (
-            <p className="text-sm leading-6 text-destructive">{error}</p>
+            <RecoveryState
+              presentation="compact"
+              announcement="assertive"
+              title={error?.title ?? "Retry to check Slack"}
+              description={error?.description ?? "The latest Slack connection status did not load."}
+              primaryAction={SLACK_RELAY_BASE_URL ? {
+                label: "Retry status check",
+                onAction: () => setLoadAttempt((attempt) => attempt + 1),
+              } : undefined}
+            />
           ) : (
-            <dl className="grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-text-muted">Connection</dt>
-                <dd className="mt-1 font-medium">{connected ? "Connected" : "Not connected"}</dd>
-              </div>
-              <div>
-                <dt className="text-text-muted">Workspace</dt>
-                <dd className="mt-1 font-medium">{status?.teamName || status?.teamId || "None"}</dd>
-              </div>
-              <div>
-                <dt className="text-text-muted">Team ID</dt>
-                <dd className="mt-1 font-mono text-xs">{status?.teamId || "-"}</dd>
-              </div>
-              <div>
-                <dt className="text-text-muted">Bot user</dt>
-                <dd className="mt-1 font-mono text-xs">{status?.botUserId || "-"}</dd>
-              </div>
-              <div>
-                <dt className="text-text-muted">Updated</dt>
-                <dd className="mt-1 font-mono text-xs">{status?.updatedAt || "-"}</dd>
-              </div>
-            </dl>
+            <div>
+              <dl className="grid gap-4 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-text-muted">Connection</dt>
+                  <dd className="mt-1 font-medium">{connected ? "Connected" : "Not connected"}</dd>
+                </div>
+                <div>
+                  <dt className="text-text-muted">Workspace</dt>
+                  <dd className="mt-1 font-medium">{status?.teamName || (connected ? "Connected workspace" : "None")}</dd>
+                </div>
+                <div>
+                  <dt className="text-text-muted">Updated</dt>
+                  <dd className="mt-1 text-xs">{formatSlackUpdatedAt(status?.updatedAt)}</dd>
+                </div>
+              </dl>
+              <RecoveryDetails
+                label="Connection details"
+                technicalDetails={[
+                  redactSlackReference(status?.teamId) ? `Workspace reference: ${redactSlackReference(status?.teamId)}` : null,
+                  redactSlackReference(status?.botUserId) ? `Bot reference: ${redactSlackReference(status?.botUserId)}` : null,
+                ].filter(Boolean).join("\n") || undefined}
+                className="mt-5"
+              />
+            </div>
           )}
         </section>
 

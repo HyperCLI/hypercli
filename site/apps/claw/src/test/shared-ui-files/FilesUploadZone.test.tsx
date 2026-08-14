@@ -101,6 +101,10 @@ describe("FilesUploadZone", () => {
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [file] } });
     await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument());
+    expect(screen.getByRole("alert")).toHaveTextContent("Try uploading this file again.");
+    expect(screen.queryByText("temporary failure")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText("temporary failure")).toBeInTheDocument();
 
     rerender(<FilesUploadZone currentPath=".openclaw/workspace/two" onUpload={onUpload} />);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -135,9 +139,12 @@ describe("FilesUploadZone", () => {
       },
     });
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      'Could not read folder "missing-photos". It may have been moved or removed while it was being added.',
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Try adding these files again.");
+    expect(alert).toHaveTextContent("The selection may have moved or changed");
+    expect(screen.queryByText(/Could not read folder "missing-photos"/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+    expect(screen.getByText(/Could not read folder "missing-photos"/)).toBeInTheDocument();
     expect(onUpload).not.toHaveBeenCalled();
   });
 

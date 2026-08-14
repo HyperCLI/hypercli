@@ -16,14 +16,19 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
+  cn,
   Input,
   Skeleton,
+  ToggleGroup,
+  ToggleGroupItem,
 } from "@hypercli/shared-ui";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
+
+type AgentLayout = "grid" | "rows";
 
 function agentStateLabel(state: string): string {
   const normalized = state.trim().toLowerCase().replaceAll("_", " ");
@@ -43,18 +48,26 @@ function agentInitials(name: string): string {
   return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
-function AgentCardLoading() {
+function AgentCardLoading({ layout }: { layout: AgentLayout }) {
+  const rows = layout === "rows";
+
   return (
-    <Card className="min-h-52 gap-0 rounded-xl bg-surface-high/70 shadow-none">
-      <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] gap-4 p-5">
+    <Card className={cn(
+      "gap-0 rounded-xl bg-surface-high/70 shadow-none",
+      rows ? "min-h-20 flex-row items-center" : "min-h-52",
+    )}>
+      <CardHeader className={cn(
+        "grid grid-cols-[auto_minmax(0,1fr)] gap-4",
+        rows ? "min-w-0 flex-1 p-4" : "p-5",
+      )}>
         <Skeleton className="size-12 rounded-full" />
         <div className="min-w-0 space-y-2 pt-1">
           <Skeleton className="h-4 w-32 max-w-full" />
           <Skeleton className="h-5 w-20 rounded-full" />
         </div>
       </CardHeader>
-      <CardFooter className="mt-auto p-5 pt-3">
-        <Skeleton className="h-9 w-32 rounded-lg" />
+      <CardFooter className={cn(rows ? "p-4 pl-0" : "mt-auto p-5 pt-3")}>
+        <Skeleton className={cn("h-9 rounded-lg", rows ? "w-20 sm:w-32" : "w-32")} />
       </CardFooter>
     </Card>
   );
@@ -79,6 +92,7 @@ export function SettingsAgentSelector({
 }) {
   const [query, setQuery] = useState("");
   const [retrying, setRetrying] = useState(false);
+  const [layout, setLayout] = useState<AgentLayout>("grid");
   const deferredQuery = useDeferredValue(query);
   const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
   const filteredAgents = normalizedQuery
@@ -102,16 +116,36 @@ export function SettingsAgentSelector({
       className="h-full overflow-y-auto bg-background px-4 py-6 text-left text-foreground sm:px-6 lg:px-8"
     >
       <div className="mx-auto flex min-h-full w-full max-w-[96rem] flex-col">
-        <Input
-          ref={filterInputRef}
-          type="search"
-          aria-label="Filter agents by name"
-          placeholder="Filter by name..."
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          disabled={waitingForAgents}
-          className="h-11 w-full max-w-lg rounded-xl bg-background px-4 text-base md:text-sm"
-        />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Input
+            ref={filterInputRef}
+            type="search"
+            aria-label="Filter agents by name"
+            placeholder="Filter by name..."
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            disabled={waitingForAgents}
+            className="h-11 w-full max-w-lg rounded-xl bg-background px-4 text-base md:text-sm"
+          />
+          <ToggleGroup
+            type="single"
+            value={layout}
+            onValueChange={(value) => {
+              if (value === "grid" || value === "rows") setLayout(value);
+            }}
+            variant="outline"
+            size="lg"
+            aria-label="Agent layout"
+            className="w-full sm:w-auto"
+          >
+            <ToggleGroupItem value="grid" aria-label="Grid view" className="flex-1 px-4 sm:flex-none">
+              Grid
+            </ToggleGroupItem>
+            <ToggleGroupItem value="rows" aria-label="Rows view" className="flex-1 px-4 sm:flex-none">
+              Rows
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
 
         {error && agents.length > 0 ? (
           <Alert variant="destructive" className="mt-4">
@@ -142,9 +176,13 @@ export function SettingsAgentSelector({
 
           <CardContent className="flex-1 p-5 pt-0 sm:p-6 sm:pt-0">
             {waitingForAgents ? (
-              <div role="status" aria-label="Loading agents" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div
+                role="status"
+                aria-label="Loading agents"
+                className={layout === "grid" ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3" : "flex flex-col gap-3"}
+              >
                 <span className="sr-only">Loading agents</span>
-                {[0, 1, 2].map((index) => <AgentCardLoading key={index} />)}
+                {[0, 1, 2].map((index) => <AgentCardLoading key={index} layout={layout} />)}
               </div>
             ) : error && agents.length === 0 ? (
               <Alert variant="destructive" className="max-w-2xl">
@@ -161,7 +199,11 @@ export function SettingsAgentSelector({
                 <p className="sr-only" aria-live="polite">
                   {filteredAgents.length === 1 ? "1 agent shown" : `${filteredAgents.length} agents shown`}
                 </p>
-                <ul aria-label="Agents" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <ul
+                  aria-label="Agents"
+                  data-layout={layout}
+                  className={layout === "grid" ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3" : "flex flex-col gap-3"}
+                >
                   {filteredAgents.map((agent) => {
                     const name = agentDisplayLabel(agent);
                     const avatarUrl = agentProfileImageUrl(agent);
@@ -174,9 +216,15 @@ export function SettingsAgentSelector({
                           onClick={() => onSelect(agent.id)}
                           data-testid={`settings-agent-option-${agent.id}`}
                           aria-label={`Open settings for ${name}`}
-                          className="h-auto min-h-52 w-full flex-col items-stretch justify-start gap-0 whitespace-normal rounded-xl bg-surface-high/70 p-0 text-left shadow-none hover:border-border-strong hover:bg-surface-high"
+                          className={cn(
+                            "h-auto w-full items-stretch justify-start gap-0 whitespace-normal rounded-xl bg-surface-high/70 p-0 text-left shadow-none hover:border-border-strong hover:bg-surface-high",
+                            layout === "grid" ? "min-h-52 flex-col" : "min-h-20",
+                          )}
                         >
-                          <span className="grid w-full grid-cols-[auto_minmax(0,1fr)] gap-4 p-5">
+                          <span className={cn(
+                            "grid grid-cols-[auto_minmax(0,1fr)] gap-4",
+                            layout === "grid" ? "w-full p-5" : "min-w-0 flex-1 p-4",
+                          )}>
                             <Avatar className="size-12 border border-border bg-background" title={name}>
                               {avatarUrl ? <AvatarImage src={avatarUrl} alt={`${name} avatar`} className="object-cover" /> : null}
                               <AvatarFallback className="bg-background text-sm font-semibold text-text-secondary">
@@ -192,9 +240,17 @@ export function SettingsAgentSelector({
                               </Badge>
                             </span>
                           </span>
-                          <span className="mt-auto flex w-full p-5 pt-3">
+                          <span className={cn(
+                            "flex",
+                            layout === "grid" ? "mt-auto w-full p-5 pt-3" : "shrink-0 items-center p-4 pl-0",
+                          )}>
                             <span className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground">
-                              Open settings
+                              {layout === "rows" ? (
+                                <>
+                                  <span className="sm:hidden">Open</span>
+                                  <span className="hidden sm:inline">Open settings</span>
+                                </>
+                              ) : "Open settings"}
                             </span>
                           </span>
                         </Button>
@@ -203,7 +259,7 @@ export function SettingsAgentSelector({
                   })}
 
                   {normalizedQuery && filteredAgents.length === 0 ? (
-                    <li className="min-w-0 sm:col-span-2 xl:col-span-3">
+                    <li className={cn("min-w-0", layout === "grid" && "sm:col-span-2 xl:col-span-3")}>
                       <Card role="status" className="gap-0 rounded-xl border-dashed bg-background/30 shadow-none">
                         <CardContent className="p-6 text-center">
                           <p className="text-sm font-medium text-foreground">No matching agents</p>
@@ -222,9 +278,15 @@ export function SettingsAgentSelector({
                       variant="outline"
                       onClick={onCreateAgent}
                       aria-label="New agent"
-                      className="min-h-52 w-full flex-col rounded-xl border-dashed bg-background/30 text-text-secondary hover:border-border-strong hover:bg-surface-high hover:text-foreground"
+                      className={cn(
+                        "w-full rounded-xl border-dashed bg-background/30 text-text-secondary hover:border-border-strong hover:bg-surface-high hover:text-foreground",
+                        layout === "grid" ? "min-h-52 flex-col" : "min-h-20 justify-start px-5",
+                      )}
                     >
-                      <span aria-hidden="true" className="flex size-11 items-center justify-center rounded-xl bg-surface-high text-2xl font-light leading-none text-foreground">
+                      <span aria-hidden="true" className={cn(
+                        "flex items-center justify-center bg-surface-high font-light leading-none text-foreground",
+                        layout === "grid" ? "size-11 rounded-xl text-2xl" : "size-9 rounded-lg text-xl",
+                      )}>
                         +
                       </span>
                       <span>New agent</span>

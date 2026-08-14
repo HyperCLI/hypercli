@@ -35,7 +35,7 @@ export function QrLoginWizard({
   const handleCopy = async () => {
     const copiedToClipboard = await writeClipboardText(loginCommand);
     setCopied(true);
-    setError(copiedToClipboard ? null : "Copy failed. Select the command manually, then continue.");
+    setError(copiedToClipboard ? null : "Select the command manually, then continue to the Shell tab.");
     setShowCopyCheck(copiedToClipboard);
     setTimeout(() => setShowCopyCheck(false), 2000);
   };
@@ -51,8 +51,8 @@ export function QrLoginWizard({
       await onEnable(patch);
       onClose();
       onOpenShell?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to enable plugin");
+    } catch {
+      setError(`${displayName} was not enabled. Check the agent connection and try again.`);
       setStep("intro");
     }
   };
@@ -115,7 +115,7 @@ export function QrLoginWizard({
         </div>
 
         {error && (
-          <p className="text-xs text-[var(--error)]">{error}</p>
+          <p role="alert" className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-2">

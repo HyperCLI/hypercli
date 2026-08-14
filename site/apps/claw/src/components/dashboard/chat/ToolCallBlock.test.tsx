@@ -1,5 +1,18 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@hypercli/shared-ui", async () => ({
+  ...(await import("../../../../../../packages/shared-ui/src/components/ui/tooltip")),
+  RecoveryDetails: (await import("../../../../../../packages/shared-ui/src/components/patterns/recovery")).RecoveryDetails,
+}));
+
+vi.mock("@hypercli/shared-ui/files", async () => {
+  const fileTypes = await import("../../../../../../packages/shared-ui/src/files/file-types");
+  return {
+    ...fileTypes,
+    formatFileSize: (bytes?: number) => bytes === undefined ? "" : `${bytes} B`,
+  };
+});
 
 vi.mock("./AuthImage", () => ({
   AuthImage: () => <div data-testid="auth-image" />,
@@ -55,7 +68,7 @@ describe("ToolCallBlock", () => {
     expect(screen.queryByText(/"query"/)).not.toBeInTheDocument();
   });
 
-  it("extracts content-block search errors from wrapped JSON results", () => {
+  it("puts failed tool details behind a second closed disclosure", () => {
     const error = "Brave Search API error (404): 404 page not found";
     const result = `Error: ${JSON.stringify({
       content: [
@@ -67,7 +80,7 @@ describe("ToolCallBlock", () => {
       details: { status: "error" },
     }, null, 2)}`;
 
-    render(
+    const { container } = render(
       <ToolCallBlock
         {...baseProps}
         isOpen
@@ -79,10 +92,21 @@ describe("ToolCallBlock", () => {
       />,
     );
 
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("Error")).toBeInTheDocument();
+    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    expect(screen.queryByText("Failed")).not.toBeInTheDocument();
+    expect(screen.getByText("This action did not finish. Review any completed changes before retrying the request.")).toBeInTheDocument();
+    expect(screen.getByText("Query")).toBeInTheDocument();
+
+    const technicalDetails = screen.getByRole("button", { name: "Technical details" });
+    expect(technicalDetails).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(`Error: ${error}`)).not.toBeInTheDocument();
+
+    fireEvent.click(technicalDetails);
+
+    expect(technicalDetails).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(`Error: ${error}`)).toBeInTheDocument();
     expect(screen.queryByText(/"content"/)).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("destructive");
   });
 
   it("renders memory search as a readable tool name", () => {

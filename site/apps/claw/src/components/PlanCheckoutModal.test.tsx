@@ -206,4 +206,74 @@ describe("PlanCheckoutModal", () => {
     expect(request.cancelUrl).toContain("checkout=cancelled");
     expect(request).not.toHaveProperty("bundle");
   });
+
+  it("omits provider checkout details from recovery copy", async () => {
+    mocks.hyperAgent.createStripeCheckout.mockRejectedValue(
+      new Error("request failed token=private-checkout-token requestId=req-123"),
+    );
+    const { container } = renderWithClient(
+      <PlanCheckoutModal
+        plan={{
+          id: "catalog-pro",
+          name: "Catalog Pro",
+          price: 123,
+          limits: { tpd: 123_000_000, burstTpm: 456_000, rpm: 789 },
+        }}
+        isOpen
+        principalId="user-1"
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+        getToken={vi.fn().mockResolvedValue("token")}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pay $123 with Card" }));
+
+    expect(await screen.findByRole("heading", { name: "Retry to open secure checkout" })).toBeVisible();
+    expect(screen.queryByText(/request failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/private-checkout-token/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "What happened" })).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("destructive");
+  });
+
+  it("does not claim an ambiguous USDC request failed or clear its pending checkout", async () => {
+    mocks.hyperAgent.purchaseViaX402WithSigner.mockRejectedValue(
+      new Error("provider timeout after submission requestId=req-ambiguous"),
+    );
+    Object.defineProperty(window, "ethereum", {
+      configurable: true,
+      value: {
+        request: vi.fn(async ({ method }: { method: string }) => {
+          if (method === "eth_requestAccounts") return ["0x0000000000000000000000000000000000000001"];
+          if (method === "eth_chainId") return "0x2105";
+          return null;
+        }),
+      },
+    });
+    renderWithClient(
+      <PlanCheckoutModal
+        plan={{
+          id: "catalog-pro",
+          name: "Catalog Pro",
+          price: 123,
+          bundle: { large: 1 },
+          limits: { tpd: 123_000_000, burstTpm: 456_000, rpm: 789 },
+        }}
+        isOpen
+        principalId="user-1"
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+        getToken={vi.fn().mockResolvedValue("token")}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /USDC x402/i }));
+    const connectWallet = screen.queryByRole("button", { name: "Connect Wallet" });
+    if (connectWallet) fireEvent.click(connectWallet);
+    fireEvent.click(await screen.findByRole("button", { name: "Pay $123 with USDC" }));
+
+    expect(await screen.findByRole("heading", { name: "Check billing before retrying payment" })).toBeVisible();
+    expect(screen.queryByText(/payment failed/i)).not.toBeInTheDocument();
+    expect(readPendingPlanCheckout("user-1")).toMatchObject({ planId: "catalog-pro" });
+  });
 });

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { expectNoA11yViolations } from "@/test/utils";
 import { CustomIntegrationPanel } from "./CustomIntegrationPanel";
-import { CUSTOM_INTEGRATION_RUN_SCHEMA } from "./custom-integration-agent";
+import { CUSTOM_INTEGRATION_RUN_SCHEMA, type CustomIntegrationRunner } from "./custom-integration-agent";
 
 function response(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({
@@ -84,7 +84,7 @@ describe("CustomIntegrationPanel", () => {
   });
 
   it("shows unavoidable user actions and continues only after confirmation", async () => {
-    const runner = vi.fn(async () => {
+    const runner = vi.fn<CustomIntegrationRunner>(async () => {
       if (runner.mock.calls.length === 1) return response({
         status: "needs_user_action",
         summary: "Notion authorization and page access are the only remaining steps.",
@@ -160,8 +160,8 @@ describe("CustomIntegrationPanel", () => {
     await user.click(screen.getByRole("button", { name: "Review integration" }));
     await user.click(screen.getByRole("button", { name: "Yes, start setup" }));
 
-    expect(await screen.findByRole("heading", { name: "Setup failed" })).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("The agent returned an invalid setup result.");
+    expect(await screen.findByRole("heading", { name: "Retry setup" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("The setup response was incomplete");
     expect(screen.queryByText(/secret_ABCDEFGHIJKLMNOPQRSTUVWXYZ/)).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("button", { name: "Yes, start setup" })).toBeEnabled());
   });
@@ -177,8 +177,8 @@ describe("CustomIntegrationPanel", () => {
     await user.click(screen.getByRole("button", { name: "Review integration" }));
     await user.click(screen.getByRole("button", { name: "Yes, start setup" }));
 
-    expect(await screen.findByRole("heading", { name: "Setup failed" })).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("Raw error details were hidden for safety.");
+    expect(await screen.findByRole("heading", { name: "Retry setup" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("private setup session stopped before it finished");
     expect(screen.queryByText(/secret_ABCDEFGHIJKLMNOPQRSTUVWXYZ|\/home\/agent\/private/i)).not.toBeInTheDocument();
   });
 });

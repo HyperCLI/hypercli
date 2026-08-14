@@ -407,7 +407,8 @@ describe("ConnectorWorkflowGuide", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Slack is not reachable yet.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("connection is not ready yet");
+    expect(screen.queryByText("Slack is not reachable yet.")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /retry test/i }));
     await waitFor(() => expect(onVerifyConnection).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();

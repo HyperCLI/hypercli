@@ -179,9 +179,9 @@ function normalizeSkillDraft(data: SkillDraftData): SkillDraftData {
   };
 }
 
-function SkillFieldError({ message }: { message?: string }) {
+function SkillFieldError({ id, message }: { id?: string; message?: string }) {
   if (!message) return null;
-  return <span className="mt-1 block text-[10px] font-medium text-error">{message}</span>;
+  return <span id={id} role="alert" className="mt-1 block text-[10px] font-medium text-warning">{message}</span>;
 }
 
 function SkillFormStepper({ activeStep }: { activeStep: SkillFormStep }) {
@@ -301,6 +301,14 @@ function SkillsCreateModalContent({
   const generationAbortRef = React.useRef<AbortController | null>(null);
   const draftPersistedRef = React.useRef(false);
   const operationRef = React.useRef(0);
+  const nameId = React.useId();
+  const nameHintId = `${nameId}-hint`;
+  const nameErrorId = `${nameId}-error`;
+  const descriptionId = React.useId();
+  const descriptionErrorId = `${descriptionId}-error`;
+  const homepageId = React.useId();
+  const homepageErrorId = `${homepageId}-error`;
+  const instructionsErrorId = `${React.useId()}-error`;
 
   React.useEffect(() => () => {
     operationRef.current += 1;
@@ -400,9 +408,9 @@ function SkillsCreateModalContent({
       setPreviewSource("ai");
       draftPersistedRef.current = false;
       setMode("preview");
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current || controller.signal.aborted) return;
-      setError(cause instanceof Error ? cause.message : "Failed to generate skill.");
+      setError("The draft could not be generated. Refine the description and try again.");
     } finally {
       if (operation === operationRef.current) {
         setGenerating(false);
@@ -441,9 +449,9 @@ function SkillsCreateModalContent({
       } else {
         handleClose();
       }
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current) return;
-      setError(cause instanceof Error ? cause.message : "Failed to save skill.");
+      setError("The draft could not be saved in this browser. Check browser storage and try again.");
     } finally {
       if (operation === operationRef.current) setSaving(false);
     }
@@ -463,9 +471,9 @@ function SkillsCreateModalContent({
       await onTest(activeGenerated);
       if (operation !== operationRef.current) return;
       handleClose();
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current) return;
-      setError(cause instanceof Error ? cause.message : "Failed to test skill.");
+      setError("The test did not start. Keep the draft open and try again.");
     } finally {
       if (operation === operationRef.current) setTesting(false);
     }
@@ -481,9 +489,13 @@ function SkillsCreateModalContent({
       await callback?.(savedSkill);
       if (operation !== operationRef.current) return;
       handleClose();
-    } catch (cause) {
+    } catch {
       if (operation !== operationRef.current) return;
-      setError(cause instanceof Error ? cause.message : `Failed to ${action === "keep-preview" ? "keep the preview" : action} skill.`);
+      setError(action === "activate"
+        ? "The skill remains a local draft. Reconnect the agent and try saving again."
+        : action === "test"
+          ? "The test did not start. Keep the draft open and try again."
+          : "The preview could not be kept in this browser. Check browser storage and try again.");
     } finally {
       if (operation === operationRef.current) setConfirmationAction(null);
     }
@@ -524,26 +536,26 @@ function SkillsCreateModalContent({
               {formStep === "identity" && (
                 <div className="space-y-4">
                   <SectionHeading title="Identity" detail="The name and description determine when your agent uses this skill." />
-                  <label className="block">
-                    <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Name <span className="text-error">*</span></span>
-                    <input value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="github-helper" className={`h-9 w-full rounded-xl border bg-surface-low/45 px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 ${formErrors.name ? "border-error/60" : "border-border"}`} />
-                    <span className="mt-1 block text-[10px] text-text-muted">Lowercase letters, digits, and hyphens only.</span>
-                    <SkillFieldError message={formErrors.name} />
+                  <label htmlFor={nameId} className="block">
+                    <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Name <span className="text-warning">(required)</span></span>
+                    <input id={nameId} value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} placeholder="github-helper" aria-invalid={Boolean(formErrors.name)} aria-describedby={`${nameHintId}${formErrors.name ? ` ${nameErrorId}` : ""}`} className={`h-9 w-full rounded-xl border bg-surface-low/45 px-3 font-mono text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 ${formErrors.name ? "border-warning/60" : "border-border"}`} />
+                    <span id={nameHintId} className="mt-1 block text-[10px] text-text-muted">Lowercase letters, digits, and hyphens only.</span>
+                    <SkillFieldError id={nameErrorId} message={formErrors.name} />
                   </label>
-                  <label className="block">
-                    <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Description <span className="text-error">*</span></span>
-                    <textarea value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} rows={4} placeholder="What this skill does and when the agent should use it." className={`w-full rounded-xl border bg-surface-low/45 px-3 py-2 text-xs leading-snug text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 ${formErrors.description ? "border-error/60" : "border-border"}`} />
-                    <SkillFieldError message={formErrors.description} />
+                  <label htmlFor={descriptionId} className="block">
+                    <span className="mb-1.5 block text-[11px] font-semibold text-text-secondary">Description <span className="text-warning">(required)</span></span>
+                    <textarea id={descriptionId} value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} rows={4} placeholder="What this skill does and when the agent should use it." aria-invalid={Boolean(formErrors.description)} aria-describedby={formErrors.description ? descriptionErrorId : undefined} className={`w-full rounded-xl border bg-surface-low/45 px-3 py-2 text-xs leading-snug text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 ${formErrors.description ? "border-warning/60" : "border-border"}`} />
+                    <SkillFieldError id={descriptionErrorId} message={formErrors.description} />
                   </label>
                   <div className="grid gap-4 sm:grid-cols-[260px_minmax(0,1fr)]">
                     <div>
                       <span className="mb-2 block text-[11px] font-semibold text-text-secondary">Emoji</span>
                       <EmojiIconPicker selectedIcon={draft.emoji} onSelectIcon={(emoji) => updateDraft({ emoji })} options={SKILL_EMOJI_ICON_OPTIONS} ariaLabel="Skill emoji" />
                     </div>
-                    <label className="block">
+                    <label htmlFor={homepageId} className="block">
                       <span className="mb-2 block text-[11px] font-semibold text-text-secondary">Homepage (optional)</span>
-                      <input value={draft.homepage} onChange={(event) => updateDraft({ homepage: event.target.value })} placeholder="https://..." className={`h-9 w-full rounded-xl border bg-surface-low/45 px-3 text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 ${formErrors.homepage ? "border-error/60" : "border-border"}`} />
-                      <SkillFieldError message={formErrors.homepage} />
+                      <input id={homepageId} value={draft.homepage} onChange={(event) => updateDraft({ homepage: event.target.value })} placeholder="https://..." aria-invalid={Boolean(formErrors.homepage)} aria-describedby={formErrors.homepage ? homepageErrorId : undefined} className={`h-9 w-full rounded-xl border bg-surface-low/45 px-3 text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/50 ${formErrors.homepage ? "border-warning/60" : "border-border"}`} />
+                      <SkillFieldError id={homepageErrorId} message={formErrors.homepage} />
                     </label>
                   </div>
                 </div>
@@ -563,8 +575,10 @@ function SkillsCreateModalContent({
                       );
                     })}
                   </div>
-                  <SkillMarkdownEditor value={draft.instructions} onChange={(instructions) => updateDraft({ instructions })} showActions={false} dirty={false} title="Instructions.md" renderPreview={renderPreview} className={formErrors.instructions ? "border-error/60" : undefined} />
-                  <SkillFieldError message={formErrors.instructions} />
+                  <div role="group" aria-label="Skill instructions" aria-describedby={formErrors.instructions ? instructionsErrorId : undefined}>
+                    <SkillMarkdownEditor value={draft.instructions} onChange={(instructions) => updateDraft({ instructions })} showActions={false} dirty={false} title="Instructions.md" renderPreview={renderPreview} className={formErrors.instructions ? "border-warning/60" : undefined} />
+                  </div>
+                  <SkillFieldError id={instructionsErrorId} message={formErrors.instructions} />
                 </div>
               )}
 
@@ -616,9 +630,9 @@ function SkillsCreateModalContent({
             />
           )}
            {mode === "confirmation" && savedSkill && (
-              <SkillConfirmationPanel title={confirmationTitle ?? `${savedSkill.name} is ready`} description={confirmationDescription ?? "Save the skill to the agent, test it first, or keep it as a preview."} activateLabel={activateLabel} onActivate={onActivate ? () => void handleConfirmation("activate") : undefined} onTest={onTest ? () => void handleConfirmation("test") : undefined} onKeepPreview={() => void handleConfirmation("keep-preview")} keepPreviewLabel={keepPreviewLabel} pendingAction={confirmationAction} error={error} />
+              <SkillConfirmationPanel title={confirmationTitle ?? `${savedSkill.name} is ready`} description={confirmationDescription ?? "Save the skill to the agent, test it first, or keep it as a preview."} activateLabel={activateLabel} onActivate={onActivate ? () => void handleConfirmation("activate") : undefined} onTest={onTest ? () => void handleConfirmation("test") : undefined} onKeepPreview={() => void handleConfirmation("keep-preview")} keepPreviewLabel={keepPreviewLabel} pendingAction={confirmationAction} />
            )}
-          {error && mode !== "confirmation" && <p className="mt-4 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">{error}</p>}
+          {error && <p role="alert" className="mt-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">{error}</p>}
         </div>
 
         {mode !== "confirmation" && <footer className={mode === "preview" ? `grid shrink-0 gap-2 border-t border-border px-5 py-3 ${previewSource === "ai" && onTest ? "grid-cols-3" : "grid-cols-2"}` : "flex shrink-0 flex-col-reverse items-stretch gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:justify-between"}>
