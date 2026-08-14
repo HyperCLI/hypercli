@@ -1,10 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  Agent as SdkAgent,
-  OpenClawOperationsSnapshot,
-} from "@hypercli.com/sdk/agents";
+import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 import type {
   Workspace,
   WorkspaceGrant,
@@ -12,20 +9,13 @@ import type {
 } from "@hypercli.com/sdk/workspaces";
 
 import type { CronJob } from "@/components/dashboard/agentViewTypes";
-import { normalizeCronJob } from "@/lib/cron-jobs";
-import {
-  isEphemeralOpenClawSessionName,
-  isOpenClawHeartbeatSessionKey,
-  isOpenClawMainSessionKey,
-  isOpenClawSubagentSession,
-  normalizeOpenClawSessions,
-  type OpenClawSessionRecord,
-} from "@/lib/openclaw-session-sdk-surface";
+import type { OpenClawSessionRecord } from "@/lib/openclaw-session-sdk-surface";
 
 export type AgentOperationsDataState =
   | "loading"
   | "ready"
   | "partial"
+  | "deferred"
   | "offline"
   | "not-applicable"
   | "unavailable";
@@ -35,7 +25,7 @@ export type AgentOperationsSnapshot = {
   dataState: AgentOperationsDataState;
   sessions: OpenClawSessionRecord[] | null;
   cronJobs: CronJob[] | null;
-  failures: OpenClawOperationsSnapshot["failures"];
+  failures: Partial<Record<"sessions" | "cron", string>>;
   capturedAt: number | null;
 };
 
@@ -51,10 +41,6 @@ export type AccountOperationsOverview = {
   capturedAt: number;
 };
 
-type OperationsCapableAgent = SdkAgent & {
-  operationsSnapshot: (options?: { timeout?: number }) => Promise<OpenClawOperationsSnapshot>;
-};
-
 type SpaceAccessClient = Pick<WorkspacesAPI, "listGrants">;
 
 type AccountOperationsProgress = {
@@ -62,12 +48,7 @@ type AccountOperationsProgress = {
   onSpace?: (snapshot: SpaceAccessSnapshot) => void;
 };
 
-const MAX_CONCURRENT_GATEWAYS = 3;
 const MAX_CONCURRENT_SPACE_REQUESTS = 4;
-
-function supportsOperationsSnapshot(agent: SdkAgent): agent is OperationsCapableAgent {
-  return typeof (agent as { operationsSnapshot?: unknown }).operationsSnapshot === "function";
-}
 
 function grantIsActive(grant: WorkspaceGrant, now: number): boolean {
   if (grant.revokedAt) return false;
@@ -94,19 +75,6 @@ async function mapWithConcurrency<T, R>(
   return output;
 }
 
-function visibleRecentSessions(value: unknown): OpenClawSessionRecord[] {
-  return normalizeOpenClawSessions(value)
-    .filter((session) => (
-      session.raw.archived !== true
-      && !session.ephemeral
-      && !isEphemeralOpenClawSessionName(session.key)
-      && !isOpenClawHeartbeatSessionKey(session.key)
-      && !isOpenClawMainSessionKey(session.key)
-      && !isOpenClawSubagentSession(session)
-    ))
-    .sort((left, right) => Math.max(right.lastMessageAt, right.createdAt) - Math.max(left.lastMessageAt, left.createdAt));
-}
-
 function idleAgentSnapshot(agent: SdkAgent): AgentOperationsSnapshot {
   if (agent.state !== "RUNNING") {
     return {
@@ -118,19 +86,9 @@ function idleAgentSnapshot(agent: SdkAgent): AgentOperationsSnapshot {
       capturedAt: null,
     };
   }
-  if (!supportsOperationsSnapshot(agent)) {
-    return {
-      agentId: agent.id,
-      dataState: "not-applicable",
-      sessions: null,
-      cronJobs: null,
-      failures: {},
-      capturedAt: null,
-    };
-  }
   return {
     agentId: agent.id,
-    dataState: "loading",
+    dataState: "deferred",
     sessions: null,
     cronJobs: null,
     failures: {},
@@ -151,36 +109,6 @@ export function createIdleAccountOperationsOverview(
     })),
     capturedAt: 0,
   };
-}
-
-async function collectAgentOperations(agent: SdkAgent): Promise<AgentOperationsSnapshot> {
-  const idle = idleAgentSnapshot(agent);
-  if (idle.dataState !== "loading" || !supportsOperationsSnapshot(agent)) return idle;
-
-  try {
-    const snapshot = await agent.operationsSnapshot({ timeout: 10_000 });
-    const failures = snapshot.failures ?? {};
-    return {
-      agentId: agent.id,
-      dataState: Object.keys(failures).length > 0 ? "partial" : "ready",
-      sessions: snapshot.sessions === null ? null : visibleRecentSessions(snapshot.sessions.sessions),
-      cronJobs: snapshot.cronJobs === null ? null : snapshot.cronJobs.map(normalizeCronJob),
-      failures,
-      capturedAt: snapshot.capturedAt,
-    };
-  } catch (error) {
-    return {
-      agentId: agent.id,
-      dataState: "unavailable",
-      sessions: null,
-      cronJobs: null,
-      failures: {
-        sessions: error instanceof Error ? error.message : "Agent gateway unavailable",
-        cron: error instanceof Error ? error.message : "Agent gateway unavailable",
-      },
-      capturedAt: null,
-    };
-  }
 }
 
 async function collectSpaceAccess(
@@ -213,18 +141,19 @@ export async function collectAccountOperationsOverview(
   spaceAccessClient: SpaceAccessClient | null,
   progress: AccountOperationsProgress = {},
 ): Promise<AccountOperationsOverview> {
-  const [agentSnapshots, spaceSnapshots] = await Promise.all([
-    mapWithConcurrency(agents, MAX_CONCURRENT_GATEWAYS, async (agent) => {
-      const snapshot = await collectAgentOperations(agent);
-      progress.onAgent?.(snapshot);
-      return snapshot;
-    }),
-    mapWithConcurrency(workspaces, MAX_CONCURRENT_SPACE_REQUESTS, async (workspace) => {
+  // Account Home is intentionally REST-only. Opening the overview must not
+  // hydrate secrets or acquire gateway transports for the whole Agent roster.
+  const agentSnapshots = agents.map((agent) => idleAgentSnapshot(agent));
+  for (const snapshot of agentSnapshots) progress.onAgent?.(snapshot);
+  const spaceSnapshots = await mapWithConcurrency(
+    workspaces,
+    MAX_CONCURRENT_SPACE_REQUESTS,
+    async (workspace) => {
       const snapshot = await collectSpaceAccess(workspace, spaceAccessClient);
       progress.onSpace?.(snapshot);
       return snapshot;
-    }),
-  ]);
+    },
+  );
   return {
     agents: Object.fromEntries(agentSnapshots.map((snapshot) => [snapshot.agentId, snapshot])),
     spaces: spaceSnapshots,

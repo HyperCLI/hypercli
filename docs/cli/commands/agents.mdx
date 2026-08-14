@@ -408,6 +408,10 @@ hyper agents gateway-chat <agent_id> "Inspect the workspace" --session-key docs
 ```
 
 This uses the root host gateway plus pairing-aware SDK logic.
+The command treats deployment `RUNNING`, public route readiness, pairing, and
+the authenticated gateway connection as separate phases. On a cold not-paired
+connection the SDK can approve the device through trusted Agent exec and
+reconnect; a warm connection reuses the scoped device credential.
 
 ### `chat`
 

@@ -350,7 +350,19 @@ export interface GatewayCloseInfo {
   error?: GatewayErrorShape | null;
 }
 
-export type GatewayConnectionState = "disconnected" | "connecting" | "connected";
+/**
+ * Authenticated gateway transport FSM:
+ *
+ * disconnected -> connecting -> connected
+ *                         |-> pairing -> connecting -> connected
+ *                         `-> disconnected (terminal auth/approval failure)
+ * connected    -> connecting (transient close, bounded backoff)
+ * any          -> disconnected (stop/invalidation)
+ *
+ * Pairing approval owns the transition between its two sockets. It must not
+ * create a parallel reconnect loop or reread the canonical gateway Secret.
+ */
+export type GatewayConnectionState = "disconnected" | "connecting" | "pairing" | "connected";
 
 export interface GatewayWaitReadyOptions {
   retryIntervalMs?: number;
@@ -1290,6 +1302,7 @@ const DEFAULT_CLIENT_MODE = "cli";
 const DEFAULT_CLIENT_VERSION = "@hypercli/sdk";
 const DEFAULT_CAPS = ["tool-events"];
 const CONNECT_TIMER_MS = 750;
+const PAIRING_APPROVAL_TIMEOUT_MS = 35_000;
 const INITIAL_BACKOFF_MS = 800;
 const MAX_BACKOFF_MS = 15_000;
 const BACKOFF_MULTIPLIER = 1.7;
@@ -2474,8 +2487,12 @@ function normalizeScopes(scopes: string[] | undefined): string[] {
 }
 
 function getStorage(): StorageLike | null {
-  const storage = (globalThis as typeof globalThis & { localStorage?: StorageLike }).localStorage;
-  return storage ?? null;
+  try {
+    const storage = (globalThis as typeof globalThis & { localStorage?: StorageLike }).localStorage;
+    return storage ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function readDeviceAuthStore(): DeviceAuthStore | null {
@@ -2485,13 +2502,13 @@ function readDeviceAuthStore(): DeviceAuthStore | null {
   }
   try {
     const raw = storage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    if (!raw) return memoryDeviceAuthStore;
     const parsed = JSON.parse(raw) as DeviceAuthStore;
     return parsed?.version === 1 && typeof parsed === "object" && !Array.isArray(parsed)
       ? parsed
-      : null;
+      : memoryDeviceAuthStore;
   } catch {
-    return null;
+    return memoryDeviceAuthStore;
   }
 }
 
@@ -2512,6 +2529,7 @@ function writeDeviceAuthStore(store: DeviceAuthStore): void {
   }
   try {
     storage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    memoryDeviceAuthStore = null;
   } catch {
     memoryDeviceAuthStore = normalized;
   }
@@ -2681,7 +2699,9 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return bytesToHex(new Uint8Array(digest));
 }
 
-async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentityRecord> {
+let deviceIdentityFlight: Promise<DeviceIdentityRecord> | null = null;
+
+async function loadOrCreateDeviceIdentityUnshared(): Promise<DeviceIdentityRecord> {
   const store = readDeviceAuthStore();
   if (
     store?.version === 1 &&
@@ -2723,9 +2743,18 @@ async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentityRecord> {
   writeDeviceAuthStore({
     version: 1,
     ...identity,
-    ...(store?.tokens ? { tokens: store.tokens } : {}),
   });
   return identity;
+}
+
+async function loadOrCreateDeviceIdentity(): Promise<DeviceIdentityRecord> {
+  if (deviceIdentityFlight) return deviceIdentityFlight;
+  const flight = loadOrCreateDeviceIdentityUnshared();
+  deviceIdentityFlight = flight;
+  void flight.finally(() => {
+    if (deviceIdentityFlight === flight) deviceIdentityFlight = null;
+  }).catch(() => undefined);
+  return flight;
 }
 
 async function signDevicePayload(privateKey: string, payload: string): Promise<string> {
@@ -2841,6 +2870,7 @@ export class GatewayClient {
   private gatewayToken?: string;
   private bootstrapToken?: string;
   private deviceToken?: string;
+  private readonly configuredDeviceToken?: string;
   private password?: string;
   private approvalRuntimeToken?: string;
   private agentRuntimeIdentityToken?: string;
@@ -2890,6 +2920,7 @@ export class GatewayClient {
   private pendingConnectError: GatewayErrorShape | null = null;
   private pendingConnectTerminal = false;
   private pairingApprovalInFlight = false;
+  private pairingApprovalController: AbortController | null = null;
   private pairingState: GatewayPairingState | null = null;
   private autoApproveAttemptedRequestIds = new Set<string>();
   private authTokenMismatchRetried = false;
@@ -2909,7 +2940,8 @@ export class GatewayClient {
     this.token = normalizeOptionalString(options.token);
     this.gatewayToken = normalizeOptionalString(options.gatewayToken);
     this.bootstrapToken = normalizeOptionalString(options.bootstrapToken);
-    this.deviceToken = normalizeOptionalString(options.deviceToken);
+    this.configuredDeviceToken = normalizeOptionalString(options.deviceToken);
+    this.deviceToken = this.configuredDeviceToken;
     this.password = normalizeOptionalString(options.password);
     this.approvalRuntimeToken = normalizeOptionalString(options.approvalRuntimeToken);
     this.agentRuntimeIdentityToken = normalizeOptionalString(options.agentRuntimeIdentityToken);
@@ -3257,6 +3289,8 @@ export class GatewayClient {
     this.pendingConnectError = null;
     this.pendingConnectTerminal = false;
     this.pairingApprovalInFlight = false;
+    this.pairingApprovalController?.abort(new Error("gateway client stopped"));
+    this.pairingApprovalController = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -3290,6 +3324,13 @@ export class GatewayClient {
     }
   }
 
+  private clearCurrentDeviceAuth(identity: DeviceIdentityRecord): void {
+    clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
+    clearPendingPairing(this.storageScope(), this.role);
+    this.pairingState = null;
+    this.deviceToken = this.configuredDeviceToken;
+  }
+
   private canAutoApprovePairing(): boolean {
     return Boolean(
       this.autoApprovePairing &&
@@ -3305,32 +3346,45 @@ export class GatewayClient {
       throw new Error("autoApprovePairing requires deploymentId, apiKey, apiBase, and fetch()");
     }
     const command = `openclaw devices approve ${JSON.stringify(requestId)} --json`;
-    const response = await fetch(
-      `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
+    const controller = new AbortController();
+    this.pairingApprovalController = controller;
+    const timeout = setTimeout(() => {
+      controller.abort(new Error("Pairing approval timed out"));
+    }, PAIRING_APPROVAL_TIMEOUT_MS);
+    try {
+      const response = await fetch(
+        `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            command,
+            timeout: 30,
+          }),
+          signal: controller.signal,
         },
-        body: JSON.stringify({
-          command,
-          timeout: 30,
-        }),
-      },
-    );
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Pairing approval failed: ${response.status} ${errorText}`);
-    }
-    const payload = await response.json() as {
-      exitCode?: number;
-      exit_code?: number;
-      stdout?: string;
-      stderr?: string;
-    };
-    if ((payload.exitCode ?? payload.exit_code ?? 1) !== 0) {
-      throw new Error(payload.stderr?.trim() || payload.stdout?.trim() || "pairing approval command failed");
+      );
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Pairing approval failed: ${response.status} ${errorText}`);
+      }
+      const payload = await response.json() as {
+        exitCode?: number;
+        exit_code?: number;
+        stdout?: string;
+        stderr?: string;
+      };
+      if ((payload.exitCode ?? payload.exit_code ?? 1) !== 0) {
+        throw new Error(payload.stderr?.trim() || payload.stdout?.trim() || "pairing approval command failed");
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (this.pairingApprovalController === controller) {
+        this.pairingApprovalController = null;
+      }
     }
   }
 
@@ -3444,7 +3498,6 @@ export class GatewayClient {
     }
     this.ws = null;
     this.connected = false;
-    this.setConnectionState("disconnected");
     this.connectSent = false;
     this.connectNonce = null;
     if (this.connectTimer) {
@@ -3455,6 +3508,10 @@ export class GatewayClient {
     this.pendingConnectError = null;
     const terminal = this.pendingConnectTerminal;
     this.pendingConnectTerminal = false;
+    const pairingReconnect = this.pairingApprovalInFlight || error?.code === "PAIRING_APPROVED";
+    if (!pairingReconnect) {
+      this.setConnectionState("disconnected");
+    }
     const closeError = new Error(`gateway closed (${code}): ${reason || "no reason"}`);
     this.flushPending(closeError);
     this.notifyInternalStreamClose(closeError);
@@ -3631,7 +3688,7 @@ export class GatewayClient {
       // one-shot flag to prevent infinite recursion if the retry also fails.
       if (identity && detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && !this.deviceTokenMismatchRetried) {
         this.deviceTokenMismatchRetried = true;
-        clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
+        this.clearCurrentDeviceAuth(identity);
         this.connectSent = false;
         this.pendingConnectError = null;
         this.pendingConnectTerminal = false;
@@ -3657,19 +3714,39 @@ export class GatewayClient {
         return;
       }
 
+      if (
+        identity &&
+        detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH &&
+        this.authTokenMismatchRetried &&
+        storedDeviceToken
+      ) {
+        this.clearCurrentDeviceAuth(identity);
+      }
+
       if (identity && detailCode === CONNECT_ERROR_PAIRING_REQUIRED) {
-        clearStoredDeviceToken(identity.deviceId, this.storageScope(), this.role);
+        this.clearCurrentDeviceAuth(identity);
+      }
+      if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED) {
+        this.setConnectionState("pairing");
       }
       if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED && requestId) {
         if (this.canAutoApprovePairing() && !this.autoApproveAttemptedRequestIds.has(requestId)) {
-          // Auto-approve silently — don't emit intermediate pairing states
-          // that would cause UI flicker in the dashboard.
           this.autoApproveAttemptedRequestIds.add(requestId);
           this.pairingApprovalInFlight = true;
+          this.updatePairingState({
+            requestId,
+            role: this.role,
+            gatewayUrl: this.url,
+            ...(identity ? { deviceId: identity.deviceId } : {}),
+            status: "approving",
+            updatedAtMs: Date.now(),
+          });
           try {
             await this.approvePairingRequest(requestId);
             if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) return;
             this.pairingApprovalInFlight = false;
+            this.updatePairingState(null);
+            this.setConnectionState("connecting");
             this.pendingConnectError = {
               code: "PAIRING_APPROVED",
               message: "Pairing approved, reconnecting",
@@ -3686,6 +3763,8 @@ export class GatewayClient {
             if (this.closed || lifecycleGeneration !== this.lifecycleGeneration) return;
             this.pairingApprovalInFlight = false;
             if (isConcurrentPairingApproval(approvalError)) {
+              this.updatePairingState(null);
+              this.setConnectionState("connecting");
               this.pendingConnectError = {
                 code: "PAIRING_APPROVED",
                 message: "Pairing was already approved, reconnecting",
@@ -3708,6 +3787,7 @@ export class GatewayClient {
                 error: approvalError instanceof Error ? approvalError.message : String(approvalError),
               });
               if (!this.ws) {
+                this.setConnectionState("disconnected");
                 this.rejectInitialConnect(approvalError);
                 return;
               }

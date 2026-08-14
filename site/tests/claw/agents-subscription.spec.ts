@@ -10,13 +10,14 @@ import {
   fetchClawSubscriptionSummary,
   fetchStripeSubscriptionIdForCheckoutSession,
   launchClawAgentAndWaitForGateway,
+  loginWithAdminBootstrap,
   stopClawAgentAndWaitStopped,
   completeStripeCheckout,
-  loginWithPrivy,
   waitForPaidClawPlan,
 } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
+test.use({ trace: "off", video: "off" });
 
 type DeploymentTransitionFrame = {
   type?: unknown;
@@ -183,7 +184,7 @@ test.describe.serial("Agents subscription", () => {
       return [];
     });
     console.log(`[agents-plans] pre-cleanup canceled Stripe subscriptions=${preCleanupStripeIds.length}`);
-    await loginWithPrivy(page);
+    await loginWithAdminBootstrap(page);
 
     // A Playwright retry reuses the bootstrapped account. If the previous
     // attempt reached deployment creation but the Agents API failed during
@@ -367,7 +368,20 @@ test.describe.serial("Agents subscription", () => {
           "launch_epoch",
         ])
       );
-      await stopClawAgentAndWaitStopped(page, createdAgentId);
+      const stoppedAgent = await stopClawAgentAndWaitStopped(page, createdAgentId);
+      expect(stoppedAgent.state).toBe("STOPPED");
+      await deleteClawAgent(page, createdAgentId);
+      createdAgentId = null;
+      if (createdStripeSubscriptionId) {
+        await cancelStripeSubscription(createdStripeSubscriptionId);
+        createdStripeSubscriptionId = null;
+      }
+      await expect
+        .poll(async () => (await fetchClawSubscriptionSummary(page)).activeSubscriptionCount, {
+          timeout: 60_000,
+          intervals: [1_000, 2_000, 5_000],
+        })
+        .toBe(0);
     } finally {
       if (createdAgentId) {
         await deleteClawAgent(page, createdAgentId).catch(() => {});

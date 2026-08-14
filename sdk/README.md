@@ -363,6 +363,12 @@ node = NodeEgressServer(
 await node.connect()
 ```
 
+The placeholder is the canonical shared `OPENCLAW_GATEWAY_TOKEN`; load it from
+a trusted secret source and keep it in memory. Device identity and scoped
+device tokens are separate from that shared credential. A managed Agent can
+auto-approve a cold not-paired response through trusted exec, while a warm
+connection reuses the device credential for the same deployment and role.
+
 Operator side:
 
 ```python

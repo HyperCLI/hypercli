@@ -24,10 +24,21 @@ Gateway auth is application-level.
 Current remote flow:
 
 - connect to `wss://<agent-host>`
-- present gateway token
+- present the canonical `OPENCLAW_GATEWAY_TOKEN` shared/bootstrap credential
 - complete device challenge
 - auto-approve pairing if the SDK is bound to a deployment and API key
 - reuse cached device auth when possible
+
+The Agent helper obtains the shared token through the exact-key Secret API and
+keeps it in memory. Do not place it in a URL, log, or browser storage. Device
+identity is separate: the Python SDK persists its device-auth store at
+`~/.hypercli/openclaw-device-auth.json` by default. Issued tokens and pending
+pairings are scoped by deployment and role, so invalid-token repair does not
+discard another Agent's auth.
+
+A cold not-paired response can be approved through trusted Agent exec and then
+reconnected. A warm connection from the same stored identity to the same
+deployment and role reuses device auth.
 
 This is not the same as browser `/_jwt_auth` route bootstrap.
 
@@ -116,7 +127,9 @@ Use readiness explicitly after a pod reaches `RUNNING`:
 await gw.wait_ready(timeout=300)
 ```
 
-By default this polls `config.get`, which is a better signal than pod state alone.
+By default this polls `config.get`, which is a better signal than pod state
+alone. `RUNNING`, public route/DNS readiness, pairing, and an authenticated
+gateway connection are separate boundaries.
 
 ## Configuration
 

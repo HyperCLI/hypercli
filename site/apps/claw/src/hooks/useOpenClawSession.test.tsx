@@ -10,7 +10,7 @@ import {
 } from "@/lib/openclaw-chat-history-cache";
 import { useOpenClawSession } from "./useOpenClawSession";
 
-type TestGatewayConnectionState = "connected" | "connecting" | "disconnected";
+type TestGatewayConnectionState = "connected" | "connecting" | "pairing" | "disconnected";
 
 function buildGateway(initialState: TestGatewayConnectionState = "connected") {
   const eventHandlers: Array<(event: any) => void> = [];
@@ -7738,6 +7738,125 @@ describe("useOpenClawSession", () => {
     expect(result.current.error).toBeNull();
     expect(result.current.connecting).toBe(true);
     unmount();
+  });
+
+  it("treats SDK pairing as connection progress without reacquiring or resetting drafts", async () => {
+    const gateway = buildGateway();
+    const release = vi.fn();
+    const agent = {
+      id: "deploy-123",
+      acquireConnectedGateway: vi.fn(async () => ({ client: gateway, release })),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => {
+      result.current.setInput("Keep this draft");
+      result.current.addPendingFiles([{ name: "draft.md", path: "/workspace/draft.md", type: "text/markdown" }]);
+    });
+    await waitFor(() => expect(result.current.input).toBe("Keep this draft"));
+
+    act(() => {
+      gateway.emitConnectionState("pairing");
+    });
+
+    expect(result.current.status).toBe("pairing");
+    expect(result.current.connecting).toBe(true);
+    expect(result.current.connected).toBe(false);
+    expect(result.current.input).toBe("Keep this draft");
+    expect(result.current.pendingFiles).toEqual([
+      { name: "draft.md", path: "/workspace/draft.md", type: "text/markdown" },
+    ]);
+    expect(agent.acquireConnectedGateway).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+
+    act(() => gateway.emitConnectionState("connected"));
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    expect(agent.acquireConnectedGateway).toHaveBeenCalledTimes(1);
+    expect(result.current.input).toBe("Keep this draft");
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces pairing while the initial connected gateway acquisition is pending", async () => {
+    const gateway = buildGateway();
+    const pendingLease = deferred<{ client: ReturnType<typeof buildGateway>; release: ReturnType<typeof vi.fn> }>();
+    const release = vi.fn();
+    let onPairing: ((pairing: unknown | null) => void) | undefined;
+    const agent = {
+      id: "deploy-123",
+      acquireConnectedGateway: vi.fn((options: { onPairing?: (pairing: unknown | null) => void }) => {
+        onPairing = options.onPairing;
+        return pendingLease.promise;
+      }),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(agent.acquireConnectedGateway).toHaveBeenCalledTimes(1));
+    act(() => {
+      result.current.setInput("Keep this cold-start draft");
+      onPairing?.({ requestId: "pair-1" });
+    });
+    await waitFor(() => expect(result.current.status).toBe("pairing"));
+    expect(result.current.connecting).toBe(true);
+    expect(result.current.input).toBe("Keep this cold-start draft");
+    expect(agent.acquireConnectedGateway).toHaveBeenCalledTimes(1);
+    expect(release).not.toHaveBeenCalled();
+
+    act(() => onPairing?.(null));
+    expect(result.current.status).toBe("connecting");
+    expect(result.current.input).toBe("Keep this cold-start draft");
+    expect(agent.acquireConnectedGateway).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pendingLease.resolve({ client: gateway, release });
+      await pendingLease.promise;
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.input).toBe("Keep this cold-start draft");
+    unmount();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("fences a late Agent A acquisition after switching to Agent B", async () => {
+    const firstGateway = buildGateway();
+    const secondGateway = buildGateway();
+    const firstLease = deferred<{ client: ReturnType<typeof buildGateway>; release: ReturnType<typeof vi.fn> }>();
+    const releaseFirst = vi.fn();
+    const releaseSecond = vi.fn();
+    const firstAgent = {
+      id: "deploy-a",
+      acquireConnectedGateway: vi.fn(() => firstLease.promise),
+    };
+    const secondAgent = {
+      id: "deploy-b",
+      acquireConnectedGateway: vi.fn(async () => ({ client: secondGateway, release: releaseSecond })),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ agent }: { agent: typeof firstAgent | typeof secondAgent }) => useOpenClawSession(agent as any, true, "main"),
+      { initialProps: { agent: firstAgent } },
+    );
+
+    await waitFor(() => expect(firstAgent.acquireConnectedGateway).toHaveBeenCalledTimes(1));
+    rerender({ agent: secondAgent });
+    await waitFor(() => expect(secondAgent.acquireConnectedGateway).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.gateway).toBe(secondGateway));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await act(async () => {
+      firstLease.resolve({ client: firstGateway, release: releaseFirst });
+      await firstLease.promise;
+    });
+
+    expect(releaseFirst).toHaveBeenCalledTimes(1);
+    expect(releaseSecond).not.toHaveBeenCalled();
+    expect(result.current.gateway).toBe(secondGateway);
+    expect(result.current.status).toBe("connected");
+    unmount();
+    expect(releaseSecond).toHaveBeenCalledTimes(1);
   });
 
   it("does not render object-shaped gateway errors as object strings", async () => {

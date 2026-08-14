@@ -4,7 +4,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SITE_ROOT="${REPO_ROOT}/site"
-CONSOLE_LOG="/tmp/hypercli-console-e2e.log"
 CLAW_LOG="/tmp/hypercli-claw-e2e.log"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}}"
 FAILURE_NOTIFIED=0
@@ -13,9 +12,6 @@ export SITE_ROOT
 source "${REPO_ROOT}/.github/scripts/allocate_e2e_env.sh"
 
 cleanup() {
-  if [[ -n "${CONSOLE_PID:-}" ]]; then
-    kill "${CONSOLE_PID}" >/dev/null 2>&1 || true
-  fi
   if [[ -n "${CLAW_PID:-}" ]]; then
     kill "${CLAW_PID}" >/dev/null 2>&1 || true
   fi
@@ -34,7 +30,6 @@ on_exit() {
   if [[ ${status} -ne 0 ]] && keep_alive_on_failure; then
     trap - EXIT
     echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
-    echo "Console: ${TEST_CONSOLE_BASE_URL}" >&2
     echo "Claw: ${TEST_BASE_URL}" >&2
     echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-subscription.spec.ts" >&2
     tail -f /dev/null
@@ -58,13 +53,13 @@ sync_artifacts() {
     rm -rf "${dest}/test-results"
     cp -r "${SITE_ROOT}/test-results" "${dest}/test-results"
   fi
+  if [[ -d "${SITE_ROOT}/tests/claw/screenshots" ]]; then
+    rm -rf "${dest}/screenshots"
+    cp -r "${SITE_ROOT}/tests/claw/screenshots" "${dest}/screenshots"
+  fi
 }
 
 show_logs() {
-  if [[ -f "${CONSOLE_LOG}" ]]; then
-    echo "--- console log"
-    tail -n 200 "${CONSOLE_LOG}" || true
-  fi
   if [[ -f "${CLAW_LOG}" ]]; then
     echo "--- claw log"
     tail -n 200 "${CLAW_LOG}" || true
@@ -117,10 +112,11 @@ run_url = os.getenv("GITHUB_RUN_URL", "").strip()
 artifact_root = Path(os.getenv("E2E_ARTIFACTS_DIR", "")).resolve() if os.getenv("E2E_ARTIFACTS_DIR", "").strip() else None
 test_result_roots = [
     Path(os.getenv("SITE_ROOT", ".")) / "test-results",
+    Path(os.getenv("SITE_ROOT", ".")) / "tests" / "claw" / "screenshots",
 ]
 if artifact_root is not None:
     test_result_roots.append(artifact_root / "test-results")
-console_log = Path("/tmp/hypercli-console-e2e.log")
+    test_result_roots.append(artifact_root / "screenshots")
 claw_log = Path("/tmp/hypercli-claw-e2e.log")
 
 def newest(pattern: str):
@@ -182,7 +178,7 @@ if artifact is not None:
     media_filename = artifact.name
 else:
     log_lines = ["No Playwright video or screenshot was produced; failure happened before/during test startup."]
-    for label, path in [("console", console_log), ("claw", claw_log)]:
+    for label, path in [("claw", claw_log)]:
         if path.exists():
             log_lines.append(f"\n--- {label} log tail ---")
             log_lines.extend(path.read_text(errors="replace").splitlines()[-120:])
@@ -208,27 +204,28 @@ notify_failure_once() {
   notify_failure_artifact || true
 }
 
+# The checkout is intentionally reused on self-hosted runners. Purge ignored
+# captures before the EXIT trap can ever upload artifacts from this attempt.
+rm -rf "${SITE_ROOT}/tests/claw/screenshots"
+mkdir -p "${SITE_ROOT}/tests/claw/screenshots"
+export E2E_CREDENTIAL_SAFE_ARTIFACTS=1
 trap on_exit EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
 if [[ -d "${WORKSPACE_ROOT}/ts-sdk" ]]; then
-  npm --prefix "${WORKSPACE_ROOT}/ts-sdk" run build
+npm --prefix "${WORKSPACE_ROOT}/ts-sdk" run build
 fi
 npm run sdk:use-checkout
-rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
-npm run build --workspace @hypercli/console --workspace @hypercli/claw
+rm -rf "${SITE_ROOT}/apps/claw/.next"
+npm run build --workspace @hypercli/claw
 
-cd "${SITE_ROOT}/apps/console"
-PORT="${CONSOLE_PORT}" npm run start >"${CONSOLE_LOG}" 2>&1 &
-CONSOLE_PID=$!
 cd "${SITE_ROOT}/apps/claw"
 PORT="${CLAW_PORT}" npm run start >"${CLAW_LOG}" 2>&1 &
 CLAW_PID=$!
 
 cd "${SITE_ROOT}"
 
-wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console" "${CONSOLE_LOG}" "${CONSOLE_PID}"
 wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
 set +e
@@ -238,16 +235,26 @@ npx playwright test \
   --max-failures=1 \
   --workers=1 \
   tests/claw/agents-e2e-contract.spec.ts \
-  tests/claw/agents-subscription.spec.ts \
-  tests/claw/agents-deployment-events.spec.ts \
-  tests/claw/agents-archived-lifecycle.spec.ts \
-  tests/claw/agents-launch-helper.spec.ts \
-  tests/claw/dev-agent-setup-deployment-events.spec.ts \
-  tests/claw/agents-chat-navigation.spec.ts
-desktop_status=$?
+  tests/claw/agents-subscription.spec.ts
+lifecycle_status=$?
+
+desktop_status=0
+if [[ ${lifecycle_status} -eq 0 ]]; then
+  npx playwright test \
+    --config tests/claw/playwright.config.ts \
+    --project=chromium \
+    --max-failures=1 \
+    --workers=1 \
+    tests/claw/agents-deployment-events.spec.ts \
+    tests/claw/agents-archived-lifecycle.spec.ts \
+    tests/claw/agents-launch-helper.spec.ts \
+    tests/claw/dev-agent-setup-deployment-events.spec.ts \
+    tests/claw/agents-chat-navigation.spec.ts
+  desktop_status=$?
+fi
 
 mobile_status=0
-if [[ ${desktop_status} -eq 0 ]]; then
+if [[ ${lifecycle_status} -eq 0 && ${desktop_status} -eq 0 ]]; then
   npx playwright test \
     --config tests/claw/playwright.config.ts \
     --project=mobile-chromium \
@@ -260,7 +267,7 @@ fi
 set -e
 
 status=0
-if [[ ${desktop_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
+if [[ ${lifecycle_status} -ne 0 || ${desktop_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
   status=1
 fi
 

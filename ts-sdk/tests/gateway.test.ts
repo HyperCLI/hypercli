@@ -36,6 +36,15 @@ class MockLocalStorage {
   }
 }
 
+class ToggleWriteLocalStorage extends MockLocalStorage {
+  failWrites = true;
+
+  override setItem(key: string, value: string) {
+    if (this.failWrites) throw new Error("storage unavailable");
+    super.setItem(key, value);
+  }
+}
+
 class MockWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -546,6 +555,61 @@ describe("GatewayClient", () => {
     expect(stored.tokens[URL_SCOPE_KEY].scopes).toEqual(["operator.admin"]);
   });
 
+  it("preserves browser device identity in memory when localStorage writes fail", async () => {
+    const storage = new ToggleWriteLocalStorage();
+    vi.stubGlobal("localStorage", storage as any);
+    const first = await connectClient();
+    const deviceId = first.request.params.device.id;
+    first.client.close();
+    await flushMicrotasks();
+
+    const secondClient = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const connecting = secondClient.connect();
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing websocket after failed storage write");
+    socket.emitChallenge("nonce-memory-fallback");
+    const request = await parseFirstRequest(socket);
+    expect(request.params.device.id).toBe(deviceId);
+
+    storage.failWrites = false;
+    socket.emitHello(request.id, "device-token-after-storage-recovery");
+    await connecting;
+    const stored = JSON.parse(storage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.deviceId).toBe(deviceId);
+    expect(stored.tokens[URL_SCOPE_KEY].token).toBe("device-token-after-storage-recovery");
+  });
+
+  it("does not crash when the browser localStorage getter throws", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw new Error("localStorage access denied");
+      },
+    });
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const connecting = client.connect();
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing websocket with inaccessible localStorage");
+    socket.emitChallenge("nonce-storage-getter");
+    const request = await parseFirstRequest(socket);
+    expect(request.params.device.id).toMatch(/^[0-9a-f]{64}$/);
+
+    const recoveredStorage = new MockLocalStorage();
+    vi.stubGlobal("localStorage", recoveredStorage as any);
+    socket.emitHello(request.id, "device-token-after-getter-recovery");
+    await connecting;
+    const stored = JSON.parse(recoveredStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.deviceId).toBe(request.params.device.id);
+  });
+
   it("passes upstream gateway client metadata and auth fields through the handshake", async () => {
     const { request } = await connectClient(new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -748,6 +812,69 @@ describe("GatewayClient", () => {
     expect(MockWebSocket.instances).toHaveLength(2);
   });
 
+  it("clears only the current deployment after an exhausted stored-token fallback", async () => {
+    const firstAgent = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token-a",
+      deploymentId: "deployment-a",
+    }));
+    firstAgent.client.close();
+    await flushMicrotasks();
+    const secondAgent = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token-b",
+      deploymentId: "deployment-b",
+    }));
+    secondAgent.client.close();
+    await flushMicrotasks();
+
+    const before = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    before.pendingPairings = {
+      "deployment-a|operator": { requestId: "pair-a", role: "operator" },
+      "deployment-b|operator": { requestId: "pair-b", role: "operator" },
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(before));
+
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "stale-shared-token-a",
+      deploymentId: "deployment-a",
+    });
+    const connecting = client.connect({ timeoutMs: 5_000 });
+    const rejected = expect(connecting).rejects.toThrow("stored token mismatch");
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing deployment-a websocket instance");
+    socket.emitChallenge("nonce-exhausted-a");
+    const sharedRequest = await parseFirstRequest(socket);
+    socket.emitConnectError(sharedRequest.id, "AUTH_TOKEN_MISMATCH", "shared token mismatch", {
+      code: "AUTH_TOKEN_MISMATCH",
+      canRetryWithDeviceToken: true,
+      recommendedNextStep: "retry_with_device_token",
+    });
+    for (let attempt = 0; attempt < 20 && socket.sent.length < 2; attempt += 1) {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const storedTokenRequest = JSON.parse(socket.sent[1] ?? "{}");
+    expect(storedTokenRequest.params.auth.deviceToken).toBe("device-token-1");
+    socket.emitConnectError(storedTokenRequest.id, "AUTH_TOKEN_MISMATCH", "stored token mismatch", {
+      code: "AUTH_TOKEN_MISMATCH",
+      canRetryWithDeviceToken: true,
+      recommendedNextStep: "retry_with_device_token",
+    });
+    await rejected;
+
+    const after = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(after.deviceId).toBe(before.deviceId);
+    expect(after.privateKey).toBe(before.privateKey);
+    expect(after.tokens["deployment-a|operator"]).toBeUndefined();
+    expect(after.tokens["deployment-b|operator"].token).toBe("device-token-1");
+    expect(after.pendingPairings?.["deployment-a|operator"]).toBeUndefined();
+    expect(after.pendingPairings?.["deployment-b|operator"].requestId).toBe("pair-b");
+    expect(socket.sent).toHaveLength(2);
+  });
+
   it("clears the cached device token when connect fails with a device-token auth error", async () => {
     await connectClient();
 
@@ -784,6 +911,54 @@ describe("GatewayClient", () => {
 
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.tokens?.[URL_SCOPE_KEY]).toBeUndefined();
+  });
+
+  it("drops an issued in-memory device token before retrying a mismatch", async () => {
+    const { client, ws: firstSocket } = await connectClient();
+    firstSocket.close(1012, "restart");
+    await flushMicrotasks();
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await flushMicrotasks();
+
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket || socket === firstSocket) throw new Error("Missing reconnect websocket instance");
+    socket.emitChallenge("nonce-issued-token-mismatch");
+    const request = await parseFirstRequest(socket);
+    expect(request.params.auth.deviceToken).toBe("device-token-1");
+    socket.emitConnectError(request.id, "AUTH_DEVICE_TOKEN_MISMATCH");
+
+    for (let attempt = 0; attempt < 20 && socket.sent.length < 2; attempt += 1) {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const retryRequest = JSON.parse(socket.sent[1] ?? "{}");
+    expect(retryRequest.params.auth.token).toBe("gw-token");
+    expect(retryRequest.params.auth.deviceToken).toBeUndefined();
+    client.close();
+  });
+
+  it("preserves an explicitly configured device token while clearing scoped cached auth", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deviceToken: "caller-device-token",
+      deploymentId: "deployment-explicit",
+    });
+    void client.start().catch(() => undefined);
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing explicit-token websocket instance");
+    socket.emitChallenge("nonce-explicit-token");
+    const request = await parseFirstRequest(socket);
+    expect(request.params.auth.deviceToken).toBe("caller-device-token");
+    socket.emitConnectError(request.id, "AUTH_DEVICE_TOKEN_MISMATCH");
+    for (let attempt = 0; attempt < 20 && socket.sent.length < 2; attempt += 1) {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const retryRequest = JSON.parse(socket.sent[1] ?? "{}");
+    expect(retryRequest.params.auth.deviceToken).toBe("caller-device-token");
+    client.close();
   });
 
   it("does not reconnect-loop after a rate-limited auth failure", async () => {
@@ -4315,6 +4490,7 @@ describe("GatewayClient", () => {
     });
     vi.stubGlobal("fetch", fetchMock as any);
 
+    const pairingUpdates: Array<string | null> = [];
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
       gatewayToken: "gw-token",
@@ -4322,7 +4498,10 @@ describe("GatewayClient", () => {
       apiKey: "app-token",
       apiBase: "https://api.dev.hypercli.com",
       autoApprovePairing: true,
+      onPairing: (pairing) => pairingUpdates.push(pairing?.status ?? null),
     });
+    const connectionStates: string[] = [];
+    client.onConnectionState((state) => connectionStates.push(state));
 
     const connectPromise = client.connect();
     await flushMicrotasks();
@@ -4361,7 +4540,8 @@ describe("GatewayClient", () => {
     expect(fetchBody.command).toContain(" --json");
     expect(fetchBody.command).toContain("pairing-req-1");
 
-    // Auto-approve runs silently — no intermediate pendingPairings stored.
+    expect(pairingUpdates).toEqual(["approving", null]);
+    expect(connectionStates).toEqual(["connecting", "pairing", "connecting"]);
     const storedAfterPairingError = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(storedAfterPairingError.pendingPairings).toBeUndefined();
 
@@ -4384,10 +4564,129 @@ describe("GatewayClient", () => {
 
     expect(client.isConnected).toBe(true);
     expect(client.pendingPairing).toBeNull();
+    expect(connectionStates).toEqual(["connecting", "pairing", "connecting", "connected"]);
 
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.pendingPairings).toBeUndefined();
     expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-after-pair");
+  });
+
+  it("reuses the browser identity for a warm deployment on one fresh socket", async () => {
+    const first = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+    }));
+    const deviceId = first.request.params.device.id;
+    first.client.close();
+    await flushMicrotasks();
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+    const socketCountBeforeWarmConnect = MockWebSocket.instances.length;
+    const warmClient = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+    const connecting = warmClient.connect();
+    await flushMicrotasks();
+
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing warm websocket instance");
+    socket.emitChallenge("nonce-warm-device");
+    const request = await parseFirstRequest(socket);
+    expect(request.params.device.id).toBe(deviceId);
+    expect(request.params.auth.token).toBe("gw-token");
+    expect(request.params.auth.deviceToken).toBeUndefined();
+    socket.emitHello(request.id, "device-token-2");
+    await connecting;
+
+    expect(MockWebSocket.instances).toHaveLength(socketCountBeforeWarmConnect + 1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-2");
+  });
+
+  it("singleflights browser identity creation across concurrent cold deployments", async () => {
+    const first = new GatewayClient({
+      url: "wss://openclaw-a.example",
+      gatewayToken: "gw-token-a",
+      deploymentId: "deployment-a",
+    });
+    const second = new GatewayClient({
+      url: "wss://openclaw-b.example",
+      gatewayToken: "gw-token-b",
+      deploymentId: "deployment-b",
+    });
+    const firstConnecting = first.connect();
+    const secondConnecting = second.connect();
+    await flushMicrotasks();
+    const [firstSocket, secondSocket] = MockWebSocket.instances.slice(-2);
+    if (!firstSocket || !secondSocket) throw new Error("Missing concurrent gateway sockets");
+
+    firstSocket.emitChallenge("nonce-cold-a");
+    secondSocket.emitChallenge("nonce-cold-b");
+    const [firstRequest, secondRequest] = await Promise.all([
+      parseFirstRequest(firstSocket),
+      parseFirstRequest(secondSocket),
+    ]);
+    expect(firstRequest.params.device.id).toBe(secondRequest.params.device.id);
+
+    firstSocket.emitHello(firstRequest.id, "device-token-a");
+    secondSocket.emitHello(secondRequest.id, "device-token-b");
+    await Promise.all([firstConnecting, secondConnecting]);
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.deviceId).toBe(firstRequest.params.device.id);
+    expect(stored.tokens["deployment-a|operator"].token).toBe("device-token-a");
+    expect(stored.tokens["deployment-b|operator"].token).toBe("device-token-b");
+  });
+
+  it("does not reuse a persisted device token for another deployment", async () => {
+    const first = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+    }));
+    const deviceId = first.request.params.device.id;
+    first.client.close();
+    await flushMicrotasks();
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock as any);
+    const otherClient = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-456",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+    const connecting = otherClient.connect();
+    const rejected = expect(connecting).rejects.toThrow("token mismatch");
+    await flushMicrotasks();
+
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing other-deployment websocket instance");
+    socket.emitChallenge("nonce-other-deployment");
+    const request = await parseFirstRequest(socket);
+    expect(request.params.device.id).toBe(deviceId);
+    expect(request.params.auth.deviceToken).toBeUndefined();
+    socket.emitConnectError(request.id, "AUTH_TOKEN_MISMATCH", "token mismatch", {
+      code: "AUTH_TOKEN_MISMATCH",
+      canRetryWithDeviceToken: true,
+      recommendedNextStep: "retry_with_device_token",
+    });
+    await rejected;
+
+    expect(socket.sent).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-1");
+    expect(stored.tokens["deployment-456|operator"]).toBeUndefined();
   });
 
   it("treats unknown requestId during auto-approve as concurrent approval and reconnects", async () => {
@@ -4445,7 +4744,21 @@ describe("GatewayClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("reconnects when pairing approval succeeds after the first socket already closed", async () => {
+  it("moves through pairing without disconnecting when approval outlives the first socket", async () => {
+    const prior = await connectClient(new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+    }));
+    prior.client.close();
+    await flushMicrotasks();
+    const priorStore = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    priorStore.tokens[DEPLOYMENT_SCOPE_KEY].token = "stale-device-token";
+    priorStore.pendingPairings = {
+      [DEPLOYMENT_SCOPE_KEY]: { requestId: "stale-pairing-request", role: "operator" },
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(priorStore));
+
     let resolveFetch: ((value: unknown) => void) | null = null;
     const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => {
       resolveFetch = resolve;
@@ -4460,6 +4773,8 @@ describe("GatewayClient", () => {
       apiBase: "https://api.dev.hypercli.com",
       autoApprovePairing: true,
     });
+    const seen: string[] = [];
+    client.onConnectionState((state) => seen.push(state));
 
     const connectPromise = client.connect();
     await flushMicrotasks();
@@ -4484,6 +4799,8 @@ describe("GatewayClient", () => {
     await flushMicrotasks();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(client.state).toBe("pairing");
+    expect(seen).toEqual(["connecting", "pairing"]);
     if (!resolveFetch) throw new Error("Missing pending approval request");
     resolveFetch({
       ok: true,
@@ -4507,6 +4824,126 @@ describe("GatewayClient", () => {
 
     expect(client.isConnected).toBe(true);
     expect(client.pendingPairing).toBeNull();
+    expect(seen).toEqual(["connecting", "pairing", "connecting", "connected"]);
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-after-late-approval");
+    expect(stored.pendingPairings?.[DEPLOYMENT_SCOPE_KEY]).toBeUndefined();
+  });
+
+  it("terminates a failed pairing approval without reconnecting", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("approval denied"));
+    vi.stubGlobal("fetch", fetchMock as any);
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+    const seen: string[] = [];
+    client.onConnectionState((state) => seen.push(state));
+
+    const connecting = client.connect();
+    const rejected = expect(connecting).rejects.toThrow("approval denied");
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing pairing websocket instance");
+    socket.emitChallenge("nonce-failed-pairing");
+    const request = await parseFirstRequest(socket);
+    socket.emitConnectError(
+      request.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-failed", reason: "not-paired" },
+    );
+    await rejected;
+    await flushMicrotasks();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(MockWebSocket.instances).toHaveLength(1);
+    expect(client.state).toBe("disconnected");
+    expect(client.pendingPairing).toEqual(expect.objectContaining({
+      requestId: "pairing-req-failed",
+      status: "failed",
+    }));
+    expect(seen).toEqual(["connecting", "pairing", "disconnected"]);
+  });
+
+  it("aborts an in-flight pairing approval when the client stops", async () => {
+    let approvalSignal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_input, init?: RequestInit) => {
+      approvalSignal = init?.signal ?? undefined;
+      return new Promise((_resolve, reject) => {
+        approvalSignal?.addEventListener("abort", () => reject(approvalSignal?.reason), { once: true });
+      });
+    }) as any);
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+    const connecting = client.connect();
+    const rejected = expect(connecting).rejects.toThrow("gateway client stopped");
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing pairing websocket instance");
+    socket.emitChallenge("nonce-stopped-pairing");
+    const request = await parseFirstRequest(socket);
+    socket.emitConnectError(
+      request.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-stopped", reason: "not-paired" },
+    );
+    await flushMicrotasks();
+
+    expect(approvalSignal?.aborted).toBe(false);
+    client.stop();
+    await rejected;
+    expect(approvalSignal?.aborted).toBe(true);
+    expect(client.state).toBe("disconnected");
+    expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it("terminates a pairing approval that exceeds its HTTP deadline", async () => {
+    vi.stubGlobal("fetch", vi.fn((_input, init?: RequestInit) => {
+      const signal = init?.signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }) as any);
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+    const connecting = client.connect();
+    const rejected = expect(connecting).rejects.toThrow("Pairing approval timed out");
+    await flushMicrotasks();
+    const socket = MockWebSocket.instances.at(-1);
+    if (!socket) throw new Error("Missing pairing websocket instance");
+    socket.emitChallenge("nonce-timeout-pairing");
+    const request = await parseFirstRequest(socket);
+    vi.useFakeTimers();
+    socket.emitConnectError(
+      request.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-timeout", reason: "not-paired" },
+    );
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(35_000);
+
+    await rejected;
+    expect(client.state).toBe("disconnected");
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 
   it("keeps a signal-only waiter alive while pairing approval exceeds the RPC timeout", async () => {
@@ -4523,7 +4960,7 @@ describe("GatewayClient", () => {
       apiKey: "app-token",
       apiBase: "https://api.dev.hypercli.com",
       autoApprovePairing: true,
-      defaultTimeout: 10,
+      timeout: 10,
     });
 
     let settled = false;

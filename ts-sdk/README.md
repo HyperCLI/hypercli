@@ -377,6 +377,12 @@ await gateway.sendChat('Already normalized', 'main', undefined, [
 ]);
 ```
 
+For managed Agents, prefer the `OpenClawAgent` connection helpers instead of
+copying the gateway Secret into application storage. The shared
+`OPENCLAW_GATEWAY_TOKEN` is in-memory bootstrap/auth material. Browser device
+identity is stored separately under `openclaw.device.auth.v1`, with device
+tokens and pending pairing scoped to the deployment and role.
+
 `client.agent.claimTrialEntitlement()` sends an authenticated, bodyless claim to `/agents/plans/trial` and returns the backend-created introductory entitlement. Trial eligibility is decided exclusively by the backend. `client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
 
 Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.

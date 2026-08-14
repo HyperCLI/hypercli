@@ -2373,6 +2373,14 @@ describe('Agents SDK', () => {
     expect(proAgent.gatewayToken).toBeNull();
   });
 
+  const activeOpenClawRouteState = (hostname = 'openclaw-test.hypercli.com') => ({
+    agentId: 'agent-123',
+    routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+    routeStatuses: {
+      openclaw: { hostname, url: `https://${hostname}`, dns_state: 'active', last_error: null },
+    },
+  });
+
   it('refreshes the Agent and exact gateway Secret to build context', async () => {
     const deployments = {
       get: vi.fn().mockResolvedValue(OpenClawAgent.fromDict({
@@ -2382,6 +2390,7 @@ describe('Agents SDK', () => {
         hostname: 'openclaw-test.hypercli.com',
         launch_epoch: 3,
       })),
+      getRoutes: vi.fn().mockResolvedValue(activeOpenClawRouteState()),
       secret: vi.fn().mockResolvedValue({
         agent_id: 'agent-123',
         key: 'OPENCLAW_GATEWAY_TOKEN',
@@ -2440,6 +2449,10 @@ describe('Agents SDK', () => {
           requestOrder.push('get');
           return snapshot('RUNNING');
         }),
+      getRoutes: vi.fn().mockImplementation(async () => {
+        requestOrder.push('routes');
+        return activeOpenClawRouteState();
+      }),
       secret: vi.fn().mockImplementation(async () => {
         requestOrder.push('secret');
         return {
@@ -2460,8 +2473,161 @@ describe('Agents SDK', () => {
     const context = await agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 });
 
     expect(context.launch_epoch).toBe(3);
-    expect(requestOrder).toEqual(['get', 'get', 'get', 'secret', 'get']);
+    expect(requestOrder).toEqual(['get', 'get', 'get', 'routes', 'secret', 'get', 'routes']);
     expect(deployments.secret).toHaveBeenCalledTimes(1);
+  });
+
+  it('waits for the canonical root route before reading the gateway Secret', async () => {
+    const snapshot = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state: 'RUNNING',
+      hostname: 'canonical-openclaw.example.test',
+      launch_epoch: 3,
+    });
+    const deployments = {
+      get: vi.fn().mockResolvedValue(snapshot),
+      getRoutes: vi.fn()
+        .mockResolvedValueOnce({
+          agentId: 'agent-123',
+          routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+          routeStatuses: {
+            openclaw: {
+              hostname: 'canonical-openclaw.example.test',
+              url: 'https://canonical-openclaw.example.test/ws',
+              dns_state: 'pending_create',
+              last_error: null,
+            },
+          },
+        })
+        .mockResolvedValueOnce({
+          agentId: 'agent-123',
+          routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+          routeStatuses: {
+            openclaw: {
+              hostname: 'canonical-openclaw.example.test',
+              url: 'https://canonical-openclaw.example.test/ws',
+              dns_state: 'active',
+              last_error: null,
+            },
+          },
+        })
+        .mockResolvedValueOnce({
+          agentId: 'agent-123',
+          routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+          routeStatuses: {
+            openclaw: {
+              hostname: 'canonical-openclaw.example.test',
+              url: 'https://canonical-openclaw.example.test/ws',
+              dns_state: 'active',
+              last_error: null,
+            },
+          },
+        }),
+      secret: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        key: 'OPENCLAW_GATEWAY_TOKEN',
+        value: 'gw-current',
+        launch_epoch: 1,
+      }),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({ id: 'agent-123', state: 'RUNNING', launch_epoch: 3 });
+    agent._deployments = deployments;
+
+    const context = await agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 });
+
+    expect(context.gateway_url).toBe('wss://canonical-openclaw.example.test/ws');
+    expect(deployments.get).toHaveBeenCalledTimes(3);
+    expect(deployments.getRoutes).toHaveBeenCalledTimes(3);
+    expect(deployments.secret).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['STOPPING', 'STOPPED', 'ARCHIVING', 'ARCHIVED', 'FAILED', 'DELETED'])(
+    'fails gateway context immediately when the exact Agent is %s',
+    async (state) => {
+      const deployments = {
+        get: vi.fn().mockResolvedValue(OpenClawAgent.fromDict({
+          id: 'agent-123',
+          state,
+          launch_epoch: 3,
+        })),
+        getRoutes: vi.fn(),
+        secret: vi.fn(),
+      } as unknown as Deployments;
+      const agent = OpenClawAgent.fromDict({
+        id: 'agent-123',
+        state: 'RUNNING',
+        launch_epoch: 3,
+      });
+      agent._deployments = deployments;
+
+      await expect(agent.waitForGatewayContext({ timeoutMs: 30_000, retryIntervalMs: 0 }))
+        .rejects.toThrow(`gateway Agent is ${state}, not RUNNING`);
+      expect(deployments.get).toHaveBeenCalledTimes(1);
+      expect(deployments.getRoutes).not.toHaveBeenCalled();
+      expect(deployments.secret).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not publish a route that changes while the gateway Secret is resolved', async () => {
+    const snapshot = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      state: 'RUNNING',
+      hostname: null,
+      launch_epoch: 3,
+    });
+    const routeState = (url: string) => ({
+      agentId: 'agent-123',
+      routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+      routeStatuses: {
+        openclaw: { hostname: new URL(url).hostname, url, dns_state: 'active', last_error: null },
+      },
+    });
+    const deployments = {
+      get: vi.fn().mockResolvedValue(snapshot),
+      getRoutes: vi.fn()
+        .mockResolvedValueOnce(routeState('https://first.example.test'))
+        .mockResolvedValueOnce(routeState('https://second.example.test')),
+      secret: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        key: 'OPENCLAW_GATEWAY_TOKEN',
+        value: 'gw-current',
+        launch_epoch: 1,
+      }),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({ id: 'agent-123', state: 'RUNNING', launch_epoch: 3 });
+    agent._deployments = deployments;
+
+    await expect(agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 }))
+      .rejects.toThrow('OpenClaw gateway route changed while its Secret was resolved');
+
+    expect(deployments.get).toHaveBeenCalledTimes(2);
+    expect(deployments.getRoutes).toHaveBeenCalledTimes(2);
+    expect(deployments.secret).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['plaintext remote websocket', { hostname: 'agent.example.test', url: 'ws://agent.example.test' }],
+    ['mismatched hostname', { hostname: 'agent.example.test', url: 'https://attacker.example.test' }],
+    ['credential-bearing URL', { hostname: 'agent.example.test', url: 'https://user:pass@agent.example.test' }],
+    ['query-bearing URL', { hostname: 'agent.example.test', url: 'https://agent.example.test/?token=leak' }],
+  ])('rejects an unsafe active OpenClaw route: %s', async (_label, route) => {
+    const snapshot = OpenClawAgent.fromDict({
+      id: 'agent-123', state: 'RUNNING', hostname: route.hostname, launch_epoch: 3,
+    });
+    const deployments = {
+      get: vi.fn().mockResolvedValue(snapshot),
+      getRoutes: vi.fn().mockResolvedValue({
+        agentId: 'agent-123',
+        routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+        routeStatuses: { openclaw: { ...route, dns_state: 'active', last_error: null } },
+      }),
+      secret: vi.fn(),
+    } as unknown as Deployments;
+    const agent = OpenClawAgent.fromDict({ id: 'agent-123', state: 'RUNNING', launch_epoch: 3 });
+    agent._deployments = deployments;
+
+    await expect(agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 })).rejects.toThrow();
+    expect(deployments.secret).not.toHaveBeenCalled();
   });
 
   it('does not retry permanent Agent authorization failures', async () => {
@@ -2491,6 +2657,7 @@ describe('Agents SDK', () => {
         hostname: 'openclaw-test.hypercli.com',
         launch_epoch: 3,
       })),
+      getRoutes: vi.fn().mockResolvedValue(activeOpenClawRouteState()),
       secret: vi.fn().mockResolvedValue({
         agent_id: 'agent-123',
         key: 'OPENCLAW_GATEWAY_TOKEN',
@@ -2529,6 +2696,7 @@ describe('Agents SDK', () => {
       get: vi.fn()
         .mockResolvedValueOnce(snapshot(3))
         .mockResolvedValueOnce(snapshot(4, 'STARTING')),
+      getRoutes: vi.fn().mockResolvedValue(activeOpenClawRouteState('openclaw-3.hypercli.com')),
       secret: vi.fn().mockResolvedValue({
         agent_id: 'agent-123',
         key: 'OPENCLAW_GATEWAY_TOKEN',
@@ -2564,6 +2732,7 @@ describe('Agents SDK', () => {
         hostname: 'openclaw-test.hypercli.com',
         launch_epoch: 3,
       })),
+      getRoutes: vi.fn().mockResolvedValue(activeOpenClawRouteState()),
       secret: vi.fn().mockRejectedValue(secretError),
     } as unknown as Deployments;
     const agent = OpenClawAgent.fromDict({
@@ -2639,6 +2808,7 @@ describe('Agents SDK', () => {
       agentApiBase: 'https://api.test.hypercli.com/agents',
       openClawGateways,
       get: vi.fn().mockResolvedValue(snapshot),
+      getRoutes: vi.fn().mockResolvedValue(activeOpenClawRouteState()),
       secret: vi.fn().mockResolvedValue({
         agent_id: 'agent-123',
         key: 'OPENCLAW_GATEWAY_TOKEN',
@@ -2691,6 +2861,20 @@ describe('Agents SDK', () => {
     };
     const clientFactory = vi.fn(() => gateway as any);
     const get = vi.fn(async (path: string) => {
+      if (path.endsWith('/routes')) {
+        return {
+          agent_id: agentId,
+          routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+          route_statuses: {
+            openclaw: {
+              hostname: 'agent.example.test',
+              url: 'https://agent.example.test',
+              dns_state: 'active',
+              last_error: null,
+            },
+          },
+        };
+      }
       if (path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')) {
         return {
           agent_id: agentId,
@@ -2725,7 +2909,9 @@ describe('Agents SDK', () => {
     const secondAcquisition = second.acquireConnectedGateway({}, { timeoutMs: 1_000 });
     await vi.waitFor(() => expect(clientFactory).toHaveBeenCalledTimes(1));
 
-    expect(get.mock.calls.filter(([path]) => !String(path).includes('/secrets/'))).toHaveLength(2);
+    expect(get.mock.calls.filter(([path]) => !String(path).includes('/secrets/') && !String(path).endsWith('/routes')))
+      .toHaveLength(2);
+    expect(get.mock.calls.filter(([path]) => String(path).endsWith('/routes'))).toHaveLength(2);
     expect(get.mock.calls.filter(([path]) => String(path).includes('/secrets/'))).toHaveLength(1);
     expect(gateway.connect).toHaveBeenCalledTimes(2);
     expect(gateway.connect).toHaveBeenNthCalledWith(1, { signal: undefined });
@@ -2748,6 +2934,20 @@ describe('Agents SDK', () => {
     });
     let exactReads = 0;
     const get = vi.fn(async (path: string) => {
+      if (path.endsWith('/routes')) {
+        return {
+          agent_id: agentId,
+          routes: { openclaw: { port: 18789, prefix: '', auth: false } },
+          route_statuses: {
+            openclaw: {
+              hostname: 'agent.example.test',
+              url: 'https://agent.example.test',
+              dns_state: 'active',
+              last_error: null,
+            },
+          },
+        };
+      }
       if (path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')) {
         return { agent_id: agentId, key: 'OPENCLAW_GATEWAY_TOKEN', value: 'canonical-secret', launch_epoch: 1 };
       }

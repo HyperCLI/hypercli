@@ -310,6 +310,7 @@ export function AccountOperationsHome({
   const gatewaySnapshots = activitySnapshots.filter((snapshot) => snapshot.dataState !== "offline");
   const unavailableGatewayCount = gatewaySnapshots.filter((snapshot) => snapshot.dataState === "unavailable").length;
   const partialGatewayCount = gatewaySnapshots.filter((snapshot) => snapshot.dataState === "partial").length;
+  const deferredGatewayCount = gatewaySnapshots.filter((snapshot) => snapshot.dataState === "deferred").length;
   const conversationSourcesRead = activitySnapshots.filter((snapshot) => snapshot.sessions !== null).length;
   const conversationSourcesUnknown = activitySnapshots.length - conversationSourcesRead;
   const cronSourcesRead = activitySnapshots.filter((snapshot) => snapshot.cronJobs !== null).length;
@@ -621,9 +622,19 @@ export function AccountOperationsHome({
                 <div className="flex min-w-0 items-start gap-3">
                   <MessageCircle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
                   <div>
-                    <h3 className="text-[12px] font-semibold text-foreground">{conversationSourcesUnknown > 0 ? "Some sessions are out of view" : "No sessions yet"}</h3>
+                    <h3 className="text-[12px] font-semibold text-foreground">
+                      {conversationSourcesUnknown > 0
+                        ? deferredGatewayCount > 0
+                          ? "Open an agent to see its sessions"
+                          : "Some sessions are out of view"
+                        : "No sessions yet"}
+                    </h3>
                     <p className="mt-1 text-[10px] leading-relaxed text-text-muted">
-                      {conversationSourcesUnknown > 0 ? "Start any offline agent or refresh an unavailable gateway to complete this view." : "Start a conversation and this space will become a useful record of where work is happening."}
+                      {conversationSourcesUnknown > 0
+                        ? deferredGatewayCount > 0
+                          ? "Open an agent to view its latest conversations."
+                          : "Start any offline agent or refresh an unavailable gateway to complete this view."
+                        : "Start a conversation and this space will become a useful record of where work is happening."}
                     </p>
                   </div>
                 </div>
@@ -702,10 +713,18 @@ export function AccountOperationsHome({
               ) : (
                 <div className="px-4 py-5 sm:px-5">
                   <p className="text-[9px] font-semibold text-[var(--selection-accent)]">{cronSourcesUnknown > 0 ? "Schedule check" : "Make time work for you"}</p>
-                  <h3 className="mt-2 text-[16px] font-semibold leading-tight tracking-[-0.025em] text-foreground">{cronSourcesUnknown > 0 ? "Some scheduled work is unavailable" : "Give tomorrow a head start."}</h3>
+                  <h3 className="mt-2 text-[16px] font-semibold leading-tight tracking-[-0.025em] text-foreground">
+                    {cronSourcesUnknown > 0
+                      ? deferredGatewayCount > 0
+                        ? "Open an agent to see scheduled work"
+                        : "Some scheduled work is unavailable"
+                      : "Give tomorrow a head start."}
+                  </h3>
                   <p className="mt-2 max-w-[42ch] text-[10px] leading-5 text-text-secondary">
                     {cronSourcesUnknown > 0
-                      ? "We could not read every running agent, so this agenda may be incomplete."
+                      ? deferredGatewayCount > 0
+                        ? "Open an agent to view and manage its latest scheduled work."
+                        : "We could not read every running agent, so this agenda may be incomplete."
                       : firstRunningAgent
                         ? "Set a morning brief, weekly review, or the task you never want to remember twice."
                         : primaryAgent

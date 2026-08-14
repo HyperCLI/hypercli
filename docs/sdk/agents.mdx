@@ -682,7 +682,10 @@ Agents launched through the pro desktop/browser preset hydrate as `OpenClawProAg
 
 `resolve_gateway_token()` refreshes the Agent, derives `wss://{hostname}`, and
 fetches only `OPENCLAW_GATEWAY_TOKEN` through the exact-key secret endpoint.
-Generic deployments also expose `env()`, `secret_names()`, and `secret(key)`.
+That Secret is canonical shared/bootstrap auth, not a browser device token; the
+SDK holds the resolved value on the live Agent instance. Keep it out of URLs,
+logs, and persistent application storage. Generic deployments also expose
+`env()`, `secret_names()`, and `secret(key)`.
 
 To mint a child key for one exact agent:
 
@@ -693,13 +696,17 @@ print(scoped["api_key"])
 
 ### Gateway URL Semantics
 
-The SDK now treats the root host as the default gateway host.
+The SDK treats the root host as the default gateway host.
 
 `OpenClawAgent` now derives gateway connection context from:
 
 ```python
 f"wss://{agent.hostname}"
 ```
+
+An Agent reporting `RUNNING` does not prove that public DNS, the route, device
+pairing, or the authenticated gateway hello is ready. Use the gateway readiness
+and connection helpers for those later boundaries.
 
 ## Gateway Example
 

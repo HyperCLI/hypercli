@@ -59,11 +59,48 @@ That matters because OpenClaw applies browser/control-ui origin checks to
 
 This client does not use browser `/_jwt_auth` semantics.
 
-It connects to the root agent host and authenticates at the OpenClaw protocol layer using:
+It connects to the root Agent host and authenticates at the OpenClaw protocol
+layer. `OPENCLAW_GATEWAY_TOKEN` is the canonical shared/bootstrap credential.
+When an `OpenClawAgent` resolves it, the value is held on that live Agent
+instance only. Do not copy it to a URL, cookie, log, or browser storage.
 
-- gateway token
-- device identity
-- pairing / cached device token
+The browser device layer is separate:
+
+- one device keypair is stored for the browser storage origin
+- the store uses the `localStorage` key `openclaw.device.auth.v1`
+- device tokens and pending pairing records are keyed by deployment and role
+- a warm connection to the same deployment and role reuses the identity and
+  issued device token without pairing again
+
+On a cold connection, a `PAIRING_REQUIRED` / not-paired response moves the
+client into `pairing`. If `deploymentId`, `apiKey`, `apiBase`, and
+`autoApprovePairing` are present, the SDK approves the exact request through
+trusted Agent exec and reconnects. Applications should render that as
+connection progress, not start a second client.
+
+An invalid cached device token clears only the current deployment-and-role
+entry before repair. Other Agent entries and the global browser device keypair
+remain intact.
+
+The connection states are fenced as follows:
+
+```text
+resolve exact Agent + active route
+  -> read OPENCLAW_GATEWAY_TOKEN once
+  -> confirm same RUNNING launch epoch + route
+  -> CONNECTING
+       -> warm device auth -------------------------------> CONNECTED
+       -> PAIRING_REQUIRED -> PAIRING -> trusted approval
+                              -> CONNECTING (new socket) --> CONNECTED
+
+terminal lifecycle / invalid route contract / auth failure -> ERROR
+caller timeout or abort                                    -> CANCELLED
+Agent or route changes during resolution                   -> retry or ERROR
+```
+
+`RUNNING`, active route/DNS, pairing approval, and an authenticated gateway
+hello are distinct readiness boundaries. Do not infer gateway readiness from
+the deployment state alone.
 
 ## Lifecycle
 
@@ -92,7 +129,10 @@ Lifecycle methods:
 await gateway.waitReady(300_000);
 ```
 
-This is the recommended way to wait for a fresh agent after the pod reaches `RUNNING`.
+This waits on the gateway after connection. For a managed Agent, first use the
+Agent-owned connection helper so lifecycle, route readiness, Secret resolution,
+pairing, and the authenticated hello are handled in order. A pod reaching
+`RUNNING` does not by itself prove any of those later boundaries.
 
 ## Config
 

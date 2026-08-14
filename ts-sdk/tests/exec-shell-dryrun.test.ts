@@ -455,7 +455,13 @@ describe('HyperClaw agents SDK', () => {
   it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', async () => {
     const get = vi.fn(async (path: string) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')
       ? { agent_id: 'agent-ctx', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-ctx', launch_epoch: 1 }
-      : {
+      : path.endsWith('/routes')
+        ? {
+            agent_id: 'agent-ctx',
+            routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+            route_statuses: { openclaw: { hostname: 'openclaw-agent.dev.hypercli.com', url: 'https://openclaw-agent.dev.hypercli.com', dns_state: 'active' } },
+          }
+        : {
           id: 'agent-ctx',
           user_id: 'user-1',
           state: 'RUNNING',
@@ -492,7 +498,13 @@ describe('HyperClaw agents SDK', () => {
   it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', async () => {
     const get = vi.fn(async (path: string) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')
       ? { agent_id: 'agent-jwtless', key: 'OPENCLAW_GATEWAY_TOKEN', value: 'gw-jwtless', launch_epoch: 1 }
-      : {
+      : path.endsWith('/routes')
+        ? {
+            agent_id: 'agent-jwtless',
+            routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+            route_statuses: { openclaw: { hostname: 'openclaw-agent.dev.hypercli.com', url: 'https://openclaw-agent.dev.hypercli.com', dns_state: 'active' } },
+          }
+        : {
           id: 'agent-jwtless',
           user_id: 'user-1',
           state: 'RUNNING',

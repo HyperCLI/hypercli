@@ -154,10 +154,15 @@ interface DeploymentRecord {
   launch_epoch?: number;
 }
 
+interface DeploymentRoutesState {
+  routeStatuses: Record<string, Record<string, unknown>>;
+}
+
 interface DeploymentsClientLike {
   createOpenClaw(options?: Record<string, unknown>): Promise<DeploymentRecord>;
   list(): Promise<DeploymentRecord[]>;
   get(agentId: string): Promise<DeploymentRecord>;
+  getRoutes(agentId: string): Promise<DeploymentRoutesState>;
   start(agentId: string): Promise<DeploymentRecord>;
   waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number, minimumLaunchEpoch?: number): Promise<DeploymentRecord>;
   waitForState(
@@ -286,12 +291,16 @@ async function installLocalAuthToken(
 }
 
 async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
+  if (!getOptionalEnv("BACKEND_API_KEY")) return false;
+  await loginWithAdminBootstrap(page);
+  return true;
+}
+
+export async function loginWithAdminBootstrap(page: Page, email = getEnv("TEST_EMAIL")): Promise<void> {
   const adminKey = getOptionalEnv("BACKEND_API_KEY");
-  if (!adminKey) {
-    return false;
-  }
+  if (!adminKey) throw new Error("BACKEND_API_KEY is required for the isolated agents E2E user");
   const token = await fetchAdminAuthToken(getApiBaseUrl(), adminKey, {
-    email: getEnv("TEST_EMAIL"),
+    email,
   });
   await installLocalAuthToken(page, {
     baseUrl: getEnv("TEST_BASE_URL"),
@@ -304,7 +313,7 @@ async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
   await expect
     .poll(() => page.url(), { timeout: 30_000 })
     .toContain("/dashboard");
-  return true;
+  await captureStep(page, "00-admin-authenticated");
 }
 
 async function tryAdminLoginForConsole(page: Page, baseUrl: string): Promise<boolean> {
@@ -366,11 +375,42 @@ async function getDeploymentsClient(token: string): Promise<DeploymentsClientLik
 }
 
 async function deleteDeployment(deployments: DeploymentsClientLike, agentId: string): Promise<void> {
+  const waitUntilAbsent = async (): Promise<void> => {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      try {
+        const current = await deployments.get(agentId) as DeploymentRecord;
+        if (String(current.state).toUpperCase() === "DELETED") return;
+        lastError = new Error(`deployment remains ${current.state}`);
+      } catch (error) {
+        const statusCode = Number((error as { statusCode?: unknown })?.statusCode ?? 0);
+        const message = error instanceof Error ? error.message : String(error);
+        if (statusCode === 404 || /\b404\b|not found/i.test(message)) return;
+        lastError = error;
+      }
+      await sleep(2_000);
+    }
+    throw lastError instanceof Error
+      ? new Error(`Deployment ${agentId} was not deleted: ${lastError.message}`)
+      : new Error(`Deployment ${agentId} was not deleted`);
+  };
   try {
     await deployments.delete(agentId);
+    await waitUntilAbsent();
+    return;
   } catch {
-    await deployments.stop(agentId).catch(() => {});
-    await deployments.delete(agentId);
+    const accepted = await deployments.stop(agentId).catch(() => deployments.get(agentId)) as DeploymentRecord;
+    const launchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
+    const terminal = await deployments.waitForState(
+      agentId,
+      ["STOPPED", "DELETED"],
+      180_000,
+      ["FAILED"],
+      launchEpoch,
+      2_000,
+    );
+    if (terminal.state !== "DELETED") await deployments.delete(agentId);
+    await waitUntilAbsent();
   }
 }
 
@@ -389,6 +429,12 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${slugifyStep(step)}.png`
   );
   if (page.isClosed()) {
+    return filePath;
+  }
+  if (
+    process.env.E2E_CREDENTIAL_SAFE_ARTIFACTS === "1"
+    && /email|otp|stripe|checkout|card|cvc|expiry/i.test(step)
+  ) {
     return filePath;
   }
   if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
@@ -678,10 +724,7 @@ export async function loginWithPrivy(
 ): Promise<void> {
   const adminKeyPresent = Boolean(getOptionalEnv("BACKEND_API_KEY"));
   if (!options.forceOtp && adminKeyPresent) {
-    if (await tryAdminLoginForClaw(page)) {
-      await captureStep(page, "00-admin-authenticated");
-      return;
-    }
+    if (await tryAdminLoginForClaw(page)) return;
   }
 
   const email = getEnv("TEST_EMAIL");
@@ -1605,6 +1648,29 @@ export async function launchClawAgentAndWaitForGateway(
   const deployments = await getDeploymentsClient(token);
   const enableDesktop = options.enableDesktop ?? true;
 
+  const activeOpenClawRouteUrl = (routes: DeploymentRoutesState): string | null => {
+    const status = routes.routeStatuses.openclaw;
+    if (String(status?.dns_state ?? "").trim().toLowerCase() !== "active") return null;
+    const rawUrl = String(status?.url ?? "").trim();
+    if (!rawUrl) return null;
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === "ws:") parsed.protocol = "http:";
+    else if (parsed.protocol === "wss:") parsed.protocol = "https:";
+    else if (!["http:", "https:"].includes(parsed.protocol)) {
+      throw new Error("OpenClaw route status must use HTTP(S) or WS(S)");
+    }
+    if (!parsed.hostname || parsed.username || parsed.password || parsed.hash) {
+      throw new Error("OpenClaw route status contains an invalid public URL");
+    }
+    return parsed.toString().replace(/\/$/, "");
+  };
+
+  const gatewaySocketUrl = (httpUrl: string): string => {
+    const parsed = new URL(httpUrl);
+    parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    return parsed.toString().replace(/\/$/, "");
+  };
+
   const verifyDesktopAuthRoute = async (agent: DeploymentRecord): Promise<void> => {
     if (!agent.hostname || !agent.routes || !Object.prototype.hasOwnProperty.call(agent.routes, "desktop")) {
       return;
@@ -1621,7 +1687,7 @@ export async function launchClawAgentAndWaitForGateway(
       .poll(
         async () => {
           const response = await page.request.get(desktopAuthUrl, { maxRedirects: 0, timeout: 15_000 }).catch((error) => error);
-          if (response instanceof Error) return `error:${response.message}`;
+          if (response instanceof Error) return "error:request-failed";
           return response.status();
         },
         { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
@@ -1629,12 +1695,7 @@ export async function launchClawAgentAndWaitForGateway(
       .toBeLessThan(400);
   };
 
-  const waitForGatewayRoute = async (agent: DeploymentRecord): Promise<void> => {
-    if (!agent.hostname) {
-      return;
-    }
-
-    const gatewayUrl = `https://${agent.hostname}/`;
+  const waitForGatewayRoute = async (gatewayUrl: string): Promise<void> => {
     console.log(`[agents-gateway] probing ${gatewayUrl}`);
 
     await expect
@@ -1937,10 +1998,36 @@ export async function launchClawAgentAndWaitForGateway(
 
       const running = await deployments.waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch);
       expect(running.state).toBe("RUNNING");
+      expect(Number(running.launchEpoch ?? running.launch_epoch ?? 0)).toBe(acceptedLaunchEpoch);
+      let gatewayHttpUrl = running.hostname ? `https://${running.hostname}` : null;
+      if (!gatewayHttpUrl) {
+        await expect.poll(async () => {
+          const refreshed = await deployments.get(created.id);
+          if (
+            refreshed.state !== "RUNNING" ||
+            Number(refreshed.launchEpoch ?? refreshed.launch_epoch ?? 0) !== acceptedLaunchEpoch
+          ) {
+            return false;
+          }
+          gatewayHttpUrl = activeOpenClawRouteUrl(await deployments.getRoutes(created.id));
+          return Boolean(gatewayHttpUrl);
+        }, { timeout, intervals: [1_000, 2_000, 5_000] }).toBe(true);
+      }
+      expect(gatewayHttpUrl, "expected RUNNING agent to have an active OpenClaw route").toBeTruthy();
       await verifyDesktopAuthRoute(running);
-      await waitForGatewayRoute(running);
+      await waitForGatewayRoute(gatewayHttpUrl!);
+      const expectedGatewaySocketUrl = gatewaySocketUrl(gatewayHttpUrl!);
 
       let authenticatedGatewayConnections = 0;
+      let pairingRequiredResponses = 0;
+      let pairingApprovalRequests = 0;
+      let chatSendRequests = 0;
+      let chatSendRequestId: string | null = null;
+      let chatRunId: string | null = null;
+      let chatTerminalState: string | null = null;
+      const chatTerminalStatesByRun = new Map<string, string>();
+      let gatewaySocketCount = 0;
+      const replyMarker = `E2E_CHAT_OK_${created.id.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`;
       const inspectGatewayFrame = (payload: string | Buffer): Record<string, unknown> | null => {
         try {
           const parsed = JSON.parse(typeof payload === "string" ? payload : payload.toString("utf8"));
@@ -1950,13 +2037,14 @@ export async function launchClawAgentAndWaitForGateway(
         }
       };
       const observeGatewaySocket = (socket: PlaywrightWebSocket): void => {
-        let socketHostname = "";
+        let socketUrl = "";
         try {
-          socketHostname = new URL(socket.url()).hostname;
+          socketUrl = new URL(socket.url()).toString().replace(/\/$/, "");
         } catch {
           return;
         }
-        if (socketHostname !== running.hostname) return;
+        if (socketUrl !== expectedGatewaySocketUrl) return;
+        gatewaySocketCount += 1;
         const gatewayConnectRequestIds = new Set<string>();
 
         socket.on("framesent", ({ payload }) => {
@@ -1976,9 +2064,19 @@ export async function launchClawAgentAndWaitForGateway(
           ) {
             gatewayConnectRequestIds.add(frame.id);
           }
+          if (frame?.type === "req" && frame.method === "chat.send") {
+            chatSendRequests += 1;
+            if (typeof frame.id === "string") chatSendRequestId = frame.id;
+          }
         });
         socket.on("framereceived", ({ payload }) => {
           const frame = inspectGatewayFrame(payload);
+          const error = frame?.error && typeof frame.error === "object"
+            ? frame.error as Record<string, unknown>
+            : null;
+          const details = error?.details && typeof error.details === "object"
+            ? error.details as Record<string, unknown>
+            : null;
           if (
             frame?.type === "res" &&
             frame.ok === true &&
@@ -1987,9 +2085,48 @@ export async function launchClawAgentAndWaitForGateway(
           ) {
             authenticatedGatewayConnections += 1;
           }
+          if (
+            frame?.type === "res" &&
+            frame.ok === false &&
+            typeof frame.id === "string" &&
+            gatewayConnectRequestIds.has(frame.id) &&
+            details?.code === "PAIRING_REQUIRED"
+          ) {
+            pairingRequiredResponses += 1;
+          }
+          if (frame?.type === "res" && frame.ok === true && frame.id === chatSendRequestId) {
+            const result = frame.payload && typeof frame.payload === "object"
+              ? frame.payload as Record<string, unknown>
+              : null;
+            if (typeof result?.runId === "string") {
+              chatRunId = result.runId;
+              chatTerminalState = chatTerminalStatesByRun.get(result.runId) ?? null;
+            }
+          }
+          if (frame?.type === "event" && frame.event === "chat") {
+            const event = frame.payload && typeof frame.payload === "object"
+              ? frame.payload as Record<string, unknown>
+              : null;
+            if (typeof event?.runId === "string" && typeof event.state === "string") {
+              if (["final", "error", "aborted"].includes(event.state)) {
+                chatTerminalStatesByRun.set(event.runId, event.state);
+                if (event.runId === chatRunId) chatTerminalState = event.state;
+              }
+            }
+          }
         });
       };
+      const observePairingApproval = (request: { method(): string; url(): string }): void => {
+        if (request.method() !== "POST") return;
+        try {
+          const url = new URL(request.url());
+          if (url.pathname.endsWith(`/deployments/${created.id}/exec`)) pairingApprovalRequests += 1;
+        } catch {
+          // Ignore non-URL requests.
+        }
+      };
       page.on("websocket", observeGatewaySocket);
+      page.on("request", observePairingApproval);
 
       try {
         await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
@@ -2043,6 +2180,8 @@ export async function launchClawAgentAndWaitForGateway(
         await expect
           .poll(() => authenticatedGatewayConnections, { timeout: 10_000, intervals: [100, 250, 500] })
           .toBeGreaterThan(0);
+        expect(pairingRequiredResponses, "expected one cold-browser pairing challenge").toBe(1);
+        expect(pairingApprovalRequests, "expected one trusted pairing approval request").toBe(1);
         console.log("[agents-gateway] authenticated WebSocket connect observed");
         const visibleComposer = await findLastVisible(composer, 5_000);
         expect(visibleComposer, "expected a visible message composer after gateway readiness").not.toBeNull();
@@ -2050,8 +2189,56 @@ export async function launchClawAgentAndWaitForGateway(
         expect(await hasVisible(readyStatus), "expected a visible Ready status after gateway readiness").toBe(true);
         await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
         await captureStep(page, "agents-12-gateway-connected");
+
+        const socketsBeforeReload = gatewaySocketCount;
+        const hellosBeforeReload = authenticatedGatewayConnections;
+        const pairingResponsesBeforeReload = pairingRequiredResponses;
+        const approvalsBeforeReload = pairingApprovalRequests;
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await expect(readyStatus).toBeVisible({ timeout: 180_000 });
+        const composerAfterReload = await findLastVisible(composer, 10_000);
+        expect(composerAfterReload, "expected the composer after a hard refresh").not.toBeNull();
+        await expect(composerAfterReload!).toBeEnabled({ timeout: 10_000 });
+        await expect
+          .poll(() => authenticatedGatewayConnections, { timeout: 30_000, intervals: [100, 250, 500] })
+          .toBe(hellosBeforeReload + 1);
+        expect(gatewaySocketCount, "expected one new root socket after hard refresh")
+          .toBe(socketsBeforeReload + 1);
+        expect(pairingRequiredResponses, "warm hard refresh must not pair again")
+          .toBe(pairingResponsesBeforeReload);
+        expect(pairingApprovalRequests, "warm hard refresh must not approve pairing again")
+          .toBe(approvalsBeforeReload);
+        await captureStep(page, "agents-12a-gateway-reconnected");
+
+        const socketsBeforeChat = gatewaySocketCount;
+        await composerAfterReload!.fill(`Respond with only this token, without Markdown or punctuation: ${replyMarker}`);
+        const sendButton = await findLastVisible(page.getByTestId("agent-chat-send"), 5_000);
+        expect(sendButton, "expected a visible chat send button").not.toBeNull();
+        await expect(sendButton!).toBeEnabled({ timeout: 5_000 });
+        await sendButton!.click();
+        await expect.poll(() => chatSendRequests, { timeout: 10_000, intervals: [100, 250, 500] }).toBe(1);
+        await expect.poll(() => chatRunId, { timeout: 10_000, intervals: [100, 250, 500] }).not.toBeNull();
+        await expect
+          .poll(() => chatTerminalState, { timeout: 180_000, intervals: [100, 250, 500, 1_000] })
+          .toBe("final");
+        await expect(page.getByText(replyMarker, { exact: true })).toBeVisible({ timeout: 180_000 });
+        await expect(page.getByRole("button", { name: "Stop reply", exact: true })).not.toBeVisible({ timeout: 30_000 });
+        expect(gatewaySocketCount, "expected the completed chat turn to reuse the authenticated root socket")
+          .toBe(socketsBeforeChat);
+        expect(chatSendRequests, "expected exactly one chat.send request").toBe(1);
+        await captureStep(page, "agents-12b-chat-completed");
       } finally {
+        console.log(`[agents-gateway] chat canary ${JSON.stringify({
+          agentId: created.id,
+          rootSocketCount: gatewaySocketCount,
+          authenticatedGatewayConnections,
+          pairingRequiredResponses,
+          pairingApprovalRequests,
+          chatSendRequests,
+          chatTerminalState,
+        })}`);
         page.off("websocket", observeGatewaySocket);
+        page.off("request", observePairingApproval);
       }
 
       return created;

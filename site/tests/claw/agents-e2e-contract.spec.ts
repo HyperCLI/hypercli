@@ -5,6 +5,10 @@ import { expect, test } from "@playwright/test";
 const fixturesDir = path.resolve(__dirname, "fixtures");
 const authFixtureSource = fs.readFileSync(path.join(fixturesDir, "auth.ts"), "utf8");
 const subscriptionSpecSource = fs.readFileSync(path.resolve(__dirname, "agents-subscription.spec.ts"), "utf8");
+const agentsRunnerSource = fs.readFileSync(
+  path.resolve(__dirname, "../../../.github/scripts/run_e2e_agents.sh"),
+  "utf8",
+);
 
 test("agents launch helper accepts the current workspace empty state", () => {
   expect(authFixtureSource).toContain('return "workspace-selector"');
@@ -21,6 +25,9 @@ test("agents launch helper accepts the current workspace empty state", () => {
 });
 
 test("agents launch helper observes an authenticated gateway WebSocket connect", () => {
+  expect(authFixtureSource).toContain("deployments.getRoutes(created.id)");
+  expect(authFixtureSource).toContain('status?.dns_state ?? ""');
+  expect(authFixtureSource).toContain("socketUrl !== expectedGatewaySocketUrl");
   expect(authFixtureSource).toContain('page.on("websocket", observeGatewaySocket)');
   expect(authFixtureSource).toContain('frame.method === "connect"');
   expect(authFixtureSource).toContain('typeof auth?.token === "string"');
@@ -28,6 +35,28 @@ test("agents launch helper observes an authenticated gateway WebSocket connect",
   expect(authFixtureSource).toContain("gatewayConnectRequestIds.has(frame.id)");
   expect(authFixtureSource).toContain("authenticated WebSocket connect observed");
   expect(authFixtureSource).toContain('page.off("websocket", observeGatewaySocket)');
+});
+
+test("agents launch canary completes one live gateway chat turn", () => {
+  expect(authFixtureSource).toContain('frame.method === "chat.send"');
+  expect(authFixtureSource).toContain('details?.code === "PAIRING_REQUIRED"');
+  expect(authFixtureSource).toContain('.toBe("final")');
+  expect(authFixtureSource).toContain('getByText(replyMarker, { exact: true })');
+  expect(authFixtureSource).toContain('name: "Stop reply", exact: true');
+  expect(authFixtureSource).toContain('expected the completed chat turn to reuse the authenticated root socket');
+  expect(subscriptionSpecSource).toContain('test.use({ trace: "off", video: "off" })');
+  expect(subscriptionSpecSource).not.toContain('screenshot: "off"');
+  expect(authFixtureSource).toContain('warm hard refresh must not pair again');
+  expect(authFixtureSource).toContain('captureStep(page, "agents-12b-chat-completed")');
+  expect(subscriptionSpecSource).toContain('expect(stoppedAgent.state).toBe("STOPPED")');
+  expect(subscriptionSpecSource).toContain("await deleteClawAgent(page, createdAgentId)");
+  expect(subscriptionSpecSource).toContain(".activeSubscriptionCount");
+});
+
+test("agents subscription uses the isolated admin-bootstrap identity", () => {
+  expect(subscriptionSpecSource).toContain("loginWithAdminBootstrap(page)");
+  expect(subscriptionSpecSource).not.toContain("loginWithPrivy(page)");
+  expect(authFixtureSource).toContain("BACKEND_API_KEY is required for the isolated agents E2E user");
 });
 
 test("agents launch canary exercises the canonical lifecycle contract", () => {
@@ -64,4 +93,17 @@ test("agents subscription observes the public deployment transition wire", () =>
   expect(subscriptionSpecSource).not.toContain("deployment_id");
   expect(subscriptionSpecSource).toContain("const allowedKeys = new Set([");
   expect(subscriptionSpecSource).toContain('expect(Number.isInteger(transition.launch_epoch)).toBe(true)');
+});
+
+test("agents Docker runner leads with the lifecycle canary and retains regression coverage", () => {
+  expect(agentsRunnerSource).toContain("tests/claw/agents-e2e-contract.spec.ts");
+  expect(agentsRunnerSource).toContain("tests/claw/agents-subscription.spec.ts");
+  expect(agentsRunnerSource).not.toContain("@hypercli/console");
+  expect(agentsRunnerSource).toContain("mobile-chromium");
+  expect(agentsRunnerSource).toContain("agents-chat-navigation.spec.ts");
+  expect(agentsRunnerSource).toContain('rm -rf "${SITE_ROOT}/tests/claw/screenshots"');
+  expect(agentsRunnerSource).toContain('mkdir -p "${SITE_ROOT}/tests/claw/screenshots"');
+  expect(agentsRunnerSource.indexOf('rm -rf "${SITE_ROOT}/tests/claw/screenshots"'))
+    .toBeLessThan(agentsRunnerSource.indexOf("trap on_exit EXIT"));
+  expect(agentsRunnerSource).toContain('cp -r "${SITE_ROOT}/tests/claw/screenshots" "${dest}/screenshots"');
 });

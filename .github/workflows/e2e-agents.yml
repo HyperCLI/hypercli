@@ -85,6 +85,7 @@ jobs:
           name: playwright-agents-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
+          retention-days: 3
 
       - name: Cleanup local E2E resources
         if: always()
@@ -102,7 +103,6 @@ jobs:
 
       - name: Cleanup isolated agents test user
         if: always() && env.AGENTS_E2E_USER_STATE_FILE != ''
-        continue-on-error: true
         run: |
           exec 9>/tmp/hypercli-dev-control-plane.lock
           flock --shared 9

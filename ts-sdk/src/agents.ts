@@ -324,6 +324,29 @@ interface OpenClawGatewayContextFlight {
   settled: boolean;
 }
 
+class OpenClawRouteContractError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OpenClawRouteContractError';
+  }
+}
+
+class OpenClawLifecycleTerminalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OpenClawLifecycleTerminalError';
+  }
+}
+
+const OPENCLAW_GATEWAY_TERMINAL_STATES = new Set([
+  'STOPPING',
+  'STOPPED',
+  'ARCHIVING',
+  'ARCHIVED',
+  'FAILED',
+  'DELETED',
+]);
+
 const OPENCLAW_GATEWAY_CONTEXT_FLIGHT_TIMEOUT_MS = 300_000;
 const OPENCLAW_GATEWAY_CONTEXT_FLIGHT_RETRY_INTERVAL_MS = 1_000;
 
@@ -2803,6 +2826,37 @@ export class OpenClawAgent extends Agent {
     return trimmed ? `wss://${trimmed}` : null;
   }
 
+  protected static gatewayUrlFromRouteStatus(status: Record<string, unknown> | undefined): string | null {
+    if (String(status?.dns_state ?? '').trim().toLowerCase() !== 'active') return null;
+    const rawUrl = String(status?.url ?? '').trim();
+    if (!rawUrl) return null;
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      throw new OpenClawRouteContractError('OpenClaw route status contains an invalid URL');
+    }
+    const loopback = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname.toLowerCase());
+    if (parsed.protocol === 'https:') parsed.protocol = 'wss:';
+    else if (parsed.protocol === 'http:' && loopback) parsed.protocol = 'ws:';
+    else if (parsed.protocol !== 'wss:' && !(parsed.protocol === 'ws:' && loopback)) {
+      throw new OpenClawRouteContractError('OpenClaw route status must use HTTPS or WSS');
+    }
+    const expectedHostname = String(status?.hostname ?? '').trim().toLowerCase().replace(/\.$/, '');
+    const actualHostname = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    if (
+      !actualHostname
+      || (expectedHostname && actualHostname !== expectedHostname)
+      || parsed.username
+      || parsed.password
+      || parsed.search
+      || parsed.hash
+    ) {
+      throw new OpenClawRouteContractError('OpenClaw route status contains an invalid public URL');
+    }
+    return parsed.toString().replace(/\/$/, '');
+  }
+
   /** Resolve OpenClaw connection context from the generic Agent and Secret APIs. */
   async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
     const callerAbortError = (): Error => {
@@ -2876,15 +2930,37 @@ export class OpenClawAgent extends Agent {
           timeout: Math.max(1, remainingMs),
         };
         let refreshed: Agent;
+        let resolvedGatewayUrl: string | null = null;
+        let resolvedFromRouteStatus = false;
         try {
           refreshed = await runWithAbort(deployments.get(this.id, requestOptions));
           if (refreshed.launchEpoch < this.launchEpoch) {
             throw new Error('gateway Agent belongs to an older launch epoch');
           }
-          if (refreshed.state.toUpperCase() !== 'RUNNING') {
-            throw new Error(`gateway Agent is ${refreshed.state}, not RUNNING`);
+          const refreshedState = refreshed.state.toUpperCase();
+          if (refreshedState !== 'RUNNING') {
+            const message = `gateway Agent is ${refreshed.state}, not RUNNING`;
+            if (OPENCLAW_GATEWAY_TERMINAL_STATES.has(refreshedState)) {
+              throw new OpenClawLifecycleTerminalError(message);
+            }
+            throw new Error(message);
           }
+          const routeState = await runWithAbort(deployments.getRoutes(this.id, requestOptions));
+          const routeStatus = routeState.routeStatuses.openclaw;
+          resolvedGatewayUrl = OpenClawAgent.gatewayUrlFromRouteStatus(routeStatus);
+          if (!resolvedGatewayUrl) {
+            const dnsState = String(routeStatus?.dns_state ?? 'pending_create').trim() || 'pending_create';
+            const lastRouteError = String(routeStatus?.last_error ?? '').trim();
+            throw new Error(
+              `OpenClaw gateway route is ${dnsState}${lastRouteError ? `: ${lastRouteError}` : ''}`,
+            );
+          }
+          resolvedFromRouteStatus = true;
         } catch (error) {
+          if (
+            error instanceof OpenClawRouteContractError
+            || error instanceof OpenClawLifecycleTerminalError
+          ) throw error;
           if (error instanceof APIError && [401, 403, 404].includes(error.statusCode)) {
             throw error;
           }
@@ -2913,8 +2989,21 @@ export class OpenClawAgent extends Agent {
         ) {
           throw new Error('gateway Agent changed while its Secret was resolved');
         }
-        const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(confirmed.hostname);
-        if (!gatewayUrl) throw new Error('gateway Agent has no hostname');
+        let gatewayUrl: string | null = null;
+        if (resolvedFromRouteStatus) {
+          const confirmedRoutes = await runWithAbort(deployments.getRoutes(this.id, requestOptions));
+          const confirmedRouteUrl = OpenClawAgent.gatewayUrlFromRouteStatus(
+            confirmedRoutes.routeStatuses.openclaw,
+          );
+          if (!confirmedRouteUrl || confirmedRouteUrl !== resolvedGatewayUrl) {
+            throw new Error('OpenClaw gateway route changed while its Secret was resolved');
+          }
+          gatewayUrl = confirmedRouteUrl;
+        }
+        gatewayUrl ??= confirmed instanceof OpenClawAgent
+          ? confirmed.gatewayUrl
+          : OpenClawAgent.gatewayUrlFromHostname(confirmed.hostname);
+        if (!gatewayUrl) throw new Error('OpenClaw gateway route disappeared during Secret resolution');
         this.gatewayUrl = gatewayUrl;
         this.gatewayToken = gatewayToken;
         this.gatewayLaunchEpoch = refreshed.launchEpoch;
@@ -4558,11 +4647,15 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
-  async getRoutes(agentIdOrName: string): Promise<AgentRoutesState> {
+  async getRoutes(
+    agentIdOrName: string,
+    options: RequestOverrides = {},
+  ): Promise<AgentRoutesState> {
     const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
-    const data = await this.agentHttp.get<AgentRoutesHydrationData>(
-      `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`,
-    );
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`;
+    const data = Object.keys(options).length > 0
+      ? await this.agentHttp.get<AgentRoutesHydrationData>(path, undefined, options)
+      : await this.agentHttp.get<AgentRoutesHydrationData>(path);
     return agentRoutesStateFromData(data);
   }
 

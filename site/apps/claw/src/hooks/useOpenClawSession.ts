@@ -801,7 +801,7 @@ export function useOpenClawSession(
   const activeSessionKey = activeTemporaryChat?.sessionKey ?? normalActiveSessionKey;
   const latestAgentRef = useRef(agent);
   const [gateway, setGateway] = useState<GatewayClient | null>(null);
-  const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
+  const [status, setStatus] = useState<GatewayConnectionState>("disconnected");
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [historyState, setHistoryState] = useState<ChatHistoryPhaseState>(() => ({
@@ -1502,6 +1502,14 @@ export function useOpenClawSession(
               gatewayGapRecoveryRef.current(targetGateway);
             });
           },
+          onPairing: (pairing) => {
+            // Pairing may begin before acquireConnectedGateway resolves, so no
+            // GatewayClient state subscription exists yet. Surface that progress
+            // without treating it as a transport transition or resetting drafts.
+            if (!active || localGateway) return;
+            setStatus(pairing ? "pairing" : "connecting");
+            setError(null);
+          },
           onClose: ({ error: closeError, code, reason }: GatewayCloseInfo) => {
             if (!active) return;
             if (isPairingProgressMessage(closeError) || isPairingProgressMessage(reason)) {
@@ -1535,6 +1543,12 @@ export function useOpenClawSession(
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
           if (appliedConnectionState === nextState) return;
+          if (nextState === "pairing") {
+            appliedConnectionState = nextState;
+            setStatus("pairing");
+            setError(null);
+            return;
+          }
           if (appliedConnectionState === "connected" && nextState !== "connected") {
             for (const targetKey of activeChatSendTargetsRef.current) {
               const target = chatHistoryTargetFromKey(targetKey);
@@ -4381,7 +4395,7 @@ export function useOpenClawSession(
   const connected = status === "connected" && !hydrating && (historyHydrationEnabled ? ready : true);
   const connecting = Boolean(error)
     ? false
-    : status === "connecting" || hydrating || (historyHydrationEnabled && status === "connected" && !ready);
+    : status === "connecting" || status === "pairing" || hydrating || (historyHydrationEnabled && status === "connected" && !ready);
   const activeSessions = activeSessionRecords;
   const temporaryChatActive = Boolean(activeTemporaryChat);
   const temporaryChatAvailable = Boolean(gateway && typeof gateway.createEphemeralChatSession === "function");

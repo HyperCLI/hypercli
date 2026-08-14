@@ -58,6 +58,7 @@ copy_src() {
       --exclude 'coverage' \
       --exclude 'playwright-report' \
       --exclude 'test-results' \
+      --exclude 'tests/claw/screenshots' \
       "${src}/" "${dest}/"
   else
     cp -r "${src}" "${dest}"
@@ -70,7 +71,8 @@ copy_src() {
       "${dest}/dist" \
       "${dest}/coverage" \
       "${dest}/playwright-report" \
-      "${dest}/test-results"
+      "${dest}/test-results" \
+      "${dest}/tests/claw/screenshots"
     find "${dest}" -type f \( -name '.env' -o -name '.env.*' \) -delete
   fi
 }

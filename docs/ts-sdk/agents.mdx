@@ -623,14 +623,23 @@ Important additions:
 - `models`
 
 `waitForGatewayContext()` waits for an exact Agent projection to become
-`RUNNING`, reads `OPENCLAW_GATEWAY_TOKEN` once through `secret()`, and confirms
-that the Agent is still `RUNNING` at the same `launchEpoch` before deriving
-`wss://${agent.hostname}`. The Secret is canonical stored configuration replayed
-across launches, so its response envelope does not need to match the current
-Agent epoch. Secret read and validation failures surface immediately rather than
-polling the sensitive endpoint. The resolved token is held on the live Agent
-instance only; it is not persisted to browser storage by this helper. There is
-no OpenClaw-specific REST gateway-context endpoint.
+`RUNNING`, waits for the `openclaw` route status to report active DNS, reads
+`OPENCLAW_GATEWAY_TOKEN` once through `secret()`, and confirms the same Agent
+`launchEpoch` and route before returning. The Secret is canonical shared
+bootstrap configuration replayed across launches, so its response envelope
+does not need to match the current Agent epoch. Secret read and validation
+failures surface immediately rather than polling the sensitive endpoint. The
+resolved token is held on the live Agent instance only; it is not persisted to
+browser storage by this helper. There is no OpenClaw-specific REST
+gateway-context endpoint.
+
+Browser device auth is independent of that Secret. `GatewayClient` persists a
+single browser-origin device keypair plus deployment-and-role-scoped device
+tokens and pending pairing records under `openclaw.device.auth.v1`. Cold
+`PAIRING_REQUIRED` connections can be approved through trusted Agent exec and
+then reconnect; warm connections to the same deployment and role reuse device
+auth. Invalid-token repair removes only the affected scoped entry and preserves
+other Agents and the global device identity.
 
 To mint a child key for one exact agent:
 
@@ -641,10 +650,7 @@ console.log(scoped.api_key);
 
 ### Gateway URL Semantics
 
-The SDK derives gateway connection context from:
-
-```ts
-`wss://${agent.hostname}`
-```
-
-That matches the current root-host gateway model.
+The gateway still uses the root-host route, but the SDK takes its canonical URL
+from the active `openclaw` route status rather than guessing readiness from an
+Agent hostname. `RUNNING` and route readiness are separate; connection and
+pairing readiness come later.
