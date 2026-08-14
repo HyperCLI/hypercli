@@ -225,7 +225,6 @@ def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
 
 def _save_agent_state(agent: Agent):
     """Save agent info locally for quick reference."""
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = _load_state()
     existing = state.get(agent.id, {})
     state[agent.id] = {
@@ -241,8 +240,7 @@ def _save_agent_state(agent: Agent):
         "launch_config": agent.launch_config if agent.launch_config is not None else existing.get("launch_config"),
         "state": agent.state,
     }
-    with open(AGENTS_STATE, "w") as f:
-        json.dump(state, f, indent=2, default=str)
+    _write_state(state)
 
 
 def _load_state() -> dict:
@@ -252,11 +250,25 @@ def _load_state() -> dict:
     return {}
 
 
+def _write_state(state: dict) -> None:
+    """Persist credential-bearing agent state with owner-only permissions."""
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    STATE_DIR.chmod(0o700)
+    fd = os.open(AGENTS_STATE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as f:
+            fd = -1
+            json.dump(state, f, indent=2, default=str)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def _remove_agent_state(agent_id: str):
     state = _load_state()
     state.pop(agent_id, None)
-    with open(AGENTS_STATE, "w") as f:
-        json.dump(state, f, indent=2, default=str)
+    _write_state(state)
 
 
 def _resolve_agent(agent_id: str) -> str:
@@ -1460,8 +1472,7 @@ def token(
     state = _load_state()
     if agent_id in state:
         state[agent_id]["jwt_token"] = result.get("token", "")
-        with open(AGENTS_STATE, "w") as f:
-            json.dump(state, f, indent=2, default=str)
+        _write_state(state)
 
     console.print(f"[green]✅ Token refreshed[/green]")
     console.print(f"  Expires: {result.get('expires_at', 'unknown')}")

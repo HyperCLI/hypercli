@@ -496,16 +496,27 @@ def _resolve_hermes_agent_routes(
 
 def _inject_hermes_api_server_key(
     env: dict | None,
+    secret_env: dict | None,
     api_server_key: str | None,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], dict[str, Any], str]:
     env_map: dict[str, Any] = dict(env or {})
-    effective_key = str(api_server_key or env_map.get("API_SERVER_KEY") or "").strip()
+    secret_map: dict[str, Any] = dict(secret_env or {})
+    public_key = env_map.pop("API_SERVER_KEY", None)
+    stored_key = secret_map.get("API_SERVER_KEY")
+    supplied_keys = {
+        str(value).strip()
+        for value in (api_server_key, stored_key, public_key)
+        if value is not None and str(value).strip()
+    }
+    if len(supplied_keys) > 1:
+        raise ValueError("Hermes API_SERVER_KEY conflicts between inputs")
+    effective_key = next(iter(supplied_keys), "")
     if not effective_key:
         effective_key = secrets.token_urlsafe(32)
     if len(effective_key) < 32:
         raise ValueError("Hermes API_SERVER_KEY must be at least 32 characters")
-    env_map["API_SERVER_KEY"] = effective_key
-    return env_map, effective_key
+    secret_map["API_SERVER_KEY"] = effective_key
+    return env_map, secret_map, effective_key
 
 
 def _resolve_openclaw_routes(
@@ -3004,7 +3015,11 @@ class Deployments:
         """
         effective_api_server_key: str | None = None
         if runtime == "hermes-agent":
-            env, effective_api_server_key = _inject_hermes_api_server_key(env, api_server_key)
+            env, secrets, effective_api_server_key = _inject_hermes_api_server_key(
+                env,
+                secrets,
+                api_server_key,
+            )
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
@@ -3046,7 +3061,10 @@ class Deployments:
         if tags:
             body["tags"] = list(tags)
         data = self._post(AGENTS_API_PREFIX, json=body)
-        return self._hydrate_agent(data)
+        agent = self._hydrate_agent(data)
+        if isinstance(agent, HermesAgent):
+            agent.api_server_key = effective_api_server_key
+        return agent
 
     def create_openclaw(
         self,
@@ -3160,10 +3178,6 @@ class Deployments:
             "API_SERVER_HOST": "0.0.0.0",
             **dict(env or {}),
         }
-        effective_env, effective_key = _inject_hermes_api_server_key(
-            effective_env,
-            api_server_key,
-        )
         agent = self.create(
             name=name,
             handle=handle,
@@ -3190,14 +3204,13 @@ class Deployments:
             registry_auth=registry_auth,
             restart=restart,
             runtime_scopes=runtime_scopes,
-            api_server_key=effective_key,
+            api_server_key=api_server_key,
             heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
         )
         if not isinstance(agent, HermesAgent):
             raise TypeError("backend did not return a HermesAgent deployment")
-        agent.api_server_key = effective_key
         return agent
 
     def create_openclaw_pro(
@@ -3976,8 +3989,16 @@ class Deployments:
             )
 
         effective_api_server_key: str | None = None
-        if api_server_key is not None or (env and env.get("API_SERVER_KEY")):
-            env, effective_api_server_key = _inject_hermes_api_server_key(env, api_server_key)
+        if (
+            api_server_key is not None
+            or (env and env.get("API_SERVER_KEY"))
+            or (secrets and secrets.get("API_SERVER_KEY"))
+        ):
+            env, secrets, effective_api_server_key = _inject_hermes_api_server_key(
+                env,
+                secrets,
+                api_server_key,
+            )
         launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
@@ -4004,7 +4025,10 @@ class Deployments:
             body["dry_run"] = True
         resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
-        return self._hydrate_agent(data)
+        agent = self._hydrate_agent(data)
+        if isinstance(agent, HermesAgent):
+            agent.api_server_key = effective_api_server_key
+        return agent
 
     def start_hermes_agent(
         self,
@@ -4037,15 +4061,18 @@ class Deployments:
             "API_SERVER_HOST": "0.0.0.0",
             **dict(env or {}),
         }
-        effective_env, effective_key = _inject_hermes_api_server_key(
-            effective_env,
-            api_server_key,
+        effective_env, effective_secrets, effective_key = (
+            _inject_hermes_api_server_key(
+                effective_env,
+                secrets,
+                api_server_key,
+            )
         )
         agent = self.start(
             agent_id,
             config=config,
             env=effective_env,
-            secrets=secrets,
+            secrets=effective_secrets,
             routes=_resolve_hermes_agent_routes(
                 routes,
                 hermes_routes=hermes_routes,
@@ -4069,7 +4096,6 @@ class Deployments:
         )
         if not isinstance(agent, HermesAgent):
             raise TypeError("backend did not return a HermesAgent deployment")
-        agent.api_server_key = effective_key
         return agent
 
     def start_openclaw(

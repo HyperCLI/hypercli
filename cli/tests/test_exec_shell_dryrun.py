@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from hypercli.agents import (
@@ -770,26 +771,16 @@ def test_agents_delete_by_name_removes_canonical_state(monkeypatch):
     monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: dict(state))
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
 
-    class FakeStateFile:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return None
-
-        def write(self, payload):
-            saved["payload"] = saved.get("payload", "") + payload
-
     monkeypatch.setattr(
-        "builtins.open",
-        lambda *args, **kwargs: FakeStateFile(),
+        "hypercli_cli.agents._write_state",
+        lambda value: saved.update(state=value),
     )
 
     result = runner.invoke(app, ["agents", "delete", "clear-window-works", "--force"])
 
     assert result.exit_code == 0
     assert deleted["agent_id"] == "canonical-id"
-    assert '"canonical-id"' not in saved["payload"]
+    assert "canonical-id" not in saved["state"]
 
 
 def test_agents_token_by_name_updates_canonical_state(monkeypatch):
@@ -808,25 +799,33 @@ def test_agents_token_by_name_updates_canonical_state(monkeypatch):
     monkeypatch.setattr("hypercli_cli.agents._load_state", lambda: dict(state))
     monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
 
-    class FakeStateFile:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return None
-
-        def write(self, payload):
-            saved["payload"] = saved.get("payload", "") + payload
-
     monkeypatch.setattr(
-        "builtins.open",
-        lambda *args, **kwargs: FakeStateFile(),
+        "hypercli_cli.agents._write_state",
+        lambda value: saved.update(state=value),
     )
 
     result = runner.invoke(app, ["agents", "token", "clear-window-works"])
 
     assert result.exit_code == 0
-    assert '"jwt_token": "new-token"' in saved["payload"]
+    assert saved["state"]["canonical-id"]["jwt_token"] == "new-token"
+
+
+def test_agent_state_is_persisted_with_owner_only_permissions(monkeypatch, tmp_path):
+    state_dir = tmp_path / ".hypercli"
+    state_path = state_dir / "agents.json"
+    state_dir.mkdir(mode=0o755)
+    state_path.write_text("{}")
+    state_path.chmod(0o644)
+    monkeypatch.setattr(agents_module, "STATE_DIR", state_dir)
+    monkeypatch.setattr(agents_module, "AGENTS_STATE", state_path)
+
+    agents_module._write_state({"agent-1": {"api_server_key": "secret"}})
+
+    assert state_dir.stat().st_mode & 0o777 == 0o700
+    assert state_path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(state_path.read_text()) == {
+        "agent-1": {"api_server_key": "secret"}
+    }
 
 
 def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):

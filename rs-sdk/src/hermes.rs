@@ -29,9 +29,10 @@ const HERMES_ROUTE: &str = "hermes";
 
 /// Minimal managed launch defaults for the HyperCLI Hermes image.
 ///
-/// `API_SERVER_KEY` authenticates clients to Hermes and is intentionally
-/// distinct from the backend-injected `HYPER_AGENTS_API_KEY` used for model
-/// inference. The latter must not be supplied through this helper.
+/// `API_SERVER_KEY` authenticates clients to Hermes, is stored in secret env,
+/// and is intentionally distinct from the backend-injected
+/// `HYPER_AGENTS_API_KEY` used for model inference. The latter must not be
+/// supplied through this helper.
 pub struct HermesLaunchConfig {
     api_server_key: SecretString,
     pub image: String,
@@ -68,6 +69,7 @@ impl HermesLaunchConfig {
         self.apply(
             &mut request.image,
             &mut request.env,
+            &mut request.secrets,
             &mut request.routes,
             &mut request.sync_root,
             &mut request.sync_uid,
@@ -79,6 +81,7 @@ impl HermesLaunchConfig {
         self.apply(
             &mut request.image,
             &mut request.env,
+            &mut request.secrets,
             &mut request.routes,
             &mut request.sync_root,
             &mut request.sync_uid,
@@ -91,6 +94,7 @@ impl HermesLaunchConfig {
         &self,
         image: &mut Option<String>,
         env: &mut BTreeMap<String, String>,
+        secrets: &mut BTreeMap<String, String>,
         routes: &mut BTreeMap<String, RouteConfig>,
         sync_root: &mut Option<String>,
         sync_uid: &mut Option<u32>,
@@ -99,7 +103,8 @@ impl HermesLaunchConfig {
         image.get_or_insert_with(|| self.image.clone());
         env.insert("API_SERVER_ENABLED".to_owned(), "true".to_owned());
         env.insert("API_SERVER_HOST".to_owned(), "0.0.0.0".to_owned());
-        env.insert(
+        env.remove("API_SERVER_KEY");
+        secrets.insert(
             "API_SERVER_KEY".to_owned(),
             self.api_server_key.expose_secret().to_owned(),
         );
@@ -930,6 +935,9 @@ mod tests {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
         request
             .env
+            .insert("API_SERVER_KEY".into(), "legacy-public-value".into());
+        request
+            .env
             .insert("OPENCLAW_GATEWAY_TOKEN".into(), "wrong".into());
         launch.apply_to_create(&mut request);
         assert_eq!(request.runtime, ManagedRuntime::HermesAgent);
@@ -940,9 +948,18 @@ mod tests {
             (Some(10_000), Some(10_000))
         );
         assert_eq!(request.routes[HERMES_ROUTE].port, HERMES_API_PORT);
-        assert_eq!(request.env["API_SERVER_KEY"], "gateway-secret-only");
+        assert!(!request.env.contains_key("API_SERVER_KEY"));
+        assert_eq!(request.secrets["API_SERVER_KEY"], "gateway-secret-only");
         assert!(!request.env.contains_key("OPENCLAW_GATEWAY_TOKEN"));
         assert!(!request.env.contains_key("HYPER_AGENTS_API_KEY"));
+
+        let mut start = StartDeploymentRequest::default();
+        start
+            .env
+            .insert("API_SERVER_KEY".into(), "legacy-public-value".into());
+        launch.apply_to_start(&mut start);
+        assert!(!start.env.contains_key("API_SERVER_KEY"));
+        assert_eq!(start.secrets["API_SERVER_KEY"], "gateway-secret-only");
     }
 
     #[test]

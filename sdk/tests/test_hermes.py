@@ -74,10 +74,12 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert body["env"] == {
         "API_SERVER_ENABLED": "true",
         "API_SERVER_HOST": "0.0.0.0",
-        "API_SERVER_KEY": "h" * 43,
     }
     assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
-    assert body["secrets"] == {"CUSTOM_TOKEN": "create-secret"}
+    assert body["secrets"] == {
+        "API_SERVER_KEY": "h" * 43,
+        "CUSTOM_TOKEN": "create-secret",
+    }
     assert isinstance(agent, HermesAgent)
     assert agent.api_server_key == "h" * 43
     assert agent.api_url == "https://hermes.example.test"
@@ -103,11 +105,48 @@ def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> 
     body = client.post.call_args.kwargs["json"]
     assert "sync_include" not in body
     assert "sync_exclude" not in body
-    assert body["env"]["API_SERVER_KEY"] == "s" * 43
+    assert "API_SERVER_KEY" not in body["env"]
     assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
-    assert body["secrets"] == {"CUSTOM_TOKEN": "start-secret"}
+    assert body["secrets"] == {
+        "API_SERVER_KEY": "s" * 43,
+        "CUSTOM_TOKEN": "start-secret",
+    }
     assert "image" not in body
     assert agent.api_server_key == "s" * 43
+
+
+def test_hermes_helper_moves_legacy_public_api_key_to_secrets(
+    deployments: Deployments,
+) -> None:
+    with patch("httpx.Client") as client_class:
+        client = MagicMock()
+        client.post.return_value = _mock_response(_deployment_payload())
+        client.__enter__.return_value = client
+        client.__exit__.return_value = False
+        client_class.return_value = client
+
+        agent = deployments.create_hermes_agent(
+            env={"API_SERVER_KEY": "k" * 43},
+            secrets={"CUSTOM_TOKEN": "secret"},
+        )
+
+    body = client.post.call_args.kwargs["json"]
+    assert "API_SERVER_KEY" not in body["env"]
+    assert body["secrets"] == {
+        "API_SERVER_KEY": "k" * 43,
+        "CUSTOM_TOKEN": "secret",
+    }
+    assert agent.api_server_key == "k" * 43
+
+
+def test_hermes_helper_rejects_conflicting_api_keys(
+    deployments: Deployments,
+) -> None:
+    with pytest.raises(ValueError, match="conflicts between inputs"):
+        deployments.create_hermes_agent(
+            env={"API_SERVER_KEY": "e" * 43},
+            secrets={"API_SERVER_KEY": "s" * 43},
+        )
 
 
 def test_hermes_include_takes_precedence(deployments: Deployments) -> None:

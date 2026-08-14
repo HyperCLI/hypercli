@@ -1779,9 +1779,18 @@ function defaultHermesAgentImage(image: string | null | undefined): string {
   return DEFAULT_HERMES_AGENT_IMAGE;
 }
 
-function resolveHermesApiServerKey(explicit: string | null | undefined, env: Record<string, string> | undefined): string {
-  const supplied = explicit?.trim() || env?.API_SERVER_KEY?.trim() || '';
-  const key = supplied || randomHexToken(32);
+function resolveHermesApiServerKey(
+  explicit: string | null | undefined,
+  env: Record<string, string> | undefined,
+  secrets: Record<string, string> | undefined,
+): string {
+  const supplied = [explicit, secrets?.API_SERVER_KEY, env?.API_SERVER_KEY]
+    .map((value) => value?.trim() ?? '')
+    .filter(Boolean);
+  if (new Set(supplied).size > 1) {
+    throw new Error('Hermes API_SERVER_KEY conflicts between inputs');
+  }
+  const key = supplied[0] || randomHexToken(32);
   if (key.length < 32) throw new Error('Hermes API_SERVER_KEY must be at least 32 characters');
   return key;
 }
@@ -3954,18 +3963,20 @@ export class Deployments {
   }
 
   async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
-    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env);
+    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
     const env: Record<string, string> = {
       ...(options.env ?? {}),
       API_SERVER_ENABLED: 'true',
       API_SERVER_HOST: '0.0.0.0',
-      API_SERVER_KEY: apiServerKey,
     };
+    delete env.API_SERVER_KEY;
     delete env.OPENCLAW_GATEWAY_TOKEN;
+    const secrets = { ...(options.secrets ?? {}), API_SERVER_KEY: apiServerKey };
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime: 'hermes-agent',
       env,
+      secrets,
       image: defaultHermesAgentImage(options.image),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
@@ -4533,17 +4544,19 @@ export class Deployments {
   }
 
   async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions = {}): Promise<HermesAgent> {
-    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env);
+    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
     const env: Record<string, string> = {
       ...(options.env ?? {}),
       API_SERVER_ENABLED: 'true',
       API_SERVER_HOST: '0.0.0.0',
-      API_SERVER_KEY: apiServerKey,
     };
+    delete env.API_SERVER_KEY;
     delete env.OPENCLAW_GATEWAY_TOKEN;
+    const secrets = { ...(options.secrets ?? {}), API_SERVER_KEY: apiServerKey };
     const effectiveOptions: StartAgentOptions = {
       ...options,
       env,
+      secrets,
       ...(options.image !== undefined ? { image: options.image } : {}),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       injectGatewayToken: false,
