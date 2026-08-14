@@ -524,22 +524,22 @@ function CollectionOverview({
       ) : (
         <div className="space-y-3">
           {counts.failed > 0 ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 sm:!flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-2.5"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /><div><p className="text-xs font-semibold text-foreground">Some knowledge needs attention</p><p className="mt-1 text-[11px] leading-relaxed text-text-muted">{counts.failed} {counts.failed === 1 ? "source could not" : "sources could not"} be processed.</p></div></div>
               <Button type="button" variant="ghost" size="sm" onClick={onOpenSources} className="shrink-0 self-start sm:self-auto">Review knowledge <ArrowRight /></Button>
             </div>
           ) : null}
           {counts.processing > 0 ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-low/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-low/25 px-4 py-3 sm:!flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-2.5"><RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" /><div><p className="text-xs font-semibold text-foreground">Some knowledge is still processing</p><p className="mt-1 text-[11px] leading-relaxed text-text-muted">Each source becomes available when processing finishes.</p></div></div>
               <Button type="button" variant="ghost" size="sm" onClick={onOpenSources} className="shrink-0 self-start sm:self-auto">View knowledge <ArrowRight /></Button>
             </div>
           ) : null}
           {sourceCount !== null && sourceCount > 0 && agentCount === 0 ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-low/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold text-foreground">This Collection is not shared with any agents yet</p><p className="mt-1 text-[11px] leading-relaxed text-text-muted">Assign agents to make its knowledge available to them.</p></div><Button type="button" variant="ghost" size="sm" onClick={onOpenAccess} className="self-start sm:self-auto">Assign agents <ArrowRight /></Button></div>
+            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-low/25 px-4 py-3 sm:!flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold text-foreground">This Collection is not shared with any agents yet</p><p className="mt-1 text-[11px] leading-relaxed text-text-muted">Assign agents to make its knowledge available to them.</p></div><Button type="button" variant="ghost" size="sm" onClick={onOpenAccess} className="self-start sm:self-auto">Assign agents <ArrowRight /></Button></div>
           ) : null}
           {agentCount !== null && agentCount > 0 && sourceCount === 0 ? (
-            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-low/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold text-foreground">There is no knowledge to share yet</p><p className="mt-1 text-[11px] leading-relaxed text-text-muted">Upload a source for assigned agents to access.</p></div><Button type="button" variant="ghost" size="sm" onClick={onOpenSources} className="self-start sm:self-auto">Add knowledge <ArrowRight /></Button></div>
+            <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface-low/25 px-4 py-3 sm:!flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold text-foreground">There is no knowledge to share yet</p><p className="mt-1 text-[11px] leading-relaxed text-text-muted">Upload a source for assigned agents to access.</p></div><Button type="button" variant="ghost" size="sm" onClick={onOpenSources} className="self-start sm:self-auto">Add knowledge <ArrowRight /></Button></div>
           ) : null}
 
           {(sourceCount !== null && sourceCount < 3) || agentCount === 0 ? (
@@ -905,7 +905,7 @@ function FileDetails({
         <div role="alert" className="mt-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-xs leading-relaxed text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>
       ) : null}
       {canWrite ? (
-        <footer className="mt-5 flex flex-col gap-3 rounded-2xl border border-border bg-surface-low/30 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <footer className="mt-5 flex flex-col gap-3 rounded-2xl border border-border bg-surface-low/30 px-4 py-3.5 sm:!flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2.5">
             <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${hasChanges ? "bg-warning" : "bg-success"}`} aria-hidden="true" />
             <div><p className="text-xs font-medium text-text-secondary">{hasChanges ? "Metadata has unsaved changes" : "Metadata is up to date"}</p><p className="mt-0.5 text-[10px] leading-relaxed text-text-muted">Changes affect how this source is labeled and discovered.</p></div>
@@ -1308,7 +1308,7 @@ function CollectionAgents({
 
   return (
     <div className="mx-auto w-full max-w-[92rem] px-4 pb-10 pt-6 sm:px-6 lg:px-8">
-      <header className="mb-5 flex flex-col items-start gap-4 sm:flex-row sm:justify-between">
+      <header className="mb-5 flex flex-col items-start gap-4 sm:!flex-row sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Assigned agents</h2>
           <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-text-muted">These agents have direct access to everything in this Collection.</p>
@@ -1396,7 +1396,7 @@ function CollectionsIndex({
 }) {
   return (
     <div className="mx-auto w-full max-w-[92rem] px-4 pb-10 pt-7 sm:px-6 sm:pt-8 lg:px-8">
-      <header className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+      <header className="mb-7 flex flex-col gap-5 sm:!flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 ref={headingRef} tabIndex={-1} className="text-3xl font-semibold tracking-[-0.04em] text-foreground outline-none">Collections</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-text-muted">Each Collection brings together shared knowledge and the agents assigned to it. Skills and integrations are coming soon.</p>
@@ -1405,7 +1405,7 @@ function CollectionsIndex({
       </header>
 
       {loading || collections.length > 0 || query ? (
-        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-3 flex flex-col gap-3 sm:!flex-row sm:items-center sm:justify-between">
           <label htmlFor={searchId} className="relative block w-full sm:max-w-xs">
             <span className="sr-only">Search Collections and sources</span>
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
@@ -1508,7 +1508,7 @@ function CollectionsIndex({
             <h2 className="mt-4 text-xl font-semibold tracking-[-0.025em] text-foreground">{query ? "No Collections found" : "Create a shared foundation for your agents"}</h2>
             <p className="mx-auto mt-2 max-w-xl text-sm leading-relaxed text-text-muted">{query ? "Try a different search or clear the current query." : "A Collection brings shared knowledge, skills, and integrations together and makes them available to every agent you assign."}</p>
             {!query ? (
-              <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row" aria-label="Knowledge, skills, and integrations flow into a Collection and become available to assigned agents">
+              <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:!flex-row" aria-label="Knowledge, skills, and integrations flow into a Collection and become available to assigned agents">
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-text-secondary"><FileText className="h-3.5 w-3.5" /> Knowledge</span>
                   <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-text-secondary"><Sparkles className="h-3.5 w-3.5" /> Skills</span>
@@ -1591,7 +1591,7 @@ function CollectionKnowledge({
         </div>
       ) : null}
 
-      <header className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <header className="mb-5 flex flex-col gap-4 lg:!flex-row lg:items-start lg:justify-between">
         <div><h2 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Knowledge</h2><p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-text-muted">Add the files and reference material assigned agents should use for context.</p></div>
         <div className="flex w-full items-center gap-2 lg:w-auto">
           <label className="relative block min-w-0 flex-1 lg:w-72">
@@ -1604,7 +1604,7 @@ function CollectionKnowledge({
       </header>
 
       {failedCount > 0 ? (
-        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-destructive sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-4 flex flex-col gap-3 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-destructive sm:!flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-2"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="text-xs font-semibold">{failedCount} {failedCount === 1 ? "source needs" : "sources need"} attention</p><p className="mt-0.5 text-[11px] leading-relaxed">Regenerate failed sources after correcting password, encoding, or format issues.</p></div></div>
           <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             {canWrite ? <Button type="button" variant="ghost" size="sm" onClick={onRetryAll} disabled={busy} className="text-destructive hover:text-destructive"><RefreshCw /> Retry all</Button> : null}
@@ -1662,7 +1662,7 @@ function CollectionKnowledge({
 function CollectionSkills() {
   return (
     <div className="mx-auto w-full max-w-[92rem] px-4 pb-10 pt-6 sm:px-6 lg:px-8">
-      <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <header className="mb-5 flex flex-col gap-4 sm:!flex-row sm:items-start sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Skills</h2>
           <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-text-muted">Shared instruction packs that will teach assigned agents how and when to use tools.</p>
@@ -1687,13 +1687,13 @@ function CollectionSkills() {
 function CollectionIntegrations() {
   return (
     <div className="mx-auto w-full max-w-[92rem] px-4 pb-10 pt-6 sm:px-6 lg:px-8">
-      <header className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <header className="mb-5 flex flex-col gap-4 lg:!flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-xl font-semibold tracking-[-0.025em] text-foreground">Integrations</h2>
           <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-text-muted">Connect services that assigned agents will be able to use through this Collection.</p>
           <p className="mt-2 flex items-center gap-1.5 text-[11px] text-text-muted"><Info className="h-3.5 w-3.5 shrink-0" />Adding an integration may give assigned agents access to external data or actions.</p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+        <div className="flex w-full flex-col gap-2 sm:!flex-row lg:w-auto">
           <label className="relative block min-w-0 flex-1 sm:w-64">
             <span className="sr-only">Search shared integrations</span><Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
             <Input disabled placeholder="Search shared integrations" className="h-9 rounded-lg bg-input-background pl-9 text-xs" />
@@ -2172,7 +2172,7 @@ export function KnowledgeHub({
                   </ol>
                 </nav>
 
-                <div className="flex flex-col gap-5 pb-6 pt-5 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-5 pb-6 pt-5 sm:!flex-row sm:items-start sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3.5">
                     <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-high text-text-secondary"><LibraryBig className="h-5 w-5" /></span>
                     <div className="min-w-0 pt-0.5">
