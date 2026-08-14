@@ -695,12 +695,22 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.queryByLabelText("Slack configured account")).not.toBeInTheDocument();
   });
 
-  it("opens GitHub with the shared runtime connector card", async () => {
-    renderPanel({ initialPluginId: "github", gatewaySession: gatewaySession() });
+  it("starts GitHub connection through directory and deep-link selection", async () => {
+    const session = gatewaySession();
+    renderPanel({ initialPluginId: "github", gatewaySession: session });
 
-    expect(await screen.findByText("Runtime-generated github setup.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /start connection/i })).not.toBeInTheDocument();
+    const startButton = await screen.findByRole("button", { name: /start connection/i });
+    expect(screen.queryByText("Runtime-generated github setup.")).not.toBeInTheDocument();
+    expect(session.generateConnectorWorkflow).not.toHaveBeenCalledWith("github");
     expect(screen.queryByRole("button", { name: /open in integrations/i })).not.toBeInTheDocument();
+
+    fireEvent.click(startButton);
+
+    await waitFor(() => expect(connectorsProvider.startSetup).toHaveBeenCalledWith({
+      connectorId: "github",
+      mode: "managed-auth",
+      scopes: ["repo", "read:org", "gist"],
+    }));
   });
 
   it.each(["discord"] as const)("opens %s with the shared runtime connector card", async (integrationId) => {

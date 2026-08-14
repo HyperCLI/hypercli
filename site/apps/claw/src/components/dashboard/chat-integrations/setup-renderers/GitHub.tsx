@@ -21,7 +21,6 @@ export function renderGitHubSetup(context: IntegrationSetupRenderContext) {
       onOpenIntegrationDetails={context.onOpenIntegrationDetails ? () => context.onOpenIntegrationDetails?.(action.integrationId) : undefined}
       onOpenFullSetup={context.onOpenFullSetup ? () => context.onOpenFullSetup?.(action.integrationId) : undefined}
       onDismiss={context.onDismiss}
-      directSetup={context.directSetup ?? false}
     />
   );
 }

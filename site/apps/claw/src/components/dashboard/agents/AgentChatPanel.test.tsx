@@ -1214,13 +1214,24 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
   });
 
-  it("keeps the desktop composer below the empty state and offers app shortcuts", () => {
+  it("opens auth-first GitHub setup from the desktop composer shortcut", async () => {
+    const integrationsAuthStart = vi.fn(async () => ({ authId: "auth-desktop" }));
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
         gatewayConnected: true,
         ready: true,
         connected: true,
+        integrationsAuthStart,
+        connectorWorkflows: {
+          github: {
+            schema: "hypercli.connector-workflow.v1",
+            connectorId: "github",
+            runtimeFingerprint: "openclaw:test",
+            summary: "Cached GitHub guidance must not intercept authentication.",
+            steps: [],
+          },
+        },
       }),
       isDesktopViewport: true,
       isSelectedRunning: true,
@@ -1237,6 +1248,60 @@ describe("AgentChatPanel", () => {
       expect(within(suggestions).getByRole("button", { name: `Open ${integration} setup` })).toBeInTheDocument();
     }
     expect(screen.getAllByTestId("agent-chat-composer")).toHaveLength(1);
+
+    fireEvent.click(within(suggestions).getByRole("button", { name: "Open GitHub setup" }));
+    expect(screen.queryByText("Cached GitHub guidance must not intercept authentication.")).not.toBeInTheDocument();
+    const startButton = await screen.findByRole("button", { name: /start connection/i });
+    await act(async () => {
+      fireEvent.click(startButton);
+    });
+    expect(integrationsAuthStart).toHaveBeenCalledWith({ integrationId: "github", scopes: ["repo", "read:org", "gist"] });
+  });
+
+  it("opens auth-first GitHub setup from the empty-history shortcut", async () => {
+    const integrationsAuthStart = vi.fn(async () => ({ authId: "auth-empty-history" }));
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        integrationsAuthStart,
+        connectorWorkflows: {
+          github: {
+            schema: "hypercli.connector-workflow.v1",
+            connectorId: "github",
+            runtimeFingerprint: "openclaw:test",
+            summary: "Cached GitHub guidance must not intercept authentication.",
+            steps: [],
+          },
+        },
+      }),
+      isSelectedRunning: true,
+    });
+
+    const emptyState = screen.getByTestId("agent-empty-history");
+    fireEvent.click(within(emptyState).getByRole("button", { name: "Open GitHub setup" }));
+
+    expect(screen.queryByText("Cached GitHub guidance must not intercept authentication.")).not.toBeInTheDocument();
+    const startButton = await screen.findByRole("button", { name: /start connection/i });
+    await act(async () => {
+      fireEvent.click(startButton);
+    });
+    expect(integrationsAuthStart).toHaveBeenCalledWith({ integrationId: "github", scopes: ["repo", "read:org", "gist"] });
+  });
+
+  it("dismisses desktop app shortcuts", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+      }),
+      isDesktopViewport: true,
+      isSelectedRunning: true,
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Dismiss app suggestions" }));
     expect(screen.queryByTestId("agent-empty-state-app-suggestions")).not.toBeInTheDocument();
@@ -1521,6 +1586,15 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         configSchema: schemaWith("integrations.github"),
+        connectorWorkflows: {
+          github: {
+            schema: "hypercli.connector-workflow.v1",
+            connectorId: "github",
+            runtimeFingerprint: "openclaw:test",
+            summary: "Cached GitHub guidance must not intercept authentication.",
+            steps: [],
+          },
+        },
         messages: [
           {
             role: "assistant",
@@ -1532,6 +1606,7 @@ describe("AgentChatPanel", () => {
     });
 
     expect(await screen.findByText("Start connection")).toBeInTheDocument();
+    expect(screen.queryByText("Cached GitHub guidance must not intercept authentication.")).not.toBeInTheDocument();
     expect(chatMessageBubbleMock).not.toHaveBeenCalled();
   });
 
