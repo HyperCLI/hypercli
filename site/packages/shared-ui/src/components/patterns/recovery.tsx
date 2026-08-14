@@ -72,7 +72,7 @@ export function RecoveryDetails({
           {technicalDetails ? (
             <pre className={cn(
               "max-h-52 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-background/55 px-3 py-2 font-mono text-xs leading-5 text-text-muted [overflow-wrap:anywhere]",
-              children && "mt-3",
+              Boolean(children) && "mt-3",
             )}>
               {technicalDetails}
             </pre>
@@ -131,7 +131,7 @@ function RecoveryContent({
   title,
   description,
   presentation,
-  icon: Icon,
+  icon: Icon = RotateCcw,
   details,
   technicalDetails,
   detailsLabel,

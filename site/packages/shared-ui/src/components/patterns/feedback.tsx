@@ -44,7 +44,7 @@ export function StatusNotice({
       <Icon className="mt-0.5 h-4 w-4 flex-shrink-0" />
       <div className="min-w-0">
         {title && <div className="text-sm font-semibold text-foreground">{title}</div>}
-        {children && <div className={cn("text-sm leading-relaxed", title && "mt-1")}>{children}</div>}
+        {children && <div className={cn("text-sm leading-relaxed", Boolean(title) && "mt-1")}>{children}</div>}
       </div>
     </div>
   );

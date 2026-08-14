@@ -319,8 +319,8 @@ export function SkillRequirementNotice({ title = "Requirements", requirements, c
       <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
       <div className="min-w-0 flex-1">
         {title && <p className="font-semibold">{title}</p>}
-        {children && <div className={cn(title && "mt-0.5")}>{children}</div>}
-        {requirements && requirements.length > 0 && <ul className={cn("space-y-0.5", title && "mt-1")}>{requirements.map((requirement, index) => <li key={index}>{requirement}</li>)}</ul>}
+        {children && <div className={cn(Boolean(title) && "mt-0.5")}>{children}</div>}
+        {requirements && requirements.length > 0 && <ul className={cn("space-y-0.5", Boolean(title) && "mt-1")}>{requirements.map((requirement, index) => <li key={index}>{requirement}</li>)}</ul>}
       </div>
     </aside>
   );
