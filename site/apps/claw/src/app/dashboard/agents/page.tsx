@@ -5148,11 +5148,10 @@ function AgentsPageContent() {
       : "chat";
   const knowledgeSurfaceHeader: DashboardSurfaceHeader | null = selectedCenterPanel === "knowledge-hub"
     ? {
-        title: selectedKnowledgeCollection?.name ?? "Knowledge",
-        description: selectedKnowledgeCollection?.description?.trim()
-          || (selectedKnowledgeCollection
-            ? "Focused business knowledge available only to the agents you assign."
-            : "Organize knowledge by business area and keep every agent focused."),
+        title: "Knowledge",
+        description: selectedKnowledgeCollection
+          ? "Review Collection knowledge, processing health, and direct agent access."
+          : "Organize knowledge by business area and keep every agent focused.",
         controlsTargetId: KNOWLEDGE_HUB_SURFACE_CONTROLS_ID,
       }
     : null;
@@ -6959,12 +6958,12 @@ function AgentsPageContent() {
             />
           ) : mainTab === "knowledge-hub" ? (
             <KnowledgeHub
-              key={requestedKnowledgeCollectionId ?? "collection-catalog"}
               agents={accountAgents}
               agentsLoading={agentsLoading}
               agentsError={agentsLoadError}
               initialCollectionId={requestedKnowledgeCollectionId}
               onRefreshAgents={refreshAgentsForChildren}
+              onNavigateCollection={openKnowledgeHubSurface}
               onSelectedCollectionChange={handleKnowledgeCollectionChange}
               headerControlsTargetId={KNOWLEDGE_HUB_SURFACE_CONTROLS_ID}
             />

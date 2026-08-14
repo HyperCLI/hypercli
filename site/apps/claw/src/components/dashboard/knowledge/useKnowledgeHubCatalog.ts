@@ -60,6 +60,12 @@ function knowledgeHubUserError(message: string): KnowledgeHubUserError {
   return new KnowledgeHubUserError(message);
 }
 
+function assertCollectionCanWrite(collection: KnowledgeHubCollection, action: string): void {
+  const role = collection.workspace.role?.toLowerCase();
+  if (role === "admin" || role === "contributor") return;
+  throw knowledgeHubUserError(`Contributor access is required to ${action}.`);
+}
+
 export function describeKnowledgeHubError(error: unknown, fallback: string): string {
   if (error instanceof KnowledgeHubUserError) return error.message;
   if (errorStatusCode(error) === 403) return "You don't have permission to perform this action.";
@@ -158,6 +164,7 @@ export function useKnowledgeHubCatalog(
   const [collections, setCollections] = useState<KnowledgeHubCollection[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadedClient, setLoadedClient] = useState<WorkspacesAPI | null>(null);
   const requestRef = useRef(0);
   const mutationRevisionRef = useRef(0);
   const activeClientRef = useRef(client);
@@ -190,6 +197,7 @@ export function useKnowledgeHubCatalog(
       setCollections([]);
       setLoading(false);
       setError(null);
+      setLoadedClient(null);
       return Promise.resolve(false);
     }
 
@@ -208,7 +216,10 @@ export function useKnowledgeHubCatalog(
           || activeClientRef.current !== client
           || mutationRevision !== mutationRevisionRef.current
         ) return false;
-        startTransition(() => setCollections(sortCollections(hydrated)));
+        startTransition(() => {
+          setLoadedClient(client);
+          setCollections(sortCollections(hydrated));
+        });
         return true;
       } catch (cause) {
         if (
@@ -216,6 +227,7 @@ export function useKnowledgeHubCatalog(
           || activeClientRef.current !== client
           || mutationRevision !== mutationRevisionRef.current
         ) return false;
+        setLoadedClient(client);
         setError(describeKnowledgeHubError(cause, "Knowledge couldn't be loaded."));
         return false;
       } finally {
@@ -238,8 +250,16 @@ export function useKnowledgeHubCatalog(
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
     mutationRevisionRef.current += 1;
     try {
-      const workspace = await client.create(input);
+      let workspace = await client.create(input);
+      if (!workspace.role) {
+        try {
+          workspace = await client.get(knowledgeWorkspaceRef(workspace));
+        } catch {
+          // Creation still succeeded; hydration below preserves an explicit unavailable access state.
+        }
+      }
       const collection = await hydrateCollection(client, workspace);
+      setLoadedClient(client);
       setCollections((current) => sortCollections([
         ...current.filter((item) => item.workspace.id !== workspace.id),
         collection,
@@ -294,10 +314,7 @@ export function useKnowledgeHubCatalog(
     files: File[],
   ) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
-    const role = collection.workspace.role?.toLowerCase();
-    if (role !== "admin" && role !== "contributor") {
-      throw knowledgeHubUserError("Contributor access is required to upload sources.");
-    }
+    assertCollectionCanWrite(collection, "upload sources");
 
     mutationRevisionRef.current += 1;
     try {
@@ -334,6 +351,7 @@ export function useKnowledgeHubCatalog(
     input: FileUpdateInput,
   ) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
+    assertCollectionCanWrite(collection, "update source details");
     mutationRevisionRef.current += 1;
     try {
       const updated = await client.updateFile(
@@ -355,6 +373,7 @@ export function useKnowledgeHubCatalog(
     file: WorkspaceFile,
   ) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
+    assertCollectionCanWrite(collection, "regenerate sources");
     mutationRevisionRef.current += 1;
     try {
       const updated = await client.regenerateFile(knowledgeWorkspaceRef(collection.workspace), file.path);
@@ -372,6 +391,7 @@ export function useKnowledgeHubCatalog(
     file: WorkspaceFile,
   ) => {
     if (!client) throw knowledgeHubUserError("Knowledge is not connected.");
+    assertCollectionCanWrite(collection, "delete sources");
     mutationRevisionRef.current += 1;
     try {
       await client.deleteFile(knowledgeWorkspaceRef(collection.workspace), file.path);
@@ -439,6 +459,7 @@ export function useKnowledgeHubCatalog(
   return {
     collections,
     loading,
+    initialized: !client || loadedClient === client,
     refreshing: loading && collections.length > 0,
     error,
     refresh,
