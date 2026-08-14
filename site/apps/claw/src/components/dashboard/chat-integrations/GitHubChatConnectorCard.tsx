@@ -341,7 +341,7 @@ export function GitHubChatConnectorCard({
   const [disconnecting, setDisconnecting] = React.useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = React.useState(false);
   const [generatedWorkflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
-  const workflow = cachedWorkflow ?? generatedWorkflow;
+  const workflow = (directSetup ? cachedWorkflow : null) ?? generatedWorkflow;
   const [workflowLoading, setWorkflowLoading] = React.useState(false);
   const [workflowUnavailable, setWorkflowUnavailable] = React.useState(false);
   const directSetupStartedRef = React.useRef(false);

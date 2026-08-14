@@ -3,6 +3,7 @@ import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ConnectorWorkflow } from "@/lib/connector-workflow";
 import { GitHubChatConnectorCard } from "./GitHubChatConnectorCard";
 
 function schemaWith(...paths: string[]): OpenClawConfigSchemaResponse {
@@ -16,6 +17,14 @@ const handlers = {
   onAuthStart: vi.fn(async () => ({ authId: "auth-1" })),
   onAuthStatus: vi.fn(async () => ({ status: "pending" })),
   onIntegrationStatus: vi.fn(async () => ({ integrations: { github: { configured: false, authenticated: false, usable: false } } })),
+};
+
+const cachedWorkflow: ConnectorWorkflow = {
+  schema: "hypercli.connector-workflow.v1",
+  connectorId: "github",
+  runtimeFingerprint: "openclaw:test",
+  summary: "Cached GitHub setup guidance.",
+  steps: [],
 };
 
 describe("GitHubChatConnectorCard", () => {
@@ -141,7 +150,7 @@ describe("GitHubChatConnectorCard", () => {
     expect(screen.queryByText(/has not advertised GitHub setup/i)).not.toBeInTheDocument();
   });
 
-  it("falls back to an agent setup prompt when managed handlers are missing", async () => {
+  it("starts agent setup instead of showing cached guidance when managed handlers are missing", async () => {
     const onStartAgentGitHubSetup = vi.fn(async () => undefined);
     const onGenerateConnectorWorkflow = vi.fn(async () => {
       throw new Error("The setup guide should not replace executable setup.");
@@ -152,12 +161,14 @@ describe("GitHubChatConnectorCard", () => {
       <GitHubChatConnectorCard
         connected
         configSchema={schemaWith("integrations.github")}
+        cachedWorkflow={cachedWorkflow}
         onStartAgentGitHubSetup={onStartAgentGitHubSetup}
         onGenerateConnectorWorkflow={onGenerateConnectorWorkflow}
         onOpenFullSetup={onOpenFullSetup}
       />,
     );
 
+    expect(screen.queryByText("Setup guide")).not.toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
     });
@@ -175,6 +186,20 @@ describe("GitHubChatConnectorCard", () => {
     expect(screen.queryByText("Set up GitHub in this workspace.")).not.toBeInTheDocument();
     expect(screen.queryByText("Full setup instruction")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open full setup/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps cached guidance in the integrations directory setup", () => {
+    render(
+      <GitHubChatConnectorCard
+        connected
+        directSetup
+        configSchema={null}
+        cachedWorkflow={cachedWorkflow}
+      />,
+    );
+
+    expect(screen.getByText("Setup guide")).toBeInTheDocument();
+    expect(screen.getByText("Cached GitHub setup guidance.")).toBeInTheDocument();
   });
 
   it("shows preparing connection for install and auth progress", () => {
