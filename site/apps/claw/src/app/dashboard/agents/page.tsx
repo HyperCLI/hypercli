@@ -1295,6 +1295,7 @@ function AgentsPageContent() {
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const launchLifecycleActionIdsRef = useRef<Set<string>>(new Set());
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
   const [recentlyStoppedIds, setRecentlyStoppedIds] = useState<Set<string>>(new Set());
   const [pendingSlotReleases, setPendingSlotReleases] = useState<Record<string, number>>({});
@@ -3923,9 +3924,9 @@ function AgentsPageContent() {
     }
   }, [applyAgentMutationResult]);
 
-  const handleStart = async (agentId: string) => {
+  const handleStart = async (agentId: string, authoritativeAgent?: SdkAgent | null) => {
     cancelledStartAgentIdsRef.current.delete(agentId);
-    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+    const sdkAgent = authoritativeAgent ?? sdkAgents.find((entry) => entry.id === agentId) ?? null;
     const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
     if (!agent || !isAgentStartable(agent)) {
       setError(agent?.isLaunchable === false ? "This agent cannot be launched." : "The agent is not ready to start.");
@@ -4452,8 +4453,8 @@ function AgentsPageContent() {
     }
   };
 
-  const handleRestore = async (agentId: string) => {
-    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+  const handleRestore = async (agentId: string, authoritativeAgent?: SdkAgent | null) => {
+    const sdkAgent = authoritativeAgent ?? sdkAgents.find((entry) => entry.id === agentId) ?? null;
     if (sdkAgent?.state.toUpperCase() !== "ARCHIVED") {
       setError("Only an archived agent can be restored.");
       return;
@@ -4484,6 +4485,35 @@ function AgentsPageContent() {
       setError(err instanceof Error ? err.message : "Failed to restore agent");
     } finally {
       if (generation === agentDataGenerationRef.current) setRestoringId(null);
+    }
+  };
+
+  const handleLaunchLifecycleAction = async (agentId: string) => {
+    if (launchLifecycleActionIdsRef.current.has(agentId)) return;
+    launchLifecycleActionIdsRef.current.add(agentId);
+    const generation = agentDataGenerationRef.current;
+    try {
+      const token = await getToken();
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      const authoritativeAgent = await createAgentClient(token).get(agentId);
+      if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
+      applyAgentMutationResult(authoritativeAgent);
+      const action = resolveAgentLaunchLifecycleAction(toAgentViewModel(authoritativeAgent));
+      if (action === "restore") {
+        await handleRestore(agentId, authoritativeAgent);
+      } else if (action === "start") {
+        await handleStart(agentId, authoritativeAgent);
+      } else {
+        setError(authoritativeAgent.isLaunchable === false
+          ? "This agent cannot be launched."
+          : `Agent is ${authoritativeAgent.state.toLowerCase()} and cannot be launched.`);
+      }
+    } catch (err) {
+      if (generation === agentDataGenerationRef.current) {
+        setError(err instanceof Error ? err.message : "Failed to resolve the agent lifecycle action");
+      }
+    } finally {
+      launchLifecycleActionIdsRef.current.delete(agentId);
     }
   };
 
@@ -5944,7 +5974,7 @@ function AgentsPageContent() {
     onProfileNameChange: setAccountProfileName,
     onProfileAvatarChange: setAccountAvatarUrl,
     onStartAgent: () => {
-      if (selectedAgent) void handleStart(selectedAgent.id);
+      if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id);
     },
     onStopAgent: () => {
       if (selectedAgent) void handleStop(selectedAgent.id);
@@ -5953,7 +5983,7 @@ function AgentsPageContent() {
       if (selectedAgent) void handleArchive(selectedAgent.id);
     },
     onRestoreAgent: () => {
-      if (selectedAgent) void handleRestore(selectedAgent.id);
+      if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id);
     },
     onDeleteAgent: () => {
       if (selectedAgent) {
@@ -6813,7 +6843,7 @@ function AgentsPageContent() {
                 onOpenBilling: () => leaveAgentsPage(ACCOUNT_PAGE_HREFS.billing),
                 onNewConversation: createSession,
                 onStartAgent: selectedAgent && isAgentStartable(selectedAgent)
-                  ? async () => { await handleStart(selectedAgent.id); }
+                  ? async () => { await handleLaunchLifecycleAction(selectedAgent.id); }
                   : undefined,
                 onStopAgent: async () => {
                   if (selectedAgent) await handleStop(selectedAgent.id);
@@ -6979,13 +7009,12 @@ function AgentsPageContent() {
               onDelete={async (jobId) => {
                 await chat.removeCron(jobId);
               }}
-              onLaunchAgent={selectedAgent && selectedAgentLaunchLifecycleAction
+              onLaunchAgent={selectedAgent
+                && selectedAgentLaunchLifecycleAction
+                && startingId !== selectedAgent.id
+                && restoringId !== selectedAgent.id
                 ? async () => {
-                    if (selectedAgentLaunchLifecycleAction === "restore") {
-                      await handleRestore(selectedAgent.id);
-                    } else {
-                      await handleStart(selectedAgent.id);
-                    }
+                    await handleLaunchLifecycleAction(selectedAgent.id);
                   }
                 : undefined}
               launchActionLabel={selectedAgentLaunchLifecycleAction === "restore" ? "Restore agent" : "Start agent"}
@@ -7024,12 +7053,12 @@ function AgentsPageContent() {
           showInspectorButton={SHOW_AGENT_INSPECTOR}
           onStart={() => {
             if (selectedAgent) {
-              void handleStart(selectedAgent.id);
+              void handleLaunchLifecycleAction(selectedAgent.id);
             }
           }}
           onRestore={() => {
             if (selectedAgent) {
-              void handleRestore(selectedAgent.id);
+              void handleLaunchLifecycleAction(selectedAgent.id);
             }
           }}
           onStop={selectedAgent && isAgentStoppable(selectedAgent)
@@ -7066,8 +7095,8 @@ function AgentsPageContent() {
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
               onMarketplaceClick: openIntegrationsTab,
-              onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
-              onAgentRestore: () => { if (selectedAgent) void handleRestore(selectedAgent.id); },
+              onAgentStart: () => { if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id); },
+              onAgentRestore: () => { if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,
               agentRestoring: Boolean(selectedAgent && restoringId === selectedAgent.id),

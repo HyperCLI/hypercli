@@ -41,6 +41,76 @@ async function authenticate(page: Page) {
   }, TEST_JWT);
 }
 
+async function installDeploymentEventSocket(page: Page) {
+  await page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket;
+    const state: {
+      ready: boolean;
+      socket: MockDeploymentWebSocket | null;
+      emit(frame: unknown): void;
+    } = {
+      ready: false,
+      socket: null,
+      emit(frame) {
+        this.socket?.emit(frame);
+      },
+    };
+
+    class MockDeploymentWebSocket {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 3;
+      readyState = MockDeploymentWebSocket.CONNECTING;
+      private readonly listeners = new Map<string, Set<(event: { data?: string }) => void>>();
+
+      constructor() {
+        state.socket = this;
+        window.setTimeout(() => {
+          this.readyState = MockDeploymentWebSocket.OPEN;
+          this.dispatch("open", {});
+        }, 0);
+      }
+      addEventListener(type: string, listener: (event: { data?: string }) => void) {
+        const listeners = this.listeners.get(type) ?? new Set();
+        listeners.add(listener);
+        this.listeners.set(type, listeners);
+      }
+      removeEventListener(type: string, listener: (event: { data?: string }) => void) {
+        this.listeners.get(type)?.delete(listener);
+      }
+      send(raw: string) {
+        if (JSON.parse(raw).type === "auth") {
+          state.ready = true;
+          this.emit({ type: "ready" });
+        }
+      }
+      close() {
+        if (this.readyState === MockDeploymentWebSocket.CLOSED) return;
+        this.readyState = MockDeploymentWebSocket.CLOSED;
+        this.dispatch("close", {});
+      }
+      emit(frame: unknown) {
+        window.setTimeout(() => this.dispatch("message", { data: JSON.stringify(frame) }), 0);
+      }
+      private dispatch(type: string, event: { data?: string }) {
+        for (const listener of this.listeners.get(type) ?? []) listener(event);
+      }
+    }
+
+    (window as any).__archivedLifecycleEvents = state;
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      writable: true,
+      value: new Proxy(NativeWebSocket, {
+        construct(Target, args) {
+          if (String(args[0] ?? "").startsWith("ws://events.example.test/")) return new MockDeploymentWebSocket();
+          return Reflect.construct(Target, args);
+        },
+      }),
+    });
+  });
+}
+
 async function fulfillDefaultAgentRequest(route: Route) {
   const pathName = new URL(route.request().url()).pathname;
   if (pathName.endsWith("/agents/deployments/budget")) {
@@ -70,6 +140,10 @@ test("archived central lifecycle CTA restores and never starts", async ({ page }
 
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([agentSnapshot(state)]) });
+      return;
+    }
+    if (pathName.endsWith(`/agents/deployments/${AGENT_ID}`) && method === "GET") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(agentSnapshot(state)) });
       return;
     }
     if (pathName.endsWith(`/agents/deployments/${AGENT_ID}/restore`) && method === "POST") {
@@ -116,7 +190,7 @@ test("stale start 409 refetches the exact agent and the next CTA restores", asyn
     if (pathName.endsWith(`/agents/deployments/${AGENT_ID}`) && method === "GET") {
       exactGets += 1;
       lifecycleRequests.push(`get:${exactGets}`);
-      const state = exactGets === 1 ? "STOPPED" : "ARCHIVED";
+      const state = exactGets <= 2 ? "STOPPED" : "ARCHIVED";
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(agentSnapshot(state)) });
       return;
     }
@@ -153,9 +227,111 @@ test("stale start 409 refetches the exact agent and the next CTA restores", asyn
   await expect(lifecycleCta).toHaveAccessibleName("Restore agent");
   expect(startCalls).toBe(1);
   expect(restoreCalls).toBe(0);
-  expect(lifecycleRequests).toEqual(["get:1", "start", "get:2"]);
+  expect(lifecycleRequests).toEqual(["get:1", "get:2", "start", "get:3"]);
 
   await lifecycleCta.click();
   await expect.poll(() => restoreCalls).toBe(1);
+  expect(startCalls).toBe(1);
+});
+
+test("dev stale list replay preserves restore and rapid clicks issue one restore", async ({ page }) => {
+  let exactGets = 0;
+  let listGets = 0;
+  let restoreCalls = 0;
+  let startCalls = 0;
+  let releaseRestore!: () => void;
+  const restoreGate = new Promise<void>((resolve) => {
+    releaseRestore = resolve;
+  });
+  const staleStopped = {
+    ...agentSnapshot("STOPPED"),
+    name: "solar-matrix",
+    updated_at: "2026-08-13T00:00:00Z",
+  };
+  const authoritativeArchived = {
+    ...agentSnapshot("ARCHIVED"),
+    name: "solar-matrix",
+    updated_at: "2026-08-13T00:00:10Z",
+  };
+
+  await authenticate(page);
+  await installDeploymentEventSocket(page);
+  await page.route("**/agents/**", async (route) => {
+    const pathName = new URL(route.request().url()).pathname;
+    const method = route.request().method();
+    if (pathName.endsWith("/agents/deployments/events/token") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ token: "events-token", ws_url: "ws://events.example.test/ws/deployments" }),
+      });
+      return;
+    }
+    if (pathName.endsWith("/agents/deployments") && method === "GET") {
+      listGets += 1;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([staleStopped]) });
+      return;
+    }
+    if (pathName.endsWith(`/agents/deployments/${AGENT_ID}`) && method === "GET") {
+      exactGets += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(exactGets <= 2 ? staleStopped : authoritativeArchived),
+      });
+      return;
+    }
+    if (pathName.endsWith(`/agents/deployments/${AGENT_ID}/start`) && method === "POST") {
+      startCalls += 1;
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "Agent storage must finish explicit restore before start" }),
+      });
+      return;
+    }
+    if (pathName.endsWith(`/agents/deployments/${AGENT_ID}/restore`) && method === "POST") {
+      restoreCalls += 1;
+      await restoreGate;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(agentSnapshot("STOPPED", 6)) });
+      return;
+    }
+    await fulfillDefaultAgentRequest(route);
+  });
+
+  await page.goto(`/dev/agent-setup/agents?agentId=${AGENT_ID}`, { waitUntil: "domcontentloaded" });
+  const lifecycleCta = page.getByTestId("agent-launch-empty-state").getByTestId("agent-launch-entry");
+  await expect(lifecycleCta).toHaveAccessibleName("Start agent");
+  await lifecycleCta.click();
+  await expect(page.getByTestId("agent-error-banner")).toContainText("API Error 409");
+  await expect(lifecycleCta).toHaveAccessibleName("Restore agent");
+  expect(startCalls).toBe(1);
+
+  await page.waitForFunction(() => Boolean((window as any).__archivedLifecycleEvents?.ready));
+  const listGetsBeforeEvent = listGets;
+  await page.evaluate(() => {
+    (window as any).__archivedLifecycleEvents.emit({
+      type: "deployment.transition",
+      agent_id: "03f31472-3f7f-4441-8fb1-68898c87f385",
+      state: "STOPPED",
+      launch_epoch: 5,
+    });
+  });
+  await expect.poll(() => listGets, { timeout: 10_000 }).toBeGreaterThan(listGetsBeforeEvent);
+  await expect(lifecycleCta).toHaveAccessibleName("Restore agent");
+
+  try {
+    await lifecycleCta.click();
+    await expect.poll(() => restoreCalls).toBe(1);
+    await expect(lifecycleCta).toBeDisabled();
+    await lifecycleCta.evaluate((element) => (element as HTMLButtonElement).click());
+    await page.waitForTimeout(100);
+    expect(restoreCalls).toBe(1);
+    expect(startCalls).toBe(1);
+  } finally {
+    releaseRestore();
+  }
+  await expect(lifecycleCta).toHaveAccessibleName("Start agent");
+  expect(restoreCalls).toBe(1);
   expect(startCalls).toBe(1);
 });

@@ -69,11 +69,13 @@ async function mockAgentChat(
   requests: AgentChatGatewayRequest[];
   secretReads: Record<string, number>;
   exactAgentReads: Record<string, number>;
+  routeReads: Record<string, number>;
 }> {
   const tracker = {
     requests: [] as AgentChatGatewayRequest[],
     secretReads: {} as Record<string, number>,
     exactAgentReads: {} as Record<string, number>,
+    routeReads: {} as Record<string, number>,
   };
   await page.exposeFunction("__recordAgentChatGatewayRequest", (request: AgentChatGatewayRequest) => {
     tracker.requests.push(request);
@@ -500,6 +502,24 @@ async function mockAgentChat(
       return;
     }
 
+    if (/\/agents\/deployments\/agent-[12]\/routes$/.test(pathName)) {
+      const agentId = pathName.includes("agent-2") ? "agent-2" : "agent-1";
+      tracker.routeReads[agentId] = (tracker.routeReads[agentId] ?? 0) + 1;
+      await route.fulfill(json({
+        agent_id: agentId,
+        routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
+        route_statuses: {
+          openclaw: {
+            hostname: `${agentId}.example.test`,
+            url: `https://${agentId}.example.test`,
+            dns_state: "active",
+            last_error: null,
+          },
+        },
+      }));
+      return;
+    }
+
     if (/\/agents\/deployments\/agent-[12]\/secrets\/OPENCLAW_GATEWAY_TOKEN$/.test(pathName)) {
       const agentId = pathName.includes("agent-2") ? "agent-2" : "agent-1";
       tracker.secretReads[agentId] = (tracker.secretReads[agentId] ?? 0) + 1;
@@ -535,6 +555,7 @@ test("a replayed gateway Secret bootstraps one root connection without persistin
   await expect.poll(() => tracker.requests.filter(({ method }) => method === "connect").length).toBe(1);
   expect(tracker.secretReads["agent-1"]).toBe(1);
   expect(tracker.exactAgentReads["agent-1"]).toBe(2);
+  expect(tracker.routeReads["agent-1"]).toBe(2);
   await expect.poll(() => page.evaluate(() => (
     (window as Window & {
       __agentChatNavigationGatewayCalls?: { urls: string[] };
@@ -545,6 +566,7 @@ test("a replayed gateway Secret bootstraps one root connection without persistin
   expect(tracker.requests.filter(({ method }) => method === "connect")).toHaveLength(1);
   expect(tracker.secretReads["agent-1"]).toBe(1);
   expect(tracker.exactAgentReads["agent-1"]).toBe(2);
+  expect(tracker.routeReads["agent-1"]).toBe(2);
 
   const persistedBrowserState = await page.evaluate(() => ({
     localStorage: Array.from({ length: window.localStorage.length }, (_, index) => (

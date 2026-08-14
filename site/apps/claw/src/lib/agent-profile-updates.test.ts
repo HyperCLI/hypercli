@@ -109,6 +109,23 @@ describe("agent profile updates", () => {
     expect(upsertAgentSnapshot([starting], staleStopped)).toEqual([starting]);
   });
 
+  it("does not let a delayed exact STOPPED snapshot replace a newer dev projection", () => {
+    const newerStarting = {
+      id: "agent-1",
+      state: "STARTING",
+      launchEpoch: 7,
+      updatedAt: new Date("2026-08-13T00:00:04Z"),
+    };
+    const delayedStopped = {
+      id: "agent-1",
+      state: "STOPPED",
+      launchEpoch: 7,
+      updatedAt: new Date("2026-08-13T00:00:03Z"),
+    };
+
+    expect(upsertAgentSnapshot([newerStarting], delayedStopped)).toEqual([newerStarting]);
+  });
+
   it("routes canonical names by explicit external provenance", async () => {
     const client = updateClient();
 
