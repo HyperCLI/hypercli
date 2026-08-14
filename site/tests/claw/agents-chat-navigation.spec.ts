@@ -27,6 +27,7 @@ interface MockAgentChatOptions {
   createReturnsMain?: boolean;
   deferParallelReplies?: boolean;
   gatewaySecretLaunchEpoch?: number;
+  githubManagedAuthorization?: boolean;
   legacyMainHistory?: boolean;
   legacyMainTitle?: string;
   mainOnly?: boolean;
@@ -91,7 +92,7 @@ async function mockAgentChat(
     },
   ]);
 
-  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey, createReturnsMain, deferParallelReplies, legacyMainHistory, legacyMainTitle, mainOnly }) => {
+  await page.addInitScript(({ token, secondarySessionKey, rosterCollapsedStorageKey, createReturnsMain, deferParallelReplies, githubManagedAuthorization, legacyMainHistory, legacyMainTitle, mainOnly }) => {
     window.localStorage.setItem("claw_auth_token", token);
     window.localStorage.setItem("app_auth_token", token);
     window.localStorage.setItem(rosterCollapsedStorageKey, "true");
@@ -107,6 +108,8 @@ async function mockAgentChat(
     const historyBySession = new Map<string, Array<{ role: string; content: string }>>();
     const dashboardSessions = new Set<string>();
     const dashboardTitles = new Map<string, string>();
+    let githubAuthStarted = false;
+    let githubAuthPolls = 0;
     const pendingChats: Array<{
       sessionKey: string;
       messages: Array<{ role: string; content: string }>;
@@ -255,6 +258,38 @@ async function mockAgentChat(
           return;
         }
 
+        if (message.method === "integrations.auth.start" && githubManagedAuthorization) {
+          githubAuthStarted = true;
+          githubAuthPolls = 0;
+          this.respond(message.id, {
+            authId: "github-auth-e2e",
+            verificationUri: "https://github.com/login/device",
+            userCode: "E2E1-CODE",
+            intervalMs: 1500,
+          });
+          return;
+        }
+
+        if (message.method === "integrations.auth.status" && githubManagedAuthorization) {
+          githubAuthPolls += 1;
+          this.respond(message.id, { status: "pending" });
+          return;
+        }
+
+        if (message.method === "integrations.status" && githubManagedAuthorization) {
+          const usable = githubAuthStarted && githubAuthPolls >= 2;
+          const integration = {
+            configured: usable,
+            authenticated: usable,
+            usable,
+            ...(usable ? { connectionId: "github-connection-e2e", accountDisplayName: "octocat" } : {}),
+          };
+          this.respond(message.id, message.params?.integrationId
+            ? { integration }
+            : { integrations: { github: integration } });
+          return;
+        }
+
         if (message.method === "chat.send") {
           const runId = `agent-chat-navigation-${message.id}`;
           const sessionKey = message.params?.sessionKey ?? "main";
@@ -389,6 +424,7 @@ async function mockAgentChat(
     rosterCollapsedStorageKey: AGENT_ROSTER_COLLAPSED_STORAGE_KEY,
     createReturnsMain: options.createReturnsMain === true,
     deferParallelReplies: options.deferParallelReplies === true,
+    githubManagedAuthorization: options.githubManagedAuthorization === true,
     legacyMainHistory: options.legacyMainHistory === true,
     legacyMainTitle: options.legacyMainTitle,
     mainOnly: options.mainOnly === true,
@@ -621,6 +657,18 @@ test("a ready empty session fits within the desktop transcript", async ({ page }
   expect(metrics!.sectionTop).toBeGreaterThanOrEqual(metrics!.scrollerTop - 1);
   expect(metrics!.sectionBottom).toBeLessThanOrEqual(metrics!.scrollerBottom + 1);
   expect(metrics!.scrollerScrollHeight).toBeLessThanOrEqual(metrics!.scrollerClientHeight + 1);
+});
+
+test("GitHub device authorization clears the used code after integration status becomes usable", async ({ page }) => {
+  const tracker = await mockAgentChat(page, { githubManagedAuthorization: true });
+  await page.goto("/dashboard/agents?agentId=agent-1&integration=github", { waitUntil: "domcontentloaded" });
+
+  await page.getByRole("button", { name: /start connection/i }).click();
+  await expect(page.getByText("E2E1-CODE")).toBeVisible();
+  await expect(page.getByText(/github connected/i).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("E2E1-CODE")).toHaveCount(0);
+  await expect.poll(() => tracker.requests.filter(({ method }) => method === "integrations.auth.status").length).toBeGreaterThanOrEqual(2);
+  expect(tracker.requests.some(({ method, params }) => method === "integrations.status" && params?.probe === true)).toBe(true);
 });
 
 test("the personalized empty session accepts a message and matches later new sessions", async ({ page }) => {

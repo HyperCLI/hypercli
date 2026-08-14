@@ -951,9 +951,9 @@ export function AgentChatPanel({
     await chat.sendMessage(GITHUB_AGENT_SETUP_PROMPT, { displayContent: "Set up GitHub in this workspace." });
   }, [chat]);
   const verifyAgentGitHubSetup = React.useCallback(async () => {
-    if (activeSessionSending || !chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
+    if (!chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
     await chat.sendMessage(GITHUB_AGENT_VERIFY_PROMPT, { displayContent: "Check GitHub connection in this workspace." });
-  }, [activeSessionSending, chat]);
+  }, [chat]);
 
   const handleConnectionSuggestionClick = React.useCallback((suggestion: ChatConnectionSuggestion) => {
     if (suggestion.connectorId) {

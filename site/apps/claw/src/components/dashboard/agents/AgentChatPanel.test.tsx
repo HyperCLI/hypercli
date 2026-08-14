@@ -1947,6 +1947,52 @@ describe("AgentChatPanel", () => {
     );
   });
 
+  it("queues GitHub verification when focus returns during an active setup response", async () => {
+    const sendMessage = vi.fn(async () => undefined);
+    const props = buildAgentChatPanelProps({
+      chat: buildChat({ status: "connected", gatewayConnected: true, ready: true, connected: true, sendMessage }),
+      isSelectedRunning: true,
+    });
+    const { rerender } = renderWithClient(<AgentChatPanel {...props} />);
+    fireEvent.click(within(screen.getByTestId("agent-empty-history")).getByRole("button", { name: "Open GitHub setup" }));
+    expect(await screen.findByRole("button", { name: /start connection/i })).toBeInTheDocument();
+
+    rerender(
+      <AgentChatPanel
+        {...props}
+        chat={buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        activeSessionSending: true,
+        sending: true,
+        sendMessage,
+        messages: [
+          {
+            role: "assistant",
+            content: "@@hypercli.ui-action/v1 integration.github.device-code 8BCD-83A2 https://github.com/login/device",
+          },
+          {
+            role: "user",
+            content: "Waiting for the active setup response.",
+          },
+        ],
+        })}
+      />,
+    );
+
+    expect(await screen.findByText("8BCD-83A2")).toBeInTheDocument();
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.stringContaining("Check whether GitHub CLI authentication is ready in this workspace."),
+      { displayContent: "Check GitHub connection in this workspace." },
+    );
+  });
+
   it("keeps GitHub setup automation out of the visible transcript while updating the card", () => {
     renderAgentChatPanel({
       chat: buildChat({

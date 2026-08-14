@@ -338,6 +338,9 @@ export function GitHubChatConnectorCard({
   const [settingUpCopyIndex, setSettingUpCopyIndex] = React.useState(0);
   const [copiedCode, setCopiedCode] = React.useState(false);
   const [codeRippleActive, setCodeRippleActive] = React.useState(false);
+  const [agentVerificationRequested, setAgentVerificationRequested] = React.useState(false);
+  const [authPolling, setAuthPolling] = React.useState(false);
+  const [authPollRevision, setAuthPollRevision] = React.useState(0);
   const [disconnecting, setDisconnecting] = React.useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = React.useState(false);
   const [generatedWorkflow, setWorkflow] = React.useState<ConnectorWorkflow | null>(null);
@@ -346,6 +349,7 @@ export function GitHubChatConnectorCard({
   const [workflowUnavailable, setWorkflowUnavailable] = React.useState(false);
   const directSetupStartedRef = React.useRef(false);
   const codeRippleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verificationResetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusVerifyRef = React.useRef<number | null>(null);
   const authId = runtimeSetup?.setupId ?? (typeof authStart?.authId === "string" ? authStart.authId : "");
   const managedUserCode = runtimeSetup?.deviceCode ?? (typeof authStart?.userCode === "string" ? authStart.userCode : "");
@@ -363,7 +367,10 @@ export function GitHubChatConnectorCard({
   const agentSetupFailed = githubAgentStatus.phase === "failed";
   const agentDeviceCode = githubAgentStatus.userCode;
   const showAgentDeviceCode = githubAgentStatus.phase === "device-code" && Boolean(agentDeviceCode);
-  const agentSetupHeroLabel = agentHeroLabel(githubAgentStatus, agentSetupStarted, agentSetupSending);
+  const checkingAgentAuthorization = showAgentDeviceCode && (agentSetupVerifying || agentVerificationRequested);
+  const agentSetupHeroLabel = checkingAgentAuthorization
+    ? SETUP_PROGRESS_STEP_LABELS[3]
+    : agentHeroLabel(githubAgentStatus, agentSetupStarted, agentSetupSending);
   const settingEverythingUpActive = connected && agentFlowActive && agentSetupHeroLabel === SETUP_PROGRESS_STEP_LABELS[0] && !agentSetupSucceeded && !agentSetupFailed && !showAgentDeviceCode;
 
   React.useEffect(() => {
@@ -376,19 +383,30 @@ export function GitHubChatConnectorCard({
 
   React.useEffect(() => () => {
     if (codeRippleTimerRef.current) clearTimeout(codeRippleTimerRef.current);
+    if (verificationResetTimerRef.current) clearTimeout(verificationResetTimerRef.current);
   }, []);
 
-  const verifyAgentGitHubSetup = React.useCallback(async () => {
+  const verifyAgentGitHubSetup = React.useCallback(async (force = false) => {
     if (!onVerifyAgentGitHubSetup || agentSetupVerifying) return;
     const now = Date.now();
-    if (lastFocusVerifyRef.current !== null && now - lastFocusVerifyRef.current < DEVICE_CODE_FOCUS_VERIFY_THROTTLE_MS) return;
+    if (!force && lastFocusVerifyRef.current !== null && now - lastFocusVerifyRef.current < DEVICE_CODE_FOCUS_VERIFY_THROTTLE_MS) return;
     lastFocusVerifyRef.current = now;
+    if (verificationResetTimerRef.current) clearTimeout(verificationResetTimerRef.current);
+    setAgentVerificationRequested(true);
+    verificationResetTimerRef.current = setTimeout(() => {
+      setAgentVerificationRequested(false);
+      verificationResetTimerRef.current = null;
+    }, DEVICE_CODE_FOCUS_VERIFY_THROTTLE_MS);
     setAgentSetupVerifying(true);
     setError(null);
     setTechnicalDetails(null);
     try {
       await onVerifyAgentGitHubSetup();
     } catch (cause) {
+      lastFocusVerifyRef.current = null;
+      if (verificationResetTimerRef.current) clearTimeout(verificationResetTimerRef.current);
+      verificationResetTimerRef.current = null;
+      setAgentVerificationRequested(false);
       setError("GitHub could not be checked. Return from GitHub, then try verifying again.");
       setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
     } finally {
@@ -401,7 +419,7 @@ export function GitHubChatConnectorCard({
 
     const handleFocusVerification = () => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      void verifyAgentGitHubSetup();
+      void verifyAgentGitHubSetup(false);
     };
 
     window.addEventListener("focus", handleFocusVerification);
@@ -466,14 +484,20 @@ export function GitHubChatConnectorCard({
   React.useEffect(() => {
     if (!connected || step !== "pending" || !authId || (!connectorsProvider && (!onAuthStatus || !onIntegrationStatus))) return;
     let cancelled = false;
+    let polling = false;
     const reportedIntervalMs = runtimeSetup?.pollIntervalMs ?? authStart?.intervalMs;
     const intervalMs = typeof reportedIntervalMs === "number" ? Math.max(reportedIntervalMs, 1500) : 3000;
     const poll = async () => {
+      if (polling || cancelled) return;
+      polling = true;
+      setAuthPolling(true);
       try {
         if (connectorsProvider) {
           const result = await connectorsProvider.pollSetup({ connectorId: "github", setupId: authId });
           if (cancelled) return;
           if (result.state === "complete") {
+            setError(null);
+            setTechnicalDetails(null);
             setEntry({
               configured: true,
               authenticated: true,
@@ -489,7 +513,10 @@ export function GitHubChatConnectorCard({
             setError("GitHub authorization did not finish. Start the connection again and approve the new code.");
             setTechnicalDetails(result.error?.trim() || null);
             setStep("failed");
+            return;
           }
+          setError(null);
+          setTechnicalDetails(null);
           return;
         }
         const result = await onAuthStatus!({ authId, integrationId: "github" });
@@ -513,13 +540,28 @@ export function GitHubChatConnectorCard({
           setError("GitHub authorization did not finish. Start the connection again and approve the new code.");
           setTechnicalDetails(result.error?.trim() || null);
           setStep("failed");
+          return;
         }
+        const statusResult = await onIntegrationStatus!({ integrationId: "github", probe: true });
+        if (cancelled) return;
+        const nextEntry = statusEntry(statusResult);
+        if (isUsable(nextEntry)) {
+          setError(null);
+          setTechnicalDetails(null);
+          setEntry(nextEntry);
+          setStep("connected");
+          return;
+        }
+        setError(null);
+        setTechnicalDetails(null);
       } catch (cause) {
         if (!cancelled) {
-          setError("GitHub authorization could not be checked. Return from GitHub, then retry.");
+          setError("GitHub is taking longer to confirm. We will keep checking automatically.");
           setTechnicalDetails(cause instanceof Error && cause.message.trim() ? cause.message.trim() : null);
-          setStep("failed");
         }
+      } finally {
+        polling = false;
+        if (!cancelled) setAuthPolling(false);
       }
     };
     const timer = window.setInterval(() => void poll(), intervalMs);
@@ -528,7 +570,7 @@ export function GitHubChatConnectorCard({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [authId, authStart?.intervalMs, connected, connectorsProvider, onAuthStatus, onIntegrationStatus, runtimeSetup?.pollIntervalMs, step]);
+  }, [authId, authPollRevision, authStart?.intervalMs, connected, connectorsProvider, onAuthStatus, onIntegrationStatus, runtimeSetup?.pollIntervalMs, step]);
 
   const generateWorkflow = React.useCallback(async () => {
     if (!onGenerateConnectorWorkflow) return false;
@@ -561,6 +603,9 @@ export function GitHubChatConnectorCard({
     setAgentSetupSending(true);
     setSettingUpCopyIndex(0);
     setCopiedCode(false);
+    if (verificationResetTimerRef.current) clearTimeout(verificationResetTimerRef.current);
+    verificationResetTimerRef.current = null;
+    setAgentVerificationRequested(false);
     setError(null);
     setTechnicalDetails(null);
     try {
@@ -723,6 +768,12 @@ export function GitHubChatConnectorCard({
             ) : null
           ) : agentFlowActive ? (
             <>
+              {showAgentDeviceCode && onVerifyAgentGitHubSetup ? (
+                <button type="button" className={buttonClass()} disabled={checkingAgentAuthorization} onClick={() => void verifyAgentGitHubSetup(true)}>
+                  {checkingAgentAuthorization ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {checkingAgentAuthorization ? "Checking" : "Check connection"}
+                </button>
+              ) : null}
               {((githubAgentStatus.phase === "idle" && (!agentSetupStarted || Boolean(error))) || githubAgentStatus.phase === "failed") && (
                 <button type="button" className={buttonClass("primary")} disabled={agentSetupSending} onClick={() => void startAgentSetup()}>
                   {githubAgentStatus.phase === "failed" ? "Try again" : "Start connection"}
@@ -746,6 +797,10 @@ export function GitHubChatConnectorCard({
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open GitHub
               </a>
+              <button type="button" className={buttonClass()} disabled={authPolling} onClick={() => setAuthPollRevision((current) => current + 1)}>
+                <RefreshCw className={`h-3.5 w-3.5 ${authPolling ? "animate-spin" : ""}`} />
+                Check connection
+              </button>
             </>
           )}
           {!agentFlowActive && visibleStep === "connected" && (
@@ -792,7 +847,8 @@ export function GitHubChatConnectorCard({
                   <button
                     type="button"
                     onClick={() => void copyAgentDeviceCode(agentDeviceCode)}
-                    className="relative isolate max-w-full font-mono text-[clamp(1.65rem,9vw,3rem)] font-bold tracking-[0.12em] text-foreground transition-colors hover:text-selection-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+                    disabled={checkingAgentAuthorization}
+                    className="relative isolate max-w-full font-mono text-[clamp(1.65rem,9vw,3rem)] font-bold tracking-[0.12em] text-foreground transition-colors hover:text-selection-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-4 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-60"
                     aria-label={`Copy GitHub device code ${agentDeviceCode}`}
                   >
                     {codeRippleActive ? (
@@ -810,13 +866,19 @@ export function GitHubChatConnectorCard({
                   </button>
                 </TooltipHint>
                 <p className="mt-3 text-sm font-medium text-text-secondary sm:text-base">
-                  {copiedCode ? "Copied. Enter it on GitHub, then return here." : "Click the code to copy it, then enter it on GitHub."}
+                  {checkingAgentAuthorization
+                    ? "Checking GitHub now. You do not need to enter this code again."
+                    : copiedCode
+                      ? "Copied. Enter it on GitHub, then return here."
+                      : "Click the code to copy it, then enter it on GitHub."}
                 </p>
               </div>
-              <a href={githubAgentStatus.verificationUri ?? GITHUB_CLI_DEVICE_URL} target="_blank" rel="noopener noreferrer" className={`${buttonClass("primary")} justify-center sm:self-center`}>
-                <ExternalLink className="h-3.5 w-3.5" />
-                Open GitHub
-              </a>
+              {!checkingAgentAuthorization ? (
+                <a href={githubAgentStatus.verificationUri ?? GITHUB_CLI_DEVICE_URL} target="_blank" rel="noopener noreferrer" className={`${buttonClass("primary")} justify-center sm:self-center`}>
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Open GitHub
+                </a>
+              ) : null}
             </div>
           )}
         </>

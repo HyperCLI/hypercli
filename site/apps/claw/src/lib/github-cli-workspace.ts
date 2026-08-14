@@ -83,6 +83,9 @@ const GITHUB_SETUP_STATUS_PATTERNS = [
 ];
 
 export function isManagedGitHubAuthUnsupportedError(cause: unknown): boolean {
+  const record = cause && typeof cause === "object" ? cause as Record<string, unknown> : null;
+  const code = typeof record?.gatewayCode === "string" ? record.gatewayCode.trim().toUpperCase() : "";
+  if (["METHOD_NOT_FOUND", "NOT_IMPLEMENTED", "UNIMPLEMENTED", "UNSUPPORTED_METHOD"].includes(code)) return true;
   const message = cause instanceof Error ? cause.message : String(cause ?? "");
   return /unknown method:\s*integrations\.auth\.start/i.test(message) || (/method not found/i.test(message) && /integrations\.auth\.start/i.test(message));
 }
@@ -98,11 +101,6 @@ function commandLabel(name: string, args: string): string {
   if (haystack.includes("api user")) return "Verifying GitHub account";
   if (haystack.includes("curl") || haystack.includes("tar") || haystack.includes(".local/bin") || haystack.includes("which gh")) return "Preparing GitHub CLI";
   return name || "Agent command";
-}
-
-function isGitHubRelevantTool(name: string, args: string, result = ""): boolean {
-  const haystack = `${name}\n${args}\n${result}`.toLowerCase();
-  return haystack.includes("github") || haystack.includes(" gh") || haystack.includes("gh ") || haystack.includes(".local/bin") || haystack.includes("login/device");
 }
 
 function isGitHubSetupToolCall(name: string, args: string, result = ""): boolean {
@@ -128,6 +126,15 @@ function isGitHubSetupPromptContent(content: string): boolean {
     trimmed === GITHUB_AGENT_SETUP_PROMPT.trim() ||
     trimmed === GITHUB_AGENT_VERIFY_PROMPT.trim() ||
     (trimmed.startsWith("Check whether GitHub CLI authentication is ready in this workspace.") && trimmed.includes("gh auth status")) ||
+    (trimmed.startsWith("Set up GitHub CLI authentication in this workspace.") && trimmed.includes("gh auth login --web"))
+  );
+}
+
+function isGitHubSetupStartPromptContent(content: string): boolean {
+  const trimmed = content.trim();
+  return (
+    trimmed === GITHUB_SETUP_DISPLAY_PROMPT ||
+    trimmed === GITHUB_AGENT_SETUP_PROMPT.trim() ||
     (trimmed.startsWith("Set up GitHub CLI authentication in this workspace.") && trimmed.includes("gh auth login --web"))
   );
 }
@@ -194,56 +201,95 @@ export function extractGitHubAgentSetupStatus(messages: ChatMessage[]): GitHubAg
   let verificationUri: string | undefined;
   let accountDisplayName: string | undefined;
   let failedMessage: string | undefined;
-  let explicitPhase: GitHubAgentSetupPhase | undefined;
+  let phase: GitHubAgentSetupPhase = "idle";
   let progressDetail: string | undefined;
 
+  const resetAttempt = () => {
+    recentCommands.length = 0;
+    userCode = undefined;
+    verificationUri = undefined;
+    accountDisplayName = undefined;
+    failedMessage = undefined;
+    progressDetail = undefined;
+    phase = "idle";
+  };
+
+  const markDeviceCode = (code: string, uri?: string) => {
+    userCode = code;
+    verificationUri = uri ?? verificationUri ?? GITHUB_CLI_DEVICE_URL;
+    accountDisplayName = undefined;
+    failedMessage = undefined;
+    phase = "device-code";
+  };
+
+  const markReady = (login?: string) => {
+    accountDisplayName = login || accountDisplayName;
+    userCode = undefined;
+    verificationUri = undefined;
+    failedMessage = undefined;
+    phase = "ready";
+  };
+
+  const markFailed = (message?: string) => {
+    failedMessage = message ? sanitizeText(message) : failedMessage;
+    userCode = undefined;
+    verificationUri = undefined;
+    accountDisplayName = undefined;
+    phase = "failed";
+  };
+
   for (const message of messages) {
-    if (message.role === "assistant") {
-      const content = message.content;
-      const deviceMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.device-code\s+([A-Z0-9]{4}-[A-Z0-9]{4})(?:\s+(https:\/\/github\.com\/login\/device))?/i);
-      const readyMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.ready\s+([^\s]+)/i);
-      const failedMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.failed\s+(?:"([^"]*)"|(.+))/i);
-      const progressMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.progress\s+([a-z-]+)(?:\s+"([^"]*)")?/i);
-      const naturalCode = content.match(DEVICE_CODE_RE)?.[0];
-      const naturalUrl = content.match(DEVICE_URL_RE)?.[0];
-      const naturalReady = content.match(/(?:authenticated|logged in|ready).{0,80}\bas\s+([A-Za-z0-9-]+)/i)?.[1] ?? extractGitHubLoginFromText(content);
-
-      if (progressMarker?.[1]) {
-        const phase = progressMarker[1].toLowerCase() as GitHubAgentSetupPhase;
-        if (PROGRESS_PHASES.has(phase)) explicitPhase = phase;
-        if (progressMarker[2]) progressDetail = sanitizeText(progressMarker[2]);
-      }
-
-      if (deviceMarker?.[1] || naturalCode) userCode = deviceMarker?.[1] ?? naturalCode;
-      if (deviceMarker?.[2] || naturalUrl) verificationUri = deviceMarker?.[2] ?? naturalUrl;
-      if (readyMarker?.[1] || naturalReady) accountDisplayName = readyMarker?.[1] ?? naturalReady;
-      if (failedMarker?.[1] || failedMarker?.[2]) failedMessage = sanitizeText(failedMarker[1] ?? failedMarker[2]);
+    if (message.role === "user" && isGitHubSetupStartPromptContent(message.content)) {
+      resetAttempt();
+      continue;
     }
 
-    for (const toolCall of message.toolCalls ?? []) {
-      if (!isGitHubRelevantTool(toolCall.name, toolCall.args, toolCall.result)) continue;
-      const toolText = `${toolCall.args}\n${toolCall.result ?? ""}`;
-      const toolCode = toolText.match(DEVICE_CODE_RE)?.[0];
-      const toolUrl = toolText.match(DEVICE_URL_RE)?.[0];
-      const toolReady = extractGitHubLoginFromText(toolText, toolCall.args);
-      if (toolCode) userCode = toolCode;
-      if (toolUrl) verificationUri = toolUrl;
-      if (toolReady) accountDisplayName = toolReady;
-      recentCommands.push({
-        label: commandLabel(toolCall.name, toolCall.args),
-        command: sanitizeText(toolCall.args).slice(0, 500),
-        result: toolCall.result ? sanitizeText(toolCall.result).slice(-1000) : undefined,
-      });
+    if (message.role === "assistant") {
+      for (const toolCall of message.toolCalls ?? []) {
+        if (!isGitHubSetupToolCall(toolCall.name, toolCall.args, toolCall.result)) continue;
+        const toolText = `${toolCall.args}\n${toolCall.result ?? ""}`;
+        const toolCode = toolText.match(DEVICE_CODE_RE)?.[0];
+        const toolUrl = toolText.match(DEVICE_URL_RE)?.[0];
+        const toolReady = extractGitHubLoginFromText(toolText, toolCall.args);
+        if (toolCode) markDeviceCode(toolCode, toolUrl);
+        if (toolReady) markReady(toolReady);
+        recentCommands.push({
+          label: commandLabel(toolCall.name, toolCall.args),
+          command: sanitizeText(toolCall.args).slice(0, 500),
+          result: toolCall.result ? sanitizeText(toolCall.result).slice(-1000) : undefined,
+        });
+      }
+
+      const content = message.content;
+      const deviceMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.device-code\s+([A-Z0-9]{4}-[A-Z0-9]{4})(?:\s+(https:\/\/github\.com\/login\/device))?/i);
+      const readyMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.ready(?:\s+([^\s]+))?/i);
+      const failedMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.failed\s+(?:"([^"]*)"|(.+))/i);
+      const progressMarker = content.match(/@@hypercli\.ui-action\/v1\s+integration\.github\.progress\s+([a-z-]+)(?:\s+"([^"]*)")?/i);
+      const relevantContent = isGitHubSetupAssistantContent(content);
+      const naturalCode = relevantContent ? content.match(DEVICE_CODE_RE)?.[0] : undefined;
+      const naturalUrl = relevantContent ? content.match(DEVICE_URL_RE)?.[0] : undefined;
+      const naturalReady = relevantContent
+        ? content.match(/(?:authenticated|logged in|ready).{0,80}\bas\s+([A-Za-z0-9-]+)/i)?.[1] ?? extractGitHubLoginFromText(content)
+        : undefined;
+
+      if (progressMarker?.[1]) {
+        const nextPhase = progressMarker[1].toLowerCase() as GitHubAgentSetupPhase;
+        if (progressMarker[2]) progressDetail = sanitizeText(progressMarker[2]);
+        if (PROGRESS_PHASES.has(nextPhase)) {
+          if (nextPhase === "ready") markReady();
+          else if (nextPhase === "failed") markFailed(progressMarker[2]);
+          else phase = nextPhase;
+        }
+      }
+
+      const nextCode = deviceMarker?.[1] ?? naturalCode;
+      if (nextCode) markDeviceCode(nextCode, deviceMarker?.[2] ?? naturalUrl);
+      if (readyMarker || naturalReady) markReady(readyMarker?.[1] ?? naturalReady);
+      if (failedMarker?.[1] || failedMarker?.[2]) markFailed(failedMarker[1] ?? failedMarker[2]);
     }
   }
 
-  const phase: GitHubAgentSetupPhase = failedMessage
-    ? "failed"
-    : accountDisplayName
-      ? "ready"
-      : userCode
-        ? "device-code"
-        : explicitPhase ?? phaseFromCommands(recentCommands);
+  if (phase === "idle") phase = phaseFromCommands(recentCommands);
 
   return {
     phase,

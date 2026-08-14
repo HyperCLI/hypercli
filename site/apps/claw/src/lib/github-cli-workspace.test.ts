@@ -89,14 +89,13 @@ describe("github-cli-workspace", () => {
 
     expect(extractGitHubAgentSetupStatus(messages)).toEqual(expect.objectContaining({
       phase: "ready",
-      userCode: "4F43-A4D3",
-      verificationUri: GITHUB_CLI_DEVICE_URL,
       accountDisplayName: "octocat",
       recentCommands: expect.arrayContaining([
         expect.objectContaining({ label: "Starting GitHub authorization" }),
         expect.objectContaining({ label: "Checking GitHub auth" }),
       ]),
     }));
+    expect(extractGitHubAgentSetupStatus(messages).userCode).toBeUndefined();
   });
 
   it("derives ready state from common GitHub verification outputs", () => {
@@ -135,6 +134,49 @@ describe("github-cli-workspace", () => {
     }));
   });
 
+  it("clears a used device code when a later verification reports ready", () => {
+    const messages: ChatMessage[] = [
+      { role: "assistant", content: "@@hypercli.ui-action/v1 integration.github.device-code 8BCD-83A2 https://github.com/login/device" },
+      { role: "user", content: "Check GitHub connection in this workspace." },
+      { role: "assistant", content: "@@hypercli.ui-action/v1 integration.github.ready" },
+    ];
+
+    expect(extractGitHubAgentSetupStatus(messages)).toEqual(expect.objectContaining({
+      phase: "ready",
+      userCode: undefined,
+      verificationUri: undefined,
+    }));
+  });
+
+  it("lets ready progress supersede an earlier device code", () => {
+    expect(extractGitHubAgentSetupStatus([
+      { role: "assistant", content: "@@hypercli.ui-action/v1 integration.github.device-code 8BCD-83A2 https://github.com/login/device" },
+      { role: "assistant", content: '@@hypercli.ui-action/v1 integration.github.progress ready "GitHub is ready"' },
+    ])).toEqual(expect.objectContaining({ phase: "ready", userCode: undefined }));
+  });
+
+  it("resets an old failure when a new setup attempt produces a code", () => {
+    expect(extractGitHubAgentSetupStatus([
+      { role: "assistant", content: '@@hypercli.ui-action/v1 integration.github.failed "Authorization expired"' },
+      { role: "user", content: "Set up GitHub in this workspace." },
+      { role: "assistant", content: "@@hypercli.ui-action/v1 integration.github.device-code 9BCD-83A2 https://github.com/login/device" },
+    ])).toEqual(expect.objectContaining({
+      phase: "device-code",
+      userCode: "9BCD-83A2",
+      failedMessage: undefined,
+    }));
+  });
+
+  it("ignores unrelated reference codes in assistant messages and tools", () => {
+    expect(extractGitHubAgentSetupStatus([
+      {
+        role: "assistant",
+        content: "The deployment reference is ABCD-EFGH.",
+        toolCalls: [{ name: "shell", args: "printf ABCD-EFGH", result: "ABCD-EFGH" }],
+      },
+    ])).toEqual(expect.objectContaining({ phase: "idle", userCode: undefined }));
+  });
+
   it("redacts token-shaped values from command activity and failure messages", () => {
     const status = extractGitHubAgentSetupStatus([
       {
@@ -161,6 +203,7 @@ describe("github-cli-workspace", () => {
     expect(isManagedGitHubAuthUnsupportedError(new Error("unknown method: files.read"))).toBe(false);
     expect(isManagedGitHubAuthUnsupportedError(new Error("method not found: files.read"))).toBe(false);
     expect(isManagedGitHubAuthUnsupportedError(new Error("GitHub authorization denied"))).toBe(false);
+    expect(isManagedGitHubAuthUnsupportedError(Object.assign(new Error("Unavailable"), { gatewayCode: "METHOD_NOT_FOUND" }))).toBe(true);
   });
 
   it("hides only GitHub setup/auth transcript messages", () => {

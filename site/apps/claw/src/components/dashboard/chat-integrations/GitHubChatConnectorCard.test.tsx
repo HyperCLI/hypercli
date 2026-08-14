@@ -132,6 +132,60 @@ describe("GitHubChatConnectorCard", () => {
     expect(screen.getByText("ABCD-EFGH")).toBeInTheDocument();
   });
 
+  it("keeps polling after a transient status failure and clears the used code on completion", async () => {
+    vi.useFakeTimers();
+    const runtime = { provider: "openclaw", version: "2026.7.16", capabilities: ["integrations.auth"] };
+    const pollSetup = vi.fn()
+      .mockRejectedValueOnce(new Error("temporary gateway timeout"))
+      .mockResolvedValueOnce({
+        connectorId: "github",
+        setupId: "auth-recovery",
+        state: "complete" as const,
+        accountDisplayName: "octocat",
+        provenance: runtime,
+      });
+    const connectorsProvider = {
+      runtime,
+      list: vi.fn(async () => [{
+        connectorId: "github",
+        configured: false,
+        authenticated: false,
+        usable: false,
+        setupModes: ["managed-auth" as const],
+      }]),
+      startSetup: vi.fn(async () => ({
+        connectorId: "github",
+        mode: "managed-auth" as const,
+        setupId: "auth-recovery",
+        deviceUrl: "https://github.com/login/device",
+        deviceCode: "ABCD-EFGH",
+        pollIntervalMs: 1500,
+        provenance: runtime,
+      })),
+      pollSetup,
+      configure: vi.fn(),
+    } satisfies AgentConnectorsProvider;
+
+    render(<GitHubChatConnectorCard connected connectorsProvider={connectorsProvider} configSchema={null} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
+    });
+
+    expect(screen.getByText("ABCD-EFGH")).toBeInTheDocument();
+    expect(screen.getByText(/keep checking automatically/i)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+
+    expect(screen.getByText("GitHub connected")).toBeInTheDocument();
+    expect(screen.queryByText("ABCD-EFGH")).not.toBeInTheDocument();
+    expect(screen.queryByText(/keep checking automatically/i)).not.toBeInTheDocument();
+  });
+
   it("allows starting when the gateway does not advertise GitHub", async () => {
     const onAuthStart = vi.fn(async () => ({ authId: "auth-1" }));
     render(
@@ -356,6 +410,9 @@ describe("GitHubChatConnectorCard", () => {
       window.dispatchEvent(new Event("focus"));
     });
     expect(onVerifyAgentGitHubSetup).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Checking GitHub now. You do not need to enter this code again.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Checking" })).toBeDisabled();
+    expect(screen.queryByRole("link", { name: /open github/i })).not.toBeInTheDocument();
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -365,6 +422,7 @@ describe("GitHubChatConnectorCard", () => {
     act(() => {
       vi.advanceTimersByTime(15_000);
     });
+    expect(screen.getByRole("button", { name: "Check connection" })).toBeEnabled();
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });

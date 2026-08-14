@@ -18,10 +18,15 @@ interface OpenClawIntegrationStatusEntry {
   configured?: boolean;
   authenticated?: boolean;
   usable?: boolean;
+  connectionId?: string;
+  accountId?: string;
+  accountDisplayName?: string;
+  scopes?: string[];
 }
 
 interface OpenClawIntegrationStatusResult {
   integrations?: Record<string, OpenClawIntegrationStatusEntry>;
+  integration?: OpenClawIntegrationStatusEntry;
 }
 
 interface OpenClawIntegrationAuthStartResult {
@@ -83,6 +88,7 @@ function preferredSetupModes(
 export function normalizeOpenClawConnectors(
   channelsResult: Record<string, unknown>,
   integrationsResult: OpenClawIntegrationStatusResult,
+  scopedIntegrationId?: string,
 ): AgentConnectorDescriptor[] {
   const descriptors = new Map<string, {
     configured: boolean;
@@ -105,7 +111,12 @@ export function normalizeOpenClawConnectors(
     descriptors.set(channel.channelId, current);
   }
 
-  for (const [connectorId, integration] of Object.entries(integrationsResult.integrations ?? {})) {
+  const integrationEntries = integrationsResult.integrations
+    ? Object.entries(integrationsResult.integrations)
+    : scopedIntegrationId && integrationsResult.integration
+      ? [[scopedIntegrationId, integrationsResult.integration] as const]
+      : [];
+  for (const [connectorId, integration] of integrationEntries) {
     const current = descriptors.get(connectorId) ?? {
       configured: false,
       authenticated: false,
@@ -141,6 +152,9 @@ function setupState(value: string | undefined): AgentConnectorSetupState {
 }
 
 function isUnsupportedMethodError(error: unknown): boolean {
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : null;
+  const code = typeof record?.gatewayCode === 'string' ? record.gatewayCode.trim().toUpperCase() : '';
+  if (['METHOD_NOT_FOUND', 'NOT_IMPLEMENTED', 'UNIMPLEMENTED', 'UNSUPPORTED_METHOD'].includes(code)) return true;
   const message = error instanceof Error ? error.message : String(error ?? '');
   return /unknown method|method not found|not implemented|unsupported/i.test(message);
 }
@@ -167,7 +181,7 @@ export class OpenClawConnectorsProvider implements AgentConnectorsProvider {
           if (isUnsupportedMethodError(error)) return {};
           throw error;
         });
-    const connectors = normalizeOpenClawConnectors(channels, integrations);
+    const connectors = normalizeOpenClawConnectors(channels, integrations, options.connectorId);
     return options.connectorId
       ? connectors.filter((connector) => connector.connectorId === options.connectorId)
       : connectors;
@@ -215,10 +229,35 @@ export class OpenClawConnectorsProvider implements AgentConnectorsProvider {
       integrationId: request.connectorId,
       accountId: request.accountId,
     });
+    const state = result.connectionId ? 'complete' : setupState(result.status);
+    if (state === 'pending' || state === 'unknown') {
+      const status = await this.client.integrationsStatus({
+        integrationId: request.connectorId,
+        probe: true,
+      }).catch(() => null);
+      const integration = status?.integrations?.[request.connectorId] ?? status?.integration;
+      const usable = integration?.usable === true || (
+        integration?.configured === true &&
+        integration.authenticated === true &&
+        integration.usable !== false
+      );
+      if (usable) {
+        return {
+          connectorId: request.connectorId,
+          setupId: request.setupId,
+          state: 'complete',
+          connectionId: result.connectionId ?? integration.connectionId,
+          accountId: result.accountId ?? integration.accountId,
+          accountDisplayName: result.accountDisplayName ?? integration.accountDisplayName,
+          scopes: result.scopes ?? integration.scopes,
+          provenance: this.runtime,
+        };
+      }
+    }
     return {
       connectorId: request.connectorId,
       setupId: request.setupId,
-      state: result.connectionId ? 'complete' : setupState(result.status),
+      state,
       connectionId: result.connectionId,
       accountId: result.accountId,
       accountDisplayName: result.accountDisplayName,

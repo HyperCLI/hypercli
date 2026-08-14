@@ -87,6 +87,19 @@ describe('OpenClawConnectorsProvider', () => {
     ]);
   });
 
+  it('recognizes structured unsupported-method errors during discovery', async () => {
+    const sdk = client({
+      channelsStatus: vi.fn(async () => ({ channels: { telegram: { configured: false } } })),
+      integrationsStatus: vi.fn(async () => {
+        throw Object.assign(new Error('Unavailable'), { gatewayCode: 'METHOD_NOT_FOUND' });
+      }),
+    });
+
+    await expect(new OpenClawConnectorsProvider(sdk, runtime).list()).resolves.toEqual([
+      expect.objectContaining({ connectorId: 'telegram', setupModes: ['config'] }),
+    ]);
+  });
+
   it('does not request managed integration status for a scoped config channel', async () => {
     const sdk = client({
       channelsStatus: vi.fn(async () => ({
@@ -125,6 +138,18 @@ describe('OpenClawConnectorsProvider', () => {
       probe: undefined,
       timeoutMs: undefined,
     });
+  });
+
+  it('normalizes a scoped singular integration response', async () => {
+    const sdk = client({
+      integrationsStatus: vi.fn(async () => ({
+        integration: { configured: true, authenticated: true, usable: true },
+      })),
+    });
+
+    await expect(new OpenClawConnectorsProvider(sdk, runtime).list({ connectorId: 'github' })).resolves.toEqual([
+      expect.objectContaining({ connectorId: 'github', configured: true, authenticated: true, usable: true }),
+    ]);
   });
 
   it('maps dynamic auth-start instructions and device flow details with runtime provenance', async () => {
@@ -226,6 +251,37 @@ describe('OpenClawConnectorsProvider', () => {
       integrationId: 'github',
       accountId: undefined,
     });
+  });
+
+  it('reconciles pending auth with usable integration status', async () => {
+    const sdk = client({
+      integrationsAuthStatus: vi.fn(async () => ({ status: 'pending' })),
+      integrationsStatus: vi.fn(async () => ({
+        integration: {
+          configured: true,
+          authenticated: true,
+          usable: true,
+          connectionId: 'connection-2',
+          accountDisplayName: 'Octocat',
+          scopes: ['repo'],
+        },
+      })),
+    });
+
+    await expect(new OpenClawConnectorsProvider(sdk, runtime).pollSetup({
+      connectorId: 'github',
+      setupId: 'auth-2',
+    })).resolves.toEqual({
+      connectorId: 'github',
+      setupId: 'auth-2',
+      state: 'complete',
+      connectionId: 'connection-2',
+      accountId: undefined,
+      accountDisplayName: 'Octocat',
+      scopes: ['repo'],
+      provenance: runtime,
+    });
+    expect(sdk.integrationsStatus).toHaveBeenCalledWith({ integrationId: 'github', probe: true });
   });
 
   it('approves short-code authorization through a constrained runtime operation', async () => {
