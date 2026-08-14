@@ -51,6 +51,27 @@ describe("GitHubChatConnectorCard", () => {
     expect(screen.queryByText(/Connect repositories and issues with GitHub device authorization/i)).not.toBeInTheDocument();
   });
 
+  it("uses Aurora surface, typography, and action tokens", () => {
+    render(
+      <GitHubChatConnectorCard
+        connected
+        configSchema={null}
+        {...handlers}
+      />,
+    );
+
+    const title = screen.getByText("Connect GitHub");
+    const card = title.closest("section");
+    const startButton = screen.getByRole("button", { name: /start connection/i });
+
+    expect(card).toHaveClass("rounded-2xl", "bg-surface-low", "shadow-[var(--glass-card-shadow)]");
+    expect(card).not.toHaveClass("shadow-2xl");
+    expect(title).toHaveClass("font-semibold", "tracking-[-0.04em]");
+    expect(title).not.toHaveClass("uppercase", "font-black");
+    expect(startButton).toHaveClass("h-9", "rounded-lg", "bg-button-primary");
+    expect(startButton).not.toHaveClass("h-8", "rounded-full", "uppercase");
+  });
+
   it("uses runtime-provided managed auth instructions through the connector provider", async () => {
     const runtime = { provider: "openclaw", version: "2026.7.16", capabilities: ["integrations.auth"] };
     const connectorsProvider = {
@@ -122,6 +143,9 @@ describe("GitHubChatConnectorCard", () => {
 
   it("falls back to an agent setup prompt when managed handlers are missing", async () => {
     const onStartAgentGitHubSetup = vi.fn(async () => undefined);
+    const onGenerateConnectorWorkflow = vi.fn(async () => {
+      throw new Error("The setup guide should not replace executable setup.");
+    });
     const onOpenFullSetup = vi.fn();
 
     render(
@@ -129,6 +153,7 @@ describe("GitHubChatConnectorCard", () => {
         connected
         configSchema={schemaWith("integrations.github")}
         onStartAgentGitHubSetup={onStartAgentGitHubSetup}
+        onGenerateConnectorWorkflow={onGenerateConnectorWorkflow}
         onOpenFullSetup={onOpenFullSetup}
       />,
     );
@@ -138,6 +163,7 @@ describe("GitHubChatConnectorCard", () => {
     });
 
     expect(onStartAgentGitHubSetup).toHaveBeenCalledTimes(1);
+    expect(onGenerateConnectorWorkflow).not.toHaveBeenCalled();
     expect(await screen.findByText("Hold on tight.")).toBeInTheDocument();
     expect(screen.queryByText("Setting everything up")).not.toBeInTheDocument();
     expect(screen.queryByText("Ask agent")).not.toBeInTheDocument();
@@ -199,6 +225,9 @@ describe("GitHubChatConnectorCard", () => {
       throw new Error("unknown method: integrations.auth.start");
     });
     const onStartAgentGitHubSetup = vi.fn(async () => undefined);
+    const onGenerateConnectorWorkflow = vi.fn(async () => {
+      throw new Error("The setup guide should not replace executable setup.");
+    });
 
     render(
       <GitHubChatConnectorCard
@@ -207,6 +236,7 @@ describe("GitHubChatConnectorCard", () => {
         {...handlers}
         onAuthStart={onAuthStart}
         onStartAgentGitHubSetup={onStartAgentGitHubSetup}
+        onGenerateConnectorWorkflow={onGenerateConnectorWorkflow}
       />,
     );
 
@@ -216,6 +246,7 @@ describe("GitHubChatConnectorCard", () => {
 
     expect(onAuthStart).toHaveBeenCalledTimes(1);
     expect(onStartAgentGitHubSetup).toHaveBeenCalledTimes(1);
+    expect(onGenerateConnectorWorkflow).not.toHaveBeenCalled();
     expect(screen.queryByText(/No sudo and no token paste/i)).not.toBeInTheDocument();
   });
 
@@ -333,6 +364,7 @@ describe("GitHubChatConnectorCard", () => {
     );
 
     expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(screen.getByText("Connected")).toHaveClass("text-success");
     expect(screen.getByText("Signed in as octocat")).toBeInTheDocument();
     expect(screen.queryByText("8BCD-83A2")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /open github/i })).not.toBeInTheDocument();

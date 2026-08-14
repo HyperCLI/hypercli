@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, ArrowRight, CheckCircle2, Copy, ExternalLink, Github, Loader2, RefreshCw, X } from "lucide-react";
 import type {
   AgentConnectorRuntimeSetupResult,
@@ -108,34 +108,35 @@ function authFailed(result: GatewayIntegrationAuthStatusResult): boolean {
 }
 
 function buttonClass(tone: "primary" | "secondary" | "caution" = "secondary") {
+  const base = "inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold transition-[background-color,border-color,color,transform,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-45 motion-reduce:hover:translate-y-0";
   if (tone === "primary") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full bg-button-primary px-3 text-xs font-black uppercase tracking-[0.12em] text-button-primary-foreground transition-all hover:-translate-y-0.5 hover:bg-button-primary-hover disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+    return `${base} bg-button-primary text-button-primary-foreground shadow-[0_6px_18px_rgb(var(--button-primary-rgb)_/_0.2)] hover:-translate-y-0.5 hover:bg-button-primary-hover hover:shadow-[0_8px_22px_rgb(var(--button-primary-rgb)_/_0.26)]`;
   }
   if (tone === "caution") {
-    return "inline-flex h-8 items-center gap-1.5 rounded-full border border-warning/35 bg-warning/10 px-3 text-xs font-black uppercase tracking-[0.12em] text-warning transition-all hover:-translate-y-0.5 hover:bg-warning/15 disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+    return `${base} border border-warning/30 bg-warning/10 text-warning hover:-translate-y-0.5 hover:border-warning/45 hover:bg-warning/15`;
   }
-  return "inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-surface-low/70 px-3 text-xs font-black uppercase tracking-[0.12em] text-text-secondary backdrop-blur transition-all hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-high hover:text-foreground disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-50";
+  return `${base} border border-border bg-background/70 text-text-secondary hover:-translate-y-0.5 hover:border-border-strong hover:bg-surface-high hover:text-foreground`;
 }
 
 const CARD_TONE_CLASS: Record<GitHubCardTone, string> = {
   neutral: "border-border",
-  primary: "border-selection-accent/40",
-  warning: "border-warning/40",
-  info: "border-primary/40",
+  primary: "border-success/30",
+  warning: "border-warning/30",
+  info: "border-[var(--selection-accent-border)]",
 };
 
 const HERO_TONE_CLASS: Record<GitHubCardTone, string> = {
-  neutral: "text-foreground/82",
-  primary: "text-selection-accent",
+  neutral: "text-foreground",
+  primary: "text-success",
   warning: "text-warning",
-  info: "text-primary",
+  info: "text-[var(--selection-accent)]",
 };
 
 const ICON_TONE_CLASS: Record<GitHubCardTone, string> = {
-  neutral: "text-foreground/24",
-  primary: "text-selection-accent/40",
-  warning: "text-warning/40",
-  info: "text-primary/40",
+  neutral: "text-text-muted/45",
+  primary: "text-success/45",
+  warning: "text-warning/45",
+  info: "text-[rgb(var(--selection-accent-rgb)_/_0.45)]",
 };
 
 const SETUP_PROGRESS_STEP_LABELS = [
@@ -172,46 +173,47 @@ function hasRenderableNode(node: React.ReactNode): boolean {
 }
 
 function GitHubSignalCard({ tone, heroLabel, heroSubtitle, children, actions, iconLoading = false }: GitHubSignalCardProps) {
+  const reduceMotion = useReducedMotion();
   const iconClass = iconLoading ? "text-selection-accent" : ICON_TONE_CLASS[tone];
   const hasChildren = hasRenderableNode(children);
   const hasActions = hasRenderableNode(actions);
   return (
     <section
-      className={`group relative mb-3 overflow-hidden rounded-[1.75rem] border bg-background shadow-2xl ${CARD_TONE_CLASS[tone]}`}
+      className={`group relative mb-3 overflow-hidden rounded-2xl border bg-surface-low shadow-[var(--glass-card-shadow)] ${CARD_TONE_CLASS[tone]}`}
       aria-live="polite"
     >
-      <Github className={`pointer-events-none absolute -right-16 -top-9 h-52 w-52 rotate-12 opacity-60 sm:-right-20 sm:h-64 sm:w-64 ${ICON_TONE_CLASS[tone]}`} strokeWidth={1.05} />
+      <Github className={`pointer-events-none absolute -right-12 -top-10 h-44 w-44 rotate-12 opacity-25 sm:-right-14 sm:h-52 sm:w-52 ${ICON_TONE_CLASS[tone]}`} strokeWidth={1} aria-hidden="true" />
 
-      <div className="relative z-10 p-4 pb-4 sm:p-5">
-        <div className="flex items-center gap-4 sm:gap-5">
-          <IntegrationBrandPulse active={iconLoading} accentColor="rgb(var(--selection-accent-rgb))">
-            <Github className={`h-14 w-14 sm:h-[4.5rem] sm:w-[4.5rem] ${iconClass}`} strokeWidth={1.15} />
+      <div className="relative z-10 p-4 sm:p-5">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <IntegrationBrandPulse active={iconLoading} accentColor="rgb(var(--selection-accent-rgb))" className="!h-16 !w-16 sm:!h-20 sm:!w-20">
+            <Github className={`h-11 w-11 sm:h-12 sm:w-12 ${iconClass}`} strokeWidth={1.35} aria-hidden="true" />
           </IntegrationBrandPulse>
           <div className="min-w-0 flex-1">
-            <div className="flex min-h-[3.2rem] items-center overflow-hidden sm:min-h-[4rem]">
+            <div className="flex min-h-10 items-center overflow-hidden">
               <motion.p
                 key={heroLabel}
-                initial={{ opacity: 0, y: 18, filter: "blur(7px)" }}
+                initial={reduceMotion ? false : { opacity: 0, y: 18, filter: "blur(7px)" }}
                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                transition={{ type: "spring", stiffness: 330, damping: 32, mass: 0.8 }}
-                className={`truncate text-left text-[clamp(1.55rem,5.6vw,3.05rem)] font-black uppercase leading-[0.9] tracking-[0.01em] ${HERO_TONE_CLASS[tone]}`}
+                transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 330, damping: 32, mass: 0.8 }}
+                className={`text-balance text-left text-[clamp(1.35rem,4.5vw,2.2rem)] font-semibold leading-[1.05] tracking-[-0.04em] ${HERO_TONE_CLASS[tone]}`}
               >
                 {heroLabel}
               </motion.p>
             </div>
-            {heroSubtitle && <p className="mt-2 line-clamp-2 text-xs leading-5 text-text-secondary sm:text-sm">{heroSubtitle}</p>}
+            {heroSubtitle && <p className="mt-1.5 max-w-[62ch] text-xs leading-5 text-text-secondary sm:text-sm">{heroSubtitle}</p>}
           </div>
         </div>
       </div>
 
       {hasChildren ? (
-        <div className="relative z-10 border-t border-border bg-surface-low/70 px-4 py-4 text-xs leading-5 text-text-secondary backdrop-blur-md sm:px-5">
+        <div className="relative z-10 border-t border-border bg-background/35 px-4 py-4 text-xs leading-5 text-text-secondary sm:px-5">
           {children}
         </div>
       ) : null}
 
       {hasActions ? (
-        <div className="relative z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-high/35 px-4 py-3 backdrop-blur-md sm:px-5">
+        <div className="relative z-10 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-surface-high/45 px-4 py-3 sm:px-5">
           {actions}
         </div>
       ) : null}
@@ -249,14 +251,14 @@ function agentHeroLabel(status: GitHubAgentSetupStatus, started: boolean, sendin
 
 function GitHubCongratulations({ accountDisplayName }: { accountDisplayName?: string }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-selection-accent/30 bg-selection-accent/10 px-4 py-4 text-foreground">
-      <Github className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rotate-12 text-selection-accent/10" strokeWidth={1.1} />
+    <div className="relative overflow-hidden rounded-xl border border-success/25 bg-success/10 px-4 py-4 text-foreground">
+      <Github className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rotate-12 text-success/10" strokeWidth={1.1} aria-hidden="true" />
       <div className="relative flex items-center gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-selection-accent/35 bg-background/65 text-selection-accent">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-success/30 bg-background/65 text-success">
           <CheckCircle2 className="h-6 w-6" />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-black uppercase tracking-[0.16em] text-selection-accent">Connected</p>
+          <p className="text-sm font-semibold text-success">Connected</p>
           <p className="mt-1 truncate text-base font-semibold text-foreground">
             {accountDisplayName ? `Signed in as ${accountDisplayName}` : "GitHub connected"}
           </p>
@@ -321,6 +323,7 @@ export function GitHubChatConnectorCard({
   onDismiss,
   directSetup = false,
 }: GitHubChatConnectorCardProps) {
+  const reduceMotion = useReducedMotion();
   const hasCapability = hasGitHubCapability(configSchema);
   const hasManagedMethods = Boolean(connectorsProvider || (onAuthStart && onAuthStatus && onIntegrationStatus));
   const [step, setStep] = React.useState<ConnectorStep>("checking");
@@ -550,7 +553,7 @@ export function GitHubChatConnectorCard({
   }, [connected, directSetup, generateWorkflow, onGenerateConnectorWorkflow]);
 
   const startAgentSetup = React.useCallback(async () => {
-    if (onGenerateConnectorWorkflow) {
+    if (!onStartAgentGitHubSetup && onGenerateConnectorWorkflow) {
       await generateWorkflow();
       return;
     }
@@ -789,7 +792,7 @@ export function GitHubChatConnectorCard({
                   <button
                     type="button"
                     onClick={() => void copyAgentDeviceCode(agentDeviceCode)}
-                    className="relative isolate font-mono text-4xl font-black tracking-[0.16em] text-foreground transition-colors hover:text-selection-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-4 focus-visible:ring-offset-background sm:text-5xl"
+                    className="relative isolate max-w-full font-mono text-[clamp(1.65rem,9vw,3rem)] font-bold tracking-[0.12em] text-foreground transition-colors hover:text-selection-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-4 focus-visible:ring-offset-background"
                     aria-label={`Copy GitHub device code ${agentDeviceCode}`}
                   >
                     {codeRippleActive ? (
@@ -798,9 +801,9 @@ export function GitHubChatConnectorCard({
                         aria-hidden="true"
                         data-testid="github-device-code-ripple"
                         className="pointer-events-none absolute inset-[-0.45rem] -z-10 rounded-2xl border border-selection-accent/50 bg-selection-accent/12"
-                        initial={{ opacity: 0.82, scale: 0.72 }}
-                        animate={{ opacity: 0, scale: 1.42 }}
-                        transition={{ duration: 3, ease: [0.16, 1, 0.3, 1] }}
+                        initial={reduceMotion ? false : { opacity: 0.82, scale: 0.72 }}
+                        animate={reduceMotion ? { opacity: 0.2, scale: 1 } : { opacity: 0, scale: 1.42 }}
+                        transition={reduceMotion ? { duration: 0 } : { duration: 3, ease: [0.16, 1, 0.3, 1] }}
                       />
                     ) : null}
                     {agentDeviceCode}
@@ -828,14 +831,14 @@ export function GitHubChatConnectorCard({
               <p className="mt-1 font-mono text-xl font-semibold tracking-[0.14em] text-foreground" aria-label={`GitHub device code ${managedUserCode}`}>{managedUserCode}</p>
             </div>
           )}
-          <a href={managedVerificationHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-xs font-semibold text-selection-accent hover:underline">
+          <a href={managedVerificationHref} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded text-xs font-semibold text-[var(--link)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-background">
             Open GitHub
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
       ) : visibleStep === "connected" ? (
         <div className="space-y-2">
-          <p className="font-medium text-selection-accent">GitHub connected{accountDisplayName ? ` as ${String(accountDisplayName)}` : ""}.</p>
+          <p className="font-medium text-success">GitHub connected{accountDisplayName ? ` as ${String(accountDisplayName)}` : ""}.</p>
         </div>
       ) : (
         null
