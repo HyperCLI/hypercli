@@ -50,6 +50,10 @@ export function createOpenClawSdkSessionKey(
   return createOpenClawSessionKey(existingSessionKeys, OPENCLAW_SDK_SESSION_PREFIX);
 }
 
+function quotePosixShellArgument(value: string): string {
+  return `'${value.split("'").join("'\"'\"'")}'`;
+}
+
 export function isOpenClawInternalMainSessionKey(sessionKey: string | null | undefined): boolean {
   const normalized = (sessionKey ?? "").trim().toLowerCase();
   if (!normalized) return false;
@@ -3345,7 +3349,7 @@ export class GatewayClient {
     if (!this.canAutoApprovePairing()) {
       throw new Error("autoApprovePairing requires deploymentId, apiKey, apiBase, and fetch()");
     }
-    const command = `openclaw devices approve ${JSON.stringify(requestId)} --json`;
+    const command = `openclaw devices approve ${quotePosixShellArgument(requestId)} --json`;
     const controller = new AbortController();
     this.pairingApprovalController = controller;
     const timeout = setTimeout(() => {
@@ -3353,17 +3357,10 @@ export class GatewayClient {
     }, PAIRING_APPROVAL_TIMEOUT_MS);
     try {
       const response = await fetch(
-        `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec`,
+        `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec/token`,
         {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            command,
-            timeout: 30,
-          }),
+          headers: { Authorization: `Bearer ${this.apiKey}` },
           signal: controller.signal,
         },
       );
@@ -3371,14 +3368,154 @@ export class GatewayClient {
         const errorText = await response.text();
         throw new Error(`Pairing approval failed: ${response.status} ${errorText}`);
       }
-      const payload = await response.json() as {
-        exitCode?: number;
-        exit_code?: number;
-        stdout?: string;
-        stderr?: string;
-      };
-      if ((payload.exitCode ?? payload.exit_code ?? 1) !== 0) {
-        throw new Error(payload.stderr?.trim() || payload.stdout?.trim() || "pairing approval command failed");
+      const token = await response.json() as Record<string, unknown>;
+      const deploymentId = this.deploymentId as string;
+      const tokenKeys = token && typeof token === "object" ? Object.keys(token).sort() : [];
+      const expectedTokenKeys = ["agent_id", "expires_at", "jwt", "ws_url"];
+      let parsed: URL;
+      try {
+        parsed = new URL(typeof token.ws_url === "string" ? token.ws_url : "");
+      } catch {
+        throw new Error("Pairing approval received an invalid exec token");
+      }
+      if (
+        tokenKeys.length !== expectedTokenKeys.length
+        || tokenKeys.some((key, index) => key !== expectedTokenKeys[index])
+        || token.agent_id !== deploymentId
+        || typeof token.jwt !== "string"
+        || !token.jwt
+        || typeof token.expires_at !== "string"
+        || !token.expires_at
+        || !["ws:", "wss:"].includes(parsed.protocol)
+        || !parsed.hostname
+        || parsed.username
+        || parsed.password
+        || parsed.search
+        || parsed.hash
+        || !parsed.pathname.endsWith(`/ws/exec/${deploymentId}`)
+      ) {
+        throw new Error("Pairing approval received an invalid exec token");
+      }
+      parsed.searchParams.set("jwt", token.jwt);
+
+      const useBrowserSocket = typeof globalThis.WebSocket !== "undefined";
+      const socket: GatewaySocket = useBrowserSocket
+        ? new WebSocket(parsed.toString())
+        : new NodeWebSocket(parsed.toString());
+      const payload = await new Promise<Record<string, unknown>>((resolve, reject) => {
+        let opened = false;
+        let result: Record<string, unknown> | null = null;
+        let resultCount = 0;
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          controller.signal.removeEventListener("abort", abort);
+          if (error) reject(error);
+          else if (result) resolve(result);
+          else reject(new Error("Pairing approval exec WebSocket closed without one result"));
+        };
+        const abort = () => {
+          try {
+            socket.close(1000, "Pairing approval cancelled");
+          } finally {
+            finish(controller.signal.reason instanceof Error
+              ? controller.signal.reason
+              : new Error("Pairing approval cancelled"));
+          }
+        };
+        const handleOpen = () => {
+          opened = true;
+          socket.send(JSON.stringify({ command, timeout: 30, dry_run: false }));
+        };
+        const handleMessage = (data: unknown) => {
+          const rejectFrame = (message: string, reason: string) => {
+            const error = new Error(message);
+            try {
+              socket.close(1008, reason);
+            } finally {
+              finish(error);
+            }
+          };
+          if (typeof data !== "string") {
+            rejectFrame(
+              "Pairing approval received a non-text exec result",
+              "Non-text exec result",
+            );
+            return;
+          }
+          resultCount += 1;
+          if (resultCount !== 1) {
+            rejectFrame(
+              "Pairing approval received multiple exec results",
+              "Multiple exec results",
+            );
+            return;
+          }
+          try {
+            const value = JSON.parse(data) as unknown;
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              throw new Error("invalid");
+            }
+            result = value as Record<string, unknown>;
+          } catch {
+            rejectFrame("Pairing approval received invalid exec JSON", "Invalid exec JSON");
+          }
+        };
+        const handleClose = (code: number, reason: string) => {
+          if (code !== 1000) {
+            finish(new Error(`Pairing approval exec WebSocket closed with code ${code}${reason ? `: ${reason}` : ""}`));
+          } else if (!opened || resultCount !== 1) {
+            finish(new Error("Pairing approval exec WebSocket closed without one result"));
+          } else {
+            finish();
+          }
+        };
+        controller.signal.addEventListener("abort", abort, { once: true });
+        if (useBrowserSocket) {
+          socket.onopen = handleOpen;
+          socket.onmessage = (event: { data?: unknown }) => handleMessage(event.data);
+          socket.onerror = () => undefined;
+          socket.onclose = (event: { code?: number; reason?: string }) => {
+            handleClose(event.code ?? 1006, String(event.reason ?? ""));
+          };
+        } else {
+          const nodeSocket = socket as NodeWebSocket;
+          nodeSocket.on("open", handleOpen);
+          nodeSocket.on("message", (data: NodeWebSocket.RawData, isBinary: boolean) => {
+            handleMessage(isBinary ? data : data.toString());
+          });
+          nodeSocket.on("error", () => undefined);
+          nodeSocket.on("close", (code: number, reason: Buffer) => {
+            handleClose(code, reason.toString());
+          });
+        }
+      });
+
+      const payloadKeys = Object.keys(payload).sort();
+      if (
+        payload.event !== "agent_exec_result"
+        || payload.ok !== true
+        || payloadKeys.length !== 5
+        || ["event", "exit_code", "ok", "stderr", "stdout"].some(
+          (key, index) => payloadKeys[index] !== key,
+        )
+        || !Number.isInteger(payload.exit_code)
+        || typeof payload.stdout !== "string"
+        || typeof payload.stderr !== "string"
+      ) {
+        if (
+          payload.event === "agent_exec_result"
+          && payload.ok === false
+          && Object.keys(payload).sort().join(",") === "error,event,ok"
+          && typeof payload.error === "string"
+        ) {
+          throw new Error(payload.error);
+        }
+        throw new Error("Pairing approval received an invalid exec result");
+      }
+      if (payload.exit_code !== 0) {
+        throw new Error(payload.stderr.trim() || payload.stdout.trim() || "pairing approval command failed");
       }
     } finally {
       clearTimeout(timeout);

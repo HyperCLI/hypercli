@@ -908,30 +908,13 @@ def status(
     if pod.jwt_expires_at:
         console.print(f"  JWT Expires: {pod.jwt_expires_at}")
 def _print_agent_metrics(data: dict) -> None:
-    agent_name = str(data.get("name") or data.get("agent_id") or "")
-    timestamp = str(data.get("timestamp") or "")
-    title = "Agent Metrics"
-    if agent_name:
-        title = f"{title} — {agent_name}"
-
-    table = Table(title=title)
+    timestamp_value = data.get("timestamp")
+    timestamp = "" if timestamp_value is None else str(timestamp_value)
+    table = Table(title="Agent Metrics")
     table.add_column("Container", style="cyan")
     table.add_column("CPU Usage")
     table.add_column("Memory Usage")
-
-    containers = data.get("containers")
-    if isinstance(containers, dict):
-        for container_name, raw_usage in containers.items():
-            usage = raw_usage if isinstance(raw_usage, dict) else {}
-            table.add_row(
-                str(container_name),
-                str(usage.get("cpu") or "0"),
-                str(usage.get("memory") or "0"),
-            )
-
-    if not table.rows:
-        console.print("[dim]No container metrics returned.[/dim]")
-        return
+    table.add_row("reef", str(data.get("cpu") or "0"), str(data.get("memory") or "0"))
 
     console.print()
     console.print(table)
@@ -944,7 +927,7 @@ def metrics(
     agent_id: str = typer.Argument(..., help="Agent ID, name, handle, hostname, or prefix"),
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
 ):
-    """Get live CPU and memory usage for a running agent."""
+    """Get one live Reef CPU and memory sample over Backend WebSocket."""
     agents = _get_deployments_client()
     agent_id = _resolve_agent(agent_id)
 
@@ -956,12 +939,6 @@ def metrics(
 
     if json_output:
         console.print_json(json.dumps(data, indent=2, default=str))
-
-    metrics_error = data.get("error") if isinstance(data, dict) else "Invalid metrics response"
-    if metrics_error:
-        if not json_output:
-            console.print(f"[red]❌ Metrics unavailable: {metrics_error}[/red]")
-        raise typer.Exit(1)
 
     if not json_output:
         _print_agent_metrics(data)
@@ -1296,7 +1273,7 @@ def exec_cmd(
     command: str = typer.Argument(..., help="Command to execute"),
     timeout: int = typer.Option(30, "--timeout", "-t", help="Command timeout (seconds)"),
 ):
-    """Execute a command on an agent pod."""
+    """Execute a command through the Backend one-shot WebSocket."""
     agent_id = _resolve_agent(agent_id)
 
     try:
@@ -1323,6 +1300,22 @@ def exec_cmd(
             sys.stderr.write("\n")
 
     raise typer.Exit(result.exit_code)
+
+
+async def _read_agent_shell_output(ws) -> None:
+    async for msg in ws:
+        if isinstance(msg, str):
+            sys.stdout.write(msg)
+            sys.stdout.flush()
+        elif isinstance(msg, bytes):
+            sys.stdout.buffer.write(msg)
+            sys.stdout.buffer.flush()
+
+    close_code = getattr(ws, "close_code", None)
+    if close_code != 1000:
+        close_reason = str(getattr(ws, "close_reason", "") or "")
+        suffix = f": {close_reason}" if close_reason else ""
+        raise RuntimeError(f"Shell WebSocket closed with code {close_code}{suffix}")
 
 
 @app.command("cp")
@@ -1395,18 +1388,6 @@ def shell(
                 cols, rows = shutil.get_terminal_size()
                 await ws.send(f"\x1b[8;{rows};{cols}t")
 
-                async def read_ws():
-                    try:
-                        async for msg in ws:
-                            if isinstance(msg, str):
-                                sys.stdout.write(msg)
-                                sys.stdout.flush()
-                            elif isinstance(msg, bytes):
-                                sys.stdout.buffer.write(msg)
-                                sys.stdout.buffer.flush()
-                    except Exception:
-                        pass
-
                 async def read_stdin():
                     loop = asyncio.get_event_loop()
                     try:
@@ -1421,11 +1402,17 @@ def shell(
                         pass
 
                 done, pending = await asyncio.wait(
-                    [asyncio.create_task(read_ws()), asyncio.create_task(read_stdin())],
+                    [
+                        asyncio.create_task(_read_agent_shell_output(ws)),
+                        asyncio.create_task(read_stdin()),
+                    ],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for t in pending:
                     t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                for task in done:
+                    task.result()
             finally:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
                 console.print("\n[dim]Disconnected.[/dim]")

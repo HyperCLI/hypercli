@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
@@ -42,6 +43,22 @@ from hypercli.agents import (
     is_agent_transitional_state,
 )
 from hypercli.http import APIError, HTTPClient
+
+
+def test_vendored_agents_openapi_matches_canonical_data_plane_routes():
+    schema_path = Path(__file__).resolve().parents[2] / "docs" / "agents-openapi.json"
+    schema = json.loads(schema_path.read_text())
+    paths = schema["paths"]
+    prefix = "/agents/deployments/{agent_id}"
+
+    assert f"{prefix}/exec" not in paths
+    assert f"{prefix}/metrics" not in paths
+    for purpose in ("files", "metrics", "exec", "logs", "shell"):
+        assert "post" in paths[f"{prefix}/{purpose}/token"]
+
+    shell_request = schema["components"]["schemas"]["AgentShellTokenRequest"]
+    assert set(shell_request["properties"]) == {"shell"}
+    assert shell_request.get("required") == ["shell"]
 
 
 def test_agent_from_dict_minimal():
@@ -2169,7 +2186,7 @@ def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client
         assert agent._deployments is agents_client
 
 
-def test_agents_file_ops_use_backend_file_api(agents_client):
+def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client):
     assert AGENT_FILE_MAX_BYTES == 250 * 1024 * 1024
     assert AGENT_FILE_TRANSFER_CHUNK_BYTES == 64 * 1024
 
@@ -2184,9 +2201,25 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         def json(self):
             return self._json_data
 
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return self.content
+
+        def iter_bytes(self, chunk_size=None):
+            assert chunk_size == AGENT_FILE_TRANSFER_CHUNK_BYTES
+            yield self.content
+
+    token_calls = []
+    reef_calls = []
+
     class FakeClient:
         def __init__(self, timeout=None):
-            assert timeout in (AGENT_FILE_OPERATION_TIMEOUT_SECONDS, 10)
+            assert timeout in (AGENT_FILE_OPERATION_TIMEOUT_SECONDS, 30.0, 10)
             self.timeout = timeout
 
         def __enter__(self):
@@ -2197,9 +2230,13 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
             assert params is None
-            if url.endswith("/deployments/agent-123/files/"):
+            assert headers == {"Authorization": "Bearer reef-token"}
+            assert follow_redirects is False
+            reef_calls.append(("GET", url))
+            if url == "https://agent.example.test/_reef-sync/directories":
                 return FakeResponse(
                     json_data={
+                        "type": "directory",
                         "directories": [
                             {"name": ".openclaw", "path": ".openclaw/", "type": "directory"},
                             {"name": "workspace", "path": "workspace/", "type": "directory"},
@@ -2207,9 +2244,10 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                         "files": [{"name": "AGENTS.md", "path": "AGENTS.md", "type": "file"}],
                     }
                 )
-            if url.endswith("/deployments/agent-123/files/workspace"):
+            if url == "https://agent.example.test/_reef-sync/directories/workspace":
                 return FakeResponse(
                     json_data={
+                        "type": "directory",
                         "directories": [
                             {
                                 "name": "dir",
@@ -2226,9 +2264,18 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                         ],
                     }
                 )
-            if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
+            if url == "https://agent.example.test/_reef-sync/files/workspace/a.txt":
                 return FakeResponse(content=b"hello", headers={"content-type": "text/plain"})
-            if url.endswith("/deployments/agent-123/files/.openclaw"):
+            if url == "https://agent.example.test/_reef-sync/directories/.openclaw":
+                return FakeResponse(
+                    json_data={
+                        "type": "directory",
+                        "prefix": ".openclaw/",
+                        "directories": [{"name": "workspace", "type": "directory"}],
+                        "files": [{"name": "openclaw.json", "type": "file"}],
+                    },
+                )
+            if url == "https://agent.example.test/_reef-sync/files/.openclaw":
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2241,7 +2288,22 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                 )
             raise AssertionError(url)
 
-        def post(self, url, headers=None, params=None, content=None):
+        def stream(self, method, url, headers=None, follow_redirects=None):
+            assert method == "GET"
+            return self.get(url, headers=headers, follow_redirects=follow_redirects)
+
+        def post(self, url, headers=None, params=None, content=None, json=None):
+            if url.endswith("/deployments/agent-123/files/token"):
+                assert headers["Authorization"] == "Bearer sk-hyper-test123"
+                assert json is None
+                token_calls.append(url)
+                return FakeResponse(
+                    json_data={
+                        "url": "https://agent.example.test/_reef-sync",
+                        "token": "reef-token",
+                        "expires_at": "2026-08-15T00:05:00Z",
+                    }
+                )
             if url.endswith("/deployments/agent-123/profile-image"):
                 assert headers["Authorization"] == "Bearer sk-hyper-test123"
                 assert headers["Content-Type"] == "image/png"
@@ -2253,19 +2315,25 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                         "s3_key": "prod/user-456/agent-123.png",
                     }
                 )
-            assert url.endswith(
-                (
-                    "/deployments/agent-123/files/workspace/a.txt",
-                    "/deployments/agent-123/files/AGENTS.md",
-                )
-            )
-            assert params is None
-            assert content in {b"payload", b"instructions"}
+            raise AssertionError(url)
+
+        def put(self, url, headers=None, content=None, follow_redirects=None):
+            assert url == "https://agent.example.test/_reef-sync/files/workspace/a.txt"
+            assert headers == {
+                "Authorization": "Bearer reef-token",
+                "Content-Type": "application/octet-stream",
+            }
+            assert content == b"payload"
+            assert follow_redirects is False
+            reef_calls.append(("PUT", url))
             return FakeResponse(json_data={"status": "ok"})
 
-        def delete(self, url, headers=None, params=None):
-            assert url.endswith(("/deployments/agent-123/files/workspace/a.txt",))
+        def delete(self, url, headers=None, params=None, follow_redirects=None):
+            assert url == "https://agent.example.test/_reef-sync/files/workspace/a.txt"
+            assert headers == {"Authorization": "Bearer reef-token"}
             assert params is None
+            assert follow_redirects is False
+            reef_calls.append(("DELETE", url))
             return FakeResponse(json_data={"status": "ok"})
 
     with patch("hypercli.agents.httpx.Client", FakeClient):
@@ -2309,6 +2377,147 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             agents_client.file_write(agent, "/etc/hosts", "blocked")
         with pytest.raises(ValueError, match="sync root"):
             agents_client.file_delete(agent, "/etc/hosts")
+
+    assert len(token_calls) == 8
+    assert all("/deployments/agent-123/files/" not in url for _, url in reef_calls)
+
+
+def test_agents_file_ops_reject_invalid_reef_locator(agents_client):
+    agents_client._post = lambda *_args, **_kwargs: {
+        "url": "http://agent.example.test/_reef-sync",
+        "token": "reef-token",
+        "expires_at": "2026-08-15T00:05:00Z",
+    }
+
+    with pytest.raises(ValueError, match="invalid Agent file token"):
+        agents_client.files_list("agent-123")
+
+
+def test_agents_file_ops_preserve_reef_error_detail(agents_client):
+    agents_client._post = lambda *_args, **_kwargs: {
+        "url": "https://agent.example.test/_reef-sync",
+        "token": "reef-token",
+        "expires_at": "2026-08-15T00:05:00Z",
+    }
+    response = Mock(status_code=403, text='{"detail":"forbidden"}')
+    response.json.return_value = {"detail": "forbidden"}
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.__exit__.return_value = False
+    response.read.return_value = b'{"detail":"forbidden"}'
+    stream = MagicMock()
+    stream.__enter__.return_value = response
+    stream.__exit__.return_value = False
+    client.stream.return_value = stream
+
+    with patch("hypercli.agents.httpx.Client", return_value=client):
+        with pytest.raises(APIError) as exc_info:
+            agents_client.file_read("agent-123", "workspace/private.txt")
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail == "forbidden"
+
+
+def test_agents_file_read_stops_at_limit_plus_one_without_buffering_rest(
+    agents_client, monkeypatch
+):
+    agents_client._post = lambda *_args, **_kwargs: {
+        "url": "https://agent.example.test/_reef-sync",
+        "token": "reef-token",
+        "expires_at": "2026-08-15T00:05:00Z",
+    }
+    monkeypatch.setattr("hypercli.agents.AGENT_FILE_MAX_BYTES", 4)
+    consumed = []
+
+    class StreamingResponse:
+        status_code = 200
+        headers = {"content-type": "application/octet-stream"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def iter_bytes(self, chunk_size=None):
+            assert chunk_size == AGENT_FILE_TRANSFER_CHUNK_BYTES
+            for chunk in (b"abcd", b"efgh", b"must-not-be-read"):
+                consumed.append(chunk)
+                yield chunk
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.__exit__.return_value = False
+    client.stream.return_value = StreamingResponse()
+
+    with patch("hypercli.agents.httpx.Client", return_value=client):
+        with pytest.raises(ValueError) as exc_info:
+            agents_client.file_read_bytes("agent-123", "workspace/large.bin")
+
+    assert consumed == [b"abcd", b"efgh"]
+    assert "Agent file reads are limited" in str(exc_info.value)
+
+
+def test_agents_file_read_rejects_redirect_without_consuming_body(agents_client):
+    agents_client._post = lambda *_args, **_kwargs: {
+        "url": "https://agent.example.test/_reef-sync",
+        "token": "reef-token",
+        "expires_at": "2026-08-15T00:05:00Z",
+    }
+
+    class RedirectResponse:
+        status_code = 302
+        headers = {"location": "https://elsewhere.example.test/file"}
+        text = "redirect rejected"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"redirect rejected"
+
+        def json(self):
+            raise ValueError("not json")
+
+        def iter_bytes(self, chunk_size=None):
+            pytest.fail("redirect response body must not be streamed as file content")
+
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.__exit__.return_value = False
+    client.stream.return_value = RedirectResponse()
+
+    with patch("hypercli.agents.httpx.Client", return_value=client):
+        with pytest.raises(APIError) as exc_info:
+            agents_client.file_read_bytes("agent-123", "workspace/redirect.bin")
+
+    assert exc_info.value.status_code == 302
+    assert exc_info.value.detail == "redirect rejected"
+
+
+@pytest.mark.parametrize("status_code", [301, 302, 307, 308])
+def test_agents_file_list_rejects_redirects(agents_client, status_code):
+    agents_client._post = lambda *_args, **_kwargs: {
+        "url": "https://agent.example.test/_reef-sync",
+        "token": "reef-token",
+        "expires_at": "2026-08-15T00:05:00Z",
+    }
+    response = Mock(status_code=status_code, text="redirect rejected")
+    response.json.side_effect = ValueError("not json")
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.__exit__.return_value = False
+    client.get.return_value = response
+
+    with patch("hypercli.agents.httpx.Client", return_value=client):
+        with pytest.raises(APIError) as exc_info:
+            agents_client.files_list("agent-123")
+
+    assert exc_info.value.status_code == status_code
+    assert exc_info.value.detail == "redirect rejected"
 
 
 def test_agent_file_write_rejects_content_above_sdk_limit(agents_client):

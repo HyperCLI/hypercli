@@ -75,7 +75,7 @@ The browser device layer is separate:
 On a cold connection, a `PAIRING_REQUIRED` / not-paired response moves the
 client into `pairing`. If `deploymentId`, `apiKey`, `apiBase`, and
 `autoApprovePairing` are present, the SDK approves the exact request through
-trusted Agent exec and reconnects. Applications should render that as
+the token-authenticated Agent exec WebSocket and reconnects. Applications should render that as
 connection progress, not start a second client.
 
 An invalid cached device token clears only the current deployment-and-role

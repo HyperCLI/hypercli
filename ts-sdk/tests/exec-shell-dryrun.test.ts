@@ -31,6 +31,56 @@ class MockWebSocket {
   }
 }
 
+function operationToken(agentId: string, purpose: 'metrics' | 'exec') {
+  return {
+    agent_id: agentId,
+    jwt: `jwt-${purpose}`,
+    expires_at: '2026-08-15T00:05:00Z',
+    ws_url: `wss://socket.example.test/product/ws/${purpose}/${agentId}`,
+  };
+}
+
+function shellToken(shell: string, jwt = 'jwt-shell') {
+  return {
+    agent_id: 'agent-1',
+    jwt,
+    expires_at: '2026-08-15T00:05:00Z',
+    ws_url: 'wss://socket.example.test/product/ws/shell/agent-1',
+    shell,
+  };
+}
+
+function stubOneShotWebSocket(
+  frames: unknown[],
+  closeCode = 1000,
+  closeReason = '',
+) {
+  const sockets: OneShotWebSocket[] = [];
+  class OneShotWebSocket {
+    public readonly sent: string[] = [];
+    public onopen: (() => void) | null = null;
+    public onmessage: ((event: { data: unknown }) => void) | null = null;
+    public onerror: (() => void) | null = null;
+    public onclose: ((event: { code: number; reason: string }) => void) | null = null;
+    public close = vi.fn();
+
+    constructor(public readonly url: string) {
+      sockets.push(this);
+      queueMicrotask(() => {
+        this.onopen?.();
+        for (const data of frames) this.onmessage?.({ data });
+        this.onclose?.({ code: closeCode, reason: closeReason });
+      });
+    }
+
+    send(frame: string) {
+      this.sent.push(frame);
+    }
+  }
+  vi.stubGlobal('WebSocket', OneShotWebSocket as any);
+  return sockets;
+}
+
 describe('HyperClaw agents SDK', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -1086,42 +1136,112 @@ describe('HyperClaw agents SDK', () => {
     expect(result[0]).toBeInstanceOf(Agent);
   });
 
-  it('exec forwards dry_run payload', async () => {
-    const post = vi.fn().mockResolvedValue({
-      exit_code: 0,
-      stdout: 'preview\n',
-      stderr: '',
-      dry_run: true,
-    });
+  it('exec mints a token, sends one exact frame, and waits for a normal close', async () => {
+    const sockets = stubOneShotWebSocket([
+      JSON.stringify({
+        event: 'agent_exec_result',
+        ok: true,
+        exit_code: 7,
+        stdout: 'preview\n',
+        stderr: 'warning\n',
+      }),
+    ]);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
 
-    const result = await agents.exec('agent-1', 'ls -la', { timeout: 20, dryRun: true });
+    const result = await agents.exec('agent-1', '  ls -la  ', { timeout: 20, dryRun: true });
 
-    expect(post).toHaveBeenCalledWith('/deployments/agent-1/exec', {
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/exec/token');
+    expect(sockets[0]?.url).toBe('wss://socket.example.test/product/ws/exec/agent-1?jwt=jwt-exec');
+    expect(JSON.parse(sockets[0]?.sent[0] ?? '')).toEqual({
       command: 'ls -la',
       timeout: 20,
       dry_run: true,
     });
-    expect(result.exitCode).toBe(0);
+    expect(result.exitCode).toBe(7);
     expect(result.stdout).toBe('preview\n');
+    expect(result.stderr).toBe('warning\n');
   });
 
-  it('shellToken and shellConnect use configured agents websocket base', async () => {
-    const post = vi.fn().mockResolvedValue({
-      jwt: 'jwt-abc',
-      ws_url: 'wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh',
-      shell: '/bin/sh',
-      dry_run: true,
+  it('metrics sends no application frame and returns one strict result after close', async () => {
+    const sockets = stubOneShotWebSocket([
+      JSON.stringify({
+        event: 'agent_metrics_result',
+        ok: true,
+        cpu: '25m',
+        memory: '128Mi',
+        timestamp: 7,
+      }),
+    ]);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'metrics'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.metrics('agent-1')).resolves.toEqual({
+      event: 'agent_metrics_result',
+      ok: true,
+      cpu: '25m',
+      memory: '128Mi',
+      timestamp: 7,
     });
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/metrics/token');
+    expect(sockets[0]?.sent).toEqual([]);
+  });
+
+  it.each([
+    ['binary result', [new Uint8Array([1])], 1000, '', 'non-text', true],
+    ['invalid JSON', ['not-json'], 1000, '', 'invalid JSON', true],
+    ['extra result', ['{}', '{}'], 1000, '', 'more than one', true],
+    ['policy close', [], 4409, 'Agent is busy', '4409: Agent is busy', false],
+  ])('rejects metrics %s', async (_label, frames, closeCode, closeReason, message, closes) => {
+    const sockets = stubOneShotWebSocket(
+      frames as unknown[],
+      closeCode as number,
+      closeReason as string,
+    );
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'metrics'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.metrics('agent-1')).rejects.toThrow(message as string);
+    if (closes) expect(sockets[0]?.close).toHaveBeenCalledWith(1008, expect.any(String));
+  });
+
+  it('surfaces an exact exec error result', async () => {
+    stubOneShotWebSocket([
+      JSON.stringify({ event: 'agent_exec_result', ok: false, error: 'output limit exceeded' }),
+    ]);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.exec('agent-1', 'yes')).rejects.toThrow('output limit exceeded');
+  });
+
+  it('rejects a noncanonical operation token before websocket connect', async () => {
+    const token = operationToken('agent-1', 'metrics');
+    token.ws_url += '?jwt=already-present';
+    const connect = vi.fn();
+    class UnexpectedWebSocket {
+      constructor(url: string) {
+        connect(url);
+      }
+    }
+    vi.stubGlobal('WebSocket', UnexpectedWebSocket as any);
+    const post = vi.fn().mockResolvedValue(token);
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.metrics('agent-1')).rejects.toThrow('invalid Agent metrics token');
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it('shellToken and shellConnect use the authenticated token response URL', async () => {
+    const post = vi.fn().mockResolvedValue(shellToken('/bin/sh', 'jwt-abc'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
-    const token = await agents.shellToken('agent-1', '/bin/sh', true);
+    const token = await agents.shellToken('agent-1', '/bin/sh');
     const ws = await agents.shellConnect('agent-1', '/bin/sh');
 
     expect(token.jwt).toBe('jwt-abc');
     expect(post).toHaveBeenNthCalledWith(1, '/deployments/agent-1/shell/token', {
       shell: '/bin/sh',
-      dry_run: true,
     });
     expect(post).toHaveBeenNthCalledWith(2, '/deployments/agent-1/shell/token', {
       shell: '/bin/sh',
@@ -1131,16 +1251,12 @@ describe('HyperClaw agents SDK', () => {
       timeout: 4_000,
       signal: expect.any(AbortSignal),
     });
-    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh');
+    expect((ws as any).url).toBe('wss://socket.example.test/product/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh');
     expect(ws.binaryType).toBe('arraybuffer');
   });
 
   it('shellConnect defaults to websocket shells without exec probing', async () => {
-    const post = vi.fn().mockResolvedValue({
-      jwt: 'jwt-bash',
-      ws_url: 'wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash',
-      shell: '/bin/bash',
-    });
+    const post = vi.fn().mockResolvedValue(shellToken('/bin/bash', 'jwt-bash'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
     const ws = await agents.shellConnect('agent-1');
@@ -1154,7 +1270,7 @@ describe('HyperClaw agents SDK', () => {
       timeout: 4_000,
       signal: expect.any(AbortSignal),
     });
-    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash');
+    expect((ws as any).url).toBe('wss://socket.example.test/product/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash');
   });
 
   it('shellConnect bounds websocket opening and closes a stalled socket', async () => {
@@ -1174,7 +1290,7 @@ describe('HyperClaw agents SDK', () => {
       }
     }
     vi.stubGlobal('WebSocket', PendingWebSocket as any);
-    const post = vi.fn().mockResolvedValue({ jwt: 'jwt-bash', shell: '/bin/bash' });
+    const post = vi.fn().mockResolvedValue(shellToken('/bin/bash', 'jwt-bash'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
     const connection = agents.shellConnect('agent-1', '/bin/bash', { openTimeoutMs: 100 });
@@ -1216,19 +1332,16 @@ describe('HyperClaw agents SDK', () => {
     vi.useRealTimers();
   });
 
-  it('shellConnect only falls back when bash is explicitly unavailable', async () => {
-    const post = vi.fn()
-      .mockRejectedValueOnce(new APIError(422, '/bin/bash not found'))
-      .mockResolvedValueOnce({ jwt: 'jwt-sh', shell: '/bin/sh' });
+  it('shellConnect does not mint a second credential when the requested shell fails', async () => {
+    const post = vi.fn().mockRejectedValue(new APIError(422, '/bin/bash not found'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
-    const ws = await agents.shellConnect('agent-1');
+    await expect(agents.shellConnect('agent-1')).rejects.toThrow('/bin/bash not found');
 
-    expect(post).toHaveBeenCalledTimes(2);
-    expect((ws as any).url).toContain('shell=%2Fbin%2Fsh');
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
-  it('shellConnect retains a close reason after websocket error for shell fallback', async () => {
+  it('shellConnect retains a close reason after websocket error', async () => {
     class ShellAwareWebSocket {
       public binaryType = 'blob';
       public onopen: (() => void) | null = null;
@@ -1238,26 +1351,18 @@ describe('HyperClaw agents SDK', () => {
 
       constructor(public readonly url: string) {
         queueMicrotask(() => {
-          if (url.includes('shell=%2Fbin%2Fbash')) {
-            this.onerror?.();
-            this.onclose?.({ reason: '/bin/bash not found' });
-          } else {
-            this.onopen?.();
-          }
+          this.onerror?.();
+          this.onclose?.({ reason: '/bin/bash not found' });
         });
       }
     }
     vi.stubGlobal('WebSocket', ShellAwareWebSocket as any);
-    const post = vi.fn((_: string, payload: { shell: string }) => Promise.resolve({
-      jwt: payload.shell === '/bin/bash' ? 'jwt-bash' : 'jwt-sh',
-      shell: payload.shell,
-    }));
+    const post = vi.fn().mockResolvedValue(shellToken('/bin/bash', 'jwt-bash'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
-    const ws = await agents.shellConnect('agent-1');
+    await expect(agents.shellConnect('agent-1')).rejects.toThrow('/bin/bash not found');
 
-    expect(post).toHaveBeenCalledTimes(2);
-    expect((ws as any).url).toContain('shell=%2Fbin%2Fsh');
+    expect(post).toHaveBeenCalledTimes(1);
   });
 
   it('shellConnect retains close metadata when the websocket closes before opening', async () => {
@@ -1273,7 +1378,7 @@ describe('HyperClaw agents SDK', () => {
       }
     }
     vi.stubGlobal('WebSocket', ClosingWebSocket as any);
-    const post = vi.fn().mockResolvedValue({ jwt: 'jwt-sh', shell: '/bin/sh' });
+    const post = vi.fn().mockResolvedValue(shellToken('/bin/sh', 'jwt-sh'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
     const error = await agents.shellConnect('agent-1', '/bin/sh').catch((cause: unknown) => cause);
@@ -1299,7 +1404,7 @@ describe('HyperClaw agents SDK', () => {
       }
     }
     vi.stubGlobal('WebSocket', PendingWebSocket as any);
-    const post = vi.fn().mockResolvedValue({ jwt: 'jwt-bash', shell: '/bin/bash' });
+    const post = vi.fn().mockResolvedValue(shellToken('/bin/bash', 'jwt-bash'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
     const controller = new AbortController();
 
@@ -1438,15 +1543,18 @@ describe('HyperClaw agents SDK', () => {
     expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/logs/agent-1?jwt=jwt-logs&container=reef&tail_lines=400');
   });
 
-  it('file operations use the path-based deployment file API', async () => {
+  it('file operations mint fresh credentials and use the direct Reef API', async () => {
     expect(AGENT_FILE_MAX_BYTES).toBe(250 * 1024 * 1024);
     expect(AGENT_FILE_TRANSFER_CHUNK_BYTES).toBe(64 * 1024);
     expect(AGENT_FILE_OPERATION_TIMEOUT_MS).toBe(300_000);
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/deployments/agent-1/files/')) {
+      expect((init?.headers as Headers).get('Authorization')).toBe('Bearer reef-token');
+      expect(init?.redirect).toBe('error');
+      if (url === 'https://agent.example.test/_reef-sync/directories') {
         return new Response(JSON.stringify({
+          type: 'directory',
           directories: [
             { name: '.openclaw', path: '.openclaw/', type: 'directory' },
             { name: 'workspace', path: 'workspace/', type: 'directory' },
@@ -1454,23 +1562,32 @@ describe('HyperClaw agents SDK', () => {
           files: [{ name: 'AGENTS.md', path: 'AGENTS.md', type: 'file' }],
         }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace')) {
+      if (url === 'https://agent.example.test/_reef-sync/directories/workspace') {
         return new Response(JSON.stringify({
+          type: 'directory',
           directories: [{ name: 'dir', path: 'workspace/dir/', type: 'directory' }],
           files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
         }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && (!init || !init.method)) {
+      if (url === 'https://agent.example.test/_reef-sync/files/workspace/a.txt' && !init?.method) {
         return new Response(new Uint8Array([104, 101, 108, 108, 111]), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'POST') {
+      if (url === 'https://agent.example.test/_reef-sync/files/workspace/a.txt' && init?.method === 'PUT') {
         expect(init.body).toBeInstanceOf(Uint8Array);
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
+      if (url === 'https://agent.example.test/_reef-sync/files/workspace/a.txt' && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/.openclaw') && (!init || !init.method)) {
+      if (url === 'https://agent.example.test/_reef-sync/directories/.openclaw') {
+        return new Response(JSON.stringify({
+          type: 'directory',
+          prefix: '.openclaw/',
+          directories: [{ name: 'workspace', path: '.openclaw/workspace/', type: 'directory' }],
+          files: [{ name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' }],
+        }), { status: 200 });
+      }
+      if (url === 'https://agent.example.test/_reef-sync/files/.openclaw' && !init?.method) {
         return new Response(JSON.stringify({
           type: 'directory',
           prefix: '.openclaw/',
@@ -1485,8 +1602,14 @@ describe('HyperClaw agents SDK', () => {
     });
     vi.stubGlobal('fetch', fetchMock as any);
 
+    const post = vi.fn().mockResolvedValue({
+      url: 'https://agent.example.test/_reef-sync',
+      token: 'reef-token',
+      expires_at: '2026-08-15T00:05:00Z',
+    });
+
     const agents = new Deployments(
-      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
       'https://api.dev.hypercli.com',
     );
@@ -1521,5 +1644,8 @@ describe('HyperClaw agents SDK', () => {
     await expect(agents.filesList('agent-1', '/')).rejects.toThrow('sync root');
     await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked')).rejects.toThrow('sync root');
     await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('sync root');
+    expect(post).toHaveBeenCalledTimes(7);
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/files/token');
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('/deployments/'))).toBe(true);
   });
 });

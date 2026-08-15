@@ -292,7 +292,8 @@ hyper agents web-search "release notes" --json
 
 ### `exec`
 
-One-shot command through the backend exec API:
+One-shot command through Backend's token-authenticated `/ws/exec/{agent_id}`
+WebSocket. The CLI waits for one result and a normal server close:
 
 ```bash
 hyper agents exec <agent_id> "uname -a"
@@ -304,6 +305,10 @@ hyper agents exec <agent_id> "uname -a"
 hyper agents cp ./local.txt <agent_id>:/workspace/local.txt
 hyper agents cp <agent_id>:/workspace/output.log ./output.log
 ```
+
+Each copy mints a fresh files-scoped credential from Backend and transfers the
+file directly to or from the Agent's retained Reef server. The CLI does not
+send file bytes through Backend, follow redirects, or fall back to S3.
 
 ### `shell`
 

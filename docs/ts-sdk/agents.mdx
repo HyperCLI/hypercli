@@ -224,8 +224,11 @@ nonempty include list wins over an exclude list. Every path is relative to
 
 This is not a continuous two-way mirror. Steady synchronization uploads new
 and changed allowed files from the PVC to object storage without propagating
-ordinary filesystem deletions. Files API writes and deletes perform targeted
-remote operations. Data is copied from object storage to the PVC only during
+ordinary filesystem deletions. SDK file writes and deletes are direct local
+Reef operations: every call obtains a fresh files-scoped credential from
+Backend and transfers bytes directly with the retained Reef server. Backend
+does not proxy, redirect, or archive file traffic. Data is copied from object
+storage to the PVC only during
 an explicit cold restore; ordinary start reuses the retained PVC. See
 [Coding runtimes and persistence](/agents/coding-runtimes) for helper defaults
 and the complete lifecycle and full-PVC archive semantics.
@@ -532,11 +535,14 @@ Important methods:
 - `cpFrom()`
 - `shellConnect()`
 
-## Files And Exec
+## Metrics, Exec, And Files
 
 ```ts
 const result = await agent.exec("uname -a", { timeout: 30 });
 console.log(result.stdout, result.exitCode);
+
+const metrics = await client.deployments.metrics(agent.id);
+console.log(metrics.cpu, metrics.memory, metrics.timestamp);
 
 const rootEntries = await agent.filesList("");
 console.log(rootEntries.map((entry) => entry.path));
@@ -550,7 +556,15 @@ await agent.cpFrom(".openclaw/workspace/output.log", "./output.log");
 
 File paths are relative to the Agent's configured `syncRoot`.
 `filesList("")` lists that root, including dot-directories such as
-`.openclaw`; absolute paths and `..` traversal are rejected.
+`.openclaw`; absolute paths and `..` traversal are rejected. Every operation
+mints a fresh short-lived token and calls the Agent's HTTPS Reef endpoint
+directly; tokens are not cached and redirects are rejected.
+
+Metrics and exec each mint a fresh short-lived credential, connect to the
+Backend `/ws/metrics/{agent_id}` or `/ws/exec/{agent_id}` surface, receive one
+strict result frame, and require the server's normal `1000` close. Metrics sends
+no client frame. Exec sends exactly `command`, `timeout`, and `dry_run`; a dry
+run is handled by the Backend facade without sending an Agent turn.
 
 ## Logs And Shell
 
@@ -563,12 +577,18 @@ const shell = await client.deployments.shellConnect(agent.id, "/bin/bash");
 
 These use:
 
-- `/api/deployments/{id}/logs/token`
-- `/api/deployments/{id}/shell/token`
+- `/deployments/{id}/metrics/token`
+- `/deployments/{id}/exec/token`
+- `/deployments/{id}/logs/token`
+- `/deployments/{id}/shell/token`
+- backend `/ws/metrics/{agent_id}`
+- backend `/ws/exec/{agent_id}`
 - backend `/ws/logs/{agent_id}`
 - backend `/ws/shell/{agent_id}`
 
-These are the canonical shell and log transports.
+Shell token requests contain only the selected absolute `shell` path. The JWT
+is carried only in the WebSocket query string; there is no auth frame, header,
+cookie, or subprotocol.
 
 ## `OpenClawAgent`
 

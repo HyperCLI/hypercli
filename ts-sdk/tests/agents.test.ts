@@ -2356,7 +2356,14 @@ describe('Agents SDK', () => {
       headers: { 'Content-Type': 'image/png' },
     }));
     vi.stubGlobal('fetch', fetchMock);
-    const deployments = new Deployments({ apiKey: 'hyper_api_test' } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const http = {
+      post: vi.fn().mockResolvedValue({
+        url: 'https://agent.example.test/_reef-sync',
+        token: 'reef-token',
+        expires_at: '2026-08-15T00:05:00Z',
+      }),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
     const abortController = new AbortController();
 
     const result = await deployments.fileReadBytesWithMetadata(
@@ -2367,7 +2374,13 @@ describe('Agents SDK', () => {
 
     expect(result.content).toEqual(new Uint8Array([1, 2, 3]));
     expect(result.mimeType).toBe('image/png');
-    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ signal: abortController.signal });
+    expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/files/token');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://agent.example.test/_reef-sync/files/.openclaw/workspace/preview.png');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      signal: abortController.signal,
+      redirect: 'error',
+    });
+    expect((fetchMock.mock.calls[0]?.[1]?.headers as Headers).get('Authorization')).toBe('Bearer reef-token');
   });
 
   it('stops a chunked file read when it crosses the requested byte limit', async () => {
@@ -2379,13 +2392,99 @@ describe('Agents SDK', () => {
       },
     }));
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
-    const deployments = new Deployments({ apiKey: 'hyper_api_test' } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const deployments = new Deployments({
+      post: vi.fn().mockResolvedValue({
+        url: 'https://agent.example.test/_reef-sync',
+        token: 'reef-token',
+        expires_at: '2026-08-15T00:05:00Z',
+      }),
+    } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     await expect(deployments.fileReadBytes(
       'agent-123',
       '.openclaw/workspace/large.txt',
       { maxBytes: 4 },
     )).rejects.toThrow(/exceeds the .* read limit/i);
+  });
+
+  it('mints a fresh token for every file operation and sends bytes only to Reef', async () => {
+    const post = vi.fn().mockResolvedValue({
+      url: 'https://agent.example.test/_reef-sync',
+      token: 'reef-token',
+      expires_at: '2026-08-15T00:05:00Z',
+    });
+    const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
+      const headers = init.headers as Headers;
+      expect(headers.get('Authorization')).toBe('Bearer reef-token');
+      expect(headers.get('Authorization')).not.toBe('Bearer hyper_api_test');
+      expect(init.redirect).toBe('error');
+      if (url.endsWith('/directories/workspace')) {
+        return new Response(JSON.stringify({
+          type: 'directory',
+          prefix: 'workspace/',
+          directories: [],
+          files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (init.method === 'PUT') {
+        expect(headers.get('Content-Type')).toBe('application/octet-stream');
+        expect(new Uint8Array(init.body as ArrayBuffer)).toEqual(new TextEncoder().encode('updated'));
+        return new Response(JSON.stringify({ status: 'ok' }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      if (init.method === 'DELETE') {
+        expect(url).toContain('?recursive=true');
+        return new Response(JSON.stringify({ status: 'ok' }), { headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response('hello', { headers: { 'Content-Type': 'text/plain' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const deployments = new Deployments({ post } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.filesList('agent-123', 'workspace')).resolves.toHaveLength(1);
+    await expect(deployments.fileRead('agent-123', 'workspace/a.txt')).resolves.toBe('hello');
+    await expect(deployments.fileWrite('agent-123', 'workspace/a.txt', 'updated')).resolves.toEqual({ status: 'ok' });
+    await expect(deployments.fileDelete('agent-123', 'workspace/a.txt', { recursive: true })).resolves.toEqual({ status: 'ok' });
+
+    expect(post).toHaveBeenCalledTimes(4);
+    expect(post).toHaveBeenCalledWith('/deployments/agent-123/files/token');
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://agent.example.test/_reef-sync/directories/workspace',
+      'https://agent.example.test/_reef-sync/files/workspace/a.txt',
+      'https://agent.example.test/_reef-sync/files/workspace/a.txt',
+      'https://agent.example.test/_reef-sync/files/workspace/a.txt?recursive=true',
+    ]);
+  });
+
+  it('rejects invalid direct Reef locators before sending file requests', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const deployments = new Deployments({
+      post: vi.fn().mockResolvedValue({
+        url: 'http://agent.example.test/_reef-sync',
+        token: 'reef-token',
+        expires_at: '2026-08-15T00:05:00Z',
+      }),
+    } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.filesList('agent-123')).rejects.toThrow(/invalid Agent file token/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves direct Reef HTTP errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ detail: 'forbidden' }),
+      { status: 403, headers: { 'Content-Type': 'application/json' } },
+    )));
+    const deployments = new Deployments({
+      post: vi.fn().mockResolvedValue({
+        url: 'https://agent.example.test/_reef-sync',
+        token: 'reef-token',
+        expires_at: '2026-08-15T00:05:00Z',
+      }),
+    } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    await expect(deployments.fileRead('agent-123', 'workspace/private.txt'))
+      .rejects.toMatchObject({ statusCode: 403, message: expect.stringContaining('forbidden') });
   });
 
   it('hydrates gateway urls without hydrating gateway Secrets', () => {

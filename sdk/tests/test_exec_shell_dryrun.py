@@ -1,7 +1,14 @@
+import json
+
 import pytest
 
 from hypercli.jobs import Jobs
-from hypercli.agents import Agent, Deployments
+from hypercli.agents import (
+    AGENT_EXEC_OUTPUT_MAX_BYTES,
+    AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES,
+    Agent,
+    Deployments,
+)
 
 
 class DummyHTTP:
@@ -102,40 +109,197 @@ async def test_jobs_shell_connect(monkeypatch):
     assert captured["url"] == "wss://api.hypercli.com/orchestra/ws/shell/job-1?token=job-key-123&shell=/bin/sh"
 
 
-def test_agents_exec(monkeypatch):
-    seen = {}
+def _closed(code=1000, reason=""):
+    from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+    from websockets.frames import Close
 
-    class FakeResponse:
-        status_code = 200
+    close = Close(code, reason)
+    cls = ConnectionClosedOK if code == 1000 else ConnectionClosedError
+    return cls(close, close, True)
 
-        def json(self):
-            return {"exit_code": 0, "stdout": "done", "stderr": ""}
 
-    class FakeClient:
-        def __init__(self, timeout=None):
-            self.timeout = timeout
+class FakeOneShotWebSocket:
+    def __init__(self, frames, *, close_code=1000, close_reason=""):
+        self.frames = list(frames)
+        self.sent = []
+        self.close_code = close_code
+        self.close_reason = close_reason
 
-        def __enter__(self):
-            return self
+    def __enter__(self):
+        return self
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
-        def post(self, url, headers=None, json=None):
-            seen["json"] = json
-            assert url.endswith("/deployments/agent-1/exec")
-            assert json["command"] == "ls"
-            return FakeResponse()
+    def send(self, frame):
+        self.sent.append(frame)
 
-    monkeypatch.setattr("hypercli.agents.httpx.Client", FakeClient)
+    def recv(self, timeout=None):
+        if self.frames:
+            return self.frames.pop(0)
+        raise _closed(self.close_code, self.close_reason)
 
+
+def _agent_token(agent_id, purpose):
+    return {
+        "agent_id": agent_id,
+        "jwt": f"jwt-{purpose}",
+        "expires_at": "2026-08-15T00:05:00Z",
+        "ws_url": f"wss://socket.example.test/product/ws/{purpose}/{agent_id}",
+    }
+
+
+def test_agents_exec_mints_token_sends_exact_ws_frame_and_waits_for_normal_close(monkeypatch):
     agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
     pod = Agent(id="agent-1", user_id="u1", state="RUNNING")
+    posts = []
+    socket = FakeOneShotWebSocket([
+        '{"event":"agent_exec_result","ok":true,"exit_code":7,"stdout":"done\\n","stderr":"warn\\n"}'
+    ])
 
-    result = agents.exec(pod, "ls", timeout=10, dry_run=True)
-    assert result.exit_code == 0
-    assert result.stdout == "done"
-    assert seen["json"]["dry_run"] is True
+    def fake_post(path, json=None):
+        posts.append((path, json))
+        return _agent_token("agent-1", "exec")
+
+    connected = {}
+
+    def fake_connect(url, **kwargs):
+        connected.update(url=url, kwargs=kwargs)
+        return socket
+
+    monkeypatch.setattr(agents, "_post", fake_post)
+    monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
+
+    result = agents.exec(pod, "  ls  ", timeout=10, dry_run=True)
+
+    assert result.exit_code == 7
+    assert result.stdout == "done\n"
+    assert result.stderr == "warn\n"
+    assert posts == [("/deployments/agent-1/exec/token", None)]
+    assert connected["url"] == (
+        "wss://socket.example.test/product/ws/exec/agent-1?jwt=jwt-exec"
+    )
+    assert connected["kwargs"]["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
+    assert socket.sent == ['{"command":"ls","timeout":10,"dry_run":true}']
+
+
+def test_agents_exec_accepts_worst_case_escaped_near_limit_result(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    stdout = "\x01" * AGENT_EXEC_OUTPUT_MAX_BYTES
+    frame = json.dumps(
+        {
+            "event": "agent_exec_result",
+            "ok": True,
+            "exit_code": 0,
+            "stdout": stdout,
+            "stderr": "",
+        },
+        separators=(",", ":"),
+    )
+    assert len(frame.encode()) > AGENT_EXEC_OUTPUT_MAX_BYTES
+    assert len(frame.encode()) <= AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
+    socket = FakeOneShotWebSocket([frame])
+    connected = {}
+    monkeypatch.setattr(
+        agents,
+        "_post",
+        lambda path, json=None: _agent_token("agent-1", "exec"),
+    )
+
+    def fake_connect(url, **kwargs):
+        connected.update(kwargs)
+        return socket
+
+    monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
+
+    result = agents.exec("agent-1", "printf output")
+
+    assert len(result.stdout) == AGENT_EXEC_OUTPUT_MAX_BYTES
+    assert connected["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
+
+
+def test_agents_metrics_mints_token_sends_no_frame_and_returns_exact_result(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    socket = FakeOneShotWebSocket([
+        '{"event":"agent_metrics_result","ok":true,"cpu":"25m","memory":"128Mi","timestamp":7}'
+    ])
+    monkeypatch.setattr(
+        agents,
+        "_post",
+        lambda path, json=None: _agent_token("agent-1", "metrics"),
+    )
+    monkeypatch.setattr("websockets.sync.client.connect", lambda url, **kwargs: socket)
+
+    assert agents.metrics("agent-1") == {
+        "event": "agent_metrics_result",
+        "ok": True,
+        "cpu": "25m",
+        "memory": "128Mi",
+        "timestamp": 7,
+    }
+    assert socket.sent == []
+
+
+@pytest.mark.parametrize(
+    ("frames", "close_code", "close_reason", "error"),
+    [
+        ([b"binary"], 1000, "", "non-text"),
+        (["not-json"], 1000, "", "invalid JSON"),
+        ([
+            '{"event":"agent_metrics_result","ok":true,"cpu":"1m","memory":"1Mi","timestamp":1}',
+            "{}",
+        ], 1000, "", "more than one"),
+        ([], 4409, "Agent is busy", "4409: Agent is busy"),
+    ],
+)
+def test_agents_metrics_rejects_invalid_frames_and_close_codes(
+    monkeypatch, frames, close_code, close_reason, error
+):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    socket = FakeOneShotWebSocket(
+        frames,
+        close_code=close_code,
+        close_reason=close_reason,
+    )
+    monkeypatch.setattr(
+        agents,
+        "_post",
+        lambda path, json=None: _agent_token("agent-1", "metrics"),
+    )
+    monkeypatch.setattr("websockets.sync.client.connect", lambda url, **kwargs: socket)
+
+    with pytest.raises(RuntimeError, match=error):
+        agents.metrics("agent-1")
+
+
+def test_agents_exec_surfaces_exact_error_result(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    socket = FakeOneShotWebSocket([
+        '{"event":"agent_exec_result","ok":false,"error":"output limit exceeded"}'
+    ])
+    monkeypatch.setattr(
+        agents,
+        "_post",
+        lambda path, json=None: _agent_token("agent-1", "exec"),
+    )
+    monkeypatch.setattr("websockets.sync.client.connect", lambda url, **kwargs: socket)
+
+    with pytest.raises(RuntimeError, match="output limit exceeded"):
+        agents.exec("agent-1", "yes")
+
+
+def test_agents_rejects_noncanonical_operation_token_before_ws_connect(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    token = _agent_token("agent-1", "metrics")
+    token["ws_url"] += "?jwt=already-present"
+    monkeypatch.setattr(agents, "_post", lambda path, json=None: token)
+    monkeypatch.setattr(
+        "websockets.sync.client.connect",
+        lambda url, **kwargs: pytest.fail("must not connect"),
+    )
+
+    with pytest.raises(ValueError, match="invalid Agent metrics token"):
+        agents.metrics("agent-1")
 
 
 def test_deployments_normalize_generic_api_host_to_agents_base():
@@ -152,12 +316,14 @@ async def test_agents_shell_connect(monkeypatch):
         captured_post["path"] = path
         captured_post["json"] = json
         return {
+            "agent_id": "agent-1",
             "jwt": "jwt-abc",
-            "ws_url": "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=/bin/sh",
+            "expires_at": "2026-08-15T00:05:00Z",
+            "ws_url": "wss://socket.example.test/product/ws/shell/agent-1",
+            "shell": "/bin/sh",
         }
 
     monkeypatch.setattr(agents, "_post", fake_post)
-    monkeypatch.setattr(agents, "_detect_shell", lambda agent_id: "/bin/sh")
     captured = {}
 
     async def fake_connect(url, ping_interval=20, ping_timeout=20):
@@ -166,11 +332,13 @@ async def test_agents_shell_connect(monkeypatch):
 
     monkeypatch.setattr("websockets.connect", fake_connect)
 
-    ws = await agents.shell_connect("agent-1", dry_run=True)
+    ws = await agents.shell_connect("agent-1", shell="/bin/sh")
     assert ws == "agent-ws"
-    assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh"
+    assert captured["url"] == (
+        "wss://socket.example.test/product/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh"
+    )
     assert captured_post["path"] == "/deployments/agent-1/shell/token"
-    assert captured_post["json"] == {"shell": "/bin/sh", "dry_run": True}
+    assert captured_post["json"] == {"shell": "/bin/sh"}
 
 
 @pytest.mark.asyncio
@@ -247,13 +415,3 @@ async def test_agents_logs_stream_ws_stops_after_history_when_not_following(monk
     ]
 
     assert lines == ["first"]
-
-
-def test_agents_detect_shell_prefers_bash(monkeypatch):
-    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
-    monkeypatch.setattr(
-        agents,
-        "exec",
-        lambda pod, command, timeout=15: type("R", (), {"stdout": "/bin/bash", "stderr": "", "exit_code": 0})(),
-    )
-    assert agents._detect_shell("agent-1") == "/bin/bash"

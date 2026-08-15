@@ -1,6 +1,8 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
 from hypercli.agents import (
     AGENT_FILE_MAX_BYTES,
     DEFAULT_HERMES_AGENT_IMAGE,
@@ -178,6 +180,39 @@ def test_agent_shell_command(monkeypatch):
 
     assert result.exit_code == 0
     assert called["agent_id"] == "agent-xyz"
+
+
+@pytest.mark.parametrize("code", [1001, 4401, 4403, 4404, 4409, 1008, 1011])
+def test_agent_shell_output_surfaces_abnormal_close(code):
+    class FakeWebSocket:
+        close_code = code
+        close_reason = "policy detail"
+
+        def __aiter__(self):
+            async def messages():
+                if False:
+                    yield ""
+
+            return messages()
+
+    with pytest.raises(RuntimeError) as exc_info:
+        asyncio.run(agents_module._read_agent_shell_output(FakeWebSocket()))
+    assert str(exc_info.value) == f"Shell WebSocket closed with code {code}: policy detail"
+
+
+def test_agent_shell_output_accepts_only_code_1000():
+    class FakeWebSocket:
+        close_code = 1000
+        close_reason = ""
+
+        def __aiter__(self):
+            async def messages():
+                if False:
+                    yield ""
+
+            return messages()
+
+    asyncio.run(agents_module._read_agent_shell_output(FakeWebSocket()))
 
 
 def test_agents_logs_defaults_to_websocket_and_forwards_no_follow(monkeypatch):

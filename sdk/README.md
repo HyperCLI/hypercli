@@ -129,8 +129,10 @@ serialized. On generic create, no include/exclude policy means the complete
 root, while `sync_include=[]` means sync nothing. Steady Reef synchronization
 is PVC-to-object-storage upload/overwrite, not a two-way mirror: ordinary
 filesystem deletes are not propagated, and remote-to-PVC copying occurs only
-during explicit cold restore. Files API writes/deletes do perform targeted
-remote operations. File paths are relative to `sync_root`, and
+during explicit cold restore. Each SDK file operation obtains a fresh
+files-scoped credential from Backend, then lists, reads, writes, or deletes
+directly against the retained Reef server; Backend never carries file bytes.
+File paths are relative to `sync_root`, and
 `files_list("")` lists the complete root, including dot-directories. The
 OpenClaw helpers add routes, image,
 `sync_root=/home/node`, and cache/Workspace exclusions by default. Coding

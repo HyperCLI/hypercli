@@ -5,8 +5,11 @@ import json
 
 import pytest
 import httpx
+import websockets
 
 from hypercli.openclaw.gateway import (
+    AGENT_EXEC_OUTPUT_MAX_BYTES,
+    AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES,
     OPENCLAW_DASHBOARD_SESSION_PREFIX,
     OPENCLAW_INTERNAL_MAIN_SESSION_KEY,
     OPENCLAW_SDK_SESSION_PREFIX,
@@ -401,14 +404,19 @@ async def test_connect_treats_unknown_request_id_as_concurrent_pairing_approval(
 
 
 @pytest.mark.asyncio
-async def test_approve_pairing_request_uses_direct_local_pairing_api(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_approve_pairing_request_uses_token_authenticated_exec_ws(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict = {}
 
     class FakeResponse:
         status_code = 200
 
         def json(self) -> dict:
-            return {"exit_code": 0, "stdout": "approved", "stderr": ""}
+            return {
+                "agent_id": "deployment-123",
+                "jwt": "jwt-exec",
+                "expires_at": "2026-08-15T00:05:00Z",
+                "ws_url": "wss://socket.example.test/product/ws/exec/deployment-123",
+            }
 
     class FakeAsyncClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -420,13 +428,54 @@ async def test_approve_pairing_request_uses_direct_local_pairing_api(monkeypatch
         async def __aexit__(self, exc_type, exc, tb) -> None:
             return None
 
-        async def post(self, url: str, *, headers: dict, json: dict):
+        async def post(self, url: str, *, headers: dict):
             captured["url"] = url
             captured["headers"] = headers
-            captured["json"] = json
             return FakeResponse()
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    class FakeExecSocket:
+        def __init__(self):
+            stdout = "\x01" * AGENT_EXEC_OUTPUT_MAX_BYTES
+            frame = json.dumps(
+                {
+                    "event": "agent_exec_result",
+                    "ok": True,
+                    "exit_code": 0,
+                    "stdout": stdout,
+                    "stderr": "",
+                },
+                separators=(",", ":"),
+            )
+            assert len(frame.encode()) <= AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
+            captured["result_frame_size"] = len(frame.encode())
+            self.frames = [frame]
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def send(self, frame: str):
+            captured["frame"] = json.loads(frame)
+
+        async def recv(self):
+            if self.frames:
+                return self.frames.pop(0)
+            from websockets.exceptions import ConnectionClosedOK
+            from websockets.frames import Close
+
+            close = Close(1000, "")
+            raise ConnectionClosedOK(close, close, True)
+
+    def fake_connect(url: str, **kwargs):
+        captured["ws_url"] = url
+        captured["ws_kwargs"] = kwargs
+        return FakeExecSocket()
+
+    monkeypatch.setattr(websockets, "connect", fake_connect)
 
     client = GatewayClient(
         url="wss://openclaw-agent.example",
@@ -439,9 +488,18 @@ async def test_approve_pairing_request_uses_direct_local_pairing_api(monkeypatch
 
     await client._approve_pairing_request("pairing-req-1")
 
-    assert captured["url"] == "https://api.dev.hypercli.com/agents/deployments/deployment-123/exec"
-    assert captured["json"]["timeout"] == 30
-    command = captured["json"]["command"]
+    assert captured["url"] == (
+        "https://api.dev.hypercli.com/agents/deployments/deployment-123/exec/token"
+    )
+    assert captured["headers"] == {"Authorization": "Bearer agent-key"}
+    assert captured["ws_url"] == (
+        "wss://socket.example.test/product/ws/exec/deployment-123?jwt=jwt-exec"
+    )
+    assert captured["ws_kwargs"]["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
+    assert captured["result_frame_size"] > AGENT_EXEC_OUTPUT_MAX_BYTES
+    assert captured["frame"]["timeout"] == 30
+    assert captured["frame"]["dry_run"] is False
+    command = captured["frame"]["command"]
     assert command.startswith("openclaw devices approve ")
     assert " --json" in command
     assert "pairing-req-1" in command

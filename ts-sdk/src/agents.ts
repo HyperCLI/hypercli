@@ -260,6 +260,21 @@ export interface AgentExecResult {
   stderr: string;
 }
 
+export interface AgentMetricsResult {
+  event: 'agent_metrics_result';
+  ok: true;
+  cpu: string;
+  memory: string;
+  timestamp: number;
+}
+
+export interface AgentOperationTokenResponse {
+  agent_id: string;
+  jwt: string;
+  expires_at: string;
+  ws_url: string;
+}
+
 export interface AgentTokenResponse {
   agent_id?: string;
   token?: string;
@@ -373,12 +388,11 @@ function stringifyOpenClawOperationsFailure(reason: unknown): string {
 }
 
 export interface AgentShellTokenResponse {
-  agent_id?: string;
+  agent_id: string;
   jwt: string;
-  expires_at?: string | null;
-  ws_url?: string;
-  shell?: string | null;
-  dry_run?: boolean;
+  expires_at: string;
+  ws_url: string;
+  shell: string;
 }
 
 export interface AgentShellConnectOptions {
@@ -1081,6 +1095,12 @@ export interface AgentFileReadBytesResult {
   mimeType?: string;
 }
 
+export interface AgentFileTokenResponse {
+  url: string;
+  token: string;
+  expires_at: string;
+}
+
 /** Public file access is Reef-backed and scoped to the agent's configured sync root. */
 export const OPENCLAW_SYNC_ROOT = '/home/node';
 /** Convenience path for callers that explicitly want the conventional OpenClaw workspace. */
@@ -1658,6 +1678,95 @@ function execResultFromDict(data: any): AgentExecResult {
     stdout: data.stdout || '',
     stderr: data.stderr || '',
   };
+}
+
+function ownKeysEqual(value: Record<string, unknown>, expected: string[]): boolean {
+  const keys = Object.keys(value).sort();
+  return keys.length === expected.length
+    && keys.every((key, index) => key === [...expected].sort()[index]);
+}
+
+function validateAgentWsToken(
+  value: unknown,
+  agentId: string,
+  purpose: 'metrics' | 'exec' | 'shell',
+  shell?: string,
+): AgentOperationTokenResponse | AgentShellTokenResponse {
+  const expected = purpose === 'shell'
+    ? ['agent_id', 'expires_at', 'jwt', 'shell', 'ws_url']
+    : ['agent_id', 'expires_at', 'jwt', 'ws_url'];
+  const invalid = () => new Error(`Backend returned an invalid Agent ${purpose} token response`);
+  if (!isPlainRecord(value) || !ownKeysEqual(value, expected)) throw invalid();
+  if (
+    value.agent_id !== agentId
+    || typeof value.jwt !== 'string'
+    || !value.jwt
+    || typeof value.expires_at !== 'string'
+    || !value.expires_at
+    || typeof value.ws_url !== 'string'
+    || !value.ws_url
+    || (purpose === 'shell' && value.shell !== shell)
+  ) {
+    throw invalid();
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value.ws_url);
+  } catch {
+    throw invalid();
+  }
+  if (
+    !['ws:', 'wss:'].includes(parsed.protocol)
+    || !parsed.hostname
+    || parsed.username
+    || parsed.password
+    || parsed.search
+    || parsed.hash
+    || !parsed.pathname.endsWith(`/ws/${purpose}/${agentId}`)
+  ) {
+    throw invalid();
+  }
+  return value as unknown as AgentOperationTokenResponse | AgentShellTokenResponse;
+}
+
+function validateAgentMetricsResult(value: unknown): AgentMetricsResult {
+  if (!isPlainRecord(value) || value.event !== 'agent_metrics_result') {
+    throw new Error('Agent metrics WebSocket returned an invalid result frame');
+  }
+  if (value.ok === false && ownKeysEqual(value, ['error', 'event', 'ok'])
+    && typeof value.error === 'string' && value.error) {
+    throw new Error(value.error);
+  }
+  if (
+    value.ok !== true
+    || !ownKeysEqual(value, ['cpu', 'event', 'memory', 'ok', 'timestamp'])
+    || typeof value.cpu !== 'string'
+    || typeof value.memory !== 'string'
+    || !Number.isInteger(value.timestamp)
+  ) {
+    throw new Error('Agent metrics WebSocket returned an invalid result frame');
+  }
+  return value as unknown as AgentMetricsResult;
+}
+
+function validateAgentExecResult(value: unknown): AgentExecResult {
+  if (!isPlainRecord(value) || value.event !== 'agent_exec_result') {
+    throw new Error('Agent exec WebSocket returned an invalid result frame');
+  }
+  if (value.ok === false && ownKeysEqual(value, ['error', 'event', 'ok'])
+    && typeof value.error === 'string' && value.error) {
+    throw new Error(value.error);
+  }
+  if (
+    value.ok !== true
+    || !ownKeysEqual(value, ['event', 'exit_code', 'ok', 'stderr', 'stdout'])
+    || !Number.isInteger(value.exit_code)
+    || typeof value.stdout !== 'string'
+    || typeof value.stderr !== 'string'
+  ) {
+    throw new Error('Agent exec WebSocket returned an invalid result frame');
+  }
+  return execResultFromDict(value);
 }
 
 function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
@@ -4010,6 +4119,60 @@ export class Deployments {
     return response;
   }
 
+  private async reefFileAccess(agentId: string): Promise<{ url: string; token: string }> {
+    const payload = await this.agentHttp.post<AgentFileTokenResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/token`,
+    );
+    const token = typeof payload?.token === 'string' ? payload.token.trim() : '';
+    const expiresAt = typeof payload?.expires_at === 'string' ? payload.expires_at.trim() : '';
+    let url: URL;
+    try {
+      url = new URL(typeof payload?.url === 'string' ? payload.url : '');
+    } catch {
+      throw new Error('Backend returned an invalid Agent file token response');
+    }
+    if (
+      url.protocol !== 'https:' ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname.replace(/\/+$/, '') !== '/_reef-sync' ||
+      !token ||
+      !expiresAt
+    ) {
+      throw new Error('Backend returned an invalid Agent file token response');
+    }
+    return { url: url.toString().replace(/\/+$/, ''), token };
+  }
+
+  private async fetchReef(
+    access: { url: string; token: string },
+    path: string,
+    init: RequestInit = {},
+  ): Promise<Response> {
+    const headers = new Headers(init.headers ?? {});
+    headers.set('Authorization', `Bearer ${access.token}`);
+    const response = await fetch(`${access.url}${path}`, {
+      ...init,
+      headers,
+      redirect: 'error',
+    });
+    if (!response.ok) {
+      let detail = response.statusText;
+      try {
+        const payload = await response.clone().json() as Record<string, unknown>;
+        detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
+      } catch {
+        const text = await response.text();
+        detail = text || response.statusText;
+      }
+      throw new APIError(response.status, detail);
+    }
+    return response;
+  }
+
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
     const config = buildAgentCreateConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
@@ -4222,9 +4385,95 @@ export class Deployments {
     );
   }
 
-  async metrics(agentIdOrName: string): Promise<Record<string, any>> {
+  private async oneShotAgentWebSocket(
+    agentId: string,
+    purpose: 'metrics' | 'exec',
+    request?: Record<string, unknown>,
+    timeoutMs = 45_000,
+  ): Promise<unknown> {
+    const rawToken = await this.agentHttp.post<AgentOperationTokenResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/${purpose}/token`,
+    );
+    const token = validateAgentWsToken(rawToken, agentId, purpose) as AgentOperationTokenResponse;
+    const parsed = new URL(token.ws_url);
+    parsed.searchParams.set('jwt', token.jwt);
+    const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+    const ws = new WebSocketImpl(parsed.toString());
+
+    return await new Promise<unknown>((resolve, reject) => {
+      let opened = false;
+      let settled = false;
+      let result: unknown;
+      let resultCount = 0;
+      const timer = setTimeout(() => {
+        finish(new Error(`Agent ${purpose} WebSocket timed out`));
+        ws.close(1000, 'Client timeout');
+      }, timeoutMs);
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (error) reject(error);
+        else resolve(result);
+      };
+      ws.onopen = () => {
+        opened = true;
+        if (request !== undefined) ws.send(JSON.stringify(request));
+      };
+      ws.onmessage = (event: MessageEvent) => {
+        const rejectFrame = (message: string, reason: string) => {
+          const error = new Error(message);
+          try {
+            ws.close(1008, reason);
+          } finally {
+            finish(error);
+          }
+        };
+        if (typeof event.data !== 'string') {
+          rejectFrame(
+            `Agent ${purpose} WebSocket returned a non-text result frame`,
+            'Invalid result frame',
+          );
+          return;
+        }
+        resultCount += 1;
+        if (resultCount !== 1) {
+          rejectFrame(
+            `Agent ${purpose} WebSocket returned more than one result frame`,
+            'Too many result frames',
+          );
+          return;
+        }
+        try {
+          result = JSON.parse(event.data);
+        } catch {
+          rejectFrame(
+            `Agent ${purpose} WebSocket returned invalid JSON`,
+            'Invalid result frame',
+          );
+        }
+      };
+      ws.onerror = () => undefined;
+      ws.onclose = (event: { code: number; reason: string }) => {
+        if (event.code !== 1000) {
+          const reason = event.reason ? `: ${event.reason}` : '';
+          finish(new Error(`Agent ${purpose} WebSocket closed with code ${event.code}${reason}`));
+          return;
+        }
+        if (!opened || resultCount !== 1) {
+          finish(new Error(`Agent ${purpose} WebSocket closed without one result frame`));
+          return;
+        }
+        finish();
+      };
+    });
+  }
+
+  async metrics(agentIdOrName: string): Promise<AgentMetricsResult> {
     const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
+    return validateAgentMetricsResult(
+      await this.oneShotAgentWebSocket(agentId, 'metrics'),
+    );
   }
 
   async list(options: ListAgentsOptions = {}): Promise<Agent[]> {
@@ -4899,21 +5148,36 @@ export class Deployments {
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
+    if (typeof command !== 'string') throw new Error('command must be a string');
+    command = command.trim();
+    if (!command || command.includes('\0') || encodeUtf8(command).byteLength > 65_536) {
+      throw new Error('command must be 1 through 65536 UTF-8 bytes and contain no NUL');
+    }
+    const timeout = options.timeout ?? 30;
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 300) {
+      throw new Error('timeout must be an integer from 1 through 300');
+    }
     const agentId = await this.agentIdFor(target);
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       command,
-      timeout: options.timeout ?? 30,
+      timeout,
+      dry_run: options.dryRun ?? false,
     };
-    if (options.dryRun) payload.dry_run = true;
-    const data = await this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/exec`, payload);
-    return execResultFromDict(data);
+    return validateAgentExecResult(
+      await this.oneShotAgentWebSocket(agentId, 'exec', payload, (timeout + 10) * 1_000),
+    );
   }
 
   async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {
     const resolvedPath = resolveSyncRootFilePath(path);
     const agentId = await this.agentIdFor(target);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodeFilePath(resolvedPath)}`);
+    const access = await this.reefFileAccess(agentId);
+    const suffix = resolvedPath ? `/${encodeFilePath(resolvedPath)}` : '';
+    const response = await this.fetchReef(access, `/directories${suffix}`);
     const payload = (await response.json()) as AgentDirectoryListing;
+    if (!isDirectoryListingPayload(payload)) {
+      throw new Error('Reef returned an invalid directory listing');
+    }
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
 
@@ -4923,12 +5187,16 @@ export class Deployments {
     options?: AgentFileReadOptions,
   ): Promise<AgentFileReadBytesResult> {
     const resolvedPath = resolveSyncRootFilePath(path);
+    if (!resolvedPath) throw new Error('agent file path is required');
     const agentId = await this.agentIdFor(target);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodeFilePath(resolvedPath)}`, {
-      redirect: 'follow',
+    const access = await this.reefFileAccess(agentId);
+    const response = await this.fetchReef(access, `/files/${encodeFilePath(resolvedPath)}`, {
       signal: options?.signal,
     });
-    const bytes = await readResponseBytes(response, path, options?.maxBytes);
+    const maxBytes = options?.maxBytes === undefined
+      ? AGENT_FILE_MAX_BYTES
+      : Math.min(options.maxBytes, AGENT_FILE_MAX_BYTES);
+    const bytes = await readResponseBytes(response, path, maxBytes);
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       try {
@@ -4967,14 +5235,16 @@ export class Deployments {
     content: Uint8Array | ArrayBuffer | string,
   ): Promise<Record<string, any>> {
     path = normalizeWritableBackendFilePath(path);
+    if (!path) throw new Error('agent file path is required');
     const encodedPath = encodeFilePath(path);
     const bytes = toUint8Array(content);
     if (bytes.byteLength > AGENT_FILE_MAX_BYTES) {
       throw new Error(`Agent file writes are limited to ${AGENT_FILE_MAX_BYTES / 1024 / 1024} MiB`);
     }
     const agentId = await this.agentIdFor(target);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}`, {
-      method: 'POST',
+    const access = await this.reefFileAccess(agentId);
+    const response = await this.fetchReef(access, `/files/${encodedPath}`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: bytes,
     });
@@ -4991,13 +5261,16 @@ export class Deployments {
     options: { recursive?: boolean } = {},
   ): Promise<Record<string, any>> {
     path = normalizeWritableBackendFilePath(path);
+    if (!path) throw new Error('agent file path is required');
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams();
     if (options.recursive) params.set('recursive', 'true');
     const suffix = params.toString() ? `?${params.toString()}` : '';
     const agentId = await this.agentIdFor(target);
-    const response = await this.fetchRaw(
-      `${DEPLOYMENTS_API_PREFIX}/${agentId}/files/${encodedPath}${suffix}`,
+    const access = await this.reefFileAccess(agentId);
+    const response = await this.fetchReef(
+      access,
+      `/files/${encodedPath}${suffix}`,
       { method: 'DELETE' },
     );
     return (await response.json()) as Record<string, any>;
@@ -5052,16 +5325,20 @@ export class Deployments {
   async shellToken(
     agentIdOrName: string,
     shell?: string,
-    dryRun: boolean = false,
     requestOptions: RequestOverrides = {},
   ): Promise<AgentShellTokenResponse> {
     const selectedShell = shell ?? '/bin/bash';
-    const payload: Record<string, any> = { shell: selectedShell };
-    if (dryRun) payload.dry_run = true;
     const agentId = await this.resolveAgentId(agentIdOrName, requestOptions);
     const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`;
-    if (Object.keys(requestOptions).length === 0) return this.agentHttp.post(path, payload);
-    return this.agentHttp.post(path, payload, requestOptions);
+    const rawToken = Object.keys(requestOptions).length === 0
+      ? await this.agentHttp.post(path, { shell: selectedShell })
+      : await this.agentHttp.post(path, { shell: selectedShell }, requestOptions);
+    return validateAgentWsToken(
+      rawToken,
+      agentId,
+      'shell',
+      selectedShell,
+    ) as AgentShellTokenResponse;
   }
 
   async shellConnect(
@@ -5098,15 +5375,14 @@ export class Deployments {
       const tokenData = await runBeforeTokenDeadline(
         (signal) => {
           requestOptions.signal = signal;
-          return this.shellToken(agentId, requestedShell, false, requestOptions);
+          return this.shellToken(agentId, requestedShell, requestOptions);
         },
       );
-      const baseUrl = `${this.agentsWsUrl}/shell/${agentId}`;
-      const separator = baseUrl.includes("?") ? "&" : "?";
-      const wsUrl =
-        `${baseUrl}${separator}jwt=${encodeURIComponent(tokenData.jwt)}` +
-        `&shell=${encodeURIComponent(tokenData.shell || requestedShell)}`;
-      const ws = new WebSocket(wsUrl);
+      const parsed = new URL(tokenData.ws_url);
+      parsed.searchParams.set('jwt', tokenData.jwt);
+      parsed.searchParams.set('shell', tokenData.shell);
+      const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
+      const ws = new WebSocketImpl(parsed.toString());
       ws.binaryType = 'arraybuffer';
       return await new Promise<WebSocket>((resolve, reject) => {
         let settled = false;
@@ -5154,19 +5430,6 @@ export class Deployments {
       });
     };
 
-    if (shell) {
-      return connectWithShell(shell);
-    }
-
-    try {
-      return await connectWithShell('/bin/bash');
-    } catch (error) {
-      if (options.signal?.aborted) throw error;
-      const detail = error instanceof APIError ? error.detail : error instanceof Error ? error.message : '';
-      const bashUnavailable = /(\/bin\/bash|\bbash\b)/i.test(detail)
-        && /(not found|no such file|missing|unavailable|unsupported)/i.test(detail);
-      if (!bashUnavailable) throw error;
-      return connectWithShell('/bin/sh');
-    }
+    return connectWithShell(shell ?? '/bin/bash');
   }
 }

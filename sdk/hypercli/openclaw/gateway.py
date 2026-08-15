@@ -50,6 +50,8 @@ PAIRING_APPROVED_CODE = "PAIRING_APPROVED"
 OPENCLAW_INTERNAL_MAIN_SESSION_KEY = "main"
 OPENCLAW_SDK_SESSION_PREFIX = "hcli:"
 OPENCLAW_DASHBOARD_SESSION_PREFIX = "dashboard:"
+AGENT_EXEC_OUTPUT_MAX_BYTES = 1_048_576
+AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES = (6 * AGENT_EXEC_OUTPUT_MAX_BYTES) + 4096
 
 
 def _parse_agent_session_key(session_key: str | None) -> tuple[str, str] | None:
@@ -1023,27 +1025,98 @@ class GatewayClient:
             "openclaw devices approve "
             f"{shlex.quote(request_id)} --json"
         )
+        deployment_id = str(self.deployment_id or "")
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
-                f"{self.api_base}/deployments/{quote(self.deployment_id or '')}/exec",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "command": command,
-                    "timeout": 30,
-                },
+                f"{self.api_base}/deployments/{quote(deployment_id)}/exec/token",
+                headers={"Authorization": f"Bearer {self.api_key}"},
             )
         if response.status_code >= 400:
             raise RuntimeError(
                 f"Pairing approval failed: {response.status_code} {response.text}"
             )
-        payload = response.json()
-        exit_code = payload.get("exitCode", payload.get("exit_code", 1))
-        if exit_code != 0:
+        token = response.json()
+        expected_keys = {"agent_id", "jwt", "expires_at", "ws_url"}
+        if not isinstance(token, dict) or set(token) != expected_keys:
+            raise RuntimeError("Pairing approval received an invalid exec token")
+        ws_url = token.get("ws_url")
+        jwt = token.get("jwt")
+        parsed = urlsplit(ws_url) if isinstance(ws_url, str) else None
+        if (
+            token.get("agent_id") != deployment_id
+            or not isinstance(jwt, str)
+            or not jwt
+            or not isinstance(token.get("expires_at"), str)
+            or not token.get("expires_at")
+            or parsed is None
+            or parsed.scheme not in {"ws", "wss"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or not parsed.path.endswith(f"/ws/exec/{deployment_id}")
+        ):
+            raise RuntimeError("Pairing approval received an invalid exec token")
+
+        try:
+            async with websockets.connect(
+                f"{ws_url}?jwt={quote(jwt, safe='')}",
+                open_timeout=10,
+                close_timeout=10,
+                max_size=AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES,
+            ) as socket:
+                await socket.send(
+                    json.dumps(
+                        {"command": command, "timeout": 30, "dry_run": False},
+                        separators=(",", ":"),
+                    )
+                )
+                frame = await asyncio.wait_for(socket.recv(), timeout=40)
+                if not isinstance(frame, str):
+                    raise RuntimeError("Pairing approval received a non-text exec result")
+                try:
+                    payload = json.loads(frame)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError("Pairing approval received invalid exec JSON") from exc
+                try:
+                    await asyncio.wait_for(socket.recv(), timeout=10)
+                except websockets.exceptions.ConnectionClosed as exc:
+                    code = exc.rcvd.code if exc.rcvd is not None else None
+                    if code != 1000:
+                        raise RuntimeError(
+                            f"Pairing approval exec WebSocket closed with code {code}"
+                        ) from exc
+                else:
+                    raise RuntimeError("Pairing approval received multiple exec results")
+        except websockets.exceptions.ConnectionClosed as exc:
+            code = exc.rcvd.code if exc.rcvd is not None else None
             raise RuntimeError(
-                (payload.get("stderr") or payload.get("stdout") or "pairing approval failed").strip()
+                f"Pairing approval exec WebSocket closed before its result with code {code}"
+            ) from exc
+
+        if not isinstance(payload, dict) or payload.get("event") != "agent_exec_result":
+            raise RuntimeError("Pairing approval received an invalid exec result")
+        if (
+            payload.get("ok") is False
+            and set(payload) == {"event", "ok", "error"}
+            and isinstance(payload.get("error"), str)
+        ):
+            raise RuntimeError(str(payload["error"]))
+        if (
+            payload.get("ok") is not True
+            or set(payload) != {"event", "ok", "exit_code", "stdout", "stderr"}
+            or isinstance(payload.get("exit_code"), bool)
+            or not isinstance(payload.get("exit_code"), int)
+            or not isinstance(payload.get("stdout"), str)
+            or not isinstance(payload.get("stderr"), str)
+        ):
+            raise RuntimeError("Pairing approval received an invalid exec result")
+        if payload["exit_code"] != 0:
+            raise RuntimeError(
+                payload["stderr"].strip()
+                or payload["stdout"].strip()
+                or "pairing approval failed"
             )
 
     async def _reader_loop(self) -> None:

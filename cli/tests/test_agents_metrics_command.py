@@ -16,13 +16,11 @@ def test_agents_metrics_prints_container_usage(monkeypatch):
         def metrics(self, agent_id):
             calls.append(agent_id)
             return {
-                "agent_id": "agent-123",
-                "name": "reef-demo",
-                "containers": {
-                    "reef": {"cpu": "25m", "memory": "128Mi"},
-                    "sync": {"cpu": "1000000n", "memory": "32768Ki"},
-                },
-                "timestamp": "2026-07-31T12:00:00Z",
+                "event": "agent_metrics_result",
+                "ok": True,
+                "cpu": "25m",
+                "memory": "128Mi",
+                "timestamp": 1785508800,
             }
 
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
@@ -32,16 +30,19 @@ def test_agents_metrics_prints_container_usage(monkeypatch):
     assert result.exit_code == 0
     assert calls == ["demo"]
     assert "Agent Metrics" in result.stdout
-    assert "reef-demo" in result.stdout
+    assert "reef" in result.stdout
     assert "25m" in result.stdout
     assert "128Mi" in result.stdout
-    assert "2026-07-31T12:00:00Z" in result.stdout
+    assert "1785508800" in result.stdout
 
 
 def test_agents_metrics_supports_json_output(monkeypatch):
     payload = {
-        "containers": {"reef": {"cpu": "25m", "memory": "128Mi"}},
-        "timestamp": "2026-07-31T12:00:00Z",
+        "event": "agent_metrics_result",
+        "ok": True,
+        "cpu": "25m",
+        "memory": "128Mi",
+        "timestamp": 1785508800,
     }
 
     class FakeDeployments:
@@ -56,19 +57,17 @@ def test_agents_metrics_supports_json_output(monkeypatch):
     assert json.loads(result.stdout) == payload
 
 
-def test_agents_metrics_fails_for_embedded_metrics_error(monkeypatch):
+def test_agents_metrics_reports_operation_error(monkeypatch):
     class FakeDeployments:
         def metrics(self, agent_id):
-            return {
-                "error": "metrics.k8s.io is unavailable",
-            }
+            raise RuntimeError("metrics.k8s.io is unavailable")
 
     monkeypatch.setattr(agents_module, "_get_deployments_client", lambda: FakeDeployments())
 
     result = runner.invoke(app, ["agents", "metrics", "demo"])
 
     assert result.exit_code == 1
-    assert "Metrics unavailable" in result.stdout
+    assert "Failed to get agent metrics" in result.stdout
     assert "metrics.k8s.io is unavailable" in result.stdout
 
 

@@ -4486,7 +4486,12 @@ describe("GatewayClient", () => {
   it("auto-approves pairing through trusted exec and reconnects", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ exit_code: 0, stdout: "approved", stderr: "" }),
+      json: async () => ({
+        agent_id: "deployment-123",
+        jwt: "jwt-exec",
+        expires_at: "2026-08-15T00:05:00Z",
+        ws_url: "wss://socket.example.test/product/ws/exec/deployment-123",
+      }),
     });
     vi.stubGlobal("fetch", fetchMock as any);
 
@@ -4519,26 +4524,46 @@ describe("GatewayClient", () => {
       firstRequest.id,
       "PAIRING_REQUIRED",
       "pairing required",
-      { code: "PAIRING_REQUIRED", requestId: "pairing-req-1", reason: "not-paired" },
+      {
+        code: "PAIRING_REQUIRED",
+        requestId: "pairing-req-'$(touch /tmp/pwn)",
+        reason: "not-paired",
+      },
     );
     await flushMicrotasks();
 
+    const execSocket = MockWebSocket.instances.at(-1);
+    if (!execSocket || execSocket === firstSocket) throw new Error("Missing exec websocket");
+    await waitForSentFrame(execSocket);
+    expect(execSocket.url).toBe(
+      "wss://socket.example.test/product/ws/exec/deployment-123?jwt=jwt-exec",
+    );
+    const execFrame = JSON.parse(execSocket.sent[0] ?? "{}") as Record<string, unknown>;
+    expect(execFrame.timeout).toBe(30);
+    expect(execFrame.dry_run).toBe(false);
+    expect(execFrame.command).toBe(
+      "openclaw devices approve 'pairing-req-'\"'\"'$(touch /tmp/pwn)' --json",
+    );
+    execSocket.emit({
+      event: "agent_exec_result",
+      ok: true,
+      exit_code: 0,
+      stdout: "approved",
+      stderr: "",
+    });
+    execSocket.close(1000, "");
+    await flushMicrotasks();
+
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.dev.hypercli.com/deployments/deployment-123/exec",
+      "https://api.dev.hypercli.com/deployments/deployment-123/exec/token",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
           Authorization: "Bearer app-token",
-          "Content-Type": "application/json",
         }),
-        body: expect.any(String),
       }),
     );
-    const fetchBody = JSON.parse((fetchMock.mock.calls[0] ?? [])[1]?.body as string);
-    expect(fetchBody.timeout).toBe(30);
-    expect(fetchBody.command).toContain("openclaw devices approve ");
-    expect(fetchBody.command).toContain(" --json");
-    expect(fetchBody.command).toContain("pairing-req-1");
+    expect((fetchMock.mock.calls[0] ?? [])[1]?.body).toBeUndefined();
 
     expect(pairingUpdates).toEqual(["approving", null]);
     expect(connectionStates).toEqual(["connecting", "pairing", "connecting"]);
@@ -4569,6 +4594,65 @@ describe("GatewayClient", () => {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.pendingPairings).toBeUndefined();
     expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-after-pair");
+  });
+
+  it.each([
+    ["malformed", "not-json", "invalid exec JSON", false],
+    ["non-text", new Uint8Array([1, 2, 3]), "non-text exec result", false],
+    [
+      "multiple",
+      JSON.stringify({
+        event: "agent_exec_result",
+        ok: true,
+        exit_code: 0,
+        stdout: "approved",
+        stderr: "",
+      }),
+      "multiple exec results",
+      true,
+    ],
+  ])("closes rejected %s pairing exec frames before failing", async (_label, data, error, twice) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: "deployment-123",
+        jwt: "jwt-exec",
+        expires_at: "2026-08-15T00:05:00Z",
+        ws_url: "wss://socket.example.test/ws/exec/deployment-123",
+      }),
+    }) as any);
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+    const connecting = client.connect();
+    const rejection = expect(connecting).rejects.toThrow(error as string);
+    await flushMicrotasks();
+
+    const gatewaySocket = MockWebSocket.instances.at(-1);
+    if (!gatewaySocket) throw new Error("Missing gateway websocket");
+    gatewaySocket.emitChallenge("nonce-invalid-exec");
+    const request = await parseFirstRequest(gatewaySocket);
+    gatewaySocket.emitConnectError(
+      request.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-invalid-exec", reason: "not-paired" },
+    );
+    await flushMicrotasks();
+
+    const execSocket = MockWebSocket.instances.at(-1);
+    if (!execSocket || execSocket === gatewaySocket) throw new Error("Missing exec websocket");
+    await waitForSentFrame(execSocket);
+    execSocket.onmessage?.({ data: data as string });
+    if (twice) execSocket.onmessage?.({ data: data as string });
+
+    await rejection;
+    expect(execSocket.closedWith).toEqual({ code: 1008, reason: expect.any(String) });
   });
 
   it("reuses the browser identity for a warm deployment on one fresh socket", async () => {
@@ -4804,12 +4888,31 @@ describe("GatewayClient", () => {
     if (!resolveFetch) throw new Error("Missing pending approval request");
     resolveFetch({
       ok: true,
-      json: async () => ({ exit_code: 0, stdout: "approved", stderr: "" }),
+      json: async () => ({
+        agent_id: "deployment-123",
+        jwt: "jwt-exec",
+        expires_at: "2026-08-15T00:05:00Z",
+        ws_url: "wss://socket.example.test/ws/exec/deployment-123",
+      }),
     });
+    await flushMicrotasks();
+    const approvalSocket = MockWebSocket.instances.at(-1);
+    if (!approvalSocket || approvalSocket === firstSocket) {
+      throw new Error("Missing late approval exec websocket");
+    }
+    await waitForSentFrame(approvalSocket);
+    approvalSocket.emit({
+      event: "agent_exec_result",
+      ok: true,
+      exit_code: 0,
+      stdout: "approved",
+      stderr: "",
+    });
+    approvalSocket.close(1000, "");
     await flushMicrotasks(8);
 
     const secondSocket = MockWebSocket.instances.at(-1);
-    if (!secondSocket || secondSocket === firstSocket) {
+    if (!secondSocket || secondSocket === firstSocket || secondSocket === approvalSocket) {
       throw new Error("Missing reconnect websocket instance after late approval");
     }
     secondSocket.emitChallenge("nonce-reconnect");
@@ -4987,12 +5090,31 @@ describe("GatewayClient", () => {
 
     resolveApproval({
       ok: true,
-      json: async () => ({ exit_code: 0, stdout: "approved", stderr: "" }),
+      json: async () => ({
+        agent_id: "deployment-123",
+        jwt: "jwt-exec",
+        expires_at: "2026-08-15T00:05:00Z",
+        ws_url: "wss://socket.example.test/ws/exec/deployment-123",
+      }),
     });
+    await flushMicrotasks();
+    const approvalSocket = MockWebSocket.instances.at(-1);
+    if (!approvalSocket || approvalSocket === firstSocket) {
+      throw new Error("Missing slow approval exec websocket");
+    }
+    await waitForSentFrame(approvalSocket);
+    approvalSocket.emit({
+      event: "agent_exec_result",
+      ok: true,
+      exit_code: 0,
+      stdout: "approved",
+      stderr: "",
+    });
+    approvalSocket.close(1000, "");
     await flushMicrotasks(8);
 
     const secondSocket = MockWebSocket.instances.at(-1);
-    if (!secondSocket || secondSocket === firstSocket) {
+    if (!secondSocket || secondSocket === firstSocket || secondSocket === approvalSocket) {
       throw new Error("Missing websocket after slow pairing approval");
     }
     secondSocket.emitChallenge("nonce-after-slow-pairing");
@@ -5001,7 +5123,7 @@ describe("GatewayClient", () => {
 
     await connecting;
     expect(client.isConnected).toBe(true);
-    expect(MockWebSocket.instances).toHaveLength(2);
+    expect(MockWebSocket.instances).toHaveLength(3);
   });
 
 });

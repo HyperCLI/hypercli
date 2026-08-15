@@ -36,7 +36,8 @@ identity is separate: the Python SDK persists its device-auth store at
 pairings are scoped by deployment and role, so invalid-token repair does not
 discard another Agent's auth.
 
-A cold not-paired response can be approved through trusted Agent exec and then
+A cold not-paired response can be approved through the token-authenticated
+Agent exec WebSocket and then
 reconnected. A warm connection from the same stored identity to the same
 deployment and role reuses device auth.
 

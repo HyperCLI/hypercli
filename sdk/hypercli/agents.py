@@ -133,6 +133,9 @@ DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
+AGENT_EXEC_OUTPUT_MAX_BYTES = 1_048_576
+# Every valid raw output byte can become a six-byte ``\u00xx`` JSON escape.
+AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES = (6 * AGENT_EXEC_OUTPUT_MAX_BYTES) + 4096
 _UNSET = object()
 _T = TypeVar("_T")
 
@@ -931,7 +934,8 @@ def build_agent_config(
 
     Reef steadily uploads allowed PVC changes without propagating ordinary
     filesystem deletions. Remote data is copied back only by explicit cold
-    restore; Files API writes and deletes perform targeted remote operations.
+    restore; public file operations mint a short-lived credential and call the
+    retained Reef server directly.
     """
     return _build_agent_launch(
         config,
@@ -2817,6 +2821,97 @@ class ExecResult:
         )
 
 
+def _validate_agent_ws_token(
+    data: object,
+    *,
+    agent_id: str,
+    purpose: Literal["metrics", "exec", "shell"],
+    shell: str | None = None,
+) -> tuple[str, str, str | None]:
+    expected_keys = {"agent_id", "jwt", "expires_at", "ws_url"}
+    if purpose == "shell":
+        expected_keys.add("shell")
+    if not isinstance(data, dict) or set(data) != expected_keys:
+        raise ValueError(f"Backend returned an invalid Agent {purpose} token response")
+
+    token_agent_id = data.get("agent_id")
+    jwt = data.get("jwt")
+    expires_at = data.get("expires_at")
+    ws_url = data.get("ws_url")
+    resolved_shell = data.get("shell") if purpose == "shell" else None
+    if (
+        token_agent_id != agent_id
+        or not isinstance(jwt, str)
+        or not jwt
+        or not isinstance(expires_at, str)
+        or not expires_at
+        or not isinstance(ws_url, str)
+        or not ws_url
+        or (purpose == "shell" and resolved_shell != shell)
+    ):
+        raise ValueError(f"Backend returned an invalid Agent {purpose} token response")
+
+    parsed = urlsplit(ws_url)
+    expected_suffix = f"/ws/{purpose}/{agent_id}"
+    if (
+        parsed.scheme not in {"ws", "wss"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.endswith(expected_suffix)
+    ):
+        raise ValueError(f"Backend returned an invalid Agent {purpose} token response")
+    return ws_url, jwt, cast(str | None, resolved_shell)
+
+
+def _validate_metrics_result(data: object) -> dict[str, Any]:
+    if not isinstance(data, dict) or data.get("event") != "agent_metrics_result":
+        raise RuntimeError("Agent metrics WebSocket returned an invalid result frame")
+    if data.get("ok") is True:
+        if (
+            set(data) != {"event", "ok", "cpu", "memory", "timestamp"}
+            or not isinstance(data.get("cpu"), str)
+            or not isinstance(data.get("memory"), str)
+            or isinstance(data.get("timestamp"), bool)
+            or not isinstance(data.get("timestamp"), int)
+        ):
+            raise RuntimeError("Agent metrics WebSocket returned an invalid result frame")
+        return data
+    if (
+        data.get("ok") is False
+        and set(data) == {"event", "ok", "error"}
+        and isinstance(data.get("error"), str)
+        and data.get("error")
+    ):
+        raise RuntimeError(str(data["error"]))
+    raise RuntimeError("Agent metrics WebSocket returned an invalid result frame")
+
+
+def _validate_exec_result(data: object) -> ExecResult:
+    if not isinstance(data, dict) or data.get("event") != "agent_exec_result":
+        raise RuntimeError("Agent exec WebSocket returned an invalid result frame")
+    if data.get("ok") is True:
+        if (
+            set(data) != {"event", "ok", "exit_code", "stdout", "stderr"}
+            or isinstance(data.get("exit_code"), bool)
+            or not isinstance(data.get("exit_code"), int)
+            or not isinstance(data.get("stdout"), str)
+            or not isinstance(data.get("stderr"), str)
+        ):
+            raise RuntimeError("Agent exec WebSocket returned an invalid result frame")
+        return ExecResult.from_dict(data)
+    if (
+        data.get("ok") is False
+        and set(data) == {"event", "ok", "error"}
+        and isinstance(data.get("error"), str)
+        and data.get("error")
+    ):
+        raise RuntimeError(str(data["error"]))
+    raise RuntimeError("Agent exec WebSocket returned an invalid result frame")
+
+
 class Deployments:
     """
     HyperClaw deployments API — manage agent runtimes.
@@ -3029,14 +3124,107 @@ class Deployments:
     def _encode_file_path(self, path: str) -> str:
         return quote(path.lstrip("/"), safe="/")
 
-    def _detect_shell(self, agent_id: str) -> str:
-        probe = "if command -v bash >/dev/null 2>&1; then printf /bin/bash; else printf /bin/sh; fi"
+    def _reef_file_access(self, agent_id: str) -> tuple[str, str]:
+        """Mint one fresh file credential and validate its direct Reef locator."""
+        payload = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/files/token")
+        if not isinstance(payload, dict):
+            raise ValueError("Backend returned an invalid Agent file token response")
+        url = str(payload.get("url") or "").rstrip("/")
+        token = str(payload.get("token") or "").strip()
+        expires_at = str(payload.get("expires_at") or "").strip()
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path != "/_reef-sync"
+            or not token
+            or not expires_at
+        ):
+            raise ValueError("Backend returned an invalid Agent file token response")
+        return url, token
+
+    @staticmethod
+    def _reef_headers(token: str, *, content_type: str | None = None) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {token}"}
+        if content_type:
+            headers["Content-Type"] = content_type
+        return headers
+
+    @staticmethod
+    def _raise_reef_error(response: httpx.Response) -> None:
         try:
-            result = self.exec(Agent(id=agent_id, user_id="", state="RUNNING"), probe, timeout=15)
+            payload = response.json()
+            detail = payload.get("detail", response.text) if isinstance(payload, dict) else response.text
         except Exception:
-            return "/bin/sh"
-        shell = (result.stdout or "").strip()
-        return shell if shell in {"/bin/bash", "/bin/sh"} else "/bin/sh"
+            detail = response.text
+        raise APIError(response.status_code, str(detail))
+
+    def _one_shot_ws_result(
+        self,
+        *,
+        agent_id: str,
+        purpose: Literal["metrics", "exec"],
+        request: dict[str, Any] | None = None,
+        timeout: float,
+    ) -> object:
+        from websockets.exceptions import ConnectionClosed
+        from websockets.sync.client import connect
+
+        token_data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/{purpose}/token")
+        ws_url, jwt, _ = _validate_agent_ws_token(
+            token_data,
+            agent_id=agent_id,
+            purpose=purpose,
+        )
+        separator = "&" if "?" in ws_url else "?"
+        url = f"{ws_url}{separator}jwt={quote(jwt, safe='')}"
+
+        try:
+            with connect(
+                url,
+                open_timeout=min(timeout, 10),
+                close_timeout=10,
+                max_size=AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES,
+            ) as ws:
+                if request is not None:
+                    ws.send(json.dumps(request, separators=(",", ":")))
+                message = ws.recv(timeout=timeout)
+                if not isinstance(message, str):
+                    raise RuntimeError(
+                        f"Agent {purpose} WebSocket returned a non-text result frame"
+                    )
+                try:
+                    result = json.loads(message)
+                except json.JSONDecodeError as exc:
+                    raise RuntimeError(
+                        f"Agent {purpose} WebSocket returned invalid JSON"
+                    ) from exc
+                try:
+                    ws.recv(timeout=10)
+                except ConnectionClosed as exc:
+                    code = exc.rcvd.code if exc.rcvd is not None else None
+                    if code != 1000:
+                        reason = exc.rcvd.reason if exc.rcvd is not None else ""
+                        suffix = f": {reason}" if reason else ""
+                        raise RuntimeError(
+                            f"Agent {purpose} WebSocket closed with code {code}{suffix}"
+                        ) from exc
+                else:
+                    raise RuntimeError(
+                        f"Agent {purpose} WebSocket returned more than one result frame"
+                    )
+                return result
+        except ConnectionClosed as exc:
+            code = exc.rcvd.code if exc.rcvd is not None else None
+            reason = exc.rcvd.reason if exc.rcvd is not None else ""
+            suffix = f": {reason}" if reason else ""
+            raise RuntimeError(
+                f"Agent {purpose} WebSocket closed before its result with code {code}{suffix}"
+            ) from exc
 
     # -----------------------------------------------------------------------
     # Agent lifecycle (HyperClaw backend → Lagoon)
@@ -3502,16 +3690,21 @@ class Deployments:
         return self._get(f"{AGENTS_API_PREFIX}/budget")
 
     def metrics(self, agent_id_or_name: str) -> dict:
-        """Get live CPU/memory metrics for a running agent.
+        """Get one live CPU/memory sample through the Backend WebSocket facade.
 
         Args:
             agent_id: Agent UUID.
 
         Returns:
-            Dict with container metrics from k8s metrics-server.
+            Exact successful ``agent_metrics_result`` frame for the Reef runtime.
         """
         agent_id = self.resolve_agent_id(agent_id_or_name)
-        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/metrics")
+        result = self._one_shot_ws_result(
+            agent_id=agent_id,
+            purpose="metrics",
+            timeout=max(self._timeout, 35),
+        )
+        return _validate_metrics_result(result)
 
     def list(
         self,
@@ -4340,7 +4533,7 @@ class Deployments:
     def exec(
         self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False
     ) -> ExecResult:
-        """Execute a one-shot command on a running agent via the backend exec API.
+        """Execute a one-shot command through the Backend WebSocket facade.
 
         Args:
             pod: Agent to execute on.
@@ -4350,58 +4543,81 @@ class Deployments:
         Returns:
             ExecResult with exit_code, stdout, stderr.
         """
+        if not isinstance(command, str):
+            raise ValueError("command must be a string")
+        command = command.strip()
+        if not command or "\x00" in command or len(command.encode()) > 65_536:
+            raise ValueError("command must be 1 through 65536 UTF-8 bytes and contain no NUL")
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 300:
+            raise ValueError("timeout must be an integer from 1 through 300")
+
         agent_id = self._agent_id_for_target(pod)
-        with httpx.Client(timeout=max(timeout + 10, 35)) as client:
-            resp = client.post(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/exec",
-                headers=self._headers,
-                json={
-                    "command": command,
-                    "timeout": timeout,
-                    **({"dry_run": True} if dry_run else {}),
-                },
-            )
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json().get("detail", resp.text)
-            except Exception:
-                detail = resp.text
-            raise APIError(resp.status_code, detail)
-        return ExecResult.from_dict(resp.json())
+        result = self._one_shot_ws_result(
+            agent_id=agent_id,
+            purpose="exec",
+            request={"command": command, "timeout": timeout, "dry_run": bool(dry_run)},
+            timeout=timeout + 10,
+        )
+        return _validate_exec_result(result)
 
     def files_list(self, pod: Agent | str, path: str = "") -> list[dict]:
-        """List a path relative to the Agent's configured Reef sync root."""
+        """List a path directly through the Agent's retained Reef server."""
         agent_id = self._agent_id_for_target(pod)
         resolved_path = resolve_sync_root_file_path(path)
-        url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(resolved_path)}"
+        reef_url, token = self._reef_file_access(agent_id)
+        suffix = f"/{self._encode_file_path(resolved_path)}" if resolved_path else ""
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.get(url, headers=self._file_headers())
-        if resp.status_code >= 400:
-            raise APIError(resp.status_code, resp.text)
+            resp = client.get(
+                f"{reef_url}/directories{suffix}",
+                headers=self._reef_headers(token),
+                follow_redirects=False,
+            )
+        if not 200 <= resp.status_code < 300:
+            self._raise_reef_error(resp)
         payload = resp.json()
+        if not _is_directory_listing_payload(payload):
+            raise ValueError("Reef returned an invalid directory listing")
         return [
             *(payload.get("directories") or []),
             *(payload.get("files") or []),
         ]
 
     def file_read_bytes_with_metadata(self, pod: Agent | str, path: str) -> dict[str, Any]:
-        """Read a sync-root-relative file through the Reef file API."""
+        """Read a sync-root-relative file directly from Reef."""
         agent_id = self._agent_id_for_target(pod)
         resolved_path = resolve_sync_root_file_path(path)
-        url = f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(resolved_path)}"
+        if not resolved_path:
+            raise ValueError("agent file path is required")
+        reef_url, token = self._reef_file_access(agent_id)
+        content = bytearray()
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.get(url, headers=self._file_headers())
-        if resp.status_code >= 400:
-            raise APIError(resp.status_code, resp.text)
-        content_type = resp.headers.get("content-type", "")
+            with client.stream(
+                "GET",
+                f"{reef_url}/files/{self._encode_file_path(resolved_path)}",
+                headers=self._reef_headers(token),
+                follow_redirects=False,
+            ) as resp:
+                if not 200 <= resp.status_code < 300:
+                    resp.read()
+                    self._raise_reef_error(resp)
+                content_type = resp.headers.get("content-type", "")
+                for chunk in resp.iter_bytes(chunk_size=AGENT_FILE_TRANSFER_CHUNK_BYTES):
+                    remaining = (AGENT_FILE_MAX_BYTES + 1) - len(content)
+                    content.extend(chunk[:remaining])
+                    if len(content) > AGENT_FILE_MAX_BYTES:
+                        raise ValueError(
+                            "Agent file reads are limited to "
+                            f"{AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB"
+                        )
+        content_bytes = bytes(content)
         if "application/json" in content_type.lower():
             try:
-                payload = json.loads(resp.content.decode(errors="replace"))
+                payload = json.loads(content_bytes.decode(errors="replace"))
             except Exception:
                 payload = None
             if _is_directory_listing_payload(payload):
                 raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
-        return {"content": resp.content, "mime_type": content_type or None}
+        return {"content": content_bytes, "mime_type": content_type or None}
 
     def file_read_bytes(self, pod: Agent | str, path: str) -> bytes:
         """Read a sync-root-relative file through the Reef file API."""
@@ -4412,21 +4628,25 @@ class Deployments:
         return self.file_read_bytes(pod, path).decode(errors="replace")
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
-        """Write bytes to a sync-root-relative path through Reef."""
+        """Write bytes directly to a sync-root-relative path through Reef."""
         path = normalize_writable_backend_file_path(path)
+        if not path:
+            raise ValueError("agent file path is required")
         if len(content) > AGENT_FILE_MAX_BYTES:
             raise ValueError(
                 f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB"
             )
         agent_id = self._agent_id_for_target(pod)
+        reef_url, token = self._reef_file_access(agent_id)
         with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
-            resp = client.post(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
-                headers=self._file_headers(content_type="application/octet-stream"),
+            resp = client.put(
+                f"{reef_url}/files/{self._encode_file_path(path)}",
+                headers=self._reef_headers(token, content_type="application/octet-stream"),
                 content=content,
+                follow_redirects=False,
             )
-        if resp.status_code >= 400:
-            raise APIError(resp.status_code, resp.text)
+        if not 200 <= resp.status_code < 300:
+            self._raise_reef_error(resp)
         return resp.json()
 
     def file_write(self, pod: Agent | str, path: str, content: str) -> dict:
@@ -4439,17 +4659,21 @@ class Deployments:
         path: str,
         recursive: bool = False,
     ) -> dict:
-        """Delete a sync-root-relative file or directory through Reef."""
+        """Delete a sync-root-relative file or directory directly through Reef."""
         path = normalize_writable_backend_file_path(path)
+        if not path:
+            raise ValueError("agent file path is required")
         agent_id = self._agent_id_for_target(pod)
+        reef_url, token = self._reef_file_access(agent_id)
         with httpx.Client(timeout=10) as client:
             resp = client.delete(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
-                headers=self._file_headers(),
+                f"{reef_url}/files/{self._encode_file_path(path)}",
+                headers=self._reef_headers(token),
                 params={"recursive": "true"} if recursive else None,
+                follow_redirects=False,
             )
-        if resp.status_code >= 400:
-            raise APIError(resp.status_code, resp.text)
+        if not 200 <= resp.status_code < 300:
+            self._raise_reef_error(resp)
         return resp.json()
 
     def cp_to(self, pod: Agent | str, local_path: str | Path, remote_path: str) -> dict:
@@ -4520,7 +4744,7 @@ class Deployments:
                 elif event == "error":
                     raise RuntimeError(str(payload.get("detail") or "Log stream failed"))
 
-    async def shell_connect(self, agent_id: str, shell: str | None = None, dry_run: bool = False):
+    async def shell_connect(self, agent_id: str, shell: str | None = None):
         """Connect to agent shell via backend WebSocket proxy.
 
         Connects to the HyperClaw backend shell WebSocket which proxies
@@ -4535,20 +4759,21 @@ class Deployments:
         import websockets
 
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        selected_shell = shell or self._detect_shell(resolved_agent_id)
+        selected_shell = shell or "/bin/bash"
 
-        # Get shell token
-        payload: dict[str, Any] = {"shell": selected_shell}
-        if dry_run:
-            payload["dry_run"] = True
         token_data = self._post(
-            f"{AGENTS_API_PREFIX}/{resolved_agent_id}/shell/token", json=payload
+            f"{AGENTS_API_PREFIX}/{resolved_agent_id}/shell/token",
+            json={"shell": selected_shell},
         )
-        jwt = token_data["jwt"]
-        resolved_shell = token_data.get("shell") or selected_shell
+        ws_url, jwt, resolved_shell = _validate_agent_ws_token(
+            token_data,
+            agent_id=resolved_agent_id,
+            purpose="shell",
+            shell=selected_shell,
+        )
+        separator = "&" if "?" in ws_url else "?"
         url = (
-            f"{self._agents_ws_url}/shell/{resolved_agent_id}"
-            f"?jwt={quote(jwt, safe='')}"
+            f"{ws_url}{separator}jwt={quote(jwt, safe='')}"
             f"&shell={quote(resolved_shell, safe='')}"
         )
 
