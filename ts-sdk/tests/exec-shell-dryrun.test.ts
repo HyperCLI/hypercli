@@ -44,12 +44,12 @@ describe('HyperClaw agents SDK', () => {
     } as any);
   });
 
-  it('buildAgentConfig sends only an explicit gateway token as a Secret', () => {
-    const { config, gatewayToken } = buildAgentConfig(
+  it('buildAgentConfig passes opaque environment and secrets unchanged', () => {
+    const { config } = buildAgentConfig(
       { foo: 'bar' },
       {
         env: { FOO: 'bar' },
-        gatewayToken: 'gw-explicit',
+        secrets: { APP_TOKEN: 'opaque' },
         command: ['echo', 'hello'],
         entrypoint: ['/bin/sh', '-c'],
         routes: { openclaw: { port: 18789, auth: false } },
@@ -59,12 +59,11 @@ describe('HyperClaw agents SDK', () => {
       },
     );
 
-    expect(gatewayToken).toBe('gw-explicit');
     expect(config.config).toEqual({ foo: 'bar' });
     expect(config.env).toEqual({
       FOO: 'bar',
     });
-    expect(config.secrets).toEqual({ OPENCLAW_GATEWAY_TOKEN: 'gw-explicit' });
+    expect(config.secrets).toEqual({ APP_TOKEN: 'opaque' });
     expect(config.command).toEqual(['echo', 'hello']);
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
@@ -95,7 +94,7 @@ describe('HyperClaw agents SDK', () => {
     )).toThrow(/Launch settings must be top-level fields/);
   });
 
-  it('buildAgentConfig merges heartbeat config into OpenClaw config defaults', () => {
+  it('buildAgentConfig does not interpret application config', () => {
     const { config } = buildAgentConfig(
       {
         agents: {
@@ -107,12 +106,7 @@ describe('HyperClaw agents SDK', () => {
           },
         },
       },
-      {
-        heartbeat: {
-          every: '1h',
-          target: 'last',
-        },
-      },
+      {},
     );
 
     expect(config.config).toEqual({
@@ -121,7 +115,6 @@ describe('HyperClaw agents SDK', () => {
           model: 'openai/gpt-5.4',
           heartbeat: {
             target: 'last',
-            every: '1h',
           },
         },
       },
@@ -393,7 +386,7 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('startOpenClaw without overrides inherits the backend launch contract', async () => {
+  it('startOpenClaw sends one complete launch contract wholesale', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -407,9 +400,14 @@ describe('HyperClaw agents SDK', () => {
       'https://api.dev.hypercli.com',
     );
 
-    await deployments.startOpenClaw('agent-123');
+    const launchConfig = buildAgentConfig().config;
+    await deployments.startOpenClaw('agent-123', { launchConfig });
 
-    expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', {}, { retries: 1 });
+    expect(post).toHaveBeenCalledWith(
+      '/deployments/agent-123/start',
+      { launch_config: launchConfig },
+      { retries: 1 },
+    );
   });
 
   it('hydrates generic and OpenClaw agents correctly', () => {
@@ -448,7 +446,6 @@ describe('HyperClaw agents SDK', () => {
       state: 'running',
       hostname: 'agent-root.dev.hyperclaw.app',
     });
-
     expect(agent.gatewayUrl).toBe('wss://agent-root.dev.hyperclaw.app');
   });
 
@@ -481,6 +478,7 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'openclaw-agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false } },
     });
+    agent.gatewayToken = 'gw-ctx';
     (agent as any)._deployments = deployments;
 
     await agent.waitForGatewayContext();
@@ -523,6 +521,7 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'openclaw-agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false } },
     });
+    agent.gatewayToken = 'gw-jwtless';
     (agent as any)._deployments = deployments;
 
     await agent.waitForGatewayContext();

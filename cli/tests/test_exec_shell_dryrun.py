@@ -545,32 +545,57 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert captured["gateway_token"] is None
 
 
-def test_agents_start_without_overrides_uses_exact_empty_sdk_start(monkeypatch):
-    calls: list[tuple[str, tuple, dict]] = []
+def test_agents_start_without_overrides_uses_protected_complete_launch(monkeypatch):
+    calls: list[tuple[str, object]] = []
+    launch_config = {
+        "config": {},
+        "image": "example/runtime:latest",
+        "env": {},
+        "secrets": {"TOKEN": "secret"},
+        "routes": {},
+        "command": [],
+        "entrypoint": [],
+        "restart": False,
+        "sync_root": "/workspace",
+        "sync_uid": 1000,
+        "sync_gid": 1000,
+        "registry_url": None,
+        "registry_auth": {},
+        "runtime_scopes": ["agents:none"],
+    }
 
-    def start(agent_id, *args, **kwargs):
-        calls.append((agent_id, args, kwargs))
+    def start(agent_id, supplied_launch):
+        calls.append(("start", (agent_id, supplied_launch)))
         return SimpleNamespace(
             id=agent_id,
             name="steady-orbit-engine",
             state="STARTING",
         )
 
-    def unexpected_get(_agent_id):
-        raise AssertionError("zero-option start must not fetch or replay launch configuration")
+    def get(agent_id):
+        calls.append(("get", agent_id))
+        return SimpleNamespace(id="agent-123")
 
     monkeypatch.setattr(agents_module, "_resolve_agent", lambda _agent: "agent-123")
     monkeypatch.setattr(
         agents_module,
         "_get_deployments_client",
-        lambda: SimpleNamespace(start=start, get=unexpected_get),
+        lambda: SimpleNamespace(start=start, get=get),
+    )
+    monkeypatch.setattr(
+        agents_module,
+        "_load_state",
+        lambda: {"agent-123": {"launch_config": launch_config}},
     )
     monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
 
     result = runner.invoke(app, ["agents", "start", "steady-orbit-engine"])
 
     assert result.exit_code == 0
-    assert calls == [("agent-123", (), {})]
+    assert calls == [
+        ("get", "agent-123"),
+        ("start", ("agent-123", launch_config)),
+    ]
     assert "Agent starting: steady-orbit-engine" in result.output
 
 

@@ -16,6 +16,7 @@ import {
   GooseAgent,
   KimiCodeAgent,
   OpenCodeAgent,
+  buildAgentConfig,
 } from "../../src/agents.js";
 
 describe("TS SDK integration: agents", () => {
@@ -110,7 +111,10 @@ describe("TS SDK integration: agents", () => {
       const fetched = await scoped.deployments.get(agentA.id);
       expect(fetched.id).toBe(agentA.id);
 
-      const dryStarted = await scoped.deployments.startOpenClaw(agentA.id, { dryRun: true });
+      const dryStarted = await scoped.deployments.startOpenClaw(agentA.id, {
+        launchConfig: buildAgentConfig().config,
+        dryRun: true,
+      });
       expect(dryStarted.id).toBe(agentA.id);
       expect(dryStarted.dryRun).toBe(true);
 

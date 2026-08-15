@@ -277,6 +277,7 @@ def test_agent_enable_attaches_slack_relay_without_restart(monkeypatch):
 
 def test_agent_start_alias_starts_by_name(monkeypatch):
     calls: list[tuple[str, object]] = []
+    launch_config = {"config": {}, "secrets": {"TOKEN": "secret"}}
 
     class _FakeDeployments:
         def get(self, agent):
@@ -288,8 +289,8 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
                 state="STOPPED",
             )
 
-        def start(self, agent_id, *, dry_run=False):
-            calls.append(("start", (agent_id, dry_run)))
+        def start(self, agent_id, supplied_launch, *, dry_run=False):
+            calls.append(("start", (agent_id, supplied_launch, dry_run)))
             return Agent(
                 id=agent_id,
                 user_id="user-1",
@@ -309,13 +310,26 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
             )
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
+    monkeypatch.setattr(
+        agent_mod,
+        "_load_complete_launch_config",
+        lambda _agent_id: launch_config,
+    )
+    monkeypatch.setattr(agent_mod, "_save_agent_state", lambda _agent: None)
 
     result = runner.invoke(app, ["agent", "start", "clear-window-works", "--wait"])
 
     assert result.exit_code == 0
     assert calls == [
         ("get", "clear-window-works"),
-        ("start", ("11111111-1111-4111-8111-111111111111", False)),
+        (
+            "start",
+            (
+                "11111111-1111-4111-8111-111111111111",
+                launch_config,
+                False,
+            ),
+        ),
         (
             "wait_running",
             ("11111111-1111-4111-8111-111111111111", 900.0, 10),

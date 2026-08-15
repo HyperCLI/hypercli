@@ -1,6 +1,7 @@
 """HyperCLI deployments CLI."""
 from __future__ import annotations
 
+import copy
 import json
 import os
 import shlex
@@ -227,6 +228,13 @@ def _save_agent_state(agent: Agent):
     """Save agent info locally for quick reference."""
     state = _load_state()
     existing = state.get(agent.id, {})
+    submitted_launch = getattr(agent, "_submitted_launch_config", None)
+    if isinstance(submitted_launch, dict):
+        saved_launch = copy.deepcopy(submitted_launch)
+    elif isinstance(existing.get("launch_config"), dict):
+        saved_launch = existing["launch_config"]
+    else:
+        saved_launch = getattr(agent, "launch_config", None)
     state[agent.id] = {
         "id": agent.id,
         "name": agent.name,
@@ -237,7 +245,7 @@ def _save_agent_state(agent: Agent):
             agent.api_server_key if isinstance(agent, HermesAgent) else existing.get("api_server_key")
         ),
         "runtime": agent.runtime or existing.get("runtime"),
-        "launch_config": agent.launch_config if agent.launch_config is not None else existing.get("launch_config"),
+        "launch_config": saved_launch,
         "state": agent.state,
     }
     _write_state(state)
@@ -248,6 +256,15 @@ def _load_state() -> dict:
         with open(AGENTS_STATE) as f:
             return json.load(f)
     return {}
+
+
+def _load_complete_launch_config(agent_id: str) -> dict:
+    launch_config = (_load_state().get(agent_id) or {}).get("launch_config")
+    if not isinstance(launch_config, dict):
+        raise ValueError(
+            "start requires a complete launch configuration in protected local state"
+        )
+    return copy.deepcopy(launch_config)
 
 
 def _write_state(state: dict) -> None:
@@ -1016,24 +1033,34 @@ def start(
     ]
 
     if requested_agent_id == "self":
-        if override_names:
+        launch_overrides = [name for name in override_names if name != "dry_run"]
+        if launch_overrides:
             console.print(
-                "[red]❌ start self uses the backend-stored launch configuration and "
-                f"does not accept launch overrides: {', '.join(override_names)}[/red]"
+                "[red]❌ start self requires one complete locally saved launch "
+                "configuration and does not accept partial overrides: "
+                f"{', '.join(launch_overrides)}[/red]"
             )
             raise typer.Exit(1)
         try:
-            pod = agents.start("self")
+            current = agents.get("self")
+            local_launch = _load_complete_launch_config(current.id)
+            pod = agents.start(current.id, local_launch, dry_run=dry_run)
         except Exception as e:
             console.print(f"[red]❌ Failed to start agent: {e}[/red]")
             raise typer.Exit(1)
-        _save_agent_state(pod)
-        console.print(f"[green]✓[/green] Agent starting: {getattr(pod, 'name', None) or pod.id}")
+        if not pod.dry_run:
+            _save_agent_state(pod)
+        console.print(
+            f"[green]✓[/green] {'Agent start validated' if pod.dry_run else 'Agent starting'}: "
+            f"{getattr(pod, 'name', None) or pod.id}"
+        )
         return
 
     if not override_names:
         try:
-            pod = agents.start(requested_agent_id)
+            current = agents.get(requested_agent_id)
+            local_launch = _load_complete_launch_config(current.id)
+            pod = agents.start(current.id, local_launch)
         except Exception as e:
             console.print(f"[red]❌ Failed to start agent: {e}[/red]")
             raise typer.Exit(1)

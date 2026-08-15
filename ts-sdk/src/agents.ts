@@ -136,7 +136,6 @@ export const DEFAULT_BUZZ_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntim
   goose: DEFAULT_BUZZ_GOOSE_IMAGE,
   'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
 };
-const CODING_AGENT_RUNTIMES = new Set<CodingAgentRuntime>(['buzz-agent', 'opencode', 'codex', 'claude-code', 'goose', 'kimi-code']);
 const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   command: string;
   args: string[];
@@ -639,10 +638,65 @@ export interface AgentDesktopConfigSource {
 }
 
 export interface RegistryAuth {
-  username?: string;
-  password?: string;
-  token?: string;
-  [key: string]: any;
+  username: string;
+  password: string;
+}
+
+/** Complete Backend START replacement contract. */
+export interface AgentLaunchConfig {
+  config: Record<string, any>;
+  image: string | null;
+  env: Record<string, string>;
+  secrets: Record<string, string>;
+  routes: Record<string, AgentRouteConfig>;
+  command: string[];
+  entrypoint: string[];
+  restart: boolean;
+  sync_root: string | null;
+  sync_include?: string[] | null;
+  sync_exclude?: string[] | null;
+  sync_uid: number | null;
+  sync_gid: number | null;
+  registry_url: string | null;
+  registry_auth: RegistryAuth | Record<string, never>;
+  runtime_scopes: string[];
+}
+
+const REQUIRED_START_LAUNCH_CONFIG_KEYS: ReadonlyArray<keyof AgentLaunchConfig> = [
+  'config',
+  'image',
+  'env',
+  'secrets',
+  'routes',
+  'command',
+  'entrypoint',
+  'restart',
+  'sync_root',
+  'sync_uid',
+  'sync_gid',
+  'registry_url',
+  'registry_auth',
+  'runtime_scopes',
+];
+
+function cloneCompleteLaunchConfig(value: AgentLaunchConfig): AgentLaunchConfig {
+  if (!isPlainRecord(value)) throw new Error('launchConfig must be a complete object');
+  const missing = REQUIRED_START_LAUNCH_CONFIG_KEYS.filter(
+    (key) => !Object.prototype.hasOwnProperty.call(value, key),
+  );
+  if (missing.length > 0) {
+    throw new Error(`launchConfig is incomplete; missing: ${missing.join(', ')}`);
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'sync_include')
+    && Object.prototype.hasOwnProperty.call(value, 'sync_exclude')
+  ) {
+    throw new Error('launchConfig cannot carry both sync policies');
+  }
+  if (typeof value.restart !== 'boolean') {
+    throw new Error('launchConfig restart must be a boolean');
+  }
+  return structuredClone(value) as AgentLaunchConfig;
 }
 
 export interface BuildAgentConfigOptions {
@@ -668,14 +722,8 @@ export interface BuildAgentConfigOptions {
   syncGid?: number | null;
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
-  restart?: boolean | null;
+  restart?: boolean;
   runtimeScopes?: readonly string[] | null;
-  gatewayToken?: string | null;
-  heartbeat?: OpenClawHeartbeatConfig | null;
-  /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
-  controlUiOriginLock?: boolean | null;
-  /** Internal launch behavior; coding runtimes do not use the OpenClaw gateway. */
-  injectGatewayToken?: boolean;
 }
 
 export interface OpenClawRouteOptions {
@@ -840,8 +888,8 @@ export interface UpdateExternalAgentOptions {
   meta?: Record<string, any> | null;
 }
 
-export interface StartAgentOptions extends BuildAgentConfigOptions {
-  config?: Record<string, any>;
+export interface StartAgentOptions {
+  launchConfig: AgentLaunchConfig;
   dryRun?: boolean;
 }
 
@@ -855,17 +903,17 @@ export interface UpdateAgentOptions {
 }
 
 export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
+  gatewayToken?: string | null;
   openClawRoutes?: OpenClawRouteOptions | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
+  /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
+  controlUiOriginLock?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
 }
 
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
-  openClawRoutes?: OpenClawRouteOptions | null;
-  heartbeat?: OpenClawHeartbeatConfig | null;
-  memoryIndex?: OpenClawMemoryIndexOptions | null;
-  workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
+  gatewayToken?: string | null;
 }
 
 export interface HermesAgentCreateOptions extends CreateAgentOptions {
@@ -875,12 +923,11 @@ export interface HermesAgentCreateOptions extends CreateAgentOptions {
 }
 
 export interface HermesAgentStartOptions extends StartAgentOptions {
-  hermesRoute?: HermesAgentRouteOptions | null;
-  /** Explicit inbound Hermes API credential; a fresh 32-byte key is generated when omitted. */
+  /** Caller-known inbound Hermes API credential; never recovered from Backend state. */
   apiServerKey?: string | null;
 }
 
-export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime' | 'injectGatewayToken'> {
+export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime'> {
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
   /** @deprecated Use the typed `buzz` launch contract. */
   buzzEnabled?: boolean;
@@ -1184,9 +1231,6 @@ export interface DeploymentTransitionEvent {
   reason?: string | null;
   error?: string | null;
   message?: string | null;
-  launch_epoch?: number;
-  resources_exist?: boolean;
-  namespace_exists?: boolean;
 }
 
 export type DeploymentEvent = DeploymentTransitionEvent;
@@ -1310,10 +1354,6 @@ function isOpenClawHydrationData(data: AgentHydrationData): boolean {
   }
   const launchRoutes = data.launch_config?.routes;
   return !!(launchRoutes && typeof launchRoutes === 'object' && !Array.isArray(launchRoutes) && launchRoutes.openclaw);
-}
-
-function isCodingAgentRuntime(runtime: unknown): runtime is CodingAgentRuntime {
-  return typeof runtime === 'string' && CODING_AGENT_RUNTIMES.has(runtime as CodingAgentRuntime);
 }
 
 function isTruthyEnv(value: unknown): boolean {
@@ -1676,48 +1716,14 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
 export function buildAgentConfig(
   config: Record<string, any> = {},
   options: BuildAgentConfigOptions = {},
-): { config: Record<string, any>; gatewayToken: string | null } {
+): { config: AgentLaunchConfig } {
   const preparedConfig = structuredClone(config);
   const nestedLaunchKeys = Object.keys(preparedConfig).filter((key) => LAUNCH_CONFIG_KEYS.has(key));
   if (nestedLaunchKeys.length) {
     throw new Error(`Launch settings must be top-level fields, not nested under config: ${nestedLaunchKeys.join(', ')}`);
   }
-  if (options.heartbeat) {
-    const agentsConfig = typeof preparedConfig.agents === 'object' && preparedConfig.agents !== null
-      ? { ...preparedConfig.agents }
-      : {};
-    const defaultsConfig = typeof agentsConfig.defaults === 'object' && agentsConfig.defaults !== null
-      ? { ...agentsConfig.defaults }
-      : {};
-    const heartbeatConfig = typeof defaultsConfig.heartbeat === 'object' && defaultsConfig.heartbeat !== null
-      ? { ...defaultsConfig.heartbeat }
-      : {};
-    defaultsConfig.heartbeat = { ...heartbeatConfig, ...options.heartbeat };
-    agentsConfig.defaults = defaultsConfig;
-    preparedConfig.agents = agentsConfig;
-  }
   const env = { ...(options.env ?? {}) } as Record<string, string>;
   const secrets = { ...(options.secrets ?? {}) } as Record<string, string>;
-  if (Object.prototype.hasOwnProperty.call(env, 'OPENCLAW_GATEWAY_TOKEN')) {
-    throw new Error('OPENCLAW_GATEWAY_TOKEN is a Secret; pass it through secrets or gatewayToken, not env');
-  }
-
-  let gatewayToken: string | null = null;
-  if (options.injectGatewayToken !== false) {
-    const explicitGatewayToken = options.gatewayToken?.trim() || null;
-    const secretGatewayToken = secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
-    if (explicitGatewayToken && secretGatewayToken && explicitGatewayToken !== secretGatewayToken) {
-      throw new Error('gatewayToken conflicts with secrets.OPENCLAW_GATEWAY_TOKEN');
-    }
-    gatewayToken = explicitGatewayToken ?? secretGatewayToken;
-    if (gatewayToken) secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-    if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
-      const controlUiOrigin = defaultControlUiAllowedOrigin();
-      if (controlUiOrigin) {
-        env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
-      }
-    }
-  }
   const collidingKeys = Object.keys(env).filter((key) => Object.prototype.hasOwnProperty.call(secrets, key));
   if (collidingKeys.length > 0) {
     throw new Error(`Launch keys cannot appear in both env and secrets: ${collidingKeys.join(', ')}`);
@@ -1733,31 +1739,69 @@ export function buildAgentConfig(
   const syncUid = normalizeSyncOwner(options.syncUid, 'syncUid');
   const syncGid = normalizeSyncOwner(options.syncGid, 'syncGid');
 
-  const prepared: Record<string, any> = {};
-  if (Object.keys(preparedConfig).length > 0) prepared.config = preparedConfig;
-  if (Object.keys(env).length > 0) prepared.env = env;
-  if (Object.keys(secrets).length > 0) prepared.secrets = secrets;
-  if (options.routes !== undefined && options.routes !== null) prepared.routes = options.routes;
-  if (options.command !== undefined && options.command !== null) prepared.command = options.command;
-  if (options.entrypoint !== undefined && options.entrypoint !== null) prepared.entrypoint = options.entrypoint;
-  if (options.image !== undefined && options.image !== null) prepared.image = options.image;
-  if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
+  let registryAuth: RegistryAuth | Record<string, never> = {};
+  if (options.registryAuth !== undefined && options.registryAuth !== null) {
+    const keys = Object.keys(options.registryAuth).sort();
+    if (keys.length !== 2 || keys[0] !== 'password' || keys[1] !== 'username') {
+      throw new Error('registryAuth requires exactly username and password');
+    }
+    const username = options.registryAuth.username.trim();
+    if (!username) throw new Error('registryAuth username must be non-empty');
+    if (!options.registryAuth.password) throw new Error('registryAuth password must be non-empty');
+    registryAuth = { username, password: options.registryAuth.password };
+  }
+
+  const prepared: AgentLaunchConfig = {
+    config: preparedConfig,
+    image: options.image ?? null,
+    env,
+    secrets,
+    routes: structuredClone(options.routes ?? {}),
+    command: [...(options.command ?? [])],
+    entrypoint: [...(options.entrypoint ?? [])],
+    restart: options.restart ?? false,
+    sync_root: options.syncRoot ?? null,
+    sync_uid: syncUid ?? null,
+    sync_gid: syncGid ?? null,
+    registry_url: options.registryUrl ?? null,
+    registry_auth: registryAuth,
+    runtime_scopes: [...(options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES)],
+  };
   if (options.syncInclude !== undefined) {
     prepared.sync_include = options.syncInclude === null ? null : [...options.syncInclude];
   }
   if (options.syncInclude === undefined && options.syncExclude !== undefined) {
     prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
   }
-  if (syncUid !== undefined) prepared.sync_uid = syncUid;
-  if (syncGid !== undefined) prepared.sync_gid = syncGid;
-  if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
-  if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
-  if (options.restart !== undefined && options.restart !== null) prepared.restart = options.restart;
-  if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) {
-    prepared.runtime_scopes = [...options.runtimeScopes];
-  }
+  return { config: prepared };
+}
 
-  return { config: prepared, gatewayToken };
+function buildAgentCreateConfig(
+  config: Record<string, any>,
+  options: BuildAgentConfigOptions,
+): Record<string, any> {
+  const complete = buildAgentConfig(config, options).config;
+  const prepared: Record<string, any> = {};
+  if (Object.keys(complete.config).length > 0) prepared.config = complete.config;
+  if (Object.keys(complete.env).length > 0) prepared.env = complete.env;
+  if (Object.keys(complete.secrets).length > 0) prepared.secrets = complete.secrets;
+  if (options.routes !== undefined && options.routes !== null) prepared.routes = complete.routes;
+  if (options.command !== undefined && options.command !== null) prepared.command = complete.command;
+  if (options.entrypoint !== undefined && options.entrypoint !== null) prepared.entrypoint = complete.entrypoint;
+  if (options.image !== undefined && options.image !== null) prepared.image = complete.image;
+  if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = complete.sync_root;
+  if (Object.prototype.hasOwnProperty.call(complete, 'sync_include')) {
+    prepared.sync_include = complete.sync_include;
+  } else if (Object.prototype.hasOwnProperty.call(complete, 'sync_exclude')) {
+    prepared.sync_exclude = complete.sync_exclude;
+  }
+  if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = complete.sync_uid;
+  if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = complete.sync_gid;
+  if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = complete.registry_url;
+  if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = complete.registry_auth;
+  prepared.restart = complete.restart;
+  if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) prepared.runtime_scopes = complete.runtime_scopes;
+  return prepared;
 }
 
 function defaultOpenClawImage(
@@ -1791,8 +1835,56 @@ function resolveHermesApiServerKey(
     throw new Error('Hermes API_SERVER_KEY conflicts between inputs');
   }
   const key = supplied[0] || randomHexToken(32);
-  if (key.length < 32) throw new Error('Hermes API_SERVER_KEY must be at least 32 characters');
   return key;
+}
+
+function prepareOpenClawLaunch(
+  options: OpenClawCreateAgentOptions,
+  generateGatewayToken: true,
+): {
+  config: Record<string, any>;
+  env: Record<string, string>;
+  secrets: Record<string, string>;
+  gatewayToken: string | null;
+} {
+  const env = { ...(options.env ?? {}) };
+  if (Object.prototype.hasOwnProperty.call(env, 'OPENCLAW_GATEWAY_TOKEN')) {
+    throw new Error(
+      'OPENCLAW_GATEWAY_TOKEN is a Secret; pass it through secrets or gatewayToken, not env',
+    );
+  }
+  const secrets = { ...(options.secrets ?? {}) };
+  const explicitGatewayToken = options.gatewayToken?.trim() || null;
+  const secretGatewayToken = secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+  if (options.gatewayToken !== undefined && options.gatewayToken !== null && !explicitGatewayToken) {
+    throw new Error('gatewayToken must not be blank');
+  }
+  if (explicitGatewayToken && secretGatewayToken && explicitGatewayToken !== secretGatewayToken) {
+    throw new Error('gatewayToken conflicts with secrets.OPENCLAW_GATEWAY_TOKEN');
+  }
+  const gatewayToken = explicitGatewayToken
+    ?? secretGatewayToken
+    ?? (generateGatewayToken ? randomHexToken(32) : null);
+  if (gatewayToken) secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+  if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
+    const controlUiOrigin = defaultControlUiAllowedOrigin();
+    if (controlUiOrigin) env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+  }
+
+  const config = structuredClone(options.config ?? {});
+  if (options.heartbeat) {
+    const agentsConfig = isPlainRecord(config.agents) ? { ...config.agents } : {};
+    const defaultsConfig = isPlainRecord(agentsConfig.defaults)
+      ? { ...agentsConfig.defaults }
+      : {};
+    const heartbeatConfig = isPlainRecord(defaultsConfig.heartbeat)
+      ? { ...defaultsConfig.heartbeat }
+      : {};
+    defaultsConfig.heartbeat = { ...heartbeatConfig, ...options.heartbeat };
+    agentsConfig.defaults = defaultsConfig;
+    config.agents = agentsConfig;
+  }
+  return { config, env, secrets, gatewayToken };
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
@@ -2248,6 +2340,11 @@ export class Agent {
 
   async resize(options: Pick<UpdateAgentOptions, 'size'>): Promise<Agent> {
     return this.requireDeployments().resize(this.id, options);
+  }
+
+  /** Accept background archival and return its transitional Agent projection. */
+  async archive(): Promise<Agent> {
+    return this.requireDeployments().archive(this.id);
   }
 
   async env(): Promise<Record<string, string>> {
@@ -2866,8 +2963,13 @@ export class OpenClawAgent extends Agent {
     return parsed.toString().replace(/\/$/, '');
   }
 
-  /** Resolve OpenClaw connection context from the generic Agent and Secret APIs. */
+  /** Resolve OpenClaw connection context while retaining caller-known credentials. */
   async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
+    if (!this.gatewayToken) {
+      throw new Error(
+        'OpenClaw gateway token is unavailable; retain the object returned by createOpenClaw or pass gatewayToken explicitly',
+      );
+    }
     const callerAbortError = (): Error => {
       if (options.signal?.reason instanceof Error) return options.signal.reason;
       const error = new Error('OpenClaw gateway context wait cancelled');
@@ -2981,16 +3083,7 @@ export class OpenClawAgent extends Agent {
           continue;
         }
 
-        // RUNNING is the lifecycle boundary at which the current gateway Secret
-        // must be readable. The Secret is canonical stored configuration replayed
-        // across launches, not an epoch-versioned browser credential. Fence the
-        // read with exact Agent snapshots instead of rejecting an older Secret
-        // envelope epoch or polling the sensitive endpoint on failure.
-        const secret = await runWithAbort(
-          deployments.secret(this.id, 'OPENCLAW_GATEWAY_TOKEN', requestOptions),
-        );
-        const gatewayToken = secret.value.trim();
-        if (!gatewayToken) throw new Error('OPENCLAW_GATEWAY_TOKEN is empty');
+        const gatewayToken = this.gatewayToken;
         const confirmed = await runWithAbort(deployments.get(this.id, requestOptions));
         if (
           confirmed.launchEpoch !== refreshed.launchEpoch
@@ -3027,11 +3120,6 @@ export class OpenClawAgent extends Agent {
       clearTimeout(timeoutId);
       options.signal?.removeEventListener('abort', forwardAbort);
     }
-  }
-
-  async resolveGatewayToken(): Promise<string | null> {
-    const context = await this.waitForGatewayContext();
-    return context.gateway_token ?? null;
   }
 
   gateway(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): GatewayClient {
@@ -3923,10 +4011,7 @@ export class Deployments {
   }
 
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
-    const { config } = buildAgentConfig(options.config ?? {}, {
-      ...options,
-      injectGatewayToken: options.injectGatewayToken ?? !isCodingAgentRuntime(options.runtime),
-    });
+    const config = buildAgentCreateConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
     if (options.name) body.name = options.name;
@@ -3945,11 +4030,17 @@ export class Deployments {
   }
 
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
-    const effectiveOptions: CreateAgentOptions = { ...options, runtime: options.runtime ?? 'openclaw' };
+    const prepared = prepareOpenClawLaunch(options, true);
+    const effectiveOptions: CreateAgentOptions = {
+      ...options,
+      runtime: options.runtime ?? 'openclaw',
+      config: prepared.config,
+      secrets: prepared.secrets,
+    };
     effectiveOptions.env = {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
-      ...(options.env ?? {}),
+      ...prepared.env,
     };
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
@@ -3959,18 +4050,15 @@ export class Deployments {
     if (options.syncInclude === undefined && options.syncExclude === undefined) {
       effectiveOptions.syncExclude = DEFAULT_OPENCLAW_SYNC_EXCLUDE;
     }
-    return this.create(effectiveOptions);
+    const agent = await this.create(effectiveOptions);
+    if (agent instanceof OpenClawAgent) agent.gatewayToken = prepared.gatewayToken;
+    return agent;
   }
 
   async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
     const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
-    const env: Record<string, string> = {
-      ...(options.env ?? {}),
-      API_SERVER_ENABLED: 'true',
-      API_SERVER_HOST: '0.0.0.0',
-    };
+    const env: Record<string, string> = { ...(options.env ?? {}) };
     delete env.API_SERVER_KEY;
-    delete env.OPENCLAW_GATEWAY_TOKEN;
     const secrets = { ...(options.secrets ?? {}), API_SERVER_KEY: apiServerKey };
     const effectiveOptions: CreateAgentOptions = {
       ...options,
@@ -3979,7 +4067,6 @@ export class Deployments {
       secrets,
       image: defaultHermesAgentImage(options.image),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
-      injectGatewayToken: false,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
       syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
       syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
@@ -4068,7 +4155,6 @@ export class Deployments {
       ...options,
       runtime,
       size: buzzLaunch ? 'large' : options.size,
-      injectGatewayToken: false,
       env: effectiveEnv,
       secrets: effectiveSecrets,
       routes: options.routes ?? {},
@@ -4480,41 +4566,14 @@ export class Deployments {
     );
   }
 
-  async start(agentIdOrName: string, options: StartAgentOptions = {}): Promise<Agent> {
-    if (isSelfAgentRef(agentIdOrName)) {
-      const provided = Object.keys(options).filter(
-        (key) => options[key as keyof StartAgentOptions] !== undefined,
-      );
-      if (provided.length > 0) {
-        throw new Error(
-          `start self uses the backend-stored launch configuration and does not accept launch overrides: ${provided.join(', ')}`,
-        );
-      }
-      const data = await this.agentHttp.post<AgentHydrationData>(
-        `${DEPLOYMENTS_API_PREFIX}/self/start`,
-        {},
-        { retries: 1 },
-      );
-      const agent = this.hydrateAgent(data);
-      this.invalidateOpenClawGateway(agent.id);
-      return agent;
-    }
-    const provided = Object.keys(options).filter(
-      (key) => options[key as keyof StartAgentOptions] !== undefined,
-    );
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
-    if (provided.length === 0) {
-      const data = await this.agentHttp.post<AgentHydrationData>(
-        `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
-        {},
-        { retries: 1 },
-      );
-      this.invalidateOpenClawGateway(agentId);
-      return this.hydrateAgent(data);
-    }
-    const { config } = buildAgentConfig(options.config ?? {}, options);
-    const body: Record<string, any> = { ...config };
+  async start(agentIdOrName: string, options: StartAgentOptions): Promise<Agent> {
+    const body: Record<string, any> = {
+      launch_config: cloneCompleteLaunchConfig(options.launchConfig),
+    };
     if (options.dryRun) body.dry_run = true;
+    const agentId = isSelfAgentRef(agentIdOrName)
+      ? (await this.get('self')).id
+      : await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
       body,
@@ -4524,50 +4583,45 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
-  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
-    const effectiveOptions: StartAgentOptions = { ...options };
-    if (options.workspacesSync !== undefined || options.memoryIndex !== undefined) {
-      effectiveOptions.env = {
-        ...(options.workspacesSync !== undefined
-          ? buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null)
-          : {}),
-        ...(options.memoryIndex !== undefined
-          ? buildOpenClawMemoryIndexEnv(options.memoryIndex)
-          : {}),
-        ...(options.env ?? {}),
-      };
+  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
+    const launchConfig = cloneCompleteLaunchConfig(options.launchConfig);
+    if (Object.prototype.hasOwnProperty.call(launchConfig.env, 'OPENCLAW_GATEWAY_TOKEN')) {
+      throw new Error('OPENCLAW_GATEWAY_TOKEN must be supplied through launchConfig.secrets or gatewayToken');
     }
-    if (options.routes === undefined && options.openClawRoutes !== undefined) {
-      effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? undefined);
+    const explicitToken = options.gatewayToken?.trim() || null;
+    const configuredToken = launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+    if (options.gatewayToken !== undefined && options.gatewayToken !== null && !explicitToken) {
+      throw new Error('gatewayToken must not be blank');
     }
-    return this.start(agentIdOrName, effectiveOptions);
+    if (explicitToken && configuredToken && explicitToken !== configuredToken) {
+      throw new Error('gatewayToken conflicts with launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN');
+    }
+    const gatewayToken = explicitToken ?? configuredToken;
+    if (gatewayToken) launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+    const agent = await this.start(agentIdOrName, {
+      launchConfig,
+      dryRun: options.dryRun,
+    });
+    if (agent instanceof OpenClawAgent) agent.gatewayToken = gatewayToken;
+    return agent;
   }
 
-  async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions = {}): Promise<HermesAgent> {
-    const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
-    const env: Record<string, string> = {
-      ...(options.env ?? {}),
-      API_SERVER_ENABLED: 'true',
-      API_SERVER_HOST: '0.0.0.0',
-    };
-    delete env.API_SERVER_KEY;
-    delete env.OPENCLAW_GATEWAY_TOKEN;
-    const secrets = { ...(options.secrets ?? {}), API_SERVER_KEY: apiServerKey };
-    const effectiveOptions: StartAgentOptions = {
-      ...options,
-      env,
-      secrets,
-      ...(options.image !== undefined ? { image: options.image } : {}),
-      runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
-      injectGatewayToken: false,
-      syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
-      syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
-      syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
-      routes: options.routes === undefined
-        ? buildHermesAgentRoutes(options.hermesRoute ?? {})
-        : options.routes,
-    };
-    const agent = await this.start(agentIdOrName, effectiveOptions);
+  async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions): Promise<HermesAgent> {
+    const launchConfig = cloneCompleteLaunchConfig(options.launchConfig);
+    const suppliedApiServerKey = options.apiServerKey
+      ?? launchConfig.secrets.API_SERVER_KEY
+      ?? launchConfig.env.API_SERVER_KEY;
+    const apiServerKey = suppliedApiServerKey === undefined
+      ? null
+      : resolveHermesApiServerKey(options.apiServerKey, launchConfig.env, launchConfig.secrets);
+    if (apiServerKey) {
+      delete launchConfig.env.API_SERVER_KEY;
+      launchConfig.secrets.API_SERVER_KEY = apiServerKey;
+    }
+    const agent = await this.start(agentIdOrName, {
+      launchConfig,
+      dryRun: options.dryRun,
+    });
     if (!(agent instanceof HermesAgent)) {
       throw new Error("Hermes deployment response did not identify runtime 'hermes-agent'");
     }
@@ -4575,7 +4629,7 @@ export class Deployments {
     return agent;
   }
 
-  async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
+  async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
     return this.startOpenClaw(agentIdOrName, options);
   }
 
@@ -4713,6 +4767,8 @@ export class Deployments {
   }
 
   async delete(agentIdOrName: string): Promise<Record<string, any>> {
+    // HTTP 200 accepts the durable soft delete. Cluster-local cleanup continues
+    // in the background and is not proven complete by this response.
     const agentId = await this.resolveAgentId(agentIdOrName);
     const result = await this.agentHttp.delete<Record<string, any>>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
     this.invalidateOpenClawGateway(agentId);
@@ -4825,7 +4881,7 @@ export class Deployments {
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
       { value },
     );
-    if (key === 'OPENCLAW_GATEWAY_TOKEN') this.invalidateOpenClawGateway(agentId);
+    this.invalidateOpenClawGateway(agentId);
     return result;
   }
 
@@ -4838,7 +4894,7 @@ export class Deployments {
     const result = await this.agentHttp.delete<AgentSecretMutationResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/secrets/${encodeURIComponent(key)}`,
     );
-    if (key === 'OPENCLAW_GATEWAY_TOKEN') this.invalidateOpenClawGateway(agentId);
+    this.invalidateOpenClawGateway(agentId);
     return result;
   }
 

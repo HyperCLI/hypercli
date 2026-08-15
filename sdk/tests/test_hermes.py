@@ -45,8 +45,9 @@ def _mock_response(payload: dict, status_code: int = 200) -> Mock:
 
 
 def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments) -> None:
-    with patch("httpx.Client") as client_class, patch(
-        "hypercli.agents.secrets.token_urlsafe", return_value="h" * 43
+    with (
+        patch("httpx.Client") as client_class,
+        patch("hypercli.agents.secrets.token_urlsafe", return_value="h" * 43),
     ):
         client = MagicMock()
         client.post.return_value = _mock_response(_deployment_payload())
@@ -68,14 +69,8 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert "sync_exclude" not in body
     assert body["sync_uid"] == 10000
     assert body["sync_gid"] == 10000
-    assert body["routes"] == {
-        "hermes": {"port": 8642, "auth": False, "prefix": ""}
-    }
-    assert body["env"] == {
-        "API_SERVER_ENABLED": "true",
-        "API_SERVER_HOST": "0.0.0.0",
-    }
-    assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
+    assert body["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
+    assert "env" not in body
     assert body["secrets"] == {
         "API_SERVER_KEY": "h" * 43,
         "CUSTOM_TOKEN": "create-secret",
@@ -87,9 +82,10 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert agent.launch_config is None
 
 
-def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> None:
-    with patch("httpx.Client") as client_class, patch(
-        "hypercli.agents.secrets.token_urlsafe", return_value="s" * 43
+def test_start_hermes_agent_does_not_rotate_api_server_key(deployments: Deployments) -> None:
+    with (
+        patch("httpx.Client") as client_class,
+        patch("hypercli.agents.secrets.token_urlsafe", return_value="s" * 43),
     ):
         client = MagicMock()
         client.post.return_value = _mock_response(_deployment_payload())
@@ -97,22 +93,16 @@ def test_start_hermes_agent_rotates_api_server_key(deployments: Deployments) -> 
         client.__exit__.return_value = False
         client_class.return_value = client
 
-        agent = deployments.start_hermes_agent(
-            "agent-123",
-            secrets={"CUSTOM_TOKEN": "start-secret"},
-        )
+        launch_config = build_agent_config(secrets={"CUSTOM_TOKEN": "start-secret"})
+        agent = deployments.start_hermes_agent("agent-123", launch_config)
 
     body = client.post.call_args.kwargs["json"]
-    assert "sync_include" not in body
-    assert "sync_exclude" not in body
-    assert "API_SERVER_KEY" not in body["env"]
-    assert "OPENCLAW_GATEWAY_TOKEN" not in body["env"]
-    assert body["secrets"] == {
-        "API_SERVER_KEY": "s" * 43,
-        "CUSTOM_TOKEN": "start-secret",
-    }
-    assert "image" not in body
-    assert agent.api_server_key == "s" * 43
+    assert "sync_include" not in body["launch_config"]
+    assert "sync_exclude" not in body["launch_config"]
+    assert body["launch_config"]["env"] == {}
+    assert body["launch_config"]["secrets"] == {"CUSTOM_TOKEN": "start-secret"}
+    assert body["launch_config"]["image"] is None
+    assert agent.api_server_key is None
 
 
 def test_hermes_helper_moves_legacy_public_api_key_to_secrets(
@@ -131,7 +121,7 @@ def test_hermes_helper_moves_legacy_public_api_key_to_secrets(
         )
 
     body = client.post.call_args.kwargs["json"]
-    assert "API_SERVER_KEY" not in body["env"]
+    assert "env" not in body
     assert body["secrets"] == {
         "API_SERVER_KEY": "k" * 43,
         "CUSTOM_TOKEN": "secret",
@@ -150,11 +140,10 @@ def test_hermes_helper_rejects_conflicting_api_keys(
 
 
 def test_hermes_include_takes_precedence(deployments: Deployments) -> None:
-    launch, _ = build_agent_config(
+    launch = build_agent_config(
         sync_root="/opt/data",
         sync_include=["workspace"],
         sync_exclude=["tmp"],
-        inject_gateway_token=False,
     )
     assert launch["sync_include"] == ["workspace"]
     assert "sync_exclude" not in launch
@@ -189,9 +178,18 @@ def test_hermes_agent_retains_key_across_bound_refresh(deployments: Deployments)
     assert agent.update(name="new").api_server_key == "k" * 32
 
 
-def test_short_hermes_api_key_is_rejected(deployments: Deployments) -> None:
-    with pytest.raises(ValueError, match="at least 32"):
-        deployments.create_hermes_agent(api_server_key="short")
+def test_hermes_api_key_length_is_opaque_to_the_sdk(deployments: Deployments) -> None:
+    with patch("httpx.Client") as client_class:
+        client = MagicMock()
+        client.post.return_value = _mock_response(_deployment_payload())
+        client.__enter__.return_value = client
+        client.__exit__.return_value = False
+        client_class.return_value = client
+
+        agent = deployments.create_hermes_agent(api_server_key="short")
+
+    assert client.post.call_args.kwargs["json"]["secrets"]["API_SERVER_KEY"] == "short"
+    assert agent.api_server_key == "short"
 
 
 def test_hermes_api_client_routes_and_openai_error_normalization(monkeypatch) -> None:

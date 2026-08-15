@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { HyperCLI } from "../../src/client.js";
 import { APIError } from "../../src/errors.js";
+import { buildAgentConfig } from "../../src/agents.js";
 
 export const TEST_API_KEY = process.env.TEST_API_KEY?.trim() || "";
 export const TEST_API_BASE =
@@ -54,7 +55,10 @@ export async function createAgentWithAvailableTier(
       });
       agentId = agent.id;
       await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
-      await client.deployments.startOpenClaw(agent.id, { dryRun: true });
+      await client.deployments.startOpenClaw(agent.id, {
+        launchConfig: buildAgentConfig().config,
+        dryRun: true,
+      });
       return { id: agent.id, tier };
     } catch (error) {
       if (agentId) {

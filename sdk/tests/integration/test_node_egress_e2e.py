@@ -150,7 +150,13 @@ async def test_node_egress_routes_http_and_tcp_through_live_gateway(
                     config={"gateway": {"nodes": {"allowCommands": list(EGRESS_COMMANDS)}}},
                 )
                 client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-                client.deployments.start(agent.id)
+                launch_config = dict(agent.launch_config or {})
+                launch_config["secrets"] = {"OPENCLAW_GATEWAY_TOKEN": agent.gateway_token}
+                client.deployments.start_openclaw(
+                    agent.id,
+                    launch_config,
+                    gateway_token=agent.gateway_token,
+                )
                 break
             except APIError as exc:
                 if exc.status_code in {429, 503} and tier != tiers[-1]:
@@ -193,9 +199,7 @@ async def test_node_egress_routes_http_and_tcp_through_live_gateway(
             f"http://127.0.0.1:{http_port}/egress-route-check",
             max_bytes=1024,
         )
-        decoded_body = b"".join(
-            base64.b64decode(chunk) for chunk in response["bodyBase64Chunks"]
-        )
+        decoded_body = b"".join(base64.b64decode(chunk) for chunk in response["bodyBase64Chunks"])
         assert response["status"] == 200
         assert decoded_body == http_body
         assert seen_paths == ["/egress-route-check"]

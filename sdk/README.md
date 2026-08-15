@@ -141,13 +141,19 @@ Both helper families default `HYPER_WORKSPACES_DIR` to `/home/node/shared` and
 preserve an explicit value supplied in the launch `env`.
 
 ```python
-agent = client.deployments.create_openclaw(
-    name="docs-demo",
+launch_config = build_agent_config(
+    image="ghcr.io/example/agent:latest",
     registry_url="git.nedos.co",
     registry_auth={"username": "ci", "password": "token"},
 )
+agent = client.deployments.create(
+    name="docs-demo",
+    image=launch_config["image"],
+    registry_url=launch_config["registry_url"],
+    registry_auth=launch_config["registry_auth"],
+)
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start(agent.id)
+agent = client.deployments.start(agent.id, launch_config)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 
 capacity = client.deployments.list_with_capacity()
@@ -155,6 +161,15 @@ print(capacity.max_agents_per_account, capacity.running_agents)
 for slot in capacity.agent_slots:
     print(slot.size, slot.plan_id, slot.agent_id)
 ```
+
+`start()` and `start_openclaw()` require a complete `launch_config`. The SDK
+sends it as one replacement object and never merges omitted fields with the
+stored Agent. Retain caller-owned application secrets needed for a later typed
+start; hydrated Agents never recover secret values.
+
+`archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
+HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in
+the background, so that response is not cleanup completion.
 
 `list()` remains the compatibility list of agents. `list_with_capacity()`
 preserves the full deployment envelope: saved/running account limits, pooled

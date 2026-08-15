@@ -166,13 +166,19 @@ Both helper families default `HYPER_WORKSPACES_DIR` to `/home/node/shared` and
 preserve an explicit value supplied in the launch `env`.
 
 ```typescript
-const agent = await client.deployments.createOpenClaw({
-  name: 'docs-demo',
+const launchConfig = buildAgentConfig({}, {
+  image: 'ghcr.io/example/agent:latest',
   registryUrl: 'git.nedos.co',
   registryAuth: { username: 'ci', password: 'token' },
+}).config;
+const agent = await client.deployments.create({
+  name: 'docs-demo',
+  image: launchConfig.image,
+  registryUrl: launchConfig.registry_url,
+  registryAuth: launchConfig.registry_auth,
 });
 await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
-await client.deployments.start(agent.id);
+await client.deployments.start(agent.id, { launchConfig });
 const running = await client.deployments.waitForState(
   agent.id,
   ['RUNNING'],
@@ -186,6 +192,15 @@ for (const slot of capacity.agentSlots) {
   console.log(slot.size, slot.planId, slot.agentId);
 }
 ```
+
+`start()` and `startOpenClaw()` require a complete `launchConfig`. The SDK
+sends it under `launch_config` as one replacement object and never merges
+omitted fields with the stored Agent. Retain caller-owned application secrets
+needed for a later typed start; hydrated Agents never recover secret values.
+
+`archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
+HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in
+the background, so that response is not cleanup completion.
 
 `list()` remains the compatibility array. `listWithCapacity()` preserves the
 full deployment response: saved/running account limits, pooled TPD, aggregate

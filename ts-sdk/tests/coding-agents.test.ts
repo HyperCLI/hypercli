@@ -122,6 +122,7 @@ describe('coding agents', () => {
       sync_include: syncInclude,
       sync_uid: 1000,
       sync_gid: 1000,
+      restart: false,
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: '1',

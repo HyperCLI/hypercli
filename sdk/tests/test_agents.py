@@ -1,4 +1,5 @@
 """Tests for HyperClaw agents SDK."""
+
 from __future__ import annotations
 
 import copy
@@ -33,6 +34,7 @@ from hypercli.agents import (
     ExecResult,
     _build_agent_launch,
     agent_config_has_desktop,
+    build_agent_config,
     build_openclaw_routes,
     flatten_launch_config,
     launch_config_has_desktop,
@@ -73,15 +75,11 @@ def test_agent_from_dict_hydrates_launch_epoch_and_future_state():
 
 
 def test_agent_from_dict_parses_requested_size_and_rejects_unknown_size():
-    agent = Agent.from_dict(
-        {"id": "agent-123", "state": "RUNNING", "requested_size": "large"}
-    )
+    agent = Agent.from_dict({"id": "agent-123", "state": "RUNNING", "requested_size": "large"})
 
     assert agent.requested_size == "large"
     with pytest.raises(ValueError, match="small, medium, large"):
-        Agent.from_dict(
-            {"id": "agent-123", "state": "RUNNING", "requested_size": "huge"}
-        )
+        Agent.from_dict({"id": "agent-123", "state": "RUNNING", "requested_size": "huge"})
 
 
 @pytest.mark.asyncio
@@ -98,15 +96,14 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         "reason": "archive_request",
         "error": None,
         "message": "Agent archive is being finalized",
-        "launch_epoch": 4,
-        "resources_exist": True,
-        "namespace_exists": True,
     }
 
     monkeypatch.setattr(
         deployments,
         "_post",
-        lambda path: calls.append(path) or {"token": "token", "ws_url": "wss://events.test/ws/deployments"},
+        lambda path: (
+            calls.append(path) or {"token": "token", "ws_url": "wss://events.test/ws/deployments"}
+        ),
     )
 
     class FakeSocket:
@@ -149,9 +146,6 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
     assert received[-1].reason == "archive_request"
     assert received[-1].error is None
     assert received[-1].message == "Agent archive is being finalized"
-    assert received[-1].launch_epoch == 4
-    assert received[-1].resources_exist is True
-    assert received[-1].namespace_exists is True
 
 
 @pytest.mark.asyncio
@@ -180,8 +174,9 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
     monkeypatch.setattr(
         deployments,
         "_post",
-        lambda path: calls.append(path)
-        or {"token": "token", "ws_url": "wss://events.test/ws/deployments"},
+        lambda path: (
+            calls.append(path) or {"token": "token", "ws_url": "wss://events.test/ws/deployments"}
+        ),
     )
 
     class FakeSocket:
@@ -375,7 +370,9 @@ def test_agent_routes_hydrates_declarative_and_status_fields():
 
 def test_routes_api_supports_declarative_and_named_updates_with_self_passthrough():
     http = Mock(spec=HTTPClient)
-    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
 
     with patch.object(deployments, "_get", return_value=_routes_response()) as get_request:
         state = deployments.get_routes("self")
@@ -392,9 +389,7 @@ def test_routes_api_supports_declarative_and_named_updates_with_self_passthrough
     )
 
     with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:
-        deployments.set_route(
-            "self", "web app", {"port": 3000, "auth": False, "prefix": ""}
-        )
+        deployments.set_route("self", "web app", {"port": 3000, "auth": False, "prefix": ""})
     put_request.assert_called_once_with(
         "/deployments/self/routes/web%20app",
         {"port": 3000, "auth": False, "prefix": ""},
@@ -407,33 +402,53 @@ def test_routes_api_supports_declarative_and_named_updates_with_self_passthrough
 
 def test_self_selector_is_limited_to_status_lifecycle_and_routes():
     http = Mock(spec=HTTPClient)
-    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
     response = {
-        "id": "agent-123",
+        "id": agent_id,
         "user_id": "user-456",
         "state": "running",
     }
 
-    with patch.object(deployments, "_get_by_id", return_value=Agent.from_dict(response)) as get_by_id:
-        assert deployments.get("self").id == "agent-123"
+    with patch.object(
+        deployments, "_get_by_id", return_value=Agent.from_dict(response)
+    ) as get_by_id:
+        assert deployments.get("self").id == agent_id
     get_by_id.assert_called_once_with("self")
 
+    with (
+        patch.object(
+            deployments, "_get_by_id", return_value=Agent.from_dict(response)
+        ) as get_by_id,
+        patch.object(deployments, "_post", return_value=response) as post,
+    ):
+        launch_config = build_agent_config()
+        started = deployments.start("self", launch_config, dry_run=True)
+    get_by_id.assert_called_once_with("self")
+    post.assert_called_once_with(
+        f"/deployments/{agent_id}/start",
+        json={"launch_config": launch_config, "dry_run": True},
+    )
+    assert started._submitted_launch_config == launch_config
+
     with patch.object(deployments, "_post", return_value=response) as post:
-        deployments.start("self")
         deployments.stop("self")
-    assert post.call_args_list[0].args == ("/deployments/self/start",)
-    assert post.call_args_list[0].kwargs == {"json": {}}
-    assert post.call_args_list[1].args == ("/deployments/self/stop",)
+    post.assert_called_once_with("/deployments/self/stop")
 
-    with pytest.raises(ValueError, match="backend-stored launch configuration"):
-        deployments.start("self", image="ghcr.io/example/override:latest")
-
-    with pytest.raises(ValueError, match="sync_include"):
-        deployments.start("self", sync_include=None)
-
-    with patch.object(deployments, "_post", return_value=response) as post:
-        deployments.start_openclaw("self")
-    post.assert_called_once_with("/deployments/self/start", json={})
+    with (
+        patch.object(
+            deployments, "_get_by_id", return_value=Agent.from_dict(response)
+        ) as get_by_id,
+        patch.object(deployments, "_post", return_value=response) as post,
+    ):
+        deployments.start_openclaw("self", launch_config)
+    get_by_id.assert_called_once_with("self")
+    post.assert_called_once_with(
+        f"/deployments/{agent_id}/start",
+        json={"launch_config": launch_config},
+    )
 
     with pytest.raises(ValueError, match="only supported"):
         deployments.delete("self")
@@ -475,7 +490,8 @@ def test_explicit_lifecycle_methods_use_distinct_endpoints_and_states(monkeypatc
     monkeypatch.setattr(deployments, "_post", post)
 
     assert deployments.create(name="matrix-agent").state == "CREATING"
-    assert deployments.start(agent_id).state == "STARTING"
+    launch_config = build_agent_config()
+    assert deployments.start(agent_id, launch_config).state == "STARTING"
     assert deployments.stop(agent_id).state == "STOPPING"
     assert deployments.archive(agent_id).state == "ARCHIVING"
     assert deployments.restore(agent_id).state == "RESTORING"
@@ -483,11 +499,51 @@ def test_explicit_lifecycle_methods_use_distinct_endpoints_and_states(monkeypatc
     assert post.call_args_list[0].kwargs["json"]["name"] == "matrix-agent"
     assert "start" not in post.call_args_list[0].kwargs["json"]
     assert post.call_args_list[1:] == [
-        call(f"/deployments/{agent_id}/start", json={}),
+        call(
+            f"/deployments/{agent_id}/start",
+            json={"launch_config": launch_config},
+        ),
         call(f"/deployments/{agent_id}/stop"),
         call(f"/deployments/{agent_id}/archive"),
         call(f"/deployments/{agent_id}/restore"),
     ]
+
+
+def test_start_rejects_partial_config_and_preserves_explicit_empty_maps():
+    deployments = Deployments(
+        MagicMock(spec=HTTPClient),
+        api_key="hyper_api_test",
+        api_base="https://api.test.hypercli.com/agents",
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    with pytest.raises(ValueError, match="launch_config is incomplete"):
+        deployments.start(agent_id, {})
+
+    launch_config = build_agent_config()
+    with patch.object(
+        deployments,
+        "_post",
+        return_value={"id": agent_id, "state": "STARTING"},
+    ) as post:
+        deployments.start(agent_id, launch_config)
+    post.assert_called_once_with(
+        f"/deployments/{agent_id}/start",
+        json={"launch_config": launch_config},
+    )
+    assert launch_config["env"] == {}
+    assert launch_config["secrets"] == {}
+
+
+def test_bound_agent_exposes_archive_transitional_projection():
+    deployments = MagicMock()
+    archived = Agent.from_dict({"id": "agent-123", "user_id": "user-456", "state": "ARCHIVING"})
+    archived._deployments = deployments
+    deployments.archive.return_value = archived
+    agent = Agent.from_dict({"id": "agent-123", "user_id": "user-456", "state": "STOPPED"})
+    agent._deployments = deployments
+
+    assert agent.archive().state == "ARCHIVING"
+    deployments.archive.assert_called_once_with("agent-123")
 
 
 def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
@@ -548,7 +604,9 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
 
 def test_deployments_external_agent_helpers_call_expected_routes():
     http = Mock(spec=HTTPClient)
-    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
 
     with patch.object(deployments, "_post") as post:
         post.return_value = {
@@ -560,7 +618,9 @@ def test_deployments_external_agent_helpers_call_expected_routes():
             "runtime_key_alias": "key-123",
             "relay_key": {"api_key": "hyper_api_secret", "key_id": "key-123"},
         }
-        agent = deployments.create_external_agent(name="external-agent", display_name="External", handle="external")
+        agent = deployments.create_external_agent(
+            name="external-agent", display_name="External", handle="external"
+        )
 
     post.assert_called_once_with(
         "/external-agents",
@@ -575,15 +635,21 @@ def test_deployments_external_agent_helpers_call_expected_routes():
     assert agent.is_launchable is False
     assert agent.relay_key == {"api_key": "hyper_api_secret", "key_id": "key-123"}
 
-    with patch.object(deployments, "_post", return_value={"relay_key": {"api_key": "hyper_api_next"}}) as post:
-        assert deployments.rotate_external_agent_key("external-123") == {"relay_key": {"api_key": "hyper_api_next"}}
+    with patch.object(
+        deployments, "_post", return_value={"relay_key": {"api_key": "hyper_api_next"}}
+    ) as post:
+        assert deployments.rotate_external_agent_key("external-123") == {
+            "relay_key": {"api_key": "hyper_api_next"}
+        }
 
     post.assert_called_once_with("/external-agents/external-123/keys/rotate")
 
 
 def test_update_external_agent_uses_exact_id_and_preserves_explicit_nulls():
     http = Mock(spec=HTTPClient)
-    deployments = Deployments(http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents")
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
     response = {
         "id": "backend-external-id",
         "user_id": "user-456",
@@ -594,11 +660,14 @@ def test_update_external_agent_uses_exact_id_and_preserves_explicit_nulls():
         "runtime": "openclaw",
     }
 
-    with patch.object(deployments, "_patch", return_value=response) as patch_request, patch.object(
-        deployments,
-        "resolve_agent_id",
-        side_effect=AssertionError("external agent IDs must not use managed resolution"),
-    ) as resolve_agent_id:
+    with (
+        patch.object(deployments, "_patch", return_value=response) as patch_request,
+        patch.object(
+            deployments,
+            "resolve_agent_id",
+            side_effect=AssertionError("external agent IDs must not use managed resolution"),
+        ) as resolve_agent_id,
+    ):
         agent = deployments.update_external_agent(
             "backend-external-id",
             name="external-agent-renamed",
@@ -947,10 +1016,25 @@ def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():
 
 def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
     assert launch_config_has_desktop({"env": {"OPENCLAW_DESKTOP_ENABLED": "1"}}) is True
-    assert launch_config_has_desktop({"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}}}) is True
-    assert launch_config_has_desktop({"routes": {"browser": {"port": 3000, "auth": True, "prefix": "desktop"}}}) is True
+    assert (
+        launch_config_has_desktop(
+            {"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}}}
+        )
+        is True
+    )
+    assert (
+        launch_config_has_desktop(
+            {"routes": {"browser": {"port": 3000, "auth": True, "prefix": "desktop"}}}
+        )
+        is True
+    )
     assert launch_config_has_desktop({"image": DEFAULT_OPENCLAW_PRO_IMAGE}) is False
-    assert agent_config_has_desktop({"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}}) is True
+    assert (
+        agent_config_has_desktop(
+            {"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "desktop"}}}
+        )
+        is True
+    )
 
 
 def test_flatten_launch_config_and_agent_has_desktop():
@@ -1027,8 +1111,9 @@ def test_openclaw_agent_gateway_requires_url():
         user_id="user-456",
         state="running",
     )
-    with pytest.raises(ValueError, match="Deployments client"):
+    with pytest.raises(ValueError, match="gateway_token is required"):
         agent.gateway()
+
 
 def test_openclaw_agent_gateway_allows_jwtless_when_route_auth_disabled():
     manager = Mock()
@@ -1092,7 +1177,9 @@ def test_openclaw_agent_wait_running_still_delegates_to_deployments():
         hostname="ready.hypercli.com",
         _deployments=manager,
     )
-    agent.wait_for_gateway_context = Mock(side_effect=AssertionError("wait_for_gateway_context should not be used by wait_running"))
+    agent.wait_for_gateway_context = Mock(
+        side_effect=AssertionError("wait_for_gateway_context should not be used by wait_running")
+    )
 
     result = agent.wait_running(timeout=42, poll_interval=1.5)
 
@@ -1136,7 +1223,11 @@ def test_agent_wait_running_delegates_to_deployments():
 
 def test_agent_reads_environment_and_exact_secrets_through_bound_deployments():
     manager = Mock()
-    manager.env.return_value = {"agent_id": "agent-123", "env": {"MODE": "prod"}, "launch_epoch": 10}
+    manager.env.return_value = {
+        "agent_id": "agent-123",
+        "env": {"MODE": "prod"},
+        "launch_epoch": 10,
+    }
     manager.secret_names.return_value = {
         "agent_id": "agent-123",
         "names": ["API_TOKEN"],
@@ -1335,7 +1426,9 @@ async def test_openclaw_agent_helper_methods_mutate_config():
     assert applied[2]["agents"]["defaults"]["model"]["primary"] == "moonshot/kimi-k2.5"
     assert applied[3]["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "embed-key"
     assert applied[4]["channels"]["telegram"]["allowFrom"] == ["123456"]
-    assert applied[5]["channels"]["slack"]["accounts"]["work"]["channels"]["C123"]["users"] == ["U123"]
+    assert applied[5]["channels"]["slack"]["accounts"]["work"]["channels"]["C123"]["users"] == [
+        "U123"
+    ]
     assert applied[6]["channels"]["discord"]["guilds"]["G123"]["enabled"] is True
 
 
@@ -1379,21 +1472,20 @@ def test_bound_agent_methods_delegate_to_agents(tmp_path):
 
 
 def test_build_agent_launch_includes_command_and_entrypoint():
-    launch, gateway_token = _build_agent_launch(
+    launch = _build_agent_launch(
         {"foo": "bar"},
         env={"FOO": "bar"},
+        secrets={"APP_TOKEN": "opaque"},
         command=["echo", "hello"],
         entrypoint=["/bin/sh", "-c"],
         routes={"web": {"port": 80, "prefix": ""}},
         restart=False,
         runtime_scopes=["models:*", "workspaces:*"],
-        gateway_token="gw-token",
     )
 
-    assert gateway_token == "gw-token"
     assert launch["config"] == {"foo": "bar"}
     assert launch["env"] == {"FOO": "bar"}
-    assert launch["secrets"] == {"OPENCLAW_GATEWAY_TOKEN": "gw-token"}
+    assert launch["secrets"] == {"APP_TOKEN": "opaque"}
     assert launch["command"] == ["echo", "hello"]
     assert launch["entrypoint"] == ["/bin/sh", "-c"]
     assert launch["routes"] == {"web": {"port": 80, "prefix": ""}}
@@ -1406,24 +1498,20 @@ def test_build_agent_launch_rejects_env_secret_collisions():
         _build_agent_launch({}, env={"TOKEN": "public"}, secrets={"TOKEN": "secret"})
 
 
-def test_build_agent_launch_rejects_gateway_token_in_env():
-    with pytest.raises(ValueError, match="must be supplied through secrets"):
-        _build_agent_launch({}, env={"OPENCLAW_GATEWAY_TOKEN": "legacy"})
+def test_build_agent_launch_is_name_blind_for_application_keys():
+    launch = _build_agent_launch(
+        {},
+        env={"OPENCLAW_GATEWAY_TOKEN": "opaque-env"},
+        secrets={"API_SERVER_KEY": "opaque-secret"},
+    )
+    assert launch["env"] == {"OPENCLAW_GATEWAY_TOKEN": "opaque-env"}
+    assert launch["secrets"] == {"API_SERVER_KEY": "opaque-secret"}
 
 
-def test_build_agent_launch_rejects_conflicting_gateway_token_inputs():
-    with pytest.raises(ValueError, match="conflicts with secrets"):
-        _build_agent_launch(
-            {},
-            gateway_token="explicit-token",
-            secrets={"OPENCLAW_GATEWAY_TOKEN": "different-token"},
-        )
+def test_build_agent_launch_defaults_restart_to_false():
+    launch = _build_agent_launch({})
 
-
-def test_build_agent_launch_omits_unspecified_restart():
-    launch, _gateway_token = _build_agent_launch({}, inject_gateway_token=False)
-
-    assert "restart" not in launch
+    assert launch["restart"] is False
 
 
 @pytest.mark.parametrize(
@@ -1440,33 +1528,9 @@ def test_build_agent_launch_omits_unspecified_restart():
     ],
 )
 def test_build_agent_launch_preserves_sync_policy_presence(kwargs, expected):
-    launch, _gateway_token = _build_agent_launch(
-        {},
-        inject_gateway_token=False,
-        **kwargs,
-    )
+    launch = _build_agent_launch({}, **kwargs)
 
     assert {key: value for key, value in launch.items() if key.startswith("sync_")} == expected
-
-
-def test_build_agent_launch_merges_heartbeat_defaults():
-    launch, _gateway_token = _build_agent_launch(
-        {"agents": {"defaults": {"model": "openai/gpt-5.4", "heartbeat": {"target": "last"}}}},
-        heartbeat={"every": "1h", "target": "last"},
-        gateway_token="gw-token",
-    )
-
-    assert launch["config"] == {
-        "agents": {
-            "defaults": {
-                "model": "openai/gpt-5.4",
-                "heartbeat": {
-                    "target": "last",
-                    "every": "1h",
-                },
-            }
-        }
-    }
 
 
 def test_build_openclaw_routes_defaults():
@@ -1488,7 +1552,10 @@ def test_build_openclaw_routes_allows_overrides():
 
 
 def test_create_openclaw_defaults_routes_when_omitted(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1519,7 +1586,10 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
 
 
 def test_create_openclaw_respects_explicit_empty_routes(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1541,7 +1611,10 @@ def test_create_openclaw_respects_explicit_empty_routes(agents_client):
 
 
 def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1581,7 +1654,10 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
 
 
 def test_create_openclaw_allows_hyper_api_base_override(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1605,9 +1681,12 @@ def test_create_openclaw_allows_hyper_api_base_override(agents_client):
 
 
 def test_create_openclaw_allows_workspaces_directory_override(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch(
-        "hypercli.agents.secrets.token_hex",
-        return_value="gw-token-123",
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch(
+            "hypercli.agents.secrets.token_hex",
+            return_value="gw-token-123",
+        ),
     ):
         mock_client = MagicMock()
         mock_response = Mock()
@@ -1628,14 +1707,14 @@ def test_create_openclaw_allows_workspaces_directory_override(agents_client):
         )
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert (
-            posted_json["env"]["HYPER_WORKSPACES_DIR"]
-            == "/home/node/custom-shared"
-        )
+        assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/custom-shared"
 
 
 def test_create_openclaw_accepts_memory_index_options(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1676,7 +1755,10 @@ def test_create_openclaw_accepts_memory_index_options(agents_client):
 
 
 def test_create_openclaw_accepts_workspaces_sync_options(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1714,7 +1796,10 @@ def test_create_openclaw_rejects_workspaces_directory_in_typed_options(agents_cl
 
 
 def test_create_openclaw_can_disable_workspaces_sync(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1737,7 +1822,10 @@ def test_create_openclaw_can_disable_workspaces_sync(agents_client):
 
 
 def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1762,6 +1850,7 @@ def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
             "target": "last",
         }
 
+
 @pytest.fixture
 def mock_http():
     http = Mock(spec=HTTPClient)
@@ -1771,7 +1860,9 @@ def mock_http():
 
 @pytest.fixture
 def agents_client(mock_http):
-    return Deployments(http=mock_http, api_key="sk-hyper-test123", api_base="https://api.test.hypercli.com")
+    return Deployments(
+        http=mock_http, api_key="sk-hyper-test123", api_base="https://api.test.hypercli.com"
+    )
 
 
 def test_create_omits_start_and_returns_creating_admission(mock_http):
@@ -1786,9 +1877,10 @@ def test_create_omits_start_and_returns_creating_admission(mock_http):
         "state": "CREATING",
         "launch_epoch": 4,
     }
-    with patch.object(deployments, "_post", return_value=created) as post, patch.object(
-        deployments, "wait_for_state"
-    ) as wait:
+    with (
+        patch.object(deployments, "_post", return_value=created) as post,
+        patch.object(deployments, "wait_for_state") as wait,
+    ):
         result = deployments.create(name="provisioned")
 
     assert result.state == "CREATING"
@@ -1855,6 +1947,15 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert agent.gateway_url is None
         assert agent.meta_ui is None
         assert agent._deployments is agents_client
+        assert agent._submitted_launch_config == build_agent_config(
+            env={"FOO": "bar"},
+            command=["nginx", "-g", "daemon off;"],
+            entrypoint=["/docker-entrypoint.sh"],
+            image="ghcr.io/hypercli/hypercli-openclaw:test",
+            registry_url="ghcr.io",
+            registry_auth={"username": "u", "password": "p"},
+        )
+        assert "_submitted_launch_config" not in repr(agent)
 
 
 def test_create_openclaw_defaults_sync_root(agents_client):
@@ -1883,8 +1984,11 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         assert "HOME" not in posted_json["env"]
 
 
-def test_start_openclaw_without_overrides_inherits_backend_launch_config(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+def test_start_openclaw_sends_complete_launch_config_wholesale(agents_client):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -1900,9 +2004,10 @@ def test_start_openclaw_without_overrides_inherits_backend_launch_config(agents_
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        agents_client.start_openclaw("agent-123")
+        launch_config = build_agent_config()
+        agents_client.start_openclaw("agent-123", launch_config)
 
-        assert mock_client.post.call_args[1]["json"] == {}
+        assert mock_client.post.call_args[1]["json"] == {"launch_config": launch_config}
 
 
 def test_start_openclaw_preserves_restart_policy(agents_client):
@@ -1921,16 +2026,16 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        agents_client.start_openclaw(
-            "agent-123",
+        launch_config = build_agent_config(
             image="ghcr.io/hypercli/hypercli-buzz-opencode:latest",
             command=["/usr/local/bin/buzz-acp"],
             routes={},
             restart=False,
             runtime_scopes=["models:*"],
         )
+        agents_client.start_openclaw("agent-123", launch_config)
 
-        posted_json = mock_client.post.call_args[1]["json"]
+        posted_json = mock_client.post.call_args[1]["json"]["launch_config"]
         assert posted_json["image"] == "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
         assert posted_json["command"] == ["/usr/local/bin/buzz-acp"]
         assert posted_json["routes"] == {}
@@ -1938,7 +2043,7 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
         assert posted_json["runtime_scopes"] == ["models:*"]
 
 
-def test_start_openclaw_pro_without_overrides_inherits_backend_launch_config(agents_client):
+def test_start_openclaw_pro_requires_complete_launch_config(agents_client):
     posted: dict = {}
 
     def fake_post(_path, json=None):
@@ -1951,9 +2056,10 @@ def test_start_openclaw_pro_without_overrides_inherits_backend_launch_config(age
         }
 
     agents_client._post = fake_post
-    agents_client.start_openclaw_pro("11111111-1111-4111-8111-111111111111")
+    launch_config = build_agent_config()
+    agents_client.start_openclaw_pro("11111111-1111-4111-8111-111111111111", launch_config)
 
-    assert posted == {}
+    assert posted == {"launch_config": launch_config}
 
 
 @pytest.mark.parametrize(
@@ -1967,20 +2073,6 @@ def test_start_openclaw_pro_without_overrides_inherits_backend_launch_config(age
             None,
         ),
         ("create_openclaw_pro", (), {"sync_include": []}, [], None),
-        (
-            "start_openclaw",
-            ("11111111-1111-4111-8111-111111111111",),
-            {"sync_exclude": ["workspace/tmp"]},
-            None,
-            ["workspace/tmp"],
-        ),
-        (
-            "start_openclaw_pro",
-            ("11111111-1111-4111-8111-111111111111",),
-            {"sync_include": None},
-            None,
-            None,
-        ),
     ],
 )
 def test_openclaw_wrappers_forward_sync_policy(
@@ -2019,12 +2111,15 @@ def test_openclaw_wrappers_forward_sync_policy(
 
 def test_openclaw_include_takes_precedence(agents_client):
     posted: dict = {}
-    agents_client._post = lambda _path, json=None: posted.update(json or {}) or {
-        "id": "11111111-1111-4111-8111-111111111111",
-        "user_id": "user-456",
-        "state": "starting",
-        "runtime": "openclaw",
-    }
+    agents_client._post = lambda _path, json=None: (
+        posted.update(json or {})
+        or {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "starting",
+            "runtime": "openclaw",
+        }
+    )
     agents_client.create_openclaw(sync_include=["workspace"], sync_exclude=["tmp"])
     assert posted["sync_include"] == ["workspace"]
     assert "sync_exclude" not in posted
@@ -2044,13 +2139,12 @@ def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agen
 
     agents_client._post = fake_post
     agent_id = "11111111-1111-4111-8111-111111111111"
-    agents_client.start_openclaw(agent_id)
-    agents_client.start_openclaw(agent_id, sync_include=None)
+    agents_client.start_openclaw(agent_id, build_agent_config())
+    agents_client.start_openclaw(agent_id, build_agent_config(sync_include=None))
 
-    assert "sync_include" not in posted[0]
-    assert posted[0] == {}
-    assert posted[1]["sync_include"] is None
-    assert "sync_exclude" not in posted[1]
+    assert "sync_include" not in posted[0]["launch_config"]
+    assert posted[1]["launch_config"]["sync_include"] is None
+    assert "sync_exclude" not in posted[1]["launch_config"]
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
@@ -2159,18 +2253,18 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                         "s3_key": "prod/user-456/agent-123.png",
                     }
                 )
-            assert url.endswith((
-                "/deployments/agent-123/files/workspace/a.txt",
-                "/deployments/agent-123/files/AGENTS.md",
-            ))
+            assert url.endswith(
+                (
+                    "/deployments/agent-123/files/workspace/a.txt",
+                    "/deployments/agent-123/files/AGENTS.md",
+                )
+            )
             assert params is None
             assert content in {b"payload", b"instructions"}
             return FakeResponse(json_data={"status": "ok"})
 
         def delete(self, url, headers=None, params=None):
-            assert url.endswith((
-                "/deployments/agent-123/files/workspace/a.txt",
-            ))
+            assert url.endswith(("/deployments/agent-123/files/workspace/a.txt",))
             assert params is None
             return FakeResponse(json_data={"status": "ok"})
 
@@ -2189,13 +2283,18 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             {"name": "dir", "path": "workspace/dir/", "type": "directory"},
             {"name": "a.txt", "path": "workspace/a.txt", "type": "file"},
         ]
-        assert hidden_entries == [{"name": "workspace", "type": "directory"}, {"name": "openclaw.json", "type": "file"}]
+        assert hidden_entries == [
+            {"name": "workspace", "type": "directory"},
+            {"name": "openclaw.json", "type": "file"},
+        ]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
         assert agents_client.file_read_bytes_with_metadata(agent, "workspace/a.txt") == {
             "content": b"hello",
             "mime_type": "text/plain",
         }
-        assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
+        assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {
+            "status": "ok"
+        }
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
         assert agents_client.upload_profile_image("agent-123", b"png") == {
             "id": "agent-123",
@@ -2214,7 +2313,9 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
 def test_agent_file_write_rejects_content_above_sdk_limit(agents_client):
     with pytest.raises(ValueError, match="250 MiB"):
-        agents_client.file_write_bytes("agent-123", "too-large.bin", b"x" * (AGENT_FILE_MAX_BYTES + 1))
+        agents_client.file_write_bytes(
+            "agent-123", "too-large.bin", b"x" * (AGENT_FILE_MAX_BYTES + 1)
+        )
 
 
 def test_agents_list(agents_client):
@@ -2310,13 +2411,16 @@ def test_agents_capacity_fallback_excludes_archive_and_delete_states(agents_clie
 
 def test_agents_list_passes_filters(agents_client):
     with patch.object(agents_client, "_get", return_value={"items": []}) as get:
-        assert agents_client.list(
-            state="RUNNING",
-            handle="coder",
-            name="coder-agent",
-            query="code",
-            include_deleted=True,
-        ) == []
+        assert (
+            agents_client.list(
+                state="RUNNING",
+                handle="coder",
+                name="coder-agent",
+                query="code",
+                include_deleted=True,
+            )
+            == []
+        )
 
     get.assert_called_once_with(
         "/deployments",
@@ -2347,19 +2451,15 @@ def test_agents_start_stop_delete(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        agent = agents_client.start(
-            "agent-123",
+        launch_config = build_agent_config(
             image="ghcr.io/hypercli/hypercli-openclaw:test",
             command=["echo", "hello"],
             entrypoint=["/bin/sh", "-c"],
         )
+        agent = agents_client.start("agent-123", launch_config)
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token is None
-        assert mock_client.post.call_args[1]["json"] == {
-            "image": "ghcr.io/hypercli/hypercli-openclaw:test",
-            "command": ["echo", "hello"],
-            "entrypoint": ["/bin/sh", "-c"],
-        }
+        assert mock_client.post.call_args[1]["json"] == {"launch_config": launch_config}
 
         mock_response.json.return_value["state"] = "stopping"
         stopped = agents_client.stop("agent-123")
@@ -2367,9 +2467,13 @@ def test_agents_start_stop_delete(agents_client):
 
         delete_response = Mock()
         delete_response.status_code = 200
-        delete_response.json.return_value = {"status": "deleted"}
+        delete_response.json.return_value = {
+            "id": "agent-123",
+            "state": "STOPPED",
+            "deleted_at": "2026-08-14T12:00:00Z",
+        }
         mock_client.delete.return_value = delete_response
-        assert agents_client.delete("agent-123") == {"status": "deleted"}
+        assert agents_client.delete("agent-123") == delete_response.json.return_value
 
 
 def test_agents_update_and_resize(agents_client):
@@ -2454,7 +2558,10 @@ def test_bound_agent_resize_delegates_to_deployments(agents_client):
 
 
 def test_agents_start_preserves_generic_launch_fields(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-generic"):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-generic"),
+    ):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -2469,8 +2576,7 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        agent = agents_client.start(
-            "agent-456",
+        launch_config = build_agent_config(
             image="python:3.12-alpine",
             command=["sh", "-c", "python -m http.server 80"],
             routes={"web": {"port": 80, "auth": False, "prefix": ""}},
@@ -2479,9 +2585,10 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             sync_gid=2001,
             restart=False,
         )
+        agent = agents_client.start("agent-456", launch_config)
 
         assert isinstance(agent, Agent)
-        posted_json = mock_client.post.call_args[1]["json"]
+        posted_json = mock_client.post.call_args[1]["json"]["launch_config"]
         assert posted_json["image"] == "python:3.12-alpine"
         assert posted_json["command"] == ["sh", "-c", "python -m http.server 80"]
         assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
@@ -2490,31 +2597,6 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["sync_uid"] == 2000
         assert posted_json["sync_gid"] == 2001
         assert posted_json["restart"] is False
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("sync_uid", True),
-        ("sync_uid", "1000"),
-        ("sync_uid", 1.5),
-        ("sync_uid", -1),
-        ("sync_uid", 4_294_967_295),
-        ("sync_gid", True),
-        ("sync_gid", "1000"),
-        ("sync_gid", 1.5),
-        ("sync_gid", -1),
-        ("sync_gid", 4_294_967_295),
-    ],
-)
-def test_agents_start_rejects_invalid_sync_ownership(
-    agents_client, field, value
-):
-    with pytest.raises(ValueError, match=field):
-        agents_client.start(
-            "11111111-1111-4111-8111-111111111111",
-            **{field: value},
-        )
 
 
 @pytest.mark.parametrize(
@@ -2538,16 +2620,24 @@ def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expe
         }
 
     agents_client._post = fake_post
-    agents_client.start("11111111-1111-4111-8111-111111111111", **kwargs)
+    launch_config = build_agent_config(**kwargs)
+    agents_client.start("11111111-1111-4111-8111-111111111111", launch_config)
 
-    actual = {key: value for key, value in posted.items() if key in {"sync_include", "sync_exclude"}}
+    actual = {
+        key: value
+        for key, value in posted["launch_config"].items()
+        if key in {"sync_include", "sync_exclude"}
+    }
     assert actual == expected
 
 
 def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
-    with patch("httpx.Client") as mock_client_class, patch(
-        "hypercli.agents.secrets.token_hex",
-        return_value="unused-start-token",
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch(
+            "hypercli.agents.secrets.token_hex",
+            return_value="unused-start-token",
+        ),
     ):
         mock_client = MagicMock()
         mock_response = Mock()
@@ -2569,9 +2659,10 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
+        submitted_launch = build_agent_config(restart=False)
         agent = agents_client.start(
             "11111111-1111-4111-8111-111111111111",
-            restart=False,
+            submitted_launch,
         )
 
         assert agent.launch_config == {
@@ -2580,6 +2671,7 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
             "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
             "restart": False,
         }
+        assert agent._submitted_launch_config == submitted_launch
 
 
 def test_build_agent_launch_rejects_nested_launch_fields():
@@ -2620,7 +2712,9 @@ def test_agents_web_search_uses_subscription_token_header(agents_client):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"web": {"results": [{"title": "HyperCLI", "url": "https://hypercli.com"}]}}
+        mock_response.json.return_value = {
+            "web": {"results": [{"title": "HyperCLI", "url": "https://hypercli.com"}]}
+        }
         mock_client.get.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
@@ -2692,11 +2786,16 @@ def test_agents_purchase_entitlement_from_balance(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        result = agents_client.purchase_entitlement_from_balance("basic", duration=3600, tags=["customer=acme"])
+        result = agents_client.purchase_entitlement_from_balance(
+            "basic", duration=3600, tags=["customer=acme"]
+        )
 
         assert result["grant"]["type"] == "BALANCE"
         assert mock_client.post.call_args[0][0].endswith("/billing/balance/basic")
-        assert mock_client.post.call_args[1]["json"] == {"duration": 3600, "tags": ["customer=acme"]}
+        assert mock_client.post.call_args[1]["json"] == {
+            "duration": 3600,
+            "tags": ["customer=acme"],
+        }
 
 
 def test_agents_purchase_entitlement_from_balance_can_extend_existing(agents_client):
@@ -2766,7 +2865,10 @@ def test_agents_redeem_grant_code_can_request_extension(agents_client):
         agents_client.redeem_grant_code("promo-123", extend_existing=True)
 
         assert mock_client.post.call_args[0][0].endswith("/billing/grants/redeem")
-        assert mock_client.post.call_args[1]["json"] == {"code": "promo-123", "extend_existing": True}
+        assert mock_client.post.call_args[1]["json"] == {
+            "code": "promo-123",
+            "extend_existing": True,
+        }
 
 
 def _openclaw_snapshot(*, hostname="openclaw-test.hypercli.com", launch_epoch=3):
@@ -2779,30 +2881,11 @@ def _openclaw_snapshot(*, hostname="openclaw-test.hypercli.com", launch_epoch=3)
     )
 
 
-def test_openclaw_agent_resolve_gateway_token_uses_exact_secret():
-    manager = Mock()
-    manager.get.return_value = _openclaw_snapshot()
-    manager.secret.return_value = {"value": "gw-fetched", "launch_epoch": 3}
-    agent = OpenClawAgent(
-        id="agent-123",
-        user_id="user-456",
-        state="running",
-        _deployments=manager,
-    )
-
-    token = agent.resolve_gateway_token()
-
-    assert token == "gw-fetched"
-    assert agent.gateway_token == "gw-fetched"
-    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    assert manager.get.call_count == 2
-    manager.get.assert_called_with("agent-123")
-    manager.secret.assert_called_once_with("agent-123", "OPENCLAW_GATEWAY_TOKEN")
-
-
 def test_deployments_environment_and_secret_routes(agents_client):
     agents_client.resolve_agent_id = Mock(return_value="agent-123")
-    agents_client._get = Mock(side_effect=[{"env": {"FOO": "bar"}}, {"names": ["TOKEN"]}, {"value": "secret"}])
+    agents_client._get = Mock(
+        side_effect=[{"env": {"FOO": "bar"}}, {"names": ["TOKEN"]}, {"value": "secret"}]
+    )
 
     assert agents_client.env("openclaw-test") == {"env": {"FOO": "bar"}}
     assert agents_client.secret_names("openclaw-test") == {"names": ["TOKEN"]}
@@ -2852,61 +2935,11 @@ def test_deployments_environment_and_secret_mutation_routes(agents_client):
     ]
 
 
-def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch):
-    manager = Mock()
-    manager.get.return_value = _openclaw_snapshot()
-    manager.secret.side_effect = [
-        APIError(409, "Agent secret is not ready"),
-        {"value": "gw-fetched", "launch_epoch": 3},
-    ]
-    agent = OpenClawAgent(
-        id="agent-123",
-        user_id="user-456",
-        state="running",
-        _deployments=manager,
-    )
-    monkeypatch.setattr("hypercli.agents.time.sleep", lambda _seconds: None)
-
-    context = agent.wait_for_gateway_context(timeout=0.1, retry_interval=0)
-
-    assert context["gateway_token"] == "gw-fetched"
-    assert context["gateway_url"] == "wss://openclaw-test.hypercli.com"
-    assert agent.gateway_token == "gw-fetched"
-    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    assert manager.get.call_count == 3
-    assert manager.secret.call_count == 2
-
-
-def test_openclaw_agent_gateway_context_rejects_older_launch_epoch(monkeypatch):
-    manager = Mock()
-    manager.get.return_value = _openclaw_snapshot()
-    manager.secret.side_effect = [
-        {"value": "gw-old", "launch_epoch": 2},
-        {"value": "gw-fetched", "launch_epoch": 3},
-    ]
-    agent = OpenClawAgent(
-        id="agent-123",
-        user_id="user-456",
-        state="running",
-        launch_epoch=3,
-        _deployments=manager,
-    )
-    monkeypatch.setattr("hypercli.agents.time.sleep", lambda _seconds: None)
-
-    context = agent.wait_for_gateway_context(timeout=0.1, retry_interval=0)
-
-    assert context["launch_epoch"] == 3
-    assert agent.gateway_token == "gw-fetched"
-    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    assert manager.secret.call_count == 2
-
-
 def test_openclaw_agent_gateway_resolves_url_from_refreshed_hostname():
     manager = Mock()
     manager._api_key = "sk-hyper-test123"
     manager._api_base = "https://api.test.hypercli.com"
     manager.get.return_value = _openclaw_snapshot()
-    manager.secret.return_value = {"value": "gw-fetched", "launch_epoch": 3}
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
@@ -2919,10 +2952,10 @@ def test_openclaw_agent_gateway_resolves_url_from_refreshed_hostname():
 
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    assert agent.gateway_token == "gw-fetched"
+    assert agent.gateway_token == "gw-inline"
     assert manager.get.call_count == 2
     manager.get.assert_called_with("agent-123")
-    manager.secret.assert_called_once_with("agent-123", "OPENCLAW_GATEWAY_TOKEN")
+    manager.secret.assert_not_called()
 
 
 def test_agents_api_error(agents_client):
@@ -2999,7 +3032,7 @@ async def test_agents_integration_lifecycle():
     agent = agents.create(name="test-integration", size="small")
     assert agent.id is not None
     agents.wait_for_state(agent.id, {"stopped"}, timeout=330)
-    agents.start(agent.id)
+    agents.start(agent.id, build_agent_config())
 
     try:
         for _ in range(24):

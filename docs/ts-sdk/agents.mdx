@@ -176,9 +176,11 @@ routes are allowed.
 Managed runtimes can pass the reserved target `self` to `get`, `start`, `stop`,
 and route methods. The backend authorizes that narrow whitelist from the active
 runtime-key binding while the generic runtime scope remains `agents:none`.
-`start("self")` sends an empty body and reuses the backend-stored launch
-configuration; passing any launch option is rejected client-side. Delete and
-key rotation reject `self`.
+`start("self", { launchConfig })` first resolves the bound Agent through
+`GET /deployments/self`, then sends the caller-supplied complete launch
+configuration to the ordinary UUID START route. There is no separate self
+START endpoint or backend-stored launch inheritance. Delete and key rotation
+reject `self`.
 
 This generic path does not inject any routes. Use `createOpenClaw(...)` when you want the standard root gateway and `desktop` routes.
 

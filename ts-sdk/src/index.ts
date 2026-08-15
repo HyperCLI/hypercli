@@ -293,6 +293,7 @@ export {
   type AgentRouteConfig,
   type AgentRoutesState,
   type RegistryAuth,
+  type AgentLaunchConfig,
   type BuildAgentConfigOptions,
   type ManagedAgentRuntime,
   type CodingAgentRuntime,

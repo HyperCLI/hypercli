@@ -203,9 +203,11 @@ client.deployments.set_route("self", "web", {"port": 3000, "auth": True})
 client.deployments.stop("self")
 ```
 
-`start("self")` sends an empty body and reuses the backend-stored launch
-configuration; passing any launch option is rejected client-side. `self` is
-not accepted for delete or key rotation.
+`start("self", complete_launch_config)` first resolves the bound Agent through
+`GET /deployments/self`, then sends the caller-supplied complete launch
+configuration to the ordinary UUID START route. There is no separate self
+START endpoint or backend-stored launch inheritance. `self` is not accepted
+for delete or key rotation.
 
 This generic path does not inject any routes. Use `create_openclaw(...)` when you want the standard root gateway and `desktop` routes.
 

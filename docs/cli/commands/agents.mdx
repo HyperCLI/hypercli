@@ -85,8 +85,10 @@ hyper agents stop self --force
 `self` is accepted only for status, start, stop, and route operations. An
 in-runtime process cannot call `start self` after its own runtime has stopped; that form
 is intended for an out-of-band holder of a stable exact-agent key. `start self`
-always reuses the backend-stored launch configuration and rejects flags that
-would override it.
+uses the complete launch configuration in the caller's protected local state,
+resolves the bound UUID through `GET /deployments/self`, and then uses ordinary
+UUID START. It fails when that complete local input is unavailable and rejects
+partial launch overrides.
 
 ## Lifecycle
 
@@ -152,8 +154,8 @@ hyper agents list --json
 ```
 
 The table is the safe default for resolving IDs, names, and states. JSON output
-includes each agent's complete `launch_config`, including its environment map.
-Treat it as secret-bearing output and do not paste it into tickets or chat.
+includes the Backend-redacted `launch_config`; secret values and registry
+credentials are absent. It is not a restartable complete launch input.
 
 ### `status`
 
@@ -182,11 +184,11 @@ hyper agents start <agent_id> --desktop
 hyper agents start <agent_id> --index-on-search --index-interval-minutes 120
 ```
 
-A zero-option `hyper agents start <agent>` is a lifecycle-only operation: it
-sends no launch configuration and inherits the backend-stored launch. Explicit
-flags construct an override request. `start self` only supports the zero-option
-form; image, environment, route, registry, sync, desktop, and dry-run overrides
-are rejected for that reserved target.
+A zero-option START loads the complete launch configuration from protected
+local Agent state and fails clearly when it is unavailable. `start self` first
+resolves the bound UUID and uses that same local input. It rejects partial image,
+environment, route, registry, sync, and desktop overrides; `--dry-run` validates
+the same complete local configuration.
 
 ### `stop`
 

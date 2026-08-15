@@ -5,6 +5,7 @@ import {
   DEFAULT_HERMES_AGENT_IMAGE,
   HermesAgent,
   Deployments,
+  buildAgentConfig,
 } from '../src/agents.js';
 import { HermesApiClient } from '../src/hermes/gateway.js';
 import type { HTTPClient } from '../src/http.js';
@@ -38,7 +39,7 @@ describe('Hermes deployment lifecycle', () => {
       sync_gid: number;
       routes: Record<string, Record<string, unknown>>;
       runtime_scopes: string[];
-      env: Record<string, string>;
+      env?: Record<string, string>;
       secrets: Record<string, string>;
     };
 
@@ -51,12 +52,8 @@ describe('Hermes deployment lifecycle', () => {
     expect(body.sync_gid).toBe(10000);
     expect(body.routes).toEqual({ hermes: { port: 8642, auth: false, prefix: '' } });
     expect(body.runtime_scopes).toEqual(DEFAULT_AGENT_RUNTIME_SCOPES);
-    expect(body.env.HYPER_API_BASE).toBeUndefined();
-    expect(body.env.API_SERVER_ENABLED).toBe('true');
-    expect(body.env.API_SERVER_HOST).toBe('0.0.0.0');
-    expect(body.env).not.toHaveProperty('API_SERVER_KEY');
+    expect(body.env).toBeUndefined();
     expect(body.secrets.API_SERVER_KEY).toMatch(/^[0-9a-f]{64}$/);
-    expect(body.env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
     expect(agent).toBeInstanceOf(HermesAgent);
     expect(agent.apiServerKey).toBe(body.secrets.API_SERVER_KEY);
     expect(agent.launchConfig).toBeNull();
@@ -65,7 +62,7 @@ describe('Hermes deployment lifecycle', () => {
     expect(agent.api).toBeInstanceOf(HermesApiClient);
   });
 
-  it('generates a new server key on every start and honors route overrides', async () => {
+  it('does not rotate the application gateway key on start', async () => {
     const post = vi.fn().mockResolvedValue(deployment());
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -74,38 +71,29 @@ describe('Hermes deployment lifecycle', () => {
     );
     const id = '11111111-1111-4111-8111-111111111111';
 
-    const first = await deployments.startHermesAgent(id, { hermesRoute: { prefix: 'hermes-api' } });
-    const second = await deployments.startHermesAgent(id);
+    const launchConfig = buildAgentConfig({}, {
+      routes: { hermes: { port: 8642, auth: false, prefix: 'hermes-api' } },
+    }).config;
+    const started = await deployments.startHermesAgent(id, { launchConfig });
 
-    expect(first.apiServerKey).toHaveLength(64);
-    expect(second.apiServerKey).toHaveLength(64);
-    expect(first.apiServerKey).not.toBe(second.apiServerKey);
-    expect(post.mock.calls[0][1].routes.hermes).toEqual({ port: 8642, auth: false, prefix: 'hermes-api' });
-    expect(post.mock.calls[0][1].env).not.toHaveProperty('API_SERVER_KEY');
-    expect(post.mock.calls[0][1].secrets.API_SERVER_KEY).toBe(first.apiServerKey);
-    expect(post.mock.calls[1][1].env).not.toHaveProperty('API_SERVER_KEY');
-    expect(post.mock.calls[1][1].secrets.API_SERVER_KEY).toBe(second.apiServerKey);
-    expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
-    expect(post.mock.calls[0][1]).not.toHaveProperty('image');
+    expect(started.apiServerKey).toBeNull();
+    expect(post.mock.calls[0][1]).toEqual({ launch_config: launchConfig });
   });
 
-  it('accepts a strong explicit server key and rejects weak keys', async () => {
+  it('treats explicit server-key length as opaque application policy', async () => {
     const post = vi.fn().mockResolvedValue(deployment());
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
-    const explicit = 'explicit-hermes-api-key-32-characters-minimum';
+    const explicit = 'short';
 
     const agent = await deployments.createHermesAgent({ apiServerKey: explicit });
 
-    expect(post.mock.calls[0][1].env).not.toHaveProperty('API_SERVER_KEY');
+    expect(post.mock.calls[0][1]).not.toHaveProperty('env');
     expect(post.mock.calls[0][1].secrets.API_SERVER_KEY).toBe(explicit);
     expect(agent.apiServerKey).toBe(explicit);
-    await expect(deployments.createHermesAgent({ apiServerKey: 'too-short' })).rejects.toThrow(
-      'Hermes API_SERVER_KEY must be at least 32 characters',
-    );
   });
 
   it('moves a legacy public server key to secrets and rejects conflicting inputs', async () => {
@@ -122,7 +110,7 @@ describe('Hermes deployment lifecycle', () => {
       secrets: { CUSTOM_TOKEN: 'secret' },
     });
 
-    expect(post.mock.calls[0][1].env).not.toHaveProperty('API_SERVER_KEY');
+    expect(post.mock.calls[0][1]).not.toHaveProperty('env');
     expect(post.mock.calls[0][1].secrets).toEqual({ API_SERVER_KEY: legacy, CUSTOM_TOKEN: 'secret' });
     expect(agent.apiServerKey).toBe(legacy);
     await expect(deployments.createHermesAgent({
