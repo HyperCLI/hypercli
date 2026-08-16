@@ -46,10 +46,19 @@ struct DeploymentEventTokenResponse {
     ws_url: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileToken {
+    url: String,
+    token: String,
+    expires_at: String,
+}
+
 pub struct HyperCliClient {
     api_base: Url,
     api_key: secrecy::SecretString,
     http: HttpClient,
+    file_http: HttpClient,
     async_http: AsyncHttpClient,
     trace_file: Option<PathBuf>,
 }
@@ -110,6 +119,41 @@ fn encode_path_key(key: &str) -> String {
         .replace('+', "%20")
 }
 
+fn reef_file_url(token: &FileToken, path: &str) -> Result<(Url, String), HyperCliError> {
+    let path = path.replace('\\', "/");
+    if path.is_empty()
+        || path.starts_with('/')
+        || path
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "file path must be sync-root relative".into(),
+        ));
+    }
+    let mut url = Url::parse(&token.url)
+        .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/_reef"
+        || token.token.is_empty()
+        || token.expires_at.is_empty()
+    {
+        return Err(HyperCliError::InvalidResponse("invalid Reef token".into()));
+    }
+    let encoded = path
+        .split('/')
+        .map(encode_path_key)
+        .collect::<Vec<_>>()
+        .join("/");
+    url.set_path(&format!("/_reef/files/{encoded}"));
+    Ok((url, path))
+}
+
 impl HyperCliClient {
     pub fn new(config: ClientConfig) -> Result<Self, HyperCliError> {
         Self::new_with_timeout(config, std::time::Duration::from_secs(30))
@@ -123,6 +167,11 @@ impl HyperCliClient {
             .timeout(timeout)
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        let file_http = HttpClient::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         let async_http = AsyncHttpClient::builder()
             .timeout(timeout)
             .build()
@@ -131,6 +180,7 @@ impl HyperCliClient {
             api_base: config.api_base,
             api_key: config.api_key,
             http,
+            file_http,
             async_http,
             trace_file: config.trace_file,
         })
@@ -801,50 +851,35 @@ impl HyperCliClient {
         self.send_json("update_deployment", "PATCH", &url, request_trace, builder)
     }
 
-    /// Write a file through the managed agent file API without placing its
-    /// content in argv, query strings, or HTTP traces. Paths are deliberately
-    /// restricted to simple workspace-relative segments and always use Reef.
+    /// Write a sync-root-relative file directly through Reef without placing
+    /// its content in argv, query strings, or HTTP traces.
     pub fn put_deployment_file(
         &self,
         deployment_id: &str,
         path: &str,
         content: &[u8],
     ) -> Result<DeploymentFileWriteResponse, HyperCliError> {
-        let path = path.trim_end_matches('/');
-        let valid = !path.is_empty()
-            && !path.starts_with('/')
-            && path.split('/').all(|segment| {
-                !segment.is_empty()
-                    && segment != "."
-                    && segment != ".."
-                    && segment.chars().all(|value| {
-                        value.is_ascii_alphanumeric() || matches!(value, '.' | '_' | '-')
-                    })
-            });
-        if !valid {
-            return Err(HyperCliError::InvalidResponse(
-                "deployment file path must contain only safe workspace-relative segments"
-                    .to_owned(),
-            ));
-        }
-        let path = if path == ".openclaw/workspace" || path.starts_with(".openclaw/workspace/") {
-            path.to_owned()
-        } else {
-            format!(".openclaw/workspace/{path}")
-        };
-        let url = self.endpoint(&format!("deployments/{deployment_id}/files/{path}"));
-        let request_trace = json!({"path": path, "size": content.len(), "content": "<omitted>"});
-        let builder = self
-            .http
-            .post(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .body(content.to_vec());
+        let token_url = self.endpoint(&format!("deployments/{deployment_id}/files/token"));
+        let token: FileToken = self.send_json(
+            "deployment_file_token",
+            "POST",
+            &token_url,
+            None,
+            self.file_http
+                .post(&token_url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )?;
+        let (url, path) = reef_file_url(&token, path)?;
         self.send_json(
             "put_deployment_file",
-            "POST",
-            &url,
-            Some(request_trace),
-            builder,
+            "PUT",
+            url.as_str(),
+            Some(json!({"path": path, "size": content.len(), "content": "<omitted>"})),
+            self.file_http
+                .put(url.as_str())
+                .bearer_auth(token.token)
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .body(content.to_vec()),
         )
     }
 
@@ -3137,44 +3172,70 @@ mod tests {
     }
 
     #[test]
-    fn deployment_file_write_keeps_content_in_the_request_body_only() {
-        let mut server = Server::new();
-        let mock = server
-            .mock(
-                "POST",
-                "/agents/deployments/deployment-1/files/.openclaw/workspace/.ssh/id_ed25519_imported",
-            )
-            .match_header("authorization", "Bearer test-credential")
-            .match_body("private-key-material")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "status": "ok",
-                    "path": ".openclaw/workspace/.ssh/id_ed25519_imported",
-                    "size": 20,
-                    "target": "pod"
-                })
-                .to_string(),
-            )
-            .create();
+    fn deployment_file_write_builds_exact_direct_reef_url() {
+        let token = FileToken {
+            url: "https://agent.example.test/_reef".into(),
+            token: "reef-token".into(),
+            expires_at: "2026-08-16T00:00:00Z".into(),
+        };
+        let (url, path) = reef_file_url(&token, ".ssh\\id key").unwrap();
+        assert_eq!(path, ".ssh/id key");
+        assert_eq!(
+            url.as_str(),
+            "https://agent.example.test/_reef/files/.ssh/id%20key"
+        );
+        assert!(reef_file_url(&token, "/etc/passwd").is_err());
+        assert!(reef_file_url(&token, "../escape").is_err());
+        for invalid_url in [
+            "http://agent.example.test/_reef".into(),
+            "https://agent.example.test/_reef/".into(),
+            "https://agent.example.test/_reef//".into(),
+            "https://agent.example.test/_reef/files".into(),
+            "https://agent.example.test/_reef?x=1".into(),
+            "https://agent.example.test/_reef#fragment".into(),
+            "https://user@agent.example.test/_reef".into(),
+            format!("https://agent.example.test/{}{}", "_reef", "-sync"),
+            format!("https://agent.example.test/{}{}", "_reef", "_sync"),
+        ] {
+            let invalid_token = FileToken {
+                url: invalid_url,
+                token: "reef-token".into(),
+                expires_at: "2026-08-16T00:00:00Z".into(),
+            };
+            assert!(reef_file_url(&invalid_token, "workspace/a.txt").is_err());
+        }
+        let response: DeploymentFileWriteResponse = serde_json::from_value(json!({
+            "status": "ok",
+            "path": ".ssh/id key",
+            "size": 7
+        }))
+        .unwrap();
+        assert_eq!(response.path, ".ssh/id key");
+        assert_eq!(response.target, "");
+    }
 
-        let response = client(&server)
+    #[test]
+    fn deployment_file_token_redirect_is_not_followed() {
+        let mut server = Server::new();
+        let redirect = server
+            .mock("POST", "/agents/deployments/deployment-1/files/token")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(307)
+            .with_header("location", "/must-not-follow")
+            .expect(1)
+            .create();
+        let target = server.mock("POST", "/must-not-follow").expect(0).create();
+
+        let error = client(&server)
             .put_deployment_file(
                 "deployment-1",
                 ".ssh/id_ed25519_imported",
                 b"private-key-material",
             )
-            .unwrap();
-        assert_eq!(
-            response.path,
-            ".openclaw/workspace/.ssh/id_ed25519_imported"
-        );
-        assert_eq!(response.target, "pod");
-        assert!(client(&server)
-            .put_deployment_file("deployment-1", "../escape", b"nope")
-            .is_err());
-        mock.assert();
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::TEMPORARY_REDIRECT));
+        redirect.assert();
+        target.assert();
     }
 
     #[test]

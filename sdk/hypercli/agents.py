@@ -3140,7 +3140,7 @@ class Deployments:
             or parsed.password is not None
             or parsed.query
             or parsed.fragment
-            or parsed.path != "/_reef-sync"
+            or parsed.path != "/_reef"
             or not token
             or not expires_at
         ):

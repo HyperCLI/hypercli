@@ -2358,7 +2358,7 @@ describe('Agents SDK', () => {
     vi.stubGlobal('fetch', fetchMock);
     const http = {
       post: vi.fn().mockResolvedValue({
-        url: 'https://agent.example.test/_reef-sync',
+        url: 'https://agent.example.test/_reef',
         token: 'reef-token',
         expires_at: '2026-08-15T00:05:00Z',
       }),
@@ -2375,7 +2375,7 @@ describe('Agents SDK', () => {
     expect(result.content).toEqual(new Uint8Array([1, 2, 3]));
     expect(result.mimeType).toBe('image/png');
     expect(http.post).toHaveBeenCalledWith('/deployments/agent-123/files/token');
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://agent.example.test/_reef-sync/files/.openclaw/workspace/preview.png');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://agent.example.test/_reef/files/.openclaw/workspace/preview.png');
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       signal: abortController.signal,
       redirect: 'error',
@@ -2394,7 +2394,7 @@ describe('Agents SDK', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response));
     const deployments = new Deployments({
       post: vi.fn().mockResolvedValue({
-        url: 'https://agent.example.test/_reef-sync',
+        url: 'https://agent.example.test/_reef',
         token: 'reef-token',
         expires_at: '2026-08-15T00:05:00Z',
       }),
@@ -2409,7 +2409,7 @@ describe('Agents SDK', () => {
 
   it('mints a fresh token for every file operation and sends bytes only to Reef', async () => {
     const post = vi.fn().mockResolvedValue({
-      url: 'https://agent.example.test/_reef-sync',
+      url: 'https://agent.example.test/_reef',
       token: 'reef-token',
       expires_at: '2026-08-15T00:05:00Z',
     });
@@ -2448,19 +2448,28 @@ describe('Agents SDK', () => {
     expect(post).toHaveBeenCalledTimes(4);
     expect(post).toHaveBeenCalledWith('/deployments/agent-123/files/token');
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'https://agent.example.test/_reef-sync/directories/workspace',
-      'https://agent.example.test/_reef-sync/files/workspace/a.txt',
-      'https://agent.example.test/_reef-sync/files/workspace/a.txt',
-      'https://agent.example.test/_reef-sync/files/workspace/a.txt?recursive=true',
+      'https://agent.example.test/_reef/directories/workspace',
+      'https://agent.example.test/_reef/files/workspace/a.txt',
+      'https://agent.example.test/_reef/files/workspace/a.txt',
+      'https://agent.example.test/_reef/files/workspace/a.txt?recursive=true',
     ]);
   });
 
-  it('rejects invalid direct Reef locators before sending file requests', async () => {
+  it.each([
+    'http://agent.example.test/_reef',
+    'https://agent.example.test/_reef/',
+    'https://agent.example.test/_reef//',
+    'https://agent.example.test/_reef/files',
+    'https://agent.example.test/_reef?x=1',
+    'https://agent.example.test/_reef#fragment',
+    `https://agent.example.test/_reef${'-sync'}`,
+    `https://agent.example.test/_reef${'_sync'}`,
+  ])('rejects invalid direct Reef locator %s before sending file requests', async (url) => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const deployments = new Deployments({
       post: vi.fn().mockResolvedValue({
-        url: 'http://agent.example.test/_reef-sync',
+        url,
         token: 'reef-token',
         expires_at: '2026-08-15T00:05:00Z',
       }),
@@ -2477,7 +2486,7 @@ describe('Agents SDK', () => {
     )));
     const deployments = new Deployments({
       post: vi.fn().mockResolvedValue({
-        url: 'https://agent.example.test/_reef-sync',
+        url: 'https://agent.example.test/_reef',
         token: 'reef-token',
         expires_at: '2026-08-15T00:05:00Z',
       }),

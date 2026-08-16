@@ -1552,7 +1552,7 @@ describe('HyperClaw agents SDK', () => {
       const url = String(input);
       expect((init?.headers as Headers).get('Authorization')).toBe('Bearer reef-token');
       expect(init?.redirect).toBe('error');
-      if (url === 'https://agent.example.test/_reef-sync/directories') {
+      if (url === 'https://agent.example.test/_reef/directories') {
         return new Response(JSON.stringify({
           type: 'directory',
           directories: [
@@ -1562,24 +1562,24 @@ describe('HyperClaw agents SDK', () => {
           files: [{ name: 'AGENTS.md', path: 'AGENTS.md', type: 'file' }],
         }), { status: 200 });
       }
-      if (url === 'https://agent.example.test/_reef-sync/directories/workspace') {
+      if (url === 'https://agent.example.test/_reef/directories/workspace') {
         return new Response(JSON.stringify({
           type: 'directory',
           directories: [{ name: 'dir', path: 'workspace/dir/', type: 'directory' }],
           files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
         }), { status: 200 });
       }
-      if (url === 'https://agent.example.test/_reef-sync/files/workspace/a.txt' && !init?.method) {
+      if (url === 'https://agent.example.test/_reef/files/workspace/a.txt' && !init?.method) {
         return new Response(new Uint8Array([104, 101, 108, 108, 111]), { status: 200 });
       }
-      if (url === 'https://agent.example.test/_reef-sync/files/workspace/a.txt' && init?.method === 'PUT') {
+      if (url === 'https://agent.example.test/_reef/files/workspace/a.txt' && init?.method === 'PUT') {
         expect(init.body).toBeInstanceOf(Uint8Array);
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url === 'https://agent.example.test/_reef-sync/files/workspace/a.txt' && init?.method === 'DELETE') {
+      if (url === 'https://agent.example.test/_reef/files/workspace/a.txt' && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url === 'https://agent.example.test/_reef-sync/directories/.openclaw') {
+      if (url === 'https://agent.example.test/_reef/directories/.openclaw') {
         return new Response(JSON.stringify({
           type: 'directory',
           prefix: '.openclaw/',
@@ -1587,7 +1587,7 @@ describe('HyperClaw agents SDK', () => {
           files: [{ name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' }],
         }), { status: 200 });
       }
-      if (url === 'https://agent.example.test/_reef-sync/files/.openclaw' && !init?.method) {
+      if (url === 'https://agent.example.test/_reef/files/.openclaw' && !init?.method) {
         return new Response(JSON.stringify({
           type: 'directory',
           prefix: '.openclaw/',
@@ -1603,7 +1603,7 @@ describe('HyperClaw agents SDK', () => {
     vi.stubGlobal('fetch', fetchMock as any);
 
     const post = vi.fn().mockResolvedValue({
-      url: 'https://agent.example.test/_reef-sync',
+      url: 'https://agent.example.test/_reef',
       token: 'reef-token',
       expires_at: '2026-08-15T00:05:00Z',
     });

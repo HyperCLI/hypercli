@@ -4138,7 +4138,7 @@ export class Deployments {
       url.password ||
       url.search ||
       url.hash ||
-      url.pathname.replace(/\/+$/, '') !== '/_reef-sync' ||
+      url.pathname !== '/_reef' ||
       !token ||
       !expiresAt
     ) {

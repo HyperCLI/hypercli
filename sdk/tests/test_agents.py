@@ -2233,7 +2233,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
             assert headers == {"Authorization": "Bearer reef-token"}
             assert follow_redirects is False
             reef_calls.append(("GET", url))
-            if url == "https://agent.example.test/_reef-sync/directories":
+            if url == "https://agent.example.test/_reef/directories":
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2244,7 +2244,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
                         "files": [{"name": "AGENTS.md", "path": "AGENTS.md", "type": "file"}],
                     }
                 )
-            if url == "https://agent.example.test/_reef-sync/directories/workspace":
+            if url == "https://agent.example.test/_reef/directories/workspace":
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2264,9 +2264,9 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
                         ],
                     }
                 )
-            if url == "https://agent.example.test/_reef-sync/files/workspace/a.txt":
+            if url == "https://agent.example.test/_reef/files/workspace/a.txt":
                 return FakeResponse(content=b"hello", headers={"content-type": "text/plain"})
-            if url == "https://agent.example.test/_reef-sync/directories/.openclaw":
+            if url == "https://agent.example.test/_reef/directories/.openclaw":
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2275,7 +2275,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
                         "files": [{"name": "openclaw.json", "type": "file"}],
                     },
                 )
-            if url == "https://agent.example.test/_reef-sync/files/.openclaw":
+            if url == "https://agent.example.test/_reef/files/.openclaw":
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -2299,7 +2299,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
                 token_calls.append(url)
                 return FakeResponse(
                     json_data={
-                        "url": "https://agent.example.test/_reef-sync",
+                        "url": "https://agent.example.test/_reef",
                         "token": "reef-token",
                         "expires_at": "2026-08-15T00:05:00Z",
                     }
@@ -2318,7 +2318,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
             raise AssertionError(url)
 
         def put(self, url, headers=None, content=None, follow_redirects=None):
-            assert url == "https://agent.example.test/_reef-sync/files/workspace/a.txt"
+            assert url == "https://agent.example.test/_reef/files/workspace/a.txt"
             assert headers == {
                 "Authorization": "Bearer reef-token",
                 "Content-Type": "application/octet-stream",
@@ -2329,7 +2329,7 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
             return FakeResponse(json_data={"status": "ok"})
 
         def delete(self, url, headers=None, params=None, follow_redirects=None):
-            assert url == "https://agent.example.test/_reef-sync/files/workspace/a.txt"
+            assert url == "https://agent.example.test/_reef/files/workspace/a.txt"
             assert headers == {"Authorization": "Bearer reef-token"}
             assert params is None
             assert follow_redirects is False
@@ -2382,9 +2382,17 @@ def test_agents_file_ops_mint_fresh_tokens_then_call_reef_directly(agents_client
     assert all("/deployments/agent-123/files/" not in url for _, url in reef_calls)
 
 
-def test_agents_file_ops_reject_invalid_reef_locator(agents_client):
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://agent.example.test/_reef",
+        "https://agent.example.test/_reef" + "-sync",
+        "https://agent.example.test/_reef" + "_sync",
+    ],
+)
+def test_agents_file_ops_reject_invalid_reef_locator(agents_client, url):
     agents_client._post = lambda *_args, **_kwargs: {
-        "url": "http://agent.example.test/_reef-sync",
+        "url": url,
         "token": "reef-token",
         "expires_at": "2026-08-15T00:05:00Z",
     }
@@ -2395,7 +2403,7 @@ def test_agents_file_ops_reject_invalid_reef_locator(agents_client):
 
 def test_agents_file_ops_preserve_reef_error_detail(agents_client):
     agents_client._post = lambda *_args, **_kwargs: {
-        "url": "https://agent.example.test/_reef-sync",
+        "url": "https://agent.example.test/_reef",
         "token": "reef-token",
         "expires_at": "2026-08-15T00:05:00Z",
     }
@@ -2422,7 +2430,7 @@ def test_agents_file_read_stops_at_limit_plus_one_without_buffering_rest(
     agents_client, monkeypatch
 ):
     agents_client._post = lambda *_args, **_kwargs: {
-        "url": "https://agent.example.test/_reef-sync",
+        "url": "https://agent.example.test/_reef",
         "token": "reef-token",
         "expires_at": "2026-08-15T00:05:00Z",
     }
@@ -2460,7 +2468,7 @@ def test_agents_file_read_stops_at_limit_plus_one_without_buffering_rest(
 
 def test_agents_file_read_rejects_redirect_without_consuming_body(agents_client):
     agents_client._post = lambda *_args, **_kwargs: {
-        "url": "https://agent.example.test/_reef-sync",
+        "url": "https://agent.example.test/_reef",
         "token": "reef-token",
         "expires_at": "2026-08-15T00:05:00Z",
     }
@@ -2501,7 +2509,7 @@ def test_agents_file_read_rejects_redirect_without_consuming_body(agents_client)
 @pytest.mark.parametrize("status_code", [301, 302, 307, 308])
 def test_agents_file_list_rejects_redirects(agents_client, status_code):
     agents_client._post = lambda *_args, **_kwargs: {
-        "url": "https://agent.example.test/_reef-sync",
+        "url": "https://agent.example.test/_reef",
         "token": "reef-token",
         "expires_at": "2026-08-15T00:05:00Z",
     }
