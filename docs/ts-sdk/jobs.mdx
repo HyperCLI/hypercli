@@ -99,7 +99,7 @@ Use the returned token with services exposed through `ports.lb` when `auth: true
 ## Exec and Interactive Shells
 
 ```ts
-const result = await client.jobs.exec(job.jobId, "nvidia-smi", 30);
+const result = await client.jobs.exec(job.jobId, ["nvidia-smi"], 30);
 console.log(result.exitCode, result.stdout);
 
 const ws = await client.jobs.shellConnect(job.jobId, "/bin/bash");

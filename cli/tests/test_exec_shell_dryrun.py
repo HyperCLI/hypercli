@@ -21,7 +21,7 @@ def test_jobs_exec_mock(monkeypatch):
     class FakeJobs:
         def exec(self, job_id, command, timeout=30):
             assert job_id == FULL_JOB_ID
-            assert command == "echo hi"
+            assert command == ["tool", "-f", "exact value"]
             assert timeout == 9
             return SimpleNamespace(stdout="hi\n", stderr="", exit_code=0)
 
@@ -30,7 +30,10 @@ def test_jobs_exec_mock(monkeypatch):
     monkeypatch.setattr("hypercli_cli.jobs.get_client", lambda: fake_client)
     monkeypatch.setattr("hypercli_cli.jobs._resolve_job_id", lambda client, job_id: job_id)
 
-    result = runner.invoke(app, ["jobs", "exec", FULL_JOB_ID, "echo hi", "--timeout", "9"])
+    result = runner.invoke(
+        app,
+        ["jobs", "exec", FULL_JOB_ID, "--timeout", "9", "tool", "--", "-f", "exact value"],
+    )
 
     assert result.exit_code == 0
     assert "hi" in result.stdout
@@ -162,10 +165,34 @@ def test_agent_exec_command(monkeypatch):
 
     monkeypatch.setattr("hypercli_cli.agents.exec_cmd", fake_exec_cmd)
 
-    result = runner.invoke(app, ["agent", "exec", "agent-1", "echo ok", "--timeout", "7"])
+    result = runner.invoke(
+        app,
+        ["agent", "exec", "agent-1", "echo", "ok", "--timeout", "7"],
+    )
 
     assert result.exit_code == 0
-    assert called == {"agent_id": "agent-1", "command": "echo ok", "timeout": 7}
+    assert called == {"agent_id": "agent-1", "command": ["echo", "ok"], "timeout": 7}
+
+
+def test_agent_exec_command_preserves_command_flags_after_separator(monkeypatch):
+    called = {}
+
+    def fake_exec_cmd(agent_id, command, timeout=30):
+        called.update(agent_id=agent_id, command=command, timeout=timeout)
+
+    monkeypatch.setattr("hypercli_cli.agents.exec_cmd", fake_exec_cmd)
+
+    result = runner.invoke(
+        app,
+        ["agent", "exec", "agent-1", "tool", "--", "-f", "exact value"],
+    )
+
+    assert result.exit_code == 0
+    assert called == {
+        "agent_id": "agent-1",
+        "command": ["tool", "-f", "exact value"],
+        "timeout": 30,
+    }
 
 
 def test_agent_shell_command(monkeypatch):

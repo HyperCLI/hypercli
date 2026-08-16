@@ -70,7 +70,7 @@ export interface OpenClawConnectorsClient {
     integrationId?: string;
     accountId?: string;
   }): Promise<OpenClawIntegrationAuthStatusResult>;
-  runCommand?(command: string): Promise<void>;
+  runCommand?(command: readonly string[]): Promise<void>;
 }
 
 const CONNECTOR_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -280,9 +280,11 @@ export class OpenClawConnectorsProvider implements AgentConnectorsProvider {
     if (request.accountId !== undefined && !CONNECTOR_ID_PATTERN.test(request.accountId)) throw new Error('Connector account id is invalid.');
     if (!this.client.runCommand) throw new Error('Connector authorization is unavailable in this workspace.');
 
-    const accountArgument = request.accountId ? ` --account ${request.accountId}` : '';
-    const notifyArgument = request.notify ? ' --notify' : '';
-    await this.client.runCommand(`openclaw pairing approve ${request.connectorId} ${code}${accountArgument}${notifyArgument}`);
+    await this.client.runCommand([
+      'openclaw', 'pairing', 'approve', request.connectorId, code,
+      ...(request.accountId ? ['--account', request.accountId] : []),
+      ...(request.notify ? ['--notify'] : []),
+    ]);
     return {
       connectorId: request.connectorId,
       protocol: request.protocol,

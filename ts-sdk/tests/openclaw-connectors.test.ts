@@ -299,7 +299,9 @@ describe('OpenClawConnectorsProvider', () => {
       protocol: 'short-code',
       state: 'complete',
     });
-    expect(sdk.runCommand).toHaveBeenCalledWith('openclaw pairing approve signal ABCD2345 --account work --notify');
+    expect(sdk.runCommand).toHaveBeenCalledWith([
+      'openclaw', 'pairing', 'approve', 'signal', 'ABCD2345', '--account', 'work', '--notify',
+    ]);
   });
 
   it('rejects unsafe authorization arguments before running a command', async () => {

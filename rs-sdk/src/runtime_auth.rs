@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::HyperCliError;
 
-const AUTH_STATUS_COMMAND: &str = "/usr/local/bin/hypercli-runtime-auth status";
+const AUTH_STATUS_EXECUTABLE: &str = "/usr/local/bin/hypercli-runtime-auth";
 const AUTH_LOGIN_COMMAND: &str = "/usr/local/bin/hypercli-runtime-auth login";
 const MAX_TERMINAL_OUTPUT_BYTES: usize = 64 * 1024;
 
@@ -382,8 +382,8 @@ impl RuntimeLoginParser {
     }
 }
 
-pub(crate) const fn auth_status_command() -> &'static str {
-    AUTH_STATUS_COMMAND
+pub(crate) fn auth_status_command() -> Vec<String> {
+    vec![AUTH_STATUS_EXECUTABLE.to_owned(), "status".to_owned()]
 }
 
 fn ansi_escape_regex() -> &'static Regex {

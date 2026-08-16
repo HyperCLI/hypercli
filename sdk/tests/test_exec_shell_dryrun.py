@@ -74,11 +74,23 @@ def test_jobs_exec():
     http = DummyHTTP()
     jobs = Jobs(http)
 
-    result = jobs.exec("job-1", "echo ok", timeout=15)
+    result = jobs.exec("job-1", ["echo", "ok"], timeout=15)
 
     assert result.exit_code == 0
     assert result.stdout == "ok\n"
     assert http.calls[0][1] == "/api/jobs/job-1/exec"
+    assert http.calls[0][2] == {"command": ["echo", "ok"], "timeout": 15}
+
+
+@pytest.mark.parametrize("timeout", [0, 301, 1.5, True])
+def test_jobs_exec_rejects_invalid_timeout(timeout):
+    http = DummyHTTP()
+    jobs = Jobs(http)
+
+    with pytest.raises(ValueError, match="integer from 1 through 300"):
+        jobs.exec("job-1", ["true"], timeout=timeout)
+
+    assert http.calls == []
 
 
 def test_jobs_get_decodes_command_and_preserves_env():
@@ -170,7 +182,7 @@ def test_agents_exec_mints_token_sends_exact_ws_frame_and_waits_for_normal_close
     monkeypatch.setattr(agents, "_post", fake_post)
     monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
 
-    result = agents.exec(pod, "  ls  ", timeout=10, dry_run=True)
+    result = agents.exec(pod, ["ls", "  exact argument  "], timeout=10, dry_run=True)
 
     assert result.exit_code == 7
     assert result.stdout == "done\n"
@@ -180,7 +192,25 @@ def test_agents_exec_mints_token_sends_exact_ws_frame_and_waits_for_normal_close
         "wss://socket.example.test/product/ws/exec/agent-1?jwt=jwt-exec"
     )
     assert connected["kwargs"]["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
-    assert socket.sent == ['{"command":"ls","timeout":10,"dry_run":true}']
+    assert socket.sent == [
+        '{"command":["ls","  exact argument  "],"timeout":10,"dry_run":true}'
+    ]
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["pwd", [], [""], ["pwd", "bad\x00arg"], ["x" * 65_537]],
+)
+def test_agents_exec_rejects_noncanonical_argv_before_token_mint(monkeypatch, command):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    monkeypatch.setattr(
+        agents,
+        "_post",
+        lambda *_args, **_kwargs: pytest.fail("invalid argv must not mint a token"),
+    )
+
+    with pytest.raises(ValueError, match="argv list"):
+        agents.exec("agent-1", command)
 
 
 def test_agents_exec_accepts_worst_case_escaped_near_limit_result(monkeypatch):
@@ -212,7 +242,7 @@ def test_agents_exec_accepts_worst_case_escaped_near_limit_result(monkeypatch):
 
     monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
 
-    result = agents.exec("agent-1", "printf output")
+    result = agents.exec("agent-1", ["printf", "output"])
 
     assert len(result.stdout) == AGENT_EXEC_OUTPUT_MAX_BYTES
     assert connected["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
@@ -285,7 +315,7 @@ def test_agents_exec_surfaces_exact_error_result(monkeypatch):
     monkeypatch.setattr("websockets.sync.client.connect", lambda url, **kwargs: socket)
 
     with pytest.raises(RuntimeError, match="output limit exceeded"):
-        agents.exec("agent-1", "yes")
+        agents.exec("agent-1", ["yes"])
 
 
 def test_agents_rejects_noncanonical_operation_token_before_ws_connect(monkeypatch):

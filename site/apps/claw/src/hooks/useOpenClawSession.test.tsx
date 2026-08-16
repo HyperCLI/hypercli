@@ -1042,9 +1042,9 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => ({
+      exec: vi.fn(async (command: string[]) => ({
         exitCode: 0,
-        stdout: command === "openclaw plugins list --json"
+        stdout: command.join(" ") === "openclaw plugins list --json"
           ? JSON.stringify({ plugins: [{ id: "whatsapp", installed: true, enabled: true, state: "enabled" }] })
           : "",
         stderr: "",
@@ -1064,7 +1064,7 @@ describe("useOpenClawSession", () => {
       },
       channels: { whatsapp: { enabled: true } },
     });
-    expect(agent.exec.mock.calls.map(([command]) => command)).toEqual(["openclaw plugins list --json"]);
+    expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([["openclaw", "plugins", "list", "--json"]]);
     expect(gateway.webLoginStart).toHaveBeenCalledTimes(2);
     expect(gateway.webLoginWait).toHaveBeenCalled();
     unmount();
@@ -1107,7 +1107,7 @@ describe("useOpenClawSession", () => {
     expect(gateway.pluginsInstall).toHaveBeenCalledWith({ source: "official", pluginId: "whatsapp" });
     expect(gateway.pluginsSetEnabled).toHaveBeenCalledWith({ pluginId: "whatsapp", enabled: true });
     expect(gateway.pluginsRefresh).toHaveBeenCalledTimes(1);
-    expect(agent.exec).toHaveBeenCalledWith("openclaw gateway restart", { timeout: 60 });
+    expect(agent.exec).toHaveBeenCalledWith(["openclaw", "gateway", "restart"], { timeout: 60 });
     expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
     expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
     expect(result.current.config).toEqual(expect.objectContaining({ channels: { whatsapp: { enabled: true } } }));
@@ -1123,9 +1123,9 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => ({
+      exec: vi.fn(async (command: string[]) => ({
         exitCode: 0,
-        stdout: command === "openclaw plugins list --json" ? JSON.stringify({ plugins: [] }) : "",
+        stdout: command.join(" ") === "openclaw plugins list --json" ? JSON.stringify({ plugins: [] }) : "",
         stderr: "",
       })),
       waitReady: vi.fn(async () => ({})),
@@ -1139,16 +1139,16 @@ describe("useOpenClawSession", () => {
     });
 
     expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([
-      "openclaw plugins list --json",
-      "openclaw plugins install whatsapp",
-      "openclaw plugins enable whatsapp",
-      "openclaw gateway restart",
+      ["openclaw", "plugins", "list", "--json"],
+      ["openclaw", "plugins", "install", "whatsapp"],
+      ["openclaw", "plugins", "enable", "whatsapp"],
+      ["openclaw", "gateway", "restart"],
     ]);
     expect(agent.exec.mock.calls).toEqual([
-      ["openclaw plugins list --json", { timeout: 60 }],
-      ["openclaw plugins install whatsapp", { timeout: 300 }],
-      ["openclaw plugins enable whatsapp", { timeout: 60 }],
-      ["openclaw gateway restart", { timeout: 60 }],
+      [["openclaw", "plugins", "list", "--json"], { timeout: 60 }],
+      [["openclaw", "plugins", "install", "whatsapp"], { timeout: 300 }],
+      [["openclaw", "plugins", "enable", "whatsapp"], { timeout: 60 }],
+      [["openclaw", "gateway", "restart"], { timeout: 60 }],
     ]);
     expect(commandEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ stage: "checking-runtime", status: "running" }),
@@ -1204,9 +1204,9 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => ({
+      exec: vi.fn(async (command: string[]) => ({
         exitCode: 0,
-        stdout: command === "openclaw plugins list --json"
+        stdout: command.join(" ") === "openclaw plugins list --json"
           ? JSON.stringify({ plugins: [{ id: "whatsapp", installed: true, enabled: true, state: "enabled" }] })
           : "",
         stderr: "",
@@ -1222,8 +1222,8 @@ describe("useOpenClawSession", () => {
     });
 
     expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([
-      "openclaw plugins list --json",
-      "openclaw gateway restart",
+      ["openclaw", "plugins", "list", "--json"],
+      ["openclaw", "gateway", "restart"],
     ]);
     expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
     expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
@@ -1238,9 +1238,9 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => ({
+      exec: vi.fn(async (command: string[]) => ({
         exitCode: 0,
-        stdout: command === "openclaw plugins list --json" ? JSON.stringify({
+        stdout: command.join(" ") === "openclaw plugins list --json" ? JSON.stringify({
           plugins: [{
             id: "whatsapp",
             installed: true,
@@ -1263,7 +1263,7 @@ describe("useOpenClawSession", () => {
     });
 
     expect(agent.exec).toHaveBeenCalledWith(
-      "openclaw plugins install whatsapp --force",
+      ["openclaw", "plugins", "install", "whatsapp", "--force"],
       { timeout: 300 },
     );
     expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
@@ -1278,7 +1278,7 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => command === "openclaw plugins list --json"
+      exec: vi.fn(async (command: string[]) => command.join(" ") === "openclaw plugins list --json"
         ? { exitCode: 0, stdout: JSON.stringify({ plugins: [] }), stderr: "" }
         : { exitCode: 1, stdout: "", stderr: "ClawHub is unavailable" }),
       waitReady: vi.fn(async () => ({})),
@@ -1305,13 +1305,14 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => {
-        if (command === "openclaw plugins install @openclaw/slack") installed = true;
+      exec: vi.fn(async (command: string[]) => {
+        const display = command.join(" ");
+        if (display === "openclaw plugins install @openclaw/slack") installed = true;
         return {
           exitCode: 0,
-          stdout: command === "openclaw plugins list --json"
+          stdout: display === "openclaw plugins list --json"
             ? JSON.stringify({ plugins: installed ? [{ id: "slack", installed: true, enabled: true }] : [] })
-            : command === "openclaw plugins inspect slack --runtime --json"
+            : display === "openclaw plugins inspect slack --runtime --json"
               ? JSON.stringify({ plugin: { id: "slack", enabled: true, status: "loaded" } })
               : "ok",
           stderr: "",
@@ -1332,12 +1333,12 @@ describe("useOpenClawSession", () => {
     });
 
     expect(agent.exec.mock.calls).toEqual([
-      ["openclaw plugins list --json", { timeout: 60 }],
-      ["openclaw plugins install @openclaw/slack", { timeout: 300 }],
-      ["openclaw plugins enable slack", { timeout: 60 }],
-      ["openclaw plugins list --json", { timeout: 60 }],
-      ["openclaw gateway restart", { timeout: 60 }],
-      ["openclaw plugins inspect slack --runtime --json", { timeout: 60 }],
+      [["openclaw", "plugins", "list", "--json"], { timeout: 60 }],
+      [["openclaw", "plugins", "install", "@openclaw/slack"], { timeout: 300 }],
+      [["openclaw", "plugins", "enable", "slack"], { timeout: 60 }],
+      [["openclaw", "plugins", "list", "--json"], { timeout: 60 }],
+      [["openclaw", "gateway", "restart"], { timeout: 60 }],
+      [["openclaw", "plugins", "inspect", "slack", "--runtime", "--json"], { timeout: 60 }],
     ]);
     expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
     expect(result.current.activityFeed).not.toEqual(expect.arrayContaining([
@@ -1354,9 +1355,9 @@ describe("useOpenClawSession", () => {
       acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string) => ({
+      exec: vi.fn(async (command: string[]) => ({
         exitCode: 0,
-        stdout: command === "openclaw plugins inspect slack --runtime --json"
+        stdout: command.join(" ") === "openclaw plugins inspect slack --runtime --json"
           ? JSON.stringify({ plugin: { id: "slack", enabled: true, status: "loaded" } })
           : JSON.stringify({ plugins: [{ id: "slack", name: "Slack", installed: true, enabled: true }] }),
         stderr: "",
@@ -1376,9 +1377,9 @@ describe("useOpenClawSession", () => {
     });
 
     expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([
-      "openclaw plugins list --json",
-      "openclaw gateway restart",
-      "openclaw plugins inspect slack --runtime --json",
+      ["openclaw", "plugins", "list", "--json"],
+      ["openclaw", "gateway", "restart"],
+      ["openclaw", "plugins", "inspect", "slack", "--runtime", "--json"],
     ]);
     unmount();
   });
@@ -1479,7 +1480,7 @@ describe("useOpenClawSession", () => {
       channels: { telegram: { enabled: true, dmPolicy: "allowlist" } },
     }));
     expect(agent.exec).toHaveBeenCalledWith(
-      "openclaw pairing approve telegram ABCD2345",
+      ["openclaw", "pairing", "approve", "telegram", "ABCD2345"],
       { timeout: 120 },
     );
     unmount();
@@ -1504,7 +1505,7 @@ describe("useOpenClawSession", () => {
       code: "ABCD2345",
     })).rejects.toThrow("No pending Telegram pairing request.");
     expect(agent.exec).toHaveBeenCalledWith(
-      "openclaw pairing approve telegram ABCD2345",
+      ["openclaw", "pairing", "approve", "telegram", "ABCD2345"],
       { timeout: 120 },
     );
     unmount();

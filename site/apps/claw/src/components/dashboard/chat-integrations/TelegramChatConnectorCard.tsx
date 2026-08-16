@@ -57,7 +57,7 @@ interface TelegramChatConnectorCardProps {
   onReconnectGateway?: () => void;
   cachedWorkflow?: ConnectorWorkflow | null;
   onGenerateConnectorWorkflow?: (connectorId: "telegram") => Promise<ConnectorWorkflow>;
-  onRunShellProposal?: (command: string) => Promise<void>;
+  onRunShellProposal?: (command: readonly string[]) => Promise<void>;
   onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;

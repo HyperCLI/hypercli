@@ -15,10 +15,10 @@ import {
 } from './gateway.js';
 import { normalizeOpenClawChannelsStatus } from './channels.js';
 
-const PLUGIN_LIST_COMMAND = 'openclaw plugins list --json';
-const PLUGIN_INSTALL_COMMAND = 'openclaw plugins install whatsapp';
-const PLUGIN_ENABLE_COMMAND = 'openclaw plugins enable whatsapp';
-const GATEWAY_RESTART_COMMAND = 'openclaw gateway restart';
+const PLUGIN_LIST_COMMAND = ['openclaw', 'plugins', 'list', '--json'] as const;
+const PLUGIN_INSTALL_COMMAND = ['openclaw', 'plugins', 'install', 'whatsapp'] as const;
+const PLUGIN_ENABLE_COMMAND = ['openclaw', 'plugins', 'enable', 'whatsapp'] as const;
+const GATEWAY_RESTART_COMMAND = ['openclaw', 'gateway', 'restart'] as const;
 
 export interface OpenClawWhatsAppCommandResult {
   exitCode: number;
@@ -76,7 +76,7 @@ export interface OpenClawWhatsAppClient {
 }
 
 export interface OpenClawWhatsAppProviderOptions {
-  runCommand(command: string, timeoutSeconds: number): Promise<OpenClawWhatsAppCommandResult>;
+  runCommand(command: readonly string[], timeoutSeconds: number): Promise<OpenClawWhatsAppCommandResult>;
   pairing?: OpenClawWhatsAppPairingOperations;
   onProgress?: (event: OpenClawWhatsAppProgressEvent) => void;
 }
@@ -291,7 +291,7 @@ export class OpenClawWhatsAppProvider {
     const incompatibleInstall = status.installed && /requires plugin api/i.test(status.error ?? '');
     let changed = false;
     if (!status.installed || incompatibleInstall) {
-      const command = `${PLUGIN_INSTALL_COMMAND}${incompatibleInstall ? ' --force' : ''}`;
+      const command = [...PLUGIN_INSTALL_COMMAND, ...(incompatibleInstall ? ['--force'] : [])];
       const installed = await this.runCommand(command, 300);
       if (installed.exitCode !== 0) {
         const detail = failureDetail(installed);
@@ -314,9 +314,10 @@ export class OpenClawWhatsAppProvider {
     };
   }
 
-  private async runCommand(command: string, timeoutSeconds: number): Promise<OpenClawWhatsAppCommandResult> {
-    const id = `command:${command}`;
-    this.options.onProgress?.({ id, kind: 'command', label: 'Running workspace command', command, status: 'running' });
+  private async runCommand(command: readonly string[], timeoutSeconds: number): Promise<OpenClawWhatsAppCommandResult> {
+    const displayCommand = command.join(' ');
+    const id = `command:${displayCommand}`;
+    this.options.onProgress?.({ id, kind: 'command', label: 'Running workspace command', command: displayCommand, status: 'running' });
     try {
       const result = await this.options.runCommand(command, timeoutSeconds);
       const detail = failureDetail(result);
@@ -324,7 +325,7 @@ export class OpenClawWhatsAppProvider {
         id,
         kind: 'command',
         label: 'Running workspace command',
-        command,
+        command: displayCommand,
         status: result.exitCode === 0 ? 'succeeded' : 'failed',
         detail: result.exitCode === 0 ? 'Exit code 0' : `Exit code ${result.exitCode}${detail ? `: ${detail}` : ''}`,
       });
@@ -334,7 +335,7 @@ export class OpenClawWhatsAppProvider {
         id,
         kind: 'command',
         label: 'Running workspace command',
-        command,
+        command: displayCommand,
         status: 'failed',
         detail: cause instanceof Error ? cause.message : 'Command execution failed.',
       });

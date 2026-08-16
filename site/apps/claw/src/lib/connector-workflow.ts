@@ -57,7 +57,7 @@ export interface ConnectorWorkflowStep {
   referenceImage?: ConnectorWorkflowReferenceImage;
   suggestedValue?: string;
   externalCommand?: string;
-  command?: string;
+  command?: string[];
   approvalRequired: boolean;
 }
 
@@ -592,7 +592,7 @@ export function buildConnectorWorkflowPrompt(connectorId: ConnectorId, runtimeSn
     "- Add referenceImage when a reliable official reference image would materially clarify the step. It must contain a direct official https raster image URL, useful alt text, and optional concise caption.",
     "- referenceImage must show the relevant interface or result, not a generic logo, decoration, tracking pixel, webpage URL, generated guess, or user-uploaded content.",
     "- Use only an image URL you know to be a stable official asset for the selected connector. If uncertain, omit referenceImage rather than inventing or guessing a URL.",
-    "- command is allowed only with an operation ending in .shell-proposal; it is a proposal that requires user approval and must never contain a credential.",
+    "- command is an exact JSON argv array allowed only with an operation ending in .shell-proposal; argv[0] is the executable, no shell is implied, and it requires user approval and must never contain a credential.",
     "- suggestedValue is for a directly usable, non-secret example when the user is free to choose and customize a value such as a name, label, title, or description.",
     "- Add suggestedValue when a safe example would reduce effort or ambiguity. Omit it when the value must come from the user, their account, the runtime, or an external service.",
     "- Never put credentials, tokens, passwords, private data, account-specific identifiers, placeholders for secrets, external-tool commands, or workspace shell commands in suggestedValue.",
@@ -790,13 +790,20 @@ export function parseConnectorWorkflow(
       referenceImage = { url: referenceImageUrl, alt, ...(caption ? { caption } : {}) };
     }
 
-    let command: string | undefined;
+    let command: string[] | undefined;
     if (Object.hasOwn(rawStep, "command")) {
-      command = boundedString(rawStep.command, `${label} command`, 1_000, true);
+      if (!Array.isArray(rawStep.command) || rawStep.command.length === 0 || rawStep.command.some((argument) => typeof argument !== "string" || argument.includes("\0"))) {
+        throw new Error(`Connector workflow ${label} command must be a non-empty argv array without NUL bytes.`);
+      }
+      command = [...rawStep.command];
+      if (!command[0]) throw new Error(`Connector workflow ${label} command executable is required.`);
+      if (new TextEncoder().encode(command.join("")).length > 65_536) {
+        throw new Error(`Connector workflow ${label} command exceeds the argv byte limit.`);
+      }
       if (!operation || operation !== `${expected.connectorId}.shell-proposal`) {
         throw new Error(`Connector workflow ${label} command requires the connector shell-proposal operation.`);
       }
-      rejectLikelySecret(command, `${label} command`);
+      command.forEach((argument) => rejectLikelySecret(argument, `${label} command argument`));
     }
 
     return {

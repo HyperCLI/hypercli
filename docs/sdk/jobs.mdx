@@ -117,7 +117,7 @@ job = client.jobs.get("job_id")
 ```python
 client.jobs.logs(job.job_id)
 client.jobs.metrics(job.job_id)
-client.jobs.exec(job.job_id, "nvidia-smi", timeout=30)
+client.jobs.exec(job.job_id, ["nvidia-smi"], timeout=30)
 client.jobs.extend(job.job_id, 7200)
 client.jobs.cancel(job.job_id)
 ```

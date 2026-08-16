@@ -576,8 +576,8 @@ describe('coding agents', () => {
 
     await expect(agent.auth.logout('anthropic')).resolves.toMatchObject({ authenticated: false });
     expect(exec.mock.calls.map(([command]) => command)).toEqual([
-      "'opencode' 'auth' 'logout' 'anthropic'",
-      "'buzz-acp' 'models' '--agent-command' 'opencode' '--agent-args' 'acp' '--json'",
+      ['opencode', 'auth', 'logout', 'anthropic'],
+      ['buzz-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
     ]);
   });
 

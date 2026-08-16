@@ -66,24 +66,30 @@ impl HermesLaunchConfig {
 
     pub fn apply_to_create(&self, request: &mut CreateDeploymentRequest) {
         request.runtime = ManagedRuntime::HermesAgent;
+        let request = &mut request.launch_config;
         self.apply(
             &mut request.image,
             &mut request.env,
             &mut request.secrets,
             &mut request.routes,
             &mut request.sync_root,
+            &mut request.sync_include,
+            &mut request.sync_exclude,
             &mut request.sync_uid,
             &mut request.sync_gid,
         );
     }
 
     pub fn apply_to_start(&self, request: &mut StartDeploymentRequest) {
+        let request = &mut request.launch_config;
         self.apply(
             &mut request.image,
             &mut request.env,
             &mut request.secrets,
             &mut request.routes,
             &mut request.sync_root,
+            &mut request.sync_include,
+            &mut request.sync_exclude,
             &mut request.sync_uid,
             &mut request.sync_gid,
         );
@@ -97,6 +103,8 @@ impl HermesLaunchConfig {
         secrets: &mut BTreeMap<String, String>,
         routes: &mut BTreeMap<String, RouteConfig>,
         sync_root: &mut Option<String>,
+        sync_include: &mut Option<Vec<String>>,
+        sync_exclude: &mut Option<Vec<String>>,
         sync_uid: &mut Option<u32>,
         sync_gid: &mut Option<u32>,
     ) {
@@ -118,6 +126,9 @@ impl HermesLaunchConfig {
                 prefix: Some(self.route_prefix.clone()),
             });
         sync_root.get_or_insert_with(|| "/opt/data".to_owned());
+        if sync_include.is_none() && sync_exclude.is_none() {
+            *sync_exclude = Some(Vec::new());
+        }
         sync_uid.get_or_insert(10_000);
         sync_gid.get_or_insert(10_000);
     }
@@ -943,6 +954,8 @@ mod tests {
         assert_eq!(request.runtime, ManagedRuntime::HermesAgent);
         assert_eq!(request.image.as_deref(), Some(HERMES_AGENT_IMAGE));
         assert_eq!(request.sync_root.as_deref(), Some("/opt/data"));
+        assert_eq!(request.sync_include, None);
+        assert_eq!(request.sync_exclude, Some(Vec::new()));
         assert_eq!(
             (request.sync_uid, request.sync_gid),
             (Some(10_000), Some(10_000))
@@ -953,11 +966,14 @@ mod tests {
         assert!(!request.env.contains_key("OPENCLAW_GATEWAY_TOKEN"));
         assert!(!request.env.contains_key("HYPER_AGENTS_API_KEY"));
 
-        let mut start = StartDeploymentRequest::default();
+        let mut start =
+            StartDeploymentRequest::new(crate::CompleteDeploymentLaunchConfig::default());
         start
             .env
             .insert("API_SERVER_KEY".into(), "legacy-public-value".into());
         launch.apply_to_start(&mut start);
+        assert_eq!(start.sync_include, None);
+        assert_eq!(start.sync_exclude, Some(Vec::new()));
         assert!(!start.env.contains_key("API_SERVER_KEY"));
         assert_eq!(start.secrets["API_SERVER_KEY"], "gateway-secret-only");
     }

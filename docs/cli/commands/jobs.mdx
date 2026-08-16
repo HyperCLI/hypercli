@@ -44,8 +44,8 @@ hyper jobs metrics <job_id> --output json
 ## exec
 
 ```bash
-hyper jobs exec <job_id> "nvidia-smi"
-hyper jobs exec <job_id> "python -c 'import torch; print(torch.cuda.device_count())'"
+hyper jobs exec <job_id> nvidia-smi
+hyper jobs exec <job_id> python -- -c 'import torch; print(torch.cuda.device_count())'
 ```
 
 Important flag:

@@ -31,7 +31,7 @@ interface UseConnectorWorkflowOptions {
   scopeKey: string;
   backgroundBlocked?: boolean;
   runEphemeralPrompt: (message: string, options?: GatewayEphemeralChatOptions) => Promise<string>;
-  runShellProposal: (command: string) => Promise<void>;
+  runShellProposal: (command: readonly string[]) => Promise<void>;
 }
 
 interface WorkflowState {

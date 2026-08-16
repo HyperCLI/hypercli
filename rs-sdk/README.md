@@ -38,12 +38,14 @@ use hypercli_sdk::{AgentSize, CreateDeploymentRequest, HyperCliClient, ManagedRu
 let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
 request.name = Some("docs-demo".into());
 request.size = Some(AgentSize::Small);
+request.sync_exclude = Some(vec![]); // whole-root sync
 
 let created = client.create_deployment(&request)?;
 let created = client
     .wait_deployment_state(&created.id, &["stopped"], &["failed", "deleted"], Duration::from_secs(330))
     .await?;
-client.start_deployment(&created.id, &StartDeploymentRequest::default())?;
+let start = StartDeploymentRequest::new(request.launch_config.clone());
+client.start_deployment(&created.id, &start)?;
 let running = client
     .wait_deployment_running(&created.id, Duration::from_secs(300))
     .await?;
@@ -71,7 +73,11 @@ socket and waits for `ready` before delivering transitions. The state waiters
 open that socket before their authoritative REST snapshot. There is no client
 ACK or durable client outbox.
 Transition events carry `agent_id` for local filtering plus `state`, `reason`, `error`, and
-`message`, but remain invalidations rather than authoritative snapshots.
+`message` and `launch_epoch`, but remain invalidations rather than authoritative snapshots.
+
+Metrics and exec use short-lived token-scoped one-shot WebSockets. File writes
+mint `/files/token` access and PUT directly to the HTTPS Reef endpoint with
+sync-root-relative paths; redirects are rejected.
 
 `Deployment.state` remains an open string so future server states continue to
 parse. Placement, runtime, and optional finalize epochs are
@@ -91,12 +97,14 @@ stable transition cause such as `start`, `api_stop`,
 `runtime_exit`, `timeout`, or `delete`; `error` is a failure code when present,
 and `message` is human-readable context.
 
-Restart sync policy is deliberately tri-state. A default
-`StartDeploymentRequest` omits the fields and inherits the saved policy;
-`set_sync_policy(None, None)` emits explicit `null/null` and selects the full
-sync root; `set_sync_policy(Some(vec![]), None)` emits `[]/null` and selects
-nothing. This distinction is required for a stopped deployment to clear an
-older selective policy.
+START is a complete replacement contract. Keep the original
+`CompleteDeploymentLaunchConfig` (including secrets and registry auth) under
+caller ownership and pass a clone to `StartDeploymentRequest::new`; the
+redacted `Deployment.launch_config` inspection projection cannot be used as a
+restart payload. Set exactly one sync policy: use `sync_exclude: Some(vec![])`
+for whole-root sync, `sync_include: Some(vec![])` to select nothing, or provide
+one non-empty include/exclude list. CREATE and START reject requests that set
+neither selector or both selectors.
 
 ## Plans and agent capacity
 
@@ -188,12 +196,11 @@ from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
 Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into
 `buzz-acp`.
 
-For a generic `CreateDeploymentRequest`, a nonblank `sync_root` with neither
-policy field selects the complete root except Reef's internal metadata paths.
-An explicit empty `sync_include` selects nothing; an empty `sync_exclude`
-excludes nothing; and a nonempty include takes precedence. Typed Buzz requests
-inject the selected runtime's documented include default instead of using the
-generic whole-root behavior. Reef continuously uploads new and changed allowed
+For a generic `CreateDeploymentRequest`, whole-root sync is represented by
+`sync_exclude: Some(vec![])`; a nonblank `sync_root` does not make a missing
+selector valid. An explicit empty `sync_include` selects nothing, while a
+nonempty include or exclude selects that policy. Typed Buzz requests inject
+the selected runtime's documented include default. Reef continuously uploads new and changed allowed
 files from the PVC to object storage, but it is not a two-way mirror and does
 not propagate ordinary filesystem deletions. Files API deletes are targeted
 remote deletes. Object storage is copied back to the PVC only during explicit

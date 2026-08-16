@@ -32,7 +32,7 @@ hyper agents create --name my-agent --size small
 # after status reports STOPPED:
 hyper agents start my-agent
 hyper agents status my-agent
-hyper agents exec my-agent "echo hello world"
+hyper agents exec my-agent echo hello world
 hyper agents shell my-agent
 hyper agents chat my-agent
 hyper agents stop my-agent --force
@@ -55,7 +55,7 @@ agent = client.deployments.start(agent.id)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 print(agent.id, agent.state, agent.vnc_url)
 
-result = client.deployments.exec(agent, "echo hello world")
+result = client.deployments.exec(agent, ["echo", "hello world"])
 print(result.stdout)
 
 client.deployments.file_write(agent, "/tmp/test.txt", "Hello from SDK!")

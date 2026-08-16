@@ -424,8 +424,9 @@ fn deploy_with_readiness(
             Ok(deployment) => {
                 let deployment =
                     wait_until_stopped(client, deployment, readiness_timeout, poll_interval)?;
+                let start = StartDeploymentRequest::new(request.launch_config.clone());
                 let deployment = client
-                    .start_deployment(&deployment.id, &StartDeploymentRequest::default())
+                    .start_deployment(&deployment.id, &start)
                     .map_err(ProviderError::HyperCli)?;
                 let deployment =
                     wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
@@ -634,25 +635,7 @@ fn restart_if_stopped(
     if !deployment.state.eq_ignore_ascii_case("stopped") {
         return Ok(deployment);
     }
-    let start = StartDeploymentRequest {
-        config: create.config.clone(),
-        env: create.env.clone(),
-        secrets: create.secrets.clone(),
-        routes: create.routes.clone(),
-        command: create.command.clone(),
-        entrypoint: create.entrypoint.clone(),
-        image: create.image.clone(),
-        sync_root: create.sync_root.clone(),
-        sync_include: None,
-        sync_exclude: None,
-        sync_uid: create.sync_uid,
-        sync_gid: create.sync_gid,
-        restart: create.restart,
-        runtime_scopes: create.runtime_scopes.clone(),
-        dry_run: false,
-    };
-    // Keep include/exclude filters omitted so a relaunch does not overwrite
-    // the backend's stored filter policy.
+    let start = StartDeploymentRequest::new(create.launch_config.clone());
     client
         .start_deployment(&deployment.id, &start)
         .map_err(ProviderError::HyperCli)
@@ -821,7 +804,7 @@ fn build_launch_request_with_inference_base(
     request.sync_exclude = None;
     request.sync_uid = Some(1000);
     request.sync_gid = Some(1000);
-    request.restart = Some(false);
+    request.restart = false;
     request.runtime_scopes = BUZZ_RUNTIME_SCOPES.map(str::to_owned).to_vec();
 
     // Local Desktop policy is a floor. The fully resolved descriptor env wins
@@ -1647,6 +1630,7 @@ mod tests {
             },
         )
         .unwrap()
+        .launch_config
         .env
     }
 
@@ -1796,7 +1780,7 @@ mod tests {
                 .unwrap();
 
         assert_eq!(request.runtime, ManagedRuntime::Goose);
-        assert_eq!(request.restart, Some(false));
+        assert!(!request.restart);
         assert_eq!(request.env["TIER"], "launch");
         assert_eq!(request.env["BUZZ_ACP_MODEL"], "launch-model");
         assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
@@ -2403,7 +2387,9 @@ mod tests {
             .create();
         let start = server
             .mock("POST", "/agents/deployments/deployment-1/start")
-            .match_body(Matcher::Json(serde_json::json!({})))
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -2505,7 +2491,9 @@ mod tests {
             .create();
         let start = server
             .mock("POST", "/agents/deployments/deployment-medium/start")
-            .match_body(Matcher::Json(serde_json::json!({})))
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"deployment-medium","runtime":"opencode","state":"starting"}"#)
@@ -2571,7 +2559,7 @@ mod tests {
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({
+                serde_json::json!({"launch_config":{
                     "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                     "restart": false,
                     "command": ["/usr/local/bin/buzz-acp"],
@@ -2593,7 +2581,7 @@ mod tests {
                         "HYPER_WORKSPACES_BOOT_SYNC": "1",
                         "HYPER_WORKSPACES_DIR": "/home/node/shared"
                     }
-                })
+                }})
                 .to_string(),
             ))
             .with_status(200)
@@ -2640,7 +2628,9 @@ mod tests {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({})))
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"sync_root":null}}).to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"creating"}"#)
@@ -2651,7 +2641,8 @@ mod tests {
             "state": "stopped"
         }))
         .unwrap();
-        let create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        create.sync_exclude = Some(Vec::new());
 
         let restarted = restart_if_stopped(&client(&server), deployment, &create).unwrap();
 
@@ -2664,7 +2655,10 @@ mod tests {
         let mut server = Server::new();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
-            .match_body(Matcher::Json(serde_json::json!({})))
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"sync_include":[".config/opencode"]}})
+                    .to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"existing","runtime":"opencode","state":"creating"}"#)
@@ -2745,7 +2739,9 @@ mod tests {
             .create();
         let start = server
             .mock("POST", "/agents/deployments/new-runtime/start")
-            .match_body(Matcher::Json(serde_json::json!({})))
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(r#"{"id":"new-runtime","runtime":"opencode","state":"starting"}"#)
@@ -2845,11 +2841,11 @@ mod tests {
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({
+                serde_json::json!({"launch_config":{
                     "restart": false,
                     "command": ["/usr/local/bin/buzz-acp"],
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES
-                })
+                }})
                 .to_string(),
             ))
             .with_status(200)
@@ -2949,7 +2945,9 @@ mod tests {
             .create();
         let start = server
             .mock("POST", "/agents/deployments/shared/start")
-            .match_body(Matcher::Json(serde_json::json!({})))
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(

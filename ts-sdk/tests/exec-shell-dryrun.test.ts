@@ -1149,18 +1149,32 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
 
-    const result = await agents.exec('agent-1', '  ls -la  ', { timeout: 20, dryRun: true });
+    const result = await agents.exec('agent-1', ['ls', '  exact argument  '], { timeout: 20, dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments/agent-1/exec/token');
     expect(sockets[0]?.url).toBe('wss://socket.example.test/product/ws/exec/agent-1?jwt=jwt-exec');
     expect(JSON.parse(sockets[0]?.sent[0] ?? '')).toEqual({
-      command: 'ls -la',
+      command: ['ls', '  exact argument  '],
       timeout: 20,
       dry_run: true,
     });
     expect(result.exitCode).toBe(7);
     expect(result.stdout).toBe('preview\n');
     expect(result.stderr).toBe('warning\n');
+  });
+
+  it.each([
+    'pwd',
+    [],
+    [''],
+    ['pwd', 'bad\0arg'],
+    ['x'.repeat(65_537)],
+  ])('rejects noncanonical exec argv before token mint', async (command) => {
+    const post = vi.fn();
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.exec('agent-1', command as string[])).rejects.toThrow('argv list');
+    expect(post).not.toHaveBeenCalled();
   });
 
   it('metrics sends no application frame and returns one strict result after close', async () => {
@@ -1212,7 +1226,7 @@ describe('HyperClaw agents SDK', () => {
     const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
 
-    await expect(agents.exec('agent-1', 'yes')).rejects.toThrow('output limit exceeded');
+    await expect(agents.exec('agent-1', ['yes'])).rejects.toThrow('output limit exceeded');
   });
 
   it('rejects a noncanonical operation token before websocket connect', async () => {

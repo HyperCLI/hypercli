@@ -400,11 +400,11 @@ describe('OpenClawSlackProvider lifecycle and discovery', () => {
 
   it('installs and enables the official Slack plugin through the CLI when missing', async () => {
     let installed = false;
-    const runCommand = vi.fn(async (command: string) => {
-      if (command === 'openclaw plugins list --json') {
+    const runCommand = vi.fn(async (command: readonly string[]) => {
+      if (command.join(' ') === 'openclaw plugins list --json') {
         return { stdout: JSON.stringify({ plugins: [{ id: 'slack', installed, enabled: installed, state: installed ? 'loaded' : 'not-installed' }] }), exitCode: 0 };
       }
-      if (command === 'openclaw plugins install @openclaw/slack') installed = true;
+      if (command.join(' ') === 'openclaw plugins install @openclaw/slack') installed = true;
       return { stdout: 'ok', exitCode: 0 };
     });
     const provider = new OpenClawSlackProvider(client(), { runCommand });
@@ -415,10 +415,10 @@ describe('OpenClawSlackProvider lifecycle and discovery', () => {
       restartRequired: true,
     });
     expect(runCommand.mock.calls.map(([command]) => command)).toEqual([
-      'openclaw plugins list --json',
-      'openclaw plugins install @openclaw/slack',
-      'openclaw plugins enable slack',
-      'openclaw plugins list --json',
+      ['openclaw', 'plugins', 'list', '--json'],
+      ['openclaw', 'plugins', 'install', '@openclaw/slack'],
+      ['openclaw', 'plugins', 'enable', 'slack'],
+      ['openclaw', 'plugins', 'list', '--json'],
     ]);
   });
 
@@ -432,8 +432,8 @@ describe('OpenClawSlackProvider lifecycle and discovery', () => {
     expect(enabledRunner).toHaveBeenCalledOnce();
 
     let enabled = false;
-    const disabledRunner = vi.fn(async (command: string) => {
-      if (command === 'openclaw plugins list --json') {
+    const disabledRunner = vi.fn(async (command: readonly string[]) => {
+      if (command.join(' ') === 'openclaw plugins list --json') {
         return { stdout: JSON.stringify({ entries: { slack: { name: 'Slack', enabled } } }), exitCode: 0 };
       }
       enabled = true;
@@ -442,9 +442,9 @@ describe('OpenClawSlackProvider lifecycle and discovery', () => {
     await expect(new OpenClawSlackProvider(client(), { runCommand: disabledRunner }).ensurePluginInstalledWithCli())
       .resolves.toMatchObject({ changed: true, restartRequired: true });
     expect(disabledRunner.mock.calls.map(([command]) => command)).toEqual([
-      'openclaw plugins list --json',
-      'openclaw plugins enable slack',
-      'openclaw plugins list --json',
+      ['openclaw', 'plugins', 'list', '--json'],
+      ['openclaw', 'plugins', 'enable', 'slack'],
+      ['openclaw', 'plugins', 'list', '--json'],
     ]);
   });
 
@@ -456,7 +456,7 @@ describe('OpenClawSlackProvider lifecycle and discovery', () => {
 
     const runCommand = vi.fn(async () => ({ stderr: 'restart denied', exitCode: 1 }));
     await expect(new OpenClawSlackProvider(client(), { runCommand }).restartGateway()).rejects.toThrow(/restart denied/i);
-    expect(runCommand).toHaveBeenCalledWith('openclaw gateway restart');
+    expect(runCommand).toHaveBeenCalledWith(['openclaw', 'gateway', 'restart']);
   });
 
   it('verifies Slack runtime inspection output', async () => {
@@ -467,7 +467,7 @@ describe('OpenClawSlackProvider lifecycle and discovery', () => {
     await expect(new OpenClawSlackProvider(client(), { runCommand }).verifyPluginRuntimeWithCli()).resolves.toMatchObject({
       id: 'slack', installed: true, enabled: true, state: 'loaded',
     });
-    expect(runCommand).toHaveBeenCalledWith('openclaw plugins inspect slack --runtime --json');
+    expect(runCommand).toHaveBeenCalledWith(['openclaw', 'plugins', 'inspect', 'slack', '--runtime', '--json']);
   });
 
   it('delegates plugin policy, uninstall, and Slack-scoped command discovery', async () => {
@@ -505,8 +505,8 @@ describe('OpenClawSlackProvider pairing', () => {
       raw: 'Approved Slack sender U1.',
     });
 
-    expect(runCommand).toHaveBeenNthCalledWith(1, 'openclaw pairing list slack --account work-1 --json');
-    expect(runCommand).toHaveBeenNthCalledWith(2, 'openclaw pairing approve slack ABCD2345 --account work-1 --notify');
+    expect(runCommand).toHaveBeenNthCalledWith(1, ['openclaw', 'pairing', 'list', 'slack', '--account', 'work-1', '--json']);
+    expect(runCommand).toHaveBeenNthCalledWith(2, ['openclaw', 'pairing', 'approve', 'slack', 'ABCD2345', '--account', 'work-1', '--notify']);
   });
 
   it('rejects malformed pairing list output despite requesting JSON', async () => {

@@ -6,6 +6,26 @@ import WebSocket from 'ws';
 
 const TERMINAL_JOB_STATES = new Set(['succeeded', 'failed', 'terminated', 'canceled', 'cancelled']);
 
+function execArgv(command: unknown): string[] {
+  if (!Array.isArray(command) || command.length === 0 || command.some((argument) => typeof argument !== 'string')) {
+    throw new Error('exec command must be an argv list');
+  }
+  if (command[0].length === 0) {
+    throw new Error('exec command executable must be nonempty');
+  }
+  if (command.some((argument) => argument.includes('\0'))) {
+    throw new Error('exec command arguments must not contain NUL');
+  }
+  const encodedBytes = command.reduce(
+    (total, argument) => total + new TextEncoder().encode(argument).byteLength,
+    0,
+  );
+  if (encodedBytes > 65_536) {
+    throw new Error('exec command exceeds 65536 UTF-8 bytes');
+  }
+  return [...command];
+}
+
 export interface Job {
   jobId: string;
   jobKey: string;
@@ -379,9 +399,12 @@ export class Jobs {
   /**
    * Execute a command non-interactively on a running job container.
    */
-  async exec(jobId: string, command: string, timeout: number = 30): Promise<ExecResult> {
+  async exec(jobId: string, command: string[], timeout: number = 30): Promise<ExecResult> {
+    if (!Number.isInteger(timeout) || timeout < 1 || timeout > 300) {
+      throw new Error('timeout must be an integer from 1 through 300');
+    }
     const data = await this.http.post(`/api/jobs/${jobId}/exec`, {
-      command,
+      command: execArgv(command),
       timeout,
     });
     return execResultFromDict(data);

@@ -52,7 +52,7 @@ interface ConnectorWorkflowGuideProps {
   loading?: boolean;
   unavailable?: boolean;
   inputControls?: ConnectorWorkflowInputControls;
-  onRunShellProposal?: (command: string) => Promise<void>;
+  onRunShellProposal?: (command: readonly string[]) => Promise<void>;
   onVerifyConnection?: () => Promise<ConnectorWorkflowVerificationResult>;
   verificationDisabled?: boolean;
   verificationDisabledReason?: string;
@@ -407,7 +407,7 @@ export function ConnectorWorkflowGuide({
                           action="Run setup command"
                           summary="Review the exact command before it runs in this workspace."
                           risk="high"
-                          preview={command}
+                          preview={JSON.stringify(command)}
                           state={approvalState}
                           onDeny={() => setApprovalStates((current) => ({ ...current, [step.id]: "denied" }))}
                           onApprove={async () => {

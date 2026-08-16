@@ -96,7 +96,7 @@ const logs = await client.jobs.logs(jobId);
 const metrics = await client.jobs.metrics(jobId);
 
 // Non-interactive exec
-const execResult = await client.jobs.exec(jobId, 'nvidia-smi');
+const execResult = await client.jobs.exec(jobId, ['nvidia-smi']);
 
 // Interactive shell WebSocket
 const ws = await client.jobs.shellConnect(jobId, '/bin/bash');
@@ -112,7 +112,7 @@ const activation = await client.agent.redeemGrantCode('PROMO123');
 const renewal = await client.agent.redeemGrantCode('PROMO123', { extendExisting: true });
 
 // Execute command in a hypercli-openclaw agent container
-const agentExec = await client.agents.exec(agentId, 'ls -la');
+const agentExec = await client.agents.exec(agentId, ['ls', '-la']);
 
 // One live Reef metrics sample
 const agentMetrics = await client.agents.metrics(agentId);

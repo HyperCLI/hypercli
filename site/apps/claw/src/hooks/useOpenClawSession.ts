@@ -3560,7 +3560,7 @@ export function useOpenClawSession(
   const ensureWhatsAppSupport = useCallback(async (reportProgress?: WhatsAppSupportProgressReporter) => {
     if (!gateway || !agent) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
     const provider = new OpenClawWhatsAppProvider(gateway, {
-      runCommand: (command, timeoutSeconds) => agent.exec(command, { timeout: timeoutSeconds }),
+      runCommand: (command, timeoutSeconds) => agent.exec([...command], { timeout: timeoutSeconds }),
       onProgress: reportProgress,
     });
     const support = await provider.ensureSupport();
@@ -3595,7 +3595,7 @@ export function useOpenClawSession(
     };
     let channelConfigured = whatsAppChannelEnabled(config);
     const provider = new OpenClawWhatsAppProvider(gateway, {
-      runCommand: (command, timeoutSeconds) => agent.exec(command, { timeout: timeoutSeconds }),
+      runCommand: (command, timeoutSeconds) => agent.exec([...command], { timeout: timeoutSeconds }),
       onProgress: publishProgress,
       pairing: {
         webLoginStart: (loginOptions) => gateway.webLoginStart(loginOptions),
@@ -4327,9 +4327,9 @@ export function useOpenClawSession(
     };
   }, [agent?.launchConfig?.image, gateway]);
 
-  const runConnectorShellProposal = useCallback(async (command: string) => {
+  const runConnectorCommand = useCallback(async (command: readonly string[]) => {
     if (!agent) throw new Error("Workspace command access is unavailable.");
-    const result = await agent.exec(command, { timeout: 120 });
+    const result = await agent.exec([...command], { timeout: 120 });
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || result.stdout.trim() || `Workspace command failed with exit code ${result.exitCode}.`);
     }
@@ -4342,8 +4342,8 @@ export function useOpenClawSession(
     if (existing?.agentId === agent.id) return existing.promise;
     const provider = new OpenClawSlackProvider(gateway, {
       runCommand: async (command) => {
-        const timeout = command === "openclaw plugins install @openclaw/slack" ? 300 : 60;
-        return await agent.exec(command, { timeout });
+        const timeout = command.join("\0") === "openclaw\0plugins\0install\0@openclaw/slack" ? 300 : 60;
+        return await agent.exec([...command], { timeout });
       },
     });
     const promise = (async (): Promise<SlackSupportEnsureResult> => {
@@ -4367,7 +4367,7 @@ export function useOpenClawSession(
     integrationsStatus,
     integrationsAuthStart,
     integrationsAuthStatus,
-    runCommand: runConnectorShellProposal,
+    runCommand: runConnectorCommand,
   }, connectorRuntime) : null, [
     channelsStatus,
     connectorRuntime,
@@ -4375,7 +4375,7 @@ export function useOpenClawSession(
     integrationsAuthStart,
     integrationsAuthStatus,
     integrationsStatus,
-    runConnectorShellProposal,
+    runConnectorCommand,
     saveConfig,
   ]);
 
@@ -4384,7 +4384,7 @@ export function useOpenClawSession(
     scopeKey: agentId ?? "disconnected",
     backgroundBlocked: sendingTargets.length > 0,
     runEphemeralPrompt,
-    runShellProposal: runConnectorShellProposal,
+    runShellProposal: runConnectorCommand,
   });
 
   const connected = status === "connected" && !hydrating && (historyHydrationEnabled ? ready : true);

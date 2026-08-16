@@ -51,7 +51,7 @@ interface GitHubChatConnectorCardProps {
   onVerifyAgentGitHubSetup?: () => Promise<void> | void;
   cachedWorkflow?: ConnectorWorkflow | null;
   onGenerateConnectorWorkflow?: (connectorId: "github") => Promise<ConnectorWorkflow>;
-  onRunShellProposal?: (command: string) => Promise<void>;
+  onRunShellProposal?: (command: readonly string[]) => Promise<void>;
   onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;

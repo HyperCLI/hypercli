@@ -669,7 +669,7 @@ export type OpenClawSlackCommandRunnerResult =
   | { exitCode?: number; exit_code?: number; stdout?: string; stderr?: string };
 
 export interface OpenClawSlackProviderOptions {
-  runCommand?: (command: string) => Promise<OpenClawSlackCommandRunnerResult>;
+  runCommand?: (command: readonly string[]) => Promise<OpenClawSlackCommandRunnerResult>;
 }
 
 export interface OpenClawSlackPairingRequest extends Record<string, unknown> {
@@ -1028,7 +1028,7 @@ export class OpenClawSlackProvider {
 
   async ensurePluginInstalledWithCli(): Promise<OpenClawSlackEnsurePluginResult> {
     const runner = this.requireCommandRunner();
-    const listed = commandOutput(await runner('openclaw plugins list --json'));
+    const listed = commandOutput(await runner(['openclaw', 'plugins', 'list', '--json']));
     if (listed.exitCode !== 0) {
       throw new Error(listed.stderr.trim() || listed.stdout.trim() || 'Could not inspect Slack support.');
     }
@@ -1037,16 +1037,16 @@ export class OpenClawSlackProvider {
       return { plugin: current, changed: false, restartRequired: false };
     }
     if (!current?.installed) {
-      const installed = commandOutput(await runner('openclaw plugins install @openclaw/slack'));
+      const installed = commandOutput(await runner(['openclaw', 'plugins', 'install', '@openclaw/slack']));
       if (installed.exitCode !== 0) {
         throw new Error(installed.stderr.trim() || installed.stdout.trim() || 'Could not install Slack support.');
       }
     }
-    const enabled = commandOutput(await runner('openclaw plugins enable slack'));
+    const enabled = commandOutput(await runner(['openclaw', 'plugins', 'enable', 'slack']));
     if (enabled.exitCode !== 0) {
       throw new Error(enabled.stderr.trim() || enabled.stdout.trim() || 'Could not enable Slack support.');
     }
-    const verified = commandOutput(await runner('openclaw plugins list --json'));
+    const verified = commandOutput(await runner(['openclaw', 'plugins', 'list', '--json']));
     if (verified.exitCode !== 0) {
       throw new Error(verified.stderr.trim() || verified.stdout.trim() || 'Could not verify Slack support after installation.');
     }
@@ -1062,7 +1062,7 @@ export class OpenClawSlackProvider {
   }
 
   async verifyPluginRuntimeWithCli(): Promise<OpenClawSlackPluginInfo> {
-    const result = commandOutput(await this.requireCommandRunner()('openclaw plugins inspect slack --runtime --json'));
+    const result = commandOutput(await this.requireCommandRunner()(['openclaw', 'plugins', 'inspect', 'slack', '--runtime', '--json']));
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || result.stdout.trim() || 'Could not verify the running Slack support.');
     }
@@ -1086,7 +1086,7 @@ export class OpenClawSlackProvider {
   }
 
   async restartGateway(): Promise<void> {
-    const result = commandOutput(await this.requireCommandRunner()('openclaw gateway restart'));
+    const result = commandOutput(await this.requireCommandRunner()(['openclaw', 'gateway', 'restart']));
     if (result.exitCode !== 0) {
       throw new Error(result.stderr.trim() || result.stdout.trim() || 'Could not restart the OpenClaw gateway.');
     }
@@ -1112,9 +1112,11 @@ export class OpenClawSlackProvider {
   async listPairings(accountId?: string): Promise<OpenClawSlackPairingListResult> {
     const runner = this.requireCommandRunner();
     const account = accountId === undefined ? undefined : this.safeCliAccountId(accountId);
-    const result = commandOutput(await runner(
-      `openclaw pairing list slack${account ? ` --account ${account}` : ''} --json`,
-    ));
+    const result = commandOutput(await runner([
+      'openclaw', 'pairing', 'list', 'slack',
+      ...(account ? ['--account', account] : []),
+      '--json',
+    ]));
     if (result.exitCode !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || 'Slack pairing list failed.');
     const raw = result.stdout.trim();
     if (!raw) return { channel: 'slack', requests: [] };
@@ -1139,7 +1141,11 @@ export class OpenClawSlackProvider {
     const normalizedCode = code.trim().toUpperCase();
     if (!PAIRING_CODE.test(normalizedCode)) throw new Error('Slack pairing code is invalid.');
     const account = options.accountId === undefined ? undefined : this.safeCliAccountId(options.accountId);
-    const command = `openclaw pairing approve slack ${normalizedCode}${account ? ` --account ${account}` : ''}${options.notify ? ' --notify' : ''}`;
+    const command = [
+      'openclaw', 'pairing', 'approve', 'slack', normalizedCode,
+      ...(account ? ['--account', account] : []),
+      ...(options.notify ? ['--notify'] : []),
+    ];
     const result = commandOutput(await runner(command));
     if (result.exitCode !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || 'Slack pairing approval failed.');
     return {

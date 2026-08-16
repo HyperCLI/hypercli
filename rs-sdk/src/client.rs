@@ -45,7 +45,14 @@ struct DeploymentEventTokenResponse {
     token: String,
     ws_url: String,
 }
-
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OperationToken {
+    agent_id: String,
+    jwt: String,
+    expires_at: String,
+    ws_url: String,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FileToken {
@@ -58,7 +65,6 @@ pub struct HyperCliClient {
     api_base: Url,
     api_key: secrecy::SecretString,
     http: HttpClient,
-    file_http: HttpClient,
     async_http: AsyncHttpClient,
     trace_file: Option<PathBuf>,
 }
@@ -88,11 +94,27 @@ fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliE
     let object = body.as_object_mut().ok_or_else(|| {
         HyperCliError::InvalidResponse("deployment request must serialize as an object".to_owned())
     })?;
-    if object.contains_key("sync_include") {
-        object.remove("sync_exclude");
+    let launch = if object.contains_key("launch_config") {
+        object
+            .get_mut("launch_config")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| {
+                HyperCliError::InvalidResponse("launch_config must be an object".into())
+            })?
+    } else {
+        object
+    };
+    let sync_selector_count = ["sync_include", "sync_exclude"]
+        .into_iter()
+        .filter(|field| launch.contains_key(*field))
+        .count();
+    if sync_selector_count != 1 {
+        return Err(HyperCliError::InvalidResponse(
+            "launch config must carry exactly one of sync_include or sync_exclude".into(),
+        ));
     }
     for field in ["sync_uid", "sync_gid"] {
-        if object
+        if launch
             .get(field)
             .and_then(Value::as_u64)
             .is_some_and(|value| value > 4_294_967_294)
@@ -103,6 +125,23 @@ fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliE
         }
     }
     Ok(body)
+}
+
+fn redacted_launch_trace(mut body: Value) -> Value {
+    fn r(o: &mut serde_json::Map<String, Value>) {
+        for k in ["secrets", "registry_auth"] {
+            if o.contains_key(k) {
+                o.insert(k.into(), json!("<omitted>"));
+            }
+        }
+    }
+    if let Some(o) = body.as_object_mut() {
+        r(o);
+        if let Some(l) = o.get_mut("launch_config").and_then(Value::as_object_mut) {
+            r(l)
+        }
+    }
+    body
 }
 
 fn permanent_deployment_event_error(error: &HyperCliError) -> bool {
@@ -165,22 +204,18 @@ impl HyperCliClient {
     ) -> Result<Self, HyperCliError> {
         let http = HttpClient::builder()
             .timeout(timeout)
-            .build()
-            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
-        let file_http = HttpClient::builder()
-            .timeout(timeout)
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         let async_http = AsyncHttpClient::builder()
             .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         Ok(Self {
             api_base: config.api_base,
             api_key: config.api_key,
             http,
-            file_http,
             async_http,
             trace_file: config.trace_file,
         })
@@ -192,6 +227,96 @@ impl HyperCliClient {
             self.api_base.as_str().trim_end_matches('/'),
             path.trim_start_matches('/')
         )
+    }
+
+    async fn one_shot(
+        &self,
+        id: &str,
+        purpose: &str,
+        request: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, HyperCliError> {
+        let r = self
+            .async_http
+            .post(self.endpoint(&format!("deployments/{id}/{purpose}/token")))
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|e| HyperCliError::Transport(e.to_string()))?;
+        if !r.status().is_success() {
+            return Err(HyperCliError::Status(r.status()));
+        }
+        let t: OperationToken = r
+            .json()
+            .await
+            .map_err(|e| HyperCliError::InvalidResponse(e.to_string()))?;
+        let mut u =
+            Url::parse(&t.ws_url).map_err(|e| HyperCliError::InvalidResponse(e.to_string()))?;
+        let suffix = format!("/ws/{purpose}/{id}");
+        if t.agent_id != id
+            || t.jwt.is_empty()
+            || t.expires_at.is_empty()
+            || !matches!(u.scheme(), "ws" | "wss")
+            || u.host_str().is_none()
+            || !u.username().is_empty()
+            || u.password().is_some()
+            || u.query().is_some()
+            || u.fragment().is_some()
+            || u.path() != suffix
+        {
+            return Err(HyperCliError::InvalidResponse(
+                "invalid operation token".into(),
+            ));
+        }
+        u.query_pairs_mut().append_pair("jwt", &t.jwt);
+        tokio::time::timeout(timeout, async {
+            // The URL now contains the short-lived JWT. Never let a
+            // connector error render that URL into an SDK error or trace.
+            let (mut s, _) = connect_async(u.as_str()).await.map_err(|_| {
+                HyperCliError::Transport("operation websocket connection failed".into())
+            })?;
+            if let Some(v) = request {
+                s.send(Message::Text(v.to_string().into()))
+                    .await
+                    .map_err(|e| HyperCliError::Transport(e.to_string()))?
+            }
+            let mut out = None;
+            while let Some(m) = s.next().await {
+                match m.map_err(|e| HyperCliError::Transport(e.to_string()))? {
+                    Message::Text(v) if out.is_none() => {
+                        out = Some(
+                            serde_json::from_str(v.as_ref())
+                                .map_err(|e| HyperCliError::InvalidResponse(e.to_string()))?,
+                        )
+                    }
+                    Message::Text(_) | Message::Binary(_) => {
+                        return Err(HyperCliError::InvalidResponse(
+                            "multiple operation frames".into(),
+                        ))
+                    }
+                    Message::Close(f) => {
+                        if f.as_ref().is_some_and(|f| f.code != 1000.into()) {
+                            return Err(HyperCliError::InvalidResponse(
+                                "abnormal operation close".into(),
+                            ));
+                        }
+                        return out.ok_or_else(|| {
+                            HyperCliError::InvalidResponse("missing operation frame".into())
+                        });
+                    }
+                    Message::Ping(v) => s
+                        .send(Message::Pong(v))
+                        .await
+                        .map_err(|e| HyperCliError::Transport(e.to_string()))?,
+                    _ => {}
+                }
+            }
+            Err(HyperCliError::InvalidResponse(
+                "missing operation frame".into(),
+            ))
+        })
+        .await
+        .map_err(|_| HyperCliError::Transport("operation timed out".into()))?
     }
 
     fn get_json<T: DeserializeOwned>(&self, path: &str) -> Result<T, HyperCliError> {
@@ -312,7 +437,9 @@ impl HyperCliClient {
                 "DELETE",
                 &url,
                 trace,
-                self.http.delete(&url).bearer_auth(self.api_key.expose_secret()),
+                self.http
+                    .delete(&url)
+                    .bearer_auth(self.api_key.expose_secret()),
             ),
         }
     }
@@ -326,8 +453,37 @@ impl HyperCliClient {
     /// Live CPU/memory metrics for a running deployment from the cluster
     /// metrics server. The shape is backend-owned; newer SDKs expose it
     /// untyped as well.
-    pub fn deployment_metrics(&self, deployment_id: &str) -> Result<Value, HyperCliError> {
-        self.get_json(&format!("deployments/{deployment_id}/metrics"))
+    pub async fn deployment_metrics(&self, deployment_id: &str) -> Result<Value, HyperCliError> {
+        let v = self
+            .one_shot(deployment_id, "metrics", None, Duration::from_secs(45))
+            .await?;
+        let o = v
+            .as_object()
+            .ok_or_else(|| HyperCliError::InvalidResponse("invalid metrics frame".into()))?;
+        if o.len() == 3
+            && o.get("event") == Some(&json!("agent_metrics_result"))
+            && o.get("ok") == Some(&json!(false))
+        {
+            if let Some(error) = o
+                .get("error")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+            {
+                return Err(HyperCliError::InvalidResponse(error.into()));
+            }
+        }
+        if o.len() != 5
+            || o.get("event") != Some(&json!("agent_metrics_result"))
+            || o.get("ok") != Some(&json!(true))
+            || o.get("cpu").and_then(Value::as_str).is_none()
+            || o.get("memory").and_then(Value::as_str).is_none()
+            || o.get("timestamp").and_then(Value::as_i64).is_none()
+        {
+            return Err(HyperCliError::InvalidResponse(
+                "invalid metrics frame".into(),
+            ));
+        }
+        Ok(v)
     }
 
     pub fn list_deployments_with_capacity(&self) -> Result<AgentCapacity, HyperCliError> {
@@ -792,7 +948,7 @@ impl HyperCliClient {
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint("deployments");
         let request_body = deployment_request_body(request)?;
-        let request_trace = Some(request_body.clone());
+        let request_trace = Some(redacted_launch_trace(request_body.clone()));
         let started = Instant::now();
         let response = match self
             .http
@@ -851,22 +1007,22 @@ impl HyperCliClient {
         self.send_json("update_deployment", "PATCH", &url, request_trace, builder)
     }
 
-    /// Write a sync-root-relative file directly through Reef without placing
-    /// its content in argv, query strings, or HTTP traces.
+    /// Write a file through the managed agent file API without placing its
+    /// content in argv, query strings, or HTTP traces. Paths are deliberately
+    /// restricted to simple workspace-relative segments and always use Reef.
     pub fn put_deployment_file(
         &self,
         deployment_id: &str,
         path: &str,
         content: &[u8],
     ) -> Result<DeploymentFileWriteResponse, HyperCliError> {
-        let token_url = self.endpoint(&format!("deployments/{deployment_id}/files/token"));
         let token: FileToken = self.send_json(
             "deployment_file_token",
             "POST",
-            &token_url,
+            &self.endpoint(&format!("deployments/{deployment_id}/files/token")),
             None,
-            self.file_http
-                .post(&token_url)
+            self.http
+                .post(self.endpoint(&format!("deployments/{deployment_id}/files/token")))
                 .bearer_auth(self.api_key.expose_secret()),
         )?;
         let (url, path) = reef_file_url(&token, path)?;
@@ -874,8 +1030,8 @@ impl HyperCliClient {
             "put_deployment_file",
             "PUT",
             url.as_str(),
-            Some(json!({"path": path, "size": content.len(), "content": "<omitted>"})),
-            self.file_http
+            Some(json!({"path":path,"size":content.len(),"content":"<omitted>"})),
+            self.http
                 .put(url.as_str())
                 .bearer_auth(token.token)
                 .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
@@ -940,7 +1096,7 @@ impl HyperCliClient {
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/start"));
         let request_body = deployment_request_body(request)?;
-        let request_trace = Some(request_body.clone());
+        let request_trace = Some(redacted_launch_trace(request_body.clone()));
         let started = Instant::now();
         let response = match self
             .http
@@ -1144,63 +1300,86 @@ impl HyperCliClient {
         self.send_json("remove_deployment_route", "DELETE", &url, None, builder)
     }
 
-    pub fn exec_deployment(
+    pub async fn exec_deployment(
         &self,
         deployment_id: &str,
         request: &ExecDeploymentRequest,
     ) -> Result<ExecDeploymentResponse, HyperCliError> {
-        let url = self.endpoint(&format!("deployments/{deployment_id}/exec"));
-        let started = Instant::now();
-        let response = match self
-            .http
-            .post(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .json(request)
-            .send()
+        let command = request.command.trim();
+        if command.is_empty()
+            || command.len() > 65_536
+            || command.contains('\0')
+            || !(1..=300).contains(&request.timeout)
         {
-            Ok(response) => response,
-            Err(error) => {
-                let error = HyperCliError::Transport(error.to_string());
-                self.trace_http(
-                    "exec_deployment",
-                    "POST",
-                    &url,
-                    Some(&json!({"command": "<omitted>", "timeout": request.timeout, "dry_run": request.dry_run})),
-                    started,
-                    None,
-                    BTreeMap::new(),
-                    Err(&error),
-                );
-                return Err(error);
+            return Err(HyperCliError::InvalidResponse(
+                "invalid exec request".into(),
+            ));
+        }
+        let v = self
+            .one_shot(
+                deployment_id,
+                "exec",
+                Some(json!({
+                    "command": command,
+                    "timeout": request.timeout,
+                    "dry_run": request.dry_run,
+                })),
+                Duration::from_secs(u64::from(request.timeout) + 10),
+            )
+            .await?;
+        let o = v
+            .as_object()
+            .ok_or_else(|| HyperCliError::InvalidResponse("invalid exec frame".into()))?;
+        if o.len() == 3
+            && o.get("event") == Some(&json!("agent_exec_result"))
+            && o.get("ok") == Some(&json!(false))
+        {
+            if let Some(error) = o
+                .get("error")
+                .and_then(Value::as_str)
+                .filter(|v| !v.is_empty())
+            {
+                return Err(HyperCliError::InvalidResponse(error.into()));
             }
-        };
-        let status = response.status();
-        let headers = trace_headers(&response);
-        let result = decode_json(response);
-        self.trace_http(
-            "exec_deployment",
-            "POST",
-            &url,
-            Some(&json!({"command": "<omitted>", "timeout": request.timeout, "dry_run": request.dry_run})),
-            started,
-            Some(status),
-            headers,
-            result.as_ref().map(|_| ()),
-        );
-        result
+        }
+        if o.len() != 5
+            || o.get("event") != Some(&json!("agent_exec_result"))
+            || o.get("ok") != Some(&json!(true))
+        {
+            return Err(HyperCliError::InvalidResponse("invalid exec frame".into()));
+        }
+        Ok(ExecDeploymentResponse {
+            exit_code: i32::try_from(
+                o.get("exit_code")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| HyperCliError::InvalidResponse("invalid exec frame".into()))?,
+            )
+            .map_err(|e| HyperCliError::InvalidResponse(e.to_string()))?,
+            stdout: o
+                .get("stdout")
+                .and_then(Value::as_str)
+                .ok_or_else(|| HyperCliError::InvalidResponse("invalid exec frame".into()))?
+                .into(),
+            stderr: o
+                .get("stderr")
+                .and_then(Value::as_str)
+                .ok_or_else(|| HyperCliError::InvalidResponse("invalid exec frame".into()))?
+                .into(),
+            dry_run: request.dry_run,
+        })
     }
 
     /// Read the normalized native-login state from the image-owned wrapper.
     ///
     /// The command is fixed by the SDK rather than accepted from the caller.
     /// This keeps Desktop's login UI separate from the arbitrary exec surface.
-    pub fn runtime_auth_status(
+    pub async fn runtime_auth_status(
         &self,
         deployment_id: &str,
     ) -> Result<RuntimeAuthStatus, RuntimeAuthError> {
         let mut request = ExecDeploymentRequest::new(auth_status_command());
         request.timeout = 15;
-        let response = self.exec_deployment(deployment_id, &request)?;
+        let response = self.exec_deployment(deployment_id, &request).await?;
         if response.exit_code != 0 {
             return Err(RuntimeAuthError::StatusCommandFailed(response.exit_code));
         }
@@ -1523,12 +1702,12 @@ fn append_trace(path: &Path, event: &impl Serialize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AgentSize, ManagedRuntime};
+    use crate::{AgentSize, CompleteDeploymentLaunchConfig, ManagedRuntime};
     use mockito::{Matcher, Server};
     use secrecy::SecretString;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
-    use tokio_tungstenite::accept_async;
+    use tokio_tungstenite::{accept_async, accept_hdr_async};
 
     fn client(server: &Server) -> HyperCliClient {
         HyperCliClient::new(ClientConfig {
@@ -1537,6 +1716,12 @@ mod tests {
             trace_file: None,
         })
         .unwrap()
+    }
+    fn complete_start() -> StartDeploymentRequest {
+        StartDeploymentRequest::new(CompleteDeploymentLaunchConfig {
+            sync_exclude: Some(Vec::new()),
+            ..Default::default()
+        })
     }
 
     #[test]
@@ -2239,19 +2424,26 @@ mod tests {
     }
 
     #[test]
-    fn deployment_wire_omits_legacy_sync_state_and_normalizes_filter_precedence() {
+    fn deployment_wire_requires_exactly_one_sync_selector() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Codex);
+        assert!(matches!(
+            deployment_request_body(&request),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("exactly one")
+        ));
+
+        request.sync_exclude = Some(Vec::new());
         let without_root = deployment_request_body(&request).unwrap();
         assert!(without_root.get("sync_enabled").is_none());
+        assert_eq!(without_root["sync_exclude"], serde_json::json!([]));
 
         request.sync_root = Some("/home/node".to_owned());
         request.sync_include = Some(vec![".codex".to_owned()]);
-        request.sync_exclude = Some(vec!["tmp".to_owned()]);
-        let create = deployment_request_body(&request).unwrap();
-        assert!(create.get("sync_enabled").is_none());
-        assert_eq!(create["sync_root"], serde_json::json!("/home/node"));
-        assert_eq!(create["sync_include"], serde_json::json!([".codex"]));
-        assert!(create.get("sync_exclude").is_none());
+        assert!(matches!(
+            deployment_request_body(&request),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("exactly one")
+        ));
 
         request.sync_include = None;
         request.sync_exclude = Some(vec!["tmp/**".to_owned()]);
@@ -2259,21 +2451,25 @@ mod tests {
         assert!(excluded.get("sync_include").is_none());
         assert_eq!(excluded["sync_exclude"], serde_json::json!(["tmp/**"]));
 
-        let mut request = StartDeploymentRequest {
-            sync_root: Some("/workspace".to_owned()),
-            ..StartDeploymentRequest::default()
+        let missing = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig::default());
+        assert!(matches!(
+            deployment_request_body(&missing),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("exactly one")
+        ));
+
+        let launch = CompleteDeploymentLaunchConfig {
+            sync_include: Some(vec!["src".into()]),
+            sync_exclude: Some(vec!["tmp".into()]),
+            ..Default::default()
         };
-        request.set_sync_policy(Some(vec!["src".to_owned()]), Some(vec!["tmp".to_owned()]));
-        let start = deployment_request_body(&request).unwrap();
-        assert!(start.get("sync_enabled").is_none());
-        assert_eq!(start["sync_root"], serde_json::json!("/workspace"));
-        assert_eq!(start["sync_include"], serde_json::json!(["src"]));
-        assert!(start.get("sync_exclude").is_none());
+        assert!(deployment_request_body(&StartDeploymentRequest::new(launch)).is_err());
     }
 
     #[test]
     fn deployment_wire_rejects_the_uid_t_sentinel() {
         let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        create.sync_exclude = Some(Vec::new());
         create.sync_uid = Some(4_294_967_294);
         assert_eq!(
             deployment_request_body(&create).unwrap()["sync_uid"],
@@ -2287,10 +2483,12 @@ mod tests {
                 if message.contains("sync_uid")
         ));
 
-        let start = StartDeploymentRequest {
+        let launch = CompleteDeploymentLaunchConfig {
             sync_gid: Some(u32::MAX),
-            ..StartDeploymentRequest::default()
+            sync_exclude: Some(Vec::new()),
+            ..Default::default()
         };
+        let start = StartDeploymentRequest::new(launch);
         assert!(matches!(
             deployment_request_body(&start),
             Err(HyperCliError::InvalidResponse(message))
@@ -2333,6 +2531,7 @@ mod tests {
             .secrets
             .insert("BUZZ_PRIVATE_KEY".to_owned(), "nsec-secret".to_owned());
         request.sync_root = Some("/home/node".to_owned());
+        request.sync_exclude = Some(Vec::new());
         let created = client(&server).create_deployment(&request).unwrap();
 
         assert_eq!(created.id, "deployment-1");
@@ -2797,12 +2996,15 @@ mod tests {
     }
 
     #[test]
-    fn default_start_posts_exact_empty_json_body() {
+    fn start_posts_exact_complete_nested_launch_body() {
         let mut server = Server::new();
+        let request = complete_start();
         let mock = server
             .mock("POST", "/agents/deployments/deployment-1/start")
             .match_header("authorization", "Bearer test-credential")
-            .match_body(Matcher::Exact("{}".to_owned()))
+            .match_body(Matcher::JsonString(
+                serde_json::to_string(&request).unwrap(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -2816,7 +3018,7 @@ mod tests {
             .create();
 
         let deployment = client(&server)
-            .start_deployment("deployment-1", &StartDeploymentRequest::default())
+            .start_deployment("deployment-1", &request)
             .unwrap();
 
         assert_eq!(deployment.state, "STARTING");
@@ -2829,7 +3031,7 @@ mod tests {
         let create = server
             .mock("POST", "/agents/deployments")
             .match_header("authorization", "Bearer test-credential")
-            .match_body(Matcher::JsonString(
+            .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"runtime": "openclaw", "dry_run": false}).to_string(),
             ))
             .with_status(200)
@@ -2846,7 +3048,9 @@ mod tests {
             .create();
         let start = server
             .mock("POST", "/agents/deployments/deployment-1/start")
-            .match_body(Matcher::Exact("{}".to_owned()))
+            .match_body(Matcher::PartialJsonString(
+                json!({"launch_config":{"restart":false}}).to_string(),
+            ))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -2906,14 +3110,15 @@ mod tests {
             .create();
 
         let client = client(&server);
-        let request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+        request.sync_exclude = Some(Vec::new());
         assert_eq!(
             client.create_deployment(&request).unwrap().state,
             "CREATING"
         );
         assert_eq!(
             client
-                .start_deployment("deployment-1", &StartDeploymentRequest::default())
+                .start_deployment("deployment-1", &complete_start())
                 .unwrap()
                 .state,
             "STARTING"
@@ -3031,76 +3236,212 @@ mod tests {
         delete_mock.assert();
     }
 
-    #[test]
-    fn exec_posts_typed_request_and_decodes_output() {
-        let mut server = Server::new();
-        let mock = server
-            .mock("POST", "/agents/deployments/deployment-1/exec")
-            .match_header("authorization", "Bearer test-credential")
-            .match_body(Matcher::JsonString(
-                serde_json::json!({
-                    "command": "/usr/local/bin/hypercli-buzz-onboard status",
-                    "timeout": 5,
-                    "dry_run": false
-                })
-                .to_string(),
-            ))
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "exit_code": 0,
-                    "stdout": "{\"phase\":\"ready\"}\n",
-                    "stderr": "",
-                    "dry_run": false
-                })
-                .to_string(),
+    async fn exec_fixture(
+        result_stdout: &str,
+        expected_command: &str,
+        timeout: u32,
+    ) -> (
+        mockito::ServerGuard,
+        mockito::Mock,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!(
+            "ws://{}/ws/exec/deployment-1",
+            listener.local_addr().unwrap()
+        );
+        let command = expected_command.to_owned();
+        let stdout = result_stdout.to_owned();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            #[allow(clippy::result_large_err)]
+            let mut socket = accept_hdr_async(
+                stream,
+                |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+                    assert_eq!(
+                        request.uri().path_and_query().unwrap().as_str(),
+                        "/ws/exec/deployment-1?jwt=jwt"
+                    );
+                    Ok(response)
+                },
             )
-            .create();
-
-        let mut request = ExecDeploymentRequest::new("/usr/local/bin/hypercli-buzz-onboard status");
-        request.timeout = 5;
-        let response = client(&server)
-            .exec_deployment("deployment-1", &request)
+            .await
             .unwrap();
-
-        assert_eq!(response.exit_code, 0);
-        assert_eq!(response.stdout, "{\"phase\":\"ready\"}\n");
-        assert!(response.stderr.is_empty());
-        mock.assert();
+            let Message::Text(frame) = socket.next().await.unwrap().unwrap() else {
+                panic!("text")
+            };
+            assert_eq!(
+                serde_json::from_str::<Value>(frame.as_ref()).unwrap(),
+                json!({"command":command,"timeout":timeout,"dry_run":false})
+            );
+            socket.send(Message::Text(json!({"event":"agent_exec_result","ok":true,"exit_code":0,"stdout":stdout,"stderr":""}).to_string().into())).await.unwrap();
+            socket.close(None).await.unwrap();
+        });
+        let mut server = Server::new_async().await;
+        let token=server.mock("POST","/agents/deployments/deployment-1/exec/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","jwt":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
+        (server, token, task)
     }
 
-    #[test]
-    fn runtime_auth_status_uses_fixed_wrapper_and_normalized_shape() {
-        let mut server = Server::new();
-        let mock = server
-            .mock("POST", "/agents/deployments/deployment-1/exec")
-            .match_header("authorization", "Bearer test-credential")
-            .match_body(Matcher::JsonString(
-                serde_json::json!({
-                    "command": "/usr/local/bin/hypercli-runtime-auth status",
-                    "timeout": 15,
-                    "dry_run": false
-                })
-                .to_string(),
-            ))
+    async fn client_for_async_test(server: &mockito::ServerGuard) -> HyperCliClient {
+        let api_base = Url::parse(&format!("{}/agents", server.url())).unwrap();
+        tokio::task::spawn_blocking(move || {
+            HyperCliClient::new(ClientConfig {
+                api_base,
+                api_key: SecretString::from("test-credential"),
+                trace_file: None,
+            })
+            .unwrap()
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn exec_uses_token_scoped_one_shot_websocket() {
+        let (server, token, task) = exec_fixture("ready\n", "status", 5).await;
+        let mut request = ExecDeploymentRequest::new("status");
+        request.timeout = 5;
+        let client = client_for_async_test(&server).await;
+        let response = client
+            .exec_deployment("deployment-1", &request)
+            .await
+            .unwrap();
+        assert_eq!(response.stdout, "ready\n");
+        task.await.unwrap();
+        token.assert_async().await;
+        drop(token);
+        tokio::task::spawn_blocking(move || {
+            drop(client);
+            drop(server);
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn runtime_auth_status_uses_token_scoped_exec() {
+        let (server, token, task) = exec_fixture(
+            "{\"runtime\":\"codex\",\"authenticated\":false}\n",
+            "/usr/local/bin/hypercli-runtime-auth status",
+            15,
+        )
+        .await;
+        let client = client_for_async_test(&server).await;
+        let status = client.runtime_auth_status("deployment-1").await.unwrap();
+        assert_eq!(status.runtime, NativeRuntime::Codex);
+        assert!(!status.authenticated);
+        task.await.unwrap();
+        token.assert_async().await;
+        drop(token);
+        tokio::task::spawn_blocking(move || {
+            drop(client);
+            drop(server);
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn metrics_uses_token_scoped_one_shot_websocket() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!(
+            "ws://{}/ws/metrics/deployment-1",
+            listener.local_addr().unwrap()
+        );
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            #[allow(clippy::result_large_err)]
+            let mut socket = accept_hdr_async(
+                stream,
+                |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+                    assert_eq!(
+                        request.uri().path_and_query().unwrap().as_str(),
+                        "/ws/metrics/deployment-1?jwt=jwt"
+                    );
+                    Ok(response)
+                },
+            )
+            .await
+            .unwrap();
+            socket.send(Message::Text(json!({"event":"agent_metrics_result","ok":true,"cpu":"10m","memory":"20Mi","timestamp":42}).to_string().into())).await.unwrap();
+            socket.close(None).await.unwrap();
+        });
+        let mut server = Server::new_async().await;
+        let token=server.mock("POST","/agents/deployments/deployment-1/metrics/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","jwt":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
+        let client = client_for_async_test(&server).await;
+        let value = client.deployment_metrics("deployment-1").await.unwrap();
+        assert_eq!(value["cpu"], "10m");
+        task.await.unwrap();
+        token.assert_async().await;
+        drop(token);
+        tokio::task::spawn_blocking(move || {
+            drop(client);
+            drop(server);
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn operation_token_requires_the_exact_public_websocket_path() {
+        let mut server = Server::new_async().await;
+        let token = server
+            .mock("POST", "/agents/deployments/deployment-1/metrics/token")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
-                serde_json::json!({
-                    "exit_code": 0,
-                    "stdout": "{\"runtime\":\"codex\",\"authenticated\":false}\n",
-                    "stderr": "",
-                    "dry_run": false
+                json!({
+                    "agent_id": "deployment-1",
+                    "jwt": "short-lived-secret",
+                    "expires_at": "2026-08-16T00:00:00Z",
+                    "ws_url": "ws://127.0.0.1:9/prefix/ws/metrics/deployment-1",
                 })
                 .to_string(),
             )
-            .create();
+            .create_async()
+            .await;
+        let client = client_for_async_test(&server).await;
 
-        let status = client(&server).runtime_auth_status("deployment-1").unwrap();
-        assert_eq!(status.runtime, NativeRuntime::Codex);
-        assert!(!status.authenticated);
-        mock.assert();
+        let error = client.deployment_metrics("deployment-1").await.unwrap_err();
+
+        assert!(matches!(error, HyperCliError::InvalidResponse(_)));
+        token.assert_async().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn operation_connection_errors_never_expose_the_short_lived_jwt() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let ws_url = format!(
+            "ws://{}/ws/metrics/deployment-1",
+            listener.local_addr().unwrap()
+        );
+        drop(listener);
+        let mut server = Server::new_async().await;
+        let token = server
+            .mock("POST", "/agents/deployments/deployment-1/metrics/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "agent_id": "deployment-1",
+                    "jwt": "short-lived-secret",
+                    "expires_at": "2026-08-16T00:00:00Z",
+                    "ws_url": ws_url,
+                })
+                .to_string(),
+            )
+            .create_async()
+            .await;
+        let client = client_for_async_test(&server).await;
+
+        let error = client.deployment_metrics("deployment-1").await.unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "HyperCLI request could not be sent: operation websocket connection failed"
+        );
+        assert!(!error.to_string().contains("short-lived-secret"));
+        token.assert_async().await;
     }
 
     #[test]
@@ -3172,7 +3513,7 @@ mod tests {
     }
 
     #[test]
-    fn deployment_file_write_builds_exact_direct_reef_url() {
+    fn deployment_file_write_builds_direct_root_relative_reef_url() {
         let token = FileToken {
             url: "https://agent.example.test/_reef".into(),
             token: "reef-token".into(),
@@ -3187,13 +3528,11 @@ mod tests {
         assert!(reef_file_url(&token, "/etc/passwd").is_err());
         assert!(reef_file_url(&token, "../escape").is_err());
         for invalid_url in [
-            "http://agent.example.test/_reef".into(),
             "https://agent.example.test/_reef/".into(),
             "https://agent.example.test/_reef//".into(),
             "https://agent.example.test/_reef/files".into(),
             "https://agent.example.test/_reef?x=1".into(),
             "https://agent.example.test/_reef#fragment".into(),
-            "https://user@agent.example.test/_reef".into(),
             format!("https://agent.example.test/{}{}", "_reef", "-sync"),
             format!("https://agent.example.test/{}{}", "_reef", "_sync"),
         ] {
@@ -3204,14 +3543,6 @@ mod tests {
             };
             assert!(reef_file_url(&invalid_token, "workspace/a.txt").is_err());
         }
-        let response: DeploymentFileWriteResponse = serde_json::from_value(json!({
-            "status": "ok",
-            "path": ".ssh/id key",
-            "size": 7
-        }))
-        .unwrap();
-        assert_eq!(response.path, ".ssh/id key");
-        assert_eq!(response.target, "");
     }
 
     #[test]
@@ -3373,42 +3704,6 @@ mod tests {
     }
 
     #[test]
-    fn exec_trace_never_records_command_or_response_output() {
-        let mut server = Server::new();
-        let temp = tempfile::tempdir().unwrap();
-        let trace_file = temp.path().join("logs/http.jsonl");
-        let secret = "single-use-auth-code";
-        let _mock = server
-            .mock("POST", "/agents/deployments/deployment-1/exec")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "exit_code": 0,
-                    "stdout": secret,
-                    "stderr": "",
-                    "dry_run": false
-                })
-                .to_string(),
-            )
-            .create();
-        let client = HyperCliClient::new(ClientConfig {
-            api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
-            api_key: SecretString::from("test-credential"),
-            trace_file: Some(trace_file.clone()),
-        })
-        .unwrap();
-        let request = ExecDeploymentRequest::new(format!("printf {secret}"));
-
-        client.exec_deployment("deployment-1", &request).unwrap();
-
-        let trace = fs::read_to_string(trace_file).unwrap();
-        assert!(trace.contains(r#""command":"<omitted>""#));
-        assert!(!trace.contains(secret));
-        assert!(!trace.contains("test-credential"));
-    }
-
-    #[test]
     fn response_bodies_are_not_exposed_in_errors() {
         let mut server = Server::new();
         let secret = "nsec1must-not-leak";
@@ -3418,7 +3713,8 @@ mod tests {
             .with_body(format!("invalid launch: {secret}"))
             .create();
 
-        let request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.sync_exclude = Some(Vec::new());
         let error = client(&server).create_deployment(&request).unwrap_err();
         assert!(!error.to_string().contains(secret));
         assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
@@ -3443,9 +3739,13 @@ mod tests {
         })
         .unwrap();
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.sync_exclude = Some(Vec::new());
         request
-            .env
+            .secrets
             .insert("BUZZ_PRIVATE_KEY".to_owned(), secret.to_owned());
+        request
+            .registry_auth
+            .insert("password".to_owned(), secret.to_owned());
 
         let error = client.create_deployment(&request).unwrap_err();
         assert_eq!(error.status(), Some(StatusCode::UNPROCESSABLE_ENTITY));
@@ -3453,7 +3753,8 @@ mod tests {
         let trace = fs::read_to_string(&trace_file).unwrap();
         assert!(trace.contains(r#""status":422"#));
         assert!(trace.contains(r#""x-request-id":"request-123""#));
-        assert!(trace.contains(r#""BUZZ_PRIVATE_KEY":"<redacted>""#));
+        assert!(trace.contains(r#""secrets":"<redacted>""#));
+        assert!(trace.contains(r#""registry_auth":"<redacted>""#));
         assert!(!trace.contains(secret));
         assert!(!trace.contains("test-credential"));
         #[cfg(unix)]

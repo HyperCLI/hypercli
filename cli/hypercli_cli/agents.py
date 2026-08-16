@@ -1270,7 +1270,7 @@ def delete(
 @app.command("exec")
 def exec_cmd(
     agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
-    command: str = typer.Argument(..., help="Command to execute"),
+    command: list[str] = typer.Argument(..., help="Executable followed by arguments"),
     timeout: int = typer.Option(30, "--timeout", "-t", help="Command timeout (seconds)"),
 ):
     """Execute a command through the Backend one-shot WebSocket."""

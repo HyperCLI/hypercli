@@ -2496,7 +2496,7 @@ export class Agent {
     return this.requireDeployments().deleteSecret(this.id, key);
   }
 
-  async exec(command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
+  async exec(command: string[], options: AgentExecOptions = {}): Promise<AgentExecResult> {
     return this.requireDeployments().exec(this, command, options);
   }
 
@@ -2784,7 +2784,7 @@ export class RuntimeAuthClient {
     const command = ['buzz-acp', 'auth-methods', '--agent-command', agentCommand];
     if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
     command.push('--json');
-    const result = await this.agent.exec(commandString(command));
+    const result = await this.agent.exec(command);
     const discovered: RuntimeAuthMethod[] = [];
     if (result.exitCode === 0) {
       try {
@@ -2816,7 +2816,7 @@ export class RuntimeAuthClient {
   }
 
   async status(): Promise<RuntimeAuthStatus> {
-    const result = await this.agent.exec(commandString(this.config.statusCommand));
+    const result = await this.agent.exec([...this.config.statusCommand]);
     const output = stripTerminalCodes([result.stdout, result.stderr].filter(Boolean).join('\n')).trim();
     const detail: Record<string, unknown> = { exitCode: result.exitCode, output };
     if (this.agent.runtime === 'claude-code') {
@@ -2883,7 +2883,7 @@ export class RuntimeAuthClient {
     }
     const command = [...this.config.logoutCommand];
     if (this.agent.runtime === 'opencode' && provider) command.push(provider);
-    const result = await this.agent.exec(commandString(command));
+    const result = await this.agent.exec(command);
     if (result.exitCode !== 0) {
       throw new Error(`Runtime logout failed (${result.exitCode}): ${stripTerminalCodes(result.stderr || result.stdout).trim()}`);
     }
@@ -5147,12 +5147,20 @@ export class Deployments {
     return result;
   }
 
-  async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
-    if (typeof command !== 'string') throw new Error('command must be a string');
-    command = command.trim();
-    if (!command || command.includes('\0') || encodeUtf8(command).byteLength > 65_536) {
-      throw new Error('command must be 1 through 65536 UTF-8 bytes and contain no NUL');
+  async exec(target: Agent | string, command: string[], options: AgentExecOptions = {}): Promise<AgentExecResult> {
+    if (
+      !Array.isArray(command)
+      || command.length < 1
+      || command.some((argument) => typeof argument !== 'string')
+      || command[0].length === 0
+      || command.some((argument) => argument.includes('\0'))
+      || command.reduce((size, argument) => size + encodeUtf8(argument).byteLength, 0) > 65_536
+    ) {
+      throw new Error(
+        'command must be a nonempty argv list of strings with a nonempty executable, at most 65536 UTF-8 bytes, and no NUL',
+      );
     }
+    command = [...command];
     const timeout = options.timeout ?? 30;
     if (!Number.isInteger(timeout) || timeout < 1 || timeout > 300) {
       throw new Error('timeout must be an integer from 1 through 300');

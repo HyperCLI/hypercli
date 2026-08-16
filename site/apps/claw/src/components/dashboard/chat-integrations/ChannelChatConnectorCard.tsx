@@ -61,7 +61,7 @@ interface ChannelChatConnectorCardProps {
   onWebLoginWait?: (options?: GatewayWebLoginWaitOptions) => Promise<GatewayWebLoginWaitResult>;
   cachedWorkflow?: ConnectorWorkflow | null;
   onGenerateConnectorWorkflow?: (connectorId: ConnectorId) => Promise<ConnectorWorkflow>;
-  onRunShellProposal?: (command: string) => Promise<void>;
+  onRunShellProposal?: (command: readonly string[]) => Promise<void>;
   onReconnectGateway?: () => void;
   onOpenIntegrationDetails?: () => void;
   onOpenFullSetup?: () => void;

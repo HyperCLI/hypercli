@@ -15,7 +15,7 @@ const workflow: ConnectorWorkflow = {
     instructions: "Review the proposed installation command.",
     kind: "action",
     operation: "github.shell-proposal",
-    command: "apt-get install -y gh",
+    command: ["apt-get", "install", "-y", "gh"],
     approvalRequired: true,
   }],
 };
@@ -344,12 +344,12 @@ describe("ConnectorWorkflowGuide", () => {
     const onRunShellProposal = vi.fn(async () => undefined);
     render(<ConnectorWorkflowGuide workflow={workflow} onRunShellProposal={onRunShellProposal} />);
 
-    expect(screen.getByText("apt-get install -y gh")).toBeInTheDocument();
+    expect(screen.getByText('["apt-get","install","-y","gh"]')).toBeInTheDocument();
     expect(onRunShellProposal).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
 
-    await waitFor(() => expect(onRunShellProposal).toHaveBeenCalledWith("apt-get install -y gh"));
+    await waitFor(() => expect(onRunShellProposal).toHaveBeenCalledWith(["apt-get", "install", "-y", "gh"]));
     expect(screen.getByText("Approved")).toBeInTheDocument();
   });
 

@@ -195,7 +195,7 @@ describe("connector-workflow", () => {
         instructions: "Review this read-only command before choosing whether to run it.",
         kind: "action",
         operation: "github.shell-proposal",
-        command: "gh repo view hypercli/hypercli",
+        command: ["gh", "repo", "view", "hypercli/hypercli"],
       }],
     }), { connectorId: "github", runtimeFingerprint: fingerprint });
 
@@ -210,10 +210,26 @@ describe("connector-workflow", () => {
         instructions: "Review this read-only command before choosing whether to run it.",
         kind: "action",
         operation: "github.shell-proposal",
-        command: "gh repo view hypercli/hypercli",
+        command: ["gh", "repo", "view", "hypercli/hypercli"],
         approvalRequired: true,
       }],
     });
+  });
+
+  it("preserves exact argv boundaries without adding a shell", () => {
+    const parsed = parseConnectorWorkflow(workflow({
+      steps: [{
+        id: "exact-argv",
+        title: "Run exact argv",
+        instructions: "Review the exact argument vector.",
+        kind: "action",
+        operation: "github.shell-proposal",
+        command: ["printf", "-f", " value with spaces ", ""],
+      }],
+    }), { connectorId: "github", runtimeFingerprint: fingerprint });
+
+    expect(parsed.steps[0]?.command).toEqual(["printf", "-f", " value with spaces ", ""]);
+    expect(parsed.steps[0]?.command).not.toContain("/bin/sh");
   });
 
   it("supports Telegram slots and marks non-command steps as not approval-required", () => {
@@ -425,7 +441,7 @@ describe("connector-workflow", () => {
         instructions: "Review the runtime login command.",
         kind: "action",
         operation: "whatsapp.shell-proposal",
-        command: "openclaw channels login --channel whatsapp",
+        command: ["openclaw", "channels", "login", "--channel", "whatsapp"],
       }],
     }), "whatsapp", fingerprint);
 
@@ -441,7 +457,7 @@ describe("connector-workflow", () => {
     ["unofficial workflow URL", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Safe.", kind: "action", url: "https://github.example.com/settings" }] }), /official connector host/i],
     ["unsupported operation", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Safe.", kind: "action", operation: "github.delete" }] }), /unsupported operation/i],
     ["connector-specific operation", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Safe.", kind: "action", operation: "telegram.finish" }] }), /operation does not match/i],
-    ["command without shell proposal", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Safe.", kind: "action", operation: "github.verify", command: "gh auth status" }] }), /requires the connector shell-proposal operation/i],
+    ["command without shell proposal", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Safe.", kind: "action", operation: "github.verify", command: ["gh", "auth", "status"] }] }), /requires the connector shell-proposal operation/i],
     ["likely GitHub token", () => workflow({ summary: "Use token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ123456" }), /likely secret or token/i],
     ["likely Telegram token", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Use 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi.", kind: "instruction" }] }), /likely secret or token/i],
     ["unofficial reference image", () => workflow({ steps: [{ id: "one", title: "One", instructions: "Use the image.", kind: "instruction", referenceImage: { url: "https://example.com/reference.png", alt: "Reference" } }] }), /direct official https raster image/i],

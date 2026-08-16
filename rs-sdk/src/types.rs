@@ -116,14 +116,6 @@ where
     }
 }
 
-fn deserialize_present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Nullable<T>>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Nullable::deserialize(deserializer).map(Some)
-}
-
 impl AgentSize {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -529,7 +521,7 @@ impl BuzzLaunchConfig {
         request.sync_gid = Some(1000);
         // Hosted Buzz shutdown is process-driven; automatic restart would
         // resurrect an agent after its owner-signed `!shutdown` completes.
-        request.restart = Some(false);
+        request.restart = false;
         request.runtime_scopes = BUZZ_RUNTIME_SCOPES
             .iter()
             .map(|scope| (*scope).to_owned())
@@ -668,10 +660,56 @@ pub enum BuzzLaunchError {
     UnsupportedRuntime,
 }
 
-/// Flat launch contract accepted by `POST /deployments`.
-///
-/// Launch fields deliberately remain top-level. `config` is reserved for the
-/// selected runtime's own non-launch configuration.
+fn default_runtime_scopes() -> Vec<String> {
+    BUZZ_RUNTIME_SCOPES.map(str::to_owned).to_vec()
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct CompleteDeploymentLaunchConfig {
+    pub config: BTreeMap<String, Value>,
+    pub image: Option<String>,
+    pub env: BTreeMap<String, String>,
+    pub secrets: BTreeMap<String, String>,
+    pub routes: BTreeMap<String, RouteConfig>,
+    pub command: Vec<String>,
+    pub entrypoint: Vec<String>,
+    pub restart: bool,
+    pub sync_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_include: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sync_exclude: Option<Vec<String>>,
+    pub sync_uid: Option<u32>,
+    pub sync_gid: Option<u32>,
+    pub registry_url: Option<String>,
+    pub registry_auth: BTreeMap<String, String>,
+    #[serde(default = "default_runtime_scopes")]
+    pub runtime_scopes: Vec<String>,
+}
+
+impl Default for CompleteDeploymentLaunchConfig {
+    fn default() -> Self {
+        Self {
+            config: BTreeMap::new(),
+            image: None,
+            env: BTreeMap::new(),
+            secrets: BTreeMap::new(),
+            routes: BTreeMap::new(),
+            command: Vec::new(),
+            entrypoint: Vec::new(),
+            restart: false,
+            sync_root: None,
+            sync_include: None,
+            sync_exclude: None,
+            sync_uid: None,
+            sync_gid: None,
+            registry_url: None,
+            registry_auth: BTreeMap::new(),
+            runtime_scopes: default_runtime_scopes(),
+        }
+    }
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CreateDeploymentRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -681,42 +719,23 @@ pub struct CreateDeploymentRequest {
     pub runtime: ManagedRuntime,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<AgentSize>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub config: BTreeMap<String, Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub secrets: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub routes: BTreeMap<String, RouteConfig>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub command: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub entrypoint: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    /// Absolute runtime mount path for retained PVC storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_root: Option<String>,
-    /// Relative selected paths. `Some(vec![])` intentionally selects nothing.
-    /// `None`, with no exclude policy, selects the complete sync root.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_include: Option<Vec<String>>,
-    /// Relative exclusions from whole-root mode. An empty vector excludes nothing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_exclude: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_uid: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_gid: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub runtime_scopes: Vec<String>,
+    #[serde(flatten)]
+    pub launch_config: CompleteDeploymentLaunchConfig,
     #[serde(default)]
     pub dry_run: bool,
+}
+impl std::ops::Deref for CreateDeploymentRequest {
+    type Target = CompleteDeploymentLaunchConfig;
+    fn deref(&self) -> &Self::Target {
+        &self.launch_config
+    }
+}
+impl std::ops::DerefMut for CreateDeploymentRequest {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.launch_config
+    }
 }
 
 impl CreateDeploymentRequest {
@@ -726,21 +745,8 @@ impl CreateDeploymentRequest {
             handle: None,
             runtime,
             size: None,
-            config: BTreeMap::new(),
             tags: Vec::new(),
-            env: BTreeMap::new(),
-            secrets: BTreeMap::new(),
-            routes: BTreeMap::new(),
-            command: Vec::new(),
-            entrypoint: Vec::new(),
-            image: None,
-            sync_root: None,
-            sync_include: None,
-            sync_exclude: None,
-            sync_uid: None,
-            sync_gid: None,
-            restart: None,
-            runtime_scopes: Vec::new(),
+            launch_config: CompleteDeploymentLaunchConfig::default(),
             dry_run: false,
         }
     }
@@ -769,75 +775,30 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-#[derive(Clone, Default, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct StartDeploymentRequest {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub config: BTreeMap<String, Value>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub env: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub secrets: BTreeMap<String, String>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub routes: BTreeMap<String, RouteConfig>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub command: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub entrypoint: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    /// Absolute runtime mount path for retained PVC storage.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_root: Option<String>,
-    /// A create-time present-null selects the complete root; an empty value selects nothing.
-    /// Existing deployments retain their creation-time storage policy.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present_nullable"
-    )]
-    pub sync_include: Option<Nullable<Vec<String>>>,
-    /// A create-time present-null or empty value excludes nothing from whole-root mode.
-    /// Existing deployments retain their creation-time storage policy.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present_nullable"
-    )]
-    pub sync_exclude: Option<Nullable<Vec<String>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_uid: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_gid: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub restart: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub runtime_scopes: Vec<String>,
+    pub launch_config: CompleteDeploymentLaunchConfig,
     #[serde(default, skip_serializing_if = "is_false")]
     pub dry_run: bool,
 }
 
 impl StartDeploymentRequest {
-    /// Apply an explicit sync policy on restart.
-    ///
-    /// An explicit include takes precedence over an exclude. Passing `None`
-    /// for both lists emits one canonical JSON `null` include and clears any
-    /// saved selective policy. Leaving the request fields at their default
-    /// outer `None` omits both and inherits the saved policy instead.
-    pub fn set_sync_policy(&mut self, include: Option<Vec<String>>, exclude: Option<Vec<String>>) {
-        match (include, exclude) {
-            (Some(include), _) => {
-                self.sync_include = Some(Nullable::Value(include));
-                self.sync_exclude = None;
-            }
-            (None, Some(exclude)) => {
-                self.sync_include = None;
-                self.sync_exclude = Some(Nullable::Value(exclude));
-            }
-            (None, None) => {
-                self.sync_include = Some(Nullable::Null);
-                self.sync_exclude = None;
-            }
+    pub fn new(launch_config: CompleteDeploymentLaunchConfig) -> Self {
+        Self {
+            launch_config,
+            dry_run: false,
         }
+    }
+}
+impl std::ops::Deref for StartDeploymentRequest {
+    type Target = CompleteDeploymentLaunchConfig;
+    fn deref(&self) -> &Self::Target {
+        &self.launch_config
+    }
+}
+impl std::ops::DerefMut for StartDeploymentRequest {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.launch_config
     }
 }
 
@@ -1097,9 +1058,8 @@ impl Deployment {
 
 /// Persisted non-secret launch configuration returned by the agent API.
 ///
-/// The wrapper keeps accidental `Debug` logging safe while retaining JSON
-/// round trips for stop → edit → start workflows. Secret values are available
-/// only through the exact-key secret API and are never retained here.
+/// This is a redacted inspection projection, not a restart payload. Complete
+/// START input must remain caller-owned because credentials are not recoverable.
 #[derive(Clone, Default, Serialize)]
 #[serde(transparent)]
 pub struct DeploymentLaunchConfig(BTreeMap<String, Value>);
@@ -1111,6 +1071,7 @@ impl<'de> Deserialize<'de> for DeploymentLaunchConfig {
     {
         let mut values = BTreeMap::<String, Value>::deserialize(deserializer)?;
         values.remove("secrets");
+        values.remove("registry_auth");
         Ok(Self(values))
     }
 }
@@ -1126,6 +1087,7 @@ impl DeploymentLaunchConfig {
 
     pub fn from_map(mut values: BTreeMap<String, Value>) -> Self {
         values.remove("secrets");
+        values.remove("registry_auth");
         Self(values)
     }
 }
@@ -1412,7 +1374,7 @@ mod tests {
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
         assert_eq!(request.command, vec!["/usr/local/bin/buzz-acp"]);
-        assert_eq!(request.restart, Some(false));
+        assert!(!request.restart);
         assert_eq!(
             request.runtime_scopes,
             BUZZ_RUNTIME_SCOPES.map(str::to_owned)
@@ -1758,37 +1720,48 @@ mod tests {
         let round_trip: CreateDeploymentRequest = serde_json::from_value(wire).unwrap();
         assert_eq!(round_trip.sync_include, Some(Vec::new()));
 
-        let inherited = StartDeploymentRequest::default();
-        let inherited_wire = serde_json::to_value(&inherited).unwrap();
-        assert_eq!(inherited_wire, serde_json::json!({}));
-
-        let mut start = StartDeploymentRequest::default();
-        start.set_sync_policy(Some(Vec::new()), None);
+        let launch = CompleteDeploymentLaunchConfig {
+            sync_include: Some(Vec::new()),
+            ..Default::default()
+        };
+        let start = StartDeploymentRequest::new(launch);
         let start_wire = serde_json::to_value(&start).unwrap();
-        assert_eq!(start_wire["sync_include"], serde_json::json!([]));
-        assert!(start_wire.get("sync_exclude").is_none());
-        let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_wire).unwrap();
         assert_eq!(
-            start_round_trip.sync_include,
-            Some(Nullable::Value(Vec::new()))
+            start_wire["launch_config"]["sync_include"],
+            serde_json::json!([])
         );
+        assert!(start_wire["launch_config"].get("sync_exclude").is_none());
+        let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_wire).unwrap();
+        assert_eq!(start_round_trip.sync_include, Some(Vec::new()));
         assert_eq!(start_round_trip.sync_exclude, None);
 
-        let mut full_root = StartDeploymentRequest::default();
-        full_root.set_sync_policy(None, None);
+        let full_root = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig {
+            sync_exclude: Some(Vec::new()),
+            ..Default::default()
+        });
         let full_root_wire = serde_json::to_value(&full_root).unwrap();
-        assert!(full_root_wire["sync_include"].is_null());
-        assert!(full_root_wire.get("sync_exclude").is_none());
+        assert!(full_root_wire["launch_config"]
+            .get("sync_include")
+            .is_none());
+        assert_eq!(
+            full_root_wire["launch_config"]["sync_exclude"],
+            serde_json::json!([])
+        );
         let full_root_round_trip: StartDeploymentRequest =
             serde_json::from_value(full_root_wire).unwrap();
-        assert_eq!(full_root_round_trip.sync_include, Some(Nullable::Null));
-        assert_eq!(full_root_round_trip.sync_exclude, None);
+        assert_eq!(full_root_round_trip.sync_include, None);
+        assert_eq!(full_root_round_trip.sync_exclude, Some(Vec::new()));
 
-        let mut excluded = StartDeploymentRequest::default();
-        excluded.set_sync_policy(None, Some(vec!["tmp/**".to_owned()]));
+        let launch = CompleteDeploymentLaunchConfig {
+            sync_exclude: Some(vec!["tmp/**".into()]),
+            ..Default::default()
+        };
+        let excluded = StartDeploymentRequest::new(launch);
         let excluded_wire = serde_json::to_value(&excluded).unwrap();
-        assert!(excluded_wire.get("sync_include").is_none());
-        assert_eq!(excluded_wire["sync_exclude"], serde_json::json!(["tmp/**"]));
+        assert_eq!(
+            excluded_wire["launch_config"]["sync_exclude"],
+            serde_json::json!(["tmp/**"])
+        );
     }
 
     #[test]
@@ -1868,16 +1841,16 @@ mod tests {
     }
 
     #[test]
-    fn generic_launch_omits_restart_but_buzz_serializes_false() {
+    fn complete_launch_serializes_explicit_restart_policy() {
         let generic = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         let generic_json = serde_json::to_value(&generic).unwrap();
-        assert!(generic_json.get("restart").is_none());
-        let generic_start = StartDeploymentRequest::default();
+        assert_eq!(generic_json["restart"], false);
+        let generic_start = StartDeploymentRequest::new(generic.launch_config.clone());
         let generic_start_json = serde_json::to_value(&generic_start).unwrap();
-        assert!(generic_start_json.get("restart").is_none());
+        assert_eq!(generic_start_json["launch_config"]["restart"], false);
 
         let mut buzz_request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
-        buzz_request.restart = Some(true);
+        buzz_request.restart = true;
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
             .apply_to(&mut buzz_request, None)
             .unwrap();
@@ -1887,42 +1860,39 @@ mod tests {
         );
         let round_trip: CreateDeploymentRequest =
             serde_json::from_value(serde_json::to_value(&buzz_request).unwrap()).unwrap();
-        assert_eq!(round_trip.restart, Some(false));
+        assert!(!round_trip.restart);
 
-        let start = StartDeploymentRequest {
-            restart: buzz_request.restart,
-            ..Default::default()
-        };
+        let start = StartDeploymentRequest::new(buzz_request.launch_config);
         let start_round_trip: StartDeploymentRequest =
             serde_json::from_value(serde_json::to_value(&start).unwrap()).unwrap();
-        assert_eq!(start_round_trip.restart, Some(false));
+        assert!(!start_round_trip.restart);
     }
 
     #[test]
-    fn runtime_scopes_are_omitted_by_default_and_serialize_when_set() {
+    fn complete_launch_defaults_to_the_backend_full_runtime_scope_set() {
         let create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         let create_json = serde_json::to_value(&create).unwrap();
-        assert!(create_json.get("runtime_scopes").is_none());
-
-        let start = StartDeploymentRequest::default();
-        let start_json = serde_json::to_value(&start).unwrap();
-        assert!(start_json.get("runtime_scopes").is_none());
-
         let expected = BUZZ_RUNTIME_SCOPES.map(str::to_owned);
-        let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
-        create.runtime_scopes = expected.to_vec();
+        assert_eq!(create_json["runtime_scopes"], serde_json::json!(expected));
+
+        let start = StartDeploymentRequest::new(create.launch_config.clone());
+        let start_json = serde_json::to_value(&start).unwrap();
         assert_eq!(
-            serde_json::to_value(&create).unwrap()["runtime_scopes"],
+            start_json["launch_config"]["runtime_scopes"],
             serde_json::json!(expected)
         );
 
-        let start = StartDeploymentRequest {
-            runtime_scopes: expected.to_vec(),
-            ..Default::default()
-        };
+        let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        create.runtime_scopes = vec!["agents:none".to_owned(), "models:*".to_owned()];
         assert_eq!(
-            serde_json::to_value(&start).unwrap()["runtime_scopes"],
-            serde_json::json!(expected)
+            serde_json::to_value(&create).unwrap()["runtime_scopes"],
+            serde_json::json!(["agents:none", "models:*"])
+        );
+
+        let start = StartDeploymentRequest::new(create.launch_config.clone());
+        assert_eq!(
+            serde_json::to_value(&start).unwrap()["launch_config"]["runtime_scopes"],
+            serde_json::json!(["agents:none", "models:*"])
         );
     }
 }

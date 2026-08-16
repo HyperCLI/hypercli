@@ -28,7 +28,7 @@ hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi"
 hyper jobs list
 hyper jobs logs <job_id>
 hyper jobs metrics <job_id>
-hyper jobs exec <job_id> "nvidia-smi"
+hyper jobs exec <job_id> nvidia-smi
 hyper jobs shell <job_id>
 
 # Dry-run launch validation

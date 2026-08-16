@@ -417,20 +417,34 @@ class Jobs:
         data = self._http.get(f"/api/jobs/{job_id}/token")
         return data.get("token", "")
 
-    def exec(self, job_id: str, command: str, timeout: int = 30) -> ExecResult:
+    def exec(self, job_id: str, command: list[str], timeout: int = 30) -> ExecResult:
         """Execute a command non-interactively on a running job container.
 
         Args:
             job_id: Job UUID
-            command: Command to execute (e.g., "nvidia-smi")
+            command: Exact executable and argument vector to run.
             timeout: Timeout in seconds (default: 30)
 
         Returns:
             ExecResult with stdout, stderr, and exit_code
         """
+        if (
+            not isinstance(command, list)
+            or not command
+            or any(not isinstance(argument, str) for argument in command)
+            or not command[0]
+            or any("\x00" in argument for argument in command)
+            or sum(len(argument.encode("utf-8")) for argument in command) > 65_536
+        ):
+            raise ValueError(
+                "command must be a nonempty argv list of strings with a nonempty "
+                "executable, at most 65536 UTF-8 bytes, and no NUL"
+            )
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 300:
+            raise ValueError("timeout must be an integer from 1 through 300")
         data = self._http.post(
             f"/api/jobs/{job_id}/exec",
-            json={"command": command, "timeout": timeout},
+            json={"command": list(command), "timeout": timeout},
         )
         return ExecResult.from_dict(data)
 

@@ -171,7 +171,7 @@ Use the least powerful operation that answers the question:
 
 ```bash
 hyper agents logs <agent> --no-follow -n 200
-hyper agents exec <agent> "uname -a" --timeout 30
+hyper agents exec <agent> --timeout 30 uname -- -a
 hyper agents cp <agent>:/workspace/result.txt ./result.txt
 hyper agents shell <agent>
 ```

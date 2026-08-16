@@ -149,7 +149,7 @@ metrics does not itself mean the job failed.
 Prefer a bounded one-shot command:
 
 ```bash
-hyper jobs exec <job> "nvidia-smi" --timeout 30
+hyper jobs exec <job> nvidia-smi --timeout 30
 ```
 
 `exec` writes remote stdout to local stdout, stderr to local stderr, and exits

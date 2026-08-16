@@ -434,16 +434,18 @@ def _render_metrics(m):
 @app.command("exec")
 def exec_command(
     job_id: str = typer.Argument(..., help="Job ID (full or prefix)"),
-    command: str = typer.Argument(..., help="Command to execute"),
-    timeout: int = typer.Option(30, "--timeout", "-t", help="Timeout in seconds"),
+    command: list[str] = typer.Argument(..., help="Executable followed by arguments"),
+    timeout: int = typer.Option(
+        30, "--timeout", "-t", min=1, max=300, help="Timeout in seconds"
+    ),
 ):
     """Execute a command non-interactively on a running job container.
 
     Runs the command and returns stdout/stderr. For interactive shells, use 'hyper jobs shell'.
 
     Examples:
-        hyper jobs exec <job_id> "nvidia-smi"
-        hyper jobs exec <job_id> "ps aux" --timeout 10
+        hyper jobs exec <job_id> nvidia-smi
+        hyper jobs exec <job_id> --timeout 10 ps aux
     """
     import sys
 

@@ -245,7 +245,9 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
     let start = server
         .mock("POST", "/agents/deployments/fixture-deployment/start")
         .match_header("authorization", "Bearer fixture-hypercli-credential")
-        .match_body(Matcher::Json(serde_json::json!({})))
+        .match_body(Matcher::PartialJson(
+            serde_json::json!({"launch_config":{"restart":false}}),
+        ))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -366,7 +368,12 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "HYPER_WORKSPACES_SYNC_WORKSPACE": "fixture-workspace"
             },
             "command": common["command"].clone(),
+            "config": {},
+            "entrypoint": [],
+            "routes": {},
             "image": image,
+            "registry_url": null,
+            "registry_auth": {},
             "sync_root": common["sync_root"].clone(),
             "sync_uid": common["sync_uid"].clone(),
             "sync_gid": common["sync_gid"].clone(),
@@ -557,6 +564,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             expected["env"][key] = serde_json::json!("<redacted>");
         }
         expected["secrets"] = serde_json::json!("<redacted>");
+        expected["registry_auth"] = serde_json::json!("<redacted>");
         assert_eq!(
             traced_request, expected,
             "{runtime}: full launch request drift"

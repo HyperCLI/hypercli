@@ -1472,8 +1472,8 @@ def test_bound_agent_methods_delegate_to_agents(tmp_path):
         _deployments=manager,
     )
 
-    assert agent.exec("ls").stdout == "done"
-    manager.exec.assert_called_once_with(agent, "ls", timeout=30, dry_run=False)
+    assert agent.exec(["ls"]).stdout == "done"
+    manager.exec.assert_called_once_with(agent, ["ls"], timeout=30, dry_run=False)
 
     token_data = agent.refresh_token()
     assert token_data["token"] == "jwt-new"
@@ -3262,7 +3262,7 @@ async def test_agents_integration_lifecycle():
         else:
             pytest.fail("Agent did not start within 2 minutes")
 
-        result = agent.exec("echo 'integration test'", timeout=10)
+        result = agent.exec(["echo", "integration test"], timeout=10)
         assert result.exit_code == 0
         assert "integration test" in result.stdout
 

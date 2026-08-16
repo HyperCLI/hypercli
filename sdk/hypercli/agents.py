@@ -1528,7 +1528,7 @@ class RuntimeAuthClient:
         return self._COMMANDS[self.runtime]
 
     def _exec(self, command: tuple[str, ...], *, timeout: int = 30) -> "ExecResult":
-        return self.agent.exec(shlex.join(command), timeout=timeout)
+        return self.agent.exec(list(command), timeout=timeout)
 
     def methods(self) -> list[RuntimeAuthMethod]:
         agent_command = tuple(self._config["agent"])
@@ -2059,7 +2059,9 @@ class Agent:
         self._deployments = agent._deployments
         return self
 
-    def exec(self, command: str, timeout: int = 30, dry_run: bool = False) -> "ExecResult":
+    def exec(
+        self, command: list[str], timeout: int = 30, dry_run: bool = False
+    ) -> "ExecResult":
         return self._require_deployments().exec(self, command, timeout=timeout, dry_run=dry_run)
 
     @property
@@ -2925,7 +2927,7 @@ class Deployments:
         print(f"Desktop: {pod.vnc_url}")
 
         # Execute a command
-        result = client.deployments.exec(pod, "echo hello")
+        result = client.deployments.exec(pod, ["echo", "hello"])
 
         # List
         pods = client.deployments.list()
@@ -4531,23 +4533,35 @@ class Deployments:
         return AgentLaunchValueMutation.from_dict(data)
 
     def exec(
-        self, pod: Agent | str, command: str, timeout: int = 30, dry_run: bool = False
+        self,
+        pod: Agent | str,
+        command: list[str],
+        timeout: int = 30,
+        dry_run: bool = False,
     ) -> ExecResult:
         """Execute a one-shot command through the Backend WebSocket facade.
 
         Args:
             pod: Agent to execute on.
-            command: Shell command to run.
+            command: Exact executable and argument vector to run.
             timeout: Command timeout in seconds.
 
         Returns:
             ExecResult with exit_code, stdout, stderr.
         """
-        if not isinstance(command, str):
-            raise ValueError("command must be a string")
-        command = command.strip()
-        if not command or "\x00" in command or len(command.encode()) > 65_536:
-            raise ValueError("command must be 1 through 65536 UTF-8 bytes and contain no NUL")
+        if (
+            not isinstance(command, list)
+            or not command
+            or any(not isinstance(argument, str) for argument in command)
+            or not command[0]
+            or any("\x00" in argument for argument in command)
+            or sum(len(argument.encode("utf-8")) for argument in command) > 65_536
+        ):
+            raise ValueError(
+                "command must be a nonempty argv list of strings with a nonempty "
+                "executable, at most 65536 UTF-8 bytes, and no NUL"
+            )
+        command = list(command)
         if isinstance(timeout, bool) or not isinstance(timeout, int) or not 1 <= timeout <= 300:
             raise ValueError("timeout must be an integer from 1 through 300")
 

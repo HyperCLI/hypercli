@@ -9,6 +9,40 @@ describe('Jobs API', () => {
     vi.restoreAllMocks();
   });
 
+  it('forwards exact exec argv without shell parsing', async () => {
+    const post = vi.fn().mockResolvedValue({
+      job_id: 'job-1',
+      stdout: 'ok\n',
+      stderr: '',
+      exit_code: 0,
+    });
+    const jobs = new Jobs({ post } as unknown as HTTPClient);
+    const argv = ['tool', '-f', '  exact value  ', ''];
+
+    await jobs.exec('job-1', argv, 9);
+
+    expect(post).toHaveBeenCalledWith('/api/jobs/job-1/exec', {
+      command: argv,
+      timeout: 9,
+    });
+  });
+
+  it('rejects non-argv exec commands before HTTP', async () => {
+    const post = vi.fn();
+    const jobs = new Jobs({ post } as unknown as HTTPClient);
+
+    await expect(jobs.exec('job-1', 'tool -f' as unknown as string[])).rejects.toThrow('argv list');
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it.each([0, 301, 1.5])('rejects invalid exec timeout %s before HTTP', async (timeout) => {
+    const post = vi.fn();
+    const jobs = new Jobs({ post } as unknown as HTTPClient);
+
+    await expect(jobs.exec('job-1', ['true'], timeout)).rejects.toThrow('integer from 1 through 300');
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it('derives elapsed and timeLeft from timestamps instead of trusting stale API values', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-02T00:00:30Z'));
