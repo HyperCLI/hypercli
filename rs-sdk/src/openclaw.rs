@@ -179,7 +179,10 @@ mod tests {
         assert!(desktop.auth);
         assert_eq!(desktop.prefix.as_deref(), Some(OPENCLAW_DESKTOP_PREFIX));
         assert_eq!(
-            request.env.get(OPENCLAW_DESKTOP_ENABLED_ENV).map(String::as_str),
+            request
+                .env
+                .get(OPENCLAW_DESKTOP_ENABLED_ENV)
+                .map(String::as_str),
             Some("1")
         );
     }

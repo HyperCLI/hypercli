@@ -836,7 +836,7 @@ impl SetDeploymentRouteRequest {
 
 #[derive(Clone, Serialize)]
 pub struct ExecDeploymentRequest {
-    pub command: String,
+    pub command: Vec<String>,
     #[serde(default = "default_exec_timeout")]
     pub timeout: u32,
     #[serde(default)]
@@ -844,9 +844,13 @@ pub struct ExecDeploymentRequest {
 }
 
 impl ExecDeploymentRequest {
-    pub fn new(command: impl Into<String>) -> Self {
+    pub fn new<I, S>(command: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
         Self {
-            command: command.into(),
+            command: command.into_iter().map(Into::into).collect(),
             timeout: default_exec_timeout(),
             dry_run: false,
         }

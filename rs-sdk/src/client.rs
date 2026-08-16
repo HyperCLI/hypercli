@@ -1305,10 +1305,11 @@ impl HyperCliClient {
         deployment_id: &str,
         request: &ExecDeploymentRequest,
     ) -> Result<ExecDeploymentResponse, HyperCliError> {
-        let command = request.command.trim();
+        let command = &request.command;
         if command.is_empty()
-            || command.len() > 65_536
-            || command.contains('\0')
+            || command[0].is_empty()
+            || command.iter().any(|argument| argument.contains('\0'))
+            || command.iter().map(|argument| argument.len()).sum::<usize>() > 65_536
             || !(1..=300).contains(&request.timeout)
         {
             return Err(HyperCliError::InvalidResponse(
@@ -3238,7 +3239,7 @@ mod tests {
 
     async fn exec_fixture(
         result_stdout: &str,
-        expected_command: &str,
+        expected_command: &[&str],
         timeout: u32,
     ) -> (
         mockito::ServerGuard,
@@ -3250,7 +3251,10 @@ mod tests {
             "ws://{}/ws/exec/deployment-1",
             listener.local_addr().unwrap()
         );
-        let command = expected_command.to_owned();
+        let command = expected_command
+            .iter()
+            .map(|argument| (*argument).to_owned())
+            .collect::<Vec<_>>();
         let stdout = result_stdout.to_owned();
         let task = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
@@ -3298,8 +3302,9 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread")]
     async fn exec_uses_token_scoped_one_shot_websocket() {
-        let (server, token, task) = exec_fixture("ready\n", "status", 5).await;
-        let mut request = ExecDeploymentRequest::new("status");
+        let argv = ["printf", "-f", " value with spaces ", ""];
+        let (server, token, task) = exec_fixture("ready\n", &argv, 5).await;
+        let mut request = ExecDeploymentRequest::new(argv);
         request.timeout = 5;
         let client = client_for_async_test(&server).await;
         let response = client
@@ -3322,7 +3327,7 @@ mod tests {
     async fn runtime_auth_status_uses_token_scoped_exec() {
         let (server, token, task) = exec_fixture(
             "{\"runtime\":\"codex\",\"authenticated\":false}\n",
-            "/usr/local/bin/hypercli-runtime-auth status",
+            &["/usr/local/bin/hypercli-runtime-auth", "status"],
             15,
         )
         .await;
