@@ -7,6 +7,7 @@ mod client;
 mod config;
 mod hermes;
 mod keys;
+mod openclaw;
 mod runtime_auth;
 mod types;
 
@@ -26,20 +27,26 @@ pub use hermes::{
     HermesSessionPatchRequest, HermesSseEvent, HERMES_AGENT_IMAGE, HERMES_API_PORT,
 };
 pub use keys::{issue_api_key_from_jwt, IssueApiKeyError, IssueApiKeyFromJwtOptions};
+pub use openclaw::{
+    OpenClawLaunchConfig, AGENT_RUNTIME_SCOPES, OPENCLAW_DESKTOP_ENABLED_ENV,
+    OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX, OPENCLAW_GATEWAY_PORT, OPENCLAW_IMAGE,
+    OPENCLAW_SYNC_EXCLUDE, OPENCLAW_SYNC_ROOT,
+};
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginChallenge, RuntimeLoginResult,
     RuntimeLoginSession, RuntimeShellToken,
 };
 pub use types::{
     canonical_deployment_name, is_agent_runtime_inactive_state, is_agent_transitional_state,
-    AgentCapacity, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe, BuzzLaunchConfig,
-    BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse,
-    Deployment, DeploymentEnvironment, DeploymentEvent, DeploymentFileWriteResponse,
-    DeploymentLaunchConfig, DeploymentListFilters, DeploymentProfileImageResponse,
-    DeploymentRoutes, DeploymentSecret, DeploymentSecretNames, EntitlementsSummary,
-    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCanonicalPlanId,
-    HyperAgentCurrentPlan, HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan,
-    HyperAgentPlanResources, HyperAgentSubscriptionSummary, ManagedRuntime, Nullable, RouteConfig,
+    AgentCapacity, AgentLaunchValueMutation, AgentSize, AgentSlot, AgentSlotInventory, ApiKey,
+    AuthMe, BuzzLaunchConfig, BuzzLaunchError, CreateApiKeyRequest, CreateDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentEnvironment, DeploymentEvent,
+    DeploymentFileWriteResponse, DeploymentLaunchConfig, DeploymentListFilters,
+    DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
+    EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse,
+    HyperAgentCanonicalPlanId, HyperAgentCurrentPlan, HyperAgentEntitlement,
+    HyperAgentEntitlementsSummary, HyperAgentPlan, HyperAgentPlanResources,
+    HyperAgentSubscriptionSummary, ManagedRuntime, Nullable, RouteConfig,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
     BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,

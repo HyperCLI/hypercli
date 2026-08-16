@@ -21,11 +21,11 @@ use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
-    AgentCapacity, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest, CreateDeploymentRequest,
-    DeleteDeploymentResponse, Deployment, DeploymentEnvironment, DeploymentEvent,
-    DeploymentFileWriteResponse, DeploymentListFilters, DeploymentProfileImageResponse,
-    DeploymentRoutes, DeploymentSecret, DeploymentSecretNames, ExecDeploymentRequest,
-    ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
+    AgentCapacity, AgentLaunchValueMutation, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest,
+    CreateDeploymentRequest, DeleteDeploymentResponse, Deployment, DeploymentEnvironment,
+    DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
+    DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
+    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
     HyperAgentEntitlementsSummary, HyperAgentPlan, NativeRuntime, RuntimeAuthError,
     RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest,
     SetDeploymentRoutesRequest, StartDeploymentRequest, UpdateDeploymentRequest,
@@ -102,6 +102,14 @@ fn permanent_deployment_event_error(error: &HyperCliError) -> bool {
         .is_some_and(|status| matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN))
 }
 
+/// Percent-encode a single path segment (env/secret keys can contain
+/// characters outside the unreserved set). Spaces encode as %20, not `+`.
+fn encode_path_key(key: &str) -> String {
+    url::form_urlencoded::byte_serialize(key.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20")
+}
+
 impl HyperCliClient {
     pub fn new(config: ClientConfig) -> Result<Self, HyperCliError> {
         Self::new_with_timeout(config, std::time::Duration::from_secs(30))
@@ -168,12 +176,108 @@ impl HyperCliClient {
         deployment_id: &str,
         key: &str,
     ) -> Result<DeploymentSecret, HyperCliError> {
-        let encoded_key: String = url::form_urlencoded::byte_serialize(key.as_bytes())
-            .collect::<String>()
-            .replace('+', "%20");
         self.get_json(&format!(
-            "deployments/{deployment_id}/secrets/{encoded_key}"
+            "deployments/{deployment_id}/secrets/{}",
+            encode_path_key(key)
         ))
+    }
+
+    /// Set one stored launch-environment key. Matches the TypeScript SDK's
+    /// `setEnv` and the Python SDK's `set_env`.
+    pub fn set_deployment_env(
+        &self,
+        deployment_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<AgentLaunchValueMutation, HyperCliError> {
+        self.mutate_launch_value("env", deployment_id, key, Some(value))
+    }
+
+    /// Remove one stored launch-environment key.
+    pub fn delete_deployment_env(
+        &self,
+        deployment_id: &str,
+        key: &str,
+    ) -> Result<AgentLaunchValueMutation, HyperCliError> {
+        self.mutate_launch_value("env", deployment_id, key, None)
+    }
+
+    /// Set one stored launch secret. The value travels in the request body
+    /// and is redacted from the optional HTTP trace.
+    pub fn set_deployment_secret(
+        &self,
+        deployment_id: &str,
+        key: &str,
+        value: &str,
+    ) -> Result<AgentLaunchValueMutation, HyperCliError> {
+        self.mutate_launch_value("secrets", deployment_id, key, Some(value))
+    }
+
+    /// Remove one stored launch secret.
+    pub fn delete_deployment_secret(
+        &self,
+        deployment_id: &str,
+        key: &str,
+    ) -> Result<AgentLaunchValueMutation, HyperCliError> {
+        self.mutate_launch_value("secrets", deployment_id, key, None)
+    }
+
+    fn mutate_launch_value(
+        &self,
+        family: &str,
+        deployment_id: &str,
+        key: &str,
+        value: Option<&str>,
+    ) -> Result<AgentLaunchValueMutation, HyperCliError> {
+        if key.trim().is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "launch env/secret key is required".to_owned(),
+            ));
+        }
+        let url = self.endpoint(&format!(
+            "deployments/{deployment_id}/{family}/{}",
+            encode_path_key(key)
+        ));
+        let name = match (family, value.is_some()) {
+            ("env", true) => "set_deployment_env",
+            ("env", false) => "delete_deployment_env",
+            ("secrets", true) => "set_deployment_secret",
+            _ => "delete_deployment_secret",
+        };
+        // The trace must never carry a secret value; record the key only.
+        let trace = Some(json!({ "key": key, "value": value.map(|_| "<omitted>") }));
+        match value {
+            Some(value) => self.send_json(
+                name,
+                "PATCH",
+                &url,
+                trace,
+                self.http
+                    .patch(&url)
+                    .bearer_auth(self.api_key.expose_secret())
+                    .json(&json!({ "value": value })),
+            ),
+            None => self.send_json(
+                name,
+                "DELETE",
+                &url,
+                trace,
+                self.http.delete(&url).bearer_auth(self.api_key.expose_secret()),
+            ),
+        }
+    }
+
+    /// The account's current agent resource budget and usage (cores/GB).
+    /// The shape is backend-owned; newer SDKs expose it untyped as well.
+    pub fn deployments_budget(&self) -> Result<Value, HyperCliError> {
+        self.get_json("deployments/budget")
+    }
+
+    /// Live CPU/memory metrics for a running deployment from the cluster
+    /// metrics server. The shape is backend-owned; newer SDKs expose it
+    /// untyped as well.
+    pub fn deployment_metrics(&self, deployment_id: &str) -> Result<Value, HyperCliError> {
+        self.get_json(&format!("deployments/{deployment_id}/metrics"))
     }
 
     pub fn list_deployments_with_capacity(&self) -> Result<AgentCapacity, HyperCliError> {

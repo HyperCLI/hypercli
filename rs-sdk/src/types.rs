@@ -1059,6 +1059,18 @@ pub struct DeploymentSecret {
     pub launch_epoch: u64,
 }
 
+/// Minimal response from mutating one stored launch env key or secret.
+/// Secret mutation responses never carry the value.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentLaunchValueMutation {
+    pub agent_id: String,
+    pub key: String,
+    #[serde(default)]
+    pub present: bool,
+    #[serde(default)]
+    pub launch_epoch: u64,
+}
+
 impl Deployment {
     /// True for new stable-tag deployments and legacy deployments that only
     /// carry the per-agent Buzz public-key tag.
