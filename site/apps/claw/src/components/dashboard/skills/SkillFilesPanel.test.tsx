@@ -74,12 +74,13 @@ describe("SkillFilesPanel", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
   });
 
-  it("enables managed custom skill mutations", async () => {
+  it("enables file mutations without offering unsupported directory creation", async () => {
     const resourceOperations = operations();
+    delete resourceOperations.createResourceDirectory;
 
     render(
       <SkillFilesPanel
-        skill={skill({ origin: "custom", editable: true, resourceAccess: "read-write" })}
+        skill={skill({ editable: true, resourceAccess: "read-write" })}
         localPreview={false}
         connected
         isDesktopViewport
@@ -89,10 +90,7 @@ describe("SkillFilesPanel", () => {
     );
 
     expect(await screen.findByRole("button", { name: "Upload files" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
-    fireEvent.change(screen.getByPlaceholderText("Folder name"), { target: { value: "references" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-    await waitFor(() => expect(resourceOperations.createResourceDirectory).toHaveBeenCalledWith("weather", "references"));
+    expect(screen.queryByRole("button", { name: "New folder" })).not.toBeInTheDocument();
   });
 
   it("keeps local preview files read-only and browser-local", async () => {

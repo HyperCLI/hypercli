@@ -4267,12 +4267,7 @@ export function useOpenClawSession(
     skillsUpdate,
     skillsSearch,
     skillsInstall,
-  }, {
-    exec: async (command) => {
-      if (!agent) throw new Error("Agent command access is unavailable.");
-      return agent.exec(command, { timeout: 15_000 });
-    },
-  }), [agent, skillsInstall, skillsSearch, skillsSkillCard, skillsStatus, skillsUpdate]);
+  }, agent?.files), [agent, skillsInstall, skillsSearch, skillsSkillCard, skillsStatus, skillsUpdate]);
 
   const integrationsAuthStart = useCallback(async (params: GatewayIntegrationAuthStartParams) => {
     if (!gateway) throw new Error("Not connected");

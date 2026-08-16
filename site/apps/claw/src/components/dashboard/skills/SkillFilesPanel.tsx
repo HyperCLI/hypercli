@@ -41,7 +41,7 @@ export function SkillFilesPanel({
   const canAccessInstalledFiles = connected && Boolean(operations) && skill.resourceAccess !== "none";
   const canWrite = !localPreview
     && skill.resourceAccess === "read-write"
-    && Boolean(operations?.writeResource && operations.deleteResource && operations.createResourceDirectory);
+    && Boolean(operations?.writeResource && operations.deleteResource);
   const browserConnected = localPreview || canAccessInstalledFiles;
   const localEntry: FileEntry = { name: "SKILL.md", path: "SKILL.md", type: "file" };
   const localDirectoriesRef = React.useRef(skill.localDirectories ?? []);
@@ -97,7 +97,7 @@ export function SkillFilesPanel({
         localDirectoriesRef.current = [...localDirectoriesRef.current, path].sort();
         onLocalDirectoryCreated(path);
       }
-    : !canWrite
+    : !canWrite || !operations?.createResourceDirectory
       ? undefined
       : async (path: string) => {
           await operations!.createResourceDirectory!(skill.id, path);

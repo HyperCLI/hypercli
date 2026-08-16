@@ -216,6 +216,46 @@ describe("useOpenClawSession", () => {
     expect(gateway.close).not.toHaveBeenCalled();
   });
 
+  it("routes skills through Gateway and AgentFiles without Agent exec", async () => {
+    const gateway = buildGateway();
+    const skillsStatus = vi.fn(async () => ({
+      agentId: "agent-1",
+      workspaceDir: "/home/node/.openclaw/workspace",
+      managedSkillsDir: "/home/node/.openclaw/skills",
+      skills: [],
+    }));
+    Object.assign(gateway, { skillsStatus });
+    const files = {
+      list: vi.fn(async () => []),
+      readBytes: vi.fn(async () => new Uint8Array()),
+      writeBytes: vi.fn(async () => ({})),
+      delete: vi.fn(async () => ({})),
+    };
+    const agent = {
+      id: "agent-1",
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+      files,
+      exec: vi.fn(),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await expect(result.current.skillsProvider.list()).resolves.toEqual([]);
+    await expect(result.current.skillsProvider.createSkill({ id: "release-helper", content: "# Release Helper" })).resolves.toEqual({
+      skillId: "release-helper",
+    });
+
+    expect(skillsStatus).toHaveBeenCalledTimes(2);
+    expect(files.writeBytes).toHaveBeenCalledWith(
+      ".openclaw/workspace/skills/release-helper/SKILL.md",
+      new TextEncoder().encode("# Release Helper"),
+    );
+    expect(agent.exec).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("routes ephemeral prompts through the connected SDK gateway client", async () => {
     const gateway = buildGateway();
     const agent = {
