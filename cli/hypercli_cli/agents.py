@@ -318,6 +318,14 @@ def _get_agent_with_token(agent_id: str) -> Agent:
         pod.api_server_key = local["api_server_key"]
     if pod.launch_config is None and local.get("launch_config") is not None:
         pod.launch_config = local["launch_config"]
+    if isinstance(pod, OpenClawAgent) and not pod.gateway_token:
+        # Gateway tokens are caller-held and never ride projections; when no
+        # local state holds one (fresh machines, CI), recover it through the
+        # explicit secret retrieval endpoint.
+        try:
+            pod.gateway_token = pod.secret("OPENCLAW_GATEWAY_TOKEN") or None
+        except Exception:
+            pass
     return pod
 
 
