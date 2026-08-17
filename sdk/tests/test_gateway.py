@@ -499,10 +499,13 @@ async def test_approve_pairing_request_uses_token_authenticated_exec_ws(monkeypa
     assert captured["result_frame_size"] > AGENT_EXEC_OUTPUT_MAX_BYTES
     assert captured["frame"]["timeout"] == 30
     assert captured["frame"]["dry_run"] is False
-    command = captured["frame"]["command"]
-    assert command.startswith("openclaw devices approve ")
-    assert " --json" in command
-    assert "pairing-req-1" in command
+    assert captured["frame"]["command"] == [
+        "openclaw",
+        "devices",
+        "approve",
+        "pairing-req-1",
+        "--json",
+    ]
 
 
 def test_set_gateway_token_normalizes_blank_values() -> None:

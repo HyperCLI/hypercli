@@ -15,7 +15,6 @@ import hashlib
 import inspect
 import json
 import os
-import shlex
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -1021,10 +1020,7 @@ class GatewayClient:
             raise RuntimeError(
                 "auto_approve_pairing requires deployment_id, api_key, and api_base"
             )
-        command = (
-            "openclaw devices approve "
-            f"{shlex.quote(request_id)} --json"
-        )
+        command = ["openclaw", "devices", "approve", str(request_id), "--json"]
         deployment_id = str(self.deployment_id or "")
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(
