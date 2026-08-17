@@ -4163,6 +4163,64 @@ class Deployments:
             ),
         )
 
+    def stored_launch_config(
+        self,
+        pod: Agent | str,
+        *,
+        registry_auth: dict | None = None,
+    ) -> dict:
+        """Rebuild the complete replacement launch_config that START requires.
+
+        Reads the stored Agent projection and returns one explicit complete
+        configuration. Projections redact secret values by design, so every
+        name in the deployment's secret listing is rehydrated through the
+        per-secret retrieval endpoint. ``registry_auth`` is caller-held and
+        never comes back from the server: it must be supplied whenever the
+        stored config references a ``registry_url``, and defaults to ``{}``
+        otherwise. START still sends the result wholesale; the SDK never
+        merges it with the prior Agent snapshot.
+        """
+        agent_id = self._agent_id_for_target(pod)
+        agent = self._get_by_id(agent_id)
+        if not isinstance(agent.launch_config, dict):
+            raise ValueError(f"Agent {agent_id} has no stored launch_config projection")
+        launch_config = copy.deepcopy(agent.launch_config)
+
+        # Legacy projections may still carry the old nullable restart
+        # representation; START receives one explicit boolean.
+        if "restart" in launch_config and launch_config["restart"] is None:
+            launch_config["restart"] = False
+
+        names_data = self.secret_names(agent_id)
+        if int(names_data.get("launch_epoch") or 0) < agent.launch_epoch:
+            raise RuntimeError("agent secret names belong to an older launch epoch")
+        secrets: dict[str, str] = {}
+        for name in names_data.get("names") or []:
+            secret_data = self.secret(agent_id, str(name))
+            if int(secret_data.get("launch_epoch") or 0) < agent.launch_epoch:
+                raise RuntimeError("agent secret belongs to an older launch epoch")
+            secrets[str(name)] = str(secret_data.get("value") or "")
+        launch_config["secrets"] = secrets
+
+        registry_url = str(launch_config.get("registry_url") or "").strip()
+        if registry_url and not registry_auth:
+            raise ValueError(
+                f"Agent {agent_id} pulls from registry_url {registry_url!r}; "
+                "registry_auth is caller-held and never stored server-side, so "
+                "it must be supplied to rebuild a complete START configuration"
+            )
+        launch_config["registry_auth"] = copy.deepcopy(registry_auth) if registry_auth else {}
+
+        # START requires exactly one sync policy. Includes win when a legacy
+        # projection carries both; carrying neither canonicalizes to the
+        # explicit sync-everything exclusion list.
+        if "sync_include" in launch_config:
+            launch_config.pop("sync_exclude", None)
+        elif "sync_exclude" not in launch_config:
+            launch_config["sync_exclude"] = []
+
+        return _copy_complete_launch_config(launch_config)
+
     def start(
         self,
         agent_id: str,
@@ -4187,6 +4245,25 @@ class Deployments:
         agent = self._hydrate_agent(data)
         agent.__dict__["_submitted_launch_config"] = copy.deepcopy(body["launch_config"])
         return agent
+
+    def start_stored(
+        self,
+        pod: Agent | str,
+        *,
+        registry_auth: dict | None = None,
+        dry_run: bool = False,
+    ) -> Agent:
+        """Start from the stored configuration, rehydrated to completeness.
+
+        Convenience wrapper around :meth:`stored_launch_config` and
+        :meth:`start`; the rebuilt configuration is still sent wholesale.
+        """
+        agent_id = self._agent_id_for_target(pod)
+        return self.start(
+            agent_id,
+            self.stored_launch_config(agent_id, registry_auth=registry_auth),
+            dry_run=dry_run,
+        )
 
     def start_hermes_agent(
         self,

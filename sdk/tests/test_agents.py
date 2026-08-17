@@ -35,6 +35,7 @@ from hypercli.agents import (
     OpenClawProAgent,
     ExecResult,
     _build_agent_launch,
+    _copy_complete_launch_config,
     agent_config_has_desktop,
     build_agent_config,
     build_openclaw_routes,
@@ -2163,6 +2164,149 @@ def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agen
     assert "sync_include" not in posted[0]["launch_config"]
     assert posted[1]["launch_config"]["sync_include"] is None
     assert "sync_exclude" not in posted[1]["launch_config"]
+
+
+_STORED_AGENT_ID = "11111111-1111-4111-8111-111111111111"
+
+
+def _install_stored_projection(
+    agents_client,
+    launch_config: dict,
+    *,
+    secrets: dict[str, str] | None = None,
+    launch_epoch: int = 3,
+) -> list[str]:
+    """Serve one stored agent projection plus its redacted-secret endpoints."""
+    secret_values = dict(secrets or {})
+    calls: list[str] = []
+
+    def fake_get(path, params=None):
+        calls.append(path)
+        if path == f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}":
+            return {
+                "id": _STORED_AGENT_ID,
+                "user_id": "user-456",
+                "state": "STOPPED",
+                "launch_epoch": launch_epoch,
+                "launch_config": copy.deepcopy(launch_config),
+            }
+        if path == f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/secrets":
+            return {"names": sorted(secret_values), "launch_epoch": launch_epoch}
+        for name, value in secret_values.items():
+            if path == f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/secrets/{name}":
+                return {"key": name, "value": value, "launch_epoch": launch_epoch}
+        raise AssertionError(f"Unexpected GET {path}")
+
+    agents_client._get = fake_get
+    return calls
+
+
+def test_stored_launch_config_rehydrates_secrets_and_defaults_registry_auth(agents_client):
+    stored = build_agent_config(
+        env={"MODE": "prod"},
+        image="ghcr.io/hypercli/hypercli-openclaw:test",
+    )
+    stored.pop("secrets")  # public projections redact secret values
+    calls = _install_stored_projection(
+        agents_client,
+        stored,
+        secrets={"API_TOKEN": "tok", "DB_PASSWORD": "pw"},
+    )
+
+    result = agents_client.stored_launch_config(_STORED_AGENT_ID)
+
+    assert result["secrets"] == {"API_TOKEN": "tok", "DB_PASSWORD": "pw"}
+    assert result["registry_auth"] == {}
+    assert result["env"] == {"MODE": "prod"}
+    assert result["image"] == "ghcr.io/hypercli/hypercli-openclaw:test"
+    assert f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/secrets/API_TOKEN" in calls
+    assert f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/secrets/DB_PASSWORD" in calls
+    assert _copy_complete_launch_config(result) == result
+
+
+def test_stored_launch_config_requires_caller_held_registry_auth(agents_client):
+    stored = build_agent_config(
+        image="git.nedos.co/hypercli/private:sha",
+        registry_url="git.nedos.co",
+    )
+    stored.pop("secrets")
+    _install_stored_projection(agents_client, stored)
+
+    with pytest.raises(ValueError, match="registry_auth is caller-held"):
+        agents_client.stored_launch_config(_STORED_AGENT_ID)
+
+    creds = {"username": "svc", "password": "hunter2"}
+    result = agents_client.stored_launch_config(_STORED_AGENT_ID, registry_auth=creds)
+    assert result["registry_auth"] == creds
+    assert result["registry_auth"] is not creds
+
+
+def test_stored_launch_config_normalizes_legacy_nullable_restart(agents_client):
+    stored = build_agent_config()
+    stored["restart"] = None  # legacy durable projections
+    _install_stored_projection(agents_client, stored)
+
+    assert agents_client.stored_launch_config(_STORED_AGENT_ID)["restart"] is False
+
+
+def test_stored_launch_config_canonicalizes_missing_sync_policy(agents_client):
+    stored = build_agent_config()
+    assert "sync_include" not in stored and "sync_exclude" not in stored
+    _install_stored_projection(agents_client, stored)
+
+    result = agents_client.stored_launch_config(_STORED_AGENT_ID)
+
+    assert result["sync_exclude"] == []
+    assert "sync_include" not in result
+
+
+def test_stored_launch_config_prefers_include_when_projection_has_both(agents_client):
+    stored = build_agent_config(sync_include=["workspace"])
+    stored["sync_exclude"] = ["workspace/tmp"]  # legacy dual-policy projection
+    _install_stored_projection(agents_client, stored)
+
+    result = agents_client.stored_launch_config(_STORED_AGENT_ID)
+
+    assert result["sync_include"] == ["workspace"]
+    assert "sync_exclude" not in result
+
+
+def test_stored_launch_config_requires_stored_projection(agents_client):
+    agents_client._get = lambda path, params=None: {
+        "id": _STORED_AGENT_ID,
+        "user_id": "user-456",
+        "state": "STOPPED",
+    }
+
+    with pytest.raises(ValueError, match="no stored launch_config"):
+        agents_client.stored_launch_config(_STORED_AGENT_ID)
+
+
+def test_start_stored_posts_rehydrated_config_wholesale(agents_client):
+    stored = build_agent_config(env={"MODE": "prod"})
+    stored.pop("secrets")
+    _install_stored_projection(agents_client, stored, secrets={"API_TOKEN": "tok"})
+    posted: dict = {}
+
+    def fake_post(path, json=None):
+        posted["path"] = path
+        posted["json"] = json
+        return {
+            "id": _STORED_AGENT_ID,
+            "user_id": "user-456",
+            "state": "STARTING",
+        }
+
+    agents_client._post = fake_post
+    agent = agents_client.start_stored(_STORED_AGENT_ID, dry_run=True)
+
+    assert posted["path"] == f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/start"
+    assert posted["json"]["dry_run"] is True
+    body = posted["json"]["launch_config"]
+    assert body["secrets"] == {"API_TOKEN": "tok"}
+    assert body["sync_exclude"] == []
+    assert body["restart"] is False
+    assert agent.state == "STARTING"
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
