@@ -203,6 +203,7 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_DEDUP',
   'BUZZ_ACP_SETUP_PAYLOAD',
   'BUZZ_MANAGED_AGENT',
+  // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
   'BUZZ_MANAGED_AGENT_START_NONCE',
 ]);
 export const OPENCLAW_MEMORY_SEARCH_ENV_DEFAULTS = {
@@ -908,7 +909,13 @@ export interface UpdateExternalAgentOptions {
 }
 
 export interface StartAgentOptions {
-  launchConfig: AgentLaunchConfig;
+  /**
+   * Complete replacement launch configuration. When omitted, the stored
+   * launch config is rebuilt via {@link Deployments.storedLaunchConfig}.
+   */
+  launchConfig?: AgentLaunchConfig;
+  /** Caller-held registry credentials for stored configs with a registry_url. */
+  registryAuth?: RegistryAuth;
   dryRun?: boolean;
 }
 
@@ -932,6 +939,7 @@ export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
 }
 
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
+  launchConfig: AgentLaunchConfig;
   gatewayToken?: string | null;
 }
 
@@ -942,6 +950,7 @@ export interface HermesAgentCreateOptions extends CreateAgentOptions {
 }
 
 export interface HermesAgentStartOptions extends StartAgentOptions {
+  launchConfig: AgentLaunchConfig;
   /** Caller-known inbound Hermes API credential; never recovered from Backend state. */
   apiServerKey?: string | null;
 }
@@ -987,7 +996,6 @@ function buildBuzzLaunchEnv(
   const harness = BUZZ_RUNTIME_COMMANDS[runtime];
   const env: Record<string, string> = {
     BUZZ_RELAY_URL: buzz.relayUrl,
-    BUZZ_MANAGED_AGENT_START_NONCE: randomHexToken(16),
     BUZZ_ACP_AGENT_COMMAND: harness.command,
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
     BUZZ_ACP_MCP_COMMAND: harness.mcpCommand,
@@ -3079,11 +3087,6 @@ export class OpenClawAgent extends Agent {
 
   /** Resolve OpenClaw connection context while retaining caller-known credentials. */
   async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
-    if (!this.gatewayToken) {
-      throw new Error(
-        'OpenClaw gateway token is unavailable; retain the object returned by createOpenClaw or pass gatewayToken explicitly',
-      );
-    }
     const callerAbortError = (): Error => {
       if (options.signal?.reason instanceof Error) return options.signal.reason;
       const error = new Error('OpenClaw gateway context wait cancelled');
@@ -3197,7 +3200,31 @@ export class OpenClawAgent extends Agent {
           continue;
         }
 
-        const gatewayToken = this.gatewayToken;
+        // Prefer the caller-retained token; otherwise rehydrate the redacted
+        // Secret through the explicit per-secret retrieval endpoint so a fresh
+        // page (or fresh Agent hydration) can still reconnect.
+        let gatewayToken = this.gatewayToken;
+        if (!gatewayToken) {
+          try {
+            const secretData = await runWithAbort(
+              deployments.secret(this.id, 'OPENCLAW_GATEWAY_TOKEN', requestOptions),
+            );
+            if (Number(secretData.launch_epoch ?? 0) < refreshed.launchEpoch) {
+              throw new Error('gateway Secret belongs to an older launch epoch');
+            }
+            gatewayToken = String(secretData.value ?? '').trim() || null;
+          } catch (error) {
+            if (error instanceof APIError && [401, 403, 404].includes(error.statusCode)) {
+              throw new Error(
+                'OpenClaw gateway token is unavailable; retain the object returned by createOpenClaw or pass gatewayToken explicitly',
+              );
+            }
+            throw error;
+          }
+          if (!gatewayToken) {
+            throw new Error('OpenClaw gateway token secret is empty');
+          }
+        }
         const confirmed = await runWithAbort(deployments.get(this.id, requestOptions));
         if (
           confirmed.launchEpoch !== refreshed.launchEpoch
@@ -4820,20 +4847,84 @@ export class Deployments {
     );
   }
 
-  async start(agentIdOrName: string, options: StartAgentOptions): Promise<Agent> {
-    const body: Record<string, any> = {
-      launch_config: cloneCompleteLaunchConfig(options.launchConfig),
-    };
-    if (options.dryRun) body.dry_run = true;
+  /**
+   * Rebuild the complete replacement launch_config that START requires.
+   *
+   * Mirrors the Python SDK's stored_launch_config: reads the stored Agent
+   * projection, rehydrates redacted secrets through the per-secret retrieval
+   * endpoint, requires caller-held registry_auth whenever the stored config
+   * references a registry_url, normalizes legacy restart/sync-policy shapes,
+   * and self-checks through the completeness gatekeeper.
+   */
+  async storedLaunchConfig(
+    agentIdOrName: string,
+    options: { registryAuth?: RegistryAuth } = {},
+  ): Promise<AgentLaunchConfig> {
+    const agent = await this.get(agentIdOrName);
+    if (!isPlainRecord(agent.launchConfig)) {
+      throw new Error(`Agent ${agent.id} has no stored launch_config projection`);
+    }
+    const launchConfig: Record<string, any> = structuredClone(agent.launchConfig);
+
+    // Legacy projections may still carry the old nullable restart
+    // representation; START receives one explicit boolean.
+    if ('restart' in launchConfig && launchConfig.restart === null) {
+      launchConfig.restart = false;
+    }
+
+    const namesData = await this.secretNames(agent.id);
+    if (Number(namesData.launch_epoch ?? 0) < agent.launchEpoch) {
+      throw new Error('agent secret names belong to an older launch epoch');
+    }
+    const secrets: Record<string, string> = {};
+    for (const name of namesData.names ?? []) {
+      const secretData = await this.secret(agent.id, String(name));
+      if (Number(secretData.launch_epoch ?? 0) < agent.launchEpoch) {
+        throw new Error('agent secret belongs to an older launch epoch');
+      }
+      secrets[String(name)] = String(secretData.value ?? '');
+    }
+    launchConfig.secrets = secrets;
+
+    const registryUrl = String(launchConfig.registry_url ?? '').trim();
+    if (registryUrl && !options.registryAuth) {
+      throw new Error(
+        `Agent ${agent.id} pulls from registry_url ${JSON.stringify(registryUrl)}; `
+        + 'registry_auth is caller-held and never stored server-side, so it must '
+        + 'be supplied to rebuild a complete START configuration',
+      );
+    }
+    launchConfig.registry_auth = options.registryAuth ? structuredClone(options.registryAuth) : {};
+
+    // START requires exactly one sync policy. Includes win when a legacy
+    // projection carries both; carrying neither canonicalizes to the
+    // explicit sync-everything exclusion list.
+    if (Object.prototype.hasOwnProperty.call(launchConfig, 'sync_include')) {
+      delete launchConfig.sync_exclude;
+    } else if (!Object.prototype.hasOwnProperty.call(launchConfig, 'sync_exclude')) {
+      launchConfig.sync_exclude = [];
+    }
+
+    return cloneCompleteLaunchConfig(launchConfig as AgentLaunchConfig);
+  }
+
+  async start(agentIdOrName: string, options?: StartAgentOptions): Promise<Agent> {
     const agentId = isSelfAgentRef(agentIdOrName)
       ? (await this.get('self')).id
       : await this.resolveAgentId(agentIdOrName);
+    // START requires one complete replacement launch_config. When the caller
+    // does not supply one, rebuild it from the stored projection.
+    const launchConfig = options?.launchConfig
+      ? cloneCompleteLaunchConfig(options.launchConfig)
+      : await this.storedLaunchConfig(agentId, { registryAuth: options?.registryAuth });
+    const body: Record<string, any> = { launch_config: launchConfig };
+    if (options?.dryRun) body.dry_run = true;
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
       body,
       { retries: 1 },
     );
-    if (!options.dryRun) this.invalidateOpenClawGateway(agentId);
+    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 

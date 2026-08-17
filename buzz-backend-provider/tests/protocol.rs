@@ -312,10 +312,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
     ))
     .unwrap();
     let common = &golden["common"];
-    let nonce_rule = &golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"];
-    assert_eq!(nonce_rule["format"], "lowercase-hex");
-    assert_eq!(nonce_rule["fresh_per_launch"], true);
-    let nonce_length = nonce_rule["length"].as_u64().unwrap() as usize;
     for (runtime, contract) in golden["runtimes"].as_object().unwrap() {
         let agent_command = contract["stock_agent_command"].as_str().unwrap();
         let image = contract["image"].as_str().unwrap();
@@ -415,12 +411,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             .create();
         let create = server
             .mock("POST", "/agents/deployments")
-            .match_body(Matcher::AllOf(vec![
-                Matcher::PartialJson(expected.clone()),
-                Matcher::Regex(format!(
-                    r#"\"BUZZ_MANAGED_AGENT_START_NONCE\":\"[0-9a-f]{{{nonce_length}}}\""#
-                )),
-            ]))
+            .match_body(Matcher::PartialJson(expected.clone()))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -530,13 +521,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             .find(|event: &serde_json::Value| event["operation"] == "create_deployment")
             .unwrap();
         let mut traced_request = trace_event["request"].clone();
-        let nonce = traced_request["env"]["BUZZ_MANAGED_AGENT_START_NONCE"]
-            .as_str()
-            .unwrap();
-        assert_eq!(nonce.len(), nonce_length);
-        assert!(nonce.chars().all(|character| character.is_ascii_hexdigit()));
-        traced_request["env"]["BUZZ_MANAGED_AGENT_START_NONCE"] = serde_json::json!("<dynamic>");
-        expected["env"]["BUZZ_MANAGED_AGENT_START_NONCE"] = serde_json::json!("<dynamic>");
         let launch_tag = traced_request["tags"]
             .as_array_mut()
             .unwrap()

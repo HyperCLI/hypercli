@@ -568,15 +568,8 @@ fn mark_launch_fingerprint(request: &mut CreateDeploymentRequest) -> Result<(), 
     request
         .tags
         .retain(|tag| !tag.starts_with(BUZZ_LAUNCH_TAG_PREFIX));
-    let mut fingerprint_request = request.clone();
-    // This anti-replay nonce must change on each real process start, but it is
-    // not user launch intent and therefore must not make an identical deploy
-    // look like configuration drift.
-    fingerprint_request
-        .env
-        .remove("BUZZ_MANAGED_AGENT_START_NONCE");
-    let encoded = serde_json::to_vec(&fingerprint_request)
-        .map_err(|_| ProviderError::LaunchFingerprintEncoding)?;
+    let encoded =
+        serde_json::to_vec(&*request).map_err(|_| ProviderError::LaunchFingerprintEncoding)?;
     let digest = Sha256::digest(encoded);
     let mut fingerprint = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -905,10 +898,6 @@ fn build_launch_request_with_inference_base(
         "BUZZ_RELAY_URL".to_owned(),
         agent.relay_url.trim().to_owned(),
     );
-    env.insert(
-        "BUZZ_MANAGED_AGENT_START_NONCE".to_owned(),
-        uuid::Uuid::new_v4().simple().to_string(),
-    );
     let auth_tag = nonempty(agent.auth_tag.as_deref());
     if let Some(auth_tag) = auth_tag {
         env.insert("BUZZ_AUTH_TAG".to_owned(), auth_tag.to_owned());
@@ -988,6 +977,7 @@ const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
     "BUZZ_ACP_EXIT_AFTER_INACTIVITY",
     "BUZZ_ACP_SETUP_PAYLOAD",
     "BUZZ_MANAGED_AGENT",
+    // No longer minted by the provider; kept listed so caller-supplied values are stripped.
     "BUZZ_MANAGED_AGENT_START_NONCE",
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
@@ -1289,13 +1279,6 @@ pub fn map_client_error(error: HyperCliError) -> ProviderError {
 mod tests {
     use super::*;
 
-    fn buzz_nonce_rule() -> serde_json::Value {
-        let golden: serde_json::Value = serde_json::from_str(include_str!(
-            "../../tests/fixtures/buzz-launch-contract.json"
-        ))
-        .unwrap();
-        golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"].clone()
-    }
     use hypercli_sdk::ClientConfig;
     use mockito::{Matcher, Server};
     use secrecy::SecretString;
@@ -1789,23 +1772,9 @@ mod tests {
         assert!(!request.env.contains_key("buzz_auth_tag"));
         assert!(!request.env.contains_key("BUZZ_ACP_AGENT_OWNER"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
-        assert_eq!(
-            buzz_nonce_rule(),
-            serde_json::json!({
-                "format": "lowercase-hex",
-                "length": 32,
-                "fresh_per_launch": true
-            })
-        );
-        let start_nonce = &request.env["BUZZ_MANAGED_AGENT_START_NONCE"];
-        assert_eq!(
-            start_nonce.len(),
-            buzz_nonce_rule()["length"].as_u64().unwrap() as usize
-        );
-        assert!(start_nonce
-            .chars()
-            .all(|character| character.is_ascii_hexdigit()));
-        assert_ne!(start_nonce, "forged");
+        // The provider no longer mints a start nonce; caller-supplied values are
+        // still stripped so users cannot inject the provider-owned key.
+        assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT_START_NONCE"));
         assert!(!request.env.contains_key("LEGACY_ONLY"));
         assert_eq!(
             request.env["BUZZ_ACP_AGENT_COMMAND"],
@@ -1816,29 +1785,6 @@ mod tests {
         assert_eq!(
             request.env["HYPER_WORKSPACES_DIR"],
             "/home/node/custom-shared"
-        );
-    }
-
-    #[test]
-    fn each_launch_attempt_gets_a_fresh_start_nonce() {
-        let first = build_launch_request(
-            test_agent(),
-            TEST_PUBLIC_HEX,
-            "buzz-runtime-test",
-            test_options(),
-        )
-        .unwrap();
-        let second = build_launch_request(
-            test_agent(),
-            TEST_PUBLIC_HEX,
-            "buzz-runtime-test",
-            test_options(),
-        )
-        .unwrap();
-
-        assert_ne!(
-            first.env["BUZZ_MANAGED_AGENT_START_NONCE"],
-            second.env["BUZZ_MANAGED_AGENT_START_NONCE"]
         );
     }
 
@@ -2220,10 +2166,6 @@ mod tests {
             test_options(),
         )
         .unwrap();
-        assert_ne!(
-            first.env.get("BUZZ_MANAGED_AGENT_START_NONCE"),
-            identical.env.get("BUZZ_MANAGED_AGENT_START_NONCE")
-        );
         mark_launch_fingerprint(&mut first).unwrap();
         mark_launch_fingerprint(&mut identical).unwrap();
         let first_tag = first

@@ -417,6 +417,7 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_DEDUP",
     "BUZZ_ACP_SETUP_PAYLOAD",
     "BUZZ_MANAGED_AGENT",
+    // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
     "BUZZ_MANAGED_AGENT_START_NONCE",
 ];
 
@@ -539,10 +540,6 @@ impl BuzzLaunchConfig {
         request
             .env
             .insert("BUZZ_RELAY_URL".to_owned(), self.relay_url.clone());
-        request.env.insert(
-            "BUZZ_MANAGED_AGENT_START_NONCE".to_owned(),
-            uuid::Uuid::new_v4().simple().to_string(),
-        );
         request.env.insert(
             "BUZZ_ACP_AGENT_COMMAND".to_owned(),
             agent_command.to_owned(),
@@ -1259,14 +1256,6 @@ impl AgentCapacity {
 mod tests {
     use super::*;
 
-    fn buzz_nonce_rule() -> serde_json::Value {
-        let golden: serde_json::Value = serde_json::from_str(include_str!(
-            "../../tests/fixtures/buzz-launch-contract.json"
-        ))
-        .unwrap();
-        golden["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"].clone()
-    }
-
     #[test]
     fn deployment_name_keeps_display_names_out_of_the_dns_contract() {
         let identity = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
@@ -1414,23 +1403,9 @@ mod tests {
         assert_eq!(request.secrets["NOSTR_PRIVATE_KEY"], "nsec1test");
         assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
-        assert_eq!(
-            buzz_nonce_rule(),
-            serde_json::json!({
-                "format": "lowercase-hex",
-                "length": 32,
-                "fresh_per_launch": true
-            })
-        );
-        let start_nonce = &request.env["BUZZ_MANAGED_AGENT_START_NONCE"];
-        assert_eq!(
-            start_nonce.len(),
-            buzz_nonce_rule()["length"].as_u64().unwrap() as usize
-        );
-        assert!(start_nonce
-            .chars()
-            .all(|character| character.is_ascii_hexdigit()));
-        assert_ne!(start_nonce, "forged");
+        // The SDK no longer mints a start nonce; caller-supplied values are
+        // still stripped so users cannot inject the reserved key.
+        assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT_START_NONCE"));
         assert_eq!(
             request
                 .env
@@ -1448,21 +1423,6 @@ mod tests {
         assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
             Some("debug")
-        );
-    }
-
-    #[test]
-    fn each_buzz_launch_attempt_gets_a_fresh_start_nonce() {
-        let buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
-        let mut first = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
-        let mut second = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
-
-        buzz.apply_to(&mut first, None).unwrap();
-        buzz.apply_to(&mut second, None).unwrap();
-
-        assert_ne!(
-            first.env["BUZZ_MANAGED_AGENT_START_NONCE"],
-            second.env["BUZZ_MANAGED_AGENT_START_NONCE"]
         );
     }
 

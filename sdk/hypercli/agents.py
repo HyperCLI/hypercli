@@ -37,7 +37,7 @@ from typing import (
 )
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 from contextlib import asynccontextmanager
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import httpx
 
@@ -295,6 +295,7 @@ BUZZ_RESERVED_ENV_KEYS = frozenset(
         "BUZZ_ACP_DEDUP",
         "BUZZ_ACP_SETUP_PAYLOAD",
         "BUZZ_MANAGED_AGENT",
+        # No longer minted by the SDK; kept listed so caller-supplied values are stripped.
         "BUZZ_MANAGED_AGENT_START_NONCE",
     }
 )
@@ -341,7 +342,6 @@ class BuzzLaunchConfig:
         default_command, default_args, default_mcp = _BUZZ_RUNTIME_COMMANDS[runtime]
         env = {
             "BUZZ_RELAY_URL": self.relay_url,
-            "BUZZ_MANAGED_AGENT_START_NONCE": uuid4().hex,
             "BUZZ_ACP_AGENT_COMMAND": default_command,
             "BUZZ_ACP_AGENT_ARGS": ",".join(default_args),
             "BUZZ_ACP_MCP_COMMAND": default_mcp,

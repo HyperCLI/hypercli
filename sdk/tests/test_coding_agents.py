@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -488,37 +487,9 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["HYPER_API_KEY"] == "inference-key"
     assert "CLAUDE_CODE_EXECUTABLE" not in posted["env"]
     assert "BUZZ_MANAGED_AGENT" not in posted["env"]
-    nonce_rule = _BUZZ_GOLDEN["dynamic_env"]["BUZZ_MANAGED_AGENT_START_NONCE"]
-    start_nonce = posted["env"]["BUZZ_MANAGED_AGENT_START_NONCE"]
-    assert nonce_rule == {
-        "format": "lowercase-hex",
-        "length": 32,
-        "fresh_per_launch": True,
-    }
-    assert len(start_nonce) == nonce_rule["length"]
-    assert re.fullmatch(r"[0-9a-f]+", start_nonce)
-    assert start_nonce != "forged"
-
-
-def test_typed_buzz_launch_mints_a_fresh_lifecycle_nonce():
-    deployments = Deployments(_HTTP())
-    posted: list[dict] = []
-
-    def fake_post(_path, json=None):
-        posted.append(json or {})
-        return _agent_payload("opencode")
-
-    deployments._post = fake_post
-    buzz = BuzzLaunchConfig(
-        private_key_nsec="nsec1test",
-        relay_url="wss://buzz.example.test",
-    )
-    deployments.create_opencode(buzz=buzz)
-    deployments.create_opencode(buzz=buzz)
-
-    first = posted[0]["env"]["BUZZ_MANAGED_AGENT_START_NONCE"]
-    second = posted[1]["env"]["BUZZ_MANAGED_AGENT_START_NONCE"]
-    assert first != second
+    # The SDK no longer mints a start nonce; caller-supplied values are
+    # still stripped so users cannot inject the reserved key.
+    assert "BUZZ_MANAGED_AGENT_START_NONCE" not in posted["env"]
 
 
 def test_typed_buzz_launch_uses_safe_default_acp_logging():

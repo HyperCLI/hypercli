@@ -43,11 +43,6 @@ const buzzGolden = JSON.parse(readFileSync(
   'utf8',
 )) as {
   runtime_scopes: string[];
-  dynamic_env: Record<string, {
-    format: string;
-    length: number;
-    fresh_per_launch: boolean;
-  }>;
   common: Record<string, unknown>;
   runtimes: Record<string, {
     sync_include: string[];
@@ -390,41 +385,13 @@ describe('coding agents', () => {
     });
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
     expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
+    // The SDK no longer mints a start nonce; caller-supplied values are
+    // still stripped so users cannot inject the reserved key.
+    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE).toBeUndefined();
     expect(post.mock.calls[0][1].secrets).toEqual({
       BUZZ_PRIVATE_KEY: 'nsec1test',
       NOSTR_PRIVATE_KEY: 'nsec1test',
     });
-    expect(buzzGolden.dynamic_env.BUZZ_MANAGED_AGENT_START_NONCE).toEqual({
-      format: 'lowercase-hex',
-      length: 32,
-      fresh_per_launch: true,
-    });
-    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE).toMatch(
-      new RegExp(`^[0-9a-f]{${buzzGolden.dynamic_env.BUZZ_MANAGED_AGENT_START_NONCE.length}}$`),
-    );
-    expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE).not.toBe('forged');
-  });
-
-  it('mints a fresh lifecycle nonce for each typed Buzz launch attempt', async () => {
-    const post = vi.fn().mockResolvedValue(response('opencode'));
-    const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
-      'hyper_api_test',
-      'https://api.test.hypercli.com/agents',
-    );
-    const buzz = {
-      privateKeyNsec: 'nsec1test',
-      relayUrl: 'wss://buzz.example.test',
-    };
-
-    await deployments.createOpenCode({ buzz });
-    await deployments.createOpenCode({ buzz });
-
-    const first = post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT_START_NONCE;
-    const second = post.mock.calls[1][1].env.BUZZ_MANAGED_AGENT_START_NONCE;
-    expect(first).toMatch(/^[0-9a-f]{32}$/);
-    expect(second).toMatch(/^[0-9a-f]{32}$/);
-    expect(first).not.toBe(second);
   });
 
   it('uses a safe default ACP log filter for typed Buzz launches', async () => {
