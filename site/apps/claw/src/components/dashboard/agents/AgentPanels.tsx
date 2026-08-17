@@ -21,7 +21,7 @@ import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationIte
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient, createBrowserHyperCLIClient, waitForCreatedAgentStopped } from "@/lib/agent-client";
+import { createAgentClient, createBrowserHyperCLIClient, hostedSlackLaunchEnv, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
@@ -622,6 +622,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const OPENCLAW_GATEWAY_TOKEN_ENV = "OPENCLAW_GATEWAY_TOKEN";
+const SLACK_APP_ENABLED_ENV = "HYPER_SLACK_APP_ENABLED";
+const RESERVED_SLACK_LAUNCH_ENV_KEYS = new Set([
+  SLACK_APP_ENABLED_ENV,
+  "HYPER_SLACK_RELAY_URL",
+  "HYPER_SLACK_API_URL",
+]);
 
 const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "HYPER_API_BASE",
@@ -716,7 +722,7 @@ function launchConfigEnv(agent: Agent | null): Record<string, string> {
 
 function additionalEnvTextFromAgent(agent: Agent | null): string {
   return Object.entries(launchConfigEnv(agent))
-    .filter(([key]) => !isManagedLaunchEnvKey(key))
+    .filter(([key]) => !isManagedLaunchEnvKey(key) && !RESERVED_SLACK_LAUNCH_ENV_KEYS.has(key))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
@@ -783,6 +789,9 @@ function parseAdditionalEnvText(value: string): Record<string, string> {
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
       throw new Error(`Additional env line ${index + 1} has an invalid key.`);
     }
+    if (RESERVED_SLACK_LAUNCH_ENV_KEYS.has(key)) {
+      throw new Error(`${key} is managed by the Slack setting and cannot be edited here.`);
+    }
     if (isManagedLaunchEnvKey(key)) {
       throw new Error(`${key} is managed by HyperCLI and cannot be edited here.`);
     }
@@ -797,6 +806,7 @@ function buildUpdatedLaunchConfig(
   additionalEnvText: string,
   managedHyperEnvText: string,
   desktopEnabled: boolean,
+  slackEnabled: boolean,
   workspacesSync: WorkspacesSyncSettings,
   workspacesSyncChanged: boolean,
   memoryIndex: MemoryIndexSettings | null = null,
@@ -838,6 +848,12 @@ function buildUpdatedLaunchConfig(
     ...buildOpenClawWorkspacesSyncEnv(workspaceOptions),
     ...parseAdditionalEnvText(additionalEnvText),
   };
+  for (const key of RESERVED_SLACK_LAUNCH_ENV_KEYS) delete launchEnv[key];
+  if (slackEnabled) {
+    const slackEnv = hostedSlackLaunchEnv();
+    if (!slackEnv) throw new Error("Slack is unavailable because the hosted relay is not configured.");
+    Object.assign(launchEnv, slackEnv);
+  }
   if (workspaceOptions.enabled) {
     launchEnv.HYPER_WORKSPACES_DIR = "/home/node/shared";
   } else {
@@ -872,6 +888,10 @@ function getDesktopEnabled(agent: Agent | null): boolean {
     return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, hasDesktopRoute || Boolean(agent?.hasDesktop));
   }
   return hasDesktopRoute || Boolean(agent?.hasDesktop);
+}
+
+function getSlackEnabled(agent: Agent | null): boolean {
+  return envBooleanFromString(launchConfigEnv(agent)[SLACK_APP_ENABLED_ENV], false);
 }
 
 function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings {
@@ -1161,6 +1181,8 @@ function AgentSectionSettingsContent({
   onManagedHyperEnvChange,
   desktopEnabled,
   onDesktopEnabledChange,
+  slackEnabled,
+  onSlackEnabledChange,
   workspacesSync,
   onWorkspacesSyncChange,
   modelDraft,
@@ -1206,6 +1228,8 @@ function AgentSectionSettingsContent({
   onManagedHyperEnvChange: (value: string) => void;
   desktopEnabled: boolean;
   onDesktopEnabledChange: (value: boolean) => void;
+  slackEnabled: boolean;
+  onSlackEnabledChange: (value: boolean) => void;
   workspacesSync: WorkspacesSyncSettings;
   onWorkspacesSyncChange: (settings: WorkspacesSyncSettings) => void;
   modelDraft: string;
@@ -1469,6 +1493,16 @@ function AgentSectionSettingsContent({
                 checked={desktopEnabled}
                 onCheckedChange={onDesktopEnabledChange}
                 aria-label="Enable desktop route"
+              />
+            </div>
+          </AgentProfileSettingsRow>
+
+          <AgentProfileSettingsRow label="Slack" description="Enable Slack for this agent when it starts.">
+            <div className="flex h-9 items-center justify-end">
+              <Switch
+                checked={slackEnabled}
+                onCheckedChange={onSlackEnabledChange}
+                aria-label="Enable Slack"
               />
             </div>
           </AgentProfileSettingsRow>
@@ -1875,6 +1909,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [managedHyperEnvDraft, setManagedHyperEnvDraft] = React.useState(() => managedHyperEnvTextFromAgent(agent));
   const [savedDesktopEnabled, setSavedDesktopEnabled] = React.useState(() => getDesktopEnabled(agent));
   const [desktopEnabledDraft, setDesktopEnabledDraft] = React.useState(() => getDesktopEnabled(agent));
+  const [savedSlackEnabled, setSavedSlackEnabled] = React.useState(() => getSlackEnabled(agent));
+  const [slackEnabledDraft, setSlackEnabledDraft] = React.useState(() => getSlackEnabled(agent));
   const [savedWorkspacesSyncDraft, setSavedWorkspacesSyncDraft] = React.useState(() => getWorkspacesSyncSettings(agent));
   const [workspacesSyncDraft, setWorkspacesSyncDraft] = React.useState(() => getWorkspacesSyncSettings(agent));
   const [savedArchiveDraft, setSavedArchiveDraft] = React.useState("not-configured");
@@ -1984,6 +2020,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const nextAdditionalEnv = additionalEnvTextFromAgent(agent);
     const nextManagedHyperEnv = managedHyperEnvTextFromAgent(agent);
     const nextDesktopEnabled = getDesktopEnabled(agent);
+    const nextSlackEnabled = getSlackEnabled(agent);
     const nextWorkspacesSync = getWorkspacesSyncSettings(agent);
     setAgentImageDraft((current) => agentChanged || current === savedAgentImage ? nextImage : current);
     setSavedAgentImage(nextImage);
@@ -1993,6 +2030,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setSavedManagedHyperEnvDraft(nextManagedHyperEnv);
     setDesktopEnabledDraft((current) => agentChanged || current === savedDesktopEnabled ? nextDesktopEnabled : current);
     setSavedDesktopEnabled(nextDesktopEnabled);
+    setSlackEnabledDraft((current) => agentChanged || current === savedSlackEnabled ? nextSlackEnabled : current);
+    setSavedSlackEnabled(nextSlackEnabled);
     setWorkspacesSyncDraft((current) => (
       agentChanged || workspacesSyncSettingsEqual(current, savedWorkspacesSyncDraft)
         ? nextWorkspacesSync
@@ -2009,7 +2048,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       setAgentSettingsSuccess(null);
       setConfirmImageChange(false);
     }
-  }, [agent, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedManagedHyperEnvDraft, savedWorkspacesSyncDraft]);
+  }, [agent, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedManagedHyperEnvDraft, savedSlackEnabled, savedWorkspacesSyncDraft]);
 
   React.useEffect(() => {
     const nextModel = getOpenClawDefaultModel(openclawConfig);
@@ -2047,11 +2086,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     || agentAvatarChanged
     || archiveDraft !== savedArchiveDraft;
   const desktopChanged = desktopEnabledDraft !== savedDesktopEnabled;
+  const slackChanged = slackEnabledDraft !== savedSlackEnabled;
   const workspacesSyncChanged = !workspacesSyncSettingsEqual(workspacesSyncDraft, savedWorkspacesSyncDraft);
   const agentLaunchChanged = agentImageDraft !== savedAgentImage
     || additionalEnvDraft !== savedAdditionalEnvDraft
     || managedHyperEnvDraft !== savedManagedHyperEnvDraft
     || desktopChanged
+    || slackChanged
     || workspacesSyncChanged;
   const modelChanged = modelDraft !== savedModelDraft;
   const memoryIndexChanged = !memoryIndexSettingsEqual(memoryIndexDraft, savedMemoryIndexDraft);
@@ -2076,13 +2117,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAdditionalEnvDraft(savedAdditionalEnvDraft);
     setManagedHyperEnvDraft(savedManagedHyperEnvDraft);
     setDesktopEnabledDraft(savedDesktopEnabled);
+    setSlackEnabledDraft(savedSlackEnabled);
     setWorkspacesSyncDraft(savedWorkspacesSyncDraft);
     setArchiveDraft(savedArchiveDraft);
     setModelDraft(savedModelDraft);
     setMemoryIndexDraft(savedMemoryIndexDraft);
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
-  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedManagedHyperEnvDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedWorkspacesSyncDraft]);
+  }, [savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedArchiveDraft, savedDesktopEnabled, savedManagedHyperEnvDraft, savedMemoryIndexDraft, savedModelDraft, savedProfileAvatar, savedProfileName, savedSlackEnabled, savedWorkspacesSyncDraft]);
 
   const saveProfileChanges = React.useCallback(async (removeConfiguredChannels = false) => {
     setProfileError(null);
@@ -2294,7 +2336,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         await onSaveOpenClawConfig({ channels: null });
       }
 
-      if ((agentImageChanged || additionalEnvChanged || managedHyperEnvChanged || desktopChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
+      if ((agentImageChanged || additionalEnvChanged || managedHyperEnvChanged || desktopChanged || slackChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
         savingSection = "agent";
         await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(
           agent,
@@ -2302,6 +2344,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           additionalEnvDraft,
           managedHyperEnvDraft,
           desktopEnabledDraft,
+          slackEnabledDraft,
           workspacesSyncDraft,
           workspacesSyncChanged,
           memoryIndexChanged ? memoryIndexDraft : null,
@@ -2311,6 +2354,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setSavedAdditionalEnvDraft(additionalEnvDraft);
         setSavedManagedHyperEnvDraft(managedHyperEnvDraft);
         setSavedDesktopEnabled(desktopEnabledDraft);
+        setSavedSlackEnabled(slackEnabledDraft);
         const savedWorkspacesSync = workspacesSyncChanged
           ? workspacesSyncDraft
           : workspacesSyncSettingsFromManagedEnv(managedHyperEnvDraft, workspacesSyncDraft);
@@ -2392,6 +2436,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     savedAgentDisplayName,
     savedAgentImage,
     savedAgentName,
+    slackChanged,
+    slackEnabledDraft,
     savedProfileAvatar,
     workspacesSyncChanged,
     workspacesSyncDraft,
@@ -2522,6 +2568,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onManagedHyperEnvChange={setManagedHyperEnvDraft}
             desktopEnabled={desktopEnabledDraft}
             onDesktopEnabledChange={setDesktopEnabledDraft}
+            slackEnabled={slackEnabledDraft}
+            onSlackEnabledChange={setSlackEnabledDraft}
             workspacesSync={workspacesSyncDraft}
             onWorkspacesSyncChange={setWorkspacesSyncDraft}
             modelDraft={modelDraft}

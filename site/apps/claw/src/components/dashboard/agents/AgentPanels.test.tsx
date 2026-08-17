@@ -144,6 +144,11 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
 vi.mock("@/lib/agent-client", () => ({
   createAgentClient: agentClientMocks.createAgentClient,
   waitForCreatedAgentStopped: agentClientMocks.waitForCreatedAgentStopped,
+  hostedSlackLaunchEnv: vi.fn(() => ({
+    HYPER_SLACK_APP_ENABLED: "1",
+    HYPER_SLACK_RELAY_URL: "wss://api.hypercli.com/slack/ws",
+    HYPER_SLACK_API_URL: "https://api.hypercli.com/slack/api/",
+  })),
   createBrowserHyperCLIClient: vi.fn(() => ({
     user: {
       get: sdkMocks.userGet,
@@ -1880,6 +1885,88 @@ describe("AgentSettingsPanel", () => {
     expect(savedLaunchConfig).not.toHaveProperty("workspacesSync");
     expect(savedLaunchConfig?.env).not.toHaveProperty("OPENCLAW_GATEWAY_TOKEN");
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("enables Slack with canonical hosted relay environment values", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async (
+      _agentId: string,
+      _launchConfig: Record<string, unknown>,
+    ) => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const slackSwitch = screen.getByRole("switch", { name: "Enable Slack" });
+    expect(slackSwitch).not.toBeChecked();
+
+    fireEvent.click(slackSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
+        env: expect.objectContaining({
+          HYPER_SLACK_APP_ENABLED: "1",
+          HYPER_SLACK_RELAY_URL: "wss://api.hypercli.com/slack/ws",
+          HYPER_SLACK_API_URL: "https://api.hypercli.com/slack/api/",
+        }),
+      }));
+    });
+  });
+
+  it("hides and removes hosted Slack environment values when Slack is disabled", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async (
+      _agentId: string,
+      _launchConfig: Record<string, unknown>,
+    ) => undefined);
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        launchConfig: {
+          ...agent.launchConfig,
+          env: {
+            ...(agent.launchConfig?.env as Record<string, string>),
+            HYPER_SLACK_APP_ENABLED: "1",
+            HYPER_SLACK_RELAY_URL: "wss://old.example.test/slack/ws",
+            HYPER_SLACK_API_URL: "https://old.example.test/slack/api/",
+          },
+        },
+      },
+      onUpdateAgentLaunchConfig,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("textbox", { name: "Additional env" })).not.toHaveValue(
+      expect.stringContaining("HYPER_SLACK_"),
+    );
+    const slackSwitch = screen.getByRole("switch", { name: "Enable Slack" });
+    expect(slackSwitch).toBeChecked();
+
+    fireEvent.click(slackSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onUpdateAgentLaunchConfig).toHaveBeenCalledOnce());
+    const savedLaunchConfig = onUpdateAgentLaunchConfig.mock.calls[0]?.[1];
+    expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_APP_ENABLED");
+    expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_RELAY_URL");
+    expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_API_URL");
+  });
+
+  it("rejects manual overrides of hosted Slack environment values", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async (
+      _agentId: string,
+      _launchConfig: Record<string, unknown>,
+    ) => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Additional env" }), {
+      target: { value: "HYPER_SLACK_RELAY_URL=wss://unsafe.example.test/ws" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText(
+      "HYPER_SLACK_RELAY_URL is managed by the Slack setting and cannot be edited here.",
+    )).toBeInTheDocument();
+    expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
   });
 
   it("removes configured channels before saving a changed Docker image", async () => {

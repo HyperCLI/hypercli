@@ -40,6 +40,15 @@ const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
+export function hostedSlackLaunchEnv(relayUrl?: string): Record<string, string> | null {
+  if (!SLACK_RELAY_BASE_URL) return null;
+  return {
+    HYPER_SLACK_APP_ENABLED: "1",
+    HYPER_SLACK_RELAY_URL: relayUrl || buildSlackRelayWebSocketUrl(SLACK_RELAY_BASE_URL),
+    HYPER_SLACK_API_URL: buildSlackRelayApiUrl(SLACK_RELAY_BASE_URL),
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -252,6 +261,8 @@ function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions>(opt
   const relayUrl = typeof relay.url === "string" && relay.url.trim()
     ? relay.url
     : buildSlackRelayWebSocketUrl(SLACK_RELAY_BASE_URL);
+  const slackEnv = hostedSlackLaunchEnv(relayUrl);
+  if (!slackEnv) return options;
   relay.url = relayUrl;
   relay.authToken = isRecord(relay.authToken) ? relay.authToken : openClawSecretEnvRef("HYPER_AGENTS_API_KEY");
 
@@ -271,9 +282,7 @@ function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions>(opt
     config,
     env: {
       ...(options.env ?? {}),
-      HYPER_SLACK_APP_ENABLED: "1",
-      HYPER_SLACK_RELAY_URL: relayUrl,
-      HYPER_SLACK_API_URL: buildSlackRelayApiUrl(SLACK_RELAY_BASE_URL),
+      ...slackEnv,
     },
   } as T;
 }
