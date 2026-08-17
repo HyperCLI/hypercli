@@ -558,7 +558,10 @@ File paths are relative to the Agent's configured `syncRoot`.
 `filesList("")` lists that root, including dot-directories such as
 `.openclaw`; absolute paths and `..` traversal are rejected. Every operation
 mints a fresh short-lived token and calls the Agent's HTTPS Reef endpoint
-directly; tokens are not cached and redirects are rejected.
+directly; tokens are not cached and redirects are rejected. Per-file writes
+are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the Cloudflare edge
+request-body cap on the agent hostname); split larger data across files or
+sync it via the agent's own tooling.
 
 Metrics and exec each mint a fresh short-lived credential, connect to the
 Backend `/ws/metrics/{agent_id}` or `/ws/exec/{agent_id}` surface, receive one

@@ -131,6 +131,11 @@ DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
 DEFAULT_HERMES_AGENT_SYNC_ROOT = "/opt/data"
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
+# Reef file writes traverse the Cloudflare-proxied agent hostname
+# (https://<agent>.hypercli.app/_reef/...), whose edge rejects request bodies
+# above 100 MB. Enforced client-side so oversized writes fail fast with a
+# clear error instead of an opaque edge ``413 Payload Too Large``.
+AGENT_FILE_WRITE_MAX_BYTES = 100 * 1024 * 1024
 AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
 AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
 AGENT_EXEC_OUTPUT_MAX_BYTES = 1_048_576
@@ -4642,13 +4647,22 @@ class Deployments:
         return self.file_read_bytes(pod, path).decode(errors="replace")
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
-        """Write bytes directly to a sync-root-relative path through Reef."""
+        """Write bytes directly to a sync-root-relative path through Reef.
+
+        Per-file writes are limited to 100 MiB (``AGENT_FILE_WRITE_MAX_BYTES``,
+        the Cloudflare edge request-body cap on the agent hostname). Larger
+        data should be split across files or synced via the agent's own
+        tooling.
+        """
         path = normalize_writable_backend_file_path(path)
         if not path:
             raise ValueError("agent file path is required")
-        if len(content) > AGENT_FILE_MAX_BYTES:
+        if len(content) > AGENT_FILE_WRITE_MAX_BYTES:
             raise ValueError(
-                f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB"
+                "Agent file writes are limited to "
+                f"{AGENT_FILE_WRITE_MAX_BYTES // 1024 // 1024} MiB "
+                "(Cloudflare request-body cap on the agent hostname); "
+                "split larger data or sync it via the agent's own tooling"
             )
         agent_id = self._agent_id_for_target(pod)
         reef_url, token = self._reef_file_access(agent_id)
@@ -4664,7 +4678,10 @@ class Deployments:
         return resp.json()
 
     def file_write(self, pod: Agent | str, path: str, content: str) -> dict:
-        """Write a UTF-8 text file to an agent."""
+        """Write a UTF-8 text file to an agent.
+
+        Subject to the 100 MiB per-file write limit; see ``file_write_bytes``.
+        """
         return self.file_write_bytes(pod, path, content.encode())
 
     def file_delete(
@@ -4691,7 +4708,10 @@ class Deployments:
         return resp.json()
 
     def cp_to(self, pod: Agent | str, local_path: str | Path, remote_path: str) -> dict:
-        """Copy a local file to an agent."""
+        """Copy a local file to an agent.
+
+        Subject to the 100 MiB per-file write limit; see ``file_write_bytes``.
+        """
         source = Path(local_path)
         return self.file_write_bytes(pod, remote_path, source.read_bytes())
 

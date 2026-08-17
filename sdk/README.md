@@ -132,6 +132,9 @@ filesystem deletes are not propagated, and remote-to-PVC copying occurs only
 during explicit cold restore. Each SDK file operation obtains a fresh
 files-scoped credential from Backend, then lists, reads, writes, or deletes
 directly against the retained Reef server; Backend never carries file bytes.
+Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the
+Cloudflare edge request-body cap on the agent hostname); split larger data
+across files or sync it via the agent's own tooling.
 File paths are relative to `sync_root`, and
 `files_list("")` lists the complete root, including dot-directories. The
 OpenClaw helpers add routes, image,

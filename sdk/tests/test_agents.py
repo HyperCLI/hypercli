@@ -18,6 +18,7 @@ from hypercli.agents import (
     CANONICAL_AGENT_STATES,
     AGENT_FILE_MAX_BYTES,
     AGENT_FILE_OPERATION_TIMEOUT_SECONDS,
+    AGENT_FILE_WRITE_MAX_BYTES,
     AGENT_FILE_TRANSFER_CHUNK_BYTES,
     AGENTS_API_PREFIX,
     Agent,
@@ -2529,10 +2530,15 @@ def test_agents_file_list_rejects_redirects(agents_client, status_code):
 
 
 def test_agent_file_write_rejects_content_above_sdk_limit(agents_client):
-    with pytest.raises(ValueError, match="250 MiB"):
-        agents_client.file_write_bytes(
-            "agent-123", "too-large.bin", b"x" * (AGENT_FILE_MAX_BYTES + 1)
-        )
+    # Cloudflare's edge caps request bodies on the agent hostname at 100 MB,
+    # so writes must fail fast client-side before any HTTP traffic.
+    assert AGENT_FILE_WRITE_MAX_BYTES == 100 * 1024 * 1024
+    with patch("hypercli.agents.httpx.Client") as mock_client_class:
+        with pytest.raises(ValueError, match="100 MiB"):
+            agents_client.file_write_bytes(
+                "agent-123", "too-large.bin", b"x" * (AGENT_FILE_WRITE_MAX_BYTES + 1)
+            )
+    mock_client_class.assert_not_called()
 
 
 def test_agents_list(agents_client):

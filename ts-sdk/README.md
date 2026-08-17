@@ -158,7 +158,10 @@ Steady Reef synchronization is PVC-to-object-storage upload/overwrite, not a
 two-way mirror: ordinary filesystem deletes are not propagated, and
 remote-to-PVC copying occurs only during explicit cold restore. Files API
 operations obtain a fresh files-scoped credential from Backend and then call
-the retained Reef server directly; Backend never carries file bytes. File
+the retained Reef server directly; Backend never carries file bytes.
+Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the
+Cloudflare edge request-body cap on the agent hostname); split larger data
+across files or sync it via the agent's own tooling. File
 paths are relative to `syncRoot`, and `filesList("")` lists the complete root, including
 dot-directories. The OpenClaw helpers add
 routes, image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by

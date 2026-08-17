@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AGENT_FILE_MAX_BYTES,
+  AGENT_FILE_WRITE_MAX_BYTES,
   AGENT_FILE_OPERATION_TIMEOUT_MS,
   AGENT_FILE_TRANSFER_CHUNK_BYTES,
   Agent,
@@ -1559,6 +1560,7 @@ describe('HyperClaw agents SDK', () => {
 
   it('file operations mint fresh credentials and use the direct Reef API', async () => {
     expect(AGENT_FILE_MAX_BYTES).toBe(250 * 1024 * 1024);
+    expect(AGENT_FILE_WRITE_MAX_BYTES).toBe(100 * 1024 * 1024);
     expect(AGENT_FILE_TRANSFER_CHUNK_BYTES).toBe(64 * 1024);
     expect(AGENT_FILE_OPERATION_TIMEOUT_MS).toBe(300_000);
 
@@ -1653,13 +1655,36 @@ describe('HyperClaw agents SDK', () => {
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
     await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
     await expect(
-      agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_MAX_BYTES + 1)),
-    ).rejects.toThrow('250 MiB');
+      agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_WRITE_MAX_BYTES + 1)),
+    ).rejects.toThrow('100 MiB');
     await expect(agents.filesList('agent-1', '/')).rejects.toThrow('sync root');
     await expect(agents.fileWrite('agent-1', '/etc/hosts', 'blocked')).rejects.toThrow('sync root');
     await expect(agents.fileDelete('agent-1', '/etc/hosts')).rejects.toThrow('sync root');
     expect(post).toHaveBeenCalledTimes(7);
     expect(post).toHaveBeenCalledWith('/deployments/agent-1/files/token');
     expect(fetchMock.mock.calls.every(([url]) => !String(url).includes('/deployments/'))).toBe(true);
+  });
+
+  it('oversized file writes fail fast before any HTTP traffic', async () => {
+    // Cloudflare's edge caps request bodies on the agent hostname at 100 MB,
+    // so the SDK must reject oversized writes without minting a token or
+    // touching the network.
+    const fetchMock = vi.fn(async () => {
+      throw new Error('fetch must not be called for oversized writes');
+    });
+    vi.stubGlobal('fetch', fetchMock as any);
+    const post = vi.fn();
+
+    const agents = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await expect(
+      agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_WRITE_MAX_BYTES + 1)),
+    ).rejects.toThrow('Agent file writes are limited to 100 MiB');
+    expect(post).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

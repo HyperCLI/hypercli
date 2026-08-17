@@ -158,6 +158,12 @@ fn encode_path_key(key: &str) -> String {
         .replace('+', "%20")
 }
 
+/// Reef file writes traverse the Cloudflare-proxied agent hostname
+/// (`https://<agent>.hypercli.app/_reef/...`), whose edge rejects request
+/// bodies above 100 MB. Enforced client-side so oversized writes fail fast
+/// with a clear error instead of an opaque edge `413 Payload Too Large`.
+pub const AGENT_FILE_WRITE_MAX_BYTES: usize = 100 * 1024 * 1024;
+
 fn reef_file_url(token: &FileToken, path: &str) -> Result<(Url, String), HyperCliError> {
     let path = path.replace('\\', "/");
     if path.is_empty()
@@ -1010,12 +1016,23 @@ impl HyperCliClient {
     /// Write a file through the managed agent file API without placing its
     /// content in argv, query strings, or HTTP traces. Paths are deliberately
     /// restricted to simple workspace-relative segments and always use Reef.
+    ///
+    /// Per-file writes are limited to 100 MiB
+    /// ([`AGENT_FILE_WRITE_MAX_BYTES`], the Cloudflare edge request-body cap
+    /// on the agent hostname). Larger data should be split across files or
+    /// synced via the agent's own tooling.
     pub fn put_deployment_file(
         &self,
         deployment_id: &str,
         path: &str,
         content: &[u8],
     ) -> Result<DeploymentFileWriteResponse, HyperCliError> {
+        if content.len() > AGENT_FILE_WRITE_MAX_BYTES {
+            return Err(HyperCliError::InvalidResponse(format!(
+                "agent file writes are limited to {} MiB (Cloudflare request-body cap on the agent hostname); split larger data or sync it via the agent's own tooling",
+                AGENT_FILE_WRITE_MAX_BYTES / 1024 / 1024
+            )));
+        }
         let token: FileToken = self.send_json(
             "deployment_file_token",
             "POST",
@@ -3548,6 +3565,28 @@ mod tests {
             };
             assert!(reef_file_url(&invalid_token, "workspace/a.txt").is_err());
         }
+    }
+
+    #[test]
+    fn deployment_file_write_rejects_oversized_content_before_any_http() {
+        // Cloudflare's edge caps request bodies on the agent hostname at
+        // 100 MB, so oversized writes must fail fast without minting a token
+        // or sending any HTTP request.
+        let mut server = Server::new();
+        let token = server
+            .mock("POST", "/agents/deployments/deployment-1/files/token")
+            .expect(0)
+            .create();
+
+        let content = vec![0u8; AGENT_FILE_WRITE_MAX_BYTES + 1];
+        let error = client(&server)
+            .put_deployment_file("deployment-1", "workspace/too-large.bin", &content)
+            .unwrap_err();
+
+        assert!(error
+            .to_string()
+            .contains("agent file writes are limited to 100 MiB"));
+        token.assert();
     }
 
     #[test]

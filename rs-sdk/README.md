@@ -77,7 +77,10 @@ Transition events carry `agent_id` for local filtering plus `state`, `reason`, `
 
 Metrics and exec use short-lived token-scoped one-shot WebSockets. File writes
 mint `/files/token` access and PUT directly to the HTTPS Reef endpoint with
-sync-root-relative paths; redirects are rejected.
+sync-root-relative paths; redirects are rejected. Per-file writes are limited
+to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the Cloudflare edge request-body cap
+on the agent hostname); split larger data across files or sync it via the
+agent's own tooling.
 
 `Deployment.state` remains an open string so future server states continue to
 parse. Placement, runtime, and optional finalize epochs are

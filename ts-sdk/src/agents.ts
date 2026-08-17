@@ -251,6 +251,11 @@ export const DEFAULT_HERMES_AGENT_SYNC_ROOT = '/opt/data';
 export const DEFAULT_HERMES_AGENT_SYNC_UID = 10000;
 export const DEFAULT_HERMES_AGENT_SYNC_GID = 10000;
 export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
+// Reef file writes traverse the Cloudflare-proxied agent hostname
+// (https://<agent>.hypercli.app/_reef/...), whose edge rejects request bodies
+// above 100 MB. Enforced client-side so oversized writes fail fast with a
+// clear error instead of an opaque edge `413 Payload Too Large`.
+export const AGENT_FILE_WRITE_MAX_BYTES = 100 * 1024 * 1024;
 export const AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024;
 export const AGENT_FILE_OPERATION_TIMEOUT_MS = 300_000;
 
@@ -5237,6 +5242,13 @@ export class Deployments {
     return decodeUtf8(await this.fileReadBytes(target, path, options));
   }
 
+  /**
+   * Write bytes directly to a sync-root-relative path through Reef.
+   *
+   * Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`,
+   * the Cloudflare edge request-body cap on the agent hostname). Larger data
+   * should be split across files or synced via the agent's own tooling.
+   */
   async fileWriteBytes(
     target: Agent | string,
     path: string,
@@ -5246,8 +5258,12 @@ export class Deployments {
     if (!path) throw new Error('agent file path is required');
     const encodedPath = encodeFilePath(path);
     const bytes = toUint8Array(content);
-    if (bytes.byteLength > AGENT_FILE_MAX_BYTES) {
-      throw new Error(`Agent file writes are limited to ${AGENT_FILE_MAX_BYTES / 1024 / 1024} MiB`);
+    if (bytes.byteLength > AGENT_FILE_WRITE_MAX_BYTES) {
+      throw new Error(
+        `Agent file writes are limited to ${AGENT_FILE_WRITE_MAX_BYTES / 1024 / 1024} MiB `
+        + '(Cloudflare request-body cap on the agent hostname); '
+        + 'split larger data or sync it via the agent\'s own tooling',
+      );
     }
     const agentId = await this.agentIdFor(target);
     const access = await this.reefFileAccess(agentId);
@@ -5259,6 +5275,11 @@ export class Deployments {
     return (await response.json()) as Record<string, any>;
   }
 
+  /**
+   * Write a UTF-8 text file to an agent.
+   *
+   * Subject to the 100 MiB per-file write limit; see `fileWriteBytes`.
+   */
   async fileWrite(target: Agent | string, path: string, content: string): Promise<Record<string, any>> {
     return this.fileWriteBytes(target, path, content);
   }
