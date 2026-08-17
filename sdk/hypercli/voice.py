@@ -65,20 +65,24 @@ class VoiceAPI:
         text: str,
         *,
         ref_audio: bytes | str | Path,
+        ref_text: str | None = None,
         language: str = "auto",
         x_vector_only: bool = True,
         response_format: str = "mp3",
         timeout: float | None = None,
     ) -> bytes:
+        payload = {
+            "text": text,
+            "ref_audio_base64": _encode_reference_audio(ref_audio),
+            "language": language,
+            "x_vector_only": x_vector_only,
+            "response_format": response_format,
+        }
+        if ref_text is not None:
+            payload["ref_text"] = ref_text
         return self._http.post_bytes(
             "/voice/clone",
-            json={
-                "text": text,
-                "ref_audio_base64": _encode_reference_audio(ref_audio),
-                "language": language,
-                "x_vector_only": x_vector_only,
-                "response_format": response_format,
-            },
+            json=payload,
             timeout=_resolve_voice_timeout(timeout),
         )
 

@@ -211,6 +211,7 @@ def tts(
 def clone(
     text: str = typer.Argument(..., help="Text to synthesize"),
     ref_audio: Path = typer.Option(..., "--ref", "-r", help="Reference audio file (wav/mp3/ogg)"),
+    ref_text: str = typer.Option(None, "--ref-text", help="Transcript of the reference audio (required with --full-clone)"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     x_vector_only: bool = typer.Option(True, "--x-vector-only/--full-clone", help="Use x_vector_only mode (recommended)"),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
@@ -233,6 +234,10 @@ def clone(
         console.print(f"[red]❌ Reference audio not found: {ref_audio}[/red]")
         raise typer.Exit(1)
 
+    if not x_vector_only and not ref_text:
+        console.print("[red]❌ --full-clone (ICL mode) requires --ref-text with the transcript of the reference audio.[/red]")
+        raise typer.Exit(1)
+
     console.print(f"[dim]Reference: {ref_audio} ({ref_audio.stat().st_size / 1024:.1f} KB)[/dim]")
     _post_voice(
         "clone",
@@ -241,6 +246,7 @@ def clone(
         base_url,
         text=text,
         ref_audio=ref_audio,
+        ref_text=ref_text,
         language=language,
         x_vector_only=x_vector_only,
         response_format=format,
