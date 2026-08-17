@@ -53,6 +53,53 @@ describe("agent starter files", () => {
     );
   });
 
+  it("retries transient storage route failures before uploading the next file", async () => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const writeFileBytes = vi.fn(async (_agentId: string, path: string) => {
+        events.push(path);
+        if (events.length === 1) throw new TypeError("Failed to fetch");
+        if (events.length === 2) throw Object.assign(new Error("Unavailable"), { statusCode: 503 });
+      });
+
+      const upload = stageAgentStarterFilesAndStart({
+        agentId: "agent-1",
+        files: [starterFile("AGENTS.md", "agents"), starterFile("SOUL.md", "soul")],
+        writeFileBytes,
+        startAgent: async (agentId) => {
+          events.push(`start:${agentId}`);
+        },
+      });
+      await vi.runAllTimersAsync();
+      await upload;
+
+      expect(events).toEqual([
+        ".openclaw/workspace/AGENTS.md",
+        ".openclaw/workspace/AGENTS.md",
+        ".openclaw/workspace/AGENTS.md",
+        ".openclaw/workspace/SOUL.md",
+        "start:agent-1",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not retry permanent starter file upload failures", async () => {
+    const error = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+    const writeFileBytes = vi.fn(async () => {
+      throw error;
+    });
+
+    await expect(uploadAgentStarterFiles({
+      agentId: "agent-1",
+      files: [starterFile("AGENTS.md", "agents")],
+      writeFileBytes,
+    })).rejects.toBe(error);
+    expect(writeFileBytes).toHaveBeenCalledOnce();
+  });
+
   it("stages every canonical file on the retained volume before starting the agent", async () => {
     const events: string[] = [];
     const files = [

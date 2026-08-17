@@ -26,6 +26,9 @@ test("agents launch helper accepts the current workspace empty state", () => {
 
 test("agents launch helper observes an authenticated gateway WebSocket connect", () => {
   expect(authFixtureSource).toContain("deployments.getRoutes(created.id)");
+  expect(authFixtureSource).toContain('activeRouteUrl(routes, "desktop", "Desktop")');
+  expect(authFixtureSource).toContain("buildBrowserDesktopUrl(desktopBaseUrl!, agentJwt!)");
+  expect(authFixtureSource).not.toContain("desktop-${agent.hostname}");
   expect(authFixtureSource).toContain('status?.dns_state ?? ""');
   expect(authFixtureSource).toContain("socketUrl !== expectedGatewaySocketUrl");
   expect(authFixtureSource).toContain('page.on("websocket", observeGatewaySocket)');
@@ -65,6 +68,7 @@ test("agents launch canary exercises the canonical lifecycle contract", () => {
   );
   expect(authFixtureSource).toContain("acceptedStart?.launchEpoch ?? acceptedStart?.launch_epoch");
   expect(authFixtureSource).toContain("waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch)");
+  expect(authFixtureSource).toContain("waitForBrowserAgentStartOrLaunchError(page, timeout)");
   expect(authFixtureSource).not.toContain('start: false');
   expect(subscriptionSpecSource).toContain("stopClawAgentAndWaitStopped(page, createdAgentId)");
   expect(authFixtureSource).toContain('["STOPPED"]');

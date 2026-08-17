@@ -5,7 +5,7 @@ import {
   waitForBrowserAgentStartOrLaunchError,
 } from "./fixtures/auth";
 
-test("starter upload 503 fails immediately without start and cleans the created Agent", async ({ page }) => {
+test("final starter upload failure prevents start and cleans the created Agent", async ({ page }) => {
   let startRequests = 0;
   page.on("request", (request) => {
     if (request.method() === "POST" && /\/agents\/deployments\/[^/]+\/start$/.test(new URL(request.url()).pathname)) {
@@ -19,6 +19,9 @@ test("starter upload 503 fails immediately without start and cleans the created 
       deleted.push(agentId);
       return {};
     },
+    get: async () => {
+      throw Object.assign(new Error("Not found"), { statusCode: 404 });
+    },
     stop: async () => ({}),
   };
   const created = { id: "agent-upload-failed", state: "STOPPED" };
@@ -27,7 +30,7 @@ test("starter upload 503 fails immediately without start and cleans the created 
 
   await page.setContent(`
     <div role="alert" data-testid="agent-error-banner">
-      Agent created, but starter files could not be uploaded: API Error 503: Reef sync file route unavailable
+      Agent created, but starter files could not be uploaded after retries: Reef sync file route unavailable
     </div>
   `);
 
@@ -35,7 +38,7 @@ test("starter upload 503 fails immediately without start and cleans the created 
     startOutcome,
     deployments as never,
     created,
-  )).rejects.toThrow("API Error 503: Reef sync file route unavailable");
+  )).rejects.toThrow("starter files could not be uploaded after retries");
 
   expect(Date.now() - startedAt).toBeLessThan(2_000);
   expect(startRequests).toBe(0);

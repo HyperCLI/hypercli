@@ -30,6 +30,51 @@ interface StageAgentStarterFilesAndStartOptions extends UploadAgentStarterFilesO
   startAgent: (agentId: string) => Promise<unknown>;
 }
 
+const STARTER_FILE_UPLOAD_RETRY_TIMEOUT_MS = 90_000;
+const STARTER_FILE_UPLOAD_RETRY_DELAYS_MS = [1_000, 2_000, 5_000] as const;
+const RETRYABLE_FILE_UPLOAD_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRetryableFileUploadError(error: unknown): boolean {
+  const statusCode = isRecord(error)
+    ? typeof error.statusCode === "number"
+      ? error.statusCode
+      : typeof error.status === "number"
+        ? error.status
+        : null
+    : null;
+  if (statusCode !== null) return RETRYABLE_FILE_UPLOAD_STATUS_CODES.has(statusCode);
+
+  const message = error instanceof Error ? error.message : String(error);
+  return error instanceof TypeError
+    && /failed to fetch|network(?:error| request failed)|load failed/i.test(message);
+}
+
+async function writeStarterFileWithRetry(
+  write: () => Promise<unknown>,
+): Promise<void> {
+  const startedAt = Date.now();
+  let retryIndex = 0;
+
+  while (true) {
+    try {
+      await write();
+      return;
+    } catch (error) {
+      if (!isRetryableFileUploadError(error)) throw error;
+      const delay = STARTER_FILE_UPLOAD_RETRY_DELAYS_MS[
+        Math.min(retryIndex, STARTER_FILE_UPLOAD_RETRY_DELAYS_MS.length - 1)
+      ];
+      if (Date.now() - startedAt + delay > STARTER_FILE_UPLOAD_RETRY_TIMEOUT_MS) throw error;
+      retryIndex += 1;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 function appendNameSuffix(name: string, suffix: number): string {
   const dotIndex = name.lastIndexOf(".");
   if (dotIndex <= 0 || dotIndex === name.length - 1) return `${name}-${suffix}`;
@@ -61,7 +106,8 @@ export async function uploadAgentStarterFiles({
   for (const file of files) {
     const name = uniqueStarterFileName(file.name, usedNames);
     const path = `${OPENCLAW_WORKSPACE_PREFIX}/${name}`;
-    await writeFileBytes(agentId, path, await file.arrayBuffer());
+    const content = await file.arrayBuffer();
+    await writeStarterFileWithRetry(() => writeFileBytes(agentId, path, content));
     uploaded.push({
       originalName: file.name,
       name,

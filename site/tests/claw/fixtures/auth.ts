@@ -42,6 +42,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildBrowserDesktopUrl(desktopBaseUrl: string, token: string): string {
+  const url = new URL("/_jwt_auth", desktopBaseUrl);
+  url.searchParams.set("jwt", token);
+  url.searchParams.set("redirect", "vnc.html?resize=scale");
+  return url.toString();
+}
+
 function logWaitStart(label: string): number {
   const startedAt = Date.now();
   console.log(`[wait:start] ${label}`);
@@ -155,6 +162,7 @@ interface DeploymentRecord {
 }
 
 interface DeploymentRoutesState {
+  routes: Record<string, Record<string, unknown>>;
   routeStatuses: Record<string, Record<string, unknown>>;
 }
 
@@ -1670,8 +1678,12 @@ export async function launchClawAgentAndWaitForGateway(
   const deployments = await getDeploymentsClient(token);
   const enableDesktop = options.enableDesktop ?? true;
 
-  const activeOpenClawRouteUrl = (routes: DeploymentRoutesState): string | null => {
-    const status = routes.routeStatuses.openclaw;
+  const activeRouteUrl = (
+    routes: DeploymentRoutesState,
+    routeName: string,
+    displayName: string,
+  ): string | null => {
+    const status = routes.routeStatuses[routeName];
     if (String(status?.dns_state ?? "").trim().toLowerCase() !== "active") return null;
     const rawUrl = String(status?.url ?? "").trim();
     if (!rawUrl) return null;
@@ -1679,13 +1691,16 @@ export async function launchClawAgentAndWaitForGateway(
     if (parsed.protocol === "ws:") parsed.protocol = "http:";
     else if (parsed.protocol === "wss:") parsed.protocol = "https:";
     else if (!["http:", "https:"].includes(parsed.protocol)) {
-      throw new Error("OpenClaw route status must use HTTP(S) or WS(S)");
+      throw new Error(`${displayName} route status must use HTTP(S) or WS(S)`);
     }
     if (!parsed.hostname || parsed.username || parsed.password || parsed.hash) {
-      throw new Error("OpenClaw route status contains an invalid public URL");
+      throw new Error(`${displayName} route status contains an invalid public URL`);
     }
     return parsed.toString().replace(/\/$/, "");
   };
+  const activeOpenClawRouteUrl = (routes: DeploymentRoutesState): string | null => (
+    activeRouteUrl(routes, "openclaw", "OpenClaw")
+  );
 
   const gatewaySocketUrl = (httpUrl: string): string => {
     const parsed = new URL(httpUrl);
@@ -1693,16 +1708,44 @@ export async function launchClawAgentAndWaitForGateway(
     return parsed.toString().replace(/\/$/, "");
   };
 
-  const verifyDesktopAuthRoute = async (agent: DeploymentRecord): Promise<void> => {
-    if (!agent.hostname || !agent.routes || !Object.prototype.hasOwnProperty.call(agent.routes, "desktop")) {
-      return;
-    }
+  const verifyDesktopAuthRoute = async (
+    agent: DeploymentRecord,
+    expectedLaunchEpoch: number,
+  ): Promise<void> => {
+    let desktopBaseUrl: string | null = null;
+
+    await expect
+      .poll(
+        async () => {
+          const latest = await deployments.get(agent.id);
+          const latestLaunchEpoch = Number(latest.launchEpoch ?? latest.launch_epoch ?? 0);
+          const routes = await deployments.getRoutes(agent.id);
+          const status = routes.routeStatuses.desktop;
+          const diagnostic = {
+            state: latest.state ?? "unknown",
+            launchEpoch: latestLaunchEpoch,
+            configured: Object.prototype.hasOwnProperty.call(routes.routes, "desktop"),
+            dnsState: status?.dns_state ?? null,
+            lastError: status?.last_error ?? null,
+          };
+          if (latest.state !== "RUNNING" || latestLaunchEpoch !== expectedLaunchEpoch) {
+            return JSON.stringify(diagnostic);
+          }
+          if (!diagnostic.configured) return JSON.stringify(diagnostic);
+          desktopBaseUrl = activeRouteUrl(routes, "desktop", "Desktop");
+          return desktopBaseUrl ? "active" : JSON.stringify(diagnostic);
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] },
+      )
+      .toBe("active");
+
+    expect(desktopBaseUrl, "expected RUNNING agent to have an active desktop route").toBeTruthy();
 
     const tokenData = await deployments.refreshToken(agent.id);
     const agentJwt = tokenData.token?.trim();
     expect(agentJwt, "expected agent desktop access JWT").toBeTruthy();
 
-    const desktopAuthUrl = `https://desktop-${agent.hostname}/_jwt_auth?jwt=${encodeURIComponent(agentJwt!)}`;
+    const desktopAuthUrl = buildBrowserDesktopUrl(desktopBaseUrl!, agentJwt!);
     console.log(`[agents-desktop] probing ${new URL(desktopAuthUrl).origin}/_jwt_auth?jwt=<redacted>`);
 
     await expect
@@ -1933,7 +1976,7 @@ export async function launchClawAgentAndWaitForGateway(
         createResponseError = error instanceof Error ? error.message : String(error);
       }) : Promise.resolve();
     const startResponseSettled: Promise<DeploymentRecord> | null = watchBrowserCreateResponse
-      ? waitForBrowserAgentStartOrLaunchError(page)
+      ? waitForBrowserAgentStartOrLaunchError(page, timeout)
       : null;
     let launchSubmitted = false;
     try {
@@ -2036,7 +2079,7 @@ export async function launchClawAgentAndWaitForGateway(
         }, { timeout, intervals: [1_000, 2_000, 5_000] }).toBe(true);
       }
       expect(gatewayHttpUrl, "expected RUNNING agent to have an active OpenClaw route").toBeTruthy();
-      await verifyDesktopAuthRoute(running);
+      if (enableDesktop) await verifyDesktopAuthRoute(running, acceptedLaunchEpoch);
       await waitForGatewayRoute(gatewayHttpUrl!);
       const expectedGatewaySocketUrl = gatewaySocketUrl(gatewayHttpUrl!);
 
