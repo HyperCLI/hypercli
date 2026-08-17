@@ -619,7 +619,13 @@ def test_codex_auth_methods_merge_acp_and_native_device_login():
     assert [method.id for method in methods] == ["api-key", "device"]
     assert methods[1].command == ("codex", "login", "--device-auth")
     command = agent._deployments.exec.call_args.args[1]
-    assert command == "buzz-acp auth-methods --agent-command codex-acp --json"
+    assert command == [
+        "buzz-acp",
+        "auth-methods",
+        "--agent-command",
+        "codex-acp",
+        "--json",
+    ]
 
 
 def test_claude_auth_methods_honor_adapter_terminal_metadata():
