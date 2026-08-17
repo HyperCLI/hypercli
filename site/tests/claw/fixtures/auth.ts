@@ -1129,7 +1129,11 @@ export async function waitForBrowserAgentStartOrLaunchError(
       if (!response.ok()) {
         throw new Error(`Agent start request failed with ${response.status()}: ${await responseFailureDetail(response)}`);
       }
-      expect(response.request().postDataJSON()).toEqual({});
+      // START requires one complete replacement launch_config; the SDK
+      // rebuilds it from the stored projection when the app omits it.
+      expect(response.request().postDataJSON()).toEqual(
+        expect.objectContaining({ launch_config: expect.objectContaining({ image: expect.any(String) }) })
+      );
       return (await response.json()) as DeploymentRecord;
     })
     .then(
@@ -1297,18 +1301,36 @@ export async function completeStripeCheckout(
       ]);
   await expect(stripeSubmitButton).toBeVisible({ timeout: 15_000 });
   console.log(`Stripe submit button text: ${(await stripeSubmitButton.textContent())?.trim() || "<empty>"}`);
-  await stripeSubmitButton.click();
-  await captureStep(page, "console-05e-stripe-submit-clicked");
 
-  {
-    const startedAt = logWaitStart("stripe exit redirect");
-    await expect
-      .poll(() => page.url(), { timeout: 60_000 })
-      .not.toMatch(stripeCheckoutPattern);
-    logWaitEnd("stripe exit redirect", startedAt);
+  // The app strips checkout/session_id params from the URL almost immediately
+  // after handling the Stripe return (history.replaceState), so sampling
+  // page.url() after the redirect poll races against that cleanup. Capture the
+  // first non-Stripe main-frame navigation instead — it still carries the query.
+  let firstReturnUrl: string | null = null;
+  const captureStripeReturn = (frame: Frame): void => {
+    if (frame !== page.mainFrame()) return;
+    const url = frame.url();
+    if (!url || url === "about:blank" || stripeCheckoutPattern.test(url)) return;
+    if (!firstReturnUrl) firstReturnUrl = url;
+  };
+  page.on("framenavigated", captureStripeReturn);
+
+  try {
+    await stripeSubmitButton.click();
+    await captureStep(page, "console-05e-stripe-submit-clicked");
+
+    {
+      const startedAt = logWaitStart("stripe exit redirect");
+      await expect
+        .poll(() => firstReturnUrl ?? page.url(), { timeout: 60_000 })
+        .not.toMatch(stripeCheckoutPattern);
+      logWaitEnd("stripe exit redirect", startedAt);
+    }
+  } finally {
+    page.off("framenavigated", captureStripeReturn);
   }
 
-  const redirectedUrl = page.url();
+  const redirectedUrl = firstReturnUrl ?? page.url();
   const redirectedHost = new URL(redirectedUrl).host.toLowerCase();
   if (
     redirectedHost === "console.dev.hypercli.com" ||

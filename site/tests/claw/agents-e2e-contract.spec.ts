@@ -60,7 +60,9 @@ test("agents subscription uses the isolated admin-bootstrap identity", () => {
 });
 
 test("agents launch canary exercises the canonical lifecycle contract", () => {
-  expect(authFixtureSource).toContain("expect(response.request().postDataJSON()).toEqual({})");
+  expect(authFixtureSource).toContain(
+    "expect.objectContaining({ launch_config: expect.objectContaining({ image: expect.any(String) }) })"
+  );
   expect(authFixtureSource).toContain("acceptedStart?.launchEpoch ?? acceptedStart?.launch_epoch");
   expect(authFixtureSource).toContain("waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch)");
   expect(authFixtureSource).not.toContain('start: false');

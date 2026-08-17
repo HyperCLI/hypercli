@@ -3349,7 +3349,9 @@ export class GatewayClient {
     if (!this.canAutoApprovePairing()) {
       throw new Error("autoApprovePairing requires deploymentId, apiKey, apiBase, and fetch()");
     }
-    const command = `openclaw devices approve ${quotePosixShellArgument(requestId)} --json`;
+    // The exec WebSocket takes one argv list (PublicExecRequest.command:
+    // list[str]); a shell string is rejected with 4400 "Invalid exec request".
+    const command = ["openclaw", "devices", "approve", requestId, "--json"];
     const controller = new AbortController();
     this.pairingApprovalController = controller;
     const timeout = setTimeout(() => {

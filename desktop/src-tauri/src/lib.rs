@@ -2633,9 +2633,11 @@ fn parse_ssh_status(stdout: &str) -> DesktopSshKeyStatus {
 fn fixed_agent_exec(
     client: &HyperCliClient,
     agent_id: &str,
-    command: &'static str,
+    script: &'static str,
 ) -> Result<DesktopSshKeyStatus, String> {
-    let mut request = ExecDeploymentRequest::new(command);
+    // Exec commands are exact argv lists end-to-end; the shell is named
+    // explicitly because these fixed scripts require one.
+    let mut request = ExecDeploymentRequest::new(["/bin/sh", "-c", script]);
     request.timeout = 30;
     let response = client
         .exec_deployment(agent_id, &request)
