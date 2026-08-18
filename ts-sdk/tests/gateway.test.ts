@@ -4541,9 +4541,16 @@ describe("GatewayClient", () => {
     const execFrame = JSON.parse(execSocket.sent[0] ?? "{}") as Record<string, unknown>;
     expect(execFrame.timeout).toBe(30);
     expect(execFrame.dry_run).toBe(false);
-    expect(execFrame.command).toBe(
-      "openclaw devices approve 'pairing-req-'\"'\"'$(touch /tmp/pwn)' --json",
-    );
+    // Exec is an exact argv list, so a request id carrying shell syntax travels
+    // as one literal argument and there is no shell to expand it. The old
+    // string form had to hand-quote this to stay safe.
+    expect(execFrame.command).toEqual([
+      "openclaw",
+      "devices",
+      "approve",
+      "pairing-req-'$(touch /tmp/pwn)",
+      "--json",
+    ]);
     execSocket.emit({
       event: "agent_exec_result",
       ok: true,
