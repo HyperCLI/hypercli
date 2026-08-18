@@ -4773,17 +4773,28 @@ export class Deployments {
     const failures = new Set(failureStates.map((state) => state.toLowerCase()));
     const effectivePollIntervalMs = Math.max(1, pollIntervalMs);
     const stateLabel = states.join(', ');
-    const refresh = async (): Promise<Agent | null> => {
+    let pendingFailureState: string | null = null;
+    const refresh = async (confirmFailure = false): Promise<Agent | null> => {
       const agent = await this.get(agentId);
       lastState = String(agent.state || '');
       if (
         minimumLaunchEpoch !== undefined
         && agent.launchEpoch < minimumLaunchEpoch
       ) return null;
-      if (desired.has(lastState.toLowerCase())) return agent;
-      if (failures.has(lastState.toLowerCase())) {
+      const normalizedState = lastState.toLowerCase();
+      if (desired.has(normalizedState)) return agent;
+      if (failures.has(normalizedState)) {
+        // Accepting a lifecycle request publishes the new launch epoch a beat
+        // before the state leaves the previous terminal value, so a single
+        // terminal read under the accepted epoch is not proof of a terminal
+        // launch. Require it to survive one more observation.
+        if (!confirmFailure && pendingFailureState !== normalizedState) {
+          pendingFailureState = normalizedState;
+          return null;
+        }
         throw new Error(`Agent entered ${lastState} while waiting for ${stateLabel}`);
       }
+      pendingFailureState = null;
       return null;
     };
     const subscription = this.subscribe((event) => {
@@ -4820,7 +4831,7 @@ export class Deployments {
         ]);
         wake = null;
       }
-      const finalAgent = await refresh();
+      const finalAgent = await refresh(true);
       if (finalAgent) return finalAgent;
     } finally {
       controller.abort();

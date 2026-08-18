@@ -9,6 +9,32 @@ const AGENT_ID = "03f31472-3f7f-4441-8fb1-68898c87f385";
 
 type LifecycleState = "STOPPED" | "ARCHIVED";
 
+// The newest launch epoch any snapshot in this spec reports. The stored secret
+// projection is never older than the Agent's current launch epoch.
+const LATEST_LAUNCH_EPOCH = 6;
+
+// START takes one complete replacement launch_config, which the SDK rebuilds
+// from this stored projection, so the snapshot has to carry every required key.
+function storedLaunchConfig() {
+  return {
+    config: {},
+    image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+    env: {},
+    secrets: {},
+    routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
+    command: [],
+    entrypoint: [],
+    restart: false,
+    sync_root: "/home/node",
+    sync_uid: null,
+    sync_gid: null,
+    sync_exclude: [],
+    registry_url: null,
+    registry_auth: {},
+    runtime_scopes: ["files:*"],
+  };
+}
+
 function agentSnapshot(state: LifecycleState, launchEpoch = 5) {
   return {
     id: AGENT_ID,
@@ -20,6 +46,8 @@ function agentSnapshot(state: LifecycleState, launchEpoch = 5) {
     memory: 4,
     hostname: null,
     launch_epoch: launchEpoch,
+    launch_config: storedLaunchConfig(),
+    secret_names: [],
     archived_at: state === "ARCHIVED" ? "2026-08-13T00:00:00Z" : null,
     created_at: "2026-08-10T00:00:00Z",
     updated_at: "2026-08-13T00:00:00Z",
@@ -113,6 +141,15 @@ async function installDeploymentEventSocket(page: Page) {
 
 async function fulfillDefaultAgentRequest(route: Route) {
   const pathName = new URL(route.request().url()).pathname;
+  if (pathName.endsWith(`/agents/deployments/${AGENT_ID}/secrets`)) {
+    // Rebuilding the START launch_config rehydrates the stored secret names.
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ names: [], launch_epoch: LATEST_LAUNCH_EPOCH }),
+    });
+    return;
+  }
   if (pathName.endsWith("/agents/deployments/budget")) {
     await route.fulfill({
       status: 200,
@@ -190,7 +227,11 @@ test("stale start 409 refetches the exact agent and the next CTA restores", asyn
     if (pathName.endsWith(`/agents/deployments/${AGENT_ID}`) && method === "GET") {
       exactGets += 1;
       lifecycleRequests.push(`get:${exactGets}`);
-      const state = exactGets <= 2 ? "STOPPED" : "ARCHIVED";
+      // Every read before the rejected start is still the stale STOPPED
+      // snapshot, including the one START itself makes to rebuild the stored
+      // launch_config. Only the reconciliation read after the 409 is
+      // authoritative.
+      const state = exactGets <= 3 ? "STOPPED" : "ARCHIVED";
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(agentSnapshot(state)) });
       return;
     }
@@ -227,7 +268,9 @@ test("stale start 409 refetches the exact agent and the next CTA restores", asyn
   await expect(lifecycleCta).toHaveAccessibleName("Restore agent");
   expect(startCalls).toBe(1);
   expect(restoreCalls).toBe(0);
-  expect(lifecycleRequests).toEqual(["get:1", "get:2", "start", "get:3"]);
+  // get:3 is START rebuilding the complete replacement launch_config from the
+  // stored projection; get:4 is the post-409 exact reconciliation.
+  expect(lifecycleRequests).toEqual(["get:1", "get:2", "get:3", "start", "get:4"]);
 
   await lifecycleCta.click();
   await expect.poll(() => restoreCalls).toBe(1);

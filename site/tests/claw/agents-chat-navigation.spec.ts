@@ -582,27 +582,27 @@ async function expectSessionBefore(page: Page, firstKey: string, secondKey: stri
   }).toBe(true);
 }
 
-test("a replayed gateway Secret bootstraps one root connection without persisting the canonical Secret", async ({ page }) => {
+test("a replayed gateway Secret is refused without a root connection or a persisted canonical Secret", async ({ page }) => {
+  // A Secret carrying an older launch epoch than the RUNNING Agent is a replay
+  // of a previous launch's credential. Rehydration refuses it, so no gateway
+  // socket is ever opened and the replayed value is read exactly once.
   const tracker = await mockAgentChat(page, { gatewaySecretLaunchEpoch: 0 });
 
   await page.goto("/dashboard/agents?agentId=agent-1", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByTestId("agent-chat-composer")).toBeVisible();
-  await expect.poll(() => tracker.requests.filter(({ method }) => method === "connect").length).toBe(1);
+  await expect.poll(() => tracker.secretReads["agent-1"] ?? 0).toBe(1);
+
+  await page.waitForTimeout(1_000);
+  expect(tracker.requests.filter(({ method }) => method === "connect")).toHaveLength(0);
   expect(tracker.secretReads["agent-1"]).toBe(1);
-  expect(tracker.exactAgentReads["agent-1"]).toBe(2);
-  expect(tracker.routeReads["agent-1"]).toBe(2);
-  await expect.poll(() => page.evaluate(() => (
+  expect(tracker.exactAgentReads["agent-1"]).toBe(1);
+  expect(tracker.routeReads["agent-1"]).toBe(1);
+  expect(await page.evaluate(() => (
     (window as Window & {
       __agentChatNavigationGatewayCalls?: { urls: string[] };
     }).__agentChatNavigationGatewayCalls?.urls ?? []
-  ))).toEqual(["wss://agent-1.example.test"]);
-
-  await page.waitForTimeout(1_000);
-  expect(tracker.requests.filter(({ method }) => method === "connect")).toHaveLength(1);
-  expect(tracker.secretReads["agent-1"]).toBe(1);
-  expect(tracker.exactAgentReads["agent-1"]).toBe(2);
-  expect(tracker.routeReads["agent-1"]).toBe(2);
+  ))).toEqual([]);
 
   const persistedBrowserState = await page.evaluate(() => ({
     localStorage: Array.from({ length: window.localStorage.length }, (_, index) => (

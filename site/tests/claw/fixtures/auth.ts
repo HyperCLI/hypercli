@@ -49,6 +49,69 @@ function buildBrowserDesktopUrl(desktopBaseUrl: string, token: string): string {
   return url.toString();
 }
 
+export interface SanitizedDeploymentTransition {
+  agent_id: string | null;
+  state: string | null;
+  launch_epoch: number | null;
+  reason: string | null;
+  error: string | null;
+  message: string | null;
+}
+
+const DEPLOYMENT_DIAGNOSTIC_MAX_LENGTH = 1_000;
+// Everything after a credential label on the (single-line) diagnostic is
+// treated as the credential itself: the value shape is not knowable here, and a
+// diagnostic is never worth leaking one.
+const CREDENTIAL_LABEL_PATTERN =
+  /\b(?:authorization|proxy-authorization|bearer|basic|passwd|password|pass|secret|token|credential|api[-_ ]?key|access[-_ ]?key|private[-_ ]?key|session[-_ ]?id|[a-z0-9]+(?:_(?:secret|token|password|key))(?:_[a-z0-9]+)*)\b\s*[:=]?.*$/i;
+const URL_CREDENTIALS_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
+const JWT_PATTERN = /\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
+const OPAQUE_TOKEN_PATTERN = /\b[A-Za-z0-9+/=_-]{32,}\b/g;
+const REDACTED = "[redacted]";
+
+function sanitizeDeploymentDiagnosticText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const flattened = value
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!flattened) return null;
+
+  const redacted = flattened
+    .replace(URL_CREDENTIALS_PATTERN, "$1")
+    .replace(CREDENTIAL_LABEL_PATTERN, REDACTED)
+    .replace(JWT_PATTERN, REDACTED)
+    .replace(OPAQUE_TOKEN_PATTERN, REDACTED)
+    .trim();
+  if (!redacted) return null;
+
+  return redacted.length > DEPLOYMENT_DIAGNOSTIC_MAX_LENGTH
+    ? `${redacted.slice(0, DEPLOYMENT_DIAGNOSTIC_MAX_LENGTH - 3)}...`
+    : redacted;
+}
+
+/**
+ * Reduce a `deployment.transition` frame to the bounded, credential-free fields
+ * a test artifact may retain. Anything unexpected — nested objects, wrong types,
+ * unknown keys — is dropped rather than stringified.
+ */
+export function sanitizeDeploymentTransition(frame: unknown): SanitizedDeploymentTransition {
+  const record = (frame && typeof frame === "object" && !Array.isArray(frame)
+    ? frame
+    : {}) as Record<string, unknown>;
+  const launchEpoch = record.launch_epoch;
+
+  return {
+    agent_id: sanitizeDeploymentDiagnosticText(record.agent_id),
+    state: sanitizeDeploymentDiagnosticText(record.state),
+    launch_epoch: typeof launchEpoch === "number" && Number.isFinite(launchEpoch) ? launchEpoch : null,
+    reason: sanitizeDeploymentDiagnosticText(record.reason),
+    error: sanitizeDeploymentDiagnosticText(record.error),
+    message: sanitizeDeploymentDiagnosticText(record.message),
+  };
+}
+
 function logWaitStart(label: string): number {
   const startedAt = Date.now();
   console.log(`[wait:start] ${label}`);
@@ -1123,6 +1186,10 @@ async function responseFailureDetail(response: Awaited<ReturnType<Page["waitForR
   }
 }
 
+export function isNonFatalLaunchNotice(message: string): boolean {
+  return /^agent started, but/i.test(message.trim());
+}
+
 export async function waitForBrowserAgentStartOrLaunchError(
   page: Page,
   timeout = 90_000,
@@ -1149,13 +1216,25 @@ export async function waitForBrowserAgentStartOrLaunchError(
       (error: unknown) => ({ kind: "failure" as const, error }),
     );
   const launchError = page.getByTestId("agent-error-banner");
-  const visibleErrorOutcome = launchError
-    .waitFor({ state: "visible", timeout })
-    .then(async () => ({
-      kind: "failure" as const,
-      error: new Error((await launchError.textContent())?.trim() || "Agent launch failed before start"),
-    }))
-    .catch(() => new Promise<never>(() => {}));
+  const visibleErrorOutcome = (async () => {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      try {
+        await launchError.waitFor({ state: "visible", timeout: Math.max(deadline - Date.now(), 1) });
+      } catch {
+        break;
+      }
+      const message = (await launchError.textContent().catch(() => ""))?.trim()
+        || "Agent launch failed before start";
+      // Starter files stage alongside the start and can only land once the pod
+      // answers; a files-failed notice is a warning, not a failed launch.
+      if (!isNonFatalLaunchNotice(message)) {
+        return { kind: "failure" as const, error: new Error(message) };
+      }
+      await sleep(500);
+    }
+    return await new Promise<never>(() => {});
+  })();
 
   const outcome = await Promise.race([startOutcome, visibleErrorOutcome]);
   if (outcome.kind === "failure") throw outcome.error;
@@ -2184,8 +2263,11 @@ export async function launchClawAgentAndWaitForGateway(
       const observePairingApproval = (request: { method(): string; url(): string }): void => {
         if (request.method() !== "POST") return;
         try {
+          // Trusted pairing approval mints an exec token and then runs
+          // `openclaw devices approve <id> --json` over the exec WebSocket, so
+          // the one observable REST call is the exec token mint.
           const url = new URL(request.url());
-          if (url.pathname.endsWith(`/deployments/${created.id}/exec`)) pairingApprovalRequests += 1;
+          if (url.pathname.endsWith(`/deployments/${created.id}/exec/token`)) pairingApprovalRequests += 1;
         } catch {
           // Ignore non-URL requests.
         }

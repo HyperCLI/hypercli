@@ -110,7 +110,7 @@ import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName, isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
@@ -1388,44 +1388,45 @@ export default function DevAgentSetupAgentsPage() {
         const stoppedAgent = await waitForCreatedAgentStopped(agentClient, created);
         if (generation !== agentDataGenerationRef.current) return null;
         applyAgentMutationResult(stoppedAgent);
-        if (files.length > 0) {
-          try {
-            await uploadAgentStarterFiles({
-              agentId: created.id,
-              files,
-              writeFileBytes: (agentId, path, content) => (
-                agentClient.fileWriteBytes(agentId, path, content)
-              ),
-            });
-            if (generation !== agentDataGenerationRef.current) return null;
-          } catch (uploadError) {
-            if (generation !== agentDataGenerationRef.current) return null;
-            throw new Error(uploadError instanceof Error
-              ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
-              : "Agent created, but starter files could not be uploaded.");
-          }
-          if (generation !== agentDataGenerationRef.current) return null;
-        }
-        cancelledStartAgentIdsRef.current.delete(created.id);
-        try {
-          const runningAgent = await startAgent(token, created.id, (accepted) => {
+        const startCreatedAgent = async (agentId: string) => {
+          const runningAgent = await startAgent(token, agentId, (accepted) => {
             if (generation === agentDataGenerationRef.current) {
               applyAgentMutationResult(accepted);
               void fetchAgents({ preserveCurrentSnapshotOnError: true });
             }
           });
-          if (generation !== agentDataGenerationRef.current) return null;
-          applyAgentMutationResult(runningAgent);
+          if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
+        };
+        cancelledStartAgentIdsRef.current.delete(created.id);
+        // Reef only answers once the pod is ready, so the starter files are
+        // staged alongside the start and never block it.
+        let starterFileWarning: string | null = null;
+        try {
+          if (files.length > 0) {
+            const staged = await stageAgentStarterFilesAndStart({
+              agentId: created.id,
+              files,
+              writeFileBytes: (agentId, path, content) => (
+                agentClient.fileWriteBytes(agentId, path, content)
+              ),
+              startAgent: startCreatedAgent,
+            });
+            starterFileWarning = describeStarterFileFailures(staged.failures) || null;
+          } else {
+            await startCreatedAgent(created.id);
+          }
         } catch (startError) {
           if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
         } finally {
           cancelledStartAgentIdsRef.current.delete(created.id);
         }
+        if (generation !== agentDataGenerationRef.current) return null;
         await fetchAgents();
         if (generation !== agentDataGenerationRef.current) return null;
         setSelectedAgentId(created.id);
         setMainTab("chat");
         setMobileShowChat(true);
+        if (starterFileWarning) setError(starterFileWarning);
         return created.id;
       }
       await fetchAgents();

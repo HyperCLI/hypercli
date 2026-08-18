@@ -1322,6 +1322,44 @@ describe('Agents SDK', () => {
     expect(agent.launchEpoch).toBe(10);
   });
 
+  it('tolerates a transient terminal snapshot published under the accepted launch epoch', async () => {
+    // Accepting a start stamps the new launch epoch a beat before the state
+    // leaves STOPPED, so the first read after acceptance can be STOPPED with
+    // the accepted epoch. That is not a terminal launch.
+    vi.useFakeTimers();
+    const get = vi.fn()
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STOPPED', launch_epoch: 10 })
+      .mockResolvedValueOnce({ id: 'agent-123', state: 'STARTING', launch_epoch: 10 })
+      .mockResolvedValue({ id: 'agent-123', state: 'RUNNING', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    installReadySubscription(deployments);
+
+    const waiting = deployments.waitRunning('agent-123', 5_000, 100, 10);
+    await vi.advanceTimersByTimeAsync(300);
+
+    await expect(waiting).resolves.toMatchObject({ state: 'RUNNING', launchEpoch: 10 });
+  });
+
+  it('still fails when the terminal state survives a second observation', async () => {
+    vi.useFakeTimers();
+    const get = vi.fn().mockResolvedValue({ id: 'agent-123', state: 'STOPPED', launch_epoch: 10 });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    installReadySubscription(deployments);
+
+    const waiting = deployments.waitRunning('agent-123', 5_000, 100, 10);
+    const settled = expect(waiting).rejects.toThrow('Agent entered STOPPED while waiting for RUNNING');
+    await vi.advanceTimersByTimeAsync(300);
+    await settled;
+  });
+
   it('reconciles authoritative state when a transition event is missed', async () => {
     vi.useFakeTimers();
     const get = vi.fn()

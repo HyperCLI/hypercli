@@ -43,6 +43,9 @@ test("agents launch helper observes an authenticated gateway WebSocket connect",
 test("agents launch canary completes one live gateway chat turn", () => {
   expect(authFixtureSource).toContain('frame.method === "chat.send"');
   expect(authFixtureSource).toContain('details?.code === "PAIRING_REQUIRED"');
+  // Trusted pairing approval mints an exec token and runs the argv command over
+  // the exec WebSocket; there is no POST to the bare /exec path to observe.
+  expect(authFixtureSource).toContain("/exec/token`)) pairingApprovalRequests += 1");
   expect(authFixtureSource).toContain('.toBe("final")');
   expect(authFixtureSource).toContain('getByText(replyMarker, { exact: true })');
   expect(authFixtureSource).toContain('name: "Stop reply", exact: true');
@@ -69,6 +72,9 @@ test("agents launch canary exercises the canonical lifecycle contract", () => {
   expect(authFixtureSource).toContain("acceptedStart?.launchEpoch ?? acceptedStart?.launch_epoch");
   expect(authFixtureSource).toContain("waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch)");
   expect(authFixtureSource).toContain("waitForBrowserAgentStartOrLaunchError(page, timeout)");
+  // Starter files stage alongside the start, so a files-failed banner is a
+  // warning on a launching Agent and must not be read as a failed launch.
+  expect(authFixtureSource).toContain("if (!isNonFatalLaunchNotice(message))");
   expect(authFixtureSource).not.toContain('start: false');
   expect(subscriptionSpecSource).toContain("stopClawAgentAndWaitStopped(page, createdAgentId)");
   expect(authFixtureSource).toContain('["STOPPED"]');

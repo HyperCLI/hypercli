@@ -259,7 +259,7 @@ import {
   syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -4086,24 +4086,6 @@ function AgentsPageContent() {
         const stoppedAgent = await waitForCreatedAgentStopped(agentClient, created);
         if (generation !== agentDataGenerationRef.current) return null;
         applyAgentMutationResult(stoppedAgent);
-        if (files.length > 0) {
-          try {
-            await uploadAgentStarterFiles({
-              agentId: created.id,
-              files,
-              writeFileBytes: (agentId, path, content) => (
-                agentClient.fileWriteBytes(agentId, path, content)
-              ),
-            });
-            if (generation !== agentDataGenerationRef.current) return null;
-          } catch (uploadError) {
-            if (generation !== agentDataGenerationRef.current) return null;
-            throw new Error(uploadError instanceof Error
-              ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
-              : "Agent created, but starter files could not be uploaded.");
-          }
-          if (generation !== agentDataGenerationRef.current) return null;
-        }
         if (knowledgeCollection) {
           try {
             await assignAgentToCollection(created.id, knowledgeCollection.id);
@@ -4115,9 +4097,8 @@ function AgentsPageContent() {
             throw new Error(`Agent was created, but Collection assignment did not complete: ${detail}`);
           }
         }
-        cancelledStartAgentIdsRef.current.delete(created.id);
-        try {
-          const runningAgent = await startAgent(token, created.id, (accepted) => {
+        const startCreatedAgent = async (agentId: string) => {
+          const runningAgent = await startAgent(token, agentId, (accepted) => {
             if (generation === agentDataGenerationRef.current) {
               applyAgentMutationResult(accepted);
               invalidateAgentCapacity();
@@ -4125,6 +4106,26 @@ function AgentsPageContent() {
             }
           });
           if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
+        };
+        cancelledStartAgentIdsRef.current.delete(created.id);
+        // Starter files can only be written once the deployment's pod answers,
+        // so staging runs alongside the start instead of gating it. Files that
+        // never land are a warning, never a failed launch.
+        let starterFileWarning: string | null = null;
+        try {
+          if (files.length > 0) {
+            const staged = await stageAgentStarterFilesAndStart({
+              agentId: created.id,
+              files,
+              writeFileBytes: (agentId, path, content) => (
+                agentClient.fileWriteBytes(agentId, path, content)
+              ),
+              startAgent: startCreatedAgent,
+            });
+            starterFileWarning = describeStarterFileFailures(staged.failures) || null;
+          } else {
+            await startCreatedAgent(created.id);
+          }
         } catch (startError) {
           if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
         } finally {
@@ -4142,6 +4143,7 @@ function AgentsPageContent() {
         setMainTab("chat");
         setMobileShowChat(true);
         completeJourneyForEvent("agent-created");
+        if (starterFileWarning) setError(starterFileWarning);
         return created.id;
       }
       await fetchAgents({ force: true });

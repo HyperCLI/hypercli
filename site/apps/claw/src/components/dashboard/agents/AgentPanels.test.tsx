@@ -701,7 +701,7 @@ describe("AgentList", () => {
     expect(onCreateAgent).toHaveBeenCalledOnce();
   });
 
-  it("waits for stopped storage, preseeds it, then explicitly starts once", async () => {
+  it("waits for stopped storage, starts once, and preseeds alongside the start", async () => {
     const operations: string[] = [];
     const createOpenClawAgent = vi.fn(async (_token: string, _options?: Record<string, unknown>) => {
       operations.push("create-creating");
@@ -747,7 +747,9 @@ describe("AgentList", () => {
     expect(waitForState).toHaveBeenCalledWith("created-agent", ["STOPPED"]);
     expect(start).toHaveBeenCalledWith("created-agent");
     expect(start).toHaveBeenCalledOnce();
-    expect(operations).toEqual(["create-creating", "wait-stopped", "refresh", "preseed", "start", "refresh"]);
+    // The workspace write route only answers once the deployment's pod is
+    // ready, so the preseed runs alongside the start rather than gating it.
+    expect(operations).toEqual(["create-creating", "wait-stopped", "refresh", "start", "preseed", "refresh"]);
   });
 
   it("associates a created agent before selecting it", async () => {

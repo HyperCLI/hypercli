@@ -23,7 +23,7 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient, createBrowserHyperCLIClient, hostedSlackLaunchEnv, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
-import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
 import {
@@ -3011,21 +3011,6 @@ export function AgentList({
         try {
           await fetchAgents();
         } catch {}
-        if (files.length > 0) {
-          try {
-            await uploadAgentStarterFiles({
-              agentId: createdId,
-              files,
-              writeFileBytes: (agentId, path, content) => (
-                agentClient.fileWriteBytes(agentId, path, content)
-              ),
-            });
-          } catch (uploadError) {
-            throw new Error(uploadError instanceof Error
-              ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
-              : "Agent created, but starter files could not be uploaded.");
-          }
-        }
         if (associateCreatedAgent && knowledgeCollectionId) {
           try {
             await associateCreatedAgent(createdId, knowledgeCollectionId);
@@ -3036,10 +3021,29 @@ export function AgentList({
             throw new Error(`Agent was created, but Collection assignment did not complete: ${detail}`);
           }
         }
-        const accepted = await agentClient.start(createdId);
-        if (accepted.state.toUpperCase() !== "RUNNING") {
-          void Promise.resolve(fetchAgents()).catch(() => undefined);
-          await accepted.waitRunning();
+        const startCreatedAgent = async (agentId: string) => {
+          const accepted = await agentClient.start(agentId);
+          if (accepted.state.toUpperCase() !== "RUNNING") {
+            void Promise.resolve(fetchAgents()).catch(() => undefined);
+            await accepted.waitRunning();
+          }
+        };
+        // The workspace write route only answers once the pod is ready, so the
+        // starter files are staged alongside the start; a file that never lands
+        // is reported afterwards instead of stranding a created Agent.
+        let starterFileWarning: string | null = null;
+        if (files.length > 0) {
+          const staged = await stageAgentStarterFilesAndStart({
+            agentId: createdId,
+            files,
+            writeFileBytes: (agentId, path, content) => (
+              agentClient.fileWriteBytes(agentId, path, content)
+            ),
+            startAgent: startCreatedAgent,
+          });
+          starterFileWarning = describeStarterFileFailures(staged.failures) || null;
+        } else {
+          await startCreatedAgent(createdId);
         }
         const agentsRefreshed = await fetchAgents();
         if (agentsRefreshed === false) {
@@ -3048,6 +3052,7 @@ export function AgentList({
         setSelectedAgentId(createdId);
         setMobileShowChat(true);
         setShowAgentLauncher(false);
+        if (starterFileWarning) setError(starterFileWarning);
       } else {
         await fetchAgents();
       }
