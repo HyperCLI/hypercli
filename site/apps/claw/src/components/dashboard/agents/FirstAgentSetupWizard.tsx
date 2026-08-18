@@ -15,6 +15,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+import { AGENT_DOMAIN } from "@/lib/api";
 import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
 import { agentAvatar, randomAgentAvatarIconIndex } from "@/lib/avatar";
@@ -1399,7 +1400,7 @@ export function FirstAgentSetupWizard({
                           {restoredDraft.displayName || restoredDraft.name}
                         </h3>
                         <p className="mt-1 truncate text-[12px] font-medium text-text-muted">
-                          {agentUrlSlug(restoredDraft.name)}.hypercli.com
+                          {agentUrlSlug(restoredDraft.name)}.{AGENT_DOMAIN}
                         </p>
                       </div>
                     </div>
@@ -1506,7 +1507,7 @@ export function FirstAgentSetupWizard({
                       <Globe className={largePresentation ? "h-[clamp(1.25rem,2.4vw,1.75rem)] w-[clamp(1.25rem,2.4vw,1.75rem)]" : "h-4 w-4"} />
                     </span>
                     <output aria-label="Agent URL preview" className={cx("flex min-w-0 flex-1 items-center truncate font-medium", largePresentation ? "px-4 sm:px-5" : "px-3")}>{agentUrl}</output>
-                    <span className={cx("flex shrink-0 items-center border-l border-border", largePresentation ? "px-4 sm:px-5" : "px-2.5")}>.hypercli.com</span>
+                    <span className={cx("flex shrink-0 items-center border-l border-border", largePresentation ? "px-4 sm:px-5" : "px-2.5")}>.{AGENT_DOMAIN}</span>
                   </div>
                 </div>
 

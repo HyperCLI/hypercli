@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
+import { AGENT_DOMAIN } from "@/lib/api";
 import { renderWithClient } from "@/test/utils";
 import type {
   OpenClawBootstrapFile,
@@ -755,7 +756,7 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Your agent has a head start." })).toBeInTheDocument();
-    expect(screen.getByText("resumed-agent.hypercli.com")).toBeInTheDocument();
+    expect(screen.getByText(`resumed-agent.${AGENT_DOMAIN}`)).toBeInTheDocument();
     expect(screen.getByText("Browser ready")).toBeInTheDocument();
     expect(screen.getByText("Memory ready")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute(
