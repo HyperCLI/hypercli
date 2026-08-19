@@ -12,7 +12,8 @@ mod runtime_auth;
 mod types;
 
 pub use client::{
-    HyperCliClient, HyperCliError, AGENT_FILE_WRITE_MAX_BYTES, DEFAULT_HOSTNAME_SETTLE_DELAY,
+    FileApiReadyOptions, HyperCliClient, HyperCliError, AGENT_FILE_WRITE_MAX_BYTES,
+    DEFAULT_HOSTNAME_SETTLE_DELAY,
 };
 pub use config::{
     discover_agents_api_base, discover_client_config, discover_client_config_from,
@@ -40,10 +41,12 @@ pub use runtime_auth::{
 };
 pub use types::{
     canonical_deployment_name, is_agent_runtime_inactive_state, is_agent_transitional_state,
-    AgentCapacity, AgentLaunchValueMutation, AgentSize, AgentSlot, AgentSlotInventory, ApiKey,
-    AuthMe, BuzzLaunchConfig, BuzzLaunchError, CompleteDeploymentLaunchConfig, CreateApiKeyRequest,
-    CreateDeploymentRequest, DeleteDeploymentResponse, Deployment, DeploymentEnvironment,
-    DeploymentEvent, DeploymentFileWriteResponse, DeploymentLaunchConfig, DeploymentListFilters,
+    AgentAccessIdentity, AgentCapacity, AgentDirectoryListing, AgentFileEntry,
+    AgentLaunchValueMutation, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe,
+    BuzzLaunchConfig, BuzzLaunchError,
+    CompleteDeploymentLaunchConfig, CreateApiKeyRequest, CreateDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentEnvironment, DeploymentEvent,
+    DeploymentFileWriteResponse, DeploymentLaunchConfig, DeploymentListFilters,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
     EntitlementsSummary, ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCanonicalPlanId,
     HyperAgentCurrentPlan, HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentPlan,
@@ -51,5 +54,5 @@ pub use types::{
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
     BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
-    CANONICAL_AGENT_STATES,
+    CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
 };

@@ -362,7 +362,12 @@ impl RouteConfig {
     }
 }
 
-const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off";
+/// Default `RUST_LOG` applied to Buzz launches when the caller sets none.
+///
+/// Matches the Python and TypeScript SDKs' `DEFAULT_BUZZ_RUST_LOG` exactly, so
+/// a fleet launched from any SDK produces the same agent log volume.
+pub const DEFAULT_BUZZ_RUST_LOG: &str =
+    "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off";
 /// Stable, non-secret resource tag applied to deployments managed by Buzz.
 ///
 /// The per-agent `buzz_agent=<pubkey>` tag remains the identity seam. This
@@ -876,6 +881,60 @@ pub struct DeploymentFileWriteResponse {
     pub target: String,
 }
 
+/// One entry in a Reef directory listing.
+///
+/// Reef reports directories with a trailing-slash `path` and no size; files
+/// carry `size` and its human-readable rendering. Unknown fields are ignored
+/// so a newer Reef can add metadata without breaking older clients.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentFileEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(rename = "type")]
+    pub entry_type: String,
+    #[serde(default)]
+    pub size: Option<u64>,
+    #[serde(default)]
+    pub size_formatted: Option<String>,
+    #[serde(default)]
+    pub last_modified: Option<String>,
+}
+
+impl AgentFileEntry {
+    pub fn is_directory(&self) -> bool {
+        self.entry_type == "directory"
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.entry_type == "file"
+    }
+}
+
+/// A Reef directory listing (`GET /_reef/directories[/{path}]`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentDirectoryListing {
+    #[serde(rename = "type")]
+    pub listing_type: String,
+    #[serde(default)]
+    pub prefix: String,
+    #[serde(default)]
+    pub directories: Vec<AgentFileEntry>,
+    #[serde(default)]
+    pub files: Vec<AgentFileEntry>,
+    #[serde(default)]
+    pub truncated: bool,
+}
+
+impl AgentDirectoryListing {
+    /// Directories first, then files, matching the Python and TypeScript SDKs'
+    /// `files_list`/`filesList` return order.
+    pub fn into_entries(self) -> Vec<AgentFileEntry> {
+        let mut entries = self.directories;
+        entries.extend(self.files);
+        entries
+    }
+}
+
 /// Result of uploading or removing a deployment's public profile image.
 ///
 /// Uploads return both `avatar_url` and `s3_key`; deletes return both fields as
@@ -1147,6 +1206,41 @@ pub struct AuthMe {
     pub key_id: Option<String>,
     #[serde(default)]
     pub key_name: Option<String>,
+}
+
+/// What the presented credential is, as the agent product resolves it
+/// (`GET {agents}/deployments/auth/me`).
+///
+/// `agent_id` is set only for an Agent runtime key, which speaks for exactly
+/// one Agent; it is `None` for an owner user credential or any other key.
+/// Distinct from [`AuthMe`], which is the product API's answer and never
+/// reports an Agent.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct AgentAccessIdentity {
+    pub user_id: String,
+    #[serde(default)]
+    pub auth_type: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub key_id: Option<String>,
+    #[serde(default)]
+    pub key_name: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub plan_id: Option<String>,
+}
+
+impl AgentAccessIdentity {
+    /// True when this credential is one Agent's own runtime key.
+    pub fn is_agent_runtime_key(&self) -> bool {
+        self.agent_id.as_deref().is_some_and(|id| !id.is_empty())
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]

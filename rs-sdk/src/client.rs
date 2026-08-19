@@ -21,8 +21,9 @@ use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
-    AgentCapacity, AgentLaunchValueMutation, ApiKey, AuthMe, ClientConfig, CreateApiKeyRequest,
-    CreateDeploymentRequest, DeleteDeploymentResponse, Deployment, DeploymentEnvironment,
+    AgentAccessIdentity, AgentCapacity, AgentLaunchValueMutation, ApiKey, AuthMe, ClientConfig,
+    CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse, Deployment,
+    AgentDirectoryListing, AgentFileEntry, CompleteDeploymentLaunchConfig, DeploymentEnvironment,
     DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
     ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
@@ -37,8 +38,35 @@ type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// hostname.  The API commits the Cloudflare record and returns immediately;
 /// callers avoid a transient NXDOMAIN by waiting locally instead of holding a
 /// backend transaction open.
+///
+/// This is a fixed guess, not a readiness signal. Callers that are about to use
+/// the agent's file API should follow it with
+/// [`HyperCliClient::wait_deployment_file_api_ready`], which observes the API
+/// actually serving instead of assuming a duration.
 pub const DEFAULT_HOSTNAME_SETTLE_DELAY: Duration = Duration::from_secs(15);
 const DEFAULT_DEPLOYMENT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Tuning for [`HyperCliClient::wait_deployment_file_api_ready`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FileApiReadyOptions {
+    /// Give up after this long.
+    pub timeout: Duration,
+    /// Successful listings required in a row before declaring the API ready.
+    /// Values below 1 are treated as 1.
+    pub consecutive: u32,
+    /// Delay between attempts.
+    pub poll_interval: Duration,
+}
+
+impl Default for FileApiReadyOptions {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_secs(90),
+            consecutive: 2,
+            poll_interval: Duration::from_secs(1),
+        }
+    }
+}
 
 #[derive(Deserialize)]
 struct DeploymentEventTokenResponse {
@@ -164,19 +192,14 @@ fn encode_path_key(key: &str) -> String {
 /// with a clear error instead of an opaque edge `413 Payload Too Large`.
 pub const AGENT_FILE_WRITE_MAX_BYTES: usize = 100 * 1024 * 1024;
 
-fn reef_file_url(token: &FileToken, path: &str) -> Result<(Url, String), HyperCliError> {
-    let path = path.replace('\\', "/");
-    if path.is_empty()
-        || path.starts_with('/')
-        || path
-            .split('/')
-            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-    {
-        return Err(HyperCliError::InvalidResponse(
-            "file path must be sync-root relative".into(),
-        ));
-    }
-    let mut url = Url::parse(&token.url)
+/// Validate a minted Reef locator down to its exact `/_reef` root.
+///
+/// A token that does not resolve to `https://<host>/_reef` with no
+/// credentials, query, or fragment is refused outright: the returned URL is
+/// used verbatim with the bearer token attached, so a locator that points
+/// anywhere else would leak that token.
+fn reef_base_url(token: &FileToken) -> Result<Url, HyperCliError> {
+    let url = Url::parse(&token.url)
         .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -190,12 +213,53 @@ fn reef_file_url(token: &FileToken, path: &str) -> Result<(Url, String), HyperCl
     {
         return Err(HyperCliError::InvalidResponse("invalid Reef token".into()));
     }
-    let encoded = path
-        .split('/')
+    Ok(url)
+}
+
+/// Normalize a caller path to a sync-root-relative one.
+///
+/// `allow_root` is set only by the directory listing, which addresses the sync
+/// root itself with an empty path. File operations always name a file.
+fn reef_relative_path(path: &str, allow_root: bool) -> Result<String, HyperCliError> {
+    let path = path.replace('\\', "/");
+    let rejected = if path.is_empty() {
+        !allow_root
+    } else {
+        path.starts_with('/')
+            || path
+                .split('/')
+                .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    };
+    if rejected {
+        return Err(HyperCliError::InvalidResponse(
+            "file path must be sync-root relative".into(),
+        ));
+    }
+    Ok(path)
+}
+
+fn encode_reef_path(path: &str) -> String {
+    path.split('/')
         .map(encode_path_key)
         .collect::<Vec<_>>()
-        .join("/");
-    url.set_path(&format!("/_reef/files/{encoded}"));
+        .join("/")
+}
+
+fn reef_file_url(token: &FileToken, path: &str) -> Result<(Url, String), HyperCliError> {
+    let path = reef_relative_path(path, false)?;
+    let mut url = reef_base_url(token)?;
+    url.set_path(&format!("/_reef/files/{}", encode_reef_path(&path)));
+    Ok((url, path))
+}
+
+fn reef_directory_url(token: &FileToken, path: &str) -> Result<(Url, String), HyperCliError> {
+    let path = reef_relative_path(path, true)?;
+    let mut url = reef_base_url(token)?;
+    if path.is_empty() {
+        url.set_path("/_reef/directories");
+    } else {
+        url.set_path(&format!("/_reef/directories/{}", encode_reef_path(&path)));
+    }
     Ok((url, path))
 }
 
@@ -933,6 +997,11 @@ impl HyperCliClient {
     /// returned deployment to make their first health request after the
     /// bounded settle window.  Passing `Some(Duration::ZERO)` is useful for
     /// already-propagated/reused hostnames and for deterministic tests.
+    ///
+    /// The settle window is a fixed delay, so it can only ever be a guess about
+    /// edge convergence. When the next step is a file operation, prefer
+    /// [`Self::wait_deployment_file_api_ready`], which polls the file API until
+    /// it demonstrably serves and fails fast on a terminal agent state.
     pub async fn wait_deployment_running_settled(
         &self,
         deployment_id: &str,
@@ -1013,6 +1082,126 @@ impl HyperCliClient {
         self.send_json("update_deployment", "PATCH", &url, request_trace, builder)
     }
 
+    /// Mint one short-lived Reef credential for an agent's retained file
+    /// volume. The token is single-purpose and never surfaced to callers.
+    fn deployment_file_token(&self, deployment_id: &str) -> Result<FileToken, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/files/token"));
+        self.send_json(
+            "deployment_file_token",
+            "POST",
+            &url,
+            None,
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )
+    }
+
+    /// List one sync-root-relative directory through the agent's retained Reef
+    /// server. An empty `path` lists the sync root itself.
+    ///
+    /// Directories are returned before files, matching the Python SDK's
+    /// `files_list` and the TypeScript SDK's `filesList`.
+    pub fn list_deployment_files(
+        &self,
+        deployment_id: &str,
+        path: &str,
+    ) -> Result<Vec<AgentFileEntry>, HyperCliError> {
+        let token = self.deployment_file_token(deployment_id)?;
+        let (url, path) = reef_directory_url(&token, path)?;
+        let listing: AgentDirectoryListing = self.send_json(
+            "list_deployment_files",
+            "GET",
+            url.as_str(),
+            Some(json!({ "path": path })),
+            self.http.get(url.as_str()).bearer_auth(token.token),
+        )?;
+        if listing.listing_type != "directory" {
+            return Err(HyperCliError::InvalidResponse(
+                "Reef returned an invalid directory listing".into(),
+            ));
+        }
+        Ok(listing.into_entries())
+    }
+
+    /// Wait until an agent's Reef file API is actually serving.
+    ///
+    /// Probing the agent hostname alone cannot answer this. The agent domain is
+    /// a wildcard, so a host with no route still resolves and the edge answers a
+    /// plain-text `404 page not found` -- byte for byte what a route that has
+    /// not converged yet returns. A caller polling the hostname therefore cannot
+    /// tell "not ready" from "never will be", and will keep retrying until its
+    /// deadline against a host that was never going to work.
+    ///
+    /// So ask the API for the authoritative agent state first: a deleted or
+    /// failed agent fails immediately with that state instead of timing out.
+    /// Then require consecutive successful reads, because one success only
+    /// proves the route answered once -- the next request can still 404 while
+    /// the edge settles.
+    ///
+    /// This is the answer to the question [`Self::wait_deployment_running_settled`]
+    /// can only guess at with a fixed delay. It is blocking, like every other
+    /// file call on this client; drive it from `tokio::task::spawn_blocking`
+    /// when the caller is async.
+    pub fn wait_deployment_file_api_ready(
+        &self,
+        deployment_id: &str,
+        options: FileApiReadyOptions,
+    ) -> Result<(), HyperCliError> {
+        self.wait_file_api_ready_with(deployment_id, options, || {
+            self.list_deployment_files(deployment_id, "").map(|_| ())
+        })
+    }
+
+    /// The readiness loop itself, with the file read left injectable so the
+    /// consecutive-streak contract is testable without a live Reef host.
+    fn wait_file_api_ready_with<P>(
+        &self,
+        deployment_id: &str,
+        options: FileApiReadyOptions,
+        mut probe: P,
+    ) -> Result<(), HyperCliError>
+    where
+        P: FnMut() -> Result<(), HyperCliError>,
+    {
+        let consecutive = options.consecutive.max(1);
+        let deadline = Instant::now() + options.timeout;
+        let mut streak = 0u32;
+        let mut last_error: Option<HyperCliError> = None;
+        loop {
+            let deployment = self.get_deployment(deployment_id)?;
+            let state = deployment.state.to_ascii_uppercase();
+            if state == "DELETED" || state == "FAILED" {
+                return Err(HyperCliError::InvalidResponse(format!(
+                    "agent {deployment_id} is {state}; its Reef file API will not serve, so waiting longer cannot help"
+                )));
+            }
+            match probe() {
+                Ok(()) => {
+                    streak += 1;
+                    if streak >= consecutive {
+                        return Ok(());
+                    }
+                }
+                Err(error) => {
+                    last_error = Some(error);
+                    streak = 0;
+                }
+            }
+            if Instant::now() >= deadline {
+                let last_error = last_error
+                    .as_ref()
+                    .map_or_else(|| "none".to_owned(), ToString::to_string);
+                return Err(HyperCliError::Transport(format!(
+                    "agent {deployment_id} Reef file API did not serve {consecutive} consecutive reads within {}s (agent state={}, last error={last_error})",
+                    options.timeout.as_secs(),
+                    if state.is_empty() { "unknown" } else { &state },
+                )));
+            }
+            std::thread::sleep(options.poll_interval);
+        }
+    }
+
     /// Write a file through the managed agent file API without placing its
     /// content in argv, query strings, or HTTP traces. Paths are deliberately
     /// restricted to simple workspace-relative segments and always use Reef.
@@ -1033,15 +1222,7 @@ impl HyperCliClient {
                 AGENT_FILE_WRITE_MAX_BYTES / 1024 / 1024
             )));
         }
-        let token: FileToken = self.send_json(
-            "deployment_file_token",
-            "POST",
-            &self.endpoint(&format!("deployments/{deployment_id}/files/token")),
-            None,
-            self.http
-                .post(self.endpoint(&format!("deployments/{deployment_id}/files/token")))
-                .bearer_auth(self.api_key.expose_secret()),
-        )?;
+        let token = self.deployment_file_token(deployment_id)?;
         let (url, path) = reef_file_url(&token, path)?;
         self.send_json(
             "put_deployment_file",
@@ -1104,6 +1285,153 @@ impl HyperCliClient {
                 .delete(&url)
                 .bearer_auth(self.api_key.expose_secret()),
         )
+    }
+
+    /// Read back every launch secret value the owner-facing projection refuses
+    /// to return.
+    ///
+    /// Agent projections list secret *names* and expose values only through the
+    /// per-secret retrieval endpoint, so a complete `secrets` map has to be
+    /// reassembled one key at a time. Every response is checked against
+    /// `launch_epoch` so a rebuild never silently mixes values from an older
+    /// launch generation into a new one; pass the `launch_epoch` of the
+    /// [`Deployment`] the rebuilt configuration is meant to match.
+    pub fn recover_deployment_secrets(
+        &self,
+        deployment_id: &str,
+        launch_epoch: u64,
+    ) -> Result<BTreeMap<String, String>, HyperCliError> {
+        let names = self.deployment_secret_names(deployment_id)?;
+        if names.launch_epoch < launch_epoch {
+            return Err(HyperCliError::InvalidResponse(
+                "agent secret names belong to an older launch epoch".into(),
+            ));
+        }
+        let mut secrets = BTreeMap::new();
+        for name in names.names {
+            let secret = self.deployment_secret(deployment_id, &name)?;
+            if secret.launch_epoch < launch_epoch {
+                return Err(HyperCliError::InvalidResponse(
+                    "agent secret belongs to an older launch epoch".into(),
+                ));
+            }
+            secrets.insert(name, secret.value);
+        }
+        Ok(secrets)
+    }
+
+    /// Rebuild the complete replacement launch configuration START requires
+    /// from nothing but an agent's stored projection.
+    ///
+    /// WHY THIS EXISTS -- do not delete it as convenience sugar. The backend's
+    /// owner-facing agent projection deliberately strips `secrets` and
+    /// `registry_auth` before returning an agent to a user-scoped caller
+    /// (`hydrate_managed_agent` pops both), and [`DeploymentLaunchConfig`]
+    /// strips them again so a redacted projection can never be mistaken for a
+    /// launch payload. START, by contrast, is a *full replacement* and demands
+    /// every key. The read side is therefore structurally incapable of
+    /// returning what the write side requires, and this is the only thing that
+    /// closes the loop:
+    ///
+    /// ```no_run
+    /// # use hypercli_sdk::{HyperCliClient, StartDeploymentRequest};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let client: HyperCliClient = unimplemented!();
+    /// let launch_config = client.stored_launch_config("agent-1", None)?;
+    /// client.start_deployment("agent-1", &StartDeploymentRequest::new(launch_config))?;
+    /// # Ok(()) }
+    /// ```
+    ///
+    /// The fix is to complete the object honestly, never to weaken the
+    /// completeness contract -- START must stay a replacement, not a merge, so
+    /// [`CompleteDeploymentLaunchConfig`] keeps every field required.
+    ///
+    /// `secrets` are recoverable because values can be read back one name at a
+    /// time. `registry_auth` is NOT: it is caller-held, write-only, and never
+    /// stored server-side. It therefore comes from `registry_auth` when
+    /// supplied, and otherwise defaults to empty only when the configuration
+    /// pulls from no `registry_url`; when a registry IS configured an empty
+    /// credential would silently break the image pull, so the caller is told to
+    /// supply it instead.
+    ///
+    /// Legacy projections are canonicalized on the way through: a nullable
+    /// `restart` becomes an explicit `false`, and a projection carrying both or
+    /// neither sync policy is reduced to the exactly-one form START accepts
+    /// (includes win; neither becomes the explicit sync-everything exclusion).
+    pub fn stored_launch_config(
+        &self,
+        deployment_id: &str,
+        registry_auth: Option<&BTreeMap<String, String>>,
+    ) -> Result<CompleteDeploymentLaunchConfig, HyperCliError> {
+        let deployment = self.get_deployment(deployment_id)?;
+        let mut launch: serde_json::Map<String, Value> = deployment
+            .launch_config
+            .as_map()
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        if launch.is_empty() {
+            return Err(HyperCliError::InvalidResponse(format!(
+                "agent {} has no stored launch_config projection",
+                deployment.id
+            )));
+        }
+
+        // Legacy projections may still carry the old nullable restart
+        // representation; START receives one explicit boolean.
+        if launch.get("restart").is_some_and(Value::is_null) {
+            launch.insert("restart".to_owned(), Value::Bool(false));
+        }
+
+        let secrets = self.recover_deployment_secrets(&deployment.id, deployment.launch_epoch)?;
+        launch.insert(
+            "secrets".to_owned(),
+            serde_json::to_value(secrets)
+                .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?,
+        );
+
+        let registry_url = launch
+            .get("registry_url")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let registry_auth = match registry_auth {
+            Some(registry_auth) => registry_auth.clone(),
+            None if !registry_url.is_empty() => {
+                return Err(HyperCliError::InvalidResponse(format!(
+                    "agent {} pulls from registry_url {registry_url:?}; registry_auth is caller-held and never stored server-side, so the owner-facing projection can never return it and the SDK will not substitute an empty credential that would break the private-registry pull -- pass registry_auth explicitly",
+                    deployment.id
+                )));
+            }
+            None => BTreeMap::new(),
+        };
+        launch.insert(
+            "registry_auth".to_owned(),
+            serde_json::to_value(registry_auth)
+                .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?,
+        );
+
+        // START requires exactly one sync policy. Includes win when a legacy
+        // projection carries both; carrying neither canonicalizes to the
+        // explicit sync-everything exclusion list.
+        let has_include = launch.get("sync_include").is_some_and(|value| !value.is_null());
+        let has_exclude = launch.get("sync_exclude").is_some_and(|value| !value.is_null());
+        if has_include {
+            launch.remove("sync_exclude");
+        } else if has_exclude {
+            launch.remove("sync_include");
+        } else {
+            launch.remove("sync_include");
+            launch.insert("sync_exclude".to_owned(), Value::Array(Vec::new()));
+        }
+
+        serde_json::from_value(Value::Object(launch)).map_err(|error| {
+            HyperCliError::InvalidResponse(format!(
+                "agent {} stored launch_config is not a complete START configuration: {error}",
+                deployment.id
+            ))
+        })
     }
 
     pub fn start_deployment(
@@ -1429,7 +1757,10 @@ impl HyperCliClient {
             builder,
         )?;
         let token = response.into_token()?;
-        if (deployment_id != "self" && token.agent_id != deployment_id) || token.dry_run {
+        // No `self` escape hatch: the backend's shell-token route binds
+        // `agent_id` to a UUID path parameter, so "self" never reaches it and
+        // skipping the identity check for it would only weaken this guard.
+        if token.agent_id != deployment_id || token.dry_run {
             return Err(RuntimeAuthError::InvalidShellToken);
         }
         Ok(token)
@@ -1455,6 +1786,22 @@ impl HyperCliClient {
             .get(&url)
             .bearer_auth(self.api_key.expose_secret());
         self.send_json("auth_me", "GET", &url, None, builder)
+    }
+
+    /// Resolve the agent product's own view of the presented credential
+    /// (`GET {agents}/deployments/auth/me`).
+    ///
+    /// Distinct from [`Self::auth_me`], which asks the product API. This is the
+    /// only introspection that reports `agent_id`: the one Agent a runtime key
+    /// speaks for. It returns only what the credential already carries, so it
+    /// is unscoped and safe for any caller.
+    pub fn agent_access_identity(&self) -> Result<AgentAccessIdentity, HyperCliError> {
+        let url = self.endpoint("deployments/auth/me");
+        let builder = self
+            .http
+            .get(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        self.send_json("agent_access_identity", "GET", &url, None, builder)
     }
 
     /// Create an API key (`POST {product}/api/keys` — the same endpoint the
@@ -3160,7 +3507,7 @@ mod tests {
     }
 
     #[test]
-    fn routes_support_self_and_declarative_replacement() {
+    fn routes_support_declarative_replacement_for_an_owned_agent() {
         let mut server = Server::new();
         let response = serde_json::json!({
             "agent_id": "deployment-1",
@@ -3168,14 +3515,14 @@ mod tests {
             "route_statuses": {"web": {"url": "https://app-agent.hypercli.app"}}
         });
         let get_mock = server
-            .mock("GET", "/agents/deployments/self/routes")
+            .mock("GET", "/agents/deployments/deployment-1/routes")
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(response.to_string())
             .create();
         let put_mock = server
-            .mock("PUT", "/agents/deployments/self/routes")
+            .mock("PUT", "/agents/deployments/deployment-1/routes")
             .match_header("authorization", "Bearer test-credential")
             .match_body(Matcher::JsonString(
                 serde_json::json!({
@@ -3189,7 +3536,7 @@ mod tests {
             .create();
 
         let client = client(&server);
-        let current = client.get_deployment_routes("self").unwrap();
+        let current = client.get_deployment_routes("deployment-1").unwrap();
         assert_eq!(current.routes["web"].port, 3000);
 
         let mut routes = BTreeMap::new();
@@ -3202,11 +3549,76 @@ mod tests {
             },
         );
         let updated = client
-            .set_deployment_routes("self", &crate::SetDeploymentRoutesRequest { routes })
+            .set_deployment_routes(
+                "deployment-1",
+                &crate::SetDeploymentRoutesRequest { routes },
+            )
             .unwrap();
         assert_eq!(updated.agent_id, "deployment-1");
         get_mock.assert();
         put_mock.assert();
+    }
+
+    #[test]
+    fn agent_access_identity_reports_the_agent_a_runtime_key_speaks_for() {
+        let mut server = Server::new();
+        let runtime = server
+            .mock("GET", "/agents/deployments/auth/me")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "user_id": "user-456",
+                    "auth_type": "orchestra_key",
+                    "agent_id": "deployment-1",
+                    "tags": ["agents:none", "runtime_agent=deployment-1"],
+                    "capabilities": ["agents:self"],
+                    "key_id": "key-1",
+                    "key_name": "runtime",
+                    "team_id": "team-1",
+                    "plan_id": "plan-1"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let identity = client(&server).agent_access_identity().unwrap();
+
+        assert_eq!(identity.agent_id.as_deref(), Some("deployment-1"));
+        assert!(identity.is_agent_runtime_key());
+        assert_eq!(identity.user_id, "user-456");
+        assert_eq!(identity.auth_type, "orchestra_key");
+        assert_eq!(identity.key_name.as_deref(), Some("runtime"));
+        assert_eq!(identity.capabilities, vec!["agents:self".to_owned()]);
+        runtime.assert();
+    }
+
+    #[test]
+    fn agent_access_identity_reports_no_agent_for_a_user_credential() {
+        let mut server = Server::new();
+        let owner = server
+            .mock("GET", "/agents/deployments/auth/me")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "user_id": "user-456",
+                    "auth_type": "user",
+                    "team_id": "team-1"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let identity = client(&server).agent_access_identity().unwrap();
+
+        assert!(identity.agent_id.is_none());
+        assert!(!identity.is_agent_runtime_key());
+        assert!(identity.tags.is_empty());
+        assert!(identity.capabilities.is_empty());
+        owner.assert();
     }
 
     #[test]
@@ -3218,7 +3630,7 @@ mod tests {
             "route_statuses": {}
         });
         let put_mock = server
-            .mock("PUT", "/agents/deployments/self/routes/web%20app")
+            .mock("PUT", "/agents/deployments/deployment-1/routes/web%20app")
             .match_header("authorization", "Bearer test-credential")
             .match_body(Matcher::JsonString(
                 serde_json::json!({
@@ -3233,7 +3645,10 @@ mod tests {
             .with_body(response.to_string())
             .create();
         let delete_mock = server
-            .mock("DELETE", "/agents/deployments/self/routes/web%20app")
+            .mock(
+                "DELETE",
+                "/agents/deployments/deployment-1/routes/web%20app",
+            )
             .match_header("authorization", "Bearer test-credential")
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -3247,9 +3662,11 @@ mod tests {
             prefix: Some(String::new()),
         });
         client
-            .set_deployment_route("self", "web app", &request)
+            .set_deployment_route("deployment-1", "web app", &request)
             .unwrap();
-        client.remove_deployment_route("self", "web app").unwrap();
+        client
+            .remove_deployment_route("deployment-1", "web app")
+            .unwrap();
         put_mock.assert();
         delete_mock.assert();
     }
@@ -3712,6 +4129,442 @@ mod tests {
         assert!(!trace.contains("avatar-binary-must-not-appear-in-trace"));
         assert!(!trace.contains("test-credential"));
         mock.assert();
+    }
+
+    fn stored_projection(extra: serde_json::Value) -> serde_json::Value {
+        // Exactly what hydrate_managed_agent returns to an owner: the full
+        // persisted contract minus the two redacted keys.
+        let mut launch = serde_json::json!({
+            "config": {},
+            "image": "ghcr.io/example/agent:1",
+            "env": {"EDITOR": "nvim"},
+            "routes": {},
+            "command": [],
+            "entrypoint": [],
+            "restart": true,
+            "sync_root": "/home/node",
+            "sync_exclude": [".git"],
+            "sync_uid": 1000,
+            "sync_gid": 1000,
+            "registry_url": null,
+            "runtime_scopes": ["agents:self"]
+        });
+        let target = launch.as_object_mut().unwrap();
+        for (key, value) in extra.as_object().unwrap() {
+            if value.is_null() && key.starts_with('-') {
+                target.remove(key.trim_start_matches('-'));
+            } else {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+        serde_json::json!({
+            "id": "deployment-1",
+            "state": "STOPPED",
+            "launch_epoch": 4,
+            "launch_config": launch
+        })
+    }
+
+    fn mock_projection(server: &mut Server, agent: serde_json::Value) -> mockito::Mock {
+        server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(agent.to_string())
+            .create()
+    }
+
+    fn mock_secrets(server: &mut Server, epoch: u64) -> Vec<mockito::Mock> {
+        vec![
+            server
+                .mock("GET", "/agents/deployments/deployment-1/secrets")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    serde_json::json!({
+                        "agent_id": "deployment-1",
+                        "names": ["API_TOKEN"],
+                        "launch_epoch": epoch
+                    })
+                    .to_string(),
+                )
+                .create(),
+            server
+                .mock("GET", "/agents/deployments/deployment-1/secrets/API_TOKEN")
+                .with_status(200)
+                .with_header("content-type", "application/json")
+                .with_body(
+                    serde_json::json!({
+                        "agent_id": "deployment-1",
+                        "key": "API_TOKEN",
+                        "value": "recovered-token",
+                        "launch_epoch": epoch
+                    })
+                    .to_string(),
+                )
+                .create(),
+        ]
+    }
+
+    #[test]
+    fn stored_launch_config_completes_the_projection_start_could_never_round_trip() {
+        // The owner projection redacts secrets and registry_auth, and
+        // DeploymentLaunchConfig strips them again, so get -> start is
+        // structurally impossible without this rebuild.
+        let mut server = Server::new();
+        let projection = mock_projection(&mut server, stored_projection(serde_json::json!({})));
+        let secrets = mock_secrets(&mut server, 4);
+        let start = server
+            .mock("POST", "/agents/deployments/deployment-1/start")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({
+                    "launch_config": {
+                        "config": {},
+                        "image": "ghcr.io/example/agent:1",
+                        "env": {"EDITOR": "nvim"},
+                        "secrets": {"API_TOKEN": "recovered-token"},
+                        "routes": {},
+                        "command": [],
+                        "entrypoint": [],
+                        "restart": true,
+                        "sync_root": "/home/node",
+                        "sync_exclude": [".git"],
+                        "sync_uid": 1000,
+                        "sync_gid": 1000,
+                        "registry_url": null,
+                        "registry_auth": {},
+                        "runtime_scopes": ["agents:self"]
+                    }
+                })
+                .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({"id": "deployment-1", "state": "STARTING"}).to_string())
+            .create();
+
+        let client = client(&server);
+        let launch_config = client.stored_launch_config("deployment-1", None).unwrap();
+        assert_eq!(launch_config.secrets["API_TOKEN"], "recovered-token");
+        assert!(launch_config.registry_auth.is_empty());
+        assert_eq!(launch_config.sync_exclude.as_deref(), Some([".git".to_owned()].as_slice()));
+
+        let started = client
+            .start_deployment(
+                "deployment-1",
+                &StartDeploymentRequest::new(launch_config),
+            )
+            .unwrap();
+        assert_eq!(started.state, "STARTING");
+        projection.assert();
+        for secret in secrets {
+            secret.assert();
+        }
+        start.assert();
+    }
+
+    #[test]
+    fn stored_launch_config_refuses_to_invent_an_empty_registry_credential() {
+        let mut server = Server::new();
+        let _projection = mock_projection(
+            &mut server,
+            stored_projection(serde_json::json!({"registry_url": "registry.example.test"})),
+        );
+        let _secrets = mock_secrets(&mut server, 4);
+
+        let error = client(&server)
+            .stored_launch_config("deployment-1", None)
+            .err()
+            .expect("stored_launch_config must fail")
+            .to_string();
+        assert!(error.contains("deployment-1"), "{error}");
+        assert!(error.contains("registry.example.test"), "{error}");
+        assert!(error.contains("caller-held"), "{error}");
+    }
+
+    #[test]
+    fn stored_launch_config_accepts_caller_held_registry_credentials() {
+        let mut server = Server::new();
+        let _projection = mock_projection(
+            &mut server,
+            stored_projection(serde_json::json!({"registry_url": "registry.example.test"})),
+        );
+        let _secrets = mock_secrets(&mut server, 4);
+
+        let registry_auth = BTreeMap::from([
+            ("username".to_owned(), "robot".to_owned()),
+            ("password".to_owned(), "pull-token".to_owned()),
+        ]);
+        let launch_config = client(&server)
+            .stored_launch_config("deployment-1", Some(&registry_auth))
+            .unwrap();
+        assert_eq!(launch_config.registry_auth, registry_auth);
+        assert_eq!(
+            launch_config.registry_url.as_deref(),
+            Some("registry.example.test")
+        );
+    }
+
+    #[test]
+    fn stored_launch_config_rejects_secrets_from_an_older_launch_epoch() {
+        let mut server = Server::new();
+        let _projection = mock_projection(&mut server, stored_projection(serde_json::json!({})));
+        let _secrets = mock_secrets(&mut server, 3);
+
+        let error = client(&server)
+            .stored_launch_config("deployment-1", None)
+            .err()
+            .expect("stored_launch_config must fail")
+            .to_string();
+        assert!(error.contains("older launch epoch"), "{error}");
+    }
+
+    #[test]
+    fn stored_launch_config_canonicalizes_legacy_projection_shapes() {
+        // Legacy rows can carry a nullable restart, both sync policies, or
+        // neither; START accepts one boolean and exactly one policy.
+        let mut server = Server::new();
+        let _both = mock_projection(
+            &mut server,
+            stored_projection(serde_json::json!({
+                "restart": null,
+                "sync_include": ["workspace"],
+            })),
+        );
+        let _secrets = mock_secrets(&mut server, 4);
+        let launch_config = client(&server)
+            .stored_launch_config("deployment-1", None)
+            .unwrap();
+        assert!(!launch_config.restart);
+        assert_eq!(
+            launch_config.sync_include.as_deref(),
+            Some(["workspace".to_owned()].as_slice())
+        );
+        assert!(launch_config.sync_exclude.is_none());
+        // A body carrying both policies is rejected by the request builder, so
+        // the rebuild above is what makes START reachable at all.
+        assert!(deployment_request_body(&StartDeploymentRequest::new(launch_config)).is_ok());
+
+        let mut server = Server::new();
+        let _neither = mock_projection(
+            &mut server,
+            stored_projection(serde_json::json!({"-sync_exclude": null})),
+        );
+        let _secrets = mock_secrets(&mut server, 4);
+        let launch_config = client(&server)
+            .stored_launch_config("deployment-1", None)
+            .unwrap();
+        assert_eq!(launch_config.sync_exclude.as_deref(), Some([].as_slice()));
+        assert!(launch_config.sync_include.is_none());
+    }
+
+    #[test]
+    fn stored_launch_config_reports_an_incomplete_projection_instead_of_guessing() {
+        let mut server = Server::new();
+        let _projection = mock_projection(
+            &mut server,
+            stored_projection(serde_json::json!({"-config": null})),
+        );
+        let _secrets = mock_secrets(&mut server, 4);
+
+        let error = client(&server)
+            .stored_launch_config("deployment-1", None)
+            .err()
+            .expect("stored_launch_config must fail")
+            .to_string();
+        assert!(error.contains("deployment-1"), "{error}");
+        assert!(error.contains("config"), "{error}");
+    }
+
+    #[test]
+    fn directory_listing_urls_address_the_sync_root_and_stay_inside_it() {
+        let token = FileToken {
+            url: "https://agent.example.test/_reef".into(),
+            token: "reef-token".into(),
+            expires_at: "2026-08-16T00:00:00Z".into(),
+        };
+        let (root, path) = reef_directory_url(&token, "").unwrap();
+        assert_eq!(path, "");
+        assert_eq!(root.as_str(), "https://agent.example.test/_reef/directories");
+        let (nested, path) = reef_directory_url(&token, "work space\\logs").unwrap();
+        assert_eq!(path, "work space/logs");
+        assert_eq!(
+            nested.as_str(),
+            "https://agent.example.test/_reef/directories/work%20space/logs"
+        );
+        assert!(reef_directory_url(&token, "/etc").is_err());
+        assert!(reef_directory_url(&token, "../escape").is_err());
+        // The root shorthand is a listing-only affordance; writes must name a file.
+        assert!(reef_file_url(&token, "").is_err());
+        let invalid = FileToken {
+            url: "https://agent.example.test/_reef/files".into(),
+            token: "reef-token".into(),
+            expires_at: "2026-08-16T00:00:00Z".into(),
+        };
+        assert!(reef_directory_url(&invalid, "").is_err());
+    }
+
+    #[test]
+    fn directory_listings_return_directories_before_files() {
+        let listing: AgentDirectoryListing = serde_json::from_value(serde_json::json!({
+            "type": "directory",
+            "prefix": "",
+            "requested_path": "",
+            "truncated": false,
+            "directories": [{"name": "logs", "path": "logs/", "type": "directory"}],
+            "files": [{
+                "name": "a.txt",
+                "path": "a.txt",
+                "type": "file",
+                "size": 12,
+                "size_formatted": "12 B",
+                "last_modified": null
+            }]
+        }))
+        .unwrap();
+        let entries = listing.into_entries();
+        assert_eq!(entries.len(), 2);
+        assert!(entries[0].is_directory());
+        assert_eq!(entries[0].name, "logs");
+        assert!(entries[1].is_file());
+        assert_eq!(entries[1].size, Some(12));
+    }
+
+    #[test]
+    fn file_api_readiness_fails_fast_on_a_terminal_agent_state() {
+        // The agent domain is a wildcard: a host with no route answers the same
+        // plain-text 404 as a route that has not converged. Only the API's
+        // authoritative state can tell "not ready" from "never will be", so a
+        // terminal state must not be retried until the deadline.
+        let mut server = Server::new();
+        let state = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({"id": "deployment-1", "state": "FAILED"}).to_string(),
+            )
+            .expect(1)
+            .create();
+        let token = server
+            .mock("POST", "/agents/deployments/deployment-1/files/token")
+            .expect(0)
+            .create();
+
+        let error = client(&server)
+            .wait_deployment_file_api_ready(
+                "deployment-1",
+                FileApiReadyOptions {
+                    timeout: Duration::from_secs(30),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("FAILED"), "{error}");
+        assert!(error.contains("waiting longer cannot help"), "{error}");
+        state.assert();
+        token.assert();
+    }
+
+    #[test]
+    fn file_api_readiness_timeout_names_the_state_and_the_last_error() {
+        let mut server = Server::new();
+        let _state = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({"id": "deployment-1", "state": "STARTING"}).to_string(),
+            )
+            .create();
+        let _token = server
+            .mock("POST", "/agents/deployments/deployment-1/files/token")
+            .with_status(503)
+            .create();
+
+        let error = client(&server)
+            .wait_deployment_file_api_ready(
+                "deployment-1",
+                FileApiReadyOptions {
+                    timeout: Duration::ZERO,
+                    consecutive: 2,
+                    poll_interval: Duration::ZERO,
+                },
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("2 consecutive reads"), "{error}");
+        assert!(error.contains("agent state=STARTING"), "{error}");
+        assert!(error.contains("503"), "{error}");
+    }
+
+    #[test]
+    fn file_api_readiness_requires_consecutive_reads_and_resets_on_failure() {
+        // One success only proves the route answered once; the next request can
+        // still 404 while the edge settles, so a failure restarts the streak.
+        let mut server = Server::new();
+        let _state = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({"id": "deployment-1", "state": "RUNNING"}).to_string())
+            .create();
+
+        let outcomes = Arc::new(Mutex::new(vec![
+            Ok(()),
+            Err(HyperCliError::Status(StatusCode::NOT_FOUND)),
+            Ok(()),
+            Ok(()),
+        ]));
+        let attempts = Arc::new(Mutex::new(0usize));
+        let probe_outcomes = Arc::clone(&outcomes);
+        let probe_attempts = Arc::clone(&attempts);
+        client(&server)
+            .wait_file_api_ready_with(
+                "deployment-1",
+                FileApiReadyOptions {
+                    timeout: Duration::from_secs(30),
+                    consecutive: 2,
+                    poll_interval: Duration::ZERO,
+                },
+                move || {
+                    *probe_attempts.lock().unwrap() += 1;
+                    probe_outcomes.lock().unwrap().remove(0)
+                },
+            )
+            .unwrap();
+        // Success, failure, success, success: the lone early success cannot
+        // satisfy a two-read streak.
+        assert_eq!(*attempts.lock().unwrap(), 4);
+        assert!(outcomes.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn runtime_shell_token_rejects_a_token_minted_for_another_agent() {
+        // The backend binds agent_id to a UUID path parameter, so there is no
+        // "self" alias to exempt: every response must name the agent asked for.
+        let mut server = Server::new();
+        let _mock = server
+            .mock("POST", "/agents/deployments/self/shell/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "agent_id": "deployment-1",
+                    "jwt": "short-lived-shell-jwt",
+                    "expires_at": "2026-08-05T12:00:00Z",
+                    "ws_url": "wss://api.agents.hypercli.com/ws/shell/deployment-1",
+                    "shell": "/bin/bash"
+                })
+                .to_string(),
+            )
+            .create();
+
+        assert!(client(&server)
+            .create_runtime_shell_token("self", None)
+            .is_err());
     }
 
     #[test]
