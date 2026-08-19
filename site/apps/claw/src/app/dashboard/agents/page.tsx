@@ -6465,6 +6465,7 @@ function AgentsPageContent() {
             : ""
         }
         confirmLabel="Delete"
+        confirmTestId="agent-danger-delete-confirm"
         danger
         loading={Boolean(pendingAgentDelete && deletingId === pendingAgentDelete.id)}
         onCancel={() => setPendingAgentDelete(null)}
