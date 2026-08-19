@@ -2791,10 +2791,18 @@ export async function launchClawAgentAndWaitForGateway(
         try {
           await expect(page.getByRole("button", { name: "Stop reply", exact: true })).not.toBeVisible({ timeout: 30_000 });
         } finally {
+          const composerSettleMs = Date.now() - composerIdleStartedAt;
           console.log(`[agents-gateway] composer settle ${JSON.stringify({
-            elapsedMs: Date.now() - composerIdleStartedAt,
+            elapsedMs: composerSettleMs,
             chatTerminalState,
           })}`);
+          // Capture here, not at test-failure time. This assertion's failure is
+          // caught by the readiness helper, which then deletes the Agent and
+          // navigates, so Playwright's automatic screenshot shows the empty
+          // dashboard instead of the composer that never settled.
+          if (composerSettleMs >= 5_000) {
+            await captureStep(page, "agents-12c-composer-not-settled");
+          }
         }
         drainGatewayObservations();
         expect(gatewaySocketCount, "expected the completed chat turn to reuse the authenticated root socket")
