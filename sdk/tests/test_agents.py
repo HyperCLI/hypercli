@@ -467,22 +467,32 @@ def test_access_identity_has_no_agent_id_for_a_user_credential():
     assert identity.tags == []
 
 
-def test_routes_api_rejects_the_self_selector():
-    """An Agent reads its own status; it does not manage its own routes."""
+def test_routes_api_targets_the_self_endpoints():
+    """An Agent manages its own routes through the dedicated self surface.
+
+    Its runtime key is scoped agents:none and cannot reach the parameterised
+    path, so `self` must not be resolved to an id here.
+    """
+
     http = Mock(spec=HTTPClient)
     deployments = Deployments(
         http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
     )
+    envelope = {"routes": {}, "route_statuses": {}}
 
-    with pytest.raises(ValueError, match="only supported"):
+    with patch.object(deployments, "_get", return_value=envelope) as get:
         deployments.get_routes("self")
-    with pytest.raises(ValueError, match="only supported"):
-        deployments.set_routes("self", {"web": {"port": 3000, "auth": True}})
-    with pytest.raises(ValueError, match="only supported"):
-        deployments.set_route("self", "web", {"port": 3000, "auth": True})
-    with pytest.raises(ValueError, match="only supported"):
-        deployments.remove_route("self", "web")
+    get.assert_called_once_with("/deployments/self/routes")
 
+    with patch.object(deployments, "_put", return_value=envelope) as put:
+        deployments.set_route("self", "public", {"port": 3000, "auth": False})
+    put.assert_called_once_with(
+        "/deployments/self/routes/public", {"port": 3000, "auth": False}
+    )
+
+    with patch.object(deployments, "_delete", return_value=envelope) as delete:
+        deployments.remove_route("self", "public")
+    delete.assert_called_once_with("/deployments/self/routes/public")
 
 def test_self_selector_is_limited_to_status():
     """An Agent reads its own status. It does not drive its own lifecycle."""

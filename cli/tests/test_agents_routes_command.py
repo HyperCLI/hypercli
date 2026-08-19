@@ -169,23 +169,50 @@ def test_status_passes_self_without_local_resolution(monkeypatch):
     assert captured == [("get", "self")]
 
 
-def test_self_is_refused_for_stop_and_route_mutation(monkeypatch):
-    """An Agent reads its own status; it does not stop itself or edit its routes."""
+def test_self_is_refused_for_lifecycle(monkeypatch):
+    """An Agent does not stop itself; lifecycle is the owner's."""
     monkeypatch.setattr(
         agents_module,
         "_get_deployments_client",
         lambda: (_ for _ in ()).throw(AssertionError("client must not be created")),
     )
 
+    result = runner.invoke(app, ["agents", "stop", "self", "--force"])
+
+    assert result.exit_code == 1
+    assert "is not supported" in (result.stdout + result.stderr)
+
+
+def test_self_is_accepted_for_route_commands(monkeypatch):
+    """An Agent manages its own routes -- it knows the port it just bound."""
+    targets = []
+
+    class FakeDeployments:
+        def get_routes(self, target):
+            targets.append(target)
+            return _routes_state()
+
+        def set_route(self, target, name, route):
+            targets.append(target)
+            return _routes_state(routes={name: route})
+
+        def remove_route(self, target, name):
+            targets.append(target)
+            return _routes_state(routes={})
+
+    monkeypatch.setattr(
+        agents_module, "_get_deployments_client", lambda: FakeDeployments()
+    )
+
     for argv in (
-        ["agents", "stop", "self", "--force"],
         ["agents", "routes", "list", "self"],
         ["agents", "routes", "add", "self", "web", "-p", "3000"],
         ["agents", "routes", "remove", "self", "web"],
     ):
         result = runner.invoke(app, argv)
-        assert result.exit_code == 1, argv
-        assert "is not supported" in (result.stdout + result.stderr), argv
+        assert result.exit_code == 0, (argv, result.stdout + result.stderr)
+
+    assert targets == ["self", "self", "self"]
 
 
 def test_start_rejects_the_self_target():

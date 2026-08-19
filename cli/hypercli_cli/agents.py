@@ -431,7 +431,6 @@ def routes_list(
     output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List desired routes and their live status."""
-    _reject_self_target(agent_id, "routes list")
     agents = _get_deployments_client()
     try:
         state = agents.get_routes(_resolve_agent(agent_id))
@@ -454,7 +453,6 @@ def routes_add(
     output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Create or replace exactly one named route."""
-    _reject_self_target(agent_id, "routes add")
     if root and prefix is not None:
         raise typer.BadParameter("--prefix and --root are mutually exclusive")
     route = {"port": port, "auth": auth}
@@ -480,7 +478,6 @@ def routes_remove(
     output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Remove exactly one named route."""
-    _reject_self_target(agent_id, "routes remove")
     agents = _get_deployments_client()
     try:
         state = agents.remove_route(_resolve_agent(agent_id), name)

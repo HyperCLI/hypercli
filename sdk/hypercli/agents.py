@@ -3154,11 +3154,12 @@ class Deployments:
         if not raw:
             raise ValueError("agent_id_or_name is required")
         if _is_self_agent_ref(raw):
-            # An Agent introspects itself; it does not start, stop, or edit
-            # its own routes. Status is the only self operation, and it is
-            # served directly by GET /deployments/self -- nothing resolves a
-            # self reference to an id any more.
-            raise ValueError("self is only supported for status")
+            # An Agent reads its own status and manages its own routes -- it
+            # is the only party that knows the port it just bound. It does not
+            # start or stop itself; that is the owner's. Both self operations
+            # are served by dedicated /self endpoints, so nothing resolves a
+            # self reference to an id here.
+            raise ValueError("self is only supported for status and routes")
         if _is_direct_agent_id_ref(raw):
             return raw
         return self.resolve_agent(raw).id
@@ -4529,9 +4530,24 @@ class Deployments:
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/restore")
         return self._hydrate_agent(data)
 
+    def _routes_target(self, agent_id: str) -> str:
+        """Return the path segment for route calls, honouring ``self``.
+
+        An Agent manages its own routes -- it is the only party that knows the
+        port it just bound. A runtime key is authorised on the parameterised
+        path for its own agent, so ``self`` is passed through to the
+        /deployments/self/routes alias, which resolves the caller's id server
+        side. Resolving it here via access_identity() would reach the same
+        handler at the cost of an extra round trip.
+        """
+
+        if _is_self_agent_ref(agent_id):
+            return "self"
+        return self.resolve_agent_id(agent_id)
+
     def get_routes(self, agent_id: str) -> AgentRoutes:
         """Return the desired routes and live reconciliation state for an agent."""
-        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_agent_id = self._routes_target(agent_id)
         data = self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes")
         return AgentRoutes.from_dict(data)
 
@@ -4541,7 +4557,7 @@ class Deployments:
         routes: dict[str, AgentRouteConfig],
     ) -> AgentRoutes:
         """Atomically replace the complete declarative route map."""
-        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_agent_id = self._routes_target(agent_id)
         body: dict[str, Any] = {
             "routes": {str(name): dict(config) for name, config in routes.items()},
         }
@@ -4555,7 +4571,7 @@ class Deployments:
         route: AgentRouteConfig,
     ) -> AgentRoutes:
         """Atomically create or replace one named route."""
-        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_agent_id = self._routes_target(agent_id)
         body = dict(route)
         encoded_name = quote(str(name), safe="")
         data = self._put(
@@ -4570,7 +4586,7 @@ class Deployments:
         name: str,
     ) -> AgentRoutes:
         """Atomically remove one named route."""
-        resolved_agent_id = self.resolve_agent_id(agent_id)
+        resolved_agent_id = self._routes_target(agent_id)
         encoded_name = quote(str(name), safe="")
         path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes/{encoded_name}"
         return AgentRoutes.from_dict(self._delete(path))
