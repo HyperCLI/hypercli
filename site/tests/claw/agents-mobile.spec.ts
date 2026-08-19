@@ -571,7 +571,10 @@ test.describe("Agents mobile layout", () => {
     await expect(page.getByRole("navigation", { name: /settings sections/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    await page.getByRole("button", { name: /^agent$/i }).click();
+    await page.getByRole("button", { name: /^agents$/i }).click();
+    // Settings > Agents now lands on a picker first; runtime settings belong to
+    // one agent, so the test has to choose the same one it opened the dashboard with.
+    await page.getByRole("button", { name: "Open settings for Mobile Regression Agent" }).click();
     await expect(page.getByText("Agent runtime")).toBeVisible();
     await expect(page.getByRole("button", { name: /stop agent/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
