@@ -810,7 +810,7 @@ fn build_launch_request_with_inference_base(
         ("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned()),
         (
             "RUST_LOG".to_owned(),
-            "buzz_acp=info,pool::prompt=info,acp::stream=off".to_owned(),
+            "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off".to_owned(),
         ),
     ]);
     let launch_args = if let Some(launch) = agent.launch.as_ref() {
@@ -2042,7 +2042,7 @@ mod tests {
             );
             assert_eq!(
                 request.env["RUST_LOG"],
-                "buzz_acp=info,pool::prompt=info,acp::stream=off"
+                "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
             );
         }
     }
