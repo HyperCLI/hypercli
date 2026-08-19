@@ -222,6 +222,95 @@ export function buildSlackRelayApiUrl(relayBaseUrl: string): string {
   return url.toString();
 }
 
+/**
+ * Launch environment keys the OpenClaw entrypoint reads for hosted Slack.
+ *
+ * The container refuses to boot when `HYPER_SLACK_APP_ENABLED` is truthy and
+ * any of the companions is missing: the inline config reconciler throws for
+ * `HYPER_SLACK_RELAY_URL` / `HYPER_SLACK_GATEWAY_ID`, and the shell gate exits
+ * for `HYPER_SLACK_API_URL`. `HYPER_AGENTS_API_KEY` is also required at boot
+ * but is injected by the platform and stripped from caller-supplied env, so it
+ * is deliberately not part of this set.
+ */
+export const HOSTED_SLACK_APP_ENABLED_ENV = 'HYPER_SLACK_APP_ENABLED';
+export const HOSTED_SLACK_RELAY_URL_ENV = 'HYPER_SLACK_RELAY_URL';
+export const HOSTED_SLACK_API_URL_ENV = 'HYPER_SLACK_API_URL';
+export const HOSTED_SLACK_GATEWAY_ID_ENV = 'HYPER_SLACK_GATEWAY_ID';
+
+export const HOSTED_SLACK_LAUNCH_ENV_KEYS = [
+  HOSTED_SLACK_APP_ENABLED_ENV,
+  HOSTED_SLACK_RELAY_URL_ENV,
+  HOSTED_SLACK_API_URL_ENV,
+  HOSTED_SLACK_GATEWAY_ID_ENV,
+] as const;
+
+/** Companions the entrypoint requires whenever hosted Slack is enabled. */
+export const HOSTED_SLACK_REQUIRED_COMPANION_ENV_KEYS = [
+  HOSTED_SLACK_RELAY_URL_ENV,
+  HOSTED_SLACK_API_URL_ENV,
+  HOSTED_SLACK_GATEWAY_ID_ENV,
+] as const;
+
+const TRUTHY_ENV_VALUES = new Set(['1', 'true', 'yes', 'on', 'enabled']);
+
+/** Match the container entrypoint's boolean parsing exactly. */
+export function hostedSlackEnvEnabled(value: string | null | undefined): boolean {
+  if (typeof value !== 'string') return false;
+  return TRUTHY_ENV_VALUES.has(value.trim().toLowerCase());
+}
+
+/** The gateway id the Backend derives for an Agent (`gateway_id_for_agent`). */
+export function hostedSlackGatewayIdForAgent(agentId: string): string {
+  const id = String(agentId || '').trim();
+  if (!id) throw new Error('Slack relay gateway id requires an agent id');
+  return id.startsWith('agent:') ? id : `agent:${id}`;
+}
+
+export interface HostedSlackLaunchEnvOptions {
+  relayBaseUrl: string;
+  gatewayId?: string | null;
+  agentId?: string | null;
+}
+
+/**
+ * Build the complete hosted Slack launch environment.
+ *
+ * There is no partial mode on purpose: a launch env with
+ * `HYPER_SLACK_APP_ENABLED` and a missing companion kills the pod at boot.
+ */
+export function buildHostedSlackLaunchEnv(options: HostedSlackLaunchEnvOptions): Record<string, string> {
+  const gatewayId = options.gatewayId?.trim()
+    || (options.agentId?.trim() ? hostedSlackGatewayIdForAgent(options.agentId) : '');
+  if (!gatewayId) throw new Error('Slack relay gateway id requires an agent id');
+  return {
+    [HOSTED_SLACK_APP_ENABLED_ENV]: '1',
+    [HOSTED_SLACK_RELAY_URL_ENV]: buildSlackRelayWebSocketUrl(options.relayBaseUrl),
+    [HOSTED_SLACK_API_URL_ENV]: buildSlackRelayApiUrl(options.relayBaseUrl),
+    [HOSTED_SLACK_GATEWAY_ID_ENV]: gatewayId,
+  };
+}
+
+/**
+ * Refuse a launch env that enables hosted Slack without every companion.
+ *
+ * Reports all missing keys at once so one boot-blocking mistake is not
+ * discovered one variable per pod restart.
+ */
+export function assertHostedSlackLaunchEnvComplete(
+  env: Record<string, string | undefined> | null | undefined,
+  context = 'launch env',
+): void {
+  const values = env ?? {};
+  if (!hostedSlackEnvEnabled(values[HOSTED_SLACK_APP_ENABLED_ENV])) return;
+  const missing = HOSTED_SLACK_REQUIRED_COMPANION_ENV_KEYS
+    .filter((key) => !String(values[key] ?? '').trim());
+  if (!missing.length) return;
+  throw new Error(
+    `${context} sets ${HOSTED_SLACK_APP_ENABLED_ENV} without ${missing.join(', ')}; `
+    + 'the OpenClaw entrypoint refuses to boot without the complete hosted Slack set',
+  );
+}
+
 export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChannelConfigOptions): HostedSlackRelayChannelConfig {
   const gatewayId = options.gatewayId?.trim() || (options.agentId?.trim() ? `agent:${options.agentId.trim()}` : '');
   if (!gatewayId) throw new Error('Slack relay gateway id requires an agent id');
