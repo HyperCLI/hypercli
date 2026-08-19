@@ -1361,6 +1361,7 @@ mod tests {
             archived_at: None,
             launch_epoch,
             launch_config: Default::default(),
+            ..Default::default()
         }
     }
 
@@ -3127,6 +3128,7 @@ mod tests {
             archived_at: None,
             launch_epoch: 0,
             launch_config: Default::default(),
+            ..Default::default()
         };
 
         let ready = wait_until_running(
@@ -3271,6 +3273,7 @@ mod tests {
                 archived_at: None,
                 launch_epoch: 0,
                 launch_config: Default::default(),
+                ..Default::default()
             };
 
             let error = wait_until_running(
@@ -3313,6 +3316,7 @@ mod tests {
             archived_at: None,
             launch_epoch: 0,
             launch_config: Default::default(),
+            ..Default::default()
         };
 
         let error =

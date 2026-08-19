@@ -58,7 +58,17 @@ import type {
   OpenClawTelegramConfigPatch,
   OpenClawWhatsAppConfigPatch,
 } from './openclaw/channels.js';
-import { normalizeSlackRelayBaseUrl } from './channels.js';
+import {
+  assertHostedSlackLaunchEnvComplete,
+  buildHostedSlackLaunchEnv,
+  buildHostedSlackRelayChannelConfig,
+  HOSTED_SLACK_APP_ENABLED_ENV,
+  HOSTED_SLACK_GATEWAY_ID_ENV,
+  HOSTED_SLACK_LAUNCH_ENV_KEYS,
+  hostedSlackEnvEnabled,
+  hostedSlackGatewayIdForAgent,
+  normalizeSlackRelayBaseUrl,
+} from './channels.js';
 import type {
   OpenClawSlackHttpConfiguration,
   OpenClawSlackRelayConfiguration,
@@ -66,6 +76,7 @@ import type {
 } from './openclaw/slack.js';
 import { HermesApiClient } from './hermes/gateway.js';
 
+const AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS = 300_000;
 const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
@@ -965,8 +976,27 @@ export interface UpdateAgentOptions {
   error?: string | null;
 }
 
+export interface OpenClawSlackOptions {
+  /**
+   * Hosted Slack relay base URL. Resolved from `HYPER_SLACK_RELAY_BASE_URL`,
+   * `SLACK_RELAY_BASE_URL`, or the client's agents API base when omitted.
+   */
+  relayBaseUrl?: string | null;
+  /**
+   * Gateway id override. Normally left unset: the Backend assigns the Agent id
+   * at create time and the gateway id is derived from it.
+   */
+  gatewayId?: string | null;
+}
+
 export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
   gatewayToken?: string | null;
+  /**
+   * Enable hosted Slack. Pass `true` (or relay overrides) to state the intent;
+   * the SDK owns the complete `HYPER_SLACK_*` launch env, including the gateway
+   * id, which it can only know once the Agent record exists.
+   */
+  slack?: OpenClawSlackOptions | boolean | null;
   openClawRoutes?: OpenClawRouteOptions | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
@@ -978,6 +1008,12 @@ export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
   launchConfig: AgentLaunchConfig;
   gatewayToken?: string | null;
+}
+
+interface PreparedHostedSlack {
+  enabled: boolean;
+  relayBaseUrl: string | null;
+  gatewayId: string | null;
 }
 
 export interface HermesAgentCreateOptions extends CreateAgentOptions {
@@ -1365,6 +1401,10 @@ export interface AgentStateFields {
   startedAt?: Date | null;
   stoppedAt?: Date | null;
   archivedAt?: Date | null;
+  archivePath?: string | null;
+  deletedAt?: Date | null;
+  disconnectedAt?: Date | null;
+  agentSlotId?: string | null;
   clusterId?: string | null;
   launchEpoch?: number;
   createdAt?: Date | null;
@@ -1402,6 +1442,10 @@ export interface AgentHydrationData {
   started_at?: string | null;
   stopped_at?: string | null;
   archived_at?: string | null;
+  archive_path?: string | null;
+  deleted_at?: string | null;
+  disconnected_at?: string | null;
+  agent_slot_id?: string | null;
   cluster_id?: string | null;
   launch_epoch?: number;
   created_at?: string | null;
@@ -1880,6 +1924,13 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     startedAt: parseDate(data.started_at),
     stoppedAt: parseDate(data.stopped_at),
     archivedAt: parseDate(data.archived_at),
+    // Independently nullable from archivedAt: SPEC has a new Agent with
+    // neither, an ARCHIVED Agent with both, and a restored Agent with a
+    // path but no archivedAt. Dropping it made that tri-state unreadable.
+    archivePath: typeof data.archive_path === 'string' ? data.archive_path : null,
+    deletedAt: parseDate(data.deleted_at),
+    disconnectedAt: parseDate(data.disconnected_at),
+    agentSlotId: typeof data.agent_slot_id === 'string' ? data.agent_slot_id : null,
     clusterId: data.cluster_id ?? null,
     launchEpoch: data.launch_epoch ?? 0,
     createdAt: parseDate(data.created_at),
@@ -2026,14 +2077,74 @@ function resolveHermesApiServerKey(
   return key;
 }
 
+function normalizeHostedSlackOption(
+  slack: OpenClawCreateAgentOptions['slack'],
+): OpenClawSlackOptions | null {
+  if (slack === undefined || slack === null || slack === false) return null;
+  if (slack === true) return {};
+  return slack;
+}
+
+/**
+ * Resolve the hosted Slack relay base.
+ *
+ * An SDK caller has no dashboard module constant, so the base comes from an
+ * explicit option, the same config keys the CLI reads, or the client's agents
+ * API base (`normalizeSlackRelayBaseUrl` maps `api.agents.*` onto the relay
+ * host). Anything unusable throws rather than shipping a half-built env.
+ */
+function resolveHostedSlackRelayBaseUrl(
+  explicit: string | null | undefined,
+  fallbackBaseUrl: string | null | undefined,
+): string {
+  const candidate = explicit?.trim()
+    || getConfigValue('HYPER_SLACK_RELAY_BASE_URL')
+    || getConfigValue('SLACK_RELAY_BASE_URL')
+    || fallbackBaseUrl?.trim()
+    || '';
+  if (!candidate) {
+    throw new Error(
+      'Hosted Slack requires a relay base URL; pass slack.relayBaseUrl or set HYPER_SLACK_RELAY_BASE_URL',
+    );
+  }
+  return normalizeSlackRelayBaseUrl(candidate);
+}
+
+/** Merge the hosted Slack relay channel into an OpenClaw runtime config. */
+function withHostedSlackRelayChannelConfig(
+  config: unknown,
+  options: { relayBaseUrl: string; gatewayId: string },
+): Record<string, any> {
+  const next: Record<string, any> = isPlainRecord(config) ? { ...config } : {};
+  const built = buildHostedSlackRelayChannelConfig(options);
+  const channels: Record<string, any> = isPlainRecord(next.channels) ? { ...next.channels } : {};
+  const existingSlack: Record<string, any> = isPlainRecord(channels.slack) ? channels.slack : {};
+  const existingRelay: Record<string, any> = isPlainRecord(existingSlack.relay) ? existingSlack.relay : {};
+  channels.slack = {
+    ...existingSlack,
+    ...built,
+    relay: { ...existingRelay, ...built.relay },
+  };
+  next.channels = channels;
+  const messages: Record<string, any> = isPlainRecord(next.messages) ? { ...next.messages } : {};
+  const statusReactions: Record<string, any> = isPlainRecord(messages.statusReactions)
+    ? { ...messages.statusReactions }
+    : {};
+  messages.statusReactions = { ...statusReactions, enabled: true };
+  next.messages = messages;
+  return next;
+}
+
 function prepareOpenClawLaunch(
   options: OpenClawCreateAgentOptions,
   generateGatewayToken: true,
+  defaultSlackRelayBaseUrl?: string | null,
 ): {
   config: Record<string, any>;
   env: Record<string, string>;
   secrets: Record<string, string>;
   gatewayToken: string | null;
+  slack: PreparedHostedSlack;
 } {
   const env = { ...(options.env ?? {}) };
   if (Object.prototype.hasOwnProperty.call(env, 'OPENCLAW_GATEWAY_TOKEN')) {
@@ -2072,7 +2183,49 @@ function prepareOpenClawLaunch(
     agentsConfig.defaults = defaultsConfig;
     config.agents = agentsConfig;
   }
-  return { config, env, secrets, gatewayToken };
+  const slackOption = normalizeHostedSlackOption(options.slack);
+  for (const key of HOSTED_SLACK_LAUNCH_ENV_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(secrets, key)) {
+      throw new Error(
+        `${key} is launch env, not a Secret; hosted Slack env holds URLs and identifiers, `
+        + 'and the credential that flow uses (HYPER_AGENTS_API_KEY) is injected by the platform',
+      );
+    }
+  }
+  const explicitSlackEnvKeys = HOSTED_SLACK_LAUNCH_ENV_KEYS
+    .filter((key) => Object.prototype.hasOwnProperty.call(env, key));
+  let slack: PreparedHostedSlack = { enabled: false, relayBaseUrl: null, gatewayId: null };
+  if (slackOption) {
+    if (explicitSlackEnvKeys.length) {
+      throw new Error(
+        `slack conflicts with ${explicitSlackEnvKeys.join(', ')} in env; `
+        + 'state the intent with slack and let the SDK build the launch env',
+      );
+    }
+    const relayBaseUrl = resolveHostedSlackRelayBaseUrl(slackOption.relayBaseUrl, defaultSlackRelayBaseUrl);
+    const gatewayId = slackOption.gatewayId?.trim() || null;
+    if (slackOption.gatewayId !== undefined && slackOption.gatewayId !== null && !gatewayId) {
+      throw new Error('slack.gatewayId must not be blank');
+    }
+    if (!gatewayId && options.dryRun) {
+      throw new Error(
+        'createOpenClaw dry runs cannot preview hosted Slack: HYPER_SLACK_GATEWAY_ID is derived '
+        + 'from the Agent id the Backend assigns at create time. Pass slack.gatewayId to preview it.',
+      );
+    }
+    // With no gateway id the set stays absent entirely: a stored launch env
+    // that enables Slack without one is exactly the state that kills the pod.
+    if (gatewayId) Object.assign(env, buildHostedSlackLaunchEnv({ relayBaseUrl, gatewayId }));
+    slack = { enabled: true, relayBaseUrl, gatewayId };
+  } else {
+    assertHostedSlackLaunchEnvComplete(env, 'createOpenClaw env');
+    slack = {
+      enabled: hostedSlackEnvEnabled(env[HOSTED_SLACK_APP_ENABLED_ENV]),
+      relayBaseUrl: null,
+      gatewayId: env[HOSTED_SLACK_GATEWAY_ID_ENV]?.trim() || null,
+    };
+  }
+  return { config, env, secrets, gatewayToken, slack };
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
@@ -2376,6 +2529,10 @@ export class Agent {
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
   public readonly archivedAt: Date | null;
+  public readonly archivePath: string | null;
+  public readonly deletedAt: Date | null;
+  public readonly disconnectedAt: Date | null;
+  public readonly agentSlotId: string | null;
   public readonly clusterId: string | null;
   public readonly launchEpoch: number;
   public readonly createdAt: Date | null;
@@ -2413,6 +2570,10 @@ export class Agent {
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
     this.archivedAt = fields.archivedAt ?? null;
+    this.archivePath = fields.archivePath ?? null;
+    this.deletedAt = fields.deletedAt ?? null;
+    this.disconnectedAt = fields.disconnectedAt ?? null;
+    this.agentSlotId = fields.agentSlotId ?? null;
     this.clusterId = fields.clusterId ?? null;
     this.launchEpoch = fields.launchEpoch ?? 0;
     this.createdAt = fields.createdAt ?? null;
@@ -4292,14 +4453,25 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
+  /**
+   * Create a hosted OpenClaw Agent.
+   *
+   * With `slack` enabled the call also owns the hosted Slack launch env. The
+   * gateway id is `agent:<agent id>` and the Backend assigns that id at create
+   * time, so the complete set is written in a launch-config patch immediately
+   * after the record exists (and after it leaves CREATING, which rejects launch
+   * updates). The Agent is not started by create, so nothing boots on the
+   * incomplete env in between; the returned Agent carries the complete set.
+   */
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
-    const prepared = prepareOpenClawLaunch(options, true);
+    const prepared = prepareOpenClawLaunch(options, true, this.agentApiBase);
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime: options.runtime ?? 'openclaw',
       config: prepared.config,
       secrets: prepared.secrets,
     };
+    delete (effectiveOptions as { slack?: unknown }).slack;
     effectiveOptions.env = {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
@@ -4315,7 +4487,55 @@ export class Deployments {
     }
     const agent = await this.create(effectiveOptions);
     if (agent instanceof OpenClawAgent) agent.gatewayToken = prepared.gatewayToken;
-    return agent;
+    if (!prepared.slack.enabled || prepared.slack.gatewayId || !prepared.slack.relayBaseUrl) return agent;
+    return this.applyHostedSlackLaunchConfig(agent, prepared.slack.relayBaseUrl, prepared.gatewayToken);
+  }
+
+  /**
+   * Write the complete hosted Slack launch env onto a freshly created Agent.
+   *
+   * The gateway id comes from the Agent projection when the endpoint carries
+   * one, and otherwise from the Backend's own derivation for that Agent id
+   * (`gateway_id_for_agent`, `agent:<id>`); the deployments projection does not
+   * currently include `gateway_id`.
+   */
+  private async applyHostedSlackLaunchConfig(
+    agent: Agent,
+    relayBaseUrl: string,
+    gatewayToken: string | null,
+  ): Promise<Agent> {
+    // Launch updates are rejected while the Agent is CREATING.
+    const ready = agent.state === 'STOPPED'
+      ? agent
+      : await this.waitForState(
+        agent.id,
+        ['STOPPED'],
+        AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS,
+        ['FAILED', 'DELETED'],
+        agent.launchEpoch > 0 ? agent.launchEpoch : undefined,
+      );
+    const gatewayId = ready.gatewayId?.trim()
+      || agent.gatewayId?.trim()
+      || hostedSlackGatewayIdForAgent(ready.id || agent.id);
+    const launchConfig: Record<string, any> = { ...(ready.launchConfig ?? {}) };
+    launchConfig.env = {
+      ...(isPlainRecord(launchConfig.env) ? launchConfig.env : {}),
+      ...buildHostedSlackLaunchEnv({ relayBaseUrl, gatewayId }),
+    };
+    launchConfig.config = withHostedSlackRelayChannelConfig(launchConfig.config, { relayBaseUrl, gatewayId });
+    const updated = await this.update(ready.id, { launchConfig });
+    const storedEnv: Record<string, string | undefined> = isPlainRecord(updated.launchConfig?.env)
+      ? updated.launchConfig.env as Record<string, string | undefined>
+      : {};
+    assertHostedSlackLaunchEnvComplete(storedEnv, 'createOpenClaw stored launch env');
+    const missing = HOSTED_SLACK_LAUNCH_ENV_KEYS.filter((key) => !String(storedEnv[key] ?? '').trim());
+    if (missing.length) {
+      throw new Error(
+        `Agent ${updated.id} did not store the hosted Slack launch env (missing ${missing.join(', ')})`,
+      );
+    }
+    if (updated instanceof OpenClawAgent) updated.gatewayToken = gatewayToken;
+    return updated;
   }
 
   async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
@@ -5135,6 +5355,15 @@ export class Deployments {
     }
     const gatewayToken = explicitToken ?? configuredToken;
     if (gatewayToken) launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+    // Repair records written before the SDK owned this set: the gateway id is
+    // the Backend's own derivation from the Agent id, known here.
+    if (
+      hostedSlackEnvEnabled(launchConfig.env[HOSTED_SLACK_APP_ENABLED_ENV])
+      && !String(launchConfig.env[HOSTED_SLACK_GATEWAY_ID_ENV] ?? '').trim()
+    ) {
+      launchConfig.env[HOSTED_SLACK_GATEWAY_ID_ENV] = hostedSlackGatewayIdForAgent(agentId);
+    }
+    assertHostedSlackLaunchEnvComplete(launchConfig.env, 'startOpenClaw launch env');
     const agent = await this.start(agentId, {
       launchConfig,
       dryRun: options.dryRun,

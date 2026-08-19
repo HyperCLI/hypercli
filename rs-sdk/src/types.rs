@@ -1000,7 +1000,7 @@ pub fn is_agent_runtime_inactive_state(state: &str) -> bool {
         .any(|known| state.eq_ignore_ascii_case(known))
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,
     #[serde(default)]
@@ -1023,6 +1023,23 @@ pub struct Deployment {
     pub requested_size: Option<AgentSize>,
     #[serde(default)]
     pub archived_at: Option<String>,
+    /// Independently nullable from `archived_at`: a new Agent has neither, an
+    /// ARCHIVED Agent has both, and a restored Agent may carry a path with no
+    /// `archived_at`. That tri-state is the archive contract, and it cannot be
+    /// read at all if this field is dropped.
+    #[serde(default)]
+    pub archive_path: Option<String>,
+    /// Set at DELETE admission. The Backend hides a soft-deleted Agent from its
+    /// owner, so a client observes deletion as absence rather than by reading
+    /// this back; it is the Backend's own bookkeeping for driving the evict.
+    #[serde(default)]
+    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub disconnected_at: Option<String>,
+    #[serde(default)]
+    pub agent_slot_id: Option<String>,
+    #[serde(default)]
+    pub secret_names: Vec<String>,
     #[serde(default)]
     pub launch_epoch: u64,
     /// Persisted launch settings. This can contain runtime credentials, so its
@@ -1557,6 +1574,7 @@ mod tests {
             archived_at: None,
             launch_epoch: 0,
             launch_config: Default::default(),
+            ..Default::default()
         };
 
         assert!(deployment(&[BUZZ_DEPLOYMENT_TAG]).is_buzz_managed());
@@ -1607,6 +1625,7 @@ mod tests {
             archived_at: None,
             launch_epoch: 0,
             launch_config: Default::default(),
+            ..Default::default()
         };
 
         assert!(deployment("ARCHIVING").is_transitioning());

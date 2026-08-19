@@ -1193,6 +1193,13 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "started_at": _parse_dt(data.get("started_at")),
         "stopped_at": _parse_dt(data.get("stopped_at")),
         "archived_at": _parse_dt(data.get("archived_at")),
+        # Independently nullable from archived_at: SPEC has a new Agent with
+        # neither, an ARCHIVED Agent with both, and a restored Agent with a
+        # path but no archived_at. Dropping it made that tri-state unreadable.
+        "archive_path": data.get("archive_path"),
+        "deleted_at": _parse_dt(data.get("deleted_at")),
+        "disconnected_at": _parse_dt(data.get("disconnected_at")),
+        "agent_slot_id": data.get("agent_slot_id"),
         "cluster_id": data.get("cluster_id"),
         "launch_epoch": int(data.get("launch_epoch", 0) or 0),
         "created_at": _parse_dt(data.get("created_at")),
@@ -1911,6 +1918,10 @@ class Agent:
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
+    archive_path: Optional[str] = None
+    deleted_at: Optional[datetime] = None
+    disconnected_at: Optional[datetime] = None
+    agent_slot_id: Optional[str] = None
     cluster_id: Optional[str] = None
     launch_epoch: int = 0
     created_at: Optional[datetime] = None
