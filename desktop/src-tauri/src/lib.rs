@@ -1468,8 +1468,7 @@ fn runtime_auth_status_blocking(
             detail: "Start the agent to check its native login.".to_owned(),
         });
     }
-    let status = client
-        .runtime_auth_status(&agent_id)
+    let status = tauri::async_runtime::block_on(client.runtime_auth_status(&agent_id))
         .map_err(|error| error.to_string())?;
     if status.runtime != native {
         return Err("Runtime auth wrapper reported the wrong runtime".to_owned());
@@ -1838,8 +1837,11 @@ fn save_agent_blocking(agent_id: String, input: AgentEditorInput) -> Result<Desk
         )
         .map_err(|error| error.to_string())?;
     if was_running {
+        let launch_config = client
+            .stored_launch_config(&agent_id, None)
+            .map_err(|error| error.to_string())?;
         client
-            .start_deployment(&agent_id, &StartDeploymentRequest::default())
+            .start_deployment(&agent_id, &StartDeploymentRequest::new(launch_config))
             .map(DesktopAgent::from)
             .map_err(|error| error.to_string())
     } else {
@@ -2549,8 +2551,12 @@ async fn create_buzz_agent(
     }
     let started_id = deployment.id.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        managed_client()?
-            .start_deployment(&started_id, &StartDeploymentRequest::default())
+        let client = managed_client()?;
+        let launch_config = client
+            .stored_launch_config(&started_id, None)
+            .map_err(|error| error.to_string())?;
+        client
+            .start_deployment(&started_id, &StartDeploymentRequest::new(launch_config))
             .map(DesktopAgent::from)
             .map_err(|error| error.to_string())
     })
@@ -2639,8 +2645,7 @@ fn fixed_agent_exec(
     // explicitly because these fixed scripts require one.
     let mut request = ExecDeploymentRequest::new(["/bin/sh", "-c", script]);
     request.timeout = 30;
-    let response = client
-        .exec_deployment(agent_id, &request)
+    let response = tauri::async_runtime::block_on(client.exec_deployment(agent_id, &request))
         .map_err(|error| error.to_string())?;
     if response.exit_code != 0 {
         return Err("SSH key operation failed inside the agent".to_owned());
@@ -2870,8 +2875,11 @@ fn start_agent_blocking(agent_id: String) -> Result<DesktopAgent, String> {
             normalized_state(&current.state)
         ));
     }
+    let launch_config = client
+        .stored_launch_config(&agent_id, None)
+        .map_err(|error| error.to_string())?;
     client
-        .start_deployment(&agent_id, &StartDeploymentRequest::default())
+        .start_deployment(&agent_id, &StartDeploymentRequest::new(launch_config))
         .map(DesktopAgent::from)
         .map_err(|error| error.to_string())
 }
@@ -2932,8 +2940,11 @@ fn restart_agent_blocking(agent_id: String) -> Result<DesktopAgent, String> {
         return Err(format!("Agent cannot be restarted while it is {state}"));
     }
 
+    let launch_config = client
+        .stored_launch_config(&agent_id, None)
+        .map_err(|error| error.to_string())?;
     client
-        .start_deployment(&agent_id, &StartDeploymentRequest::default())
+        .start_deployment(&agent_id, &StartDeploymentRequest::new(launch_config))
         .map(DesktopAgent::from)
         .map_err(|error| error.to_string())
 }
@@ -3529,6 +3540,7 @@ mod tests {
             archived_at: None,
             launch_epoch: 0,
             launch_config: Default::default(),
+            ..Default::default()
         });
         let serialized = serde_json::to_value(view).unwrap();
 
@@ -3561,6 +3573,7 @@ mod tests {
             archived_at: None,
             launch_epoch: 0,
             launch_config: DeploymentLaunchConfig::from_map(launch_config),
+            ..Default::default()
         });
 
         assert_eq!(view.name, "CI Buzz Agent");
