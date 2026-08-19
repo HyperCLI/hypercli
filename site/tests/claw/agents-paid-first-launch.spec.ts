@@ -63,6 +63,9 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       category: "Ops",
       plan: "pro",
       enableDesktop: false,
+      // This spec's subject is the paid first-launch entitlement, not the
+      // launch wizard, so it creates the Agent through the API on purpose.
+      createVia: "api",
       enableMemoryIndex: true,
       enableCustomImage: false,
       customImage: "",

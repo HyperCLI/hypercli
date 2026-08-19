@@ -545,6 +545,109 @@ function isDeploymentAbsentError(error: unknown): boolean {
   return statusCode === 0 && /\b404\b|not found/i.test(message);
 }
 
+// The Backend's own guards, mirrored so teardown asks for the transition the
+// Agent can actually make (backend/agents/lifecycle_routes.py):
+//   DELETE is admitted only from STOPPED or ARCHIVED, and is a no-op once the
+//   Agent is already deleted.
+//   STOP is admitted from STARTING/RUNNING, is idempotent from STOPPING/STOPPED,
+//   and answers 409 from everything else -- CREATING and FAILED included.
+const DELETABLE_DEPLOYMENT_STATES = new Set(["STOPPED", "ARCHIVED", "DELETED"]);
+const STOPPABLE_DEPLOYMENT_STATES = new Set(["STARTING", "RUNNING", "STOPPING"]);
+
+/**
+ * Bring a deployment to a state the Backend will delete from.
+ *
+ * These specs delete Agents they have just launched, so RUNNING is the ordinary
+ * case, not an edge one: leading with DELETE spent every teardown discovering
+ * that through a 409.
+ *
+ * A state the Agent cannot legally leave is NOT smoothed over here. A launch
+ * that strands in CREATING -- the CREATE reached namespace and storage and
+ * nothing re-drove it -- can neither be stopped nor deleted, and it poisons
+ * every later run's pre-start cleanup. That is a platform defect, and teardown
+ * has to name it rather than absorb it into a generic delete failure.
+ */
+async function settleDeploymentForDelete(
+  deployments: DeploymentsClientLike,
+  agentId: string,
+  { timeout = 240_000, creatingSettleTimeout = 60_000 }: { timeout?: number; creatingSettleTimeout?: number } = {},
+): Promise<void> {
+  const deadline = Date.now() + timeout;
+  const creatingDeadline = Date.now() + creatingSettleTimeout;
+  const remaining = (): number => Math.max(deadline - Date.now(), 5_000);
+  for (;;) {
+    let current: DeploymentRecord;
+    try {
+      current = await settledAgentsCall(
+        () => deployments.get(agentId) as Promise<DeploymentRecord>,
+        { timeout: 30_000, label: `get deployment ${agentId}` },
+      );
+    } catch (error) {
+      if (isDeploymentAbsentError(error)) return;
+      // Reading the state is not the assertion; let DELETE report the problem.
+      console.log(
+        `[agents-cleanup] settle ${agentId}: state unreadable, deleting anyway: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return;
+    }
+
+    const state = String(current.state ?? "").toUpperCase();
+    if (DELETABLE_DEPLOYMENT_STATES.has(state)) return;
+
+    if (STOPPABLE_DEPLOYMENT_STATES.has(state)) {
+      try {
+        // Take the launch epoch from the accepted STOP, not from the read
+        // before it: accepting a lifecycle request publishes the new epoch a
+        // beat before the state leaves the previous one.
+        const accepted = await settledAgentsCall(
+          () => deployments.stop(agentId) as Promise<DeploymentRecord>,
+          { timeout: 60_000, label: `stop deployment ${agentId}` },
+        );
+        const acceptedLaunchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
+        await settledAgentsCall(
+          () => deployments.waitForState(
+            agentId,
+            ["STOPPED", "ARCHIVED", "DELETED"],
+            remaining(),
+            ["FAILED"],
+            acceptedLaunchEpoch,
+            2_000,
+          ),
+          { timeout: remaining(), label: `wait for STOPPED ${agentId}` },
+        );
+      } catch (error) {
+        if (isDeploymentAbsentError(error)) return;
+        // Losing a lifecycle race is ordinary; DELETE reports what is left.
+        console.log(
+          `[agents-cleanup] settle ${agentId}: stop from ${state} did not complete: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+      return;
+    }
+
+    if (state === "CREATING" && Date.now() < creatingDeadline) {
+      // A normal CREATE settles to STOPPED in seconds, and STOP answers 409
+      // until it does. Only a brief wait is legitimate here.
+      await sleep(2_000);
+      continue;
+    }
+
+    throw new Error(
+      `Deployment ${agentId} cannot be deleted from state ${state || "unknown"}: the Backend admits ` +
+        `DELETE only from ${[...DELETABLE_DEPLOYMENT_STATES].join("/")} and STOP only from ` +
+        `${[...STOPPABLE_DEPLOYMENT_STATES].join("/")}` +
+        (state === "CREATING"
+          ? `. It stayed CREATING for ${creatingSettleTimeout}ms, so the launch stranded before any pod existed ` +
+            "-- a stranded launch is a control-plane defect, not a teardown race."
+          : ".")
+    );
+  }
+}
+
 async function deleteDeployment(deployments: DeploymentsClientLike, agentId: string): Promise<void> {
   const waitUntilAbsent = async (): Promise<void> => {
     let lastError: unknown = null;
@@ -566,6 +669,7 @@ async function deleteDeployment(deployments: DeploymentsClientLike, agentId: str
       ? new Error(`Deployment ${agentId} was not deleted: ${lastError.message}`)
       : new Error(`Deployment ${agentId} was not deleted`);
   };
+  await settleDeploymentForDelete(deployments, agentId);
   try {
     await settledAgentsCall(() => deployments.delete(agentId), {
       timeout: 60_000,
@@ -575,32 +679,22 @@ async function deleteDeployment(deployments: DeploymentsClientLike, agentId: str
     return;
   } catch (deleteError) {
     if (isDeploymentAbsentError(deleteError)) return;
-    const accepted = await settledAgentsCall(
-      () => deployments.stop(agentId) as Promise<DeploymentRecord>,
-      { timeout: 60_000, label: `stop deployment ${agentId}` },
-    ).catch((stopError) => {
-      if (isDeploymentAbsentError(stopError)) return null;
-      return settledAgentsCall(() => deployments.get(agentId) as Promise<DeploymentRecord>, {
-        timeout: 60_000,
-        label: `get deployment ${agentId}`,
-      });
-    });
-    if (!accepted) return;
-    const launchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
-    const terminal = await deployments.waitForState(
-      agentId,
-      ["STOPPED", "DELETED"],
-      180_000,
-      ["FAILED"],
-      launchEpoch,
-      2_000,
+    // Losing the race is expected: the Agent can leave the deletable state
+    // between the settle and the DELETE (a launch admitted just before the
+    // stop, a Lagoon-owned edge). Settle once more, then delete for real.
+    console.log(
+      `[agents-cleanup] delete ${agentId} rejected, re-settling: ${
+        deleteError instanceof Error ? deleteError.message : String(deleteError)
+      }`
     );
-    if (terminal.state !== "DELETED") {
-      await settledAgentsCall(() => deployments.delete(agentId), {
-        timeout: 60_000,
-        label: `delete deployment ${agentId}`,
-      });
-    }
+    await settleDeploymentForDelete(deployments, agentId);
+    await settledAgentsCall(() => deployments.delete(agentId), {
+      timeout: 60_000,
+      label: `delete deployment ${agentId}`,
+    }).catch((retryError) => {
+      if (isDeploymentAbsentError(retryError)) return;
+      throw retryError;
+    });
     await waitUntilAbsent();
   }
 }
@@ -1338,6 +1432,7 @@ export async function waitForBrowserAgentStartOrLaunchError(
   const launchError = page.getByTestId("agent-error-banner");
   const visibleErrorOutcome = (async () => {
     const deadline = Date.now() + timeout;
+    let lastEdgeNotice: string | null = null;
     while (Date.now() < deadline) {
       try {
         await launchError.waitFor({ state: "visible", timeout: Math.max(deadline - Date.now(), 1) });
@@ -1348,10 +1443,33 @@ export async function waitForBrowserAgentStartOrLaunchError(
         || "Agent launch failed before start";
       // Starter files stage alongside the start and can only land once the pod
       // answers; a files-failed notice is a warning, not a failed launch.
-      if (!isNonFatalLaunchNotice(message)) {
-        return { kind: "failure" as const, error: new Error(message) };
+      if (isNonFatalLaunchNotice(message)) {
+        await sleep(500);
+        continue;
       }
-      await sleep(500);
+      // The app renders Agents API failures in this banner verbatim, so an
+      // unconverged route reaches it as traefik's "404 page not found". That is
+      // a statement about the edge, not a verdict on the launch, and the same
+      // request answers once the route settles -- but an app that never leaves
+      // the banner is a failure the user really sees, so it is ridden out to
+      // the deadline and then reported for what it is.
+      if (isUnroutedEdgeBody(message)) {
+        if (lastEdgeNotice !== message) {
+          console.log(`[agents-launch] launch banner shows an unconverged-edge error, riding it out: ${message}`);
+        }
+        lastEdgeNotice = message;
+        await sleep(500);
+        continue;
+      }
+      return { kind: "failure" as const, error: new Error(message) };
+    }
+    if (lastEdgeNotice) {
+      return {
+        kind: "failure" as const,
+        error: new Error(
+          `Agent launch banner never cleared an unconverged-edge error within ${timeout}ms: ${lastEdgeNotice}`
+        ),
+      };
     }
     return await new Promise<never>(() => {});
   })();
@@ -1881,6 +1999,14 @@ export async function launchClawAgentAndWaitForGateway(
   timeout = 240_000,
   options: {
     enableDesktop?: boolean;
+    /**
+     * How the Agent comes into existence. "ui" drives the launch wizard the way
+     * a user does and is the default, because creating the Agent is part of
+     * what these specs cover. "api" is the deliberate exception for specs whose
+     * subject is something else entirely -- it must be named at the call site
+     * so the shortcut is never invisible.
+     */
+    createVia?: "ui" | "api";
     beforeCreate?: () => Promise<void>;
     // Called as soon as the deployment exists, before it is known to be
     // healthy. A caller's `finally` cannot delete an Agent it was never told
@@ -1893,7 +2019,44 @@ export async function launchClawAgentAndWaitForGateway(
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
   const enableDesktop = options.enableDesktop ?? true;
+  const createVia = options.createVia ?? "ui";
   const reportAgentCreated = options.onAgentCreated;
+
+  // Gateway traffic is recorded from here -- before the dashboard is ever
+  // opened -- and filtered later, once the Agent and its route exist.
+  //
+  // Attaching the listeners at the point of use instead raced the app: the
+  // chat panel connects as soon as the Agent it is already showing turns
+  // RUNNING, so a listener attached after that saw only the second, already
+  // paired socket and reported "no cold-browser pairing challenge" for a
+  // gateway whose own log shows it challenged and approved normally. The
+  // assertion was right and the observation was late.
+  type RecordedFrame = { direction: "sent" | "received"; payload: string | Buffer };
+  type RecordedSocket = { url: string; frames: RecordedFrame[]; drained: number; counted: boolean };
+  const recordedSockets: RecordedSocket[] = [];
+  const recordSocket = (socket: PlaywrightWebSocket): void => {
+    let socketUrl = "";
+    try {
+      socketUrl = new URL(socket.url()).toString().replace(/\/$/, "");
+    } catch {
+      return;
+    }
+    const record: RecordedSocket = { url: socketUrl, frames: [], drained: 0, counted: false };
+    recordedSockets.push(record);
+    socket.on("framesent", ({ payload }) => record.frames.push({ direction: "sent", payload }));
+    socket.on("framereceived", ({ payload }) => record.frames.push({ direction: "received", payload }));
+  };
+  const recordedPostPaths: string[] = [];
+  const recordRequest = (request: { method(): string; url(): string }): void => {
+    if (request.method() !== "POST") return;
+    try {
+      recordedPostPaths.push(new URL(request.url()).pathname);
+    } catch {
+      // Ignore non-URL requests.
+    }
+  };
+  page.on("websocket", recordSocket);
+  page.on("request", recordRequest);
 
   const activeRouteUrl = (
     routes: DeploymentRoutesState,
@@ -2392,6 +2555,7 @@ export async function launchClawAgentAndWaitForGateway(
       let chatTerminalState: string | null = null;
       const chatTerminalStatesByRun = new Map<string, string>();
       let gatewaySocketCount = 0;
+      const connectFrameShapes: Array<Record<string, unknown>> = [];
       const replyMarker = `E2E_CHAT_OK_${created.id.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`;
       const inspectGatewayFrame = (payload: string | Buffer): Record<string, unknown> | null => {
         try {
@@ -2401,100 +2565,129 @@ export async function launchClawAgentAndWaitForGateway(
           return null;
         }
       };
-      const observeGatewaySocket = (socket: PlaywrightWebSocket): void => {
-        let socketUrl = "";
-        try {
-          socketUrl = new URL(socket.url()).toString().replace(/\/$/, "");
-        } catch {
-          return;
+      // Frames are replayed out of the recording rather than watched live, so
+      // sockets opened before this point count exactly the same as ones opened
+      // after it. Every counter below is derived, never observed at a moment.
+      const gatewayConnectRequestIdsBySocket = new Map<RecordedSocket, Set<string>>();
+      const processGatewayFrame = (record: RecordedSocket, frame: RecordedFrame): void => {
+        let connectRequestIds = gatewayConnectRequestIdsBySocket.get(record);
+        if (!connectRequestIds) {
+          connectRequestIds = new Set<string>();
+          gatewayConnectRequestIdsBySocket.set(record, connectRequestIds);
         }
-        if (socketUrl !== expectedGatewaySocketUrl) return;
-        gatewaySocketCount += 1;
-        const gatewayConnectRequestIds = new Set<string>();
+        const parsed = inspectGatewayFrame(frame.payload);
+        if (!parsed) return;
 
-        socket.on("framesent", ({ payload }) => {
-          const frame = inspectGatewayFrame(payload);
-          const params = frame?.params && typeof frame.params === "object"
-            ? frame.params as Record<string, unknown>
+        if (frame.direction === "sent") {
+          const params = parsed.params && typeof parsed.params === "object"
+            ? parsed.params as Record<string, unknown>
             : null;
           const auth = params?.auth && typeof params.auth === "object"
             ? params.auth as Record<string, unknown>
             : null;
           if (
-            frame?.type === "req" &&
-            frame.method === "connect" &&
-            typeof frame.id === "string" &&
+            parsed.type === "req" &&
+            parsed.method === "connect" &&
+            typeof parsed.id === "string" &&
             typeof auth?.token === "string" &&
             auth.token.length > 0
           ) {
-            gatewayConnectRequestIds.add(frame.id);
+            connectRequestIds.add(parsed.id);
+            // The gateway only reaches its pairing check when the connect
+            // carries a device identity: the whole block is gated on
+            // `if (device && devicePublicKey)`, and policy can allow an
+            // identity-less connect outright. Record the shape (never the
+            // values) so "no pairing challenge" can be told apart from "no
+            // device identity was offered".
+            const device = params?.device && typeof params.device === "object"
+              ? params.device as Record<string, unknown>
+              : null;
+            const deviceAuth = params?.deviceAuth && typeof params.deviceAuth === "object"
+              ? params.deviceAuth as Record<string, unknown>
+              : null;
+            const client = params?.client && typeof params.client === "object"
+              ? params.client as Record<string, unknown>
+              : null;
+            connectFrameShapes.push({
+              hasDevice: Boolean(device),
+              hasDeviceId: typeof device?.id === "string" && device.id.length > 0,
+              hasDevicePublicKey: typeof device?.publicKey === "string" && device.publicKey.length > 0,
+              hasDeviceAuth: Boolean(deviceAuth),
+              role: typeof params?.role === "string" ? params.role : null,
+              isControlUi: Boolean(client?.isControlUi ?? params?.isControlUi ?? null),
+            });
           }
-          if (frame?.type === "req" && frame.method === "chat.send") {
+          if (parsed.type === "req" && parsed.method === "chat.send") {
             chatSendRequests += 1;
-            if (typeof frame.id === "string") chatSendRequestId = frame.id;
+            if (typeof parsed.id === "string") chatSendRequestId = parsed.id;
           }
-        });
-        socket.on("framereceived", ({ payload }) => {
-          const frame = inspectGatewayFrame(payload);
-          const error = frame?.error && typeof frame.error === "object"
-            ? frame.error as Record<string, unknown>
+          return;
+        }
+
+        const error = parsed.error && typeof parsed.error === "object"
+          ? parsed.error as Record<string, unknown>
+          : null;
+        const details = error?.details && typeof error.details === "object"
+          ? error.details as Record<string, unknown>
+          : null;
+        if (
+          parsed.type === "res" &&
+          parsed.ok === true &&
+          typeof parsed.id === "string" &&
+          connectRequestIds.has(parsed.id)
+        ) {
+          authenticatedGatewayConnections += 1;
+        }
+        if (
+          parsed.type === "res" &&
+          parsed.ok === false &&
+          typeof parsed.id === "string" &&
+          connectRequestIds.has(parsed.id) &&
+          details?.code === "PAIRING_REQUIRED"
+        ) {
+          pairingRequiredResponses += 1;
+        }
+        if (parsed.type === "res" && parsed.ok === true && parsed.id === chatSendRequestId) {
+          const result = parsed.payload && typeof parsed.payload === "object"
+            ? parsed.payload as Record<string, unknown>
             : null;
-          const details = error?.details && typeof error.details === "object"
-            ? error.details as Record<string, unknown>
+          if (typeof result?.runId === "string") {
+            chatRunId = result.runId;
+            chatTerminalState = chatTerminalStatesByRun.get(result.runId) ?? null;
+          }
+        }
+        if (parsed.type === "event" && parsed.event === "chat") {
+          const event = parsed.payload && typeof parsed.payload === "object"
+            ? parsed.payload as Record<string, unknown>
             : null;
-          if (
-            frame?.type === "res" &&
-            frame.ok === true &&
-            typeof frame.id === "string" &&
-            gatewayConnectRequestIds.has(frame.id)
-          ) {
-            authenticatedGatewayConnections += 1;
-          }
-          if (
-            frame?.type === "res" &&
-            frame.ok === false &&
-            typeof frame.id === "string" &&
-            gatewayConnectRequestIds.has(frame.id) &&
-            details?.code === "PAIRING_REQUIRED"
-          ) {
-            pairingRequiredResponses += 1;
-          }
-          if (frame?.type === "res" && frame.ok === true && frame.id === chatSendRequestId) {
-            const result = frame.payload && typeof frame.payload === "object"
-              ? frame.payload as Record<string, unknown>
-              : null;
-            if (typeof result?.runId === "string") {
-              chatRunId = result.runId;
-              chatTerminalState = chatTerminalStatesByRun.get(result.runId) ?? null;
+          if (typeof event?.runId === "string" && typeof event.state === "string") {
+            if (["final", "error", "aborted"].includes(event.state)) {
+              chatTerminalStatesByRun.set(event.runId, event.state);
+              if (event.runId === chatRunId) chatTerminalState = event.state;
             }
           }
-          if (frame?.type === "event" && frame.event === "chat") {
-            const event = frame.payload && typeof frame.payload === "object"
-              ? frame.payload as Record<string, unknown>
-              : null;
-            if (typeof event?.runId === "string" && typeof event.state === "string") {
-              if (["final", "error", "aborted"].includes(event.state)) {
-                chatTerminalStatesByRun.set(event.runId, event.state);
-                if (event.runId === chatRunId) chatTerminalState = event.state;
-              }
-            }
-          }
-        });
-      };
-      const observePairingApproval = (request: { method(): string; url(): string }): void => {
-        if (request.method() !== "POST") return;
-        try {
-          // Trusted pairing approval mints an exec token and then runs
-          // `openclaw devices approve <id> --json` over the exec WebSocket, so
-          // the one observable REST call is the exec token mint.
-          const url = new URL(request.url());
-          if (url.pathname.endsWith(`/deployments/${created.id}/exec/token`)) pairingApprovalRequests += 1;
-        } catch {
-          // Ignore non-URL requests.
         }
       };
-      page.on("websocket", observeGatewaySocket);
-      page.on("request", observePairingApproval);
+      // Trusted pairing approval mints an exec token and then runs
+      // `openclaw devices approve <id> --json` over the exec WebSocket, so the
+      // one observable REST call is the exec token mint.
+      const execTokenPath = `/deployments/${created.id}/exec/token`;
+      const drainGatewayObservations = (): void => {
+        for (const record of recordedSockets) {
+          if (record.url !== expectedGatewaySocketUrl) continue;
+          // Counted once per socket, not once per drain: a socket that has not
+          // yet carried a frame still exists.
+          if (!record.counted) {
+            record.counted = true;
+            gatewaySocketCount += 1;
+          }
+          for (let index = record.drained; index < record.frames.length; index += 1) {
+            processGatewayFrame(record, record.frames[index]);
+          }
+          record.drained = record.frames.length;
+        }
+        pairingApprovalRequests = recordedPostPaths.filter((pathname) => pathname.endsWith(execTokenPath)).length;
+      };
 
       try {
         await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
@@ -2546,8 +2739,9 @@ export async function launchClawAgentAndWaitForGateway(
           )
           .toBe("ready");
         await expect
-          .poll(() => authenticatedGatewayConnections, { timeout: 10_000, intervals: [100, 250, 500] })
+          .poll(() => { drainGatewayObservations(); return authenticatedGatewayConnections; }, { timeout: 10_000, intervals: [100, 250, 500] })
           .toBeGreaterThan(0);
+        drainGatewayObservations();
         expect(pairingRequiredResponses, "expected one cold-browser pairing challenge").toBe(1);
         expect(pairingApprovalRequests, "expected one trusted pairing approval request").toBe(1);
         console.log("[agents-gateway] authenticated WebSocket connect observed");
@@ -2558,6 +2752,7 @@ export async function launchClawAgentAndWaitForGateway(
         await expect(connectingStatus.first()).not.toBeVisible({ timeout: 5_000 });
         await captureStep(page, "agents-12-gateway-connected");
 
+        drainGatewayObservations();
         const socketsBeforeReload = gatewaySocketCount;
         const hellosBeforeReload = authenticatedGatewayConnections;
         const pairingResponsesBeforeReload = pairingRequiredResponses;
@@ -2568,8 +2763,9 @@ export async function launchClawAgentAndWaitForGateway(
         expect(composerAfterReload, "expected the composer after a hard refresh").not.toBeNull();
         await expect(composerAfterReload!).toBeEnabled({ timeout: 10_000 });
         await expect
-          .poll(() => authenticatedGatewayConnections, { timeout: 30_000, intervals: [100, 250, 500] })
+          .poll(() => { drainGatewayObservations(); return authenticatedGatewayConnections; }, { timeout: 30_000, intervals: [100, 250, 500] })
           .toBe(hellosBeforeReload + 1);
+        drainGatewayObservations();
         expect(gatewaySocketCount, "expected one new root socket after hard refresh")
           .toBe(socketsBeforeReload + 1);
         expect(pairingRequiredResponses, "warm hard refresh must not pair again")
@@ -2578,16 +2774,17 @@ export async function launchClawAgentAndWaitForGateway(
           .toBe(approvalsBeforeReload);
         await captureStep(page, "agents-12a-gateway-reconnected");
 
+        drainGatewayObservations();
         const socketsBeforeChat = gatewaySocketCount;
         await composerAfterReload!.fill(`Respond with only this token, without Markdown or punctuation: ${replyMarker}`);
         const sendButton = await findLastVisible(page.getByTestId("agent-chat-send"), 5_000);
         expect(sendButton, "expected a visible chat send button").not.toBeNull();
         await expect(sendButton!).toBeEnabled({ timeout: 5_000 });
         await sendButton!.click();
-        await expect.poll(() => chatSendRequests, { timeout: 10_000, intervals: [100, 250, 500] }).toBe(1);
-        await expect.poll(() => chatRunId, { timeout: 10_000, intervals: [100, 250, 500] }).not.toBeNull();
+        await expect.poll(() => { drainGatewayObservations(); return chatSendRequests; }, { timeout: 10_000, intervals: [100, 250, 500] }).toBe(1);
+        await expect.poll(() => { drainGatewayObservations(); return chatRunId; }, { timeout: 10_000, intervals: [100, 250, 500] }).not.toBeNull();
         await expect
-          .poll(() => chatTerminalState, { timeout: 180_000, intervals: [100, 250, 500, 1_000] })
+          .poll(() => { drainGatewayObservations(); return chatTerminalState; }, { timeout: 180_000, intervals: [100, 250, 500, 1_000] })
           .toBe("final");
         await expect(page.getByText(replyMarker, { exact: true })).toBeVisible({ timeout: 180_000 });
         const composerIdleStartedAt = Date.now();
@@ -2599,11 +2796,13 @@ export async function launchClawAgentAndWaitForGateway(
             chatTerminalState,
           })}`);
         }
+        drainGatewayObservations();
         expect(gatewaySocketCount, "expected the completed chat turn to reuse the authenticated root socket")
           .toBe(socketsBeforeChat);
         expect(chatSendRequests, "expected exactly one chat.send request").toBe(1);
         await captureStep(page, "agents-12b-chat-completed");
       } finally {
+        drainGatewayObservations();
         console.log(`[agents-gateway] chat canary ${JSON.stringify({
           agentId: created.id,
           rootSocketCount: gatewaySocketCount,
@@ -2612,9 +2811,10 @@ export async function launchClawAgentAndWaitForGateway(
           pairingApprovalRequests,
           chatSendRequests,
           chatTerminalState,
+          connectFrameShapes,
         })}`);
-        page.off("websocket", observeGatewaySocket);
-        page.off("request", observePairingApproval);
+        page.off("websocket", recordSocket);
+        page.off("request", recordRequest);
       }
 
       // The desktop route is a second, independent host for the same Agent and
@@ -2630,6 +2830,21 @@ export async function launchClawAgentAndWaitForGateway(
       // exists for, and so a failure here names the desktop route rather than
       // arriving as an unexplained launch failure.
       if (enableDesktop) await verifyDesktopAuthRoute(running, acceptedLaunchEpoch);
+
+      // An Agent that boots, answers, and then unwinds is not a launched Agent.
+      // waitRunning accepts the first RUNNING sighting, so a runtime that dies
+      // at boot and flaps RUNNING -> FAILED -> STOPPED only surfaces later as
+      // an unexplained gateway error. Re-read the projection at the end and
+      // require the same launch epoch: a relaunch means the first one died.
+      const settled = await settledAgentsCall(() => deployments.get(created.id), {
+        timeout: 30_000,
+        label: `get deployment ${created.id}`,
+      });
+      const settledLaunchEpoch = Number(settled.launchEpoch ?? settled.launch_epoch ?? 0);
+      expect(
+        `${settled.state}@${settledLaunchEpoch}`,
+        "expected the Agent to still be RUNNING under the launch epoch it started on",
+      ).toBe(`RUNNING@${acceptedLaunchEpoch}`);
 
       return created;
     } catch (error) {
@@ -2655,6 +2870,13 @@ export async function launchClawAgentAndWaitForGateway(
           waitError: error instanceof Error ? error.message : String(error),
         })}`
       );
+      // Before teardown: the pod, its namespace and its log go with the
+      // deletion, so anything not captured here is unrecoverable afterwards.
+      await captureAgentDiagnosticLog(page, deployments, created.id, "readiness failure").catch((logError) => {
+        console.log(`[agents-log] capture failed id=${created.id} error=${
+          logError instanceof Error ? logError.message : String(logError)
+        }`);
+      });
       await deleteDeployment(deployments, created.id)
         .then(() => console.log(`[agents-launch] cleaned up failed agent id=${created.id}`))
         .catch((cleanupError) => {
@@ -2670,7 +2892,7 @@ export async function launchClawAgentAndWaitForGateway(
 
   await captureStep(page, "agents-10-dashboard");
   await options.beforeCreate?.();
-  if (!enableDesktop) {
+  if (createVia === "api") {
     const controlUiOrigin = new URL(page.url()).origin;
     return await waitForCreatedAgent(
       () => deployments.createOpenClaw({
@@ -2762,6 +2984,281 @@ export async function launchClawAgentAndWaitForGateway(
 
   await captureStep(page, "agents-10-launch-flow-stuck");
   throw new Error("Agent launch flow did not reach a launchable state");
+}
+
+// `[gateway]` carries the whole startup ordering -- "loading configuration",
+// "resolving authentication", "http server listening", "ready" -- which is what
+// decides whether a connect arrived before the auth policy was resolved.
+const AGENT_LOG_DIGEST_PATTERN =
+  /\[gateway\]|security audit|auth mode|authmode|authmethod|auth method|pairing|paired|device|connect|control ui|control-ui|close cause|closecause|trusted-proxy|not_paired|unauthorized/i;
+const AGENT_LOG_TAIL_LINES = 400;
+const AGENT_LOG_DIGEST_LINES = 120;
+
+/**
+ * Pull the Agent's own log and attach it to the failure output.
+ *
+ * A failure here is usually a statement about the runtime, and the runtime is
+ * deleted by teardown moments later -- after which the pod, its namespace and
+ * its log are gone, and the only record of why is whatever the test printed.
+ * Capturing it in-test makes each occurrence self-diagnosing instead of
+ * needing someone to catch the Agent alive.
+ *
+ * Every line goes through the same redaction the deployment diagnostics use:
+ * an Agent log carries tokens.
+ */
+async function captureAgentDiagnosticLog(
+  page: Page,
+  deployments: DeploymentsClientLike,
+  agentId: string,
+  label: string,
+): Promise<void> {
+  const clean = (raw: string): string[] => raw
+    .split(/\r?\n/)
+    .map((line) => sanitizeDeploymentDiagnosticText(line))
+    .filter((line): line is string => Boolean(line));
+
+  // The live buffer first. The persisted projection is fed by batched ingest
+  // and runs tens of seconds behind, so on its own it reliably stops short of
+  // the gateway startup lines this is being captured for.
+  const streamed: string[] = [];
+  try {
+    const tokenData = await deployments.logsToken(agentId);
+    const wsUrl = new URL(String(tokenData.ws_url ?? ""));
+    wsUrl.searchParams.set("jwt", String(tokenData.jwt ?? ""));
+    wsUrl.searchParams.set("tail_lines", String(AGENT_LOG_TAIL_LINES));
+    await new Promise<void>((resolve) => {
+      const socket = new WebSocket(wsUrl.toString());
+      let settled = false;
+      let graceTimer: ReturnType<typeof setTimeout> | null = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (graceTimer) clearTimeout(graceTimer);
+        try { socket.close(); } catch { /* already closing */ }
+        resolve();
+      };
+      const hardStop = setTimeout(finish, 20_000);
+      socket.onmessage = (event: { data: unknown }) => {
+        const raw = typeof event.data === "string" ? event.data : "";
+        let frame: { event?: unknown; log?: unknown } | null = null;
+        try {
+          frame = JSON.parse(raw) as { event?: unknown; log?: unknown };
+        } catch {
+          for (const line of clean(raw)) streamed.push(line);
+          return;
+        }
+        if (frame?.event === "log" && typeof frame.log === "string") {
+          for (const line of clean(frame.log)) streamed.push(line);
+          return;
+        }
+        if (frame?.event === "history_end" && graceTimer === null) {
+          // Replay is done; keep the socket open briefly for anything the
+          // runtime emits while the failure is still fresh.
+          graceTimer = setTimeout(() => { clearTimeout(hardStop); finish(); }, 3_000);
+        }
+      };
+      socket.onerror = () => { clearTimeout(hardStop); finish(); };
+      socket.onclose = () => { clearTimeout(hardStop); finish(); };
+    });
+  } catch (error) {
+    console.log(
+      `[agents-log] ${label} ${agentId}: live log stream unavailable: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  // The persisted projection second: it needs no lifecycle state, so it is the
+  // only source left once the Agent has stopped.
+  const persisted: string[] = [];
+  try {
+    const token = await getClawAuthToken(page);
+    const response = await fetch(`${getAgentsApiBaseUrl()}/deployments/${agentId}/logs`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (response.ok) {
+      const payload = (await response.json()) as { logs?: unknown };
+      persisted.push(...clean(typeof payload.logs === "string" ? payload.logs : ""));
+    } else {
+      console.log(`[agents-log] ${label} ${agentId}: persisted log unavailable (${response.status})`);
+    }
+  } catch (error) {
+    console.log(
+      `[agents-log] ${label} ${agentId}: persisted log read failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+
+  // Both sources carry the same leading ISO timestamp, so merging on the line
+  // itself and sorting restores one ordered view without inventing an order.
+  const merged = [...new Set([...persisted, ...streamed])].sort();
+  if (merged.length === 0) {
+    console.log(`[agents-log] ${label} ${agentId}: no log lines were available from either source`);
+    return;
+  }
+
+  const digest = merged.filter((line) => AGENT_LOG_DIGEST_PATTERN.test(line)).slice(-AGENT_LOG_DIGEST_LINES);
+  console.log(
+    `[agents-log] ---- ${label} ${agentId}: auth/pairing digest (${digest.length} of ${merged.length} lines; ` +
+      `stream=${streamed.length} persisted=${persisted.length}) ----`
+  );
+  for (const line of digest) console.log(`[agents-log] | ${line}`);
+  const tail = merged.slice(-AGENT_LOG_TAIL_LINES);
+  console.log(`[agents-log] ---- ${label} ${agentId}: last ${tail.length} of ${merged.length} lines ----`);
+  for (const line of tail) console.log(`[agents-log] > ${line}`);
+  console.log(`[agents-log] ---- ${label} ${agentId}: end ----`);
+}
+
+/**
+ * The Agent settings route, as the app builds it (`buildAgentSettingsHref` in
+ * apps/claw/src/lib/dashboard-route.ts). This is a real page a user lands on,
+ * not a test-only surface.
+ */
+function agentSettingsHref(agentId: string): string {
+  return `/dashboard/agents?view=settings&settings=agent&agentId=${encodeURIComponent(agentId)}`;
+}
+
+/**
+ * Stop an Agent the way a user does: the control on its settings page.
+ *
+ * The lifecycle request is the browser's own POST, watched here only for the
+ * epoch it was accepted under. The terminal state is then read from the Agents
+ * API because the UI reports it as a label rather than a value -- that read is
+ * an observation, not the action under test.
+ */
+/**
+ * Claim the trial the way a user does: on /trial, by clicking the button.
+ *
+ * The identity is bootstrapped with a login and nothing else, so this is where
+ * it earns a plan. Deliberately a click and not a POST -- /trial is a real
+ * product surface, it is how a user without a card gets access, and nothing
+ * else covers it. It is also why this works on a localhost run: the page
+ * claims an entitlement (POST /plans/trial) rather than opening a Stripe
+ * checkout whose redirect could never come back.
+ */
+export async function startClawTeamTrialThroughUi(page: Page): Promise<void> {
+  await page.goto("/trial", { waitUntil: "domcontentloaded" });
+
+  const claimButton = page.locator("#claim-trial-button");
+  await expect(claimButton, "expected the trial claim control on /trial").toBeVisible({ timeout: 90_000 });
+  await expect(claimButton).toBeEnabled({ timeout: 90_000 });
+
+  const trialResponse = page.waitForResponse(
+    (response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname.endsWith("/plans/trial"),
+    { timeout: 120_000 },
+  );
+  await claimButton.click();
+  const response = await trialResponse;
+  expect(response.ok(), `expected the trial claim to be accepted, got ${response.status()}`).toBe(true);
+
+  // The page renders its own success state only once the entitlement is live,
+  // so this is the UI's statement that the trial took -- not merely that the
+  // request returned 200.
+  await expect(
+    page.locator("#trial-claim-success"),
+    "expected /trial to confirm the entitlement is active",
+  ).toBeVisible({ timeout: 120_000 });
+
+  await page.locator("#trial-continue-button").click();
+  await page.waitForURL(/\/dashboard\/agents/, { timeout: 90_000 });
+  console.log("[agents-plans] team trial claimed through /trial");
+}
+
+
+export async function stopClawAgentThroughUi(page: Page, agentId: string): Promise<DeploymentRecord> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  await page.goto(agentSettingsHref(agentId), { waitUntil: "domcontentloaded" });
+
+  const stopButton = page.getByTestId("agent-stop").first();
+  await expect(stopButton, "expected a Stop agent control on the Agent settings page").toBeVisible({ timeout: 90_000 });
+  // The same control becomes "Clean up failed launch" for a failed runtime, so
+  // the accessible name is what proves this is the stop of a healthy Agent.
+  await expect(stopButton).toHaveAttribute("aria-label", "Stop agent");
+  await expect(stopButton, "expected the Stop agent control to be enabled for a running Agent").toBeEnabled({ timeout: 90_000 });
+
+  const stopResponse = page.waitForResponse(
+    (response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname.endsWith(`/agents/deployments/${agentId}/stop`),
+    { timeout: 90_000 },
+  );
+  await stopButton.click();
+  const response = await stopResponse;
+  expect(response.ok(), `expected the UI stop request to be accepted, got ${response.status()}`).toBe(true);
+  const accepted = (await response.json()) as DeploymentRecord;
+  const acceptedLaunchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
+
+  const stopped = await settledAgentsCall(
+    () => deployments.waitForState(agentId, ["STOPPED"], 180_000, ["FAILED", "DELETED"], acceptedLaunchEpoch, 2_000),
+    { timeout: 180_000, label: `wait for STOPPED ${agentId}` },
+  );
+  expect(stopped.state).toBe("STOPPED");
+  await captureStep(page, "agents-13-agent-stopped");
+  return stopped;
+}
+
+/**
+ * Delete an Agent the way a user does: the Danger Zone control and its
+ * confirmation.
+ *
+ * The control stays disabled until the Agent is stopped, which is the UI half
+ * of the same precondition the Backend enforces -- waiting on it is coverage,
+ * not politeness. The projection is read afterwards because "deleted" is a
+ * fact only the API states.
+ */
+export async function deleteClawAgentThroughUi(page: Page, agentId: string): Promise<void> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  await page.goto(agentSettingsHref(agentId), { waitUntil: "domcontentloaded" });
+
+  const deleteButton = page.getByTestId("agent-danger-delete").first();
+  await expect(deleteButton, "expected a Delete agent control in the Agent settings Danger Zone").toBeVisible({ timeout: 90_000 });
+  await expect(
+    deleteButton,
+    "expected Delete agent to become enabled once the Agent is stopped",
+  ).toBeEnabled({ timeout: 90_000 });
+
+  const deleteResponse = page.waitForResponse(
+    (response) => response.request().method() === "DELETE"
+      && new URL(response.url()).pathname.endsWith(`/agents/deployments/${agentId}`),
+    { timeout: 90_000 },
+  );
+  await deleteButton.click();
+
+  const confirmDialog = page.getByRole("alertdialog").filter({ hasText: "Delete Agent" }).first();
+  await expect(confirmDialog, "expected the delete confirmation dialog").toBeVisible({ timeout: 30_000 });
+  await confirmDialog.getByTestId("agent-danger-delete-confirm").click();
+
+  const response = await deleteResponse;
+  expect(response.ok(), `expected the UI delete request to be accepted, got ${response.status()}`).toBe(true);
+  await expect(confirmDialog).not.toBeVisible({ timeout: 30_000 });
+
+  await expect
+    .poll(
+      async () => {
+        try {
+          const current = await settledAgentsCall(
+            () => deployments.get(agentId) as Promise<DeploymentRecord>,
+            { timeout: 30_000, label: `get deployment ${agentId}` },
+          );
+          return String(current.state ?? "").toUpperCase();
+        } catch (error) {
+          // An application 404 IS the deletion signal here. The Backend stamps
+          // deleted_at and then hides the row from its owner (routes.py: a
+          // soft-deleted Agent 404s), so a client can never read deleted_at
+          // back -- absence is the contract, and deleted_at is the Backend's
+          // own bookkeeping for driving the Lagoon evict. isDeploymentAbsentError
+          // is what keeps an unrouted-edge 404 from being mistaken for this.
+          if (isDeploymentAbsentError(error)) return "DELETED";
+          throw error;
+        }
+      },
+      { timeout: 120_000, intervals: [1_000, 2_000, 5_000] },
+    )
+    .toBe("DELETED");
+  await captureStep(page, "agents-14-agent-deleted");
 }
 
 export async function deleteClawAgent(page: Page, agentId: string): Promise<void> {

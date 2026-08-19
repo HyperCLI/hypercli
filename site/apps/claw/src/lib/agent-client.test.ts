@@ -495,30 +495,27 @@ describe("agent-client", () => {
       relayBaseUrl: "https://api.hypercli.com",
       token: "hyper_api_test",
     });
+    // The dashboard states the intent and the SDK owns the launch contract:
+    // it builds the complete HYPER_SLACK_* set, including the gateway id it can
+    // only know once the Backend has assigned the Agent id. A hand-built env
+    // here is what shipped an Agent whose pod died at boot.
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
-      env: {
-        FOO: "bar",
-        HYPER_SLACK_APP_ENABLED: "1",
-        HYPER_SLACK_RELAY_URL: "wss://api.hypercli.com/slack/ws",
-        HYPER_SLACK_API_URL: "https://api.hypercli.com/slack/api/",
-      },
+      env: { FOO: "bar" },
+      slack: { relayBaseUrl: "https://api.hypercli.com" },
       config: {
         channels: {
           slack: {
-            enabled: true,
-            mode: "relay",
             groupPolicy: "open",
             replyToMode: "all",
             replyToModeByChatType: { direct: "off" },
-            botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
-            relay: {
-              url: "wss://api.hypercli.com/slack/ws",
-              authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
-            },
           },
         },
       },
     }));
+    const slackCreateOptions = deploymentsInstance.createOpenClaw.mock.calls[0]?.[0] ?? {};
+    for (const key of Object.keys(slackCreateOptions.env ?? {})) {
+      expect(key.startsWith("HYPER_SLACK_")).toBe(false);
+    }
   });
 
   it("does not replace explicit self-hosted Slack launch config", async () => {

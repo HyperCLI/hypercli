@@ -141,14 +141,17 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
   }),
 }));
 
+// The hosted relay base is deployment config; without it the dashboard cannot
+// build a Slack launch env at all. Keep the rest of the module real so the
+// URLs under assertion come from the SDK builder, not from a stub.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  SLACK_RELAY_BASE_URL: "https://api.hypercli.com",
+}));
+
 vi.mock("@/lib/agent-client", () => ({
   createAgentClient: agentClientMocks.createAgentClient,
   waitForCreatedAgentStopped: agentClientMocks.waitForCreatedAgentStopped,
-  hostedSlackLaunchEnv: vi.fn(() => ({
-    HYPER_SLACK_APP_ENABLED: "1",
-    HYPER_SLACK_RELAY_URL: "wss://api.hypercli.com/slack/ws",
-    HYPER_SLACK_API_URL: "https://api.hypercli.com/slack/api/",
-  })),
   createBrowserHyperCLIClient: vi.fn(() => ({
     user: {
       get: sdkMocks.userGet,
@@ -1909,6 +1912,9 @@ describe("AgentSettingsPanel", () => {
           HYPER_SLACK_APP_ENABLED: "1",
           HYPER_SLACK_RELAY_URL: "wss://api.hypercli.com/slack/ws",
           HYPER_SLACK_API_URL: "https://api.hypercli.com/slack/api/",
+          // Without this the pod dies at boot: the entrypoint hard-throws on a
+          // truthy HYPER_SLACK_APP_ENABLED with no gateway id.
+          HYPER_SLACK_GATEWAY_ID: "agent:agent-1",
         }),
       }));
     });
@@ -1929,6 +1935,7 @@ describe("AgentSettingsPanel", () => {
             HYPER_SLACK_APP_ENABLED: "1",
             HYPER_SLACK_RELAY_URL: "wss://old.example.test/slack/ws",
             HYPER_SLACK_API_URL: "https://old.example.test/slack/api/",
+            HYPER_SLACK_GATEWAY_ID: "agent:agent-1",
           },
         },
       },
@@ -1950,6 +1957,7 @@ describe("AgentSettingsPanel", () => {
     expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_APP_ENABLED");
     expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_RELAY_URL");
     expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_API_URL");
+    expect(savedLaunchConfig?.env).not.toHaveProperty("HYPER_SLACK_GATEWAY_ID");
   });
 
   it("rejects manual overrides of hosted Slack environment values", async () => {

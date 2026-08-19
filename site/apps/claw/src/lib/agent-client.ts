@@ -2,7 +2,6 @@ import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { Agent as SdkAgent, OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
-import { buildSlackRelayApiUrl, buildSlackRelayWebSocketUrl } from "@hypercli.com/sdk/channels";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
@@ -39,15 +38,6 @@ const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
-
-export function hostedSlackLaunchEnv(relayUrl?: string): Record<string, string> | null {
-  if (!SLACK_RELAY_BASE_URL) return null;
-  return {
-    HYPER_SLACK_APP_ENABLED: "1",
-    HYPER_SLACK_RELAY_URL: relayUrl || buildSlackRelayWebSocketUrl(SLACK_RELAY_BASE_URL),
-    HYPER_SLACK_API_URL: buildSlackRelayApiUrl(SLACK_RELAY_BASE_URL),
-  };
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -241,49 +231,40 @@ function stripConfigAllowedOrigins(config: unknown): Record<string, unknown> {
   return next;
 }
 
-function openClawSecretEnvRef(id: string): Record<string, string> {
-  return { source: "env", provider: "default", id };
-}
-
 function hasSelfHostedSlackConfig(slack: Record<string, unknown>): boolean {
   const mode = typeof slack.mode === "string" ? slack.mode : "";
   if (mode === "socket" || mode === "http") return true;
   return ["appToken", "signingSecret", "userToken"].some((field) => slack[field] !== undefined);
 }
 
+/**
+ * Express hosted Slack intent and let the SDK own the launch contract.
+ *
+ * The dashboard states only its channel preferences here. `enabled`, `mode`,
+ * the bot/relay token references, the relay URL and the complete
+ * `HYPER_SLACK_*` launch env — including `HYPER_SLACK_GATEWAY_ID`, which is
+ * derived from the Agent id the Backend assigns at create time — are built by
+ * `createOpenClaw`. Hand-building that env here is what shipped an Agent whose
+ * pod died at boot on a missing gateway id.
+ */
 function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions>(options: T): T {
+  if (!SLACK_RELAY_BASE_URL) return options;
   const config = isRecord(options.config) ? cloneRecord(options.config) : {};
   const channels = isRecord(config.channels) ? cloneRecord(config.channels) : {};
   const existingSlack = isRecord(channels.slack) ? cloneRecord(channels.slack) : {};
   if (hasSelfHostedSlackConfig(existingSlack)) return options;
 
-  const relay = isRecord(existingSlack.relay) ? cloneRecord(existingSlack.relay) : {};
-  const relayUrl = typeof relay.url === "string" && relay.url.trim()
-    ? relay.url
-    : buildSlackRelayWebSocketUrl(SLACK_RELAY_BASE_URL);
-  const slackEnv = hostedSlackLaunchEnv(relayUrl);
-  if (!slackEnv) return options;
-  relay.url = relayUrl;
-  relay.authToken = isRecord(relay.authToken) ? relay.authToken : openClawSecretEnvRef("HYPER_AGENTS_API_KEY");
-
   channels.slack = {
     ...existingSlack,
-    enabled: true,
-    mode: "relay",
     groupPolicy: existingSlack.groupPolicy ?? "open",
     replyToMode: existingSlack.replyToMode ?? "all",
     replyToModeByChatType: isRecord(existingSlack.replyToModeByChatType) ? existingSlack.replyToModeByChatType : { direct: "off" },
-    botToken: isRecord(existingSlack.botToken) ? existingSlack.botToken : openClawSecretEnvRef("SLACK_BOT_TOKEN"),
-    relay,
   };
   config.channels = channels;
   return {
     ...options,
     config,
-    env: {
-      ...(options.env ?? {}),
-      ...slackEnv,
-    },
+    slack: { relayBaseUrl: SLACK_RELAY_BASE_URL },
   } as T;
 }
 

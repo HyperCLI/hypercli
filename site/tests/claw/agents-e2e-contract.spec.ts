@@ -30,22 +30,37 @@ test("agents launch helper observes an authenticated gateway WebSocket connect",
   expect(authFixtureSource).toContain("buildBrowserDesktopUrl(desktopBaseUrl!, agentJwt!)");
   expect(authFixtureSource).not.toContain("desktop-${agent.hostname}");
   expect(authFixtureSource).toContain('status?.dns_state ?? ""');
-  expect(authFixtureSource).toContain("socketUrl !== expectedGatewaySocketUrl");
-  expect(authFixtureSource).toContain('page.on("websocket", observeGatewaySocket)');
-  expect(authFixtureSource).toContain('frame.method === "connect"');
+  expect(authFixtureSource).toContain("record.url !== expectedGatewaySocketUrl");
+  expect(authFixtureSource).toContain('page.on("websocket", recordSocket)');
+  expect(authFixtureSource).toContain('parsed.method === "connect"');
   expect(authFixtureSource).toContain('typeof auth?.token === "string"');
-  expect(authFixtureSource).toContain('frame?.type === "res"');
-  expect(authFixtureSource).toContain("gatewayConnectRequestIds.has(frame.id)");
+  expect(authFixtureSource).toContain('parsed.type === "res"');
+  expect(authFixtureSource).toContain("connectRequestIds.has(parsed.id)");
   expect(authFixtureSource).toContain("authenticated WebSocket connect observed");
-  expect(authFixtureSource).toContain('page.off("websocket", observeGatewaySocket)');
+  expect(authFixtureSource).toContain('page.off("websocket", recordSocket)');
+});
+
+test("agents gateway observation records from the start rather than watching from the middle", () => {
+  // The chat panel connects as soon as the Agent it is already showing turns
+  // RUNNING. Listeners attached at the point of use therefore saw only the
+  // second, already-paired socket and reported "no cold-browser pairing
+  // challenge" for a gateway whose own log shows it challenged and approved --
+  // a late observation reported as a product failure. Recording starts before
+  // the dashboard is opened and every counter is derived from the recording.
+  expect(authFixtureSource.indexOf('page.on("websocket", recordSocket)'))
+    .toBeLessThan(authFixtureSource.indexOf('await page.goto("/dashboard/agents?tab=chat"'));
+  expect(authFixtureSource).toContain("const drainGatewayObservations = ()");
+  expect(authFixtureSource).toContain("for (let index = record.drained; index < record.frames.length; index += 1)");
+  expect(authFixtureSource).toContain("drainGatewayObservations();\n        expect(pairingRequiredResponses,");
 });
 
 test("agents launch canary completes one live gateway chat turn", () => {
-  expect(authFixtureSource).toContain('frame.method === "chat.send"');
+  expect(authFixtureSource).toContain('parsed.method === "chat.send"');
   expect(authFixtureSource).toContain('details?.code === "PAIRING_REQUIRED"');
   // Trusted pairing approval mints an exec token and runs the argv command over
   // the exec WebSocket; there is no POST to the bare /exec path to observe.
-  expect(authFixtureSource).toContain("/exec/token`)) pairingApprovalRequests += 1");
+  expect(authFixtureSource).toContain("const execTokenPath = `/deployments/${created.id}/exec/token`");
+  expect(authFixtureSource).toContain("pairingApprovalRequests = recordedPostPaths.filter");
   expect(authFixtureSource).toContain('.toBe("final")');
   expect(authFixtureSource).toContain('getByText(replyMarker, { exact: true })');
   expect(authFixtureSource).toContain('name: "Stop reply", exact: true');
@@ -55,7 +70,6 @@ test("agents launch canary completes one live gateway chat turn", () => {
   expect(authFixtureSource).toContain('warm hard refresh must not pair again');
   expect(authFixtureSource).toContain('captureStep(page, "agents-12b-chat-completed")');
   expect(subscriptionSpecSource).toContain('expect(stoppedAgent.state).toBe("STOPPED")');
-  expect(subscriptionSpecSource).toContain("await deleteClawAgent(page, createdAgentId)");
   expect(subscriptionSpecSource).toContain(".activeSubscriptionCount");
 });
 
@@ -74,9 +88,14 @@ test("agents launch canary exercises the canonical lifecycle contract", () => {
   expect(authFixtureSource).toContain("waitForBrowserAgentStartOrLaunchError(page, timeout)");
   // Starter files stage alongside the start, so a files-failed banner is a
   // warning on a launching Agent and must not be read as a failed launch.
-  expect(authFixtureSource).toContain("if (!isNonFatalLaunchNotice(message))");
+  expect(authFixtureSource).toContain("if (isNonFatalLaunchNotice(message)) {");
+  // The same banner renders Agents API failures verbatim, so an unconverged
+  // route arrives as traefik's plain-text 404. That is a statement about the
+  // edge, not a verdict on the launch -- ridden out, then reported as itself.
+  expect(authFixtureSource).toContain("if (isUnroutedEdgeBody(message)) {");
+  expect(authFixtureSource).toContain("never cleared an unconverged-edge error");
   expect(authFixtureSource).not.toContain('start: false');
-  expect(subscriptionSpecSource).toContain("stopClawAgentAndWaitStopped(page, createdAgentId)");
+  expect(subscriptionSpecSource).toContain("stopClawAgentThroughUi(page, createdAgentId)");
   expect(authFixtureSource).toContain('["STOPPED"]');
 });
 
@@ -96,6 +115,68 @@ test("agents E2E rides out edge windows instead of believing an unrouted 404", (
   // lagoon-auth is reported rather than buried under the timeout.
   expect(authFixtureSource).toContain("answered a non-transient failure for /_jwt_auth");
   expect(authFixtureSource).toContain("did not converge at the edge within");
+});
+
+test("agents subscription stops and deletes the Agent through the interface", () => {
+  // Creating the Agent was already driven through the launch wizard; stopping
+  // and deleting it were not, which left the UI delete path -- the one a user
+  // actually takes, and the one that gates on the Agent being stopped -- with
+  // no coverage at all in a suite that has been leaking Agents.
+  expect(subscriptionSpecSource).toContain("stopClawAgentThroughUi(page, createdAgentId)");
+  expect(subscriptionSpecSource).toContain("deleteClawAgentThroughUi(page, createdAgentId)");
+  expect(authFixtureSource).toContain('page.getByTestId("agent-stop")');
+  expect(authFixtureSource).toContain('page.getByTestId("agent-danger-delete")');
+  expect(authFixtureSource).toContain('getByTestId("agent-danger-delete-confirm")');
+  // The Danger Zone control staying disabled until the Agent is stopped is the
+  // assertion, not an inconvenience to be worked around.
+  expect(authFixtureSource).toContain("expected Delete agent to become enabled once the Agent is stopped");
+  // The API delete survives only as the teardown backstop.
+  expect(subscriptionSpecSource).toContain("deleteClawAgent(page, leakedAgentId)");
+  expect(subscriptionSpecSource).not.toContain("await deleteClawAgent(page, createdAgentId)");
+});
+
+test("agents launch creates through the UI unless a spec names the shortcut", () => {
+  // The wizard is the subject, so driving it is the default; the API create
+  // stays reachable for specs about something else, but only when the call
+  // site says so.
+  expect(authFixtureSource).toContain('const createVia = options.createVia ?? "ui"');
+  expect(authFixtureSource).toContain('if (createVia === "api") {');
+  expect(authFixtureSource).toContain("deployments.createOpenClaw({");
+  expect(subscriptionSpecSource).not.toContain("createVia");
+});
+
+test("agents launch captures the Agent's own log before teardown deletes it", () => {
+  // A readiness failure is usually a statement about the runtime, and teardown
+  // removes the pod, its namespace and its log moments later. Whatever the run
+  // did not print is unrecoverable, so the capture has to happen before the
+  // delete, not after someone notices.
+  expect(authFixtureSource).toContain("async function captureAgentDiagnosticLog");
+  // Ordering against the readiness-failure teardown specifically -- the
+  // pre-start cleanup path deletes too, and earlier in the file.
+  expect(authFixtureSource.indexOf("captureAgentDiagnosticLog(page, deployments, created.id"))
+    .toBeLessThan(authFixtureSource.indexOf("[agents-launch] cleaned up failed agent"));
+  // The persisted projection runs behind batched ingest, so the live buffer is
+  // the source that actually reaches the gateway startup lines.
+  expect(authFixtureSource).toContain("deployments.logsToken(agentId)");
+  expect(authFixtureSource).toContain('frame?.event === "history_end"');
+  // Agent logs carry tokens; every line goes through the same redaction the
+  // deployment diagnostics use.
+  expect(authFixtureSource).toContain("sanitizeDeploymentDiagnosticText(line)");
+});
+
+test("agents teardown asks for the transition the Backend admits", () => {
+  // DELETE is admitted only from STOPPED/ARCHIVED, and STOP only from
+  // STARTING/RUNNING. These specs delete Agents they just launched, so leading
+  // with DELETE spent every teardown rediscovering that through a 409 -- after
+  // paying the full transient-retry budget to get there.
+  expect(authFixtureSource).toContain("const DELETABLE_DEPLOYMENT_STATES");
+  expect(authFixtureSource).toContain("const STOPPABLE_DEPLOYMENT_STATES");
+  expect(authFixtureSource).toContain("async function settleDeploymentForDelete");
+  expect(authFixtureSource.indexOf("await settleDeploymentForDelete(deployments, agentId);"))
+    .toBeLessThan(authFixtureSource.indexOf("await settledAgentsCall(() => deployments.delete(agentId)"));
+  // The wait rides the epoch the STOP was accepted under, not the one read
+  // before it.
+  expect(authFixtureSource).toContain("Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0)");
 });
 
 test("agents launch verifies the desktop route without pre-empting the chat turn", () => {
@@ -118,6 +199,14 @@ test("agents subscription adopts the Agent before it is known to be healthy", ()
   expect(subscriptionSpecSource).not.toContain("await deleteClawAgent(page, createdAgentId).catch(() => {})");
 });
 
+test("agents launch requires the Agent to still be running when the turn is done", () => {
+  // waitRunning accepts the first RUNNING sighting, so a runtime that dies at
+  // boot and flaps RUNNING -> FAILED -> STOPPED reaches the gateway assertions
+  // as an unexplained connection error instead of a failed launch.
+  expect(authFixtureSource).toContain("expected the Agent to still be RUNNING under the launch epoch it started on");
+  expect(authFixtureSource).toContain("`RUNNING@${acceptedLaunchEpoch}`");
+});
+
 test("agents launch diagnostics preserve accepted and terminal state evidence", () => {
   expect(authFixtureSource).toContain("[agents-launch] start accepted");
   expect(authFixtureSource).toContain("createdLaunchEpoch");
@@ -126,10 +215,34 @@ test("agents launch diagnostics preserve accepted and terminal state evidence", 
   expect(authFixtureSource).toContain("waitError: error instanceof Error");
 });
 
-test("agents subscription retry permits immutable canceled history", () => {
-  expect(subscriptionSpecSource).toContain("beforeSummary.activeSubscriptions).toHaveLength(0)");
-  expect(subscriptionSpecSource).toContain("filter((subscription) => subscription.isCurrent)");
-  expect(subscriptionSpecSource).not.toContain("beforeSummary.subscriptions ?? []).toHaveLength(0)");
+test("agents subscription earns its plan by clicking the trial, not by seeding or buying", () => {
+  // The identity is bootstrapped with a login and nothing else. It earns its
+  // plan in the browser, by clicking the trial offer, because that is a real
+  // product surface nothing else covers -- and because a Stripe checkout
+  // redirect cannot return to a localhost run. Purchase belongs in a billing
+  // spec, and neither a seeded grant nor a checkout may grow back here.
+  expect(subscriptionSpecSource).toContain("startClawTeamTrialThroughUi(page)");
+  expect(subscriptionSpecSource).toContain("a fresh identity must start with no plan");
+  expect(subscriptionSpecSource).toContain("expected the Team trial entitlement");
+  expect(subscriptionSpecSource).toContain('expect(beforeSummary.effectivePlanId).toBe("team")');
+  // A trial is an entitlement, not a subscription: a Stripe subscription
+  // appearing here would mean something bought a plan.
+  expect(subscriptionSpecSource).toContain("expect(beforeSummary.activeSubscriptionCount).toBe(0)");
+  expect(subscriptionSpecSource).not.toContain("completeStripeCheckout");
+  expect(subscriptionSpecSource).not.toContain("cancelStripeSubscription");
+  expect(subscriptionSpecSource).not.toContain("Purchase Team");
+  // The trial must be claimed through the UI control, not posted directly.
+  expect(authFixtureSource).toContain('page.goto("/trial"');
+  expect(authFixtureSource).toContain('page.locator("#claim-trial-button")');
+  expect(authFixtureSource).toContain('page.locator("#trial-claim-success")');
+  expect(authFixtureSource).toContain('pathname.endsWith("/plans/trial")');
+  // Deletion is proven by an APPLICATION 404: the Backend stamps deleted_at and
+  // then hides the row from its owner, so absence is the contract a client can
+  // observe. The discrimination matters -- an unrouted-edge 404 must never be
+  // mistaken for a deleted Agent.
+  expect(authFixtureSource).toContain("if (isDeploymentAbsentError(error)) return \"DELETED\"");
+  // Deleting the Agent must hand its slot back.
+  expect(subscriptionSpecSource).toContain("slotInventory?.medium?.available");
 });
 
 test("agents subscription observes the public deployment transition wire", () => {

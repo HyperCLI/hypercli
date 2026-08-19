@@ -18,6 +18,8 @@ export interface ConfirmDialogProps {
   title: string;
   message: string;
   confirmLabel?: string;
+  /** Optional stable hook for end-to-end tests driving the confirm action. */
+  confirmTestId?: string;
   danger?: boolean;
   loading?: boolean;
   onConfirm: () => void;
@@ -29,6 +31,7 @@ export function ConfirmDialog({
   title,
   message,
   confirmLabel = "Confirm",
+  confirmTestId,
   danger = false,
   loading = false,
   onConfirm,
@@ -66,6 +69,7 @@ export function ConfirmDialog({
           </AlertDialogCancel>
           <Button
             type="button"
+            data-testid={confirmTestId}
             onClick={onConfirm}
             disabled={loading}
             aria-busy={loading || undefined}

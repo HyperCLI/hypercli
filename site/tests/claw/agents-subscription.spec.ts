@@ -4,15 +4,13 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   cleanupClawAgents,
   captureStep,
-  cancelActiveClawStripeSubscriptionsForTestUser,
-  cancelStripeSubscription,
   deleteClawAgent,
+  deleteClawAgentThroughUi,
   fetchClawSubscriptionSummary,
-  fetchStripeSubscriptionIdForCheckoutSession,
   launchClawAgentAndWaitForGateway,
   loginWithAdminBootstrap,
-  stopClawAgentAndWaitStopped,
-  completeStripeCheckout,
+  startClawTeamTrialThroughUi,
+  stopClawAgentThroughUi,
   waitForPaidClawPlan,
 } from "./fixtures/auth";
 
@@ -66,253 +64,63 @@ function totalGrantedSlots(summary: Awaited<ReturnType<typeof fetchClawSubscript
   return Object.values(inventory).reduce((sum, entry) => sum + Math.max(Number(entry.granted || 0), 0), 0);
 }
 
-function stripeSubscriptionIds(summary: Awaited<ReturnType<typeof fetchClawSubscriptionSummary>>): Set<string> {
-  return new Set(
-    (summary?.activeSubscriptions ?? [])
-      .map((subscription) => subscription.stripeSubscriptionId)
-      .filter((value): value is string => Boolean(value))
-  );
-}
-
-function checkoutSessionIdFromUrl(rawUrl: string): string | null {
-  try {
-    return new URL(rawUrl).searchParams.get("session_id");
-  } catch {
-    return null;
-  }
-}
-
-async function waitForPlansPageReady(page: Page): Promise<void> {
-  const teamPlanHeading = page.getByRole("heading", { name: "Team", exact: true }).first();
-
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    await page.goto("/plans", { waitUntil: "domcontentloaded" });
-
-    const state = await expect
-      .poll(
-        async () => {
-          if (await teamPlanHeading.isVisible().catch(() => false)) {
-            return "ready";
-          }
-
-          const mainText = await page
-            .locator("main")
-            .first()
-            .textContent({ timeout: 1_000 })
-            .catch(() => "");
-          const headingText = await page
-            .locator("h1")
-            .first()
-            .textContent({ timeout: 1_000 })
-            .catch(() => "");
-          const authState = await page
-            .locator("[data-auth-flow-state]")
-            .first()
-            .evaluate((element) => ({
-              loading: element.getAttribute("data-auth-loading"),
-              authenticated: element.getAttribute("data-authenticated"),
-              flowState: element.getAttribute("data-auth-flow-state"),
-              error: element.getAttribute("data-auth-error"),
-            }))
-            .catch(() => null);
-          const browserState = await page
-            .evaluate(() => {
-              const cookieNames = document.cookie
-                .split("; ")
-                .map((entry) => entry.split("=")[0])
-                .filter(Boolean);
-              return {
-                hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
-                hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
-                hasAuthCookie: cookieNames.includes("auth_token"),
-                hasLogoutMarker: cookieNames.includes("hypercli_logged_out"),
-              };
-            })
-            .catch(() => null);
-          return `url=${page.url()} auth=${JSON.stringify(authState)} browser=${JSON.stringify(browserState)} h1=${headingText?.trim() || "none"} main=${mainText?.trim().slice(0, 120) || "empty"}`;
-        },
-        { timeout: 20_000, intervals: [500, 1_000, 2_000] }
-      )
-      .toBe("ready")
-      .then(() => "ready" as const)
-      .catch(async (error) => {
-        console.log(`[agents-plans] plans page not ready attempt=${attempt}: ${error instanceof Error ? error.message : String(error)}`);
-        return "not-ready" as const;
-      });
-
-    if (state === "ready") {
-      return;
-    }
-
-    await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-  }
-
-  await expect(teamPlanHeading).toBeVisible({ timeout: 20_000 });
-}
-
-async function waitForPlanCheckoutButton(page: Page, planCard: ReturnType<Page["locator"]>) {
-  const checkoutButton = planCard.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
-
-  for (let attempt = 1; attempt <= 4; attempt += 1) {
-    if (await checkoutButton.isVisible().catch(() => false)) {
-      return checkoutButton;
-    }
-
-    const retryButton = page.getByRole("button", { name: /^retry$/i }).first();
-    if (await retryButton.isVisible().catch(() => false)) {
-      console.log(`[agents-plans] billing unavailable before checkout; retrying plans load attempt=${attempt}`);
-      await retryButton.click();
-    } else {
-      await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
-    }
-    await page.waitForTimeout(2_000);
-  }
-
-  await expect(checkoutButton).toBeVisible({ timeout: 20_000 });
-  return checkoutButton;
-}
-
 test.describe.serial("Agents subscription", () => {
-  test("logs into Claw, purchases a paid plan, launches an agent, and connects the gateway", async ({ page }) => {
+  test("starts a trial in the UI, launches an agent, connects the gateway, and deletes it", async ({ page }) => {
     test.setTimeout(900_000);
 
     const deploymentSocket = observeDeploymentTransitions(page);
     let createdAgentId: string | null = null;
-    let createdStripeSubscriptionId: string | null = null;
     let testBodyCompleted = false;
-    const preCleanupStripeIds = await cancelActiveClawStripeSubscriptionsForTestUser().catch((error) => {
-      console.log(`[agents-plans] pre-cleanup skipped: ${error instanceof Error ? error.message : String(error)}`);
-      return [];
-    });
-    console.log(`[agents-plans] pre-cleanup canceled Stripe subscriptions=${preCleanupStripeIds.length}`);
     await loginWithAdminBootstrap(page);
 
     // A Playwright retry reuses the bootstrapped account. If the previous
     // attempt reached deployment creation but the Agents API failed during
     // readiness/cleanup, that stopped deployment still consumes a slot. Make
-    // an empty deployment inventory a precondition before asserting the newly
-    // purchased plan's full availability.
+    // an empty deployment inventory a precondition before asserting the
+    // plan's full availability.
     await cleanupClawAgents(page);
 
     try {
       const logPlanState = async (label: string) => {
         const summary = await fetchClawSubscriptionSummary(page).catch(() => null);
         console.log(
-          `[agents-plans] ${label} active=${summary?.activeSubscriptionCount ?? "unknown"} grantedSlots=${totalGrantedSlots(summary)} plans=${
-            summary?.activeSubscriptions
-              .map((subscription) => `${subscription.planId}:${subscription.status}`)
-              .join(",") || "none"
-          }`
+          `[agents-plans] ${label} plan=${summary?.effectivePlanId ?? "unknown"} ` +
+            `entitlements=${summary?.activeEntitlementCount ?? "unknown"} ` +
+            `subscriptions=${summary?.activeSubscriptionCount ?? "unknown"} ` +
+            `grantedSlots=${totalGrantedSlots(summary)}`
         );
       };
 
-      await waitForPlansPageReady(page);
-      if (preCleanupStripeIds.length > 0) {
-        const canceledStripeIds = new Set(preCleanupStripeIds);
-        await expect
-          .poll(
-            async () => {
-              const summary = await fetchClawSubscriptionSummary(page);
-              if (!summary) return -1;
-              return [...stripeSubscriptionIds(summary)].filter((stripeId) => canceledStripeIds.has(stripeId)).length;
-            },
-            { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
-          )
-          .toBe(0);
+      await logPlanState("fresh-account");
+
+      // The account starts with nothing and earns its plan HERE, by clicking
+      // the trial offer the way a user does. It is deliberately not seeded by
+      // the bootstrap and deliberately not bought through Stripe: the checkout
+      // redirect cannot come back to a localhost run, and purchase is covered
+      // in the billing spec. The subject of this spec is the Agent lifecycle,
+      // and the trial is the shortest honest path to a plan that can launch one.
+      const freshSummary = await fetchClawSubscriptionSummary(page);
+      if (!freshSummary) {
+        throw new Error("Subscription summary was unavailable before the trial");
       }
-      await logPlanState("before-checkout");
+      expect(freshSummary.activeEntitlementCount ?? 0, "a fresh identity must start with no plan").toBe(0);
+      expect(totalGrantedSlots(freshSummary)).toBe(0);
+
+      await startClawTeamTrialThroughUi(page);
+      await logPlanState("trial-active");
+
+      // The trial is an entitlement, not a purchase, so the plan is effective
+      // with zero active subscriptions. That distinction is the assertion: a
+      // Stripe subscription appearing here would mean we bought something.
       const beforeSummary = await fetchClawSubscriptionSummary(page);
       if (!beforeSummary) {
-        throw new Error("Subscription summary was unavailable before checkout");
+        throw new Error("Subscription summary was unavailable after the trial started");
       }
+      expect(beforeSummary.activeEntitlementCount, "expected the Team trial entitlement").toBeGreaterThan(0);
+      expect(beforeSummary.effectivePlanId).toBe("team");
+      expect(totalGrantedSlots(beforeSummary)).toBeGreaterThan(0);
       expect(beforeSummary.activeSubscriptionCount).toBe(0);
-      expect(beforeSummary.activeEntitlementCount).toBe(0);
       expect(beforeSummary.activeSubscriptions).toHaveLength(0);
-      expect((beforeSummary.subscriptions ?? []).filter((subscription) => subscription.isCurrent)).toHaveLength(0);
-      expect(totalGrantedSlots(beforeSummary)).toBe(0);
-      const beforeActiveSubscriptionCount = beforeSummary?.activeSubscriptionCount ?? 0;
-      const beforeGrantedSlots = totalGrantedSlots(beforeSummary);
-      const beforeStripeSubscriptionIds = stripeSubscriptionIds(beforeSummary);
-      let afterPurchaseSummary: Awaited<ReturnType<typeof fetchClawSubscriptionSummary>> = null;
-      let checkoutCompleted = false;
-
-      const teamCard = page.getByRole("article").filter({
-        has: page.getByRole("heading", { name: "Team", exact: true }),
-      }).first();
-      await expect(teamCard.getByRole("heading", { name: "Team", exact: true })).toBeVisible({ timeout: 20_000 });
-      const subscribeButton = await waitForPlanCheckoutButton(page, teamCard);
-
-      const proCard = page.getByRole("article").filter({
-        has: page.getByRole("heading", { name: "Pro", exact: true }),
-      }).first();
-      await expect(proCard.getByRole("heading", { name: "Pro", exact: true })).toBeVisible();
-      await expect(proCard.getByText("$149", { exact: true })).toBeVisible();
-      await expect(
-        proCard.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first()
-      ).toBeEnabled();
-
-      await subscribeButton.click();
-
-      await expect(page.getByRole("heading", { name: "Purchase Team", exact: true })).toBeVisible({ timeout: 20_000 });
-      const payWithCardButton = page.getByRole("button", { name: /pay \$.*with card/i }).first();
-      await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
-      await payWithCardButton.click();
-
-      const checkoutReturnUrl = await completeStripeCheckout(
-        page,
-        process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003"
-      );
-      console.log(`Agents checkout returned to: ${checkoutReturnUrl}`);
-      expect(checkoutReturnUrl).not.toContain("cancelled=true");
-      const checkoutSessionId = checkoutSessionIdFromUrl(checkoutReturnUrl);
-      if (!checkoutSessionId) {
-        throw new Error("Stripe checkout return URL did not include a session_id");
-      }
-      const checkoutStripeSubscriptionId = await fetchStripeSubscriptionIdForCheckoutSession(checkoutSessionId);
-      if (!checkoutStripeSubscriptionId) {
-        throw new Error("Stripe checkout session did not contain a subscription");
-      }
-      createdStripeSubscriptionId = checkoutStripeSubscriptionId;
-      console.log(
-        `[agents-plans] checkout session=${checkoutSessionId} stripeSubscription=${createdStripeSubscriptionId}`
-      );
-      await captureStep(page, "agents-07-checkout-submitted");
-
-      await expect
-        .poll(() => page.url(), { timeout: 60_000 })
-        .toContain("/plans");
-
-      await expect
-        .poll(
-          async () => {
-            afterPurchaseSummary = await fetchClawSubscriptionSummary(page);
-            const currentStripeIds = stripeSubscriptionIds(afterPurchaseSummary);
-            const hasCheckoutSubscription = currentStripeIds.has(checkoutStripeSubscriptionId);
-            const hasNewSubscription = [...currentStripeIds].some((stripeId) => !beforeStripeSubscriptionIds.has(stripeId));
-            const currentSlots = totalGrantedSlots(afterPurchaseSummary);
-            console.log(
-              `[agents-plans] poll active=${afterPurchaseSummary?.activeSubscriptionCount ?? "unknown"} ` +
-                `grantedSlots=${currentSlots} hasCheckoutSubscription=${hasCheckoutSubscription} ` +
-                `hasNewSubscription=${hasNewSubscription}`
-            );
-            return hasCheckoutSubscription && currentSlots > beforeGrantedSlots;
-          },
-          { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
-        )
-        .toBeTruthy();
-
-      expect(totalGrantedSlots(afterPurchaseSummary)).toBe(3);
-      expect(afterPurchaseSummary?.slotInventory?.medium?.granted).toBe(3);
-      expect(afterPurchaseSummary?.slotInventory?.medium?.available).toBe(3);
-      expect(afterPurchaseSummary?.slotInventory?.small?.granted ?? 0).toBe(0);
-      expect(afterPurchaseSummary?.slotInventory?.large?.granted ?? 0).toBe(0);
-      expect(afterPurchaseSummary?.effectivePlanId).toBe("team");
-      checkoutCompleted = true;
-      console.log(
-        `[agents-plans] before active=${beforeActiveSubscriptionCount} grantedSlots=${beforeGrantedSlots}; ` +
-          `after active=${afterPurchaseSummary?.activeSubscriptionCount ?? "unknown"} grantedSlots=${totalGrantedSlots(afterPurchaseSummary)}`
-      );
-      await logPlanState("after-checkout");
 
       const currentPlan = await waitForPaidClawPlan(page);
       expect(currentPlan.id).toBe("team");
@@ -320,7 +128,7 @@ test.describe.serial("Agents subscription", () => {
 
       await cleanupClawAgents(page);
       const createdAgent = await launchClawAgentAndWaitForGateway(page, 360_000, {
-        enableDesktop: checkoutCompleted,
+        enableDesktop: true,
         // Adopt the Agent the moment it exists, not when it is healthy: every
         // readiness failure throws out of the helper, and an Agent this spec
         // never learned about is one the `finally` cannot delete -- which is
@@ -377,20 +185,24 @@ test.describe.serial("Agents subscription", () => {
           "launch_epoch",
         ])
       );
-      const stoppedAgent = await stopClawAgentAndWaitStopped(page, createdAgentId);
+      // Stop and delete are part of what this spec covers, so they are driven
+      // from the Agent's settings page exactly as a user drives them: the
+      // Danger Zone refuses to delete until the Agent is stopped, which is the
+      // UI half of the precondition the Backend enforces.
+      const stoppedAgent = await stopClawAgentThroughUi(page, createdAgentId);
       expect(stoppedAgent.state).toBe("STOPPED");
-      await deleteClawAgent(page, createdAgentId);
+      await deleteClawAgentThroughUi(page, createdAgentId);
       createdAgentId = null;
-      if (createdStripeSubscriptionId) {
-        await cancelStripeSubscription(createdStripeSubscriptionId);
-        createdStripeSubscriptionId = null;
-      }
+
+      // Deleting the Agent has to hand its slot back, or the next launch on
+      // this plan has nowhere to go.
       await expect
-        .poll(async () => (await fetchClawSubscriptionSummary(page)).activeSubscriptionCount, {
-          timeout: 60_000,
+        .poll(async () => (await fetchClawSubscriptionSummary(page))?.slotInventory?.medium?.available ?? -1, {
+          timeout: 120_000,
           intervals: [1_000, 2_000, 5_000],
         })
-        .toBe(0);
+        .toBe(3);
+      await logPlanState("after-delete");
       testBodyCompleted = true;
     } finally {
       const cleanupFailures: string[] = [];
@@ -400,6 +212,9 @@ test.describe.serial("Agents subscription", () => {
       // therefore does not end the run's damage -- it moves it to the next
       // run. Confirm the deletion, and report a failure to delete as a
       // failure.
+      //
+      // This is the API backstop, never the assertion: the covered delete is
+      // the UI one above, and this only runs when the test never got there.
       if (createdAgentId) {
         const leakedAgentId = createdAgentId;
         try {
@@ -412,10 +227,6 @@ test.describe.serial("Agents subscription", () => {
         }
       }
 
-      if (createdStripeSubscriptionId) {
-        await cancelStripeSubscription(createdStripeSubscriptionId).catch(() => {});
-      }
-      await cancelActiveClawStripeSubscriptionsForTestUser().catch(() => []);
       await captureStep(page, "agents-09-plan-cleanup");
 
       if (cleanupFailures.length > 0) {

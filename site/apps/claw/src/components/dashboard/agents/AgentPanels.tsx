@@ -7,12 +7,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
+import { buildHostedSlackLaunchEnv, HOSTED_SLACK_LAUNCH_ENV_KEYS } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { Button, Input, Switch, writeClipboardText } from "@hypercli/shared-ui";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { isAgentDeletable, isAgentOffline, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
-import { SLACK_APP_HANDLE } from "@/lib/api";
+import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
@@ -21,7 +22,7 @@ import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationIte
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient, createBrowserHyperCLIClient, hostedSlackLaunchEnv, waitForCreatedAgentStopped } from "@/lib/agent-client";
+import { createAgentClient, createBrowserHyperCLIClient, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
@@ -623,11 +624,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const OPENCLAW_GATEWAY_TOKEN_ENV = "OPENCLAW_GATEWAY_TOKEN";
 const SLACK_APP_ENABLED_ENV = "HYPER_SLACK_APP_ENABLED";
-const RESERVED_SLACK_LAUNCH_ENV_KEYS = new Set([
-  SLACK_APP_ENABLED_ENV,
-  "HYPER_SLACK_RELAY_URL",
-  "HYPER_SLACK_API_URL",
-]);
+const RESERVED_SLACK_LAUNCH_ENV_KEYS = new Set<string>(HOSTED_SLACK_LAUNCH_ENV_KEYS);
 
 const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "HYPER_API_BASE",
@@ -850,9 +847,14 @@ function buildUpdatedLaunchConfig(
   };
   for (const key of RESERVED_SLACK_LAUNCH_ENV_KEYS) delete launchEnv[key];
   if (slackEnabled) {
-    const slackEnv = hostedSlackLaunchEnv();
-    if (!slackEnv) throw new Error("Slack is unavailable because the hosted relay is not configured.");
-    Object.assign(launchEnv, slackEnv);
+    if (!SLACK_RELAY_BASE_URL) throw new Error("Slack is unavailable because the hosted relay is not configured.");
+    // The Agent exists here, so the gateway id is known: use the SDK builder
+    // rather than a local copy that can omit a key the pod needs to boot.
+    Object.assign(launchEnv, buildHostedSlackLaunchEnv({
+      relayBaseUrl: SLACK_RELAY_BASE_URL,
+      gatewayId: agent.gatewayId,
+      agentId: agent.id,
+    }));
   }
   if (workspaceOptions.enabled) {
     launchEnv.HYPER_WORKSPACES_DIR = "/home/node/shared";
@@ -1321,6 +1323,7 @@ function AgentSectionSettingsContent({
             <button
               type="button"
               aria-label={failedRuntimeNeedsCleanup ? "Clean up failed launch" : "Stop agent"}
+              data-testid="agent-stop"
               onClick={onStopAgent}
               disabled={!onStopAgent || stopping}
               className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
@@ -1643,6 +1646,7 @@ function AgentSectionSettingsContent({
             </div>
             <button
               type="button"
+              data-testid="agent-danger-delete"
               onClick={onDeleteAgent}
               disabled={!onDeleteAgent || agentDeleting || !canDeleteAgent}
               className={SETTINGS_FILLED_DANGER_BUTTON_CLASS}
