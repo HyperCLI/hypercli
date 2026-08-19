@@ -15,12 +15,7 @@ import {
 } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
-// Retained only on failure: a green run still pays nothing, but a red one has
-// to be diagnosable from the artifact alone. Without these the only picture
-// notify can send is Playwright's automatic screenshot, which is taken after
-// the launch helper has already torn the Agent down and navigated away -- the
-// post-cleanup dashboard, never the thing that failed.
-test.use({ trace: "retain-on-failure", video: "retain-on-failure" });
+test.use({ trace: "off", video: "off" });
 
 type DeploymentTransitionFrame = {
   type?: unknown;
