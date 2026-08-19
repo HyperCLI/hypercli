@@ -172,7 +172,8 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
     mcpCommand: '',
   },
 };
-export const DEFAULT_BUZZ_RUST_LOG = 'buzz_acp=info,pool::prompt=info,acp::stream=off';
+export const DEFAULT_BUZZ_RUST_LOG =
+  'buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off';
 const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_PRIVATE_KEY',
   'NOSTR_PRIVATE_KEY',
@@ -649,6 +650,39 @@ interface AgentRoutesHydrationData {
   route_statuses?: Record<string, Record<string, unknown>> | null;
 }
 
+/**
+ * What the presented credential is, as the Backend resolves it.
+ *
+ * `agentId` is set only for an Agent runtime key, which speaks for exactly one
+ * Agent; it is null for an owner user credential or any other key.
+ */
+export interface AgentAccessIdentity {
+  userId: string;
+  authType: string;
+  /** The one Agent a runtime key speaks for; null for every other credential. */
+  agentId: string | null;
+  tags: string[];
+  capabilities: string[];
+  keyId: string | null;
+  keyName: string | null;
+  teamId: string | null;
+  planId: string | null;
+  /** True when this credential is one Agent's own runtime key. */
+  isAgentRuntimeKey: boolean;
+}
+
+interface AgentAccessIdentityHydrationData {
+  user_id?: string | null;
+  auth_type?: string | null;
+  agent_id?: string | null;
+  tags?: string[] | null;
+  capabilities?: string[] | null;
+  key_id?: string | null;
+  key_name?: string | null;
+  team_id?: string | null;
+  plan_id?: string | null;
+}
+
 export type LaunchConfigFlatMap = Record<string, unknown>;
 
 export interface AgentDesktopConfigSource {
@@ -910,8 +944,11 @@ export interface UpdateExternalAgentOptions {
 
 export interface StartAgentOptions {
   /**
-   * Complete replacement launch configuration. When omitted, the stored
-   * launch config is rebuilt via {@link Deployments.storedLaunchConfig}.
+   * Complete replacement launch configuration. The two keys the owner-facing
+   * projection redacts (`secrets`, `registry_auth`) are repaired in place, so
+   * an `Agent.launchConfig` read straight back from {@link Deployments.get}
+   * is accepted. When omitted entirely, the stored launch config is rebuilt
+   * via {@link Deployments.storedLaunchConfig}.
    */
   launchConfig?: AgentLaunchConfig;
   /** Caller-held registry credentials for stored configs with a registry_url. */
@@ -1103,6 +1140,16 @@ export interface AgentFileReadOptions {
   signal?: AbortSignal;
 }
 
+/** Tuning for {@link Deployments.waitForFileApiReady}. */
+export interface AgentFileApiReadyOptions {
+  /** Give up after this long. Default 90s. */
+  timeoutMs?: number;
+  /** Successful reads required in a row before declaring ready. Default 2. */
+  consecutive?: number;
+  /** Delay between attempts. Default 1s. */
+  pollMs?: number;
+}
+
 export interface AgentFileReadBytesResult {
   content: Uint8Array;
   mimeType?: string;
@@ -1158,6 +1205,25 @@ function agentRoutesStateFromData(data: AgentRoutesHydrationData): AgentRoutesSt
     agentId: String(data.agent_id ?? ''),
     routes: structuredClone(data.routes ?? {}),
     routeStatuses: structuredClone(data.route_statuses ?? {}),
+  };
+}
+
+function agentAccessIdentityFromData(
+  data: AgentAccessIdentityHydrationData,
+): AgentAccessIdentity {
+  const payload = data ?? {};
+  const agentId = payload.agent_id ? String(payload.agent_id) : null;
+  return {
+    userId: String(payload.user_id ?? ''),
+    authType: String(payload.auth_type ?? ''),
+    agentId,
+    tags: (payload.tags ?? []).map((tag) => String(tag)),
+    capabilities: (payload.capabilities ?? []).map((item) => String(item)),
+    keyId: payload.key_id ? String(payload.key_id) : null,
+    keyName: payload.key_name ? String(payload.key_name) : null,
+    teamId: payload.team_id ? String(payload.team_id) : null,
+    planId: payload.plan_id ? String(payload.plan_id) : null,
+    isAgentRuntimeKey: Boolean(agentId),
   };
 }
 
@@ -4104,15 +4170,17 @@ export class Deployments {
   async resolveAgentId(
     agentIdOrName: string,
     requestOptions: RequestOverrides = {},
-    allowSelf = false,
   ): Promise<string> {
     const raw = String(agentIdOrName || '').trim();
     if (!raw) {
       throw new Error('agentIdOrName is required');
     }
     if (isSelfAgentRef(raw)) {
-      if (allowSelf) return 'self';
-      throw new Error('self is only supported for status, start, stop, and routes');
+      // An Agent introspects itself; it does not start, stop, or edit its own
+      // routes. Status is the only self operation, and it is served directly
+      // by GET /deployments/self -- nothing resolves a self reference to an id
+      // any more.
+      throw new Error('self is only supported for status');
     }
     if (isDirectAgentIdRef(raw)) {
       return raw;
@@ -4859,13 +4927,126 @@ export class Deployments {
   }
 
   /**
-   * Rebuild the complete replacement launch_config that START requires.
+   * Read back every launch secret value the projection refuses to return.
    *
-   * Mirrors the Python SDK's stored_launch_config: reads the stored Agent
-   * projection, rehydrates redacted secrets through the per-secret retrieval
-   * endpoint, requires caller-held registry_auth whenever the stored config
-   * references a registry_url, normalizes legacy restart/sync-policy shapes,
-   * and self-checks through the completeness gatekeeper.
+   * Agent projections list secret *names* and expose values only through the
+   * per-secret retrieval endpoint, so a complete `secrets` mapping has to be
+   * reassembled one key at a time. Every response is checked against
+   * `launchEpoch` so a rebuild never silently mixes values from an older
+   * launch generation into a new one.
+   */
+  private async recoverRedactedSecrets(
+    agentId: string,
+    launchEpoch: number,
+  ): Promise<Record<string, string>> {
+    const namesData = await this.secretNames(agentId);
+    if (Number(namesData.launch_epoch ?? 0) < launchEpoch) {
+      throw new Error('agent secret names belong to an older launch epoch');
+    }
+    const secrets: Record<string, string> = {};
+    for (const name of namesData.names ?? []) {
+      const secretData = await this.secret(agentId, String(name));
+      if (Number(secretData.launch_epoch ?? 0) < launchEpoch) {
+        throw new Error('agent secret belongs to an older launch epoch');
+      }
+      secrets[String(name)] = String(secretData.value ?? '');
+    }
+    return secrets;
+  }
+
+  /**
+   * Restore the two launch_config keys an Agent projection redacts.
+   *
+   * WHY THIS EXISTS — do not delete it as redundant validation sugar. The
+   * Backend's owner-facing Agent projection deliberately strips `secrets` and
+   * `registry_auth` before returning an Agent to a user-scoped caller
+   * (`hydrate_managed_agent` pops both), and this SDK's own hydrator drops
+   * `secrets` again. START, by contrast, is a *full replacement* and demands
+   * every key in REQUIRED_START_LAUNCH_CONFIG_KEYS. Without this step the
+   * obvious round trip can never succeed, because the read side is
+   * structurally incapable of returning what the write side requires:
+   *
+   * ```ts
+   * const agent = await client.deployments.get(agentId);
+   * await client.deployments.start(agentId, { launchConfig: agent.launchConfig });
+   * // Error: launchConfig is incomplete; missing: secrets, registry_auth
+   * ```
+   *
+   * The fix is to complete the object honestly, never to weaken the
+   * completeness contract — START must stay a replacement, not a merge.
+   *
+   * Only keys that are genuinely ABSENT are rebuilt. A caller-supplied
+   * `secrets` or `registry_auth` is honoured verbatim, including an explicit
+   * empty object, so "redacted by the projection" and "deliberately empty"
+   * remain distinguishable.
+   *
+   * `secrets` is recoverable because values can be read back one name at a
+   * time. `registry_auth` is NOT: it is caller-held, write-only, and never
+   * stored server-side. It therefore falls back to an explicitly supplied
+   * `registryAuth`, then to `{}` only when the configuration pulls from no
+   * `registry_url`; when a registry is configured an empty credential would
+   * silently break the image pull, so the caller is told to supply it instead.
+   */
+  private async rehydrateRedactedLaunchConfig(
+    resolvedAgentId: string,
+    launchConfig: AgentLaunchConfig,
+    registryAuth?: RegistryAuth,
+  ): Promise<AgentLaunchConfig> {
+    if (!isPlainRecord(launchConfig)) {
+      throw new Error('launchConfig must be a complete object');
+    }
+    const absent = REQUIRED_START_LAUNCH_CONFIG_KEYS.filter(
+      (key) => !Object.prototype.hasOwnProperty.call(launchConfig, key),
+    );
+    // Nothing missing, or missing more than the projection ever redacts: in
+    // both cases hand the object straight to the completeness gatekeeper. Only
+    // a config whose *sole* gaps are the two redacted keys is a projection
+    // round trip worth spending API calls to repair.
+    if (absent.length === 0 || absent.some((key) => key !== 'secrets' && key !== 'registry_auth')) {
+      return launchConfig;
+    }
+
+    const prepared: Record<string, any> = structuredClone(launchConfig);
+    if (absent.includes('secrets')) {
+      const agent = await this.getById(resolvedAgentId);
+      prepared.secrets = await this.recoverRedactedSecrets(resolvedAgentId, agent.launchEpoch);
+    }
+    if (absent.includes('registry_auth')) {
+      const registryUrl = String(prepared.registry_url ?? '').trim();
+      if (registryAuth) {
+        prepared.registry_auth = structuredClone(registryAuth);
+      } else if (registryUrl) {
+        throw new Error(
+          `Agent ${resolvedAgentId} pulls from registry_url ${JSON.stringify(registryUrl)} but `
+          + 'launchConfig carries no registry_auth; registry_auth is caller-held and write-only, '
+          + 'so the owner-facing projection can never return it and the SDK will not substitute '
+          + 'an empty credential that would break the private-registry pull — pass registryAuth '
+          + 'explicitly to START',
+        );
+      } else {
+        prepared.registry_auth = {};
+      }
+    }
+    return prepared as AgentLaunchConfig;
+  }
+
+  /**
+   * Rebuild the complete replacement launch_config that START requires, from
+   * nothing but the Agent's stored projection.
+   *
+   * DELIBERATELY RETAINED where the Python SDK dropped `stored_launch_config`.
+   * Python's `start()` always takes a launch_config, so once it rehydrated the
+   * redacted keys inline the stored rebuild became a pure duplicate. This SDK
+   * additionally supports `start(id)` with no config at all, and this is the
+   * only thing that can produce one; it is also the only place that
+   * canonicalizes the two legacy projection shapes the inline repair never
+   * sees, because the repair fills absent keys and touches nothing else:
+   * nullable `restart`, and a projection carrying both or neither sync policy.
+   *
+   * Reads the stored Agent projection, rehydrates redacted secrets through the
+   * per-secret retrieval endpoint, requires caller-held registry_auth whenever
+   * the stored config references a registry_url, normalizes those legacy
+   * shapes, and self-checks through the completeness gatekeeper.
    */
   async storedLaunchConfig(
     agentIdOrName: string,
@@ -4883,19 +5064,7 @@ export class Deployments {
       launchConfig.restart = false;
     }
 
-    const namesData = await this.secretNames(agent.id);
-    if (Number(namesData.launch_epoch ?? 0) < agent.launchEpoch) {
-      throw new Error('agent secret names belong to an older launch epoch');
-    }
-    const secrets: Record<string, string> = {};
-    for (const name of namesData.names ?? []) {
-      const secretData = await this.secret(agent.id, String(name));
-      if (Number(secretData.launch_epoch ?? 0) < agent.launchEpoch) {
-        throw new Error('agent secret belongs to an older launch epoch');
-      }
-      secrets[String(name)] = String(secretData.value ?? '');
-    }
-    launchConfig.secrets = secrets;
+    launchConfig.secrets = await this.recoverRedactedSecrets(agent.id, agent.launchEpoch);
 
     const registryUrl = String(launchConfig.registry_url ?? '').trim();
     if (registryUrl && !options.registryAuth) {
@@ -4920,13 +5089,19 @@ export class Deployments {
   }
 
   async start(agentIdOrName: string, options?: StartAgentOptions): Promise<Agent> {
-    const agentId = isSelfAgentRef(agentIdOrName)
-      ? (await this.get('self')).id
-      : await this.resolveAgentId(agentIdOrName);
-    // START requires one complete replacement launch_config. When the caller
-    // does not supply one, rebuild it from the stored projection.
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    // START requires one complete replacement launch_config. A caller-supplied
+    // config is first repaired for the two keys the owner-facing projection
+    // redacts, so the natural get() -> start() round trip works. When the
+    // caller supplies nothing, rebuild the config from the stored projection.
     const launchConfig = options?.launchConfig
-      ? cloneCompleteLaunchConfig(options.launchConfig)
+      ? cloneCompleteLaunchConfig(
+        await this.rehydrateRedactedLaunchConfig(
+          agentId,
+          options.launchConfig,
+          options.registryAuth,
+        ),
+      )
       : await this.storedLaunchConfig(agentId, { registryAuth: options?.registryAuth });
     const body: Record<string, any> = { launch_config: launchConfig };
     if (options?.dryRun) body.dry_run = true;
@@ -4940,7 +5115,13 @@ export class Deployments {
   }
 
   async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
-    const launchConfig = cloneCompleteLaunchConfig(options.launchConfig);
+    // Resolve first: the gateway-token injection below reads launchConfig.env
+    // and launchConfig.secrets, so a redacted projection has to be repaired
+    // before it is inspected, not after.
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    const launchConfig = cloneCompleteLaunchConfig(
+      await this.rehydrateRedactedLaunchConfig(agentId, options.launchConfig, options.registryAuth),
+    );
     if (Object.prototype.hasOwnProperty.call(launchConfig.env, 'OPENCLAW_GATEWAY_TOKEN')) {
       throw new Error('OPENCLAW_GATEWAY_TOKEN must be supplied through launchConfig.secrets or gatewayToken');
     }
@@ -4954,7 +5135,7 @@ export class Deployments {
     }
     const gatewayToken = explicitToken ?? configuredToken;
     if (gatewayToken) launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-    const agent = await this.start(agentIdOrName, {
+    const agent = await this.start(agentId, {
       launchConfig,
       dryRun: options.dryRun,
     });
@@ -4963,7 +5144,13 @@ export class Deployments {
   }
 
   async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions): Promise<HermesAgent> {
-    const launchConfig = cloneCompleteLaunchConfig(options.launchConfig);
+    // Resolve first: the API_SERVER_KEY reconciliation below reads
+    // launchConfig.env and launchConfig.secrets, so a redacted projection has
+    // to be repaired before it is inspected, not after.
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    const launchConfig = cloneCompleteLaunchConfig(
+      await this.rehydrateRedactedLaunchConfig(agentId, options.launchConfig, options.registryAuth),
+    );
     const suppliedApiServerKey = options.apiServerKey
       ?? launchConfig.secrets.API_SERVER_KEY
       ?? launchConfig.env.API_SERVER_KEY;
@@ -4974,7 +5161,7 @@ export class Deployments {
       delete launchConfig.env.API_SERVER_KEY;
       launchConfig.secrets.API_SERVER_KEY = apiServerKey;
     }
-    const agent = await this.start(agentIdOrName, {
+    const agent = await this.start(agentId, {
       launchConfig,
       dryRun: options.dryRun,
     });
@@ -5036,7 +5223,7 @@ export class Deployments {
    * deployment slot as released.
    */
   async stop(agentIdOrName: string): Promise<Agent> {
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`,
       undefined,
@@ -5070,11 +5257,32 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
+  /**
+   * Resolve who the presented credential is, per the Backend
+   * (`GET /deployments/auth/me`).
+   *
+   * Answers the three questions a credential should be able to ask about
+   * itself: which Agent it is (`agentId`, set only for an Agent runtime key),
+   * which account owns it (`userId`, `teamId`, `planId`), and what it may do
+   * (`tags`, `capabilities`). It returns only what the credential already
+   * carries, so it is unscoped and safe for any caller.
+   *
+   * Distinct from the product-wide `client.user.authMe()`: this is the agent
+   * product's own introspection and is the only one that reports `agentId`.
+   */
+  async accessIdentity(requestOptions: RequestOverrides = {}): Promise<AgentAccessIdentity> {
+    const path = `${DEPLOYMENTS_API_PREFIX}/auth/me`;
+    const data = Object.keys(requestOptions).length === 0
+      ? await this.agentHttp.get<AgentAccessIdentityHydrationData>(path)
+      : await this.agentHttp.get<AgentAccessIdentityHydrationData>(path, undefined, requestOptions);
+    return agentAccessIdentityFromData(data);
+  }
+
   async getRoutes(
     agentIdOrName: string,
     options: RequestOverrides = {},
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`;
     const data = Object.keys(options).length > 0
       ? await this.agentHttp.get<AgentRoutesHydrationData>(path, undefined, options)
@@ -5086,7 +5294,7 @@ export class Deployments {
     agentIdOrName: string,
     routes: Record<string, AgentRouteConfig>,
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const body: Record<string, unknown> = { routes: structuredClone(routes) };
     const data = await this.agentHttp.put<AgentRoutesHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`,
@@ -5100,7 +5308,7 @@ export class Deployments {
     name: string,
     route: AgentRouteConfig,
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const body: Record<string, unknown> = { port: route.port };
     if (route.auth !== undefined) body.auth = route.auth;
     if (route.prefix !== undefined) body.prefix = route.prefix;
@@ -5115,7 +5323,7 @@ export class Deployments {
     agentIdOrName: string,
     name: string,
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName, {}, true);
+    const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.delete<AgentRoutesHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes/${encodeURIComponent(name)}`,
     );
@@ -5281,6 +5489,59 @@ export class Deployments {
     return validateAgentExecResult(
       await this.oneShotAgentWebSocket(agentId, 'exec', payload, (timeout + 10) * 1_000),
     );
+  }
+
+  /**
+   * Wait until an Agent's Reef file API is actually serving.
+   *
+   * Probing the Agent hostname alone cannot answer this. The Agent domain is a
+   * wildcard, so a host with no route still resolves and the edge answers a
+   * plain-text `404 page not found` — byte for byte what a route that has not
+   * converged yet returns. A caller polling the hostname therefore cannot tell
+   * "not ready" from "never will be", and will retry until its deadline against
+   * a host that was never going to work.
+   *
+   * So ask the API for the authoritative Agent state first: a deleted or failed
+   * Agent rejects immediately with that state rather than timing out. Then
+   * require consecutive successful reads, because one success only proves the
+   * route answered once — the next request can still 404 while the edge settles.
+   */
+  async waitForFileApiReady(
+    target: Agent | string,
+    options: AgentFileApiReadyOptions = {},
+  ): Promise<void> {
+    const timeoutMs = options.timeoutMs ?? 90_000;
+    const consecutive = options.consecutive ?? 2;
+    const pollMs = options.pollMs ?? 1_000;
+    const agentId = await this.agentIdFor(target);
+    const deadline = Date.now() + timeoutMs;
+    let streak = 0;
+    let lastError: unknown = null;
+    let lastState = '';
+    for (;;) {
+      const agent = await this.get(agentId);
+      lastState = String(agent.state ?? '').toUpperCase();
+      if (lastState === 'DELETED' || lastState === 'FAILED') {
+        throw new Error(
+          `Agent ${agentId} is ${lastState}; its Reef file API will not serve. Waiting longer cannot help.`,
+        );
+      }
+      try {
+        await this.filesList(agentId, '');
+        streak += 1;
+        if (streak >= consecutive) return;
+      } catch (error) {
+        lastError = error;
+        streak = 0;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Agent ${agentId} Reef file API did not serve ${consecutive} consecutive reads within ` +
+            `${Math.round(timeoutMs / 1000)}s (agent state=${lastState || 'unknown'}, last error=${String(lastError)})`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
   }
 
   async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {

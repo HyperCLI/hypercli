@@ -807,74 +807,310 @@ describe('Agents SDK', () => {
     }
   });
 
-  it('resolves self before START and keeps direct self status, STOP, and routes', async () => {
+  it('serves declarative and named route updates for an owned agent id', async () => {
     const agentId = '11111111-1111-4111-8111-111111111111';
-    const agentResponse = {
-      id: agentId,
-      user_id: 'user-456',
-      state: 'running',
-    };
     const routesResponse = {
       agent_id: agentId,
       routes: { web: { port: 3000, auth: true, prefix: 'app' } },
       route_statuses: { web: { url: 'https://app-agent.hypercli.app' } },
     };
     const http = {
-      get: vi.fn().mockImplementation(async (path: string) => (
-        path.endsWith('/routes') ? routesResponse : agentResponse
-      )),
-      post: vi.fn().mockResolvedValue(agentResponse),
+      get: vi.fn().mockResolvedValue(routesResponse),
       put: vi.fn().mockResolvedValue(routesResponse),
       delete: vi.fn().mockResolvedValue(routesResponse),
     } as unknown as HTTPClient;
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
-    expect((await deployments.get('self')).id).toBe(agentId);
-    const launchConfig = buildAgentConfig().config;
-    await deployments.start('self', { launchConfig, dryRun: true });
-    await deployments.stop('self');
-    const routes = await deployments.getRoutes('self');
-    await deployments.setRoutes('self', routes.routes);
-    await deployments.setRoute('self', 'web app', { port: 3000, auth: false, prefix: '' });
-    await deployments.removeRoute('self', 'web app');
+    const routes = await deployments.getRoutes(agentId);
+    await deployments.setRoutes(agentId, routes.routes);
+    await deployments.setRoute(agentId, 'web app', { port: 3000, auth: false, prefix: '' });
+    await deployments.removeRoute(agentId, 'web app');
 
-    expect(http.get).toHaveBeenCalledWith('/deployments/self');
-    expect(http.post).toHaveBeenCalledWith(
-      `/deployments/${agentId}/start`,
-      { launch_config: launchConfig, dry_run: true },
-      { retries: 1 },
-    );
-    expect(http.post).toHaveBeenCalledWith(
-      '/deployments/self/stop',
-      undefined,
-      { retries: 1 },
-    );
-    expect(http.get).toHaveBeenCalledWith('/deployments/self/routes');
-    expect(http.put).toHaveBeenCalledWith('/deployments/self/routes', {
+    expect(http.get).toHaveBeenCalledWith(`/deployments/${agentId}/routes`);
+    expect(http.put).toHaveBeenCalledWith(`/deployments/${agentId}/routes`, {
       routes: routesResponse.routes,
     });
-    expect(http.put).toHaveBeenCalledWith('/deployments/self/routes/web%20app', {
+    expect(http.put).toHaveBeenCalledWith(`/deployments/${agentId}/routes/web%20app`, {
       port: 3000,
       auth: false,
       prefix: '',
     });
-    expect(http.delete).toHaveBeenCalledWith(
-      '/deployments/self/routes/web%20app',
-    );
+    expect(http.delete).toHaveBeenCalledWith(`/deployments/${agentId}/routes/web%20app`);
     expect(routes).toEqual({
       agentId,
       routes: routesResponse.routes,
       routeStatuses: routesResponse.route_statuses,
     });
-
-    await expect(deployments.startOpenClaw('self', { launchConfig })).resolves.toBeInstanceOf(Agent);
   });
 
-  it('rejects self for destructive operations outside the approved surface', async () => {
-    const deployments = new Deployments({} as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+  it('limits the self selector to status', async () => {
+    // An Agent reads its own status. It does not drive its own lifecycle, and
+    // it does not manage its own routes: the Backend serves GET
+    // /deployments/self and nothing else under that selector.
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const agentResponse = { id: agentId, user_id: 'user-456', state: 'running' };
+    const http = {
+      get: vi.fn().mockResolvedValue(agentResponse),
+      post: vi.fn().mockResolvedValue(agentResponse),
+      put: vi.fn().mockResolvedValue(agentResponse),
+      delete: vi.fn().mockResolvedValue(agentResponse),
+    } as unknown as HTTPClient;
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
-    await expect(deployments.delete('self')).rejects.toThrow('self is only supported');
-    await expect(deployments.createScopedKey('self')).rejects.toThrow('self is only supported');
+    expect((await deployments.get('self')).id).toBe(agentId);
+    expect(http.get).toHaveBeenCalledWith('/deployments/self');
+
+    const launchConfig = buildAgentConfig().config;
+    const rejected: Array<() => Promise<unknown>> = [
+      () => deployments.start('self', { launchConfig }),
+      () => deployments.startOpenClaw('self', { launchConfig }),
+      () => deployments.startHermesAgent('self', { launchConfig }),
+      () => deployments.stop('self'),
+      () => deployments.getRoutes('self'),
+      () => deployments.setRoutes('self', {}),
+      () => deployments.setRoute('self', 'web', { port: 3000, auth: true }),
+      () => deployments.removeRoute('self', 'web'),
+      () => deployments.delete('self'),
+      () => deployments.createScopedKey('self'),
+    ];
+    for (const operation of rejected) {
+      await expect(operation()).rejects.toThrow('self is only supported for status');
+    }
+    expect(http.post).not.toHaveBeenCalled();
+    expect(http.put).not.toHaveBeenCalled();
+    expect(http.delete).not.toHaveBeenCalled();
+  });
+
+  const STORED_AGENT_ID = '11111111-1111-4111-8111-111111111111';
+
+  /** Serve one stored agent projection plus its redacted-secret endpoints. */
+  const installStoredProjection = (
+    launchConfig: Record<string, any>,
+    secrets: Record<string, string> = {},
+    launchEpoch = 3,
+  ) => {
+    const calls: string[] = [];
+    const get = vi.fn().mockImplementation(async (path: string) => {
+      calls.push(path);
+      if (path === `/deployments/${STORED_AGENT_ID}`) {
+        return {
+          id: STORED_AGENT_ID,
+          user_id: 'user-456',
+          state: 'STOPPED',
+          launch_epoch: launchEpoch,
+          launch_config: structuredClone(launchConfig),
+        };
+      }
+      if (path === `/deployments/${STORED_AGENT_ID}/secrets`) {
+        return { names: Object.keys(secrets).sort(), launch_epoch: launchEpoch };
+      }
+      const name = Object.keys(secrets).find(
+        (key) => path === `/deployments/${STORED_AGENT_ID}/secrets/${key}`,
+      );
+      if (name !== undefined) {
+        return { key: name, value: secrets[name], launch_epoch: launchEpoch };
+      }
+      throw new Error(`Unexpected GET ${path}`);
+    });
+    const post = vi.fn().mockResolvedValue({
+      id: STORED_AGENT_ID,
+      user_id: 'user-456',
+      state: 'STARTING',
+    });
+    const deployments = new Deployments(
+      { get, post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    return { calls, get, post, deployments };
+  };
+
+  it('rehydrates a redacted projection so get() -> start() round-trips', async () => {
+    const stored: Record<string, any> = buildAgentConfig({}, { env: { MODE: 'prod' } }).config;
+    delete stored.secrets; // the owner-facing projection redacts secret values
+    delete stored.registry_auth; // ...and caller-held registry credentials
+    const { post, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
+
+    const agent = await deployments.start(STORED_AGENT_ID, { launchConfig: stored as any });
+
+    expect(agent.state).toBe('STARTING');
+    const sent = post.mock.calls[0][1].launch_config;
+    expect(sent.secrets).toEqual({ API_TOKEN: 'tok' });
+    expect(sent.registry_auth).toEqual({});
+    expect(sent.env).toEqual({ MODE: 'prod' });
+    expect('secrets' in stored).toBe(false); // the caller's object is never mutated
+  });
+
+  it('honours explicitly empty redactable keys instead of reading secrets back', async () => {
+    // An explicit empty object is not the same as an absent, redacted key.
+    const stored: Record<string, any> = buildAgentConfig().config;
+    expect(stored.secrets).toEqual({});
+    const { calls, post, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
+
+    await deployments.start(STORED_AGENT_ID, { launchConfig: stored as any });
+
+    expect(calls).toEqual([]); // the caller said "no secrets" and meant it
+    expect(post.mock.calls[0][1].launch_config.secrets).toEqual({});
+  });
+
+  it('leaves a config missing more than the redacted keys to the completeness check', async () => {
+    const stored: Record<string, any> = buildAgentConfig().config;
+    delete stored.secrets;
+    delete stored.registry_auth;
+    delete stored.image; // never redacted, so this is a genuinely incomplete config
+    const { calls, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
+
+    await expect(deployments.start(STORED_AGENT_ID, { launchConfig: stored as any }))
+      .rejects.toThrow('launchConfig is incomplete; missing: image, secrets, registry_auth');
+    expect(calls).toEqual([]); // no API calls spent repairing an unrepairable config
+  });
+
+  it('refuses to invent registry_auth for a private registry and accepts a supplied one', async () => {
+    const stored: Record<string, any> = buildAgentConfig().config;
+    stored.registry_url = 'git.nedos.co';
+    delete stored.registry_auth;
+    const { post, deployments } = installStoredProjection(stored);
+
+    await expect(deployments.start(STORED_AGENT_ID, { launchConfig: stored as any }))
+      .rejects.toThrow('registry_auth is caller-held and write-only');
+
+    await deployments.start(STORED_AGENT_ID, {
+      launchConfig: stored as any,
+      registryAuth: { username: 'svc', password: 'hunter2' },
+    });
+    expect(post.mock.calls[0][1].launch_config.registry_auth)
+      .toEqual({ username: 'svc', password: 'hunter2' });
+  });
+
+  it('rehydrates a redacted projection before startOpenClaw inspects it', async () => {
+    const stored: Record<string, any> = buildAgentConfig({}, {
+      image: 'ghcr.io/hypercli/hypercli-openclaw:test',
+    }).config;
+    delete stored.secrets;
+    delete stored.registry_auth;
+    const { post, deployments } = installStoredProjection(stored, {
+      OPENCLAW_GATEWAY_TOKEN: 'gw-token',
+    });
+
+    await deployments.startOpenClaw(STORED_AGENT_ID, { launchConfig: stored as any });
+
+    const sent = post.mock.calls[0][1].launch_config;
+    expect(sent.secrets.OPENCLAW_GATEWAY_TOKEN).toBe('gw-token');
+    expect(sent.registry_auth).toEqual({});
+  });
+
+  it('reports the agent a runtime key speaks for through accessIdentity', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const get = vi.fn().mockResolvedValue({
+      user_id: 'user-456',
+      auth_type: 'orchestra_key',
+      agent_id: agentId,
+      tags: ['agents:none', 'runtime=agent', `runtime_agent=${agentId}`],
+      capabilities: ['agents:self'],
+      key_id: 'key-1',
+      key_name: 'runtime',
+      team_id: 'team-1',
+      plan_id: 'plan-1',
+    });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const identity = await deployments.accessIdentity();
+
+    expect(get).toHaveBeenCalledWith('/deployments/auth/me');
+    expect(identity.agentId).toBe(agentId);
+    expect(identity.isAgentRuntimeKey).toBe(true);
+    expect(identity.userId).toBe('user-456');
+    expect(identity.authType).toBe('orchestra_key');
+    expect(identity.keyName).toBe('runtime');
+  });
+
+  it('reports no agent for a user credential through accessIdentity', async () => {
+    const get = vi.fn().mockResolvedValue({
+      user_id: 'user-456',
+      auth_type: 'user',
+      team_id: 'team-1',
+    });
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    const identity = await deployments.accessIdentity();
+
+    expect(identity.agentId).toBeNull();
+    expect(identity.isAgentRuntimeKey).toBe(false);
+    expect(identity.tags).toEqual([]);
+    expect(identity.capabilities).toEqual([]);
+  });
+
+  it('requires consecutive file API reads and fails fast on a dead agent', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const deployments = new Deployments(
+      {} as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'get').mockResolvedValue(
+      Agent.fromDict({ id: agentId, state: 'RUNNING' }),
+    );
+    // A wildcard agent domain answers 404 for a route that has not converged
+    // yet, so one success proves nothing: the streak has to be unbroken.
+    const filesList = vi.spyOn(deployments, 'filesList')
+      .mockRejectedValueOnce(new Error('404 page not found'))
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('404 page not found'))
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await deployments.waitForFileApiReady(agentId, { pollMs: 0, timeoutMs: 5_000 });
+    expect(filesList).toHaveBeenCalledTimes(5);
+
+    vi.spyOn(deployments, 'get').mockResolvedValue(
+      Agent.fromDict({ id: agentId, state: 'FAILED' }),
+    );
+    await expect(deployments.waitForFileApiReady(agentId, { pollMs: 0, timeoutMs: 5_000 }))
+      .rejects.toThrow('is FAILED; its Reef file API will not serve');
+  });
+
+  it('times out with the agent state and the last file API error', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const deployments = new Deployments(
+      {} as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'get').mockResolvedValue(
+      Agent.fromDict({ id: agentId, state: 'RUNNING' }),
+    );
+    // A caller that only sees "timed out" cannot tell a converging route from
+    // an Agent that was never going to serve, so the message has to say both.
+    vi.spyOn(deployments, 'filesList').mockRejectedValue(new Error('404 page not found'));
+
+    await expect(
+      deployments.waitForFileApiReady(agentId, { pollMs: 0, timeoutMs: 0, consecutive: 2 }),
+    ).rejects.toThrow(/did not serve 2 consecutive reads.*state=RUNNING.*404 page not found/s);
+  });
+
+  it('does not return after a single successful file API read', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    const deployments = new Deployments(
+      {} as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    vi.spyOn(deployments, 'get').mockResolvedValue(
+      Agent.fromDict({ id: agentId, state: 'RUNNING' }),
+    );
+    const filesList = vi.spyOn(deployments, 'filesList').mockResolvedValue([]);
+
+    await deployments.waitForFileApiReady(agentId, { pollMs: 0, timeoutMs: 5_000 });
+
+    expect(filesList).toHaveBeenCalledTimes(2);
   });
 
   it('sends frontend-owned bootstrap prompts and response schemas to the JWT inference route', async () => {

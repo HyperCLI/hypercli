@@ -411,7 +411,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1].env.RUST_LOG).toBe(DEFAULT_BUZZ_RUST_LOG);
     expect(post.mock.calls[0][1].restart).toBe(false);
-    expect(DEFAULT_BUZZ_RUST_LOG).toBe('buzz_acp=info,pool::prompt=info,acp::stream=off');
+    expect(DEFAULT_BUZZ_RUST_LOG).toBe('buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off');
   });
 
   it('forces typed Buzz launches to keep restart disabled', async () => {

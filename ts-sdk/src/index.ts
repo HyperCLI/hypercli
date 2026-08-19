@@ -269,6 +269,8 @@ export {
   type AgentExecResult,
   type AgentMetricsResult,
   type AgentOperationTokenResponse,
+  type AgentAccessIdentity,
+  type AgentFileApiReadyOptions,
   type AgentFileEntry,
   type AgentFileReadOptions,
   type AgentFileReadBytesResult,
