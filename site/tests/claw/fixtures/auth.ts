@@ -42,6 +42,91 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Traefik answers an unrouted host with Go's plain-text 404 body. The Agents
+// API answers a genuinely missing resource with JSON.
+const UNROUTED_EDGE_BODY = "404 page not found";
+const TRANSIENT_AGENTS_API_STATUSES = new Set([
+  408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530,
+]);
+// Deliberately narrow: it must match the SDK's own transport failures without
+// matching a wait helper that timed out, which is a verdict about the Agent
+// rather than about the connection to the API.
+const TRANSPORT_ERROR_PATTERN =
+  /fetch failed|Request timed out|socket hang up|network error|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE/i;
+
+/**
+ * Whether a 404 came from the edge rather than from the application.
+ *
+ * Cloudflare resolves every host under the agent wildcard, so an unconverged
+ * route is reachable and answers 404 exactly like a missing resource does.
+ * Only the body separates them, and believing the wrong one is expensive in
+ * both directions: treating an edge 404 as "absent" lets a routing window pass
+ * for proof that an Agent was deleted (which is how a run leaks an Agent and
+ * 409s the user teardown), and treating an application 404 as transient hides
+ * a real missing resource behind a timeout.
+ */
+function isUnroutedEdgeBody(text: unknown): boolean {
+  return String(text ?? "").toLowerCase().includes(UNROUTED_EDGE_BODY);
+}
+
+function errorStatusCode(error: unknown): number {
+  return Number((error as { statusCode?: unknown })?.statusCode ?? 0) || 0;
+}
+
+/**
+ * Whether a failed Agents API call is worth retrying rather than believing.
+ *
+ * The dev control plane is shared: its edge sheds load with 502/503/504 and
+ * re-applies agent IngressRoutes, so single-shot calls fail for reasons that
+ * say nothing about the Agent under test.
+ */
+function isTransientAgentsApiError(error: unknown): boolean {
+  if (!error) return false;
+  const statusCode = errorStatusCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (statusCode === 404) return isUnroutedEdgeBody(message);
+  if (statusCode > 0) return TRANSIENT_AGENTS_API_STATUSES.has(statusCode);
+  return TRANSPORT_ERROR_PATTERN.test(message);
+}
+
+/**
+ * Run one Agents API call, riding out transient edge and control-plane windows.
+ *
+ * Mirrors `settled_reef_call` in the backend smoke suite. Every call needs it,
+ * not just reads: an unrouted host answers writes and deletes with the same
+ * edge 404 it answers reads with.
+ */
+async function settledAgentsCall<T>(
+  operation: () => Promise<T>,
+  { timeout = 120_000, label = "agents API call" }: { timeout?: number; label?: string } = {},
+): Promise<T> {
+  const deadline = Date.now() + timeout;
+  let attempts = 0;
+  for (;;) {
+    attempts += 1;
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isTransientAgentsApiError(error) || Date.now() >= deadline) {
+        if (attempts > 1) {
+          console.log(
+            `[agents-api] ${label} gave up after ${attempts} attempts: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+        }
+        throw error;
+      }
+      console.log(
+        `[agents-api] ${label} transient failure (attempt ${attempts}): ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+    await sleep(Math.min(2_000, Math.max(deadline - Date.now(), 100)));
+  }
+}
+
 function buildBrowserDesktopUrl(desktopBaseUrl: string, token: string): string {
   const url = new URL("/_jwt_auth", desktopBaseUrl);
   url.searchParams.set("jwt", token);
@@ -445,18 +530,34 @@ async function getDeploymentsClient(token: string): Promise<DeploymentsClientLik
   );
 }
 
+/**
+ * Whether an error proves the deployment is gone.
+ *
+ * An edge 404 proves nothing: the host resolves through the wildcard whether or
+ * not the route has converged, so accepting it here would report a leaked Agent
+ * as deleted and hand the 409 to the user teardown instead.
+ */
+function isDeploymentAbsentError(error: unknown): boolean {
+  const statusCode = errorStatusCode(error);
+  const message = error instanceof Error ? error.message : String(error);
+  if (isUnroutedEdgeBody(message)) return false;
+  if (statusCode === 404 || statusCode === 410) return true;
+  return statusCode === 0 && /\b404\b|not found/i.test(message);
+}
+
 async function deleteDeployment(deployments: DeploymentsClientLike, agentId: string): Promise<void> {
   const waitUntilAbsent = async (): Promise<void> => {
     let lastError: unknown = null;
-    for (let attempt = 0; attempt < 30; attempt += 1) {
+    for (let attempt = 0; attempt < 60; attempt += 1) {
       try {
-        const current = await deployments.get(agentId) as DeploymentRecord;
+        const current = await settledAgentsCall(
+          () => deployments.get(agentId) as Promise<DeploymentRecord>,
+          { timeout: 30_000, label: `get deployment ${agentId}` },
+        );
         if (String(current.state).toUpperCase() === "DELETED") return;
         lastError = new Error(`deployment remains ${current.state}`);
       } catch (error) {
-        const statusCode = Number((error as { statusCode?: unknown })?.statusCode ?? 0);
-        const message = error instanceof Error ? error.message : String(error);
-        if (statusCode === 404 || /\b404\b|not found/i.test(message)) return;
+        if (isDeploymentAbsentError(error)) return;
         lastError = error;
       }
       await sleep(2_000);
@@ -466,11 +567,25 @@ async function deleteDeployment(deployments: DeploymentsClientLike, agentId: str
       : new Error(`Deployment ${agentId} was not deleted`);
   };
   try {
-    await deployments.delete(agentId);
+    await settledAgentsCall(() => deployments.delete(agentId), {
+      timeout: 60_000,
+      label: `delete deployment ${agentId}`,
+    });
     await waitUntilAbsent();
     return;
-  } catch {
-    const accepted = await deployments.stop(agentId).catch(() => deployments.get(agentId)) as DeploymentRecord;
+  } catch (deleteError) {
+    if (isDeploymentAbsentError(deleteError)) return;
+    const accepted = await settledAgentsCall(
+      () => deployments.stop(agentId) as Promise<DeploymentRecord>,
+      { timeout: 60_000, label: `stop deployment ${agentId}` },
+    ).catch((stopError) => {
+      if (isDeploymentAbsentError(stopError)) return null;
+      return settledAgentsCall(() => deployments.get(agentId) as Promise<DeploymentRecord>, {
+        timeout: 60_000,
+        label: `get deployment ${agentId}`,
+      });
+    });
+    if (!accepted) return;
     const launchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
     const terminal = await deployments.waitForState(
       agentId,
@@ -480,7 +595,12 @@ async function deleteDeployment(deployments: DeploymentsClientLike, agentId: str
       launchEpoch,
       2_000,
     );
-    if (terminal.state !== "DELETED") await deployments.delete(agentId);
+    if (terminal.state !== "DELETED") {
+      await settledAgentsCall(() => deployments.delete(agentId), {
+        timeout: 60_000,
+        label: `delete deployment ${agentId}`,
+      });
+    }
     await waitUntilAbsent();
   }
 }
@@ -1730,20 +1850,28 @@ export async function waitForPaidClawPlan(
 export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<void> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
-  const existingAgents = await deployments.list();
+  const existingAgents = await settledAgentsCall(() => deployments.list(), {
+    label: "list deployments",
+  });
 
   for (const agent of existingAgents) {
     const agentId = String(agent.id || "");
     if (!agentId) continue;
-    await deleteDeployment(deployments, agentId).catch(() => {
+    await deleteDeployment(deployments, agentId).catch((error) => {
       // Ignore individual delete errors here; the poll below is the real gate.
+      console.log(
+        `[agents-cleanup] delete ${agentId} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     });
   }
 
   await expect
     .poll(async () => {
-      const items = await deployments.list();
-      return items.length;
+      const items = await settledAgentsCall(() => deployments.list(), {
+        timeout: 30_000,
+        label: "list deployments",
+      }).catch(() => null);
+      return items === null ? -1 : items.length;
     }, { timeout, intervals: [1_000, 2_000, 5_000] })
     .toBe(0);
 }
@@ -1751,11 +1879,21 @@ export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<
 export async function launchClawAgentAndWaitForGateway(
   page: Page,
   timeout = 240_000,
-  options: { enableDesktop?: boolean; beforeCreate?: () => Promise<void> } = {},
+  options: {
+    enableDesktop?: boolean;
+    beforeCreate?: () => Promise<void>;
+    // Called as soon as the deployment exists, before it is known to be
+    // healthy. A caller's `finally` cannot delete an Agent it was never told
+    // about, and this helper throws on every readiness failure -- which is
+    // exactly when an Agent is most likely to be left behind and 409 the user
+    // teardown.
+    onAgentCreated?: (agentId: string) => void;
+  } = {},
 ): Promise<DeploymentRecord> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
   const enableDesktop = options.enableDesktop ?? true;
+  const reportAgentCreated = options.onAgentCreated;
 
   const activeRouteUrl = (
     routes: DeploymentRoutesState,
@@ -1796,9 +1934,15 @@ export async function launchClawAgentAndWaitForGateway(
     await expect
       .poll(
         async () => {
-          const latest = await deployments.get(agent.id);
+          const latest = await settledAgentsCall(() => deployments.get(agent.id), {
+            timeout: 30_000,
+            label: `get deployment ${agent.id}`,
+          });
           const latestLaunchEpoch = Number(latest.launchEpoch ?? latest.launch_epoch ?? 0);
-          const routes = await deployments.getRoutes(agent.id);
+          const routes = await settledAgentsCall(() => deployments.getRoutes(agent.id), {
+            timeout: 30_000,
+            label: `get routes ${agent.id}`,
+          });
           const status = routes.routeStatuses.desktop;
           const diagnostic = {
             state: latest.state ?? "unknown",
@@ -1820,23 +1964,67 @@ export async function launchClawAgentAndWaitForGateway(
 
     expect(desktopBaseUrl, "expected RUNNING agent to have an active desktop route").toBeTruthy();
 
-    const tokenData = await deployments.refreshToken(agent.id);
+    const tokenData = await settledAgentsCall(() => deployments.refreshToken(agent.id), {
+      timeout: 60_000,
+      label: `refresh token ${agent.id}`,
+    });
     const agentJwt = tokenData.token?.trim();
     expect(agentJwt, "expected agent desktop access JWT").toBeTruthy();
 
     const desktopAuthUrl = buildBrowserDesktopUrl(desktopBaseUrl!, agentJwt!);
+    const desktopHost = new URL(desktopAuthUrl).host;
     console.log(`[agents-desktop] probing ${new URL(desktopAuthUrl).origin}/_jwt_auth?jwt=<redacted>`);
 
-    await expect
-      .poll(
-        async () => {
-          const response = await page.request.get(desktopAuthUrl, { maxRedirects: 0, timeout: 15_000 }).catch((error) => error);
-          if (response instanceof Error) return "error:request-failed";
-          return response.status();
-        },
-        { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
-      )
-      .toBeLessThan(400);
+    // `/_jwt_auth` is served by the control plane's lagoon-auth through a rule
+    // in this Agent's own IngressRoute, so a success proves both that the
+    // desktop route converged at the edge and that the minted agent JWT is
+    // accepted for this exact host. The route status proves neither: it only
+    // reports the DNS record, and the wildcard resolves every host regardless.
+    //
+    // Route convergence is not monotonic — lagoon re-applies the IngressRoute
+    // and the edge answers "404 page not found" from traefik in the meantime —
+    // so an unrouted 404 is waited out, while any other verdict (a lagoon-auth
+    // 401/403, or an application 404) is reported immediately instead of being
+    // buried under a timeout.
+    const probeBudgetMs = Math.max(timeout, 180_000);
+    const probeDeadline = Date.now() + probeBudgetMs;
+    let lastProbe = "no probe attempted";
+    let unroutedProbes = 0;
+    for (;;) {
+      const response = await page.request
+        .get(desktopAuthUrl, { maxRedirects: 0, timeout: 15_000 })
+        .catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))));
+
+      if (response instanceof Error) {
+        lastProbe = `request-failed: ${response.message}`;
+      } else {
+        const status = response.status();
+        if (status < 400) {
+          console.log(
+            `[agents-desktop] ${desktopHost} answered ${status} after ${unroutedProbes} unrouted probe(s)`
+          );
+          return;
+        }
+        const body = await response.text().catch(() => "");
+        lastProbe = `${status}: ${body.replace(/\s+/g, " ").slice(0, 120) || "<empty>"}`;
+        const unrouted = status === 404 && isUnroutedEdgeBody(body);
+        if (unrouted) {
+          unroutedProbes += 1;
+        } else if (status < 500) {
+          throw new Error(
+            `Desktop route ${desktopHost} answered a non-transient failure for /_jwt_auth (${lastProbe})`
+          );
+        }
+      }
+
+      if (Date.now() >= probeDeadline) {
+        throw new Error(
+          `Desktop route ${desktopHost} did not converge at the edge within ${probeBudgetMs}ms ` +
+            `(last=${lastProbe}, unroutedProbes=${unroutedProbes})`
+        );
+      }
+      await sleep(2_000);
+    }
   };
 
   const waitForGatewayRoute = async (gatewayUrl: string): Promise<void> => {
@@ -2028,9 +2216,18 @@ export async function launchClawAgentAndWaitForGateway(
     clickCreate: () => Promise<DeploymentRecord | void>,
     options: { watchBrowserCreateResponse?: boolean } = {},
   ): Promise<DeploymentRecord> => {
-    const beforeAgents = await deployments.list();
+    const beforeAgents = await settledAgentsCall(() => deployments.list(), {
+      label: "list deployments",
+    });
     const beforeIds = new Set(beforeAgents.map((agent) => String(agent.id || "")).filter(Boolean));
     let created: DeploymentRecord | null = null;
+    let reportedAgentId: string | null = null;
+    const noteAgentCreated = (agent: DeploymentRecord | null): void => {
+      const agentId = String(agent?.id || "");
+      if (!agentId || reportedAgentId === agentId) return;
+      reportedAgentId = agentId;
+      reportAgentCreated?.(agentId);
+    };
     let acceptedStart: DeploymentRecord | null = null;
     let createResponseError: string | null = null;
     const watchBrowserCreateResponse = options.watchBrowserCreateResponse ?? true;
@@ -2050,6 +2247,7 @@ export async function launchClawAgentAndWaitForGateway(
           throw new Error("Agent create response did not include an id");
         }
         created = responseAgent;
+        noteAgentCreated(created);
       })
       .catch((error) => {
         createResponseError = error instanceof Error ? error.message : String(error);
@@ -2062,18 +2260,28 @@ export async function launchClawAgentAndWaitForGateway(
       const directAgent = await clickCreate();
       if (directAgent && directAgent.id) {
         created = directAgent;
+        noteAgentCreated(created);
       }
       launchSubmitted = true;
       await expect
         .poll(
           async () => {
-            if (created?.id) return created.id;
-            const agents = await deployments.list();
+            if (created?.id) {
+              noteAgentCreated(created);
+              return created.id;
+            }
+            const agents = await settledAgentsCall(() => deployments.list(), {
+              timeout: 30_000,
+              label: "list deployments",
+            });
             const listedAgent = agents.find((agent) => {
               const agentId = String(agent.id || "");
               return agentId && !beforeIds.has(agentId);
             });
-            if (listedAgent) created = listedAgent;
+            if (listedAgent) {
+              created = listedAgent;
+              noteAgentCreated(created);
+            }
             return created?.id ?? null;
           },
           { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
@@ -2140,25 +2348,38 @@ export async function launchClawAgentAndWaitForGateway(
     try {
       await captureStep(page, "agents-11-created");
 
-      const running = await deployments.waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch);
+      // The shared dev control plane sheds load with 5xx, and waitRunning
+      // treats any read failure as fatal, so one 502 during a multi-minute
+      // launch would otherwise report a healthy Agent as a launch failure.
+      const running = await settledAgentsCall(
+        () => deployments.waitRunning(created.id, timeout, 5_000, acceptedLaunchEpoch),
+        { timeout, label: `wait for RUNNING ${created.id}` },
+      );
       expect(running.state).toBe("RUNNING");
       expect(Number(running.launchEpoch ?? running.launch_epoch ?? 0)).toBe(acceptedLaunchEpoch);
       let gatewayHttpUrl = running.hostname ? `https://${running.hostname}` : null;
       if (!gatewayHttpUrl) {
         await expect.poll(async () => {
-          const refreshed = await deployments.get(created.id);
+          const refreshed = await settledAgentsCall(() => deployments.get(created.id), {
+            timeout: 30_000,
+            label: `get deployment ${created.id}`,
+          });
           if (
             refreshed.state !== "RUNNING" ||
             Number(refreshed.launchEpoch ?? refreshed.launch_epoch ?? 0) !== acceptedLaunchEpoch
           ) {
             return false;
           }
-          gatewayHttpUrl = activeOpenClawRouteUrl(await deployments.getRoutes(created.id));
+          gatewayHttpUrl = activeOpenClawRouteUrl(
+            await settledAgentsCall(() => deployments.getRoutes(created.id), {
+              timeout: 30_000,
+              label: `get routes ${created.id}`,
+            })
+          );
           return Boolean(gatewayHttpUrl);
         }, { timeout, intervals: [1_000, 2_000, 5_000] }).toBe(true);
       }
       expect(gatewayHttpUrl, "expected RUNNING agent to have an active OpenClaw route").toBeTruthy();
-      if (enableDesktop) await verifyDesktopAuthRoute(running, acceptedLaunchEpoch);
       await waitForGatewayRoute(gatewayHttpUrl!);
       const expectedGatewaySocketUrl = gatewaySocketUrl(gatewayHttpUrl!);
 
@@ -2369,7 +2590,15 @@ export async function launchClawAgentAndWaitForGateway(
           .poll(() => chatTerminalState, { timeout: 180_000, intervals: [100, 250, 500, 1_000] })
           .toBe("final");
         await expect(page.getByText(replyMarker, { exact: true })).toBeVisible({ timeout: 180_000 });
-        await expect(page.getByRole("button", { name: "Stop reply", exact: true })).not.toBeVisible({ timeout: 30_000 });
+        const composerIdleStartedAt = Date.now();
+        try {
+          await expect(page.getByRole("button", { name: "Stop reply", exact: true })).not.toBeVisible({ timeout: 30_000 });
+        } finally {
+          console.log(`[agents-gateway] composer settle ${JSON.stringify({
+            elapsedMs: Date.now() - composerIdleStartedAt,
+            chatTerminalState,
+          })}`);
+        }
         expect(gatewaySocketCount, "expected the completed chat turn to reuse the authenticated root socket")
           .toBe(socketsBeforeChat);
         expect(chatSendRequests, "expected exactly one chat.send request").toBe(1);
@@ -2388,12 +2617,29 @@ export async function launchClawAgentAndWaitForGateway(
         page.off("request", observePairingApproval);
       }
 
+      // The desktop route is a second, independent host for the same Agent and
+      // it is not on the path this test's subject walks (launch, connect the
+      // gateway, exchange a message). It is verified last so an edge
+      // convergence window on that host cannot pre-empt the coverage the test
+      // exists for, and so a failure here names the desktop route rather than
+      // arriving as an unexplained launch failure.
+      // The desktop route is a second, independent host for the same Agent and
+      // it is not on the path this test's subject walks (launch, connect the
+      // gateway, exchange a message). It is verified last so an edge
+      // convergence window on that host cannot pre-empt the coverage the test
+      // exists for, and so a failure here names the desktop route rather than
+      // arriving as an unexplained launch failure.
+      if (enableDesktop) await verifyDesktopAuthRoute(running, acceptedLaunchEpoch);
+
       return created;
     } catch (error) {
       let latest = created;
       let inspectionError: string | null = null;
       try {
-        latest = await deployments.get(created.id);
+        latest = await settledAgentsCall(() => deployments.get(created.id), {
+          timeout: 30_000,
+          label: `get deployment ${created.id}`,
+        });
       } catch (snapshotError) {
         inspectionError = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
       }
@@ -2527,7 +2773,10 @@ export async function deleteClawAgent(page: Page, agentId: string): Promise<void
 export async function stopClawAgentAndWaitStopped(page: Page, agentId: string): Promise<DeploymentRecord> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
-  const accepted = await deployments.stop(agentId) as DeploymentRecord;
+  const accepted = await settledAgentsCall(
+    () => deployments.stop(agentId) as Promise<DeploymentRecord>,
+    { timeout: 60_000, label: `stop deployment ${agentId}` },
+  );
   const acceptedLaunchEpoch = Number(accepted.launchEpoch ?? accepted.launch_epoch ?? 0);
   const stopped = await deployments.waitForState(
     agentId,

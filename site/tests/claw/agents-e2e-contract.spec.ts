@@ -80,6 +80,44 @@ test("agents launch canary exercises the canonical lifecycle contract", () => {
   expect(authFixtureSource).toContain('["STOPPED"]');
 });
 
+test("agents E2E rides out edge windows instead of believing an unrouted 404", () => {
+  // Cloudflare resolves every host under the agent wildcard, so traefik answers
+  // an unconverged route with its plain-text 404. Only the body separates that
+  // from an application 404, and reading one as the other is what leaks an
+  // Agent (teardown then 409s on "User still owns non-deleted Agents").
+  expect(authFixtureSource).toContain('const UNROUTED_EDGE_BODY = "404 page not found"');
+  expect(authFixtureSource).toContain("function isUnroutedEdgeBody");
+  expect(authFixtureSource).toContain("function isDeploymentAbsentError");
+  expect(authFixtureSource).toContain("if (isUnroutedEdgeBody(message)) return false;");
+  expect(authFixtureSource).toContain("if (isDeploymentAbsentError(error)) return;");
+  expect(authFixtureSource).toContain("function settledAgentsCall");
+  expect(authFixtureSource).toContain("status === 404 && isUnroutedEdgeBody(body)");
+  // The desktop probe waits out convergence, but any other verdict from
+  // lagoon-auth is reported rather than buried under the timeout.
+  expect(authFixtureSource).toContain("answered a non-transient failure for /_jwt_auth");
+  expect(authFixtureSource).toContain("did not converge at the edge within");
+});
+
+test("agents launch verifies the desktop route without pre-empting the chat turn", () => {
+  // The desktop route is a second host for the same Agent and is not on the
+  // path this suite exists to cover. It stays a hard assertion, but it runs
+  // after the message round-trip so an edge convergence window on that host
+  // cannot mask whether the gateway ever answered.
+  expect(authFixtureSource).toContain("if (enableDesktop) await verifyDesktopAuthRoute(running, acceptedLaunchEpoch)");
+  expect(authFixtureSource.indexOf('captureStep(page, "agents-12b-chat-completed")'))
+    .toBeLessThan(authFixtureSource.indexOf("if (enableDesktop) await verifyDesktopAuthRoute("));
+});
+
+test("agents subscription adopts the Agent before it is known to be healthy", () => {
+  // Readiness failures throw out of the launch helper; an Agent the spec was
+  // never told about is one its `finally` cannot delete.
+  expect(authFixtureSource).toContain("onAgentCreated?: (agentId: string) => void");
+  expect(authFixtureSource).toContain("noteAgentCreated(created)");
+  expect(subscriptionSpecSource).toContain("onAgentCreated: (agentId) => {");
+  expect(subscriptionSpecSource).toContain("Agents E2E cleanup failed");
+  expect(subscriptionSpecSource).not.toContain("await deleteClawAgent(page, createdAgentId).catch(() => {})");
+});
+
 test("agents launch diagnostics preserve accepted and terminal state evidence", () => {
   expect(authFixtureSource).toContain("[agents-launch] start accepted");
   expect(authFixtureSource).toContain("createdLaunchEpoch");

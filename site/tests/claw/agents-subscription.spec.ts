@@ -179,6 +179,7 @@ test.describe.serial("Agents subscription", () => {
     const deploymentSocket = observeDeploymentTransitions(page);
     let createdAgentId: string | null = null;
     let createdStripeSubscriptionId: string | null = null;
+    let testBodyCompleted = false;
     const preCleanupStripeIds = await cancelActiveClawStripeSubscriptionsForTestUser().catch((error) => {
       console.log(`[agents-plans] pre-cleanup skipped: ${error instanceof Error ? error.message : String(error)}`);
       return [];
@@ -320,6 +321,14 @@ test.describe.serial("Agents subscription", () => {
       await cleanupClawAgents(page);
       const createdAgent = await launchClawAgentAndWaitForGateway(page, 360_000, {
         enableDesktop: checkoutCompleted,
+        // Adopt the Agent the moment it exists, not when it is healthy: every
+        // readiness failure throws out of the helper, and an Agent this spec
+        // never learned about is one the `finally` cannot delete -- which is
+        // what leaves the shared dev user owning a non-deleted Agent and 409s
+        // the CI user teardown.
+        onAgentCreated: (agentId) => {
+          createdAgentId = agentId;
+        },
         beforeCreate: async () => {
           await expect
             .poll(() => deploymentSocket.readySocketCount(), {
@@ -382,9 +391,25 @@ test.describe.serial("Agents subscription", () => {
           intervals: [1_000, 2_000, 5_000],
         })
         .toBe(0);
+      testBodyCompleted = true;
     } finally {
+      const cleanupFailures: string[] = [];
+
+      // Teardown deletes the CI user, and that fails with 409 while the user
+      // still owns an Agent. A best-effort delete that swallows its error
+      // therefore does not end the run's damage -- it moves it to the next
+      // run. Confirm the deletion, and report a failure to delete as a
+      // failure.
       if (createdAgentId) {
-        await deleteClawAgent(page, createdAgentId).catch(() => {});
+        const leakedAgentId = createdAgentId;
+        try {
+          await deleteClawAgent(page, leakedAgentId);
+          createdAgentId = null;
+        } catch (error) {
+          cleanupFailures.push(
+            `agent ${leakedAgentId} was not deleted: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
       }
 
       if (createdStripeSubscriptionId) {
@@ -392,6 +417,15 @@ test.describe.serial("Agents subscription", () => {
       }
       await cancelActiveClawStripeSubscriptionsForTestUser().catch(() => []);
       await captureStep(page, "agents-09-plan-cleanup");
+
+      if (cleanupFailures.length > 0) {
+        const summary = `Agents E2E cleanup failed: ${cleanupFailures.join("; ")}`;
+        // A failure here is only reported as the test's failure when nothing
+        // else failed. Throwing out of `finally` over a live exception would
+        // replace the root cause with the cleanup symptom.
+        if (testBodyCompleted) throw new Error(summary);
+        console.log(`[agents-cleanup] ${summary}`);
+      }
     }
   });
 });
