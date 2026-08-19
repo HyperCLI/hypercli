@@ -417,7 +417,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert posted["secrets"]["NOSTR_PRIVATE_KEY"] == agent_nsec
     assert (
         posted["env"]["RUST_LOG"]
-        == "buzz_acp=info,pool::prompt=info,acp::stream=off"
+        == "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
     assert "OPENCLAW_GATEWAY_TOKEN" not in posted["env"]
 
@@ -510,7 +510,7 @@ def test_typed_buzz_launch_uses_safe_default_acp_logging():
 
     assert (
         posted["env"]["RUST_LOG"]
-        == "buzz_acp=info,pool::prompt=info,acp::stream=off"
+        == "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
     assert posted["restart"] is False
 

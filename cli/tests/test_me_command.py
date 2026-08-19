@@ -165,3 +165,83 @@ def test_me_command_json_serializes_agents_entitlement_datetimes(monkeypatch):
     entitlements = payload["agents_entitlements"]
     assert entitlements["billing_reset_at"] == billing_reset_at.isoformat()
     assert entitlements["entitlement_items"][0]["expires_at"] == expires_at.isoformat()
+
+
+def _auth_me_stub():
+    return SimpleNamespace(
+        user_id="user-123",
+        orchestra_user_id="orch-123",
+        external_id=None,
+        privy_user_id=None,
+        wallet_address=None,
+        team_id="team-123",
+        plan_id="pro",
+        email=None,
+        user_type="paid",
+        auth_type="orchestra_key",
+        capabilities=["models:*"],
+        key_id="key-123",
+        key_name="runtime-key",
+    )
+
+
+def _client_with_identity(identity):
+    class FakeUserAPI:
+        def auth_me(self):
+            return _auth_me_stub()
+
+    class FakeDeployments:
+        def access_identity(self):
+            if isinstance(identity, Exception):
+                raise identity
+            return identity
+
+    class FakeClient:
+        user = FakeUserAPI()
+        deployments = FakeDeployments()
+
+    return FakeClient
+
+
+def test_me_command_shows_agent_identity_for_a_runtime_key(monkeypatch):
+    from hypercli import AgentAccessIdentity
+
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    identity = AgentAccessIdentity(
+        user_id="user-123",
+        auth_type="orchestra_key",
+        agent_id=agent_id,
+        capabilities=["agents:self"],
+    )
+    monkeypatch.setattr("hypercli_cli.cli.HyperCLI", _client_with_identity(identity))
+
+    result = runner.invoke(app, ["me"])
+    assert result.exit_code == 0
+    assert "agent_id" in result.stdout
+    assert agent_id in result.stdout
+
+    json_result = runner.invoke(app, ["me", "--output", "json"])
+    assert json_result.exit_code == 0
+    payload = json.loads(json_result.stdout)
+    assert payload["agent_id"] == agent_id
+    assert payload["agent_capabilities"] == ["agents:self"]
+
+
+def test_me_command_output_is_unchanged_for_a_non_runtime_key(monkeypatch):
+    from hypercli import AgentAccessIdentity
+
+    user_identity = AgentAccessIdentity(user_id="user-123", auth_type="user")
+    monkeypatch.setattr("hypercli_cli.cli.HyperCLI", _client_with_identity(user_identity))
+    owner = runner.invoke(app, ["me", "--output", "json"])
+
+    monkeypatch.setattr(
+        "hypercli_cli.cli.HyperCLI",
+        _client_with_identity(RuntimeError("agents introspection unavailable")),
+    )
+    degraded = runner.invoke(app, ["me", "--output", "json"])
+
+    assert owner.exit_code == 0 and degraded.exit_code == 0
+    assert owner.stdout == degraded.stdout
+    payload = json.loads(owner.stdout)
+    assert "agent_id" not in payload
+    assert "agent_capabilities" not in payload

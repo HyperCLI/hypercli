@@ -263,7 +263,7 @@ _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
     "goose": ("/usr/local/bin/goose", ["acp"], ""),
     "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
 }
-DEFAULT_BUZZ_RUST_LOG = "buzz_acp=info,pool::prompt=info,acp::stream=off"
+DEFAULT_BUZZ_RUST_LOG = "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
     {
         "BUZZ_PRIVATE_KEY",
@@ -1741,6 +1741,45 @@ class AgentRoutes:
 
 
 @dataclass(frozen=True)
+class AgentAccessIdentity:
+    """What the presented credential is, as the Backend resolves it.
+
+    ``agent_id`` is set only for an Agent runtime key, which speaks for exactly
+    one Agent; it is ``None`` for an owner user credential or any other key.
+    """
+
+    user_id: str
+    auth_type: str
+    agent_id: str | None = None
+    tags: list[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
+    key_id: str | None = None
+    key_name: str | None = None
+    team_id: str | None = None
+    plan_id: str | None = None
+
+    @property
+    def is_agent_runtime_key(self) -> bool:
+        """True when this credential is one Agent's own runtime key."""
+        return bool(self.agent_id)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AgentAccessIdentity":
+        payload = data or {}
+        return cls(
+            user_id=str(payload.get("user_id") or ""),
+            auth_type=str(payload.get("auth_type") or ""),
+            agent_id=str(payload["agent_id"]) if payload.get("agent_id") else None,
+            tags=[str(tag) for tag in (payload.get("tags") or [])],
+            capabilities=[str(item) for item in (payload.get("capabilities") or [])],
+            key_id=str(payload["key_id"]) if payload.get("key_id") else None,
+            key_name=str(payload["key_name"]) if payload.get("key_name") else None,
+            team_id=str(payload["team_id"]) if payload.get("team_id") else None,
+            plan_id=str(payload["plan_id"]) if payload.get("plan_id") else None,
+        )
+
+
+@dataclass(frozen=True)
 class AgentSlotInventory:
     """Aggregate capacity for one agent size."""
 
@@ -3110,14 +3149,16 @@ class Deployments:
             raise ValueError(f"Agent reference is ambiguous: {raw} ({refs})")
         return self._get_by_id(matches[0].id)
 
-    def resolve_agent_id(self, agent_id_or_name: str, *, allow_self: bool = False) -> str:
+    def resolve_agent_id(self, agent_id_or_name: str) -> str:
         raw = str(agent_id_or_name or "").strip()
         if not raw:
             raise ValueError("agent_id_or_name is required")
-        if allow_self and _is_self_agent_ref(raw):
-            return "self"
         if _is_self_agent_ref(raw):
-            raise ValueError("self is only supported for status, start, stop, and routes")
+            # An Agent introspects itself; it does not start, stop, or edit
+            # its own routes. Status is the only self operation, and it is
+            # served directly by GET /deployments/self -- nothing resolves a
+            # self reference to an id any more.
+            raise ValueError("self is only supported for status")
         if _is_direct_agent_id_ref(raw):
             return raw
         return self.resolve_agent(raw).id
@@ -3130,6 +3171,60 @@ class Deployments:
 
     def _encode_file_path(self, path: str) -> str:
         return quote(path.lstrip("/"), safe="/")
+
+    def wait_for_file_api_ready(
+        self,
+        agent_id: str,
+        *,
+        timeout: float = 90.0,
+        consecutive: int = 2,
+        poll_seconds: float = 1.0,
+    ) -> None:
+        """Wait until an Agent's Reef file API is actually serving.
+
+        Probing the Agent hostname alone cannot answer this. The Agent domain is
+        a wildcard, so a host with no route still resolves and the edge answers a
+        plain-text ``404 page not found`` -- byte for byte what a route that has
+        not converged yet returns. A caller polling the hostname therefore cannot
+        tell "not ready" from "never will be", and will happily retry until its
+        deadline against a host that was never going to work.
+
+        So ask the API for the authoritative Agent state first: a deleted or
+        failed Agent fails immediately with that state rather than timing out.
+        Then require consecutive successful reads, because one success only
+        proves the route answered once -- the next request can still 404 while
+        the edge settles.
+        """
+
+        deadline = time.monotonic() + timeout
+        streak = 0
+        last_error: Exception | None = None
+        last_state = ""
+        while True:
+            agent = self.get(agent_id)
+            last_state = str(getattr(agent, "state", "") or "").upper()
+            if last_state in {"DELETED", "FAILED"}:
+                raise RuntimeError(
+                    f"Agent {agent_id} is {last_state}; its Reef file API will "
+                    "not serve. Waiting longer cannot help."
+                )
+            try:
+                self.files_list(agent_id, "")
+            except Exception as exc:  # noqa: BLE001 - any read failure resets the streak
+                last_error = exc
+                streak = 0
+            else:
+                streak += 1
+                if streak >= consecutive:
+                    return
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Agent {agent_id} Reef file API did not serve {consecutive} "
+                    f"consecutive reads within {timeout:.0f}s "
+                    f"(agent state={last_state or 'unknown'}, "
+                    f"last error={last_error})"
+                )
+            time.sleep(poll_seconds)
 
     def _reef_file_access(self, agent_id: str) -> tuple[str, str]:
         """Mint one fresh file credential and validate its direct Reef locator."""
@@ -3799,6 +3894,21 @@ class Deployments:
                 return self.resolve_agent(raw)
             raise
 
+    def access_identity(self) -> AgentAccessIdentity:
+        """Resolve who the presented credential is, per the Backend.
+
+        Answers the three questions a credential should be able to ask about
+        itself: which Agent it is (``agent_id``, set only for an Agent runtime
+        key), which account owns it (``user_id``, ``team_id``, ``plan_id``), and
+        what it may do (``tags``, ``capabilities``). It returns only what the
+        credential already carries, so it is unscoped and safe for any caller.
+
+        Returns:
+            AgentAccessIdentity for the credential this client authenticates
+            with. ``is_agent_runtime_key`` is True when it belongs to one Agent.
+        """
+        return AgentAccessIdentity.from_dict(self._get(f"{AGENTS_API_PREFIX}/auth/me"))
+
     def create_external_agent(
         self,
         *,
@@ -4163,63 +4273,92 @@ class Deployments:
             ),
         )
 
-    def stored_launch_config(
-        self,
-        pod: Agent | str,
-        *,
-        registry_auth: dict | None = None,
-    ) -> dict:
-        """Rebuild the complete replacement launch_config that START requires.
+    def _recover_redacted_secrets(self, agent_id: str, launch_epoch: int) -> dict[str, str]:
+        """Read back every launch secret value the projection refuses to return.
 
-        Reads the stored Agent projection and returns one explicit complete
-        configuration. Projections redact secret values by design, so every
-        name in the deployment's secret listing is rehydrated through the
-        per-secret retrieval endpoint. ``registry_auth`` is caller-held and
-        never comes back from the server: it must be supplied whenever the
-        stored config references a ``registry_url``, and defaults to ``{}``
-        otherwise. START still sends the result wholesale; the SDK never
-        merges it with the prior Agent snapshot.
+        Agent projections list secret *names* and expose values only through
+        the per-secret retrieval endpoint, so a complete ``secrets`` mapping
+        has to be reassembled one key at a time. Every response is checked
+        against *launch_epoch* so a rebuild never silently mixes values from
+        an older launch generation into a new one.
         """
-        agent_id = self._agent_id_for_target(pod)
-        agent = self._get_by_id(agent_id)
-        if not isinstance(agent.launch_config, dict):
-            raise ValueError(f"Agent {agent_id} has no stored launch_config projection")
-        launch_config = copy.deepcopy(agent.launch_config)
-
-        # Legacy projections may still carry the old nullable restart
-        # representation; START receives one explicit boolean.
-        if "restart" in launch_config and launch_config["restart"] is None:
-            launch_config["restart"] = False
-
         names_data = self.secret_names(agent_id)
-        if int(names_data.get("launch_epoch") or 0) < agent.launch_epoch:
+        if int(names_data.get("launch_epoch") or 0) < launch_epoch:
             raise RuntimeError("agent secret names belong to an older launch epoch")
         secrets: dict[str, str] = {}
         for name in names_data.get("names") or []:
             secret_data = self.secret(agent_id, str(name))
-            if int(secret_data.get("launch_epoch") or 0) < agent.launch_epoch:
+            if int(secret_data.get("launch_epoch") or 0) < launch_epoch:
                 raise RuntimeError("agent secret belongs to an older launch epoch")
             secrets[str(name)] = str(secret_data.get("value") or "")
-        launch_config["secrets"] = secrets
+        return secrets
 
-        registry_url = str(launch_config.get("registry_url") or "").strip()
-        if registry_url and not registry_auth:
-            raise ValueError(
-                f"Agent {agent_id} pulls from registry_url {registry_url!r}; "
-                "registry_auth is caller-held and never stored server-side, so "
-                "it must be supplied to rebuild a complete START configuration"
+    def _rehydrate_redacted_launch_config(
+        self,
+        resolved_agent_id: str,
+        launch_config: dict,
+    ) -> dict:
+        """Restore the two launch_config keys an Agent projection redacts.
+
+        WHY THIS EXISTS -- do not delete it as redundant validation sugar.
+        The Backend's owner-facing Agent projection deliberately strips
+        ``secrets`` and ``registry_auth`` before returning an Agent to a
+        user-scoped caller (``hydrate_managed_agent`` in the Backend's
+        ``unified_agents`` module pops both). START, by contrast, is a *full
+        replacement* and demands every key in
+        ``REQUIRED_START_LAUNCH_CONFIG_KEYS``. Without this step the obvious
+        round-trip can never succeed, because the read side is structurally
+        incapable of returning what the write side requires::
+
+            agent = client.deployments.get(agent_id)
+            client.deployments.start(agent_id, agent.launch_config)
+            # ValueError: launch_config is incomplete; missing:
+            #             registry_auth, secrets
+
+        The fix is to complete the object honestly, never to weaken the
+        completeness contract -- START must stay a replacement, not a merge.
+
+        Only keys that are genuinely ABSENT are rebuilt. A caller-supplied
+        ``secrets`` or ``registry_auth`` is honoured verbatim, including an
+        explicit empty dict, so "redacted by the projection" and "deliberately
+        empty" remain distinguishable.
+
+        ``secrets`` is recoverable because values can be read back one name at
+        a time. ``registry_auth`` is NOT: it is caller-held, write-only, and
+        never stored server-side. It therefore defaults to ``{}`` only when
+        the configuration pulls from no ``registry_url``; when a registry is
+        configured an empty credential would silently break the image pull, so
+        the caller is told to supply it instead.
+        """
+        if not isinstance(launch_config, dict):
+            raise TypeError("launch_config must be a complete object")
+        absent = REQUIRED_START_LAUNCH_CONFIG_KEYS - launch_config.keys()
+        # Nothing missing, or missing more than the projection ever redacts:
+        # in both cases hand the object straight to the validator. Only a
+        # config whose *sole* gaps are the two redacted keys is a projection
+        # round-trip worth spending API calls to repair.
+        if not absent or absent - {"secrets", "registry_auth"}:
+            return launch_config
+
+        prepared = copy.deepcopy(launch_config)
+        if "secrets" in absent:
+            agent = self._get_by_id(resolved_agent_id)
+            prepared["secrets"] = self._recover_redacted_secrets(
+                resolved_agent_id, agent.launch_epoch
             )
-        launch_config["registry_auth"] = copy.deepcopy(registry_auth) if registry_auth else {}
-
-        # START requires exactly one sync policy. Includes win when a legacy
-        # projection carries both; carrying neither canonicalizes to the
-        # explicit sync-everything exclusion list.
-        if "sync_include" in launch_config:
-            launch_config.pop("sync_exclude", None)
-        elif "sync_exclude" not in launch_config:
-            launch_config["sync_exclude"] = []
-
-        return _copy_complete_launch_config(launch_config)
+        if "registry_auth" in absent:
+            registry_url = str(prepared.get("registry_url") or "").strip()
+            if registry_url:
+                raise ValueError(
+                    f"Agent {resolved_agent_id} pulls from registry_url "
+                    f"{registry_url!r} but launch_config carries no registry_auth; "
+                    "registry_auth is caller-held and write-only, so the owner-facing "
+                    "projection can never return it and the SDK will not substitute an "
+                    "empty credential that would break the private-registry pull -- "
+                    "pass registry_auth explicitly to START"
+                )
+            prepared["registry_auth"] = {}
+        return prepared
 
     def start(
         self,
@@ -4233,37 +4372,18 @@ class Deployments:
         ``launch_config`` is sent wholesale. The SDK never merges it with the
         prior Agent snapshot or asks the Backend to inherit omitted fields.
         """
-        body: dict[str, Any] = {"launch_config": _copy_complete_launch_config(launch_config)}
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        body: dict[str, Any] = {
+            "launch_config": _copy_complete_launch_config(
+                self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
+            )
+        }
         if dry_run:
             body["dry_run"] = True
-        resolved_agent_id = (
-            str(UUID(self.get("self").id))
-            if _is_self_agent_ref(agent_id)
-            else self.resolve_agent_id(agent_id)
-        )
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
         agent = self._hydrate_agent(data)
         agent.__dict__["_submitted_launch_config"] = copy.deepcopy(body["launch_config"])
         return agent
-
-    def start_stored(
-        self,
-        pod: Agent | str,
-        *,
-        registry_auth: dict | None = None,
-        dry_run: bool = False,
-    ) -> Agent:
-        """Start from the stored configuration, rehydrated to completeness.
-
-        Convenience wrapper around :meth:`stored_launch_config` and
-        :meth:`start`; the rebuilt configuration is still sent wholesale.
-        """
-        agent_id = self._agent_id_for_target(pod)
-        return self.start(
-            agent_id,
-            self.stored_launch_config(agent_id, registry_auth=registry_auth),
-            dry_run=dry_run,
-        )
 
     def start_hermes_agent(
         self,
@@ -4274,7 +4394,10 @@ class Deployments:
         dry_run: bool = False,
     ) -> HermesAgent:
         """Start Hermes without silently rotating its application gateway key."""
-        prepared = _copy_complete_launch_config(launch_config)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        prepared = _copy_complete_launch_config(
+            self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
+        )
         supplied_key = (
             api_server_key
             or (prepared.get("secrets") or {}).get("API_SERVER_KEY")
@@ -4290,7 +4413,7 @@ class Deployments:
             prepared["env"] = effective_env
             prepared["secrets"] = effective_secrets
         agent = self.start(
-            agent_id,
+            resolved_agent_id,
             prepared,
             dry_run=dry_run,
         )
@@ -4307,7 +4430,10 @@ class Deployments:
         gateway_token: str = None,
         dry_run: bool = False,
     ) -> Agent:
-        prepared = _copy_complete_launch_config(launch_config)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        prepared = _copy_complete_launch_config(
+            self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
+        )
         effective_env, effective_secrets, effective_gateway_token = _inject_openclaw_gateway_token(
             prepared.get("env"),
             prepared.get("secrets"),
@@ -4317,7 +4443,7 @@ class Deployments:
         prepared["env"] = effective_env
         prepared["secrets"] = effective_secrets
         agent = self.start(
-            agent_id,
+            resolved_agent_id,
             prepared,
             dry_run=dry_run,
         )
@@ -4387,7 +4513,7 @@ class Deployments:
             Use ``wait_for_state(agent_id, {"stopped"})`` to wait through the
             deployment event stream before treating the slot as released.
         """
-        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")
         return self._hydrate_agent(data)
 
@@ -4405,7 +4531,7 @@ class Deployments:
 
     def get_routes(self, agent_id: str) -> AgentRoutes:
         """Return the desired routes and live reconciliation state for an agent."""
-        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
         data = self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes")
         return AgentRoutes.from_dict(data)
 
@@ -4415,7 +4541,7 @@ class Deployments:
         routes: dict[str, AgentRouteConfig],
     ) -> AgentRoutes:
         """Atomically replace the complete declarative route map."""
-        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
         body: dict[str, Any] = {
             "routes": {str(name): dict(config) for name, config in routes.items()},
         }
@@ -4429,7 +4555,7 @@ class Deployments:
         route: AgentRouteConfig,
     ) -> AgentRoutes:
         """Atomically create or replace one named route."""
-        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
         body = dict(route)
         encoded_name = quote(str(name), safe="")
         data = self._put(
@@ -4444,7 +4570,7 @@ class Deployments:
         name: str,
     ) -> AgentRoutes:
         """Atomically remove one named route."""
-        resolved_agent_id = self.resolve_agent_id(agent_id, allow_self=True)
+        resolved_agent_id = self.resolve_agent_id(agent_id)
         encoded_name = quote(str(name), safe="")
         path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes/{encoded_name}"
         return AgentRoutes.from_dict(self._delete(path))

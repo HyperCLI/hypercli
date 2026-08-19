@@ -156,6 +156,15 @@ def me_cmd(
             entitlement_error = f"{exc.status_code}: {exc.detail}"
         except Exception as exc:
             entitlement_error = str(exc)
+        # An Agent runtime key can say which Agent it is. Ordinary credentials
+        # cannot, so a failure here must leave `hyper me` exactly as it was.
+        agent_identity = None
+        try:
+            resolved = client.deployments.access_identity()
+            if resolved.is_agent_runtime_key:
+                agent_identity = resolved
+        except Exception:
+            agent_identity = None
     if fmt == "json":
         payload = dict(getattr(auth_me, "__dict__", {}))
         if entitlement_summary is not None:
@@ -174,6 +183,9 @@ def me_cmd(
             }
         elif entitlement_error:
             payload["agents_entitlements_error"] = entitlement_error
+        if agent_identity is not None:
+            payload["agent_id"] = agent_identity.agent_id
+            payload["agent_capabilities"] = list(agent_identity.capabilities)
         output(payload, fmt)
         return
 
@@ -217,6 +229,9 @@ def me_cmd(
         )
     elif entitlement_error:
         table.add_row("agents_entitlements", f"unavailable ({entitlement_error})")
+    if agent_identity is not None:
+        table.add_row("agent_id", str(agent_identity.agent_id or ""))
+        table.add_row("agent_capabilities", "\n".join(agent_identity.capabilities))
     console.print(table)
 
 

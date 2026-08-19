@@ -387,49 +387,112 @@ def test_agent_routes_hydrates_declarative_and_status_fields():
     assert state.route_statuses["web"]["url"] == "https://app-agent.hypercli.app"
 
 
-def test_routes_api_supports_declarative_and_named_updates_with_self_passthrough():
+def test_routes_api_supports_declarative_and_named_updates_for_an_owned_agent():
     http = Mock(spec=HTTPClient)
     deployments = Deployments(
         http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
     )
+    agent_id = "11111111-1111-4111-8111-111111111111"
 
     with patch.object(deployments, "_get", return_value=_routes_response()) as get_request:
-        state = deployments.get_routes("self")
-    get_request.assert_called_once_with("/deployments/self/routes")
+        state = deployments.get_routes(agent_id)
+    get_request.assert_called_once_with(f"/deployments/{agent_id}/routes")
     assert state.routes["web"]["port"] == 3000
 
     with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:
-        deployments.set_routes("self", {"web": {"port": 3000, "auth": True}})
+        deployments.set_routes(agent_id, {"web": {"port": 3000, "auth": True}})
     put_request.assert_called_once_with(
-        "/deployments/self/routes",
+        f"/deployments/{agent_id}/routes",
         {
             "routes": {"web": {"port": 3000, "auth": True}},
         },
     )
 
     with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:
-        deployments.set_route("self", "web app", {"port": 3000, "auth": False, "prefix": ""})
+        deployments.set_route(agent_id, "web app", {"port": 3000, "auth": False, "prefix": ""})
     put_request.assert_called_once_with(
-        "/deployments/self/routes/web%20app",
+        f"/deployments/{agent_id}/routes/web%20app",
         {"port": 3000, "auth": False, "prefix": ""},
     )
 
     with patch.object(deployments, "_delete", return_value=_routes_response()) as delete_request:
-        deployments.remove_route("self", "web app")
-    delete_request.assert_called_once_with("/deployments/self/routes/web%20app")
+        deployments.remove_route(agent_id, "web app")
+    delete_request.assert_called_once_with(f"/deployments/{agent_id}/routes/web%20app")
 
 
-def test_self_selector_is_limited_to_status_lifecycle_and_routes():
+def test_access_identity_surfaces_agent_id_for_a_runtime_key():
     http = Mock(spec=HTTPClient)
     deployments = Deployments(
         http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
     )
     agent_id = "11111111-1111-4111-8111-111111111111"
-    response = {
-        "id": agent_id,
+    payload = {
         "user_id": "user-456",
-        "state": "running",
+        "auth_type": "orchestra_key",
+        "agent_id": agent_id,
+        "tags": ["agents:none", "runtime=agent", f"runtime_agent={agent_id}"],
+        "capabilities": ["agents:self"],
+        "key_id": "key-1",
+        "key_name": "runtime",
+        "team_id": "team-1",
+        "plan_id": "plan-1",
     }
+
+    with patch.object(deployments, "_get", return_value=payload) as get_request:
+        identity = deployments.access_identity()
+
+    get_request.assert_called_once_with("/deployments/auth/me")
+    assert identity.agent_id == agent_id
+    assert identity.is_agent_runtime_key
+    assert identity.user_id == "user-456"
+    assert identity.auth_type == "orchestra_key"
+    assert identity.key_name == "runtime"
+
+
+def test_access_identity_has_no_agent_id_for_a_user_credential():
+    http = Mock(spec=HTTPClient)
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
+
+    with patch.object(
+        deployments,
+        "_get",
+        return_value={"user_id": "user-456", "auth_type": "user", "team_id": "team-1"},
+    ):
+        identity = deployments.access_identity()
+
+    assert identity.agent_id is None
+    assert not identity.is_agent_runtime_key
+    assert identity.tags == []
+
+
+def test_routes_api_rejects_the_self_selector():
+    """An Agent reads its own status; it does not manage its own routes."""
+    http = Mock(spec=HTTPClient)
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
+
+    with pytest.raises(ValueError, match="only supported"):
+        deployments.get_routes("self")
+    with pytest.raises(ValueError, match="only supported"):
+        deployments.set_routes("self", {"web": {"port": 3000, "auth": True}})
+    with pytest.raises(ValueError, match="only supported"):
+        deployments.set_route("self", "web", {"port": 3000, "auth": True})
+    with pytest.raises(ValueError, match="only supported"):
+        deployments.remove_route("self", "web")
+
+
+def test_self_selector_is_limited_to_status():
+    """An Agent reads its own status. It does not drive its own lifecycle."""
+
+    http = Mock(spec=HTTPClient)
+    deployments = Deployments(
+        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    response = {"id": agent_id, "user_id": "user-456", "state": "running"}
 
     with patch.object(
         deployments, "_get_by_id", return_value=Agent.from_dict(response)
@@ -437,40 +500,14 @@ def test_self_selector_is_limited_to_status_lifecycle_and_routes():
         assert deployments.get("self").id == agent_id
     get_by_id.assert_called_once_with("self")
 
-    with (
-        patch.object(
-            deployments, "_get_by_id", return_value=Agent.from_dict(response)
-        ) as get_by_id,
-        patch.object(deployments, "_post", return_value=response) as post,
+    launch_config = build_agent_config()
+    for operation in (
+        lambda: deployments.start("self", launch_config),
+        lambda: deployments.start_openclaw("self", launch_config),
+        lambda: deployments.stop("self"),
     ):
-        launch_config = build_agent_config()
-        started = deployments.start("self", launch_config, dry_run=True)
-    get_by_id.assert_called_once_with("self")
-    post.assert_called_once_with(
-        f"/deployments/{agent_id}/start",
-        json={"launch_config": launch_config, "dry_run": True},
-    )
-    assert started._submitted_launch_config == launch_config
-
-    with patch.object(deployments, "_post", return_value=response) as post:
-        deployments.stop("self")
-    post.assert_called_once_with("/deployments/self/stop")
-
-    with (
-        patch.object(
-            deployments, "_get_by_id", return_value=Agent.from_dict(response)
-        ) as get_by_id,
-        patch.object(deployments, "_post", return_value=response) as post,
-    ):
-        deployments.start_openclaw("self", launch_config)
-    get_by_id.assert_called_once_with("self")
-    post.assert_called_once_with(
-        f"/deployments/{agent_id}/start",
-        json={"launch_config": launch_config},
-    )
-
-    with pytest.raises(ValueError, match="only supported"):
-        deployments.delete("self")
+        with pytest.raises(ValueError, match="only supported for status"):
+            operation()
 
 
 def test_restore_posts_bodyless_and_returns_restoring(monkeypatch):
@@ -2201,112 +2238,119 @@ def _install_stored_projection(
     return calls
 
 
-def test_stored_launch_config_rehydrates_secrets_and_defaults_registry_auth(agents_client):
-    stored = build_agent_config(
-        env={"MODE": "prod"},
-        image="ghcr.io/hypercli/hypercli-openclaw:test",
-    )
-    stored.pop("secrets")  # public projections redact secret values
-    calls = _install_stored_projection(
-        agents_client,
-        stored,
-        secrets={"API_TOKEN": "tok", "DB_PASSWORD": "pw"},
-    )
-
-    result = agents_client.stored_launch_config(_STORED_AGENT_ID)
-
-    assert result["secrets"] == {"API_TOKEN": "tok", "DB_PASSWORD": "pw"}
-    assert result["registry_auth"] == {}
-    assert result["env"] == {"MODE": "prod"}
-    assert result["image"] == "ghcr.io/hypercli/hypercli-openclaw:test"
-    assert f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/secrets/API_TOKEN" in calls
-    assert f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/secrets/DB_PASSWORD" in calls
-    assert _copy_complete_launch_config(result) == result
-
-
-def test_stored_launch_config_requires_caller_held_registry_auth(agents_client):
-    stored = build_agent_config(
-        image="git.nedos.co/hypercli/private:sha",
-        registry_url="git.nedos.co",
-    )
-    stored.pop("secrets")
-    _install_stored_projection(agents_client, stored)
-
-    with pytest.raises(ValueError, match="registry_auth is caller-held"):
-        agents_client.stored_launch_config(_STORED_AGENT_ID)
-
-    creds = {"username": "svc", "password": "hunter2"}
-    result = agents_client.stored_launch_config(_STORED_AGENT_ID, registry_auth=creds)
-    assert result["registry_auth"] == creds
-    assert result["registry_auth"] is not creds
-
-
-def test_stored_launch_config_normalizes_legacy_nullable_restart(agents_client):
-    stored = build_agent_config()
-    stored["restart"] = None  # legacy durable projections
-    _install_stored_projection(agents_client, stored)
-
-    assert agents_client.stored_launch_config(_STORED_AGENT_ID)["restart"] is False
-
-
-def test_stored_launch_config_canonicalizes_missing_sync_policy(agents_client):
-    stored = build_agent_config()
-    assert "sync_include" not in stored and "sync_exclude" not in stored
-    _install_stored_projection(agents_client, stored)
-
-    result = agents_client.stored_launch_config(_STORED_AGENT_ID)
-
-    assert result["sync_exclude"] == []
-    assert "sync_include" not in result
-
-
-def test_stored_launch_config_prefers_include_when_projection_has_both(agents_client):
-    stored = build_agent_config(sync_include=["workspace"])
-    stored["sync_exclude"] = ["workspace/tmp"]  # legacy dual-policy projection
-    _install_stored_projection(agents_client, stored)
-
-    result = agents_client.stored_launch_config(_STORED_AGENT_ID)
-
-    assert result["sync_include"] == ["workspace"]
-    assert "sync_exclude" not in result
-
-
-def test_stored_launch_config_requires_stored_projection(agents_client):
-    agents_client._get = lambda path, params=None: {
-        "id": _STORED_AGENT_ID,
-        "user_id": "user-456",
-        "state": "STOPPED",
-    }
-
-    with pytest.raises(ValueError, match="no stored launch_config"):
-        agents_client.stored_launch_config(_STORED_AGENT_ID)
-
-
-def test_start_stored_posts_rehydrated_config_wholesale(agents_client):
+def test_start_rehydrates_redacted_projection_round_trip(agents_client):
+    """get() -> start() must work even though the projection redacts two keys."""
     stored = build_agent_config(env={"MODE": "prod"})
-    stored.pop("secrets")
+    stored.pop("secrets")  # owner-facing projection redacts secret values
+    stored.pop("registry_auth", None)  # ...and caller-held registry credentials
     _install_stored_projection(agents_client, stored, secrets={"API_TOKEN": "tok"})
     posted: dict = {}
 
     def fake_post(path, json=None):
         posted["path"] = path
         posted["json"] = json
+        return {"id": _STORED_AGENT_ID, "user_id": "user-456", "state": "STARTING"}
+
+    agents_client._post = fake_post
+    agent = agents_client.start(_STORED_AGENT_ID, stored)
+
+    assert agent.state == "STARTING"
+    sent = posted["json"]["launch_config"]
+    assert sent["secrets"] == {"API_TOKEN": "tok"}
+    assert sent["registry_auth"] == {}
+    assert sent["env"] == {"MODE": "prod"}
+    assert "secrets" not in stored  # the caller's object is never mutated
+
+
+def test_start_honours_explicitly_empty_redactable_keys(agents_client):
+    """An explicit empty dict is not the same as an absent, redacted key."""
+    stored = build_agent_config()
+    assert stored["secrets"] == {}
+    calls = _install_stored_projection(agents_client, stored, secrets={"API_TOKEN": "tok"})
+    agents_client._post = lambda path, json=None: {
+        "id": _STORED_AGENT_ID,
+        "user_id": "user-456",
+        "state": "STARTING",
+    }
+
+    agents_client.start(_STORED_AGENT_ID, stored)
+
+    # No secret read-back happened: the caller said "no secrets" and meant it.
+    assert not any(path.endswith("/secrets") for path in calls)
+
+
+def test_start_refuses_to_invent_registry_auth_for_private_registry(agents_client):
+    stored = build_agent_config(
+        image="git.nedos.co/hypercli/private:sha",
+        registry_url="git.nedos.co",
+    )
+    stored.pop("secrets")
+    stored.pop("registry_auth", None)
+    _install_stored_projection(agents_client, stored, secrets={"API_TOKEN": "tok"})
+
+    with pytest.raises(ValueError, match="registry_auth is caller-held and write-only"):
+        agents_client.start(_STORED_AGENT_ID, stored)
+
+
+def test_start_openclaw_rehydrates_redacted_projection(agents_client):
+    stored = build_agent_config(image="ghcr.io/hypercli/hypercli-openclaw:test")
+    stored.pop("secrets")
+    stored.pop("registry_auth", None)
+    _install_stored_projection(
+        agents_client, stored, secrets={"OPENCLAW_GATEWAY_TOKEN": "gw-token"}
+    )
+    posted: dict = {}
+
+    def fake_post(path, json=None):
+        posted["json"] = json
+        return {"id": _STORED_AGENT_ID, "user_id": "user-456", "state": "STARTING"}
+
+    agents_client._post = fake_post
+    agents_client.start_openclaw(_STORED_AGENT_ID, stored)
+
+    sent = posted["json"]["launch_config"]
+    assert sent["secrets"]["OPENCLAW_GATEWAY_TOKEN"] == "gw-token"
+    assert sent["registry_auth"] == {}
+
+
+def test_start_hermes_agent_rehydrates_redacted_projection(agents_client):
+    """The same redaction round-trip must hold for the Hermes helper.
+
+    `get()` redacts `secrets` and `registry_auth`, so feeding that projection
+    straight back to `start_hermes_agent` used to fail validation before it
+    ever reached the Backend.
+    """
+    from hypercli.agents import HermesAgent, build_hermes_agent_routes
+
+    stored = build_agent_config(image="ghcr.io/hypercli/hermes-agent:test")
+    stored.pop("secrets")
+    stored.pop("registry_auth", None)
+    _install_stored_projection(
+        agents_client, stored, secrets={"API_SERVER_KEY": "h" * 43}
+    )
+    posted: dict = {}
+
+    def fake_post(path, json=None):
+        posted["json"] = json
         return {
             "id": _STORED_AGENT_ID,
             "user_id": "user-456",
             "state": "STARTING",
+            "runtime": "hermes-agent",
+            "hostname": "hermes.example.test",
+            "routes": build_hermes_agent_routes(),
         }
 
     agents_client._post = fake_post
-    agent = agents_client.start_stored(_STORED_AGENT_ID, dry_run=True)
+    agent = agents_client.start_hermes_agent(_STORED_AGENT_ID, stored)
 
-    assert posted["path"] == f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/start"
-    assert posted["json"]["dry_run"] is True
-    body = posted["json"]["launch_config"]
-    assert body["secrets"] == {"API_TOKEN": "tok"}
-    assert body["sync_exclude"] == []
-    assert body["restart"] is False
-    assert agent.state == "STARTING"
+    sent = posted["json"]["launch_config"]
+    assert sent["secrets"]["API_SERVER_KEY"] == "h" * 43
+    assert sent["registry_auth"] == {}
+    assert isinstance(agent, HermesAgent)
+    # The recovered key is returned rather than silently rotated.
+    assert agent.api_server_key == "h" * 43
+    assert "secrets" not in stored  # the caller's object is never mutated
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
@@ -3424,3 +3468,187 @@ async def test_agents_integration_lifecycle():
         assert log_count > 0
     finally:
         agents.delete(agent.id)
+
+
+# --- wait_for_file_api_ready ------------------------------------------------
+#
+# The Agent domain is a wildcard, so a host with no route still resolves and
+# the edge answers a plain-text 404 that is byte-identical to a route which has
+# not converged yet. A probe that cannot tell those apart burns its whole
+# deadline against an Agent that was never going to serve, and a probe that
+# returns after one success hands the caller a route the edge is still settling.
+
+
+class _FakeClock:
+    """Advance monotonic time only when the code under test sleeps."""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _install_file_api_probe(
+    agents_client,
+    monkeypatch,
+    *,
+    states,
+    list_results,
+):
+    """Serve scripted get()/files_list() answers and a clock that only sleeps."""
+    clock = _FakeClock()
+    monkeypatch.setattr("hypercli.agents.time", clock)
+    calls: list[str] = []
+    state_queue = list(states)
+    result_queue = list(list_results)
+
+    def fake_get(_agent_id):
+        calls.append("get")
+        state = state_queue.pop(0) if len(state_queue) > 1 else state_queue[0]
+        return Agent(id="agent-1", user_id="user-1", state=state)
+
+    def fake_files_list(_agent_id, _path):
+        calls.append("files_list")
+        result = result_queue.pop(0) if len(result_queue) > 1 else result_queue[0]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    agents_client.get = fake_get
+    agents_client.files_list = fake_files_list
+    return clock, calls
+
+
+def test_wait_for_file_api_ready_returns_after_consecutive_successful_reads(
+    agents_client, monkeypatch
+):
+    clock, calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=["RUNNING"],
+        list_results=[[], [], []],
+    )
+
+    agents_client.wait_for_file_api_ready("agent-1", consecutive=2)
+
+    assert calls.count("files_list") == 2
+    assert clock.sleeps == [1.0]
+
+
+def test_wait_for_file_api_ready_does_not_return_after_a_single_success(
+    agents_client, monkeypatch
+):
+    """One success only proves the route answered once; the next can still 404."""
+    clock, calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=["RUNNING"],
+        list_results=[[], APIError(404, "page not found"), [], []],
+    )
+
+    agents_client.wait_for_file_api_ready("agent-1", consecutive=2)
+
+    # Success, failure, success, success: the streak reset and had to rebuild.
+    assert calls.count("files_list") == 4
+
+
+def test_wait_for_file_api_ready_requires_the_full_streak_for_higher_counts(
+    agents_client, monkeypatch
+):
+    _clock, calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=["RUNNING"],
+        list_results=[[], [], [], []],
+    )
+
+    agents_client.wait_for_file_api_ready("agent-1", consecutive=3)
+
+    assert calls.count("files_list") == 3
+
+
+@pytest.mark.parametrize("dead_state", ["DELETED", "FAILED", "deleted", "failed"])
+def test_wait_for_file_api_ready_fails_immediately_for_a_dead_agent(
+    agents_client, monkeypatch, dead_state
+):
+    """Waiting longer cannot help, so do not spend the deadline discovering that."""
+    _clock, calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=[dead_state],
+        list_results=[[]],
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        agents_client.wait_for_file_api_ready("agent-1", timeout=90.0)
+
+    message = str(exc_info.value)
+    assert dead_state.upper() in message
+    assert "agent-1" in message
+    assert "files_list" not in calls
+    assert not isinstance(exc_info.value, TimeoutError)
+
+
+def test_wait_for_file_api_ready_recovers_when_a_dead_state_was_only_transient(
+    agents_client, monkeypatch
+):
+    """State is re-read every poll, so a STARTING Agent is never prejudged."""
+    _clock, calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=["STARTING", "RUNNING"],
+        list_results=[APIError(404, "page not found"), [], []],
+    )
+
+    agents_client.wait_for_file_api_ready("agent-1", consecutive=2)
+
+    assert calls.count("get") >= 2
+
+
+def test_wait_for_file_api_ready_timeout_names_the_state_and_last_error(
+    agents_client, monkeypatch
+):
+    _clock, _calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=["RUNNING"],
+        list_results=[APIError(404, "page not found")],
+    )
+
+    with pytest.raises(TimeoutError) as exc_info:
+        agents_client.wait_for_file_api_ready(
+            "agent-1", timeout=5.0, consecutive=2, poll_seconds=1.0
+        )
+
+    message = str(exc_info.value)
+    assert "agent-1" in message
+    assert "2 " in message and "consecutive" in message
+    assert "5s" in message
+    assert "state=RUNNING" in message
+    assert "page not found" in message
+
+
+def test_wait_for_file_api_ready_timeout_reports_unknown_state_without_an_error(
+    agents_client, monkeypatch
+):
+    """A streak that keeps resetting on a stateless Agent still names why."""
+    _clock, _calls = _install_file_api_probe(
+        agents_client,
+        monkeypatch,
+        states=[""],
+        list_results=[[], APIError(503, "upstream not ready")],
+    )
+
+    with pytest.raises(TimeoutError) as exc_info:
+        agents_client.wait_for_file_api_ready(
+            "agent-1", timeout=3.0, consecutive=2, poll_seconds=1.0
+        )
+
+    assert "state=unknown" in str(exc_info.value)
+    assert "upstream not ready" in str(exc_info.value)

@@ -288,6 +288,20 @@ def _remove_agent_state(agent_id: str):
     _write_state(state)
 
 
+def _reject_self_target(agent_id: str, operation: str) -> None:
+    """Refuse the ``self`` selector for operations an Agent may not run on itself.
+
+    A runtime key resolves its own identity and status, but it does not stop
+    itself or edit its own routes; the Backend has no self endpoint for either.
+    """
+    if str(agent_id or "").strip().lower() == "self":
+        console.print(
+            f"[red]❌ '{operation} self' is not supported. An Agent cannot {operation} "
+            "itself; run this against the Agent id with an owner credential.[/red]"
+        )
+        raise typer.Exit(1)
+
+
 def _resolve_agent(agent_id: str) -> str:
     """Resolve agent_id with prefix matching from local state."""
     state = _load_state()
@@ -413,10 +427,11 @@ def _print_routes(state, output_format: str) -> None:
 
 @routes_app.command("list")
 def routes_list(
-    agent_id: str = typer.Argument(..., help="Agent ID, name, prefix, or self"),
+    agent_id: str = typer.Argument(..., help="Agent ID, name, or prefix"),
     output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List desired routes and their live status."""
+    _reject_self_target(agent_id, "routes list")
     agents = _get_deployments_client()
     try:
         state = agents.get_routes(_resolve_agent(agent_id))
@@ -430,7 +445,7 @@ def routes_list(
 
 @routes_app.command("add")
 def routes_add(
-    agent_id: str = typer.Argument(..., help="Agent ID, name, prefix, or self"),
+    agent_id: str = typer.Argument(..., help="Agent ID, name, or prefix"),
     name: str = typer.Argument(..., help="Stable route name"),
     port: int = typer.Option(..., "--port", "-p", min=1, max=65535, help="Container port"),
     auth: bool = typer.Option(True, "--auth/--no-auth", help="Require HyperCLI authentication"),
@@ -439,6 +454,7 @@ def routes_add(
     output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Create or replace exactly one named route."""
+    _reject_self_target(agent_id, "routes add")
     if root and prefix is not None:
         raise typer.BadParameter("--prefix and --root are mutually exclusive")
     route = {"port": port, "auth": auth}
@@ -459,11 +475,12 @@ def routes_add(
 
 @routes_app.command("remove")
 def routes_remove(
-    agent_id: str = typer.Argument(..., help="Agent ID, name, prefix, or self"),
+    agent_id: str = typer.Argument(..., help="Agent ID, name, or prefix"),
     name: str = typer.Argument(..., help="Route name"),
     output_format: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Remove exactly one named route."""
+    _reject_self_target(agent_id, "routes remove")
     agents = _get_deployments_client()
     try:
         state = agents.remove_route(_resolve_agent(agent_id), name)
@@ -986,6 +1003,7 @@ def start(
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting the agent"),
 ):
     """Start a previously stopped agent."""
+    _reject_self_target(agent_id, "start")
     agent_id = _resolve_agent(agent_id)
     requested_agent_id = "self" if agent_id.strip().lower() == "self" else agent_id
     agents = _get_deployments_client()
@@ -1184,6 +1202,7 @@ def stop(
     timeout: float = typer.Option(900.0, "--timeout", min=1.0, help="Wait timeout in seconds"),
 ):
     """Stop an agent (keeps DB record, destroys pod)."""
+    _reject_self_target(agent_id, "stop")
     agent_id = _resolve_agent(agent_id)
 
     if not force:
