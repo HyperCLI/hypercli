@@ -98,9 +98,13 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   )).toBe(true);
 }
 
-async function expectLaunchEmptyStateFits(page: Page, allowVerticalScroll = false): Promise<void> {
+async function expectLaunchEmptyStateFits(
+  page: Page,
+  allowVerticalScroll = false,
+  testId = "agent-launch-empty-state",
+): Promise<void> {
   await expect(page.getByRole("button", { name: "Open navigation" })).toBeVisible();
-  const emptyState = page.getByTestId("agent-launch-empty-state");
+  const emptyState = page.getByTestId(testId);
   await expect(emptyState).toBeVisible();
   await emptyState.evaluate((element) => { element.scrollTop = 0; });
 
@@ -225,21 +229,24 @@ test("completes mobile previews and every dashboard authentication gate", async 
   await expectLaunchEmptyStateFits(page);
   await captureStep(page, "agents-anonymous-launch-entry");
 
+  // The Desktop pane renders its own empty state, so it carries its own test
+  // id -- the same one this test reaches for a few lines below. Every other
+  // preview shares the launch empty state.
   const previewSections = [
-    ["Files", "Your files, working for you"],
-    ["Integrations", "Your stack, unified"],
-    ["Skills", "Your expertise, reusable"],
-    ["Scheduled", "Work that keeps moving"],
-    ["Desktop", "Your agent's desktop"],
+    ["Files", "Your files, working for you", "agent-launch-empty-state"],
+    ["Integrations", "Your stack, unified", "agent-launch-empty-state"],
+    ["Skills", "Your expertise, reusable", "agent-launch-empty-state"],
+    ["Scheduled", "Work that keeps moving", "agent-launch-empty-state"],
+    ["Desktop", "Your agent's desktop", "agent-desktop-empty-state"],
   ] as const;
 
-  for (const [section, heading] of previewSections) {
+  for (const [section, heading, emptyStateTestId] of previewSections) {
     const navigation = await openMobileNavigation(page);
     await expect(navigation.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "workspace");
     await navigation.getByRole("button", { name: section, exact: true }).tap();
     await expect(navigation).toHaveCount(0);
     await expect(page.getByRole("heading", { name: heading })).toBeVisible();
-    await expectLaunchEmptyStateFits(page);
+    await expectLaunchEmptyStateFits(page, false, emptyStateTestId);
   }
 
   const desktopPreview = page.getByTestId("agent-desktop-empty-state");
