@@ -210,7 +210,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "GOOSE_MODEL": "fixture-model",
                     "GOOSE_PROVIDER": "fixture-provider",
                     "USER_KEY": "launch-value",
-                    "RUST_LOG": "buzz_acp=info,pool::prompt=info,acp::stream=off"
+                    "RUST_LOG": "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
                 }
             })
             .to_string(),

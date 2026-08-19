@@ -362,7 +362,7 @@ impl RouteConfig {
     }
 }
 
-const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,pool::prompt=info,acp::stream=off";
+const DEFAULT_BUZZ_RUST_LOG: &str = "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off";
 /// Stable, non-secret resource tag applied to deployments managed by Buzz.
 ///
 /// The per-agent `buzz_agent=<pubkey>` tag remains the identity seam. This
@@ -1800,7 +1800,7 @@ mod tests {
         assert!(!request.env.contains_key("BUZZ_ACP_TEXT_MENTIONS"));
         assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
-            Some("buzz_acp=info,pool::prompt=info,acp::stream=off")
+            Some("buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off")
         );
     }
 
