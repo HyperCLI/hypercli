@@ -21,10 +21,10 @@ use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
-    AgentAccessIdentity, AgentCapacity, AgentLaunchValueMutation, ApiKey, AuthMe, ClientConfig,
+    AgentAccessIdentity, AgentCapacity, AgentDirectoryListing, AgentFileEntry,
+    AgentLaunchValueMutation, ApiKey, AuthMe, ClientConfig, CompleteDeploymentLaunchConfig,
     CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse, Deployment,
-    AgentDirectoryListing, AgentFileEntry, CompleteDeploymentLaunchConfig, DeploymentEnvironment,
-    DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
+    DeploymentEnvironment, DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
     ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
     HyperAgentEntitlementsSummary, HyperAgentPlan, NativeRuntime, RuntimeAuthError,
@@ -1326,7 +1326,7 @@ impl HyperCliClient {
     /// WHY THIS EXISTS -- do not delete it as convenience sugar. The backend's
     /// owner-facing agent projection deliberately strips `secrets` and
     /// `registry_auth` before returning an agent to a user-scoped caller
-    /// (`hydrate_managed_agent` pops both), and [`DeploymentLaunchConfig`]
+    /// (`hydrate_managed_agent` pops both), and [`crate::DeploymentLaunchConfig`]
     /// strips them again so a redacted projection can never be mistaken for a
     /// launch payload. START, by contrast, is a *full replacement* and demands
     /// every key. The read side is therefore structurally incapable of
@@ -1415,8 +1415,12 @@ impl HyperCliClient {
         // START requires exactly one sync policy. Includes win when a legacy
         // projection carries both; carrying neither canonicalizes to the
         // explicit sync-everything exclusion list.
-        let has_include = launch.get("sync_include").is_some_and(|value| !value.is_null());
-        let has_exclude = launch.get("sync_exclude").is_some_and(|value| !value.is_null());
+        let has_include = launch
+            .get("sync_include")
+            .is_some_and(|value| !value.is_null());
+        let has_exclude = launch
+            .get("sync_exclude")
+            .is_some_and(|value| !value.is_null());
         if has_include {
             launch.remove("sync_exclude");
         } else if has_exclude {
@@ -4248,13 +4252,13 @@ mod tests {
         let launch_config = client.stored_launch_config("deployment-1", None).unwrap();
         assert_eq!(launch_config.secrets["API_TOKEN"], "recovered-token");
         assert!(launch_config.registry_auth.is_empty());
-        assert_eq!(launch_config.sync_exclude.as_deref(), Some([".git".to_owned()].as_slice()));
+        assert_eq!(
+            launch_config.sync_exclude.as_deref(),
+            Some([".git".to_owned()].as_slice())
+        );
 
         let started = client
-            .start_deployment(
-                "deployment-1",
-                &StartDeploymentRequest::new(launch_config),
-            )
+            .start_deployment("deployment-1", &StartDeploymentRequest::new(launch_config))
             .unwrap();
         assert_eq!(started.state, "STARTING");
         projection.assert();
@@ -4386,7 +4390,10 @@ mod tests {
         };
         let (root, path) = reef_directory_url(&token, "").unwrap();
         assert_eq!(path, "");
-        assert_eq!(root.as_str(), "https://agent.example.test/_reef/directories");
+        assert_eq!(
+            root.as_str(),
+            "https://agent.example.test/_reef/directories"
+        );
         let (nested, path) = reef_directory_url(&token, "work space\\logs").unwrap();
         assert_eq!(path, "work space/logs");
         assert_eq!(
@@ -4442,9 +4449,7 @@ mod tests {
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({"id": "deployment-1", "state": "FAILED"}).to_string(),
-            )
+            .with_body(serde_json::json!({"id": "deployment-1", "state": "FAILED"}).to_string())
             .expect(1)
             .create();
         let token = server
@@ -4475,9 +4480,7 @@ mod tests {
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({"id": "deployment-1", "state": "STARTING"}).to_string(),
-            )
+            .with_body(serde_json::json!({"id": "deployment-1", "state": "STARTING"}).to_string())
             .create();
         let _token = server
             .mock("POST", "/agents/deployments/deployment-1/files/token")
