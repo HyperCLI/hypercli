@@ -479,6 +479,77 @@ export interface AgentLogsTokenResponse {
   ws_url?: string;
 }
 
+/**
+ * One decoded frame from the agent logs WebSocket.
+ *
+ * The socket opens with the replayed history as `log` frames, sends
+ * `history_end` once replay is complete, then streams live `log` frames. A
+ * frame that is not a recognisable envelope degrades to a log line rather than
+ * vanishing, so a pre-envelope or plain-text server stays readable. Unknown
+ * envelope events are ignored so future control frames never reach the log view.
+ */
+export type AgentLogFrame =
+  | { kind: 'log'; line: string }
+  | { kind: 'historyEnd' }
+  | { kind: 'error'; detail: string }
+  | { kind: 'ignore' };
+
+export function parseAgentLogFrame(raw: string): AgentLogFrame {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return { kind: 'log', line: raw };
+  }
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return { kind: 'log', line: raw };
+  }
+  const frame = payload as { event?: unknown; log?: unknown; detail?: unknown };
+  if (typeof frame.event !== 'string') return { kind: 'log', line: raw };
+  switch (frame.event) {
+    case 'log':
+      return {
+        kind: 'log',
+        line: typeof frame.log === 'string' ? frame.log : String(frame.log ?? ''),
+      };
+    case 'history_end':
+      return { kind: 'historyEnd' };
+    case 'error':
+      return {
+        kind: 'error',
+        detail:
+          typeof frame.detail === 'string' && frame.detail
+            ? frame.detail
+            : 'Log stream failed',
+      };
+    default:
+      return { kind: 'ignore' };
+  }
+}
+
+export interface AgentLogsSubscribeOptions {
+  /** Historical lines to replay before live frames. 0 replays the whole buffer. */
+  tailLines?: number;
+  container?: string;
+  signal?: AbortSignal;
+  /** Runs after socket authentication and before any frame is read. */
+  onReady?: () => void | Promise<void>;
+  /** Runs once replay is complete, before any live frame is delivered. */
+  onHistoryEnd?: () => void | Promise<void>;
+  /**
+   * Runs when the peer closes the socket, carrying the close code. Reconnect
+   * policy lives with the caller, so the caller needs the code that decides it:
+   * an auth-scoped close must not be retried, a transport drop may be.
+   */
+  onClose?: (event: { code: number; reason: string }) => void;
+  /**
+   * Keep the socket open after replay. With `follow: false` the returned
+   * promise resolves at `history_end`, which is what a stopped agent needs:
+   * its socket is snapshot-then-silence and would otherwise hang.
+   */
+  follow?: boolean;
+}
+
 export interface AgentRelayKey {
   key_id?: string | null;
   key_name?: string | null;
@@ -5940,6 +6011,88 @@ export class Deployments {
           reject(new Error('WebSocket connection failed'));
         }
       };
+    });
+  }
+
+  /**
+   * Snapshot-then-updates over one socket: the connection opens with the
+   * replayed history, reports `history_end`, then streams live lines.
+   *
+   * One mechanism rather than a REST read plus a separate subscribe. The two-step
+   * form leaves a seam between the two calls that no server change can close,
+   * because the fetch and the subscribe share no lock; the backend takes the
+   * history snapshot and registers the subscriber under a single lock, so a line
+   * arriving mid-replay is delivered exactly once.
+   *
+   * Deliberately does not reconnect. A reconnect replays history again, which
+   * would duplicate lines into a consumer that has already rendered them;
+   * reconnect policy belongs to the caller, which knows whether it is resuming
+   * or restarting the view.
+   */
+  async subscribeLogs(
+    agentIdOrName: string,
+    handler: (line: string) => void | Promise<void>,
+    options: AgentLogsSubscribeOptions = {},
+  ): Promise<void> {
+    const follow = options.follow ?? true;
+    const ws = await this.logsConnect(agentIdOrName, {
+      tailLines: options.tailLines,
+      container: options.container,
+    });
+
+    void options.onReady?.();
+
+    return await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        options.signal?.removeEventListener('abort', onAbort);
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        try {
+          ws.close();
+        } catch {
+          // A socket already closed by the peer needs no local close.
+        }
+        if (error) reject(error);
+        else resolve();
+      };
+      function onAbort() {
+        finish();
+      }
+
+      if (options.signal?.aborted) {
+        finish();
+        return;
+      }
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+
+      ws.onmessage = (event: MessageEvent) => {
+        const raw = typeof event.data === 'string' ? event.data : '';
+        if (!raw) return;
+        const frame = parseAgentLogFrame(raw);
+        switch (frame.kind) {
+          case 'log':
+            void handler(frame.line);
+            return;
+          case 'historyEnd':
+            void options.onHistoryEnd?.();
+            if (!follow) finish();
+            return;
+          case 'error':
+            finish(new Error(frame.detail));
+            return;
+          default:
+            return;
+        }
+      };
+      ws.onclose = (event: { code?: number; reason?: string }) => {
+        options.onClose?.({ code: event?.code ?? 1006, reason: event?.reason ?? '' });
+        finish();
+      };
+      ws.onerror = () => finish(new Error('WebSocket connection failed'));
     });
   }
 

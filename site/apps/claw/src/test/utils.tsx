@@ -3,6 +3,7 @@ import { render, renderHook, type RenderHookOptions, type RenderOptions } from "
 import { axe } from "jest-axe";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import { expect } from "vitest";
+import { Deployments } from "@hypercli.com/sdk/agents";
 
 export function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -64,4 +65,16 @@ export function renderHookWithClient<Result, Props>(
 export async function expectNoA11yViolations(container: Element): Promise<void> {
   const results = await axe(container);
   expect(results.violations).toEqual([]);
+}
+
+/**
+ * A Deployments whose transport is mocked but whose logs primitive is real.
+ *
+ * `useAgentLogs` no longer parses frames itself -- it subscribes through
+ * `Deployments.subscribeLogs`, which owns the wire contract. Stubbing only the
+ * transport (`logsConnect`) keeps log tests exercising the same framing code the
+ * app runs, so a wire change cannot pass here and still break the panel.
+ */
+export function mockDeployments(partial: Record<string, unknown>): Deployments {
+  return Object.assign(Object.create(Deployments.prototype), partial) as Deployments;
 }

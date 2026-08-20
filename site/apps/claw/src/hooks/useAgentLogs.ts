@@ -3,8 +3,17 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import type { Deployments } from "@hypercli.com/sdk/agents";
 
-const MAX_LOG_LINES = 1500;
-const MAX_LOG_CHARS = 1_000_000;
+// Mirror the Backend's bounds rather than picking smaller ones, so the panel
+// never discards history the server was willing to send: it retains 10_000
+// lines, truncates a single line at 4096 chars, and caps the whole buffer at
+// 32MB. Trimming to 1500 here silently threw away most of the replay we now
+// ask for in full, which defeated the point of asking.
+//
+// Per-line and whole-buffer are separate bounds. Sharing one constant for both
+// meant raising the buffer ceiling would also let a single line grow to it.
+const MAX_LOG_LINES = 10_000;
+const MAX_LOG_LINE_CHARS = 4096;
+const MAX_LOG_TOTAL_CHARS = 32_000_000;
 const RECONNECT_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000, 30_000];
 const RECONNECT_JITTER = 0.2;
 const LOG_PUBLICATION_INTERVAL_MS = 32;
@@ -40,7 +49,7 @@ function logCloseReason(reason: string): boolean {
   ].some((value) => normalized.includes(value));
 }
 
-function shouldReconnectClose(event: CloseEvent): boolean {
+function shouldReconnectClose(event: { code: number; reason: string }): boolean {
   if (LOGS_CLOSE_CODES.has(event.code)) return false;
   if (event.reason && logCloseReason(event.reason)) return false;
   return true;
@@ -48,69 +57,24 @@ function shouldReconnectClose(event: CloseEvent): boolean {
 
 function boundedLogLines(current: string[], pending: string[]): string[] {
   const combined = [...current, ...pending.map((line) => (
-    line.length > MAX_LOG_CHARS ? line.slice(-MAX_LOG_CHARS) : line
+    line.length > MAX_LOG_LINE_CHARS ? line.slice(-MAX_LOG_LINE_CHARS) : line
   ))];
   let start = combined.length;
   let chars = 0;
   while (start > 0 && combined.length - start < MAX_LOG_LINES) {
     const nextLength = combined[start - 1].length;
-    if (chars + nextLength > MAX_LOG_CHARS) break;
+    if (chars + nextLength > MAX_LOG_TOTAL_CHARS) break;
     chars += nextLength;
     start -= 1;
   }
   return combined.slice(start);
 }
 
-type LogFrame =
-  | { kind: "log"; line: string }
-  | { kind: "error"; detail: string }
-  | { kind: "ignore" };
-
-/**
- * Parse one logs-WebSocket text frame.
- *
- * The backend speaks JSON envelopes on this socket: `{"event":"log","log":"<line>"}`,
- * `{"event":"history_end"}` and (defensively, mirroring the Python SDK) `{"event":"error",...}`.
- * Anything that is not a recognisable envelope is treated as a raw log line rather than
- * dropped, so an unparsable or plain-text frame degrades to the pre-envelope behaviour
- * instead of vanishing. Unknown *envelope* events are ignored so future control frames
- * never reach the log view.
- */
-function parseLogFrame(raw: string): LogFrame {
-  let payload: unknown;
-  try {
-    payload = JSON.parse(raw);
-  } catch {
-    return { kind: "log", line: raw };
-  }
-  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
-    return { kind: "log", line: raw };
-  }
-  const frame = payload as { event?: unknown; log?: unknown; detail?: unknown };
-  if (typeof frame.event !== "string") return { kind: "log", line: raw };
-  switch (frame.event) {
-    case "log":
-      return {
-        kind: "log",
-        line: typeof frame.log === "string" ? frame.log : String(frame.log ?? ""),
-      };
-    case "history_end":
-      return { kind: "ignore" };
-    case "error":
-      return {
-        kind: "error",
-        detail: typeof frame.detail === "string" && frame.detail ? frame.detail : "Log stream failed",
-      };
-    default:
-      return { kind: "ignore" };
-  }
-}
-
 export function useAgentLogs(deployments: Deployments | null, agentId: string | null, enabled: boolean = true) {
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<LogsStatus>("disconnected");
   const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectRef = useRef<((options?: ConnectOptions) => void) | null>(null);
   const connectionIdRef = useRef(0);
@@ -153,12 +117,9 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
       reconnectTimer.current = null;
     }
     clearPendingLogs();
-    if (wsRef.current) {
-      wsRef.current.onclose = null;
-      wsRef.current.onerror = null;
-      wsRef.current.onmessage = null;
-      wsRef.current.close();
-      wsRef.current = null;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
     }
     if (resetReconnect) reconnectAttemptRef.current = 0;
     setStatus("disconnected");
@@ -193,63 +154,53 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
     setError(null);
     setStatus(options.reconnecting ? "reconnecting" : "connecting");
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    // The socket is live for the whole subscription, so a close arriving through
+    // subscribeLogs still has to be told apart from a mint that never opened one.
+    let sawClose: { code: number; reason: string } | null = null;
+    const current = () =>
+      connectionIdRef.current === connectionId &&
+      enabledRef.current &&
+      agentIdRef.current === requestedAgentId;
+
     try {
-      const ws = await deployments.logsConnect(requestedAgentId);
-      if (
-        connectionIdRef.current !== connectionId ||
-        !enabledRef.current ||
-        agentIdRef.current !== requestedAgentId
-      ) {
-        ws.close();
-        return;
-      }
-
-      wsRef.current = ws;
-      reconnectAttemptRef.current = 0;
-      setStatus("connected");
-
-      ws.onopen = () => {
-        if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
-        setStatus("connected");
-      };
-
-      ws.onmessage = (event) => {
-        if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
-        const raw = typeof event.data === "string" ? event.data : "";
-        if (!raw) return;
-        const frame = parseLogFrame(raw);
-        switch (frame.kind) {
-          case "log":
-            queueLog(frame.line);
-            return;
-          case "error":
-            setError(frame.detail);
-            return;
-          case "ignore":
-            return;
-        }
-      };
-
-      ws.onclose = (event) => {
-        if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
-        flushPendingLogs();
-        setStatus("disconnected");
-        wsRef.current = null;
-        if (enabledRef.current && agentIdRef.current === requestedAgentId && shouldReconnectClose(event)) {
-          scheduleReconnect();
-        }
-      };
-
-      ws.onerror = () => {
-        if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
-        ws.close();
-      };
-    } catch {
-      if (connectionIdRef.current !== connectionId) return;
+      await deployments.subscribeLogs(requestedAgentId, (line) => {
+        if (!current()) return;
+        queueLog(line);
+      }, {
+        // Ask for the whole retained buffer, not a window. The connect replay
+        // is the Backend's live buffer when it has one and the persisted rows
+        // when it does not, so 0 yields whichever is fuller -- and the reason
+        // anyone opens this panel is usually a traceback, which a hundred-line
+        // tail truncates exactly when it matters. Bounded server-side by
+        // LOG_BUFFER_MAX_LINES.
+        tailLines: 0,
+        signal: controller.signal,
+        onReady: () => {
+          if (!current()) return;
+          reconnectAttemptRef.current = 0;
+          setStatus("connected");
+        },
+        onClose: (event) => {
+          sawClose = event;
+        },
+      });
+      if (!current()) return;
+      flushPendingLogs();
       setStatus("disconnected");
-      if (enabledRef.current && agentIdRef.current === requestedAgentId) {
-        scheduleReconnect();
-      }
+      // A resolved subscription that never saw a close was aborted by us.
+      if (sawClose && shouldReconnectClose(sawClose)) scheduleReconnect();
+    } catch (err) {
+      if (!current()) return;
+      flushPendingLogs();
+      // An `error` frame is a stream fault the user should see; a failed mint or
+      // transport is not, and only drives the reconnect ladder.
+      if (sawClose === null) setError(err instanceof Error ? err.message : "Log stream failed");
+      setStatus("disconnected");
+      if (!sawClose || shouldReconnectClose(sawClose)) scheduleReconnect();
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }, [deployments, agentId, cleanup, flushPendingLogs, queueLog, scheduleReconnect]);
 

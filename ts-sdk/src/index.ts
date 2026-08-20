@@ -330,6 +330,9 @@ export {
   isAgentTransitionalState,
   type DeploymentEvent,
   type DeploymentSubscribeOptions,
+  type AgentLogFrame,
+  type AgentLogsSubscribeOptions,
+  parseAgentLogFrame,
 } from './agents.js';
 
 export * from './hermes/gateway.js';

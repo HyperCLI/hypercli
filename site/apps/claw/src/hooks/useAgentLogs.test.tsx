@@ -1,7 +1,6 @@
 import { act, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Deployments } from "@hypercli.com/sdk/agents";
-import { renderHookWithClient } from "@/test/utils";
+import { mockDeployments, renderHookWithClient } from "@/test/utils";
 import { useAgentLogs } from "./useAgentLogs";
 
 type MockSocket = WebSocket & {
@@ -38,16 +37,16 @@ describe("useAgentLogs", () => {
   it("closes a websocket that resolves after logs are disabled", async () => {
     const pending = deferred<WebSocket>();
     const socket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn().mockReturnValue(pending.promise),
-    } as unknown as Deployments;
+    });
 
     const { result, rerender } = renderHookWithClient(
       ({ enabled }) => useAgentLogs(deployments, "agent-1", enabled),
       { initialProps: { enabled: true } },
     );
 
-    await waitFor(() => expect(deployments.logsConnect).toHaveBeenCalledWith("agent-1"));
+    await waitFor(() => expect(deployments.logsConnect).toHaveBeenCalledWith("agent-1", expect.anything()));
 
     rerender({ enabled: false });
     await act(async () => {
@@ -64,21 +63,21 @@ describe("useAgentLogs", () => {
     const secondPending = deferred<WebSocket>();
     const firstSocket = createSocket();
     const secondSocket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn((agentId: string) =>
         agentId === "agent-1" ? firstPending.promise : secondPending.promise,
       ),
-    } as unknown as Deployments;
+    });
 
     const { result, rerender } = renderHookWithClient(
       ({ agentId }) => useAgentLogs(deployments, agentId, true),
       { initialProps: { agentId: "agent-1" as string | null } },
     );
 
-    await waitFor(() => expect(deployments.logsConnect).toHaveBeenCalledWith("agent-1"));
+    await waitFor(() => expect(deployments.logsConnect).toHaveBeenCalledWith("agent-1", expect.anything()));
 
     rerender({ agentId: "agent-2" });
-    await waitFor(() => expect(deployments.logsConnect).toHaveBeenCalledWith("agent-2"));
+    await waitFor(() => expect(deployments.logsConnect).toHaveBeenCalledWith("agent-2", expect.anything()));
 
     await act(async () => {
       secondPending.resolve(secondSocket);
@@ -99,9 +98,9 @@ describe("useAgentLogs", () => {
   it("clears old log lines when opening a new agent log stream", async () => {
     const firstSocket = createSocket();
     const secondSocket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn((agentId: string) => Promise.resolve(agentId === "agent-1" ? firstSocket : secondSocket)),
-    } as unknown as Deployments;
+    });
 
     const { result, rerender } = renderHookWithClient(
       ({ agentId }) => useAgentLogs(deployments, agentId, true),
@@ -123,9 +122,9 @@ describe("useAgentLogs", () => {
 
   it("renders log envelopes and never renders the history_end marker", async () => {
     const socket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn().mockResolvedValue(socket),
-    } as unknown as Deployments;
+    });
     const { result } = renderHookWithClient(
       () => useAgentLogs(deployments, "agent-1", true),
     );
@@ -144,9 +143,9 @@ describe("useAgentLogs", () => {
 
   it("surfaces error frames instead of rendering them as log lines", async () => {
     const socket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn().mockResolvedValue(socket),
-    } as unknown as Deployments;
+    });
     const { result } = renderHookWithClient(
       () => useAgentLogs(deployments, "agent-1", true),
     );
@@ -165,9 +164,9 @@ describe("useAgentLogs", () => {
 
   it("renders a non-JSON frame raw without crashing", async () => {
     const socket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn().mockResolvedValue(socket),
-    } as unknown as Deployments;
+    });
     const { result } = renderHookWithClient(
       () => useAgentLogs(deployments, "agent-1", true),
     );
@@ -184,28 +183,30 @@ describe("useAgentLogs", () => {
 
   it("bounds a single oversized log event by character count", async () => {
     const socket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn().mockResolvedValue(socket),
-    } as unknown as Deployments;
+    });
     const { result } = renderHookWithClient(
       () => useAgentLogs(deployments, "agent-1", true),
     );
 
     await waitFor(() => expect(result.current.status).toBe("connected"));
     act(() => {
-      socket.onmessage?.(logFrame(`prefix-${"x".repeat(1_000_000)}`));
+      socket.onmessage?.(logFrame(`prefix-${"x".repeat(10_000)}`));
     });
 
     await waitFor(() => expect(result.current.logs).toHaveLength(1));
-    expect(result.current.logs[0]).toHaveLength(1_000_000);
+    // Trimmed to the Backend's own per-line ceiling, keeping the tail: a
+    // truncated line's end is where the failure is, not its start.
+    expect(result.current.logs[0]).toHaveLength(4096);
     expect(result.current.logs[0]).not.toContain("prefix-");
   });
 
   it("reconnects transient closes but not terminal closes", async () => {
     const socket = createSocket();
-    const deployments = {
+    const deployments = mockDeployments({
       logsConnect: vi.fn().mockResolvedValue(socket),
-    } as unknown as Deployments;
+    });
 
     const transient = renderHookWithClient(
       () => useAgentLogs(deployments, "agent-1", true),
@@ -213,7 +214,7 @@ describe("useAgentLogs", () => {
 
     await waitFor(() => expect(transient.result.current.status).toBe("connected"));
 
-    act(() => {
+    await act(async () => {
       socket.onclose?.({ code: 1006, reason: "" } as CloseEvent);
     });
 
@@ -221,9 +222,9 @@ describe("useAgentLogs", () => {
     transient.unmount();
 
     const terminalSocket = createSocket();
-    const terminalDeployments = {
+    const terminalDeployments = mockDeployments({
       logsConnect: vi.fn().mockResolvedValue(terminalSocket),
-    } as unknown as Deployments;
+    });
 
     const terminal = renderHookWithClient(
       () => useAgentLogs(terminalDeployments, "agent-1", true),
@@ -231,7 +232,7 @@ describe("useAgentLogs", () => {
 
     await waitFor(() => expect(terminal.result.current.status).toBe("connected"));
 
-    act(() => {
+    await act(async () => {
       terminalSocket.onclose?.({ code: 1000, reason: "normal closure" } as CloseEvent);
     });
 
