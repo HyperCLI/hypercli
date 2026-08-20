@@ -245,44 +245,34 @@ cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
 load_local_env_if_needed
 bootstrap_console_key_if_needed
-rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
-npm run build --workspace @hypercli/console --workspace @hypercli/claw
+# Only the console app is built and served: the old suite also built and
+# booted claw, which none of the console specs ever visited.
+rm -rf "${SITE_ROOT}/apps/console/.next"
+npm run build --workspace @hypercli/console
 
 cd "${SITE_ROOT}/apps/console"
 PORT="${CONSOLE_PORT}" npm run start >"${CONSOLE_LOG}" 2>&1 &
 CONSOLE_PID=$!
-cd "${SITE_ROOT}/apps/claw"
-PORT="${CLAW_PORT}" npm run start >"${CLAW_LOG}" 2>&1 &
-CLAW_PID=$!
 
 cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console" "${CONSOLE_LOG}" "${CONSOLE_PID}"
-wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
+# One spec: admin-minted login, dashboard, and the top-up flow to the point
+# where Stripe presents the $10 checkout. Completing the hosted checkout and
+# polling for settlement is the backend's coverage, not this job's.
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
   --project=chromium \
   --max-failures=1 \
   --workers=1 \
-  tests/claw/console-login.spec.ts
-login_status=$?
-
-topup_status=0
-if [[ ${login_status} -eq 0 ]]; then
-  npx playwright test \
-    --config tests/claw/playwright.config.ts \
-    --project=chromium \
-    --max-failures=1 \
-    --workers=1 \
-    tests/claw/console-topup.spec.ts
-  topup_status=$?
-fi
+  tests/claw/console-e2e.spec.ts
+console_status=$?
 set -e
 
 status=0
-if [[ ${login_status} -ne 0 || ${topup_status} -ne 0 ]]; then
+if [[ ${console_status} -ne 0 ]]; then
   status=1
 fi
 

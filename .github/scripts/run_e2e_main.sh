@@ -73,7 +73,10 @@ cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_MAIN_BASE_URL}" "Main" "${MAIN_LOG}" "${MAIN_PID}"
 
+# One smoke spec over every public route; the pages are static and share no
+# state, so the workers actually parallelize.
 npx playwright test \
   --config tests/main/playwright.config.ts \
   --project=chromium \
-  --workers=1
+  --workers=4 \
+  tests/main/main-e2e.spec.ts

@@ -36,7 +36,7 @@ on_exit() {
     echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
     echo "Console: ${TEST_CONSOLE_BASE_URL}" >&2
     echo "Claw: ${TEST_BASE_URL}" >&2
-    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-subscription.spec.ts" >&2
+    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/login.spec.ts" >&2
     tail -f /dev/null
   fi
   cleanup
