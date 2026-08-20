@@ -19,6 +19,10 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+function logFrame(line: string): MessageEvent {
+  return { data: JSON.stringify({ event: "log", log: line }) } as MessageEvent;
+}
+
 function createSocket(): MockSocket {
   return {
     readyState: WebSocket.OPEN,
@@ -106,7 +110,7 @@ describe("useAgentLogs", () => {
 
     await waitFor(() => expect(result.current.status).toBe("connected"));
     await act(async () => {
-      firstSocket.onmessage?.({ data: "agent-1 log" } as MessageEvent);
+      firstSocket.onmessage?.(logFrame("agent-1 log"));
       await Promise.resolve();
     });
     await waitFor(() => expect(result.current.logs).toEqual(["agent-1 log"]));
@@ -115,6 +119,67 @@ describe("useAgentLogs", () => {
 
     await waitFor(() => expect(result.current.logs).toEqual([]));
     await waitFor(() => expect(result.current.status).toBe("connected"));
+  });
+
+  it("renders log envelopes and never renders the history_end marker", async () => {
+    const socket = createSocket();
+    const deployments = {
+      logsConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+    const { result } = renderHookWithClient(
+      () => useAgentLogs(deployments, "agent-1", true),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    await act(async () => {
+      socket.onmessage?.(logFrame("history line"));
+      socket.onmessage?.({ data: JSON.stringify({ event: "history_end" }) } as MessageEvent);
+      socket.onmessage?.(logFrame("live line"));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.logs).toEqual(["history line", "live line"]));
+    expect(result.current.logs.join("\n")).not.toContain("history_end");
+  });
+
+  it("surfaces error frames instead of rendering them as log lines", async () => {
+    const socket = createSocket();
+    const deployments = {
+      logsConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+    const { result } = renderHookWithClient(
+      () => useAgentLogs(deployments, "agent-1", true),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    await act(async () => {
+      socket.onmessage?.({
+        data: JSON.stringify({ event: "error", detail: "log stream unavailable" }),
+      } as MessageEvent);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.error).toBe("log stream unavailable"));
+    expect(result.current.logs).toEqual([]);
+  });
+
+  it("renders a non-JSON frame raw without crashing", async () => {
+    const socket = createSocket();
+    const deployments = {
+      logsConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+    const { result } = renderHookWithClient(
+      () => useAgentLogs(deployments, "agent-1", true),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    await act(async () => {
+      socket.onmessage?.({ data: "not json {" } as MessageEvent);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.logs).toEqual(["not json {"]));
+    expect(result.current.error).toBeNull();
   });
 
   it("bounds a single oversized log event by character count", async () => {
@@ -128,7 +193,7 @@ describe("useAgentLogs", () => {
 
     await waitFor(() => expect(result.current.status).toBe("connected"));
     act(() => {
-      socket.onmessage?.({ data: `prefix-${"x".repeat(1_000_000)}` } as MessageEvent);
+      socket.onmessage?.(logFrame(`prefix-${"x".repeat(1_000_000)}`));
     });
 
     await waitFor(() => expect(result.current.logs).toHaveLength(1));

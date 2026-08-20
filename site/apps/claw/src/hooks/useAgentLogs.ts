@@ -61,9 +61,55 @@ function boundedLogLines(current: string[], pending: string[]): string[] {
   return combined.slice(start);
 }
 
+type LogFrame =
+  | { kind: "log"; line: string }
+  | { kind: "error"; detail: string }
+  | { kind: "ignore" };
+
+/**
+ * Parse one logs-WebSocket text frame.
+ *
+ * The backend speaks JSON envelopes on this socket: `{"event":"log","log":"<line>"}`,
+ * `{"event":"history_end"}` and (defensively, mirroring the Python SDK) `{"event":"error",...}`.
+ * Anything that is not a recognisable envelope is treated as a raw log line rather than
+ * dropped, so an unparsable or plain-text frame degrades to the pre-envelope behaviour
+ * instead of vanishing. Unknown *envelope* events are ignored so future control frames
+ * never reach the log view.
+ */
+function parseLogFrame(raw: string): LogFrame {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return { kind: "log", line: raw };
+  }
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return { kind: "log", line: raw };
+  }
+  const frame = payload as { event?: unknown; log?: unknown; detail?: unknown };
+  if (typeof frame.event !== "string") return { kind: "log", line: raw };
+  switch (frame.event) {
+    case "log":
+      return {
+        kind: "log",
+        line: typeof frame.log === "string" ? frame.log : String(frame.log ?? ""),
+      };
+    case "history_end":
+      return { kind: "ignore" };
+    case "error":
+      return {
+        kind: "error",
+        detail: typeof frame.detail === "string" && frame.detail ? frame.detail : "Log stream failed",
+      };
+    default:
+      return { kind: "ignore" };
+  }
+}
+
 export function useAgentLogs(deployments: Deployments | null, agentId: string | null, enabled: boolean = true) {
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<LogsStatus>("disconnected");
+  const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const connectRef = useRef<((options?: ConnectOptions) => void) | null>(null);
@@ -144,6 +190,7 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
     connectionIdRef.current = connectionId;
     const requestedAgentId = agentId;
     setLogs([]);
+    setError(null);
     setStatus(options.reconnecting ? "reconnecting" : "connecting");
 
     try {
@@ -168,8 +215,19 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
 
       ws.onmessage = (event) => {
         if (connectionIdRef.current !== connectionId || wsRef.current !== ws) return;
-        const line = typeof event.data === "string" ? event.data : "";
-        queueLog(line);
+        const raw = typeof event.data === "string" ? event.data : "";
+        if (!raw) return;
+        const frame = parseLogFrame(raw);
+        switch (frame.kind) {
+          case "log":
+            queueLog(frame.line);
+            return;
+          case "error":
+            setError(frame.detail);
+            return;
+          case "ignore":
+            return;
+        }
       };
 
       ws.onclose = (event) => {
@@ -239,6 +297,7 @@ export function useAgentLogs(deployments: Deployments | null, agentId: string | 
   return {
     logs,
     status,
+    error,
     reconnect,
     clearLogs,
   };

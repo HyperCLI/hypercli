@@ -34,8 +34,8 @@ describe("AgentLogsController", () => {
     const rendersBeforeLogs = parentRenders;
 
     act(() => {
-      socket.onmessage?.({ data: "first line" } as MessageEvent);
-      socket.onmessage?.({ data: "second line" } as MessageEvent);
+      socket.onmessage?.({ data: JSON.stringify({ event: "log", log: "first line" }) } as MessageEvent);
+      socket.onmessage?.({ data: JSON.stringify({ event: "log", log: "second line" }) } as MessageEvent);
     });
 
     await waitFor(() => expect(screen.getByText((_, element) => (
