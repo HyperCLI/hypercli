@@ -203,7 +203,7 @@ describe("agent-client", () => {
     expect(deploymentsInstance.start).not.toHaveBeenCalled();
   });
 
-  it("starts non-OpenClaw agents without patching their launch environment", async () => {
+  it("patches the launch environment on start whatever runtime the agent reports", async () => {
     const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8 };
     deploymentsInstance.get.mockResolvedValue({
       id: "agent-123",
@@ -214,8 +214,51 @@ describe("agent-client", () => {
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
-    expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
+    expect(deploymentsInstance.setEnv).toHaveBeenCalledWith(
+      "agent-123",
+      "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN",
+      window.location.origin,
+    );
     expect(deploymentsInstance.start).toHaveBeenCalledWith("agent-123");
+  });
+
+  // Regression: managed deployments carry the Agent.runtime column default of
+  // "generic", so a runtime allowlist on this injection meant no managed agent
+  // ever had its origin refreshed and every agent stayed pinned to whichever
+  // dashboard created it.
+  it("patches the launch environment for a managed agent whose runtime is generic", async () => {
+    const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "generic",
+    });
+    deploymentsInstance.start.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.setEnv).toHaveBeenCalledWith(
+      "agent-123",
+      "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN",
+      window.location.origin,
+    );
+    expect(deploymentsInstance.setEnv.mock.invocationCallOrder[0]).toBeLessThan(
+      deploymentsInstance.start.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("patches the launch environment on start when the agent reports no runtime at all", async () => {
+    const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8 };
+    deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPED" });
+    deploymentsInstance.start.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.setEnv).toHaveBeenCalledWith(
+      "agent-123",
+      "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN",
+      window.location.origin,
+    );
   });
 
   it("returns an already-running accepted start without opening another wait", async () => {

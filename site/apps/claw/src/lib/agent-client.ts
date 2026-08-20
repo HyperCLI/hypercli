@@ -425,14 +425,16 @@ export async function requestAgentStart(
       { statusCode: 409 },
     );
   }
-  const runtime = current.runtime?.trim().toLowerCase();
-  if (current.state.toUpperCase() === "STOPPED" && (runtime === "openclaw" || runtime === "openclaw-pro")) {
-    const origin = currentControlUiOrigin();
-    if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
-    // This mutation is deliberately separate from start timeout reconciliation:
-    // a failed or ambiguous origin update must never be mistaken for an admitted start.
-    await agentClient.setEnv(current.id, CONTROL_UI_ALLOWED_ORIGIN_ENV, origin);
-  }
+  // Every start re-injects the origin of the dashboard doing the starting. This
+  // used to be gated on runtime being openclaw/openclaw-pro, but managed
+  // deployments carry the Agent.runtime column default of "generic", so the
+  // guard was never true in production and the origin stayed frozen at whatever
+  // dashboard created the agent -- locking every other dashboard out for good.
+  const origin = currentControlUiOrigin();
+  if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
+  // This mutation is deliberately separate from start timeout reconciliation:
+  // a failed or ambiguous origin update must never be mistaken for an admitted start.
+  await agentClient.setEnv(current.id, CONTROL_UI_ALLOWED_ORIGIN_ENV, origin);
   let accepted: SdkAgent;
   try {
     accepted = await agentClient.start(agentId);
