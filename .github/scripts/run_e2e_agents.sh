@@ -31,7 +31,7 @@ on_exit() {
     trap - EXIT
     echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
     echo "Claw: ${TEST_BASE_URL}" >&2
-    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-subscription.spec.ts" >&2
+    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-e2e.spec.ts" >&2
     tail -f /dev/null
   fi
   cleanup
@@ -228,48 +228,19 @@ cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
+# One spec, one journey: the whole user flow clicked through the real frontend
+# (trial -> create -> chat -> stop -> delete) on the identity the workflow
+# bootstrapped. The old battery of mocked suites lived here; it was retired
+# deliberately -- this run exists to prove a commit does not nuke the flow.
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
   --project=chromium \
   --max-failures=1 \
   --workers=1 \
-  tests/claw/agents-e2e-contract.spec.ts \
-  tests/claw/agents-subscription.spec.ts
-lifecycle_status=$?
-
-desktop_status=0
-if [[ ${lifecycle_status} -eq 0 ]]; then
-  npx playwright test \
-    --config tests/claw/playwright.config.ts \
-    --project=chromium \
-    --max-failures=1 \
-    --workers=1 \
-    tests/claw/agents-deployment-events.spec.ts \
-    tests/claw/agents-archived-lifecycle.spec.ts \
-    tests/claw/agents-launch-helper.spec.ts \
-    tests/claw/dev-agent-setup-deployment-events.spec.ts \
-    tests/claw/agents-chat-navigation.spec.ts
-  desktop_status=$?
-fi
-
-mobile_status=0
-if [[ ${lifecycle_status} -eq 0 && ${desktop_status} -eq 0 ]]; then
-  npx playwright test \
-    --config tests/claw/playwright.config.ts \
-    --project=mobile-chromium \
-    --max-failures=1 \
-    --workers=1 \
-    tests/claw/agents-anonymous-onboarding-mobile.spec.ts \
-    tests/claw/agents-mobile.spec.ts
-  mobile_status=$?
-fi
+  tests/claw/agents-e2e.spec.ts
+status=$?
 set -e
-
-status=0
-if [[ ${lifecycle_status} -ne 0 || ${desktop_status} -ne 0 || ${mobile_status} -ne 0 ]]; then
-  status=1
-fi
 
 if [[ ${status} -ne 0 ]]; then
   sync_artifacts

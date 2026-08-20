@@ -99,10 +99,14 @@ def test_cleanup_attempts_both_projections_when_hyperclaw_delete_fails(
     errors = MODULE.cleanup(state, admin_key="admin-key")
 
     assert calls == [
+        "https://api.agents.dev.hypercli.com/admin/agents",
         f"https://api.agents.dev.hypercli.com/admin/users/{user_id}",
         f"https://api.dev.hypercli.com/api/admin/users/{user_id}",
     ]
-    assert errors == ["HyperClaw cleanup failed: agents delete failed"]
+    assert errors == [
+        "agent listing failed: agents delete failed",
+        "HyperClaw cleanup failed: agents delete failed",
+    ]
 
 
 def test_cleanup_waits_for_stopping_agents_before_deleting_user(
@@ -121,6 +125,8 @@ def test_cleanup_waits_for_stopping_agents_before_deleting_user(
 
     def fake_request(method, url, **kwargs):
         calls.append(url)
+        if url.endswith("/admin/agents"):
+            return MODULE.Response(200, {"items": []}, "")
         if "api.agents.dev" in url and calls.count(url) == 1:
             return MODULE.Response(
                 409,
@@ -141,11 +147,70 @@ def test_cleanup_waits_for_stopping_agents_before_deleting_user(
 
     assert errors == []
     assert calls == [
+        "https://api.agents.dev.hypercli.com/admin/agents",
         f"https://api.agents.dev.hypercli.com/admin/users/{user_id}",
         f"https://api.agents.dev.hypercli.com/admin/users/{user_id}",
         f"https://api.dev.hypercli.com/api/admin/users/{user_id}",
     ]
     assert sleeps == [MODULE.CLEANUP_SETTLE_DELAY_SECONDS]
+
+
+def test_cleanup_deletes_owned_agents_before_the_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = str(uuid.uuid4())
+    state = MODULE.BootstrapState(
+        orchestra_api_base="https://api.dev.hypercli.com/api",
+        agents_admin_base="https://api.agents.dev.hypercli.com",
+        orchestra_user_id=user_id,
+        hyperclaw_user_id=user_id,
+        email="fresh@example.com",
+    )
+    calls: list[tuple[str, str]] = []
+
+    def fake_request(method, url, **kwargs):
+        calls.append((method, url))
+        if url.endswith("/admin/agents"):
+            return MODULE.Response(200, {"items": [{"id": "agent-1"}, {"id": "agent-2"}]}, "")
+        return MODULE.Response(204, {}, "")
+
+    monkeypatch.setattr(MODULE, "_request", fake_request)
+
+    errors = MODULE.cleanup(state, admin_key="admin-key")
+
+    assert errors == []
+    assert calls[:3] == [
+        ("GET", "https://api.agents.dev.hypercli.com/admin/agents"),
+        ("DELETE", "https://api.agents.dev.hypercli.com/admin/deployments/agent-1"),
+        ("DELETE", "https://api.agents.dev.hypercli.com/admin/deployments/agent-2"),
+    ]
+
+
+def test_login_token_mints_the_identity_session_jwt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user_id = str(uuid.uuid4())
+    state = MODULE.BootstrapState(
+        orchestra_api_base="https://api.dev.hypercli.com/api",
+        agents_admin_base="https://api.agents.dev.hypercli.com",
+        orchestra_user_id=user_id,
+        hyperclaw_user_id=user_id,
+        email="fresh@example.com",
+    )
+    calls: list[tuple[str, str, dict | None]] = []
+
+    def fake_request(method, url, *, params=None, **kwargs):
+        calls.append((method, url, params))
+        return MODULE.Response(200, {"token": "jwt-abc"}, "")
+
+    monkeypatch.setattr(MODULE, "_request", fake_request)
+
+    token = MODULE.login_token(state, admin_key="admin-key")
+
+    assert token == "jwt-abc"
+    assert calls == [
+        ("GET", "https://api.dev.hypercli.com/api/admin/auth/login", {"user_id": user_id}),
+    ]
 
 
 def test_partial_bootstrap_failure_removes_orchestra_projection(

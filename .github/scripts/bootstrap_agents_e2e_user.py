@@ -186,6 +186,64 @@ def _lookup_hyperclaw_user_id(
     return str(raw)
 
 
+def _delete_user_agents(state: BootstrapState, *, admin_key: str) -> list[str]:
+    """Delete the identity's Agents by id, mirroring the admin SDK's shapes.
+
+    GET /admin/agents?user_id=... then DELETE /admin/deployments/{id}. Without
+    this, user deletion 409s until the settle loop below times out, and a run
+    that died mid-flight strands its Agents entirely.
+    """
+    errors: list[str] = []
+    try:
+        response = _request(
+            "GET",
+            f"{state.agents_admin_base}/admin/agents",
+            admin_key=admin_key,
+            params={"user_id": state.orchestra_user_id},
+            expected=(200, 404),
+        )
+        payload = response.payload if isinstance(response.payload, dict) else {}
+        items = payload.get("items") if isinstance(payload.get("items"), list) else []
+        for agent in items:
+            agent_id = agent.get("id") if isinstance(agent, dict) else None
+            if not agent_id:
+                continue
+            try:
+                _request(
+                    "DELETE",
+                    f"{state.agents_admin_base}/admin/deployments/{agent_id}",
+                    admin_key=admin_key,
+                    expected=(200, 202, 204, 404, 410),
+                )
+            except Exception as error:
+                errors.append(f"agent {agent_id} delete failed: {error}")
+    except Exception as error:
+        errors.append(f"agent listing failed: {error}")
+    return errors
+
+
+def login_token(state: BootstrapState, *, admin_key: str | None = None) -> str:
+    """Mint the identity's session JWT: GET /admin/auth/login?user_id=...
+
+    This is what lets the E2E skip Privy entirely -- the token goes wherever
+    the app's own login would have put it.
+    """
+    key = (admin_key or os.getenv("BACKEND_API_KEY", "")).strip()
+    if not key:
+        raise RuntimeError("BACKEND_API_KEY is required to mint a login token")
+    response = _request(
+        "GET",
+        f"{state.orchestra_api_base}/admin/auth/login",
+        admin_key=key,
+        params={"user_id": state.orchestra_user_id},
+    )
+    payload = response.payload if isinstance(response.payload, dict) else {}
+    token = payload.get("token")
+    if not token:
+        raise RuntimeError("Admin auth login returned no token")
+    return str(token)
+
+
 def cleanup(state: BootstrapState, *, admin_key: str | None = None) -> list[str]:
     """Best-effort cleanup that always attempts both product projections."""
     key = (admin_key or os.getenv("BACKEND_API_KEY", "")).strip()
@@ -193,6 +251,7 @@ def cleanup(state: BootstrapState, *, admin_key: str | None = None) -> list[str]
         return ["BACKEND_API_KEY is required for cleanup"]
 
     errors: list[str] = []
+    errors.extend(_delete_user_agents(state, admin_key=key))
     if state.hyperclaw_user_id:
         try:
             response: Response | None = None
@@ -343,6 +402,9 @@ def main() -> int:
 
     cleanup_parser = commands.add_parser("cleanup")
     cleanup_parser.add_argument("--state-file", required=True)
+
+    login_parser = commands.add_parser("login")
+    login_parser.add_argument("--state-file", required=True)
     args = parser.parse_args()
 
     if args.command == "bootstrap":
@@ -356,6 +418,11 @@ def main() -> int:
         if args.github_env_file:
             _append_github_env(args.github_env_file, values)
         print(json.dumps({**values, **asdict(state)}))
+        return 0
+
+    if args.command == "login":
+        state = _load_state_file(args.state_file)
+        print(json.dumps({"TEST_EMAIL": state.email, "TEST_USER_TOKEN": login_token(state)}))
         return 0
 
     state = _load_state_file(args.state_file)
