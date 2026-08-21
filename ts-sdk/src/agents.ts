@@ -1503,7 +1503,7 @@ export interface AgentStateFields {
   startedAt?: Date | null;
   stoppedAt?: Date | null;
   archivedAt?: Date | null;
-  archivePath?: string | null;
+  archivePrefix?: string | null;
   deletedAt?: Date | null;
   disconnectedAt?: Date | null;
   agentSlotId?: string | null;
@@ -1544,7 +1544,7 @@ export interface AgentHydrationData {
   started_at?: string | null;
   stopped_at?: string | null;
   archived_at?: string | null;
-  archive_path?: string | null;
+  archive_prefix?: string | null;
   deleted_at?: string | null;
   disconnected_at?: string | null;
   agent_slot_id?: string | null;
@@ -2053,8 +2053,8 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     archivedAt: parseDate(data.archived_at),
     // Independently nullable from archivedAt: SPEC has a new Agent with
     // neither, an ARCHIVED Agent with both, and a restored Agent with a
-    // path but no archivedAt. Dropping it made that tri-state unreadable.
-    archivePath: typeof data.archive_path === 'string' ? data.archive_path : null,
+    // prefix but no archivedAt. Dropping it made that tri-state unreadable.
+    archivePrefix: typeof data.archive_prefix === 'string' ? data.archive_prefix : null,
     deletedAt: parseDate(data.deleted_at),
     disconnectedAt: parseDate(data.disconnected_at),
     agentSlotId: typeof data.agent_slot_id === 'string' ? data.agent_slot_id : null,
@@ -2662,7 +2662,7 @@ export class Agent {
   public readonly startedAt: Date | null;
   public readonly stoppedAt: Date | null;
   public readonly archivedAt: Date | null;
-  public readonly archivePath: string | null;
+  public readonly archivePrefix: string | null;
   public readonly deletedAt: Date | null;
   public readonly disconnectedAt: Date | null;
   public readonly agentSlotId: string | null;
@@ -2703,7 +2703,7 @@ export class Agent {
     this.startedAt = fields.startedAt ?? null;
     this.stoppedAt = fields.stoppedAt ?? null;
     this.archivedAt = fields.archivedAt ?? null;
-    this.archivePath = fields.archivePath ?? null;
+    this.archivePrefix = fields.archivePrefix ?? null;
     this.deletedAt = fields.deletedAt ?? null;
     this.disconnectedAt = fields.disconnectedAt ?? null;
     this.agentSlotId = fields.agentSlotId ?? null;

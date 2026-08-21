@@ -1052,11 +1052,11 @@ pub struct Deployment {
     #[serde(default)]
     pub archived_at: Option<String>,
     /// Independently nullable from `archived_at`: a new Agent has neither, an
-    /// ARCHIVED Agent has both, and a restored Agent may carry a path with no
+    /// ARCHIVED Agent has both, and a restored Agent may carry a prefix with no
     /// `archived_at`. That tri-state is the archive contract, and it cannot be
     /// read at all if this field is dropped.
     #[serde(default)]
-    pub archive_path: Option<String>,
+    pub archive_prefix: Option<String>,
     /// Set at DELETE admission. The Backend hides a soft-deleted Agent from its
     /// owner, so a client observes deletion as absence rather than by reading
     /// this back; it is the Backend's own bookkeeping for driving the evict.

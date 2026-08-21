@@ -80,6 +80,19 @@ def test_agent_from_dict_minimal():
     assert agent.managed is None
 
 
+def test_agent_from_dict_hydrates_archive_prefix():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "state": "ARCHIVED",
+            "archive_prefix": "backup-20260821/user-456/agent-123",
+        }
+    )
+
+    assert agent.archive_prefix == "backup-20260821/user-456/agent-123"
+
+
 def test_agent_from_dict_hydrates_meta_status_without_state_change():
     agent = Agent.from_dict(
         {

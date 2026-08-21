@@ -80,6 +80,16 @@ describe('Agents SDK', () => {
     expect(agent.meta?.other).toBe('preserved');
   });
 
+  it('hydrates archive prefix', () => {
+    const agent = Agent.fromDict({
+      id: 'agent-1',
+      state: 'ARCHIVED',
+      archive_prefix: 'backup-20260821/user-1/agent-1',
+    });
+
+    expect(agent.archivePrefix).toBe('backup-20260821/user-1/agent-1');
+  });
+
   it('types import status deployment events', () => {
     const event: DeploymentEvent = {
       type: 'deployment.import_status',
