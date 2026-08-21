@@ -3310,7 +3310,7 @@ class Deployments:
         request: dict[str, Any] | None = None,
         timeout: float,
     ) -> object:
-        from websockets.exceptions import ConnectionClosed
+        from websockets.exceptions import ConnectionClosed, WebSocketException
         from websockets.sync.client import connect
 
         token_data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/{purpose}/token")
@@ -3363,6 +3363,10 @@ class Deployments:
             suffix = f": {reason}" if reason else ""
             raise RuntimeError(
                 f"Agent {purpose} WebSocket closed before its result with code {code}{suffix}"
+            ) from exc
+        except (TimeoutError, OSError, WebSocketException) as exc:
+            raise RuntimeError(
+                f"Agent {purpose} WebSocket connection failed: {exc}"
             ) from exc
 
     # -----------------------------------------------------------------------

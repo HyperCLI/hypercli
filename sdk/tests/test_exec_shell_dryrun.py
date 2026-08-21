@@ -270,6 +270,25 @@ def test_agents_metrics_mints_token_sends_no_frame_and_returns_exact_result(monk
     assert socket.sent == []
 
 
+def test_agents_exec_wraps_websocket_connect_failures(monkeypatch):
+    from websockets.exceptions import InvalidURI
+
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    monkeypatch.setattr(
+        agents,
+        "_post",
+        lambda path, json=None: _agent_token("agent-1", "exec"),
+    )
+
+    def fake_connect(url, **kwargs):
+        raise InvalidURI(url, "route not ready")
+
+    monkeypatch.setattr("websockets.sync.client.connect", fake_connect)
+
+    with pytest.raises(RuntimeError, match="Agent exec WebSocket connection failed"):
+        agents.exec("agent-1", ["true"])
+
+
 @pytest.mark.parametrize(
     ("frames", "close_code", "close_reason", "error"),
     [
