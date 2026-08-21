@@ -4852,11 +4852,17 @@ export class Deployments {
     const parsed = new URL(token.ws_url);
     parsed.searchParams.set('jwt', token.jwt);
     const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
-    const ws = new WebSocketImpl(parsed.toString());
+    let ws: WebSocket;
+    try {
+      ws = new WebSocketImpl(parsed.toString());
+    } catch (error) {
+      throw new Error(`Agent ${purpose} WebSocket connection failed`, { cause: error });
+    }
 
     return await new Promise<unknown>((resolve, reject) => {
       let opened = false;
       let settled = false;
+      let socketError: Error | undefined;
       let result: unknown;
       let resultCount = 0;
       const timer = setTimeout(() => {
@@ -4907,8 +4913,19 @@ export class Deployments {
           );
         }
       };
-      ws.onerror = () => undefined;
+      ws.onerror = (event: unknown) => {
+        const socketEvent = event as unknown as { error?: unknown };
+        const error = typeof socketEvent.error === 'object'
+          && socketEvent.error instanceof Error
+          ? socketEvent.error
+          : undefined;
+        socketError = new Error(`Agent ${purpose} WebSocket connection failed`, { cause: error });
+      };
       ws.onclose = (event: { code: number; reason: string }) => {
+        if (socketError) {
+          finish(socketError);
+          return;
+        }
         if (event.code !== 1000) {
           const reason = event.reason ? `: ${event.reason}` : '';
           finish(new Error(`Agent ${purpose} WebSocket closed with code ${event.code}${reason}`));

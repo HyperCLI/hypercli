@@ -1851,11 +1851,16 @@ mod tests {
             BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
                 .apply_to(&mut request, None)
                 .unwrap();
-            assert_eq!(
-                request.sync_include,
-                Some(expected.into_iter().map(str::to_owned).collect())
-            );
-            assert_eq!(request.sync_exclude, None);
+            if runtime == ManagedRuntime::BuzzAgent {
+                assert_eq!(request.sync_include, None);
+                assert_eq!(request.sync_exclude, Some(Vec::new()));
+            } else {
+                assert_eq!(
+                    request.sync_include,
+                    Some(expected.into_iter().map(str::to_owned).collect())
+                );
+                assert_eq!(request.sync_exclude, None);
+            }
         }
 
         let mut custom = CreateDeploymentRequest::new(ManagedRuntime::Codex);

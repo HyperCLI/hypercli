@@ -367,11 +367,15 @@ impl HyperCliClient {
             if let Some(v) = request {
                 s.send(Message::Text(v.to_string().into()))
                     .await
-                    .map_err(|e| HyperCliError::Transport(e.to_string()))?
+                    .map_err(|_| {
+                        HyperCliError::Transport("operation websocket connection failed".into())
+                    })?
             }
             let mut out = None;
             while let Some(m) = s.next().await {
-                match m.map_err(|e| HyperCliError::Transport(e.to_string()))? {
+                match m.map_err(|_| {
+                    HyperCliError::Transport("operation websocket connection failed".into())
+                })? {
                     Message::Text(v) if out.is_none() => {
                         out = Some(
                             serde_json::from_str(v.as_ref())
@@ -393,10 +397,9 @@ impl HyperCliClient {
                             HyperCliError::InvalidResponse("missing operation frame".into())
                         });
                     }
-                    Message::Ping(v) => s
-                        .send(Message::Pong(v))
-                        .await
-                        .map_err(|e| HyperCliError::Transport(e.to_string()))?,
+                    Message::Ping(v) => s.send(Message::Pong(v)).await.map_err(|_| {
+                        HyperCliError::Transport("operation websocket connection failed".into())
+                    })?,
                     _ => {}
                 }
             }

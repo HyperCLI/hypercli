@@ -1164,6 +1164,35 @@ describe('HyperClaw agents SDK', () => {
     expect(result.stderr).toBe('warning\n');
   });
 
+  it('exec wraps one-shot websocket connection failures', async () => {
+    class FailingWebSocket {
+      public onopen: (() => void) | null = null;
+      public onmessage: ((event: { data: unknown }) => void) | null = null;
+      public onerror: ((event: unknown) => void) | null = null;
+      public onclose: ((event: { code: number; reason: string }) => void) | null = null;
+      public close = vi.fn();
+
+      constructor(public readonly url: string) {
+        queueMicrotask(() => {
+          this.onerror?.({});
+          this.onclose?.({ code: 1006, reason: '' });
+        });
+      }
+
+      send() {
+        throw new Error('send should not happen before open');
+      }
+    }
+    vi.stubGlobal('WebSocket', FailingWebSocket as any);
+    const post = vi.fn().mockResolvedValue(operationToken('agent-1', 'exec'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.exec('agent-1', ['true'])).rejects.toThrow(
+      'Agent exec WebSocket connection failed',
+    );
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/exec/token');
+  });
+
   it.each([
     'pwd',
     [],
