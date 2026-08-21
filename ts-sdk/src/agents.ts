@@ -59,14 +59,10 @@ import type {
   OpenClawWhatsAppConfigPatch,
 } from './openclaw/channels.js';
 import {
-  assertHostedSlackLaunchEnvComplete,
-  buildHostedSlackLaunchEnv,
   buildHostedSlackRelayChannelConfig,
-  HOSTED_SLACK_APP_ENABLED_ENV,
   HOSTED_SLACK_GATEWAY_ID_ENV,
   HOSTED_SLACK_LAUNCH_ENV_KEYS,
-  hostedSlackEnvEnabled,
-  hostedSlackGatewayIdForAgent,
+  HostedSlackLaunchEnv,
   normalizeSlackRelayBaseUrl,
 } from './channels.js';
 import type {
@@ -2395,12 +2391,12 @@ function prepareOpenClawLaunch(
     }
     // With no gateway id the set stays absent entirely: a stored launch env
     // that enables Slack without one is exactly the state that kills the pod.
-    if (gatewayId) Object.assign(env, buildHostedSlackLaunchEnv({ relayBaseUrl, gatewayId }));
+    if (gatewayId) Object.assign(env, HostedSlackLaunchEnv.build({ relayBaseUrl, gatewayId }));
     slack = { enabled: true, relayBaseUrl, gatewayId };
   } else {
-    assertHostedSlackLaunchEnvComplete(env, 'createOpenClaw env');
+    HostedSlackLaunchEnv.assertComplete(env, 'createOpenClaw env');
     slack = {
-      enabled: hostedSlackEnvEnabled(env[HOSTED_SLACK_APP_ENABLED_ENV]),
+      enabled: HostedSlackLaunchEnv.isEnabled(env),
       relayBaseUrl: null,
       gatewayId: env[HOSTED_SLACK_GATEWAY_ID_ENV]?.trim() || null,
     };
@@ -4691,18 +4687,18 @@ export class Deployments {
       );
     const gatewayId = ready.gatewayId?.trim()
       || agent.gatewayId?.trim()
-      || hostedSlackGatewayIdForAgent(ready.id || agent.id);
+      || HostedSlackLaunchEnv.gatewayIdForAgent(ready.id || agent.id);
     const launchConfig: Record<string, any> = { ...(ready.launchConfig ?? {}) };
     launchConfig.env = {
       ...(isPlainRecord(launchConfig.env) ? launchConfig.env : {}),
-      ...buildHostedSlackLaunchEnv({ relayBaseUrl, gatewayId }),
+      ...HostedSlackLaunchEnv.build({ relayBaseUrl, gatewayId }),
     };
     launchConfig.config = withHostedSlackRelayChannelConfig(launchConfig.config, { relayBaseUrl, gatewayId });
     const updated = await this.update(ready.id, { launchConfig });
     const storedEnv: Record<string, string | undefined> = isPlainRecord(updated.launchConfig?.env)
       ? updated.launchConfig.env as Record<string, string | undefined>
       : {};
-    assertHostedSlackLaunchEnvComplete(storedEnv, 'createOpenClaw stored launch env');
+    HostedSlackLaunchEnv.assertComplete(storedEnv, 'createOpenClaw stored launch env');
     const missing = HOSTED_SLACK_LAUNCH_ENV_KEYS.filter((key) => !String(storedEnv[key] ?? '').trim());
     if (missing.length) {
       throw new Error(
@@ -5557,13 +5553,8 @@ export class Deployments {
     if (gatewayToken) launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
     // Repair records written before the SDK owned this set: the gateway id is
     // the Backend's own derivation from the Agent id, known here.
-    if (
-      hostedSlackEnvEnabled(launchConfig.env[HOSTED_SLACK_APP_ENABLED_ENV])
-      && !String(launchConfig.env[HOSTED_SLACK_GATEWAY_ID_ENV] ?? '').trim()
-    ) {
-      launchConfig.env[HOSTED_SLACK_GATEWAY_ID_ENV] = hostedSlackGatewayIdForAgent(agentId);
-    }
-    assertHostedSlackLaunchEnvComplete(launchConfig.env, 'startOpenClaw launch env');
+    HostedSlackLaunchEnv.repairForAgent(launchConfig.env, { agentId });
+    HostedSlackLaunchEnv.assertComplete(launchConfig.env, 'startOpenClaw launch env');
     const agent = await this.start(agentId, {
       launchConfig,
       dryRun: options.dryRun,

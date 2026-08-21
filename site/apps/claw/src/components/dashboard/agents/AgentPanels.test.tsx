@@ -117,6 +117,7 @@ const sdkMocks = vi.hoisted(() => ({
 }));
 
 const agentClientMocks = vi.hoisted(() => ({
+  startAgent: vi.fn(async () => undefined),
   waitForCreatedAgentStopped: vi.fn(async (client: { waitForState: (...args: unknown[]) => Promise<unknown> }, created: { id: string }) => (
     client.waitForState(created.id, ["STOPPED"])
   )),
@@ -151,6 +152,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 vi.mock("@/lib/agent-client", () => ({
   createAgentClient: agentClientMocks.createAgentClient,
+  startAgent: agentClientMocks.startAgent,
   waitForCreatedAgentStopped: agentClientMocks.waitForCreatedAgentStopped,
   createBrowserHyperCLIClient: vi.fn(() => ({
     user: {
@@ -169,6 +171,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   vi.clearAllMocks();
+  agentClientMocks.startAgent.mockResolvedValue(undefined);
   sdkMocks.userGet.mockResolvedValue({
     userId: "user-1234567890abcdef",
     email: "test@example.com",
@@ -718,11 +721,10 @@ describe("AgentList", () => {
       operations.push("wait-stopped");
       return { id: "created-agent", state: "STOPPED" };
     });
-    const start = vi.fn(async () => {
+    agentClientMocks.startAgent.mockImplementation(async () => {
       operations.push("start");
-      return { state: "RUNNING", waitRunning: vi.fn(async () => undefined) };
     });
-    agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes, waitForState, start });
+    agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes, waitForState });
     const fetchAgents = vi.fn(async () => {
       operations.push("refresh");
       return true;
@@ -748,11 +750,11 @@ describe("AgentList", () => {
     );
     expect(fileWriteBytes.mock.calls[0]).toHaveLength(3);
     expect(waitForState).toHaveBeenCalledWith("created-agent", ["STOPPED"]);
-    expect(start).toHaveBeenCalledWith("created-agent");
-    expect(start).toHaveBeenCalledOnce();
+    expect(agentClientMocks.startAgent).toHaveBeenCalledWith(expect.any(String), "created-agent");
+    expect(agentClientMocks.startAgent).toHaveBeenCalledOnce();
     // The workspace write route only answers once the deployment's pod is
     // ready, so the preseed runs alongside the start rather than gating it.
-    expect(operations).toEqual(["create-creating", "wait-stopped", "refresh", "start", "preseed", "refresh"]);
+    expect(operations).toEqual(["create-creating", "wait-stopped", "refresh", "refresh", "start", "preseed", "refresh"]);
   });
 
   it("associates a created agent before selecting it", async () => {
@@ -763,6 +765,9 @@ describe("AgentList", () => {
     });
     const associateCreatedAgent = vi.fn(async () => {
       operations.push("associate");
+    });
+    agentClientMocks.startAgent.mockImplementation(async () => {
+      operations.push("start");
     });
     const fetchAgents = vi.fn(async () => {
       operations.push("refresh");
@@ -781,7 +786,7 @@ describe("AgentList", () => {
 
     await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
     expect(associateCreatedAgent).toHaveBeenCalledWith("created-agent", "knowledge-collection-1");
-    expect(operations).toEqual(["create", "refresh", "associate", "refresh"]);
+    expect(operations).toEqual(["create", "refresh", "associate", "refresh", "start", "refresh"]);
   });
 
   it("does not select an agent when Collection association fails", async () => {

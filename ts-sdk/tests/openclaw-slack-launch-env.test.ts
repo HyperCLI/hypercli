@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { Agent, Deployments } from '../src/agents.js';
 import {
-  assertHostedSlackLaunchEnvComplete,
-  buildHostedSlackLaunchEnv,
-  hostedSlackGatewayIdForAgent,
+  HostedSlackLaunchEnv,
 } from '../src/channels.js';
 
 const RELAY_BASE = 'https://api.agents.dev.hypercli.com';
@@ -62,7 +60,7 @@ function deploymentsWith(handlers: {
 
 describe('hosted Slack launch env', () => {
   it('builds the complete four-key set the entrypoint requires', () => {
-    expect(buildHostedSlackLaunchEnv({ relayBaseUrl: RELAY_BASE, agentId: AGENT_ID })).toEqual({
+    expect(HostedSlackLaunchEnv.build({ relayBaseUrl: RELAY_BASE, agentId: AGENT_ID })).toEqual({
       HYPER_SLACK_APP_ENABLED: '1',
       HYPER_SLACK_RELAY_URL: RELAY_WS,
       HYPER_SLACK_API_URL: RELAY_API,
@@ -71,23 +69,36 @@ describe('hosted Slack launch env', () => {
   });
 
   it('derives the gateway id the Backend derives', () => {
-    expect(hostedSlackGatewayIdForAgent(AGENT_ID)).toBe(`agent:${AGENT_ID}`);
-    expect(hostedSlackGatewayIdForAgent(`agent:${AGENT_ID}`)).toBe(`agent:${AGENT_ID}`);
-    expect(() => hostedSlackGatewayIdForAgent('  ')).toThrow('requires an agent id');
+    expect(HostedSlackLaunchEnv.gatewayIdForAgent(AGENT_ID)).toBe(`agent:${AGENT_ID}`);
+    expect(HostedSlackLaunchEnv.gatewayIdForAgent(`agent:${AGENT_ID}`)).toBe(`agent:${AGENT_ID}`);
+    expect(() => HostedSlackLaunchEnv.gatewayIdForAgent('  ')).toThrow('requires an agent id');
   });
 
   it('reports every missing companion at once', () => {
-    expect(() => assertHostedSlackLaunchEnvComplete({ HYPER_SLACK_APP_ENABLED: '1' }))
+    expect(() => HostedSlackLaunchEnv.assertComplete({ HYPER_SLACK_APP_ENABLED: '1' }))
       .toThrow(/HYPER_SLACK_RELAY_URL, HYPER_SLACK_API_URL, HYPER_SLACK_GATEWAY_ID/);
-    expect(() => assertHostedSlackLaunchEnvComplete({
+    expect(() => HostedSlackLaunchEnv.assertComplete({
       HYPER_SLACK_APP_ENABLED: 'true',
       HYPER_SLACK_RELAY_URL: RELAY_WS,
       HYPER_SLACK_API_URL: RELAY_API,
     })).toThrow(/HYPER_SLACK_GATEWAY_ID/);
-    expect(() => assertHostedSlackLaunchEnvComplete({
+    expect(() => HostedSlackLaunchEnv.assertComplete({
       HYPER_SLACK_APP_ENABLED: '0',
       HYPER_SLACK_RELAY_URL: RELAY_WS,
     })).not.toThrow();
+  });
+
+  it('repairs legacy enabled env with the gateway id for the Agent', () => {
+    const env = {
+      HYPER_SLACK_APP_ENABLED: '1',
+      HYPER_SLACK_RELAY_URL: RELAY_WS,
+      HYPER_SLACK_API_URL: RELAY_API,
+    };
+
+    expect(HostedSlackLaunchEnv.repairForAgent(env, { agentId: AGENT_ID })).toMatchObject({
+      HYPER_SLACK_GATEWAY_ID: `agent:${AGENT_ID}`,
+    });
+    expect(() => HostedSlackLaunchEnv.assertComplete(env)).not.toThrow();
   });
 
   it('createOpenClaw completes the Slack env after the Agent id exists', async () => {
@@ -166,7 +177,7 @@ describe('hosted Slack launch env', () => {
 
     await deployments.createOpenClaw({
       name: 'test-agent',
-      env: buildHostedSlackLaunchEnv({ relayBaseUrl: RELAY_BASE, agentId: AGENT_ID }),
+      env: HostedSlackLaunchEnv.build({ relayBaseUrl: RELAY_BASE, agentId: AGENT_ID }),
     });
 
     expect(post.mock.calls[0]?.[1]?.env).toMatchObject({

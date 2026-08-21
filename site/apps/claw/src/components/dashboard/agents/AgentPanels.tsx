@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
-import { buildHostedSlackLaunchEnv, HOSTED_SLACK_LAUNCH_ENV_KEYS } from "@hypercli.com/sdk/channels";
+import { HostedSlackLaunchEnv } from "@hypercli.com/sdk/channels";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { Button, Input, Switch, writeClipboardText } from "@hypercli/shared-ui";
 
@@ -623,8 +623,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 const OPENCLAW_GATEWAY_TOKEN_ENV = "OPENCLAW_GATEWAY_TOKEN";
-const SLACK_APP_ENABLED_ENV = "HYPER_SLACK_APP_ENABLED";
-const RESERVED_SLACK_LAUNCH_ENV_KEYS = new Set<string>(HOSTED_SLACK_LAUNCH_ENV_KEYS);
+const RESERVED_SLACK_LAUNCH_ENV_KEYS = new Set<string>(HostedSlackLaunchEnv.keys);
 
 const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "HYPER_API_BASE",
@@ -848,9 +847,7 @@ function buildUpdatedLaunchConfig(
   for (const key of RESERVED_SLACK_LAUNCH_ENV_KEYS) delete launchEnv[key];
   if (slackEnabled) {
     if (!SLACK_RELAY_BASE_URL) throw new Error("Slack is unavailable because the hosted relay is not configured.");
-    // The Agent exists here, so the gateway id is known: use the SDK builder
-    // rather than a local copy that can omit a key the pod needs to boot.
-    Object.assign(launchEnv, buildHostedSlackLaunchEnv({
+    Object.assign(launchEnv, HostedSlackLaunchEnv.build({
       relayBaseUrl: SLACK_RELAY_BASE_URL,
       gatewayId: agent.gatewayId,
       agentId: agent.id,
@@ -893,7 +890,7 @@ function getDesktopEnabled(agent: Agent | null): boolean {
 }
 
 function getSlackEnabled(agent: Agent | null): boolean {
-  return envBooleanFromString(launchConfigEnv(agent)[SLACK_APP_ENABLED_ENV], false);
+  return HostedSlackLaunchEnv.isEnabled(launchConfigEnv(agent));
 }
 
 function getWorkspacesSyncSettings(agent: Agent | null): WorkspacesSyncSettings {

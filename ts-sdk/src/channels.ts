@@ -272,22 +272,80 @@ export interface HostedSlackLaunchEnvOptions {
   agentId?: string | null;
 }
 
+export type HostedSlackLaunchEnvMap = Record<typeof HOSTED_SLACK_LAUNCH_ENV_KEYS[number], string>;
+
+export interface HostedSlackLaunchEnvRepairOptions {
+  agentId: string;
+}
+
 /**
- * Build the complete hosted Slack launch environment.
+ * SDK mirror of the hosted Slack env contract enforced by the OpenClaw image.
  *
- * There is no partial mode on purpose: a launch env with
+ * There is no partial enabled mode on purpose: a launch env with
  * `HYPER_SLACK_APP_ENABLED` and a missing companion kills the pod at boot.
  */
-export function buildHostedSlackLaunchEnv(options: HostedSlackLaunchEnvOptions): Record<string, string> {
-  const gatewayId = options.gatewayId?.trim()
-    || (options.agentId?.trim() ? hostedSlackGatewayIdForAgent(options.agentId) : '');
-  if (!gatewayId) throw new Error('Slack relay gateway id requires an agent id');
-  return {
-    [HOSTED_SLACK_APP_ENABLED_ENV]: '1',
-    [HOSTED_SLACK_RELAY_URL_ENV]: buildSlackRelayWebSocketUrl(options.relayBaseUrl),
-    [HOSTED_SLACK_API_URL_ENV]: buildSlackRelayApiUrl(options.relayBaseUrl),
-    [HOSTED_SLACK_GATEWAY_ID_ENV]: gatewayId,
-  };
+export class HostedSlackLaunchEnv {
+  static readonly appEnabledKey = HOSTED_SLACK_APP_ENABLED_ENV;
+  static readonly relayUrlKey = HOSTED_SLACK_RELAY_URL_ENV;
+  static readonly apiUrlKey = HOSTED_SLACK_API_URL_ENV;
+  static readonly gatewayIdKey = HOSTED_SLACK_GATEWAY_ID_ENV;
+  static readonly keys = HOSTED_SLACK_LAUNCH_ENV_KEYS;
+  static readonly requiredCompanionKeys = HOSTED_SLACK_REQUIRED_COMPANION_ENV_KEYS;
+
+  static gatewayIdForAgent(agentId: string): string {
+    return hostedSlackGatewayIdForAgent(agentId);
+  }
+
+  static isEnabled(envOrValue: Record<string, string | undefined> | string | null | undefined): boolean {
+    if (typeof envOrValue === 'string' || envOrValue === null || envOrValue === undefined) {
+      return hostedSlackEnvEnabled(envOrValue);
+    }
+    return hostedSlackEnvEnabled(envOrValue[HOSTED_SLACK_APP_ENABLED_ENV]);
+  }
+
+  static build(options: HostedSlackLaunchEnvOptions): HostedSlackLaunchEnvMap {
+    const gatewayId = options.gatewayId?.trim()
+      || (options.agentId?.trim() ? hostedSlackGatewayIdForAgent(options.agentId) : '');
+    if (!gatewayId) throw new Error('Slack relay gateway id requires an agent id');
+    return {
+      [HOSTED_SLACK_APP_ENABLED_ENV]: '1',
+      [HOSTED_SLACK_RELAY_URL_ENV]: buildSlackRelayWebSocketUrl(options.relayBaseUrl),
+      [HOSTED_SLACK_API_URL_ENV]: buildSlackRelayApiUrl(options.relayBaseUrl),
+      [HOSTED_SLACK_GATEWAY_ID_ENV]: gatewayId,
+    };
+  }
+
+  static assertComplete(
+    env: Record<string, string | undefined> | null | undefined,
+    context = 'launch env',
+  ): void {
+    const values = env ?? {};
+    if (!HostedSlackLaunchEnv.isEnabled(values)) return;
+    const missing = HOSTED_SLACK_REQUIRED_COMPANION_ENV_KEYS
+      .filter((key) => !String(values[key] ?? '').trim());
+    if (!missing.length) return;
+    throw new Error(
+      `${context} sets ${HOSTED_SLACK_APP_ENABLED_ENV} without ${missing.join(', ')}; `
+      + 'the OpenClaw entrypoint refuses to boot without the complete hosted Slack set',
+    );
+  }
+
+  static repairForAgent(
+    env: Record<string, string | undefined>,
+    options: HostedSlackLaunchEnvRepairOptions,
+  ): Record<string, string | undefined> {
+    if (
+      HostedSlackLaunchEnv.isEnabled(env)
+      && !String(env[HOSTED_SLACK_GATEWAY_ID_ENV] ?? '').trim()
+    ) {
+      env[HOSTED_SLACK_GATEWAY_ID_ENV] = hostedSlackGatewayIdForAgent(options.agentId);
+    }
+    return env;
+  }
+}
+
+export function buildHostedSlackLaunchEnv(options: HostedSlackLaunchEnvOptions): HostedSlackLaunchEnvMap {
+  return HostedSlackLaunchEnv.build(options);
 }
 
 /**
@@ -300,15 +358,7 @@ export function assertHostedSlackLaunchEnvComplete(
   env: Record<string, string | undefined> | null | undefined,
   context = 'launch env',
 ): void {
-  const values = env ?? {};
-  if (!hostedSlackEnvEnabled(values[HOSTED_SLACK_APP_ENABLED_ENV])) return;
-  const missing = HOSTED_SLACK_REQUIRED_COMPANION_ENV_KEYS
-    .filter((key) => !String(values[key] ?? '').trim());
-  if (!missing.length) return;
-  throw new Error(
-    `${context} sets ${HOSTED_SLACK_APP_ENABLED_ENV} without ${missing.join(', ')}; `
-    + 'the OpenClaw entrypoint refuses to boot without the complete hosted Slack set',
-  );
+  HostedSlackLaunchEnv.assertComplete(env, context);
 }
 
 export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChannelConfigOptions): HostedSlackRelayChannelConfig {
