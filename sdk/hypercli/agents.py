@@ -1205,6 +1205,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": launch_config,
+        "meta": copy.deepcopy(meta) if meta else None,
         "meta_ui": copy.deepcopy(meta.get("ui")) if isinstance(meta.get("ui"), dict) else None,
         "routes": data.get("routes") or (launch_config or {}).get("routes") or {},
         "command": data.get("command") or (launch_config or {}).get("command") or [],
@@ -1832,14 +1833,18 @@ class AgentSlot:
 
 @dataclass(frozen=True)
 class DeploymentEvent:
-    """One persisted deployment transition received from Backend."""
+    """One user-facing deployment event received from Backend."""
 
     type: str
     agent_id: str
     state: str | None = None
+    status: str | None = None
+    namespace: str | None = None
+    observed_state: str | None = None
     reason: str | None = None
     error: str | None = None
     message: str | None = None
+    observed_at: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DeploymentEvent":
@@ -1847,9 +1852,15 @@ class DeploymentEvent:
             type=str(data.get("type") or ""),
             agent_id=str(data.get("agent_id") or ""),
             state=str(data["state"]) if data.get("state") else None,
+            status=str(data["status"]) if data.get("status") else None,
+            namespace=str(data["namespace"]) if data.get("namespace") else None,
+            observed_state=(
+                str(data["observed_state"]) if data.get("observed_state") else None
+            ),
             reason=str(data["reason"]) if data.get("reason") else None,
             error=str(data["error"]) if data.get("error") else None,
             message=str(data["message"]) if data.get("message") else None,
+            observed_at=str(data["observed_at"]) if data.get("observed_at") else None,
         )
 
 
@@ -1927,6 +1938,7 @@ class Agent:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
+    meta: Optional[dict] = None
     meta_ui: Optional[dict] = None
     routes: dict[str, dict] = field(default_factory=dict)
     command: list[str] = field(default_factory=list)
@@ -4113,7 +4125,11 @@ class Deployments:
                         except asyncio.TimeoutError:
                             continue
                         event = DeploymentEvent.from_dict(json.loads(raw))
-                        if event.type != "deployment.transition" or not event.agent_id:
+                        if (
+                            event.type
+                            not in {"deployment.transition", "deployment.import_status"}
+                            or not event.agent_id
+                        ):
                             continue
                         result = handler(event)
                         if inspect.isawaitable(result):

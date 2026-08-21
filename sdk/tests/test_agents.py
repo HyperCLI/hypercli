@@ -80,6 +80,55 @@ def test_agent_from_dict_minimal():
     assert agent.managed is None
 
 
+def test_agent_from_dict_hydrates_meta_status_without_state_change():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "state": "RUNNING",
+            "meta": {
+                "status": {
+                    "status": "error",
+                    "namespace": "prod-agent-example",
+                    "observed_state": None,
+                    "reason": "missing_bound_pvc",
+                    "message": "bounded detail",
+                    "observed_at": "2026-08-20T00:00:00Z",
+                },
+                "other": "preserved",
+            },
+        }
+    )
+
+    assert agent.state == "RUNNING"
+    assert agent.meta is not None
+    assert agent.meta["status"]["status"] == "error"
+    assert agent.meta["status"]["reason"] == "missing_bound_pvc"
+    assert agent.meta["other"] == "preserved"
+
+
+def test_deployment_event_hydrates_import_status_fields():
+    event = DeploymentEvent.from_dict(
+        {
+            "type": "deployment.import_status",
+            "agent_id": "agent-123",
+            "status": "error",
+            "namespace": "prod-agent-example",
+            "observed_state": None,
+            "reason": "missing_bound_pvc",
+            "message": "PVC is absent",
+            "observed_at": "2026-08-20T00:00:00Z",
+        }
+    )
+
+    assert event.type == "deployment.import_status"
+    assert event.agent_id == "agent-123"
+    assert event.status == "error"
+    assert event.namespace == "prod-agent-example"
+    assert event.reason == "missing_bound_pvc"
+    assert event.observed_at == "2026-08-20T00:00:00Z"
+
+
 def test_agent_from_dict_hydrates_launch_epoch_and_future_state():
     agent = Agent.from_dict(
         {

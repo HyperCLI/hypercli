@@ -925,6 +925,8 @@ export interface AgentUiMeta {
 
 export interface AgentMeta {
   ui?: AgentUiMeta | null;
+  status?: DeploymentMetaStatus | null;
+  [key: string]: any;
 }
 
 export type OpenClawModelApi =
@@ -1430,6 +1432,18 @@ export function isAgentRuntimeInactiveState(state: string): boolean {
   return AGENT_RUNTIME_INACTIVE_STATES.has(state.toUpperCase());
 }
 
+export type DeploymentMetaObservedState = 'RUNNING' | 'STOPPED';
+
+export interface DeploymentMetaStatus {
+  status: 'ok' | 'error' | string;
+  clusterId: string | null;
+  namespace: string | null;
+  observedState: DeploymentMetaObservedState | null;
+  reason: string | null;
+  message: string | null;
+  observedAt: string | null;
+}
+
 export interface DeploymentTransitionEvent {
   type: 'deployment.transition';
   agent_id: string;
@@ -1439,7 +1453,18 @@ export interface DeploymentTransitionEvent {
   message?: string | null;
 }
 
-export type DeploymentEvent = DeploymentTransitionEvent;
+export interface DeploymentImportStatusEvent {
+  type: 'deployment.import_status';
+  agent_id: string;
+  status: 'ok' | 'error' | string;
+  namespace: string;
+  observed_state?: AgentState | null;
+  reason?: string | null;
+  message?: string | null;
+  observed_at: string;
+}
+
+export type DeploymentEvent = DeploymentTransitionEvent | DeploymentImportStatusEvent;
 
 export interface DeploymentSubscribeOptions {
   signal?: AbortSignal;
@@ -1522,7 +1547,7 @@ export interface AgentHydrationData {
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
-  meta?: { ui?: AgentUiMeta | null } | null;
+  meta?: Record<string, any> | null;
   routes?: Record<string, AgentRouteConfig> | null;
   command?: string[] | null;
   entrypoint?: string[] | null;
@@ -1535,6 +1560,31 @@ export interface AgentHydrationData {
 function parseDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value) return null;
   return new Date(value.replace('Z', '+00:00'));
+}
+
+function metaStatusFromDict(data: unknown): DeploymentMetaStatus | null {
+  if (!isPlainRecord(data)) return null;
+  const observed = data.observed_state === 'RUNNING' || data.observed_state === 'STOPPED'
+    ? data.observed_state
+    : null;
+  return {
+    status: typeof data.status === 'string' ? data.status : '',
+    clusterId: typeof data.cluster_id === 'string' ? data.cluster_id : null,
+    namespace: typeof data.namespace === 'string' ? data.namespace : null,
+    observedState: observed,
+    reason: typeof data.reason === 'string' ? data.reason : null,
+    message: typeof data.message === 'string' ? data.message : null,
+    observedAt: typeof data.observed_at === 'string' ? data.observed_at : null,
+  };
+}
+
+function agentMetaFromDict(data: unknown): AgentMeta | null {
+  if (!isPlainRecord(data)) return null;
+  const meta = structuredClone(data) as AgentMeta;
+  if (Object.prototype.hasOwnProperty.call(data, 'status')) {
+    meta.status = metaStatusFromDict(data.status);
+  }
+  return meta;
 }
 
 function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>): Record<string, any> {
@@ -2007,7 +2057,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig,
-    meta: data.meta?.ui ? { ui: structuredClone(data.meta.ui) } : null,
+    meta: agentMetaFromDict(data.meta),
     routes: data.routes ?? (
       isPlainRecord(launchConfig?.routes)
         ? launchConfig.routes as Record<string, AgentRouteConfig>
@@ -5067,7 +5117,7 @@ export class Deployments {
                 return;
               }
               if (
-                frame.type === 'deployment.transition'
+                (frame.type === 'deployment.transition' || frame.type === 'deployment.import_status')
                 && typeof frame.agent_id === 'string'
                 && frame.agent_id.length > 0
               ) {

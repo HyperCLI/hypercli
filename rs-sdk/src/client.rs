@@ -806,7 +806,10 @@ impl HyperCliClient {
                         else {
                             break;
                         };
-                        if event.event_type == "deployment.transition" && !event.agent_id.is_empty()
+                        if matches!(
+                            event.event_type.as_str(),
+                            "deployment.transition" | "deployment.import_status"
+                        ) && !event.agent_id.is_empty()
                         {
                             handler(event);
                         }

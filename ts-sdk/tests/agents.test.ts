@@ -49,6 +49,56 @@ describe('Agents SDK', () => {
       .toThrow('small, medium, large');
   });
 
+  it('hydrates meta status separately from lifecycle state', () => {
+    const agent = Agent.fromDict({
+      id: 'agent-1',
+      state: 'RUNNING',
+      meta: {
+        status: {
+          status: 'error',
+          cluster_id: 'cluster-1',
+          namespace: 'prod-agent-example',
+          observed_state: null,
+          reason: 'missing_bound_pvc',
+          message: 'bounded detail',
+          observed_at: '2026-08-20T00:00:00Z',
+        },
+        other: 'preserved',
+      },
+    });
+
+    expect(agent.state).toBe('RUNNING');
+    expect(agent.meta?.status).toEqual({
+      status: 'error',
+      clusterId: 'cluster-1',
+      namespace: 'prod-agent-example',
+      observedState: null,
+      reason: 'missing_bound_pvc',
+      message: 'bounded detail',
+      observedAt: '2026-08-20T00:00:00Z',
+    });
+    expect(agent.meta?.other).toBe('preserved');
+  });
+
+  it('types import status deployment events', () => {
+    const event: DeploymentEvent = {
+      type: 'deployment.import_status',
+      agent_id: 'agent-1',
+      status: 'error',
+      namespace: 'prod-agent-example',
+      reason: 'missing_bound_pvc',
+      message: 'PVC is absent',
+      observed_at: '2026-08-20T00:00:00Z',
+    };
+
+    expect(event.type).toBe('deployment.import_status');
+    if (event.type === 'deployment.import_status') {
+      expect(event.status).toBe('error');
+      expect(event.namespace).toBe('prod-agent-example');
+      expect(event.reason).toBe('missing_bound_pvc');
+    }
+  });
+
   it('keeps generic launch environment and secrets application-name blind', () => {
     const { config } = buildAgentConfig({}, {
       env: { OPENCLAW_GATEWAY_TOKEN: 'opaque-env' },
@@ -212,6 +262,15 @@ describe('Agents SDK', () => {
             error: null,
             message: 'Agent archive is being finalized',
           },
+          {
+            type: 'deployment.import_status',
+            agent_id: 'agent-123',
+            status: 'error',
+            namespace: 'prod-agent-example',
+            reason: 'missing_bound_pvc',
+            message: 'PVC is absent',
+            observed_at: '2026-08-20T00:00:00Z',
+          },
         ]) {
           queueMicrotask(() => {
             const event = new Event('message');
@@ -228,7 +287,7 @@ describe('Agents SDK', () => {
 
     await deployments.subscribe((event) => {
       received.push(event);
-      if (event.type === 'deployment.transition') controller.abort();
+      if (event.type === 'deployment.import_status') controller.abort();
     }, {
       signal: controller.signal,
       onReady: () => deployments.list({ signal: controller.signal }),
@@ -240,13 +299,22 @@ describe('Agents SDK', () => {
       undefined,
       { signal: controller.signal },
     );
-    expect(received.map((event) => event.type)).toEqual(['deployment.transition']);
+    expect(received.map((event) => event.type)).toEqual([
+      'deployment.transition',
+      'deployment.import_status',
+    ]);
     expect(received[0]).toMatchObject({
       agent_id: 'agent-123',
       state: 'ARCHIVING',
       reason: 'archive_request',
       error: null,
       message: 'Agent archive is being finalized',
+    });
+    expect(received[1]).toMatchObject({
+      agent_id: 'agent-123',
+      status: 'error',
+      namespace: 'prod-agent-example',
+      reason: 'missing_bound_pvc',
     });
   });
 
@@ -1696,7 +1764,7 @@ describe('Agents SDK', () => {
     await assertion;
   });
 
-  it('hydrates only meta.ui on agent responses', async () => {
+  it('hydrates metadata on agent responses', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({
         id: 'agent-123',
@@ -1725,6 +1793,9 @@ describe('Agents SDK', () => {
           image: 'data:image/png;base64,abc',
           icon_index: 3,
         },
+      },
+      internal: {
+        ignored: true,
       },
     });
   });

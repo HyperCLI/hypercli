@@ -1000,6 +1000,32 @@ pub fn is_agent_runtime_inactive_state(state: &str) -> bool {
         .any(|known| state.eq_ignore_ascii_case(known))
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct DeploymentMetaStatus {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub cluster_id: Option<String>,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub observed_state: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub observed_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub struct DeploymentMeta {
+    #[serde(default)]
+    pub status: Option<DeploymentMetaStatus>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, Value>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Deployment {
     pub id: String,
@@ -1015,6 +1041,8 @@ pub struct Deployment {
     pub state: String,
     #[serde(default)]
     pub cluster_id: Option<String>,
+    #[serde(default)]
+    pub meta: DeploymentMeta,
     #[serde(default)]
     pub hostname: Option<String>,
     #[serde(default)]
@@ -1057,6 +1085,12 @@ pub struct DeploymentEvent {
     #[serde(default)]
     pub state: Option<String>,
     #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub observed_state: Option<String>,
+    #[serde(default)]
     pub reason: Option<String>,
     #[serde(default)]
     pub error: Option<String>,
@@ -1068,6 +1102,8 @@ pub struct DeploymentEvent {
     pub resources_exist: Option<bool>,
     #[serde(default)]
     pub namespace_exists: Option<bool>,
+    #[serde(default)]
+    pub observed_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1644,6 +1680,21 @@ mod tests {
         assert_eq!(event.state.as_deref(), Some("ARCHIVING"));
         assert_eq!(event.resources_exist, Some(true));
         assert_eq!(event.namespace_exists, Some(true));
+
+        let event: DeploymentEvent = serde_json::from_value(serde_json::json!({
+            "type": "deployment.import_status",
+            "agent_id": "agent-1",
+            "status": "error",
+            "namespace": "prod-agent-example",
+            "reason": "missing_bound_pvc",
+            "message": "PVC is absent",
+            "observed_at": "2026-08-20T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(event.event_type, "deployment.import_status");
+        assert_eq!(event.status.as_deref(), Some("error"));
+        assert_eq!(event.namespace.as_deref(), Some("prod-agent-example"));
+        assert_eq!(event.reason.as_deref(), Some("missing_bound_pvc"));
     }
 
     #[test]
@@ -1652,7 +1703,19 @@ mod tests {
             "id": "agent-1",
             "state": "ARCHIVED",
             "cluster_id": "cluster-current",
-            "archived_at": "2026-08-09T12:00:00Z"
+            "archived_at": "2026-08-09T12:00:00Z",
+            "meta": {
+                "other": "preserved",
+                "status": {
+                    "status": "error",
+                    "cluster_id": "cluster-1",
+                    "namespace": "prod-agent-example",
+                    "observed_state": null,
+                    "reason": "missing_bound_pvc",
+                    "message": "bounded detail",
+                    "observed_at": "2026-08-20T00:00:00Z"
+                }
+            }
         }))
         .unwrap();
 
@@ -1661,6 +1724,14 @@ mod tests {
             deployment.archived_at.as_deref(),
             Some("2026-08-09T12:00:00Z")
         );
+        assert_eq!(
+            deployment.meta.extra.get("other"),
+            Some(&serde_json::json!("preserved"))
+        );
+        let meta_status = deployment.meta.status.unwrap();
+        assert_eq!(meta_status.status, "error");
+        assert_eq!(meta_status.cluster_id.as_deref(), Some("cluster-1"));
+        assert_eq!(meta_status.reason.as_deref(), Some("missing_bound_pvc"));
     }
 
     #[test]

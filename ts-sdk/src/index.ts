@@ -323,6 +323,8 @@ export {
   type StartAgentOptions,
   type AgentExecOptions,
   type AgentState,
+  type DeploymentMetaObservedState,
+  type DeploymentMetaStatus,
   AGENT_RUNTIME_INACTIVE_STATES,
   AGENT_TRANSITIONAL_STATES,
   CANONICAL_AGENT_STATES,
