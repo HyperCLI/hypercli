@@ -159,8 +159,8 @@ function openAdvancedSettings() {
 
 describe("AgentCreationSetupWizard", () => {
   beforeEach(() => {
-    process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
-    process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
+    process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod";
+    process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
   });
 
   it("marks desktop, memory indexing, and custom image as Pro features", () => {

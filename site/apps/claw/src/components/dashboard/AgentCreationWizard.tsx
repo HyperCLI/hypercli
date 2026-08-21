@@ -14,6 +14,7 @@ import {
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
+  startAgent,
   waitForCreatedAgentStopped,
 } from "@/lib/agent-client";
 import { deriveLaunchEligibilityState } from "@/lib/agent-launch-state";
@@ -390,10 +391,7 @@ export function AgentCreationWizard({
       const agentClient = createAgentClient(token);
       const stoppedAgent = await waitForCreatedAgentStopped(agentClient, created);
       if (startImmediately) {
-        const accepted = await agentClient.start(stoppedAgent.id);
-        if (accepted.state.toUpperCase() !== "RUNNING") {
-          await accepted.waitRunning();
-        }
+        await startAgent(token, stoppedAgent.id);
       }
       onCreated(stoppedAgent.id);
     } catch (err) {

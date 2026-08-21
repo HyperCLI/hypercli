@@ -22,7 +22,7 @@ import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationIte
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient, createBrowserHyperCLIClient, waitForCreatedAgentStopped } from "@/lib/agent-client";
+import { createAgentClient, createBrowserHyperCLIClient, startAgent, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
@@ -1483,7 +1483,7 @@ function AgentSectionSettingsContent({
               <input
                 value={agentImageDraft}
                 onChange={(event) => onAgentImageChange(event.target.value)}
-                placeholder="ghcr.io/hypercli/hypercli-openclaw:pro-latest"
+                placeholder="ghcr.io/hypercli/hypercli-openclaw:prod"
                 aria-label="Agent Docker image"
                 className={SETTINGS_FIELD_CLASS}
               />
@@ -3026,11 +3026,8 @@ export function AgentList({
           }
         }
         const startCreatedAgent = async (agentId: string) => {
-          const accepted = await agentClient.start(agentId);
-          if (accepted.state.toUpperCase() !== "RUNNING") {
-            void Promise.resolve(fetchAgents()).catch(() => undefined);
-            await accepted.waitRunning();
-          }
+          void Promise.resolve(fetchAgents()).catch(() => undefined);
+          await startAgent(token, agentId);
         };
         // The workspace write route only answers once the pod is ready, so the
         // starter files are staged alongside the start; a file that never lands

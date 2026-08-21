@@ -55,8 +55,16 @@ AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
-DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
-DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-latest"
+DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
+DEFAULT_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod"
+_STALE_OPENCLAW_IMAGES = frozenset(
+    {
+        "ghcr.io/hypercli/hypercli-openclaw:latest",
+        "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+        DEFAULT_OPENCLAW_IMAGE,
+        DEFAULT_OPENCLAW_PRO_IMAGE,
+    }
+)
 DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes-agent:latest"
 DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
 DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
@@ -473,13 +481,9 @@ def build_openclaw_routes(
     gateway_prefix: str = "",
     desktop_prefix: str = "desktop",
 ) -> dict[str, dict]:
-    routes: dict[str, dict] = {}
-    if include_gateway:
-        routes["openclaw"] = {
-            "port": int(gateway_port),
-            "auth": bool(gateway_auth),
-            "prefix": str(gateway_prefix),
-        }
+    routes: dict[str, dict] = {
+        "openclaw": {"port": 18789, "auth": False, "prefix": ""}
+    }
     if include_desktop:
         routes["desktop"] = {
             "port": int(desktop_port),
@@ -487,6 +491,12 @@ def build_openclaw_routes(
             "prefix": str(desktop_prefix),
         }
     return routes
+
+
+def _with_openclaw_gateway_route(routes: dict | None) -> dict:
+    prepared = copy.deepcopy(routes or {})
+    prepared["openclaw"] = build_openclaw_routes()["openclaw"]
+    return prepared
 
 
 def build_hermes_agent_routes(
@@ -589,9 +599,9 @@ def _resolve_openclaw_routes(
     openclaw_route_options: dict | None = None,
 ) -> dict | None:
     if routes is not None:
-        return routes
+        return _with_openclaw_gateway_route(routes)
     if openclaw_routes is not None:
-        return openclaw_routes
+        return _with_openclaw_gateway_route(openclaw_routes)
     return build_openclaw_routes(**dict(openclaw_route_options or {}))
 
 
@@ -1015,6 +1025,32 @@ def _default_openclaw_pro_image(image: str | None) -> str | None:
     if image is not None:
         return image
     return DEFAULT_OPENCLAW_PRO_IMAGE
+
+
+def _default_openclaw_start_image(image: object, *, desktop_enabled: bool) -> str:
+    raw = str(image or "").strip()
+    if not raw or raw in _STALE_OPENCLAW_IMAGES:
+        return DEFAULT_OPENCLAW_PRO_IMAGE if desktop_enabled else DEFAULT_OPENCLAW_IMAGE
+    return raw
+
+
+def _repair_openclaw_start_launch_config(
+    launch_config: dict[str, Any],
+    *,
+    desktop: bool | None = None,
+) -> dict[str, Any]:
+    prepared = copy.deepcopy(launch_config)
+    desktop_enabled = bool(desktop) if desktop is not None else launch_config_has_desktop(prepared)
+    prepared["image"] = _default_openclaw_start_image(
+        prepared.get("image"),
+        desktop_enabled=desktop_enabled,
+    )
+    prepared["routes"] = _with_openclaw_gateway_route(prepared.get("routes"))
+    if desktop is not None:
+        env = dict(prepared.get("env") or {})
+        env["OPENCLAW_DESKTOP_ENABLED"] = "1" if desktop_enabled else "0"
+        prepared["env"] = env
+    return prepared
 
 
 def _truthy_env(value: object) -> bool:
@@ -4474,11 +4510,13 @@ class Deployments:
         *,
         gateway_token: str = None,
         dry_run: bool = False,
+        _desktop: bool | None = None,
     ) -> Agent:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         prepared = _copy_complete_launch_config(
             self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
         )
+        prepared = _repair_openclaw_start_launch_config(prepared, desktop=_desktop)
         effective_env, effective_secrets, effective_gateway_token = _inject_openclaw_gateway_token(
             prepared.get("env"),
             prepared.get("secrets"),
@@ -4509,6 +4547,7 @@ class Deployments:
             launch_config,
             gateway_token=gateway_token,
             dry_run=dry_run,
+            _desktop=True,
         )
 
     def update(

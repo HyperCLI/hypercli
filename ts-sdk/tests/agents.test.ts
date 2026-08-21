@@ -4,6 +4,7 @@ import {
   AGENT_TRANSITIONAL_STATES,
   Agent,
   CANONICAL_AGENT_STATES,
+  DEFAULT_OPENCLAW_PRO_IMAGE,
   agentConfigHasDesktop,
   buildAgentConfig,
   buildBrowserDesktopUrl,
@@ -1079,6 +1080,31 @@ describe('Agents SDK', () => {
     expect(sent.registry_auth).toEqual({});
   });
 
+  it('repairs stale managed OpenClaw images from the desktop gate on startOpenClaw', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: STORED_AGENT_ID,
+      user_id: 'user-456',
+      state: 'STARTING',
+      runtime: 'openclaw-pro',
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const launchConfig = buildAgentConfig({}, {
+      image: 'ghcr.io/hypercli/hypercli-openclaw:pro-latest',
+      env: { OPENCLAW_DESKTOP_ENABLED: '1' },
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+    }).config;
+
+    await deployments.startOpenClaw(STORED_AGENT_ID, { launchConfig });
+
+    const sent = post.mock.calls[0][1].launch_config;
+    expect(sent.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
+    expect(sent.routes).toEqual({ openclaw: { port: 18789, auth: false, prefix: '' } });
+  });
+
   it('reports the agent a runtime key speaks for through accessIdentity', async () => {
     const agentId = '11111111-1111-4111-8111-111111111111';
     const get = vi.fn().mockResolvedValue({
@@ -1934,8 +1960,16 @@ describe('Agents SDK', () => {
     await deployments.startOpenClawPro(agentId, { launchConfig: first });
     await deployments.startOpenClawPro(agentId, { launchConfig: second });
 
-    expect(post.mock.calls[0][1]).toEqual({ launch_config: first });
-    expect(post.mock.calls[1][1]).toEqual({ launch_config: second });
+    expect(post.mock.calls[0][1].launch_config.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
+    expect(post.mock.calls[0][1].launch_config.env.OPENCLAW_DESKTOP_ENABLED).toBe('1');
+    expect(post.mock.calls[0][1].launch_config.routes).toEqual({
+      openclaw: { port: 18789, auth: false, prefix: '' },
+    });
+    expect(post.mock.calls[1][1].launch_config.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
+    expect(post.mock.calls[1][1].launch_config.runtime_scopes).toEqual(['models:*']);
+    expect(post.mock.calls[1][1].launch_config.routes).toEqual({
+      openclaw: { port: 18789, auth: false, prefix: '' },
+    });
   });
 
   it('uses the sync root without an independent full-sync knob', async () => {

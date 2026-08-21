@@ -8,9 +8,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::{AgentSize, CreateDeploymentRequest, ManagedRuntime, RouteConfig};
+use crate::{
+    AgentSize, CreateDeploymentRequest, ManagedRuntime, RouteConfig, StartDeploymentRequest,
+};
 
-pub const OPENCLAW_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:pro-latest";
+pub const OPENCLAW_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:prod";
+pub const OPENCLAW_PRO_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
 pub const OPENCLAW_SYNC_ROOT: &str = "/home/node";
 pub const OPENCLAW_GATEWAY_PORT: u16 = 18789;
 pub const OPENCLAW_DESKTOP_PORT: u16 = 3000;
@@ -46,7 +49,7 @@ pub const OPENCLAW_SYNC_EXCLUDE: [&str; 9] = [
 /// Minimal managed launch defaults for hosted OpenClaw agents.
 ///
 /// With `desktop` enabled this builds the `openclaw-pro` variant: desktop
-/// route, `OPENCLAW_DESKTOP_ENABLED=1`, same image.
+/// route, `OPENCLAW_DESKTOP_ENABLED=1`, pro image.
 #[derive(Clone, Debug, Default)]
 pub struct OpenClawLaunchConfig {
     pub desktop: bool,
@@ -65,14 +68,20 @@ impl OpenClawLaunchConfig {
     /// `buildOpenClawRoutes` in the TypeScript SDK.
     pub fn routes(&self) -> BTreeMap<String, RouteConfig> {
         let mut routes = BTreeMap::new();
-        routes.insert(
-            "openclaw".to_owned(),
-            RouteConfig {
-                port: OPENCLAW_GATEWAY_PORT,
-                auth: false,
-                prefix: Some(String::new()),
-            },
-        );
+        self.ensure_routes(&mut routes);
+        routes
+    }
+
+    pub fn gateway_route() -> RouteConfig {
+        RouteConfig {
+            port: OPENCLAW_GATEWAY_PORT,
+            auth: false,
+            prefix: Some(String::new()),
+        }
+    }
+
+    pub fn ensure_routes(&self, routes: &mut BTreeMap<String, RouteConfig>) {
+        routes.insert("openclaw".to_owned(), Self::gateway_route());
         if self.desktop {
             routes.insert(
                 "desktop".to_owned(),
@@ -83,7 +92,6 @@ impl OpenClawLaunchConfig {
                 },
             );
         }
-        routes
     }
 
     /// Apply the OpenClaw defaults to a create request. Explicitly set fields
@@ -95,7 +103,14 @@ impl OpenClawLaunchConfig {
             ManagedRuntime::Openclaw
         };
         if request.image.is_none() {
-            request.image = Some(OPENCLAW_IMAGE.to_owned());
+            request.image = Some(
+                if self.desktop {
+                    OPENCLAW_PRO_IMAGE
+                } else {
+                    OPENCLAW_IMAGE
+                }
+                .to_owned(),
+            );
         }
         if self.desktop {
             request
@@ -103,9 +118,7 @@ impl OpenClawLaunchConfig {
                 .entry(OPENCLAW_DESKTOP_ENABLED_ENV.to_owned())
                 .or_insert_with(|| "1".to_owned());
         }
-        if request.routes.is_empty() {
-            request.routes = self.routes();
-        }
+        self.ensure_routes(&mut request.routes);
         if request.sync_root.is_none() {
             request.sync_root = Some(OPENCLAW_SYNC_ROOT.to_owned());
         }
@@ -122,6 +135,17 @@ impl OpenClawLaunchConfig {
                 .iter()
                 .map(|scope| (*scope).to_owned())
                 .collect();
+        }
+    }
+
+    pub fn apply_to_start(&self, request: &mut StartDeploymentRequest) {
+        self.ensure_routes(&mut request.launch_config.routes);
+        if self.desktop {
+            request
+                .launch_config
+                .env
+                .entry(OPENCLAW_DESKTOP_ENABLED_ENV.to_owned())
+                .or_insert_with(|| "1".to_owned());
         }
     }
 }
@@ -174,6 +198,7 @@ mod tests {
     fn openclaw_pro_adds_desktop_route_and_env() {
         let request = CreateDeploymentRequest::openclaw(None, None, true);
         assert_eq!(request.runtime, ManagedRuntime::OpenclawPro);
+        assert_eq!(request.image.as_deref(), Some(OPENCLAW_PRO_IMAGE));
         let desktop = request.routes.get("desktop").expect("desktop route");
         assert_eq!(desktop.port, OPENCLAW_DESKTOP_PORT);
         assert!(desktop.auth);
@@ -192,6 +217,71 @@ mod tests {
         let request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw).with_defaults();
         assert_eq!(request.image.as_deref(), Some("custom/image:tag"));
         assert!(request.sync_exclude.is_none());
+    }
+
+    #[test]
+    fn existing_routes_keep_custom_routes_but_replace_openclaw_gateway() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+        request.routes.insert(
+            "custom".to_owned(),
+            RouteConfig {
+                port: 8080,
+                auth: true,
+                prefix: Some("app".to_owned()),
+            },
+        );
+        request.routes.insert(
+            "openclaw".to_owned(),
+            RouteConfig {
+                port: 19999,
+                auth: true,
+                prefix: Some("wrong".to_owned()),
+            },
+        );
+
+        OpenClawLaunchConfig::new().apply_to_create(&mut request);
+
+        let gateway = request.routes.get("openclaw").expect("gateway route");
+        assert_eq!(gateway.port, OPENCLAW_GATEWAY_PORT);
+        assert!(!gateway.auth);
+        assert_eq!(gateway.prefix.as_deref(), Some(""));
+        assert_eq!(
+            request.routes.get("custom").expect("custom route").port,
+            8080
+        );
+    }
+
+    #[test]
+    fn start_request_repairs_openclaw_gateway_route() {
+        let mut request = StartDeploymentRequest::new(Default::default());
+        request.launch_config.routes.insert(
+            "custom".to_owned(),
+            RouteConfig {
+                port: 8080,
+                auth: true,
+                prefix: Some("app".to_owned()),
+            },
+        );
+
+        OpenClawLaunchConfig::new().apply_to_start(&mut request);
+
+        let gateway = request
+            .launch_config
+            .routes
+            .get("openclaw")
+            .expect("gateway route");
+        assert_eq!(gateway.port, OPENCLAW_GATEWAY_PORT);
+        assert!(!gateway.auth);
+        assert_eq!(gateway.prefix.as_deref(), Some(""));
+        assert_eq!(
+            request
+                .launch_config
+                .routes
+                .get("custom")
+                .expect("custom route")
+                .port,
+            8080
+        );
     }
 
     impl CreateDeploymentRequest {

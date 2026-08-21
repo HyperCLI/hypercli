@@ -1675,14 +1675,15 @@ def test_build_openclaw_routes_defaults():
     }
 
 
-def test_build_openclaw_routes_allows_overrides():
+def test_build_openclaw_routes_keeps_gateway_canonical_and_allows_desktop():
     assert build_openclaw_routes(
+        include_gateway=False,
         include_desktop=True,
         gateway_port=19999,
         gateway_auth=True,
         gateway_prefix="app",
     ) == {
-        "openclaw": {"port": 19999, "auth": True, "prefix": "app"},
+        "openclaw": {"port": 18789, "auth": False, "prefix": ""},
         "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
     }
 
@@ -1721,7 +1722,7 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         }
 
 
-def test_create_openclaw_respects_explicit_empty_routes(agents_client):
+def test_create_openclaw_repairs_explicit_empty_routes(agents_client):
     with (
         patch("httpx.Client") as mock_client_class,
         patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
@@ -1743,7 +1744,9 @@ def test_create_openclaw_respects_explicit_empty_routes(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
-        assert posted_json["routes"] == {}
+        assert posted_json["routes"] == {
+            "openclaw": {"port": 18789, "auth": False, "prefix": ""},
+        }
 
 
 def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client):
@@ -2120,7 +2123,7 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         assert "HOME" not in posted_json["env"]
 
 
-def test_start_openclaw_sends_complete_launch_config_wholesale(agents_client):
+def test_start_openclaw_repairs_gateway_route_in_custom_complete_launch_config(agents_client):
     with (
         patch("httpx.Client") as mock_client_class,
         patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
@@ -2140,10 +2143,40 @@ def test_start_openclaw_sends_complete_launch_config_wholesale(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        launch_config = build_agent_config()
+        launch_config = build_agent_config(image="ghcr.io/acme/openclaw:custom")
         agents_client.start_openclaw("agent-123", launch_config)
 
-        assert mock_client.post.call_args[1]["json"] == {"launch_config": launch_config}
+        sent = mock_client.post.call_args[1]["json"]["launch_config"]
+        assert sent["image"] == "ghcr.io/acme/openclaw:custom"
+        assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
+
+
+def test_start_openclaw_repairs_managed_image_from_desktop_gate(agents_client):
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STARTING",
+            "runtime": "openclaw-pro",
+        }
+
+    agents_client._post = fake_post
+    launch_config = build_agent_config(
+        image="ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+        env={"OPENCLAW_DESKTOP_ENABLED": "1"},
+        routes={"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
+    )
+    agents_client.start_openclaw(
+        "11111111-1111-4111-8111-111111111111",
+        launch_config,
+    )
+
+    sent = posted["launch_config"]
+    assert sent["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+    assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
 
 
 def test_start_openclaw_preserves_restart_policy(agents_client):
@@ -2174,7 +2207,7 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]["launch_config"]
         assert posted_json["image"] == "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
         assert posted_json["command"] == ["/usr/local/bin/buzz-acp"]
-        assert posted_json["routes"] == {}
+        assert posted_json["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
         assert posted_json["restart"] is False
         assert posted_json["runtime_scopes"] == ["models:*"]
 
@@ -2195,7 +2228,10 @@ def test_start_openclaw_pro_requires_complete_launch_config(agents_client):
     launch_config = build_agent_config()
     agents_client.start_openclaw_pro("11111111-1111-4111-8111-111111111111", launch_config)
 
-    assert posted == {"launch_config": launch_config}
+    sent = posted["launch_config"]
+    assert sent["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+    assert sent["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
+    assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
 
 
 @pytest.mark.parametrize(

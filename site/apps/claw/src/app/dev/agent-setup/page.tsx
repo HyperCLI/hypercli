@@ -41,6 +41,7 @@ import {
   createAgentClient,
   createHyperAgentClient,
   createOpenClawAgent,
+  startAgent,
   waitForCreatedAgentStopped,
 } from "@/lib/agent-client";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
@@ -967,10 +968,7 @@ export default function DevAgentSetupPage() {
           }
         }
 
-        const accepted = await agentClient.start(finalAgentId);
-        if (accepted.state.toUpperCase() !== "RUNNING") {
-          await accepted.waitRunning();
-        }
+        await startAgent(token, finalAgentId);
 
         if (isTeamPlanActive) {
           try {

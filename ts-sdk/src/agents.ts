@@ -82,8 +82,14 @@ const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
-export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
-export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-latest';
+export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
+export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
+const STALE_OPENCLAW_IMAGES = new Set([
+  'ghcr.io/hypercli/hypercli-openclaw:latest',
+  'ghcr.io/hypercli/hypercli-openclaw:pro-latest',
+  DEFAULT_OPENCLAW_IMAGE,
+  DEFAULT_OPENCLAW_PRO_IMAGE,
+]);
 export const DEFAULT_HERMES_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-hermes-agent:latest';
 export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
 export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
@@ -2190,6 +2196,47 @@ function defaultOpenClawProImage(
   return DEFAULT_OPENCLAW_PRO_IMAGE;
 }
 
+function defaultOpenClawStartImage(
+  image: unknown,
+  desktopEnabled: boolean,
+): string {
+  const raw = String(image ?? '').trim();
+  if (!raw || STALE_OPENCLAW_IMAGES.has(raw)) {
+    return desktopEnabled ? DEFAULT_OPENCLAW_PRO_IMAGE : DEFAULT_OPENCLAW_IMAGE;
+  }
+  return raw;
+}
+
+function canonicalOpenClawGatewayRoute(): AgentRouteConfig {
+  return { port: 18789, auth: false, prefix: '' };
+}
+
+function withOpenClawGatewayRoute(
+  routes: Record<string, AgentRouteConfig> | null | undefined,
+): Record<string, AgentRouteConfig> {
+  return {
+    ...(routes ? structuredClone(routes) : {}),
+    openclaw: canonicalOpenClawGatewayRoute(),
+  };
+}
+
+function repairOpenClawStartLaunchConfig(
+  launchConfig: AgentLaunchConfig,
+  desktop: boolean | null = null,
+): AgentLaunchConfig {
+  const prepared = structuredClone(launchConfig);
+  const desktopEnabled = desktop ?? launchConfigHasDesktop(prepared);
+  prepared.image = defaultOpenClawStartImage(prepared.image, desktopEnabled);
+  prepared.routes = withOpenClawGatewayRoute(prepared.routes);
+  if (desktop !== null) {
+    prepared.env = {
+      ...(isPlainRecord(prepared.env) ? prepared.env : {}),
+      OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? '1' : '0',
+    };
+  }
+  return prepared;
+}
+
 function defaultHermesAgentImage(image: string | null | undefined): string {
   if (image !== undefined && image !== null) return image;
   return DEFAULT_HERMES_AGENT_IMAGE;
@@ -2539,14 +2586,9 @@ export async function attachSlackRelayAgent(options: AttachSlackRelayAgentOption
 }
 
 export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
-  const routes: Record<string, AgentRouteConfig> = {};
-  if (options.includeGateway ?? true) {
-    routes.openclaw = {
-      port: options.gatewayPort ?? 18789,
-      auth: options.gatewayAuth ?? false,
-      prefix: options.gatewayPrefix ?? '',
-    };
-  }
+  const routes: Record<string, AgentRouteConfig> = {
+    openclaw: canonicalOpenClawGatewayRoute(),
+  };
   if (options.includeDesktop ?? false) {
     routes.desktop = {
       port: options.desktopPort ?? 3000,
@@ -4610,9 +4652,9 @@ export class Deployments {
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...prepared.env,
     };
-    if (options.routes === undefined) {
-      effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
-    }
+    effectiveOptions.routes = options.routes === undefined
+      ? buildOpenClawRoutes(options.openClawRoutes ?? {})
+      : withOpenClawGatewayRoute(options.routes);
     effectiveOptions.image = defaultOpenClawImage(options.image);
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (options.syncInclude === undefined && options.syncExclude === undefined) {
@@ -5485,13 +5527,20 @@ export class Deployments {
     return this.hydrateAgent(data);
   }
 
-  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
+  private async startOpenClawInternal(
+    agentIdOrName: string,
+    options: OpenClawStartAgentOptions,
+    desktop: boolean | null,
+  ): Promise<Agent> {
     // Resolve first: the gateway-token injection below reads launchConfig.env
     // and launchConfig.secrets, so a redacted projection has to be repaired
     // before it is inspected, not after.
     const agentId = await this.resolveAgentId(agentIdOrName);
-    const launchConfig = cloneCompleteLaunchConfig(
-      await this.rehydrateRedactedLaunchConfig(agentId, options.launchConfig, options.registryAuth),
+    const launchConfig = repairOpenClawStartLaunchConfig(
+      cloneCompleteLaunchConfig(
+        await this.rehydrateRedactedLaunchConfig(agentId, options.launchConfig, options.registryAuth),
+      ),
+      desktop,
     );
     if (Object.prototype.hasOwnProperty.call(launchConfig.env, 'OPENCLAW_GATEWAY_TOKEN')) {
       throw new Error('OPENCLAW_GATEWAY_TOKEN must be supplied through launchConfig.secrets or gatewayToken');
@@ -5521,6 +5570,10 @@ export class Deployments {
     });
     if (agent instanceof OpenClawAgent) agent.gatewayToken = gatewayToken;
     return agent;
+  }
+
+  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
+    return this.startOpenClawInternal(agentIdOrName, options, null);
   }
 
   async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions): Promise<HermesAgent> {
@@ -5553,7 +5606,7 @@ export class Deployments {
   }
 
   async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
-    return this.startOpenClaw(agentIdOrName, options);
+    return this.startOpenClawInternal(agentIdOrName, options, true);
   }
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {

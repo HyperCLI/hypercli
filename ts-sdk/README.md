@@ -165,9 +165,12 @@ Per-file writes are limited to 100 MiB (`AGENT_FILE_WRITE_MAX_BYTES`, the
 Cloudflare edge request-body cap on the agent hostname); split larger data
 across files or sync it via the agent's own tooling. File
 paths are relative to `syncRoot`, and `filesList("")` lists the complete root, including
-dot-directories. The OpenClaw helpers add
-routes, image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by
-default. Coding helpers instead inject the runtime-specific include defaults
+dot-directories. The OpenClaw helpers always ensure the canonical `openclaw`
+gateway route (`prefix: ""`, `port: 18789`, `auth: false`) and add concrete
+image, `syncRoot: "/home/node"`, and cache/Workspace exclusions by default.
+Regular OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`;
+desktop/pro OpenClaw defaults to `ghcr.io/hypercli/hypercli-openclaw:pro-prod`.
+Coding helpers instead inject the runtime-specific include defaults
 documented in
 [`coding-runtimes.mdx`](../docs/agents/coding-runtimes.mdx); pass an explicit
 nullable policy at create time to select the whole root.
@@ -204,8 +207,10 @@ for (const slot of capacity.agentSlots) {
 
 `start()` and `startOpenClaw()` require a complete `launchConfig`. The SDK
 sends it under `launch_config` as one replacement object and never merges
-omitted fields with the stored Agent. Retain caller-owned application secrets
-needed for a later typed start; hydrated Agents never recover secret values.
+omitted fields with the stored Agent. `startOpenClaw()` still ensures the
+canonical gateway route before submitting. Retain caller-owned application
+secrets needed for a later typed start; hydrated Agents never recover secret
+values.
 
 `archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
 HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in
@@ -253,7 +258,7 @@ Transition events carry `agent_id` for local filtering plus `state`, `reason`,
 `error`, and `message`, but are not snapshots and may be duplicated or
 coalesced; refresh REST for authority.
 
-Use `createOpenClawPro(...)` for the desktop/browser image. It enables noVNC through the protected `desktop-<agent>.hypercli.app` route and sets `OPENCLAW_DESKTOP_ENABLED=1`.
+Use `createOpenClawPro(...)` or `startOpenClawPro(...)` for the desktop/browser image. It selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
 `heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat: { every: '1h', target: 'last' }`.
 

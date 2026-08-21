@@ -178,14 +178,15 @@ describe('HyperClaw agents SDK', () => {
     });
   });
 
-  it('buildOpenClawRoutes allows route overrides', () => {
+  it('buildOpenClawRoutes keeps the gateway canonical and allows desktop', () => {
     expect(buildOpenClawRoutes({
+      includeGateway: false,
       includeDesktop: true,
       gatewayPort: 19999,
       gatewayAuth: true,
       gatewayPrefix: 'app',
     })).toEqual({
-      openclaw: { port: 19999, auth: true, prefix: 'app' },
+      openclaw: { port: 18789, auth: false, prefix: '' },
       desktop: { port: 3000, auth: true, prefix: 'desktop' },
     });
   });
@@ -225,7 +226,7 @@ describe('HyperClaw agents SDK', () => {
     expect(post.mock.calls[0]?.[1].env).not.toHaveProperty('HYPER_API_BASE');
   });
 
-  it('createOpenClaw respects explicit empty routes', async () => {
+  it('createOpenClaw repairs explicit empty routes', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -251,7 +252,9 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       }),
-      routes: {},
+      routes: {
+        openclaw: { port: 18789, auth: false, prefix: '' },
+      },
     }), { retries: 1 });
   });
 
@@ -437,7 +440,7 @@ describe('HyperClaw agents SDK', () => {
     }), { retries: 1 });
   });
 
-  it('startOpenClaw sends one complete launch contract wholesale', async () => {
+  it('startOpenClaw repairs the canonical gateway route before sending', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -456,7 +459,13 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith(
       '/deployments/agent-123/start',
-      { launch_config: launchConfig },
+      {
+        launch_config: {
+          ...launchConfig,
+          image: DEFAULT_OPENCLAW_IMAGE,
+          routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+        },
+      },
       { retries: 1 },
     );
   });

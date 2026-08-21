@@ -275,7 +275,7 @@ agent = client.deployments.create_openclaw(
     tags=["team=dev"],
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start(agent.id)
+agent = client.deployments.start_openclaw(agent.id, agent.launch_config)
 ```
 
 Default OpenClaw routes are:
@@ -287,14 +287,12 @@ Default OpenClaw routes are:
   - `prefix="desktop"`
   - `port=3000`
 
-Route semantics are explicit:
-
-- omit `routes`
-  - SDK injects the standard OpenClaw routes
-- pass `routes={}`
-  - no routes are created
-- pass a non-empty `routes` dict
-  - SDK uses exactly what you passed
+OpenClaw create and start helpers always ensure the canonical `openclaw`
+gateway route. If `routes={}` or a non-empty route map is supplied, custom
+routes are preserved but the `openclaw` entry is replaced with
+`{"port": 18789, "auth": False, "prefix": ""}`. Remove or replace app routes
+after launch with the route replacement API; do not use OpenClaw create/start
+helpers to remove the gateway route.
 
 The same contract applies to `start_openclaw(...)`.
 
@@ -303,9 +301,10 @@ Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/brow
 OpenClaw helpers only add defaults on top of that generic launch surface:
 
 - `image`
-  defaults to the published OpenClaw image when omitted
+  defaults to `ghcr.io/hypercli/hypercli-openclaw:prod`, or `ghcr.io/hypercli/hypercli-openclaw:pro-prod` for desktop/pro helpers
 - `routes`
-  defaults to the standard `openclaw` and `desktop` routes when omitted
+  always includes the canonical `openclaw` gateway route; desktop/pro helpers
+  also include the protected `desktop` route
 - `sync_root`
   defaults to `/home/node`
 - `sync_exclude`

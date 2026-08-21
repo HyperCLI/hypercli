@@ -1,6 +1,6 @@
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import type { Agent as SdkAgent, OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
+import type { Agent as SdkAgent, AgentLaunchConfig, OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
@@ -38,6 +38,20 @@ const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
+const REQUIRED_OPENCLAW_START_LAUNCH_KEYS = [
+  "config",
+  "image",
+  "env",
+  "routes",
+  "command",
+  "entrypoint",
+  "restart",
+  "sync_root",
+  "sync_uid",
+  "sync_gid",
+  "registry_url",
+  "runtime_scopes",
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -45,6 +59,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cloneRecord<T>(value: T): T {
   return structuredClone(value);
+}
+
+function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string): AgentLaunchConfig {
+  const launchConfig = cloneRecord((agent as { launchConfig?: unknown }).launchConfig ?? {});
+  if (!isRecord(launchConfig)) {
+    throw new Error("OpenClaw start requires a stored launch configuration.");
+  }
+  const missing = REQUIRED_OPENCLAW_START_LAUNCH_KEYS.filter((key) => !(key in launchConfig));
+  if (missing.length > 0) {
+    throw new Error(`OpenClaw start requires a complete launch configuration; missing: ${missing.join(", ")}`);
+  }
+  launchConfig.env = {
+    ...(isRecord(launchConfig.env) ? launchConfig.env : {}),
+    [CONTROL_UI_ALLOWED_ORIGIN_ENV]: controlUiOrigin,
+  };
+  return launchConfig as unknown as AgentLaunchConfig;
 }
 
 function errorText(value: unknown): string {
@@ -425,19 +455,12 @@ export async function requestAgentStart(
       { statusCode: 409 },
     );
   }
-  // Every start re-injects the origin of the dashboard doing the starting. This
-  // used to be gated on runtime being openclaw/openclaw-pro, but managed
-  // deployments carry the Agent.runtime column default of "generic", so the
-  // guard was never true in production and the origin stayed frozen at whatever
-  // dashboard created the agent -- locking every other dashboard out for good.
   const origin = currentControlUiOrigin();
   if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
-  // This mutation is deliberately separate from start timeout reconciliation:
-  // a failed or ambiguous origin update must never be mistaken for an admitted start.
-  await agentClient.setEnv(current.id, CONTROL_UI_ALLOWED_ORIGIN_ENV, origin);
+  const launchConfig = buildOpenClawStartLaunchConfig(current, origin);
   let accepted: SdkAgent;
   try {
-    accepted = await agentClient.start(agentId);
+    accepted = await agentClient.startOpenClaw(agentId, { launchConfig });
   } catch (error) {
     if (!isAgentLifecycleTimeout(error)) throw error;
     accepted = await reconcileTimedOutAgentStart(agentClient, agentId);
