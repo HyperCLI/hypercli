@@ -40,12 +40,11 @@ impl ManagedRuntime {
 
     /// Runtime-owned persisted state selected by default for coding agents.
     ///
-    /// An empty slice is intentional: Buzz Agent authentication is injected
-    /// through the environment, so it has no runtime state to persist by
-    /// default. `None` is reserved for non-coding runtimes.
+    /// `None` means the helper omits a selector and lets the launch contract
+    /// use full-root sync.
     pub const fn default_sync_include(self) -> Option<&'static [&'static str]> {
         match self {
-            Self::BuzzAgent => Some(&[]),
+            Self::BuzzAgent => None,
             Self::Opencode => Some(&[
                 ".config/opencode",
                 ".local/share/opencode",
@@ -515,10 +514,11 @@ impl BuzzLaunchConfig {
         request.routes.clear();
         request.sync_root = Some("/home/node".to_owned());
         if request.sync_include.is_none() && request.sync_exclude.is_none() {
-            request.sync_include = request
-                .runtime
-                .default_sync_include()
-                .map(|paths| paths.iter().map(|path| (*path).to_owned()).collect());
+            if let Some(paths) = request.runtime.default_sync_include() {
+                request.sync_include = Some(paths.iter().map(|path| (*path).to_owned()).collect());
+            } else {
+                request.sync_exclude = Some(Vec::new());
+            }
         }
         if request.sync_include.is_some() {
             request.sync_exclude = None;
@@ -1806,10 +1806,19 @@ mod tests {
             );
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], contract["agent_args"]);
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], contract["mcp_command"]);
-            assert_eq!(
-                serde_json::to_value(&request.sync_include).unwrap(),
-                contract["sync_include"]
-            );
+            if contract.get("sync_include").is_some() {
+                assert_eq!(
+                    serde_json::to_value(&request.sync_include).unwrap(),
+                    contract["sync_include"]
+                );
+                assert_eq!(request.sync_exclude, None);
+            } else {
+                assert_eq!(
+                    serde_json::to_value(&request.sync_exclude).unwrap(),
+                    contract["sync_exclude"]
+                );
+                assert_eq!(request.sync_include, None);
+            }
             assert_eq!(
                 request
                     .env
@@ -1860,29 +1869,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_empty_sync_include_round_trips_as_sync_nothing() {
-        let mut request = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
-        request.sync_include = Some(Vec::new());
-        let wire = serde_json::to_value(&request).unwrap();
-        assert_eq!(wire["sync_include"], serde_json::json!([]));
-        let round_trip: CreateDeploymentRequest = serde_json::from_value(wire).unwrap();
-        assert_eq!(round_trip.sync_include, Some(Vec::new()));
-
-        let launch = CompleteDeploymentLaunchConfig {
-            sync_include: Some(Vec::new()),
-            ..Default::default()
-        };
-        let start = StartDeploymentRequest::new(launch);
-        let start_wire = serde_json::to_value(&start).unwrap();
-        assert_eq!(
-            start_wire["launch_config"]["sync_include"],
-            serde_json::json!([])
-        );
-        assert!(start_wire["launch_config"].get("sync_exclude").is_none());
-        let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_wire).unwrap();
-        assert_eq!(start_round_trip.sync_include, Some(Vec::new()));
-        assert_eq!(start_round_trip.sync_exclude, None);
-
+    fn empty_sync_exclude_round_trips_as_full_root_sync() {
         let full_root = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig {
             sync_exclude: Some(Vec::new()),
             ..Default::default()

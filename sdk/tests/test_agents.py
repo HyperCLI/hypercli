@@ -1635,7 +1635,6 @@ def test_build_agent_launch_defaults_restart_to_false():
         ({}, {}),
         ({"sync_include": None}, {"sync_include": None}),
         ({"sync_exclude": None}, {"sync_exclude": None}),
-        ({"sync_include": []}, {"sync_include": []}),
         (
             {"sync_include": ["workspace"], "sync_exclude": ["workspace/tmp"]},
             {"sync_include": ["workspace"]},
@@ -1646,6 +1645,15 @@ def test_build_agent_launch_preserves_sync_policy_presence(kwargs, expected):
     launch = _build_agent_launch({}, **kwargs)
 
     assert {key: value for key, value in launch.items() if key.startswith("sync_")} == expected
+
+
+def test_build_agent_launch_rejects_sync_none_shapes():
+    with pytest.raises(ValueError, match="sync_include must contain"):
+        _build_agent_launch({}, sync_include=[])
+    with pytest.raises(ValueError, match="exclude the entire sync root"):
+        _build_agent_launch({}, sync_exclude=["**"])
+    with pytest.raises(ValueError, match="exclude the entire sync root"):
+        _build_agent_launch({}, sync_exclude=["*"])
 
 
 def test_build_openclaw_routes_defaults():
@@ -2187,7 +2195,7 @@ def test_start_openclaw_pro_requires_complete_launch_config(agents_client):
             ["workspace"],
             None,
         ),
-        ("create_openclaw_pro", (), {"sync_include": []}, [], None),
+        ("create_openclaw_pro", (), {"sync_include": ["workspace"]}, ["workspace"], None),
     ],
 )
 def test_openclaw_wrappers_forward_sync_policy(
@@ -3075,7 +3083,6 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         ({}, {}),
         ({"sync_include": None}, {"sync_include": None}),
         ({"sync_exclude": None}, {"sync_exclude": None}),
-        ({"sync_include": []}, {"sync_include": []}),
     ],
 )
 def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expected):
@@ -3099,6 +3106,26 @@ def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expe
         if key in {"sync_include", "sync_exclude"}
     }
     assert actual == expected
+
+
+def test_agents_start_rejects_sync_none_shapes(agents_client):
+    base = build_agent_config()
+
+    with pytest.raises(ValueError, match="sync_include must contain"):
+        agents_client.start(
+            "11111111-1111-4111-8111-111111111111",
+            {**base, "sync_include": []},
+        )
+    with pytest.raises(ValueError, match="exclude the entire sync root"):
+        agents_client.start(
+            "11111111-1111-4111-8111-111111111111",
+            {**base, "sync_exclude": ["**"]},
+        )
+    with pytest.raises(ValueError, match="exclude the entire sync root"):
+        agents_client.start(
+            "11111111-1111-4111-8111-111111111111",
+            {**base, "sync_exclude": ["*"]},
+        )
 
 
 def test_agents_start_retains_backend_hydrated_launch_config(agents_client):

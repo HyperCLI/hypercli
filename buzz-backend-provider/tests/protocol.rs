@@ -373,14 +373,17 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             "sync_root": common["sync_root"].clone(),
             "sync_uid": common["sync_uid"].clone(),
             "sync_gid": common["sync_gid"].clone(),
-            // Deployment creation has no prior policy to inherit. Each coding
-            // runtime persists only its authentication/config state by
-            // default; Buzz Agent intentionally selects nothing.
-            "sync_include": contract["sync_include"].clone(),
             "restart": common["restart"].clone(),
             "runtime_scopes": golden["runtime_scopes"].clone(),
             "dry_run": true
         });
+        // Deployment creation has no prior policy to inherit. Each coding
+        // runtime carries its explicit default sync selector.
+        if contract.get("sync_include").is_some() {
+            expected["sync_include"] = contract["sync_include"].clone();
+        } else {
+            expected["sync_exclude"] = contract["sync_exclude"].clone();
+        }
         if runtime == "goose" {
             expected["env"]["GOOSE_MODEL"] = serde_json::json!("fixture-model");
             expected["env"]["GOOSE_PROVIDER"] = serde_json::json!("fixture-provider");

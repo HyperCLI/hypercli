@@ -87,18 +87,18 @@ describe('coding agents', () => {
   });
 
   it.each([
-    ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, []],
+    ['createBuzzAgent', 'buzz-agent', DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, undefined, []],
     ['createOpenCode', 'opencode', DEFAULT_OPENCODE_IMAGE, OpenCodeAgent, [
       '.config/opencode',
       '.local/share/opencode',
       '.local/state/opencode',
       '.cache/opencode',
-    ]],
-    ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent, ['.codex']],
-    ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent, ['.claude', '.claude.json']],
-    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent, ['.goose']],
-    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent, ['.kimi-code']],
-  ] as const)('creates %s with the managed runtime contract', async (helper, runtime, image, AgentClass, syncInclude) => {
+    ], undefined],
+    ['createCodex', 'codex', DEFAULT_CODEX_IMAGE, CodexAgent, ['.codex'], undefined],
+    ['createClaudeCode', 'claude-code', DEFAULT_CLAUDE_CODE_IMAGE, ClaudeCodeAgent, ['.claude', '.claude.json'], undefined],
+    ['createGoose', 'goose', DEFAULT_GOOSE_IMAGE, GooseAgent, ['.goose'], undefined],
+    ['createKimiCode', 'kimi-code', DEFAULT_KIMI_CODE_IMAGE, KimiCodeAgent, ['.kimi-code'], undefined],
+  ] as const)('creates %s with the managed runtime contract', async (helper, runtime, image, AgentClass, syncInclude, syncExclude) => {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -109,12 +109,11 @@ describe('coding agents', () => {
 
     expect(agent).toBeInstanceOf(AgentClass);
     expect(agent.runtime).toBe(runtime);
-    expect(post).toHaveBeenCalledWith('/deployments', {
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       runtime,
       image,
       routes: {},
       sync_root: '/home/node',
-      sync_include: syncInclude,
       sync_uid: 1000,
       sync_gid: 1000,
       restart: false,
@@ -124,7 +123,17 @@ describe('coding agents', () => {
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
       },
-    }, { retries: 1 });
+    }), { retries: 1 });
+    if (syncInclude === undefined) {
+      expect(post.mock.calls[0][1]).not.toHaveProperty('sync_include');
+    } else {
+      expect(post.mock.calls[0][1].sync_include).toEqual(syncInclude);
+    }
+    if (syncExclude === undefined) {
+      expect(post.mock.calls[0][1]).not.toHaveProperty('sync_exclude');
+    } else {
+      expect(post.mock.calls[0][1].sync_exclude).toEqual(syncExclude);
+    }
     expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
   });
 
@@ -159,7 +168,6 @@ describe('coding agents', () => {
   it.each([
     [{ syncInclude: null }, undefined, undefined],
     [{ syncExclude: null }, undefined, undefined],
-    [{ syncInclude: [] }, [], undefined],
     [{ syncInclude: ['work'], syncExclude: ['tmp'] }, ['work'], undefined],
     [{ syncExclude: ['.cache'] }, undefined, ['.cache']],
   ] as const)('applies coding-agent sync policy overrides', async (options, expectedInclude, expectedExclude) => {
@@ -174,6 +182,18 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1].sync_include).toEqual(expectedInclude);
     expect(post.mock.calls[0][1].sync_exclude).toEqual(expectedExclude);
+  });
+
+  it('rejects empty coding-agent sync include', async () => {
+    const deployments = new Deployments(
+      { post: vi.fn() } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await expect(deployments.createCodex({ syncInclude: [] })).rejects.toThrow(
+      /syncInclude must contain/,
+    );
   });
 
   it('reads the runtime subclass sync default during creation', async () => {

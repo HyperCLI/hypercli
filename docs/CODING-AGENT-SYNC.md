@@ -8,11 +8,10 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 
 - [x] Preserve this handoff in the HyperCLI repository.
 - [x] Add flat `sync_include` / `sync_exclude` launch fields to Python,
-  TypeScript, and Rust SDK request types. Explicit empty includes remain
-  serializable and mean "sync nothing."
+  TypeScript, and Rust SDK request types. Explicit empty includes are invalid;
+  omit/null the include selector to sync the whole root.
 - [x] Give every coding runtime a visible SDK-owned default include policy.
-  Buzz Agent deliberately defaults to an empty include because its identity
-  and inference credentials are environment-owned.
+  Buzz Agent omits a selector by default and therefore uses full-root sync.
 - [x] Make `sync_root` the sole persistence switch; clients do not expose or
   serialize `sync_all` or `sync_enabled`.
 - [x] Pin cross-language serialization/default tests. Deep restore, sync,
@@ -24,8 +23,9 @@ Related plan: `/tmp/LAGOON-PLAN.md`
 - [x] Complete independent SDK and Desktop audits. The follow-up fixes preserve
   excludes when Python receives a nullable include, apply runtime defaults on
   the provider's initial create while ordinary restarts inherit the backend's
-  stored policy, distinguish JSON null from an explicit empty include, and let
-  older Desktop callers preserve the current launch policy.
+  stored policy, distinguish JSON null from an explicit empty include so the
+  empty include can be rejected, and let older Desktop callers preserve the
+  current launch policy.
 - [x] Document every coding runtime and OpenClaw's full-root behavior in
   `docs/agents/coding-runtimes.mdx`.
 
@@ -35,7 +35,7 @@ Supplying a root with neither filter selects the complete sync root. Omitting bo
 on restart or edit it inherits the stored policy. An omitted create override
 receives the runtime subclass default; a custom include or exclude replaces
 that default, and a non-null include wins when both custom policies are
-supplied. An explicit empty include remains distinct and means sync nothing.
+supplied. An explicit empty include is invalid.
 
 ## User decisions
 
@@ -90,16 +90,13 @@ session to align with existing conventions; the conceptual shape is:
 Normalization rules:
 
 1. Distinguish an omitted field from an explicit empty list.
-2. If a non-null include is supplied, normalize and use it; discard/ignore
-   exclude because include wins. This includes an explicit empty list, which
-   means sync nothing. Emit a diagnostic when both were supplied so the
-   precedence is visible.
+2. If a non-null include is supplied, require at least one path, normalize and
+   use it; discard/ignore exclude because include wins. Emit a diagnostic when
+   both were supplied so the precedence is visible.
 3. Otherwise, if exclude is supplied, synchronize the full root minus those
    patterns.
 4. With neither policy, synchronize the complete root.
-5. Decide explicitly whether an empty include means “sync nothing” or is
-   invalid. Recommended: allow it to mean “sync nothing” only when explicitly
-   supplied; never collapse it to the absent/full-root case.
+5. Reject an empty include; never collapse it to the absent/full-root case.
 6. Paths are relative to `sync_root`. Reject absolute paths, `..`, empty path
    segments after normalization, NULs, and paths escaping through symlinks.
 7. Normalize duplicate and nested include roots deterministically. A parent

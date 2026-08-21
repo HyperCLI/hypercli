@@ -135,9 +135,6 @@ describe('Agents SDK', () => {
     const excludeAll = buildAgentConfig({}, {
       syncExclude: null,
     }).config;
-    const syncNothing = buildAgentConfig({}, {
-      syncInclude: [],
-    }).config;
     const includeWins = buildAgentConfig({}, {
       syncRoot: '/workspace',
       syncInclude: ['src'],
@@ -149,10 +146,15 @@ describe('Agents SDK', () => {
     expect(omitted).not.toHaveProperty('sync_enabled');
     expect(includeAll.sync_include).toBeNull();
     expect(excludeAll.sync_exclude).toBeNull();
-    expect(syncNothing.sync_include).toEqual([]);
     expect(includeWins.sync_root).toBe('/workspace');
     expect(includeWins.sync_include).toEqual(['src']);
     expect(includeWins).not.toHaveProperty('sync_exclude');
+  });
+
+  it('rejects sync-none policy shapes', () => {
+    expect(() => buildAgentConfig({}, { syncInclude: [] })).toThrow(/syncInclude must contain/);
+    expect(() => buildAgentConfig({}, { syncExclude: ['**'] })).toThrow(/exclude the entire sync root/);
+    expect(() => buildAgentConfig({}, { syncExclude: ['*'] })).toThrow(/exclude the entire sync root/);
   });
 
   it('serializes runtime scopes as a top-level launch field', () => {
@@ -1970,7 +1972,6 @@ describe('Agents SDK', () => {
       buildAgentConfig().config,
       buildAgentConfig({}, { syncInclude: null }).config,
       buildAgentConfig({}, { syncExclude: null }).config,
-      buildAgentConfig({}, { syncInclude: [] }).config,
     ];
     for (const launchConfig of configs) await deployments.start(agentId, { launchConfig });
 
@@ -1980,7 +1981,30 @@ describe('Agents SDK', () => {
     expect(post.mock.calls[1][1].launch_config).not.toHaveProperty('sync_exclude');
     expect(post.mock.calls[2][1].launch_config).toHaveProperty('sync_exclude', null);
     expect(post.mock.calls[2][1].launch_config).not.toHaveProperty('sync_include');
-    expect(post.mock.calls[3][1].launch_config).toHaveProperty('sync_include', []);
+  });
+
+  it('rejects sync-none shapes in start launch config', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: '11111111-1111-4111-8111-111111111111',
+      user_id: 'user-456',
+      state: 'STARTING',
+    });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agentId = '11111111-1111-4111-8111-111111111111';
+
+    await expect(
+      deployments.start(agentId, { launchConfig: { ...buildAgentConfig().config, sync_include: [] } }),
+    ).rejects.toThrow(/syncInclude must contain/);
+    await expect(
+      deployments.start(agentId, { launchConfig: { ...buildAgentConfig().config, sync_exclude: ['**'] } }),
+    ).rejects.toThrow(/exclude the entire sync root/);
+    await expect(
+      deployments.start(agentId, { launchConfig: { ...buildAgentConfig().config, sync_exclude: ['*'] } }),
+    ).rejects.toThrow(/exclude the entire sync root/);
   });
 
   it('retains the backend-hydrated launch config after start', async () => {

@@ -243,9 +243,10 @@ stopped after its main container exits.
 
 A nonblank `sync_root` enables a retained PVC. On generic create, omitting both
 policy fields (or passing an explicit nullable policy) selects the whole root;
-`sync_exclude=[]` also excludes nothing. `sync_include=[]` is deliberately
-different and selects no user paths. A nonempty include list wins over an
-exclude list. Every path is relative to `sync_root`, and Reef always excludes
+`sync_exclude=[]` also excludes nothing. `sync_include=[]` and root-wide
+excludes such as `sync_exclude=["*"]` are invalid. A nonempty include list wins
+over an exclude list. Every path is relative to
+`sync_root`, and Reef always excludes
 its internal `.reef-sync/**` and `.reef-sync-upload/**` paths.
 
 This is not a continuous two-way mirror. Steady synchronization uploads new

@@ -126,8 +126,8 @@ export const DEFAULT_CODING_AGENT_IMAGES: Readonly<Record<CodingAgentRuntime, st
   goose: DEFAULT_GOOSE_IMAGE,
   'kimi-code': DEFAULT_KIMI_CODE_IMAGE,
 };
-export const DEFAULT_CODING_AGENT_SYNC_INCLUDES: Readonly<Record<CodingAgentRuntime, readonly string[]>> = {
-  'buzz-agent': [],
+export const DEFAULT_CODING_AGENT_SYNC_INCLUDES: Readonly<Record<CodingAgentRuntime, readonly string[] | null>> = {
+  'buzz-agent': null,
   opencode: [
     '.config/opencode',
     '.local/share/opencode',
@@ -829,6 +829,12 @@ function cloneCompleteLaunchConfig(value: AgentLaunchConfig): AgentLaunchConfig 
   ) {
     throw new Error('launchConfig cannot carry both sync policies');
   }
+  if (Array.isArray(value.sync_include) && value.sync_include.length === 0) {
+    throw new Error('syncInclude must contain at least one path; omit it to sync all');
+  }
+  if (Array.isArray(value.sync_exclude) && (value.sync_exclude.includes('*') || value.sync_exclude.includes('**'))) {
+    throw new Error('syncExclude cannot exclude the entire sync root; omit it to sync all');
+  }
   if (typeof value.restart !== 'boolean') {
     throw new Error('launchConfig restart must be a boolean');
   }
@@ -845,8 +851,8 @@ export interface BuildAgentConfigOptions {
   /** Absolute runtime mount path for retained PVC storage. */
   syncRoot?: string | null;
   /**
-   * Relative paths selected for steady upload and cold restore. An explicit
-   * empty array selects no user paths; null selects the whole sync root.
+   * Relative paths selected for steady upload and cold restore. Must contain at
+   * least one path when supplied; null selects the whole sync root.
    */
   syncInclude?: readonly string[] | null;
   /**
@@ -2128,9 +2134,15 @@ export function buildAgentConfig(
     runtime_scopes: [...(options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES)],
   };
   if (options.syncInclude !== undefined) {
+    if (options.syncInclude !== null && options.syncInclude.length === 0) {
+      throw new Error('syncInclude must contain at least one path; omit it to sync all');
+    }
     prepared.sync_include = options.syncInclude === null ? null : [...options.syncInclude];
   }
   if (options.syncInclude === undefined && options.syncExclude !== undefined) {
+    if (options.syncExclude !== null && (options.syncExclude.includes('*') || options.syncExclude.includes('**'))) {
+      throw new Error('syncExclude cannot exclude the entire sync root; omit it to sync all');
+    }
     prepared.sync_exclude = options.syncExclude === null ? null : [...options.syncExclude];
   }
   return { config: prepared };
@@ -4752,8 +4764,9 @@ export class Deployments {
       syncInclude = undefined;
       syncExclude = undefined;
     } else {
-      syncInclude = CODING_AGENT_CLASSES[runtime].defaultSyncInclude;
-      syncExclude = undefined;
+      const defaultInclude = CODING_AGENT_CLASSES[runtime].defaultSyncInclude;
+      syncInclude = defaultInclude ?? undefined;
+      syncExclude = defaultInclude === null ? [] : undefined;
     }
     const effectiveOptions: CreateAgentOptions = {
       ...options,

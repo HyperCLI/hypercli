@@ -126,7 +126,9 @@ OpenClaw uses the generic deployment launch surface. `registry_url`,
 `registry_auth`, and `sync_root` are generic deployment options. A nonblank
 `sync_root` enables Reef persistence; no separate `sync_enabled` field is
 serialized. On generic create, no include/exclude policy means the complete
-root, while `sync_include=[]` means sync nothing. Steady Reef synchronization
+root; `sync_exclude=[]` also excludes nothing. `sync_include=[]` and
+root-wide excludes such as `sync_exclude=["*"]` are invalid.
+Steady Reef synchronization
 is PVC-to-object-storage upload/overwrite, not a two-way mirror: ordinary
 filesystem deletes are not propagated, and remote-to-PVC copying occurs only
 during explicit cold restore. Each SDK file operation obtains a fresh

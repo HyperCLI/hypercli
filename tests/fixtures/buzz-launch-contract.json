@@ -19,7 +19,7 @@
   },
   "runtimes": {
     "buzz-agent": {
-      "sync_include": [],
+      "sync_exclude": [],
       "image": "ghcr.io/hypercli/hypercli-buzz-agent:latest",
       "stock_agent_command": "buzz-agent",
       "agent_command": "/usr/local/bin/buzz-agent",

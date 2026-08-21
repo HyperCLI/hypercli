@@ -132,13 +132,32 @@ fn deployment_request_body<T: Serialize>(request: &T) -> Result<Value, HyperCliE
     } else {
         object
     };
-    let sync_selector_count = ["sync_include", "sync_exclude"]
-        .into_iter()
-        .filter(|field| launch.contains_key(*field))
-        .count();
-    if sync_selector_count != 1 {
+    let has_sync_include = launch.contains_key("sync_include");
+    let has_sync_exclude = launch.contains_key("sync_exclude");
+    if has_sync_include && has_sync_exclude {
         return Err(HyperCliError::InvalidResponse(
-            "launch config must carry exactly one of sync_include or sync_exclude".into(),
+            "launch config cannot carry both sync_include and sync_exclude".into(),
+        ));
+    }
+    if !has_sync_include && !has_sync_exclude {
+        launch.insert("sync_exclude".to_owned(), Value::Array(Vec::new()));
+    }
+    if launch
+        .get("sync_include")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "sync_include must contain at least one path; omit it to sync all".into(),
+        ));
+    }
+    if launch
+        .get("sync_exclude")
+        .and_then(Value::as_array)
+        .is_some_and(|values| values.iter().any(|value| value == "*" || value == "**"))
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "sync_exclude cannot exclude the entire sync root; omit it to sync all".into(),
         ));
     }
     for field in ["sync_uid", "sync_gid"] {
@@ -2798,11 +2817,8 @@ mod tests {
     #[test]
     fn deployment_wire_requires_exactly_one_sync_selector() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Codex);
-        assert!(matches!(
-            deployment_request_body(&request),
-            Err(HyperCliError::InvalidResponse(message))
-                if message.contains("exactly one")
-        ));
+        let defaulted = deployment_request_body(&request).unwrap();
+        assert_eq!(defaulted["sync_exclude"], serde_json::json!([]));
 
         request.sync_exclude = Some(Vec::new());
         let without_root = deployment_request_body(&request).unwrap();
@@ -2814,7 +2830,7 @@ mod tests {
         assert!(matches!(
             deployment_request_body(&request),
             Err(HyperCliError::InvalidResponse(message))
-                if message.contains("exactly one")
+                if message.contains("cannot carry both")
         ));
 
         request.sync_include = None;
@@ -2823,12 +2839,33 @@ mod tests {
         assert!(excluded.get("sync_include").is_none());
         assert_eq!(excluded["sync_exclude"], serde_json::json!(["tmp/**"]));
 
-        let missing = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig::default());
+        request.sync_exclude = None;
+        request.sync_include = Some(Vec::new());
         assert!(matches!(
-            deployment_request_body(&missing),
+            deployment_request_body(&request),
             Err(HyperCliError::InvalidResponse(message))
-                if message.contains("exactly one")
+                if message.contains("sync_include must contain")
         ));
+
+        request.sync_include = None;
+        request.sync_exclude = Some(vec!["**".to_owned()]);
+        assert!(matches!(
+            deployment_request_body(&request),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("exclude the entire sync root")
+        ));
+        request.sync_exclude = Some(vec!["*".to_owned()]);
+        assert!(matches!(
+            deployment_request_body(&request),
+            Err(HyperCliError::InvalidResponse(message))
+                if message.contains("exclude the entire sync root")
+        ));
+
+        let missing = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig::default());
+        assert_eq!(
+            deployment_request_body(&missing).unwrap()["launch_config"]["sync_exclude"],
+            serde_json::json!([])
+        );
 
         let launch = CompleteDeploymentLaunchConfig {
             sync_include: Some(vec!["src".into()]),

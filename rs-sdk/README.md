@@ -104,10 +104,11 @@ START is a complete replacement contract. Keep the original
 `CompleteDeploymentLaunchConfig` (including secrets and registry auth) under
 caller ownership and pass a clone to `StartDeploymentRequest::new`; the
 redacted `Deployment.launch_config` inspection projection cannot be used as a
-restart payload. Set exactly one sync policy: use `sync_exclude: Some(vec![])`
-for whole-root sync, `sync_include: Some(vec![])` to select nothing, or provide
-one non-empty include/exclude list. CREATE and START reject requests that set
-neither selector or both selectors.
+restart payload. Omit both selectors or use `sync_exclude: Some(vec![])` for
+whole-root sync. `sync_include: Some(vec![])` is invalid; a present include
+must contain at least one path. Root-wide excludes such as
+`sync_exclude: Some(vec!["*".into()])` are invalid. CREATE and START reject
+requests that set both selectors.
 
 ## Plans and agent capacity
 
@@ -200,10 +201,10 @@ Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into
 `buzz-acp`.
 
 For a generic `CreateDeploymentRequest`, whole-root sync is represented by
-`sync_exclude: Some(vec![])`; a nonblank `sync_root` does not make a missing
-selector valid. An explicit empty `sync_include` selects nothing, while a
-nonempty include or exclude selects that policy. Typed Buzz requests inject
-the selected runtime's documented include default. Reef continuously uploads new and changed allowed
+omitting both selectors or by `sync_exclude: Some(vec![])`. An explicit empty
+`sync_include` is invalid, while a nonempty include or exclude selects that
+policy. Typed coding-agent requests inject the selected runtime's documented
+include default when it has one. Reef continuously uploads new and changed allowed
 files from the PVC to object storage, but it is not a two-way mirror and does
 not propagate ordinary filesystem deletions. Files API deletes are targeted
 remote deletes. Object storage is copied back to the PVC only during explicit

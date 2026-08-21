@@ -16,7 +16,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 
 | Runtime | Default inference and authentication | Default selected state | Important limitations |
 | --- | --- | --- | --- |
-| Buzz Agent | HyperCLI-first. The platform injects the agent-scoped inference credential; there is no separate runtime login. | Nothing (`sync_include=[]`) | Identity and inference credentials are environment-owned. Clear the include policy or choose a custom policy if you intentionally want other home-directory state backed up. |
+| Buzz Agent | HyperCLI-first. The platform injects the agent-scoped inference credential; there is no separate runtime login. | Whole root (selector omitted) | Identity and inference credentials are environment-owned. Choose a custom policy if you intentionally want narrower home-directory backup. |
 | OpenCode | HyperCLI-first through the image's `hypercli` provider. Upstream provider login remains available when you configure another provider. | `.config/opencode`, `.local/share/opencode`, `.local/state/opencode`, `.cache/opencode` | Models are provider-qualified, for example `hypercli/kimi-k2.6-anthropic`. |
 | Codex | Native-first through the Codex/OpenAI device-login flow. | `.codex` | The gateway now exposes `/v1/responses`, and Buzz compatibility mode renders `wire_api="responses"`; a successful HyperCLI-model Codex Responses E2E is still unvalidated, so this path is not yet advertised as supported. |
 | Claude Code | Native-first through Claude.ai, Console, or SSO login. | `.claude`, `.claude.json` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI Anthropic-compatible path. It is never enabled implicitly. |
@@ -60,7 +60,7 @@ uses `syncInclude` and `syncExclude`.
   list is active.
 - Include wins when both custom policies are supplied; the clients serialize
   only the active policy.
-- An explicit empty include list means sync nothing.
+- An explicit empty include list is invalid.
 - On generic create, supplying a sync root with neither policy field selects
   the complete root (`/home/node` for the ACP/OpenClaw families, `/opt/data`
   for Hermes). Explicit `null` has the same full-root meaning. An empty

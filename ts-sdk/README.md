@@ -153,7 +153,9 @@ state. Consumers should represent that as unknown, never as an explicit no.
 OpenClaw uses the generic deployment launch surface. `registryUrl`,
 `registryAuth`, and `syncRoot` are generic deployment options. A nonblank
 `syncRoot` enables Reef persistence. On generic create, no include/exclude
-policy means the complete root, while `syncInclude: []` means sync nothing.
+policy means the complete root; `syncExclude: []` also excludes nothing.
+`syncInclude: []` and root-wide excludes such as `syncExclude: ["*"]` are
+invalid.
 Steady Reef synchronization is PVC-to-object-storage upload/overwrite, not a
 two-way mirror: ordinary filesystem deletes are not propagated, and
 remote-to-PVC copying occurs only during explicit cold restore. Files API

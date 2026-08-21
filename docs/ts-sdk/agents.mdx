@@ -217,8 +217,8 @@ container exits.
 
 On generic create, omitting both policy fields (or passing an explicit nullable
 policy) selects the whole sync root; `syncExclude: []` also excludes nothing.
-`syncInclude: []` is deliberately different and selects no user paths. A
-nonempty include list wins over an exclude list. Every path is relative to
+`syncInclude: []` and root-wide excludes such as `syncExclude: ["*"]` are
+invalid. A nonempty include list wins over an exclude list. Every path is relative to
 `syncRoot`, and Reef always excludes its internal `.reef-sync/**` and
 `.reef-sync-upload/**` paths.
 

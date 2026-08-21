@@ -114,9 +114,9 @@ def _agent_payload(runtime: str) -> dict:
 
 
 @pytest.mark.parametrize(
-    ("method_name", "runtime", "image", "agent_type", "sync_include"),
+    ("method_name", "runtime", "image", "agent_type", "sync_include", "sync_exclude"),
     [
-        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, []),
+        ("create_buzz_agent", "buzz-agent", DEFAULT_BUZZ_AGENT_IMAGE, BuzzAgent, None, []),
         (
             "create_opencode",
             "opencode",
@@ -128,26 +128,31 @@ def _agent_payload(runtime: str) -> dict:
                 ".local/state/opencode",
                 ".cache/opencode",
             ],
+            None,
         ),
-        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent, [".codex"]),
+        ("create_codex", "codex", DEFAULT_CODEX_IMAGE, CodexAgent, [".codex"], None),
         (
             "create_claude_code",
             "claude-code",
             DEFAULT_CLAUDE_CODE_IMAGE,
             ClaudeCodeAgent,
             [".claude", ".claude.json"],
+            None,
         ),
-        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent, [".goose"]),
+        ("create_goose", "goose", DEFAULT_GOOSE_IMAGE, GooseAgent, [".goose"], None),
         (
             "create_kimi_code",
             "kimi-code",
             DEFAULT_KIMI_CODE_IMAGE,
             KimiCodeAgent,
             [".kimi-code"],
+            None,
         ),
     ],
 )
-def test_create_coding_agent_contract(method_name, runtime, image, agent_type, sync_include):
+def test_create_coding_agent_contract(
+    method_name, runtime, image, agent_type, sync_include, sync_exclude
+):
     deployments = Deployments(
         _HTTP(),
         api_base="https://api.test.hypercli.com/agents",
@@ -168,8 +173,14 @@ def test_create_coding_agent_contract(method_name, runtime, image, agent_type, s
     assert posted["routes"] == {}
     assert posted["sync_root"] == "/home/node"
     assert "sync_enabled" not in posted
-    assert posted["sync_include"] == sync_include
-    assert "sync_exclude" not in posted
+    if sync_include is None:
+        assert "sync_include" not in posted
+    else:
+        assert posted["sync_include"] == sync_include
+    if sync_exclude is None:
+        assert "sync_exclude" not in posted
+    else:
+        assert posted["sync_exclude"] == sync_exclude
     assert posted["sync_uid"] == 1000
     assert posted["sync_gid"] == 1000
     assert posted["runtime_scopes"] == DEFAULT_AGENT_RUNTIME_SCOPES
@@ -215,7 +226,6 @@ def test_create_coding_agent_honors_workspaces_directory_override():
     [
         ({"sync_include": None}, None, None, True),
         ({"sync_exclude": None}, None, None, True),
-        ({"sync_include": []}, [], None, False),
         ({"sync_include": ["work"], "sync_exclude": ["tmp"]}, ["work"], None, False),
         ({"sync_include": None, "sync_exclude": ["tmp"]}, None, ["tmp"], False),
         ({"sync_exclude": [".cache"]}, None, [".cache"], False),
@@ -250,6 +260,13 @@ def test_coding_agent_sync_policy_overrides(
         assert "sync_exclude" not in posted
     else:
         assert posted["sync_exclude"] == expected_exclude
+
+
+def test_coding_agent_rejects_empty_sync_include():
+    deployments = Deployments(_HTTP())
+
+    with pytest.raises(ValueError, match="sync_include must contain"):
+        deployments.create_codex(sync_include=[])
 
 
 def test_coding_agent_create_reads_the_runtime_subclass_sync_default(monkeypatch):
@@ -340,7 +357,12 @@ def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, run
     assert posted["runtime"] == runtime
     assert posted["runtime_scopes"] == _BUZZ_GOLDEN["runtime_scopes"]
     assert posted["image"] == expected_runtime["image"]
-    assert posted["sync_include"] == expected_runtime["sync_include"]
+    if "sync_include" in expected_runtime:
+        assert posted["sync_include"] == expected_runtime["sync_include"]
+        assert "sync_exclude" not in posted
+    else:
+        assert posted["sync_exclude"] == expected_runtime["sync_exclude"]
+        assert "sync_include" not in posted
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == expected_runtime["agent_command"]
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == expected_runtime["agent_args"]
     assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == expected_runtime["mcp_command"]

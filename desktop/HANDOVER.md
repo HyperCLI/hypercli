@@ -432,8 +432,8 @@ Coding runtimes also expose **Sync all files**. Off applies the SDK subclass's
 visible `sync_include` default; on sends explicit JSON null for
 `sync_include`, clearing a stored selective policy without serializing both selectors. Omission
 means inherit on edit/restart and is not the same as null. An explicitly empty
-include remains serializable and means sync nothing. Include wins when callers
-provide both policies. Keep these fields flat in the launch contract; the
+include is invalid. Include wins when callers provide both policies. Keep
+these fields flat in the launch contract; the
 client-only `sync_all`/`syncAll` convenience flag never crosses the wire.
 Legacy deployments with no recoverable `respond_to` value fail closed to
 `owner` / **Only me** in the editor; the UI never renders or submits a blank

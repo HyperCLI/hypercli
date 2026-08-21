@@ -563,7 +563,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
                 "restart": False,
                 "runtime_scopes": ["agents:none", "models:*"],
                 "sync_root": ".openclaw",
-                "sync_include": [],
+                "sync_include": ["workspace"],
                 "sync_exclude": ["ignored-because-include-wins"],
             },
         }

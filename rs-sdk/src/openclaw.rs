@@ -197,7 +197,7 @@ mod tests {
     impl CreateDeploymentRequest {
         fn with_defaults(mut self) -> Self {
             self.image = Some("custom/image:tag".to_owned());
-            self.sync_include = Some(Vec::new());
+            self.sync_include = Some(vec!["workspace".to_owned()]);
             OpenClawLaunchConfig::new().apply_to_create(&mut self);
             self
         }

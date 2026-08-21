@@ -233,8 +233,8 @@ DEFAULT_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "goose": DEFAULT_GOOSE_IMAGE,
     "kimi-code": DEFAULT_KIMI_CODE_IMAGE,
 }
-DEFAULT_CODING_AGENT_SYNC_INCLUDES: dict[CodingAgentRuntime, tuple[str, ...]] = {
-    "buzz-agent": (),
+DEFAULT_CODING_AGENT_SYNC_INCLUDES: dict[CodingAgentRuntime, tuple[str, ...] | None] = {
+    "buzz-agent": None,
     "opencode": (
         ".config/opencode",
         ".local/share/opencode",
@@ -805,6 +805,12 @@ def _copy_complete_launch_config(value: dict) -> dict:
         raise ValueError("launch_config is incomplete; missing: " + ", ".join(missing))
     if {"sync_include", "sync_exclude"}.issubset(value):
         raise ValueError("launch_config cannot carry both sync policies")
+    if value.get("sync_include") == []:
+        raise ValueError("sync_include must contain at least one path; omit it to sync all")
+    if value.get("sync_exclude") is not None and {"*", "**"} & set(
+        value.get("sync_exclude") or []
+    ):
+        raise ValueError("sync_exclude cannot exclude the entire sync root; omit it to sync all")
     if type(value["restart"]) is not bool:
         raise ValueError("launch_config restart must be a boolean")
     return copy.deepcopy(value)
@@ -873,8 +879,12 @@ def _build_agent_launch(
         ),
     }
     if sync_include is not _UNSET:
+        if sync_include == []:
+            raise ValueError("sync_include must contain at least one path; omit it to sync all")
         complete_launch["sync_include"] = None if sync_include is None else list(sync_include)
     if sync_include is _UNSET and sync_exclude is not _UNSET:
+        if sync_exclude is not None and {"*", "**"} & set(sync_exclude):
+            raise ValueError("sync_exclude cannot exclude the entire sync root; omit it to sync all")
         complete_launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
     if _complete:
         return complete_launch
@@ -932,7 +942,7 @@ def build_agent_config(
     A nonblank ``sync_root`` enables retained storage. In a create payload,
     leaving both policy arguments unset (or explicitly clearing one with
     ``None``) selects the whole root; ``sync_exclude=[]`` also excludes
-    nothing, while ``sync_include=[]`` intentionally selects no user paths.
+    nothing, while ``sync_include=[]`` is invalid.
     Includes win when both modes are supplied. Paths are relative to
     ``sync_root``. START callers must send the resulting complete object;
     omitted fields are never inherited from the prior Agent snapshot.
@@ -983,7 +993,10 @@ def _resolve_coding_agent_sync_policy(
         return _UNSET, list(sync_exclude)
     if sync_include is None:
         return _UNSET, _UNSET
-    return list(_CODING_AGENT_CLASSES[runtime].default_sync_include or ()), _UNSET
+    default_include = _CODING_AGENT_CLASSES[runtime].default_sync_include
+    if default_include:
+        return list(default_include), _UNSET
+    return _UNSET, []
 
 
 def _resolve_openclaw_sync_policy(
@@ -3391,8 +3404,8 @@ class Deployments:
             env: Optional environment variables to pass through to the pod.
             secrets: Optional secret environment variables to pass through to the pod.
             sync_root: Absolute runtime mount path for retained PVC storage.
-            sync_include: Relative paths to upload/restore. An explicit empty
-                list selects no user paths; ``None`` selects the whole root.
+            sync_include: Relative paths to upload/restore. Must contain at
+                least one path when supplied; ``None`` selects the whole root.
             sync_exclude: Relative patterns omitted from whole-root mode. An
                 empty list excludes nothing. Ignored when an include is active.
         Returns:
@@ -3693,7 +3706,7 @@ class Deployments:
         """Create a coding runtime with its runtime-specific include default.
 
         An explicit nullable sync policy opts out of that helper default and
-        selects whole-root persistence. ``sync_include=[]`` selects nothing.
+        selects whole-root persistence. ``sync_include=[]`` is invalid.
         """
         if buzz_enabled and buzz is not None:
             raise ValueError("buzz_enabled cannot be combined with buzz")
