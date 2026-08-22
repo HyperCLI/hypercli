@@ -1,18 +1,22 @@
 ---
 title: Agents Overview
-description: OpenClaw desktop containers with VNC, shell, file access, and an AI gateway
+description: Managed runtime containers for desktops, coding agents, gateways, and custom workloads
 ---
 
 ## What Are Agents?
 
-Agents are fully managed **OpenClaw desktop runtimes**. Each agent provides:
+Agents are fully managed runtime containers. Depending on the runtime family,
+an agent can provide:
 
-- **Desktop** — full Linux desktop accessible via browser
+- **Desktop** — browser-accessible desktop on OpenClaw pro runtimes
 - **Shell access** — backend WebSocket PTY terminal
 - **File system** — read/write files on the container
-- **OpenClaw Gateway** — WebSocket RPC for AI chat, config, cron, and more
+- **Gateway APIs** — OpenClaw WebSocket RPC or Hermes HTTP/SSE routes
+- **Coding agents** — Buzz Agent, OpenCode, Goose, Codex, Claude Code, and Kimi Code
 
-Agents are ideal for running autonomous AI workflows, development environments, or any task that needs a persistent Linux desktop with programmatic control.
+Agents are ideal for autonomous AI workflows, development environments,
+gateway-style services, or any task that needs a persistent Linux runtime with
+programmatic control.
 
 ## Architecture
 
@@ -27,8 +31,10 @@ HyperCLI managed control plane
     │  Scheduling, health monitoring, lifecycle updates
     ▼
 Managed agent runtimes
-    ├── Desktop (noVNC)
-    └── OpenClaw Gateway (WebSocket RPC v3)
+    ├── OpenClaw desktop and gateway
+    ├── Hermes API/SSE gateway
+    ├── Buzz coding-agent runtimes
+    └── Custom containers
 ```
 
 The HyperCLI backend handles authentication, plan enforcement, and the public
@@ -135,6 +141,7 @@ Use `hyper agents budget` to see granted, used, and available slots by tier befo
 ## Next Steps
 
 - [Quickstart](/agents/quickstart) — Create your first agent in 2 minutes
+- [Supported runtime images](/agents/images) — Public image families and tag policy
 - [CLI Reference](/cli/commands/agents) — Full `hyper agents` command reference
 - [SDK Reference](/sdk/agents) — Python SDK for programmatic control
 - [Gateway Client](/sdk/gateway) — WebSocket RPC for OpenClaw Gateway

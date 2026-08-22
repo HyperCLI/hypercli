@@ -40,7 +40,8 @@ POST https://api.hypercli.com/slack/agents/{agent_id}/relay
 Authorization: Bearer <HyperCLI user JWT>
 ```
 
-This patches the agent's persisted OpenClaw launch config. Restart the managed
+This patches the agent's persisted OpenClaw launch config without exposing
+existing secret values or caller-held registry credentials. Restart the managed
 agent after enabling Slack so the runtime starts with the relay config.
 
 The CLI uses the same attach path:
@@ -60,8 +61,8 @@ Managed OpenClaw config persists at:
 /home/node/.openclaw/openclaw.json
 ```
 
-The hosted app uses OpenClaw Slack relay mode. HyperCLI injects relay runtime
-env such as:
+The hosted app uses OpenClaw Slack relay mode. For managed OpenClaw launches,
+the SDK owns the complete hosted Slack runtime env:
 
 ```text
 HYPER_SLACK_APP_ENABLED=1
@@ -70,8 +71,17 @@ HYPER_SLACK_API_URL=https://api.hypercli.com/slack/api/
 HYPER_SLACK_GATEWAY_ID=agent:<agent_uuid>
 ```
 
-The existing managed runtime key is used for websocket auth; no separate Slack
-relay key is needed for managed agents.
+`HYPER_SLACK_GATEWAY_ID` is normally `agent:<agent_uuid>`. The existing
+managed runtime key is used for websocket auth; no separate Slack relay key is
+needed for managed agents. Managed runtimes receive that credential as
+`HYPER_AGENTS_API_KEY`, not `HYPER_API_KEY`.
+
+When TypeScript callers pass hosted Slack intent to `createOpenClaw(...)`, the
+SDK creates the agent first, waits until launch updates are accepted, then
+patches the complete Slack env and OpenClaw channel config using the assigned
+agent id. Nothing starts with a partial Slack env. Dry-run creation cannot infer
+that future id, so pass an explicit `slack.gatewayId` when you need to preview
+the hosted Slack env.
 
 ## Commands
 
@@ -157,3 +167,8 @@ restart the managed agent so the persisted OpenClaw config is loaded.
 
 If OpenClaw receives messages but cannot reply, check the bot is installed in
 the workspace/channel and that the runtime has `HYPER_SLACK_API_URL`.
+
+If a managed OpenClaw agent was created before hosted Slack env was SDK-owned,
+restart it through the current TypeScript `startOpenClaw(...)` helper with the
+stored launch config. The helper fills a missing hosted gateway id as
+`agent:<agent_uuid>` before START. It does not overwrite an explicit stale id.

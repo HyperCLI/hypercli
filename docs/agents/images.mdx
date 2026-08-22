@@ -1,0 +1,62 @@
+---
+title: Supported Runtime Images
+description: Public Agent runtime images, runtime names, and tag semantics
+---
+
+HyperCLI publishes supported Agent runtime images under
+`ghcr.io/hypercli`. The Python and TypeScript helpers select the right image
+for each managed runtime, so most applications should choose a runtime family
+instead of hand-pinning an image.
+
+## Image Inventory
+
+| Runtime | Backend runtime | Public image |
+| --- | --- | --- |
+| OpenClaw | `openclaw` | `ghcr.io/hypercli/hypercli-openclaw:prod` |
+| OpenClaw Pro | `openclaw-pro` | `ghcr.io/hypercli/hypercli-openclaw:pro-prod` |
+| Hermes Agent | `hermes-agent` | `ghcr.io/hypercli/hypercli-hermes-agent:latest` |
+| Buzz Agent | `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
+| OpenCode | `opencode` | `ghcr.io/hypercli/hypercli-buzz-opencode:latest` |
+| Goose | `goose` | `ghcr.io/hypercli/hypercli-buzz-goose:latest` |
+| Codex | `codex` | `ghcr.io/hypercli/hypercli-buzz-codex:latest` |
+| Claude Code | `claude-code` | `ghcr.io/hypercli/hypercli-buzz-claude:latest` |
+| Kimi Code | `kimi-code` | `ghcr.io/hypercli/hypercli-buzz-kimi-code:latest` |
+
+OpenClaw is the gateway runtime. OpenClaw Pro layers desktop support on top of
+the promoted OpenClaw runtime. Hermes exposes an HTTP/SSE API Server. The Buzz
+images run coding-agent ACP runtimes behind the hosted Buzz adapter.
+
+Base and internal images, including `hypercli-buzz-base`, registry-local
+`:latest` images, and CI smoke images, are implementation details. They are not
+the user-facing launch targets.
+
+## Tag Semantics
+
+Use helper-selected defaults for normal launches. The helpers track the
+supported runtime names from the backend launch contract and choose the current
+public image for that runtime.
+
+OpenClaw production tags are promotion tags:
+
+- `hypercli-openclaw:prod` is promoted from a tested internal `:latest`.
+- `hypercli-openclaw:pro-prod` is built from `:prod`, sanity-checked with
+  desktop enabled, and then published.
+
+The Buzz coding images and Hermes publish tested short-SHA tags and public
+`:latest` tags. A successful promotion means the image-specific contract tests
+and runtime E2E gates for that family have passed.
+
+For smoke tests, E2E tests, and release validation, use an immutable SHA tag or
+an explicit non-promoted candidate image when the test is meant to validate a
+new build. Do not use a moving promotion tag to prove the candidate under test.
+
+For user documentation and examples, prefer runtime helpers and omit `image`
+unless the example is about advanced image override behavior. If you do pin an
+image, pin the smallest supported public tag that expresses your intent.
+
+## Overrides
+
+The generic Agent API accepts an explicit `image` override. Use it for custom
+containers or advanced debugging. Managed runtime helpers should normally own
+image selection because routes, authentication, sync defaults, and runtime
+commands differ by family.

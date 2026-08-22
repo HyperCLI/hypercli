@@ -1,0 +1,98 @@
+---
+title: Hermes Agent SDK
+description: TypeScript SDK helpers for creating, starting, and calling Hermes Agent deployments.
+---
+
+Use `client.deployments.createHermesAgent(...)` for the managed Hermes runtime.
+The helper selects runtime `hermes-agent`, image
+`ghcr.io/hypercli/hypercli-hermes-agent:latest`, route `hermes` on port `8642`,
+sync root `/opt/data`, and UID/GID `10000`.
+
+Hermes is not ACP. It exposes a bearer-authenticated HTTP/SSE API Server and
+OpenAI-compatible `/v1` endpoints.
+
+## Create
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({ agentApiKey: "hyper_api_..." });
+
+let agent = await client.deployments.createHermesAgent({
+  name: "hermes",
+  size: "small",
+});
+agent = await agent.waitRunning();
+
+const api = agent.apiClient();
+console.log(await api.health());
+console.log(await api.models());
+```
+
+`createHermesAgent` generates `API_SERVER_KEY` unless you pass `apiServerKey`.
+The key is sent as a launch secret and retained only on the returned
+`HermesAgent`.
+
+## Start
+
+`API_SERVER_KEY` is write-only. If you need the SDK to build
+`agent.apiClient()` after a later start, provide the caller-known key again.
+
+```ts
+import { buildAgentConfig, buildHermesAgentRoutes } from "@hypercli.com/sdk";
+
+const launchConfig = buildAgentConfig({}, {
+  image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
+  secrets: { API_SERVER_KEY: "server-key-you-stored" },
+  routes: buildHermesAgentRoutes(),
+  syncRoot: "/opt/data",
+  syncUid: 10000,
+  syncGid: 10000,
+}).config;
+
+agent = await client.deployments.startHermesAgent("agent-id-or-name", {
+  launchConfig,
+  apiServerKey: "server-key-you-stored",
+});
+agent = await agent.waitRunning();
+
+const api = agent.apiClient();
+```
+
+If the launch config already contains `secrets.API_SERVER_KEY`, you can omit
+`apiServerKey`. Later list/get hydration strips any `API_SERVER_KEY` from
+public launch config and sets `agent.apiServerKey` to `null`.
+
+## API Client
+
+```ts
+const api = agent.apiClient();
+
+const session = await api.createSession({ title: "Investigation" });
+const run = await api.createRun({
+  input: "Summarize the repository state",
+  session_id: session.session.id,
+});
+
+for await (const event of api.runEvents(run.run_id)) {
+  console.log(event.event, event.data);
+}
+```
+
+Available helpers include `health()`, `healthDetailed()`, `capabilities()`,
+`models()`, session CRUD, `chatSession()`, `streamSessionChat()`,
+`createRun()`, `getRun()`, `runEvents()`, `approveRun()`, and `stopRun()`.
+
+For OpenAI-compatible calls, use the same API-server key with
+`agent.openaiBaseUrl`:
+
+```ts
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  baseURL: agent.openaiBaseUrl!,
+  apiKey: agent.apiServerKey!,
+});
+
+const models = await openai.models.list();
+```

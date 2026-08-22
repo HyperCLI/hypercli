@@ -1,0 +1,94 @@
+---
+title: Hermes Agent SDK
+description: Python SDK helpers for creating, starting, and calling Hermes Agent deployments.
+---
+
+Use `client.deployments.create_hermes_agent(...)` for the managed Hermes
+runtime. The helper selects runtime `hermes-agent`, image
+`ghcr.io/hypercli/hypercli-hermes-agent:latest`, route `hermes` on port `8642`,
+sync root `/opt/data`, and UID/GID `10000`.
+
+Hermes is not ACP. It exposes a bearer-authenticated HTTP/SSE API Server and
+OpenAI-compatible `/v1` endpoints.
+
+## Create
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(agent_api_key="hyper_api_...")
+
+agent = client.deployments.create_hermes_agent(
+    name="hermes",
+    size="small",
+)
+agent = agent.wait_running()
+
+api = agent.api()
+print(api.health())
+print(api.models())
+```
+
+`create_hermes_agent` generates `API_SERVER_KEY` unless you pass
+`api_server_key=...`. The key is sent as a launch secret and retained only on
+the returned `HermesAgent`.
+
+## Start
+
+`API_SERVER_KEY` is write-only. If you need the SDK to build `agent.api()` after
+a later start, provide the caller-known key again.
+
+```python
+from hypercli import build_agent_config, build_hermes_agent_routes
+
+launch_config = build_agent_config(
+    image="ghcr.io/hypercli/hypercli-hermes-agent:latest",
+    secrets={"API_SERVER_KEY": "server-key-you-stored"},
+    routes=build_hermes_agent_routes(),
+    sync_root="/opt/data",
+    sync_uid=10000,
+    sync_gid=10000,
+)
+
+agent = client.deployments.start_hermes_agent(
+    "agent-id-or-name",
+    launch_config,
+    api_server_key="server-key-you-stored",
+)
+agent = agent.wait_running()
+api = agent.api()
+```
+
+If the launch config already contains `secrets.API_SERVER_KEY`, you can omit
+`api_server_key`. Later list/get hydration strips any `API_SERVER_KEY` from
+public launch config and sets `agent.api_server_key` to `None`.
+
+## API Client
+
+```python
+api = agent.api()
+
+session = api.create_session(title="Investigation")
+run = api.create_run("Summarize the repository state", session_id=session["session"]["id"])
+
+for event in api.run_events(run["run_id"]):
+    print(event.event, event.data)
+```
+
+Available helpers include `health()`, `detailed_health()`, `capabilities()`,
+`models()`, session CRUD, `chat()`, `chat_stream()`, `create_run()`,
+`get_run()`, `run_events()`, `approve_run()`, and `stop_run()`.
+
+For OpenAI-compatible calls, use the same API-server key with
+`agent.openai_base_url`:
+
+```python
+from openai import OpenAI
+
+openai_client = OpenAI(
+    base_url=agent.openai_base_url,
+    api_key=agent.api_server_key,
+)
+
+models = openai_client.models.list()
+```

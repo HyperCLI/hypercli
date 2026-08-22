@@ -177,10 +177,12 @@ Managed runtimes can pass the reserved target `self` to `get`, `start`, `stop`,
 and route methods. The backend authorizes that narrow whitelist from the active
 runtime-key binding while the generic runtime scope remains `agents:none`.
 `start("self", { launchConfig })` first resolves the bound Agent through
-`GET /deployments/self`, then sends the caller-supplied complete launch
-configuration to the ordinary UUID START route. There is no separate self
-START endpoint or backend-stored launch inheritance. Delete and key rotation
-reject `self`.
+`GET /deployments/self`, then sends a complete flat `launch_config` to the
+ordinary UUID START route. START is a replacement operation: it requires every
+launch key, including `env`, `secrets`, `registry_auth`, route, image, command,
+restart, and sync fields. When `launchConfig` is omitted, the TS SDK rebuilds
+one from the stored Agent projection with `storedLaunchConfig(...)`. There is
+no separate self START endpoint. Delete and key rotation reject `self`.
 
 This generic path does not inject any routes. Use `createOpenClaw(...)` when you want the standard root gateway and `desktop` routes.
 
@@ -209,11 +211,15 @@ Create/start options:
 
 `registryUrl`, `registryAuth`, `syncRoot`, and `restart` are generic launch
 options. They belong to the base deployment contract, not to OpenClaw
-specifically. Synchronization is enabled when `syncRoot` is present and
-disabled when it is absent; the SDK derives the compatibility wire boolean.
-Omit `restart` to preserve the platform default, or set `restart: false` for a
-one-shot process that should leave the deployment stopped after its main
-container exits.
+specifically. `registryAuth` is caller-held for private registries: the
+owner-facing Agent projection redacts it, and START must be given the
+credentials again when `registryUrl` points at a private registry. When the TS
+SDK rebuilds a stored launch config, pass `{ registryAuth }` if the stored
+config has a private `registry_url`. Synchronization is enabled when
+`syncRoot` is present and disabled when it is absent; the SDK derives the
+compatibility wire boolean. Omit `restart` to preserve the platform default,
+or set `restart: false` for a one-shot process that should leave the
+deployment stopped after its main container exits.
 
 On generic create, omitting both policy fields (or passing an explicit nullable
 policy) selects the whole sync root; `syncExclude: []` also excludes nothing.
@@ -238,6 +244,13 @@ The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gatewayToken` (or the
 same key in `secrets`) only when intentionally replacing it. Otherwise the
 Backend preserves the existing Secret.
 
+Public launch-config PATCH calls can preserve stored backend-redacted
+`secrets` and `registry_auth` when they are omitted. START payloads are still
+caller-built complete launch configs; owner-facing projections cannot recover
+`registry_auth`, so private registry START calls must receive it from the
+caller. Provisioned storage settings are retained after create; treat them as
+immutable for public launch-config patches.
+
 ## OpenClaw Presets
 
 Use the OpenClaw-specific helpers when you want the SDK to provide the standard gateway and desktop routes:
@@ -250,6 +263,36 @@ const agent = await client.deployments.createOpenClaw({
 await client.deployments.waitForState(agent.id, ["STOPPED"], 330_000);
 await client.deployments.startOpenClaw(agent.id, { launchConfig: agent.launchConfig });
 ```
+
+`startOpenClaw(...)` accepts a stored `launchConfig` projection and repairs the
+redacted `secrets` and `registry_auth` keys before it checks OpenClaw-specific
+fields. If you do not have the projection on hand, rebuild it first:
+
+```ts
+const launchConfig = await client.deployments.storedLaunchConfig(agent.id, {
+  registryAuth,
+});
+await client.deployments.startOpenClaw(agent.id, { launchConfig });
+```
+
+The helper also fills a missing hosted Slack gateway id as `agent:<agent_id>`
+before START. It does not overwrite an explicit stale id.
+
+Hosted Slack is expressed as intent on `createOpenClaw(...)`:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "slack-demo",
+  slack: true,
+});
+```
+
+The SDK owns the `HYPER_SLACK_APP_ENABLED`, `HYPER_SLACK_RELAY_URL`,
+`HYPER_SLACK_API_URL`, and `HYPER_SLACK_GATEWAY_ID` launch env. Because the
+gateway id depends on the assigned agent id, `createOpenClaw(...)` creates the
+agent first, waits until launch updates are accepted, then patches the complete
+env and OpenClaw Slack relay config. Nothing starts with a partial Slack env.
+For dry-run previews, pass `slack: { gatewayId: "agent:<id>" }` explicitly.
 
 Default OpenClaw routes are:
 
@@ -286,6 +329,10 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   caches are excluded
 - `HYPER_WORKSPACES_DIR`
   defaults to `/home/node/shared`; an explicit launch `env` value is preserved
+- Workspaces boot sync
+  is rendered through `workspacesSync` typed helper options and
+  `HYPER_WORKSPACES_*` environment variables; there is no public
+  `launch_config.workspacesSync` field
 - `heartbeat`
   maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
 
@@ -382,6 +429,9 @@ A managed launch receives its agent-scoped inference credential from the
 platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
 into the runtime environment.
 
+Do not use `HYPER_API_KEY` inside managed runtimes for the agent-scoped
+inference path.
+
 A typed Buzz launch:
 
 - leaves size unset for live backend/provider slot selection and sets
@@ -433,7 +483,9 @@ const agent = await client.deployments.create({
 ```ts
 await client.deployments.list();
 await client.deployments.get(agent.id);
-await client.deployments.start(agent.id);
+await client.deployments.startOpenClaw(agent.id, {
+  launchConfig: agent.launchConfig,
+});
 await client.deployments.stop(agent.id);
 await client.deployments.archive(agent.id);
 await client.deployments.restore(agent.id);

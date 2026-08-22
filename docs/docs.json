@@ -105,8 +105,10 @@
               "agents/tags",
               "agents/workspaces",
               "agents/openclaw-config",
+              "agents/hermes",
               "agents/provider",
               "agents/integrations",
+              "agents/images",
               "agents/coding-runtimes",
               "agents/buzz",
               "agents/api",
@@ -127,6 +129,7 @@
               "ts-sdk/renders",
               "ts-sdk/files",
               "ts-sdk/agents",
+              "ts-sdk/hermes",
               "ts-sdk/workflows",
               "ts-sdk/gateway",
               "ts-sdk/reference"
@@ -145,6 +148,7 @@
               "sdk/logs",
               "sdk/comfyui",
               "sdk/agents",
+              "sdk/hermes",
               "sdk/gateway",
               "sdk/x402",
               "sdk/reference"

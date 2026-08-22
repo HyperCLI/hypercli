@@ -42,10 +42,19 @@ When an agent has state sync enabled:
 3. On restart, the restore init container restores the backup before OpenClaw
    starts.
 4. The OpenClaw image entrypoint only copies the baked template if the runtime
-   config file is missing after restore.
+   config file is missing after restore. It no longer runs a redundant
+   `openclaw config validate` pass during boot.
 
 This means gateway config updates are expected to survive normal container
 restarts.
+
+Public launch-config patches are complete replacements for launch fields, but
+the backend can preserve stored redacted `secrets` and `registry_auth` when
+they are omitted from a PATCH. START is different: owner-facing Agent
+projections never return `registry_auth`, so callers using private registry
+images must supply those credentials again when rebuilding a START payload.
+Storage settings are retained after provisioning; do not use a public
+launch-config patch to change an agent's provisioned retained-storage shape.
 
 ## Template Recovery
 
@@ -73,3 +82,6 @@ through the gateway after patching. For release validation, use a restart test:
 2. Read it back from `config.get`.
 3. Restart the agent.
 4. Read it back again and confirm the value survived.
+
+For boot readiness, treat `config-applied` as the gateway handoff/ready point.
+It is not a promise that a separate "config verified" log line was emitted.

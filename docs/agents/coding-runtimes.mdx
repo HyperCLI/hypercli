@@ -114,17 +114,18 @@ restore with that policy cannot currently prove a selected source and fails.
 
 ## Container families
 
-Ordinary SDK helpers select `ghcr.io/hypercli/hypercli-<runtime>:latest`.
-Buzz-managed launches select `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`
-and run the runtime behind `/usr/local/bin/buzz-acp`; Claude's Buzz image is
-named `hypercli-buzz-claude`. Buzz Agent already uses
-`hypercli-buzz-agent:latest` in both cases. An explicit immutable `image`
-override still wins.
+Coding-agent helpers select the supported public image for the requested
+runtime. Buzz-managed launches use
+`ghcr.io/hypercli/hypercli-buzz-<runtime>:latest` and run the runtime behind
+`/usr/local/bin/buzz-acp`; Claude's Buzz image is named
+`hypercli-buzz-claude`. Buzz Agent already uses `hypercli-buzz-agent:latest`.
+An explicit immutable `image` override still wins.
 
 The coding runtimes have no OpenClaw gateway and no public route by default.
 Use authenticated deployment lifecycle, files, exec, shell, and runtime-auth
 APIs. OpenClaw instead exposes its gateway routes and should be controlled with
 the OpenClaw-specific SDK helpers. Hermes exposes its API Server through the
 `hermes` route and should be controlled with the Hermes SDK helpers. See
-[OpenClaw runtime config](/agents/openclaw-config) and
+[Supported runtime images](/agents/images),
+[OpenClaw runtime config](/agents/openclaw-config), and
 [Buzz Desktop](/agents/buzz) for those runtime-specific control planes.

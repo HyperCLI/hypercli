@@ -204,10 +204,12 @@ client.deployments.stop("self")
 ```
 
 `start("self", complete_launch_config)` first resolves the bound Agent through
-`GET /deployments/self`, then sends the caller-supplied complete launch
-configuration to the ordinary UUID START route. There is no separate self
-START endpoint or backend-stored launch inheritance. `self` is not accepted
-for delete or key rotation.
+`GET /deployments/self`, then sends the caller-supplied complete flat
+`launch_config` to the ordinary UUID START route. START is a replacement
+operation: it requires every launch key, including `env`, `secrets`,
+`registry_auth`, route, image, command, restart, and sync fields. There is no
+separate self START endpoint or backend-stored launch inheritance. `self` is
+not accepted for delete or key rotation.
 
 This generic path does not inject any routes. Use `create_openclaw(...)` when you want the standard root gateway and `desktop` routes.
 
@@ -237,9 +239,12 @@ Accepted create/start options:
 
 `registry_url`, `registry_auth`, `sync_root`, and `restart`
 are generic launch options. They belong to the base deployment contract, not
-to OpenClaw specifically. Omit `restart` to preserve the platform default, or
-set `restart=False` for a one-shot process that should leave the deployment
-stopped after its main container exits.
+to OpenClaw specifically. `registry_auth` is caller-held for private
+registries: the owner-facing Agent projection redacts it, and START must be
+given the credentials again when `registry_url` points at a private registry.
+Omit `restart` to preserve the platform default, or set `restart=False` for a
+one-shot process that should leave the deployment stopped after its main
+container exits.
 
 A nonblank `sync_root` enables a retained PVC. On generic create, omitting both
 policy fields (or passing an explicit nullable policy) selects the whole root;
@@ -265,6 +270,13 @@ both. The SDK never generates `OPENCLAW_GATEWAY_TOKEN`; pass `gateway_token`
 (or the same key in `secrets`) only when intentionally replacing it. Otherwise
 the Backend preserves the existing secret.
 
+Public launch-config PATCH calls can preserve stored backend-redacted
+`secrets` and `registry_auth` when they are omitted. START payloads are still
+caller-built complete launch configs; owner-facing projections cannot recover
+`registry_auth`, so private registry START calls must receive it from the
+caller. Provisioned storage settings are retained after create; treat them as
+immutable for public launch-config patches.
+
 ### OpenClaw Presets
 
 Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw routes:
@@ -277,6 +289,13 @@ agent = client.deployments.create_openclaw(
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
 agent = client.deployments.start_openclaw(agent.id, agent.launch_config)
 ```
+
+`start_openclaw(...)` and generic `start(...)` require a complete flat
+`launch_config`. The SDK can repair a projection whose only missing keys are
+the redacted `secrets` and `registry_auth`; it does not infer any other
+omitted START fields. If the launch uses a private registry, include
+`registry_auth` in the START `launch_config` because those credentials are
+caller-held.
 
 Default OpenClaw routes are:
 
@@ -313,6 +332,10 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   caches are excluded
 - `HYPER_WORKSPACES_DIR`
   defaults to `/home/node/shared`; an explicit launch `env` value is preserved
+- Workspaces boot sync
+  is rendered through `workspaces_sync` typed helper options and
+  `HYPER_WORKSPACES_*` environment variables; there is no public
+  `launch_config.workspacesSync` field
 - no separate sync boolean is serialized; normalized `sync_root` is the sole
   persistence switch
 - `heartbeat`
@@ -413,6 +436,9 @@ A managed launch receives its agent-scoped inference credential from the
 platform as `HYPER_AGENTS_API_KEY`; callers should not copy an account API key
 into the runtime environment.
 
+Do not use `HYPER_API_KEY` inside managed runtimes for the agent-scoped
+inference path.
+
 A typed Buzz launch:
 
 - leaves size unset for live backend/provider slot selection and sets
@@ -481,7 +507,7 @@ terminal, and normally absent from user reads.
 agents = client.deployments.list()
 current = client.deployments.get(agent.id)
 
-agent = client.deployments.start(agent.id)
+agent = client.deployments.start_openclaw(agent.id, agent.launch_config)
 agent = client.deployments.stop(agent.id)
 agent = client.deployments.archive(agent.id)
 agent = client.deployments.restore(agent.id)

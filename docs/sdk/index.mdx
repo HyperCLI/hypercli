@@ -98,7 +98,7 @@ agent = client.deployments.create_openclaw(
 )
 
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start(agent.id)
+agent = client.deployments.start_openclaw(agent.id, agent.launch_config)
 agent = agent.wait_running(timeout=300)
 print(agent.public_url)   # https://docs-demo.hypercli.app
 print(agent.desktop_url)  # https://desktop-docs-demo.hypercli.app

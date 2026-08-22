@@ -85,7 +85,7 @@ hyper agents stop self --force
 `self` is accepted only for status, start, stop, and route operations. An
 in-runtime process cannot call `start self` after its own runtime has stopped; that form
 is intended for an out-of-band holder of a stable exact-agent key. `start self`
-uses the complete launch configuration in the caller's protected local state,
+uses the complete flat `launch_config` in the caller's protected local state,
 resolves the bound UUID through `GET /deployments/self`, and then uses ordinary
 UUID START. It fails when that complete local input is unavailable and rejects
 partial launch overrides.
@@ -124,6 +124,12 @@ the runtime. Wait until `status` reports `STOPPED`, then use the separate
 
 Desktop/browser agents use the OpenClaw pro image, set `OPENCLAW_DESKTOP_ENABLED=1`, and expose noVNC at `https://desktop-<host>`. The base launch sets `OPENCLAW_DESKTOP_ENABLED=0` and keeps the desktop route disabled. You can also drive the same behavior with `--env OPENCLAW_DESKTOP_ENABLED=True`.
 
+Managed runtimes receive the agent-scoped inference credential as
+`HYPER_AGENTS_API_KEY`; do not rely on `HYPER_API_KEY` inside the runtime.
+Workspaces boot sync is configured by CLI/SDK helper options that render
+`HYPER_WORKSPACES_*` environment variables. There is no public
+`launch_config.workspacesSync` field.
+
 Memory search is configured by default, but automatic indexing is off unless you opt in:
 
 ```bash
@@ -156,6 +162,9 @@ hyper agents list --json
 The table is the safe default for resolving IDs, names, and states. JSON output
 includes the Backend-redacted `launch_config`; secret values and registry
 credentials are absent. It is not a restartable complete launch input.
+Private-registry `registry_auth` is caller-held and must come from the
+protected local launch state or be supplied again through registry flags before
+START.
 
 ### `status`
 
@@ -188,7 +197,9 @@ A zero-option START loads the complete launch configuration from protected
 local Agent state and fails clearly when it is unavailable. `start self` first
 resolves the bound UUID and uses that same local input. It rejects partial image,
 environment, route, registry, sync, and desktop overrides; `--dry-run` validates
-the same complete local configuration.
+the same complete local configuration. START requires the complete flat
+`launch_config`; backend list/status projections are redacted and are not
+restart payloads.
 
 ### `stop`
 

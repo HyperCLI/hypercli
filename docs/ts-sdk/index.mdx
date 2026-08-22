@@ -150,7 +150,9 @@ const agent = await client.deployments.createOpenClaw({
 });
 
 await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
-await client.deployments.start(agent.id);
+await client.deployments.startOpenClaw(agent.id, {
+  launchConfig: agent.launchConfig,
+});
 const running = await client.deployments.waitRunning(agent.id);
 console.log(running.publicUrl);
 console.log(running.desktopUrl);

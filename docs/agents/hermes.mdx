@@ -1,0 +1,99 @@
+---
+title: Hermes Agent
+description: Run Hermes Agent as a managed HyperCLI HTTP/SSE runtime.
+---
+
+Hermes Agent is a supported managed Agent runtime for applications that want a
+hosted Hermes API Server. It is not an ACP coding harness. Use the Hermes SDK
+helpers and HTTP/SSE API client instead of ACP, shell, or OpenClaw gateway
+protocols for normal control.
+
+## Runtime Contract
+
+| Field | Value |
+| --- | --- |
+| Runtime | `hermes-agent` |
+| Default image | `ghcr.io/hypercli/hypercli-hermes-agent:latest` |
+| Public route | `hermes` |
+| API Server port | `8642` |
+| Persistent root | `/opt/data` |
+| Persistent owner | UID/GID `10000` |
+
+The managed image starts Hermes with `API_SERVER_ENABLED=true`,
+`API_SERVER_HOST=0.0.0.0`, and `API_SERVER_PORT=8642`. HyperCLI exposes that
+port through the route named `hermes`.
+
+Hermes stores runtime state under `/opt/data`. The SDK defaults to full-root
+persistence for that path and sets `sync_uid=10000`, `sync_gid=10000`.
+
+## Authentication
+
+Hermes has two separate credentials:
+
+- `API_SERVER_KEY` authenticates inbound requests to the Hermes API Server.
+  The SDK generates one on create unless you pass one. It is sent as a launch
+  secret, not public env, and is write-only launch material.
+- The model credential is injected by the backend into the managed runtime.
+  Do not use `API_SERVER_KEY` as a model key.
+
+The `API_SERVER_KEY` is retained only on the `HermesAgent` returned by
+`create_hermes_agent` / `createHermesAgent` or by `start_hermes_agent` /
+`startHermesAgent` when you provide the key. Later list/get responses do not
+recover it.
+
+## API Surface
+
+The Hermes API Server exposes:
+
+- health and detailed health endpoints
+- session APIs under `/api/sessions`
+- run APIs under `/v1/runs`
+- SSE streams for session chat and run events
+- OpenAI-compatible resources under `/v1`, including `/v1/models`
+
+Use the SDK's Hermes API client for health, sessions, runs, approvals, stop,
+and SSE events. Use `agent.openai_base_url` / `agent.openaiBaseUrl` with an
+OpenAI-compatible client for `/v1` chat, responses, or models.
+
+## Python Create
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(agent_api_key="hyper_api_...")
+
+agent = client.deployments.create_hermes_agent(
+    name="hermes",
+    size="small",
+)
+
+agent = agent.wait_running()
+api = agent.api()
+
+print(agent.api_url)
+print(agent.openai_base_url)
+print(api.health())
+```
+
+## TypeScript Create
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({ agentApiKey: "hyper_api_..." });
+
+let agent = await client.deployments.createHermesAgent({
+  name: "hermes",
+  size: "small",
+});
+
+agent = await agent.waitRunning();
+const api = agent.apiClient();
+
+console.log(agent.apiUrl);
+console.log(agent.openaiBaseUrl);
+console.log(await api.health());
+```
+
+For SDK-specific start examples and client method names, see
+[Python Hermes SDK](/sdk/hermes) and [TypeScript Hermes SDK](/ts-sdk/hermes).

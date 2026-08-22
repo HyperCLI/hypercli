@@ -51,7 +51,7 @@ client = HyperCLI(api_key="...", agent_api_key="hyper_api_...")
 
 agent = client.deployments.create_openclaw(name="my-agent", size="small")
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start(agent.id)
+agent = client.deployments.start_openclaw(agent.id, agent.launch_config)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 print(agent.id, agent.state, agent.vnc_url)
 
