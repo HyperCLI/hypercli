@@ -624,16 +624,14 @@ impl BuzzLaunchConfig {
             let gateway = model.strip_prefix("hypercli/").unwrap_or(model);
             match request.runtime {
                 ManagedRuntime::BuzzAgent => {
-                    request.env.insert(
-                        "BUZZ_AGENT_MODEL".to_owned(),
-                        anthropic_route_model(gateway),
-                    );
+                    request
+                        .env
+                        .insert("BUZZ_AGENT_MODEL".to_owned(), gateway.to_owned());
                 }
                 ManagedRuntime::Goose => {
-                    request.env.insert(
-                        "GOOSE_MODEL".to_owned(),
-                        anthropic_route_model(gateway),
-                    );
+                    request
+                        .env
+                        .insert("GOOSE_MODEL".to_owned(), gateway.to_owned());
                 }
                 _ => {}
             }
@@ -672,14 +670,6 @@ impl BuzzLaunchConfig {
 fn insert_nonempty(env: &mut BTreeMap<String, String>, key: &str, value: Option<&str>) {
     if let Some(value) = value.filter(|value| !value.is_empty()) {
         env.insert(key.to_owned(), value.to_owned());
-    }
-}
-
-fn anthropic_route_model(model: &str) -> String {
-    if model.starts_with("kimi-") && !model.ends_with("-anthropic") {
-        format!("{model}-anthropic")
-    } else {
-        model.to_owned()
     }
 }
 
@@ -1636,14 +1626,14 @@ mod tests {
         );
         assert_eq!(
             agent_request.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
-            Some("kimi-k3-anthropic")
+            Some("kimi-k3")
         );
 
         let mut goose_request = CreateDeploymentRequest::new(ManagedRuntime::Goose);
         buzz.apply_to(&mut goose_request, None).unwrap();
         assert_eq!(
             goose_request.env.get("GOOSE_MODEL").map(String::as_str),
-            Some("kimi-k3-anthropic")
+            Some("kimi-k3")
         );
 
         buzz.model = Some("hypercli/kimi-k2.6-anthropic".to_owned());
@@ -1652,14 +1642,6 @@ mod tests {
         assert_eq!(
             prefixed.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
             Some("kimi-k2.6-anthropic")
-        );
-
-        buzz.model = Some("glm-5".to_owned());
-        let mut glm_request = CreateDeploymentRequest::new(ManagedRuntime::Goose);
-        buzz.apply_to(&mut glm_request, None).unwrap();
-        assert_eq!(
-            glm_request.env.get("GOOSE_MODEL").map(String::as_str),
-            Some("glm-5")
         );
     }
 
