@@ -810,12 +810,29 @@ pub struct DeploymentRoutes {
     #[serde(default)]
     pub routes: BTreeMap<String, RouteConfig>,
     #[serde(default)]
+    pub cors: Option<AgentCorsConfig>,
+    #[serde(default)]
     pub route_statuses: BTreeMap<String, Value>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AgentCorsConfig {
+    pub allowed_origins: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_credentials: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_headers: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_methods: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_age: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SetDeploymentRoutesRequest {
     pub routes: BTreeMap<String, RouteConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cors: Option<Nullable<AgentCorsConfig>>,
 }
 
 #[derive(Clone, Debug, Serialize)]

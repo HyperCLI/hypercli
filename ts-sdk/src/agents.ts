@@ -722,16 +722,30 @@ export interface AgentRouteConfig {
   auth?: boolean;
 }
 
+export interface AgentCorsConfig {
+  allowed_origins: string[];
+  allow_credentials?: boolean;
+  allowed_headers?: string[];
+  allowed_methods?: string[];
+  max_age?: number;
+}
+
 export interface AgentRoutesState {
   agentId: string;
   routes: Record<string, AgentRouteConfig>;
+  cors: AgentCorsConfig | null;
   routeStatuses: Record<string, Record<string, unknown>>;
 }
 
 interface AgentRoutesHydrationData {
   agent_id?: string;
   routes?: Record<string, AgentRouteConfig> | null;
+  cors?: AgentCorsConfig | null;
   route_statuses?: Record<string, Record<string, unknown>> | null;
+}
+
+export interface SetRoutesOptions {
+  cors?: AgentCorsConfig | null;
 }
 
 /**
@@ -1321,6 +1335,7 @@ function agentRoutesStateFromData(data: AgentRoutesHydrationData): AgentRoutesSt
   return {
     agentId: String(data.agent_id ?? ''),
     routes: structuredClone(data.routes ?? {}),
+    cors: data.cors === null || data.cors === undefined ? null : structuredClone(data.cors),
     routeStatuses: structuredClone(data.route_statuses ?? {}),
   };
 }
@@ -5717,9 +5732,13 @@ export class Deployments {
   async setRoutes(
     agentIdOrName: string,
     routes: Record<string, AgentRouteConfig>,
+    options: SetRoutesOptions = {},
   ): Promise<AgentRoutesState> {
     const agentId = await this.resolveAgentId(agentIdOrName);
     const body: Record<string, unknown> = { routes: structuredClone(routes) };
+    if (Object.prototype.hasOwnProperty.call(options, 'cors') && options.cors !== undefined) {
+      body.cors = options.cors === null ? null : structuredClone(options.cors);
+    }
     const data = await this.agentHttp.put<AgentRoutesHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`,
       body,

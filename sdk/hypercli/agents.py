@@ -1777,19 +1777,32 @@ class AgentRouteConfig(TypedDict):
     prefix: NotRequired[str]
 
 
+class AgentCorsConfig(TypedDict):
+    """Product-level browser CORS policy for runtime routes."""
+
+    allowed_origins: list[str]
+    allow_credentials: NotRequired[bool]
+    allowed_headers: NotRequired[list[str]]
+    allowed_methods: NotRequired[list[str]]
+    max_age: NotRequired[int]
+
+
 @dataclass(frozen=True)
 class AgentRoutes:
     """Declarative routes and their live status for one agent."""
 
     agent_id: str
     routes: dict[str, AgentRouteConfig] = field(default_factory=dict)
+    cors: AgentCorsConfig | None = None
     route_statuses: dict[str, dict] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict) -> "AgentRoutes":
+        raw_cors = data.get("cors")
         return cls(
             agent_id=str(data.get("agent_id") or ""),
             routes={str(name): dict(config) for name, config in (data.get("routes") or {}).items()},
+            cors=dict(raw_cors) if isinstance(raw_cors, dict) else None,
             route_statuses={
                 str(name): dict(status)
                 for name, status in (data.get("route_statuses") or {}).items()
@@ -4638,12 +4651,16 @@ class Deployments:
         self,
         agent_id: str,
         routes: dict[str, AgentRouteConfig],
+        *,
+        cors: AgentCorsConfig | dict | None | object = _UNSET,
     ) -> AgentRoutes:
         """Atomically replace the complete declarative route map."""
         resolved_agent_id = self._routes_target(agent_id)
         body: dict[str, Any] = {
             "routes": {str(name): dict(config) for name, config in routes.items()},
         }
+        if cors is not _UNSET:
+            body["cors"] = None if cors is None else dict(cors)
         data = self._put(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes", body)
         return AgentRoutes.from_dict(data)
 

@@ -151,7 +151,7 @@ let mut routes = BTreeMap::new();
 routes.insert("web".into(), RouteConfig::new(3000));
 let updated = client.set_deployment_routes(
     "self",
-    &SetDeploymentRoutesRequest { routes },
+    &SetDeploymentRoutesRequest { routes, cors: None },
 )?;
 ```
 

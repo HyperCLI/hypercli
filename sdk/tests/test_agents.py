@@ -435,6 +435,10 @@ def _routes_response(**overrides):
     response = {
         "agent_id": "agent-123",
         "routes": {"web": {"port": 3000, "auth": True, "prefix": "app"}},
+        "cors": {
+            "allowed_origins": ["https://agents.hypercli.com"],
+            "allow_credentials": True,
+        },
         "route_statuses": {"web": {"url": "https://app-agent.hypercli.app"}},
     }
     response.update(overrides)
@@ -446,6 +450,10 @@ def test_agent_routes_hydrates_declarative_and_status_fields():
 
     assert state.agent_id == "agent-123"
     assert state.routes == {"web": {"port": 3000, "auth": True, "prefix": "app"}}
+    assert state.cors == {
+        "allowed_origins": ["https://agents.hypercli.com"],
+        "allow_credentials": True,
+    }
     assert state.route_statuses["web"]["url"] == "https://app-agent.hypercli.app"
 
 
@@ -461,13 +469,26 @@ def test_routes_api_supports_declarative_and_named_updates_for_an_owned_agent():
     get_request.assert_called_once_with(f"/deployments/{agent_id}/routes")
     assert state.routes["web"]["port"] == 3000
 
+    cors = {"allowed_origins": ["https://agents.hypercli.com"], "max_age": 600}
     with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:
-        deployments.set_routes(agent_id, {"web": {"port": 3000, "auth": True}})
+        deployments.set_routes(
+            agent_id,
+            {"web": {"port": 3000, "auth": True}},
+            cors=cors,
+        )
     put_request.assert_called_once_with(
         f"/deployments/{agent_id}/routes",
         {
             "routes": {"web": {"port": 3000, "auth": True}},
+            "cors": cors,
         },
+    )
+
+    with patch.object(deployments, "_put", return_value=_routes_response(cors=None)) as put_request:
+        deployments.set_routes(agent_id, {}, cors=None)
+    put_request.assert_called_once_with(
+        f"/deployments/{agent_id}/routes",
+        {"routes": {}, "cors": None},
     )
 
     with patch.object(deployments, "_put", return_value=_routes_response()) as put_request:

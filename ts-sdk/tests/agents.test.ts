@@ -893,6 +893,10 @@ describe('Agents SDK', () => {
     const routesResponse = {
       agent_id: agentId,
       routes: { web: { port: 3000, auth: true, prefix: 'app' } },
+      cors: {
+        allowed_origins: ['https://agents.hypercli.com'],
+        allow_credentials: true,
+      },
       route_statuses: { web: { url: 'https://app-agent.hypercli.app' } },
     };
     const http = {
@@ -903,11 +907,23 @@ describe('Agents SDK', () => {
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     const routes = await deployments.getRoutes(agentId);
-    await deployments.setRoutes(agentId, routes.routes);
+    await deployments.setRoutes(agentId, routes.routes, {
+      cors: { allowed_origins: ['https://agents.hypercli.com'], max_age: 600 },
+    });
+    await deployments.setRoutes(agentId, {}, { cors: null });
+    await deployments.setRoutes(agentId, routes.routes, { cors: undefined });
     await deployments.setRoute(agentId, 'web app', { port: 3000, auth: false, prefix: '' });
     await deployments.removeRoute(agentId, 'web app');
 
     expect(http.get).toHaveBeenCalledWith(`/deployments/${agentId}/routes`);
+    expect(http.put).toHaveBeenCalledWith(`/deployments/${agentId}/routes`, {
+      routes: routesResponse.routes,
+      cors: { allowed_origins: ['https://agents.hypercli.com'], max_age: 600 },
+    });
+    expect(http.put).toHaveBeenCalledWith(`/deployments/${agentId}/routes`, {
+      routes: {},
+      cors: null,
+    });
     expect(http.put).toHaveBeenCalledWith(`/deployments/${agentId}/routes`, {
       routes: routesResponse.routes,
     });
@@ -920,6 +936,7 @@ describe('Agents SDK', () => {
     expect(routes).toEqual({
       agentId,
       routes: routesResponse.routes,
+      cors: routesResponse.cors,
       routeStatuses: routesResponse.route_statuses,
     });
   });

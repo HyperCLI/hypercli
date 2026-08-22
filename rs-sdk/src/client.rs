@@ -3559,6 +3559,10 @@ mod tests {
         let response = serde_json::json!({
             "agent_id": "deployment-1",
             "routes": {"web": {"port": 3000, "auth": true, "prefix": "app"}},
+            "cors": {
+                "allowed_origins": ["https://agents.hypercli.com"],
+                "allow_credentials": true
+            },
             "route_statuses": {"web": {"url": "https://app-agent.hypercli.app"}}
         });
         let get_mock = server
@@ -3573,7 +3577,11 @@ mod tests {
             .match_header("authorization", "Bearer test-credential")
             .match_body(Matcher::JsonString(
                 serde_json::json!({
-                    "routes": {"web": {"port": 3000, "auth": true, "prefix": "app"}}
+                    "routes": {"web": {"port": 3000, "auth": true, "prefix": "app"}},
+                    "cors": {
+                        "allowed_origins": ["https://agents.hypercli.com"],
+                        "max_age": 600
+                    }
                 })
                 .to_string(),
             ))
@@ -3585,6 +3593,10 @@ mod tests {
         let client = client(&server);
         let current = client.get_deployment_routes("deployment-1").unwrap();
         assert_eq!(current.routes["web"].port, 3000);
+        assert_eq!(
+            current.cors.as_ref().unwrap().allowed_origins,
+            vec!["https://agents.hypercli.com".to_owned()]
+        );
 
         let mut routes = BTreeMap::new();
         routes.insert(
@@ -3598,7 +3610,16 @@ mod tests {
         let updated = client
             .set_deployment_routes(
                 "deployment-1",
-                &crate::SetDeploymentRoutesRequest { routes },
+                &crate::SetDeploymentRoutesRequest {
+                    routes,
+                    cors: Some(crate::Nullable::Value(crate::AgentCorsConfig {
+                        allowed_origins: vec!["https://agents.hypercli.com".to_owned()],
+                        allow_credentials: None,
+                        allowed_headers: None,
+                        allowed_methods: None,
+                        max_age: Some(600),
+                    })),
+                },
             )
             .unwrap();
         assert_eq!(updated.agent_id, "deployment-1");

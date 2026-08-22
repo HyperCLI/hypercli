@@ -42,7 +42,7 @@ pub use runtime_auth::{
 };
 pub use types::{
     canonical_deployment_name, is_agent_runtime_inactive_state, is_agent_transitional_state,
-    AgentAccessIdentity, AgentCapacity, AgentDirectoryListing, AgentFileEntry,
+    AgentAccessIdentity, AgentCapacity, AgentCorsConfig, AgentDirectoryListing, AgentFileEntry,
     AgentLaunchValueMutation, AgentSize, AgentSlot, AgentSlotInventory, ApiKey, AuthMe,
     BuzzLaunchConfig, BuzzLaunchError, CompleteDeploymentLaunchConfig, CreateApiKeyRequest,
     CreateDeploymentRequest, DeleteDeploymentResponse, Deployment, DeploymentEnvironment,
