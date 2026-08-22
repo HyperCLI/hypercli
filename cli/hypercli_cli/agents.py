@@ -1457,13 +1457,13 @@ def logs(
     agent_id: str = typer.Argument(..., help="Agent ID, unique name, handle, hostname, or prefix"),
     lines: int = typer.Option(100, "-n", "--lines", help="Number of lines to show"),
     follow: bool = typer.Option(
-        True,
+        False,
         "--follow/--no-follow",
         "-f",
-        help="Follow log output",
+        help="Follow log output (default: print recent logs and exit)",
     ),
 ):
-    """Stream logs from an agent."""
+    """Show recent logs from an agent (use -f to follow the stream)."""
     agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
     import asyncio

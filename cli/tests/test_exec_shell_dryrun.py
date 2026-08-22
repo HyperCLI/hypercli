@@ -270,6 +270,59 @@ def test_agents_logs_defaults_to_websocket_and_forwards_no_follow(monkeypatch):
     }
 
 
+def test_agents_logs_defaults_to_tail_and_exits(monkeypatch):
+    called = {}
+
+    class FakeDeployments:
+        async def logs_stream_ws(self, agent_id, tail_lines=100, follow=True):
+            called.update(
+                agent_id=agent_id,
+                tail_lines=tail_lines,
+                follow=follow,
+            )
+            yield "history line 1"
+            yield "history line 2"
+
+    monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda _agent_id: "resolved-agent")
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+    result = runner.invoke(app, ["agents", "logs", "fizz4"])
+
+    assert result.exit_code == 0
+    assert result.stdout == "history line 1\nhistory line 2\n"
+    assert called == {
+        "agent_id": "resolved-agent",
+        "tail_lines": 100,
+        "follow": False,
+    }
+
+
+@pytest.mark.parametrize("flag", ["-f", "--follow"])
+def test_agents_logs_follow_streams_tail_then_live_lines(monkeypatch, flag):
+    called = {}
+
+    class FakeDeployments:
+        async def logs_stream_ws(self, agent_id, tail_lines=100, follow=True):
+            called.update(
+                agent_id=agent_id,
+                tail_lines=tail_lines,
+                follow=follow,
+            )
+            yield "tail line"
+            yield "live line"
+
+    monkeypatch.setattr("hypercli_cli.agents._resolve_agent", lambda _agent_id: "resolved-agent")
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+    result = runner.invoke(app, ["agents", "logs", "fizz4", flag])
+
+    assert result.exit_code == 0
+    assert result.stdout == "tail line\nlive line\n"
+    assert called == {
+        "agent_id": "resolved-agent",
+        "tail_lines": 100,
+        "follow": True,
+    }
+
+
 def test_agents_create_disables_desktop_by_default(monkeypatch):
     captured = {}
 
