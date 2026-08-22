@@ -25,7 +25,7 @@ use tokio::sync::{mpsc, watch};
 /// the primary surface; the single model grant powers the prompt-drafting
 /// helper without turning the Desktop credential into an unrestricted
 /// inference key.
-const DESKTOP_KEY_SCOPES: [&str; 3] = ["agents:*", "models:kimi-k2.6", "user:self"];
+const DESKTOP_KEY_SCOPES: [&str; 3] = ["agents:*", "models:*", "user:self"];
 
 /// Web login page. Its allowlist accepts the `hypercli://auth` scheme
 /// callback (site/apps/claw/src/app/desktop-login/page.tsx) — the exact
@@ -604,6 +604,47 @@ async fn draft_agent_prompt(keywords: String) -> Result<String, String> {
         .map_err(|error| error.to_string())?
 }
 
+#[derive(Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelsResponseEntry>,
+}
+
+#[derive(Deserialize)]
+struct ModelsResponseEntry {
+    id: String,
+}
+
+/// Best-effort model catalog from the inference gateway. Soft-fails to an
+/// empty list — the caller's key may not carry the models:* scope, and the
+/// model field stays free-text in that case.
+#[tauri::command]
+async fn list_models() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = discover_client_config().map_err(|error| error.to_string())?;
+        let mut url = config.api_base.clone();
+        url.set_path("/v1/models");
+        url.set_query(None);
+        url.set_fragment(None);
+        let response = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|error| error.to_string())?
+            .get(url)
+            .bearer_auth(config.api_key.expose_secret())
+            .send()
+            .map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Ok(Vec::new());
+        }
+        let catalog: ModelsResponse = response
+            .json()
+            .map_err(|_| "Model catalog returned an invalid response".to_owned())?;
+        Ok(catalog.data.into_iter().map(|entry| entry.id).collect())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Open the browser sign-in. The page redirects back to `hypercli://auth`
 /// with the token in the URL fragment — the exact Backseat Driver pattern.
 /// `HYPERCLI_DESKTOP_LOGIN_PAGE` overrides the page for dev/feat testing.
@@ -1043,6 +1084,7 @@ pub fn run() {
             set_agent_avatar,
             agent_metrics,
             draft_agent_prompt,
+            list_models,
             open_agent_chat,
             open_dashboard,
             open_create_window,

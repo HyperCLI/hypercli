@@ -68,6 +68,7 @@ export const openSettingsWindow = () => invoke<void>("open_settings_window");
 export const openMainWindow = () => invoke<void>("open_main_window");
 export const draftAgentPrompt = (keywords: string) =>
   invoke<string>("draft_agent_prompt", { keywords });
+export const listModels = () => invoke<string[]>("list_models");
 
 export const startLogin = () => invoke<void>("start_login");
 export const mintApiKey = (sessionToken: string) =>

@@ -10,6 +10,7 @@ import {
   draftAgentPrompt,
   listBuzzChannels,
   listBuzzConnections,
+  listModels,
 } from "./api";
 
 const RUNTIMES = [
@@ -60,6 +61,7 @@ export default function CreateWindow({
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [respondTo, setRespondTo] = useState("anyone");
   const [allowlist, setAllowlist] = useState("");
+  const [modelSuggestions, setModelSuggestions] = useState<string[]>([]);
   const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -79,6 +81,13 @@ export default function CreateWindow({
       setError(String(loadError));
     }
   }, []);
+
+  useEffect(() => {
+    if (!isBuzz) return;
+    listModels()
+      .then(setModelSuggestions)
+      .catch(() => setModelSuggestions([]));
+  }, [isBuzz]);
 
   useEffect(() => {
     if (isBuzz) void refreshConnections();
@@ -303,7 +312,7 @@ export default function CreateWindow({
                     </div>
                   </Field>
                 )}
-                <Field label="Model (optional)">
+                <Field label="Model (optional — default-anthropic if blank)">
                   <input
                     type="text"
                     value={model}
@@ -316,11 +325,9 @@ export default function CreateWindow({
                     className={inputClass}
                   />
                   <datalist id="buzz-model-suggestions">
-                    <option value="kimi-k3-anthropic" />
-                    <option value="kimi-k3" />
-                    <option value="kimi-k2.6-anthropic" />
-                    <option value="kimi-k2.6" />
-                    <option value="glm-5" />
+                    {modelSuggestions.map((suggestion) => (
+                      <option key={suggestion} value={suggestion} />
+                    ))}
                   </datalist>
                 </Field>
                 <Field label="Concurrency">

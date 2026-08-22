@@ -29,6 +29,75 @@ use crate::buzz_connections::{
 };
 use crate::{checked_agent_id, home_dir, managed_client, LauncherAgent};
 
+const DEFAULT_BUZZ_MODEL: &str = "default-anthropic";
+
+#[derive(Deserialize)]
+struct ModelCatalogResponse {
+    data: Vec<ModelCatalogEntry>,
+}
+
+#[derive(Deserialize)]
+struct ModelCatalogEntry {
+    id: String,
+}
+
+fn fetch_model_catalog_blocking() -> Result<Vec<String>, String> {
+    let config = hypercli_sdk::discover_client_config().map_err(|error| error.to_string())?;
+    let mut url = config.api_base.clone();
+    url.set_path("/v1/models");
+    url.set_query(None);
+    url.set_fragment(None);
+    let response = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| error.to_string())?
+        .get(url)
+        .bearer_auth(config.api_key.expose_secret())
+        .send()
+        .map_err(|error| error.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "model catalog returned HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let catalog: ModelCatalogResponse = response
+        .json()
+        .map_err(|_| "model catalog returned an invalid response".to_owned())?;
+    Ok(catalog.data.into_iter().map(|entry| entry.id).collect())
+}
+
+/// Resolve the model for a buzz launch against the live gateway catalog.
+/// Blank input defaults to the gateway's default-anthropic alias. A requested
+/// model that is not served is rejected — never silently substituted.
+fn resolve_launch_model_blocking(model: Option<&str>) -> Result<Option<String>, String> {
+    let requested = model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned);
+    match fetch_model_catalog_blocking() {
+        Ok(catalog) => {
+            let effective = requested
+                .clone()
+                .unwrap_or_else(|| DEFAULT_BUZZ_MODEL.to_owned());
+            if catalog.iter().any(|id| id == &effective) {
+                Ok(Some(effective))
+            } else if requested.is_some() {
+                Err(format!(
+                    "Model '{effective}' is not served by the inference gateway. Available: {}",
+                    catalog.join(", ")
+                ))
+            } else {
+                Ok(None)
+            }
+        }
+        Err(_) if requested.is_none() => Ok(None),
+        Err(error) => Err(format!(
+            "Could not reach the model catalog to validate the requested model: {error}"
+        )),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct BuzzConnectionInput {
     label: String,
@@ -520,6 +589,93 @@ struct BuzzEventSubmitResponse {
     accepted: bool,
 }
 
+/// Open a DM between the freshly launched agent and its owner, then post a
+/// short greeting. The agent appears in the owner's DM list on every session,
+/// and buzz-acp picks the channel up via the membership notification.
+async fn open_owner_dm_with_greeting(
+    prepared: &PreparedBuzzLaunch,
+    agent_name: &str,
+) -> Result<(), String> {
+    let owner_hex = prepared.owner_keys.public_key().to_hex();
+    let dm_open = NostrEventBuilder::new(NostrKind::from(41010), "")
+        .tags([NostrTag::parse(["p", owner_hex.as_str()])
+            .map_err(|_| "Could not build the owner DM event".to_owned())?])
+        .sign_with_keys(&prepared.agent_keys)
+        .map_err(|_| "Could not sign the owner DM event".to_owned())?;
+    publish_signed_buzz_event_http(
+        &prepared.relay,
+        &prepared.agent_keys,
+        &dm_open,
+        Some(&prepared.auth_tag),
+    )
+    .await?;
+
+    let memberships = query_buzz_events_http(
+        &prepared.relay,
+        &prepared.agent_keys,
+        serde_json::json!([{ "kinds": [39002], "#p": [prepared.agent_public_hex] }]),
+    )
+    .await?;
+    let channel_ids: Vec<String> = memberships
+        .iter()
+        .flat_map(|event| event.tags.iter())
+        .filter_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.first().map(String::as_str) == Some("d"))
+                .then(|| parts.get(1).cloned())
+                .flatten()
+        })
+        .collect();
+    if channel_ids.is_empty() {
+        return Ok(());
+    }
+    let metas = query_buzz_events_http(
+        &prepared.relay,
+        &prepared.agent_keys,
+        serde_json::json!([{ "kinds": [39000], "#d": channel_ids }]),
+    )
+    .await?;
+    let dm_channel = metas.iter().find_map(|event| {
+        let tags: Vec<Vec<String>> = event
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().to_vec())
+            .collect();
+        let is_dm = tags.iter().any(|parts| {
+            parts.first().map(String::as_str) == Some("t")
+                && parts.get(1).map(String::as_str) == Some("dm")
+        });
+        let with_owner = tags.iter().any(|parts| {
+            parts.first().map(String::as_str) == Some("p")
+                && parts.get(1).map(String::as_str) == Some(owner_hex.as_str())
+        });
+        if !(is_dm && with_owner) {
+            return None;
+        }
+        tags.iter()
+            .find(|parts| parts.first().map(String::as_str) == Some("d"))
+            .and_then(|parts| parts.get(1).cloned())
+    });
+    let Some(channel_id) = dm_channel else {
+        return Ok(());
+    };
+    let greeting = NostrEventBuilder::new(
+        NostrKind::from(9),
+        format!("{agent_name} is online — say hi."),
+    )
+    .tags([NostrTag::parse(["h", channel_id.as_str()])
+        .map_err(|_| "Could not build the greeting event".to_owned())?])
+    .sign_with_keys(&prepared.agent_keys)
+    .map_err(|_| "Could not sign the greeting event".to_owned())?;
+    publish_signed_buzz_event_http(
+        &prepared.relay,
+        &prepared.agent_keys,
+        &greeting,
+        Some(&prepared.auth_tag),
+    )
+    .await
+}
+
 fn relay_http_events_url(relay: &str) -> Result<String, String> {
     let relay = relay.trim().trim_end_matches('/');
     if let Some(suffix) = relay.strip_prefix("wss://") {
@@ -812,13 +968,20 @@ fn cleanup_created_deployment_blocking(agent_id: String) -> Result<(), String> {
 /// and publishes the removal events.
 #[tauri::command]
 pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, String> {
+    let validated_model = tauri::async_runtime::spawn_blocking({
+        let model = input.model.clone();
+        move || resolve_launch_model_blocking(model.as_deref())
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let mut input = input;
+    input.model = validated_model;
     let prepared = tauri::async_runtime::spawn_blocking({
         let prepare_input = input.clone();
         move || prepare_buzz_launch(&prepare_input)
     })
     .await
     .map_err(|error| error.to_string())??;
-    let mut input = input;
     if input.respond_to.trim() == "allowlist" {
         input.allowlist = resolve_buzz_allowlist(
             &prepared.relay,
@@ -887,6 +1050,10 @@ pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, 
             failures.push(format!("Buzz cleanup failed: {cleanup_error}"));
         }
         return Err(failures.join("; "));
+    }
+
+    if let Err(error) = open_owner_dm_with_greeting(&prepared, input.name.trim()).await {
+        eprintln!("hypercli-menubar: owner DM on launch failed: {error}");
     }
 
     let metadata = ManagedBuzzAgentMetadata {
