@@ -1,0 +1,254 @@
+---
+title: Workspaces SDK
+description: Python SDK guide for shared Workspaces, grants, access snapshots, agent associations, and file upload, manifest, Markdown projection, sync, and download helpers.
+---
+
+## Overview
+
+`client.workspaces` exposes the shared knowledge service mounted at
+`/workspaces`. A Workspace is a shared Markdown-backed file collection with
+versioned original files, deterministic `.tomd` Markdown projections, search,
+and grants to users and agents.
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(api_key="hyper_...")
+
+workspaces = client.workspaces.list()
+```
+
+The base URL derives from the agents API base, replacing the `/agents` suffix
+with `/workspaces`. Set `HYPER_WORKSPACES_API_BASE` to override it.
+
+For the CLI equivalent of these operations, see
+[hyper workspaces](/cli/commands/workspaces).
+
+## List And Search
+
+```python
+all_workspaces = client.workspaces.list()
+team = client.workspaces.get("team-knowledge")
+matches = client.workspaces.search("launch handoff", vector=True)
+```
+
+`workspace_ref` accepts a workspace ID, slug, or name.
+`search(query, vector=True)` hits the backend search endpoint with vector
+search enabled by default; pass `vector=False` for keyword-only search.
+
+## Create, Update, Delete
+
+```python
+created = client.workspaces.create(
+    name="Team Knowledge",
+    slug="team-knowledge",
+    description="Shared launch context",
+)
+
+updated = client.workspaces.update(
+    "team-knowledge",
+    description="Updated context",
+)
+
+client.workspaces.delete_workspace("team-knowledge")
+```
+
+## Ensure A Workspace Exists
+
+`ensure_workspace(...)` is an idempotent get-or-create:
+
+```python
+result = client.workspaces.ensure_workspace(
+    name="Team Knowledge",
+    slug="team-knowledge",
+    description="Shared launch context",
+)
+workspace, created = result.workspace, result.created
+```
+
+Matching is resolved in order:
+
+1. `match` custom callable, `Callable[[Workspace], bool]`
+2. exact `slug` match, when `slug` is provided
+3. exact `name` match, when no `slug` is provided
+
+If no match is found, the workspace is created. If creation returns a `409`
+(someone else created it concurrently), the SDK re-lists and returns the
+matching workspace with `created=False`. The result is always an
+`EnsureWorkspaceResult` dataclass with `workspace` and `created`.
+
+## Grants And Access Snapshots
+
+Grants give users or agents a role (`viewer`, `contributor`, `admin`) in a
+workspace:
+
+```python
+grant = client.workspaces.grant(
+    "team-knowledge",
+    subject_type="agent",
+    subject_id="agent-id",
+    role="viewer",
+    display_name="Research Agent",
+    expires_at="2026-12-31T00:00:00Z",
+)
+
+grants = client.workspaces.list_grants("team-knowledge")
+
+client.workspaces.update_grant(
+    "team-knowledge",
+    grant.id,
+    role="contributor",
+    expires_at=None,
+)
+
+client.workspaces.revoke_grant("team-knowledge", grant.id)
+```
+
+`access_snapshot(workspace_ref)` builds a point-in-time access view:
+
+```python
+snapshot = client.workspaces.access_snapshot("team-knowledge")
+```
+
+- If your current role is not `admin`, the snapshot has
+  `visibility="current-access-only"` with `entries=None` and `grants=None`.
+- If your current role is `admin`, the snapshot has
+  `visibility="all-direct-access"`. `grants` contains every grant on the
+  workspace, and `entries` groups non-revoked, non-expired grants by subject
+  with the strongest role per subject.
+
+## Agent Associations
+
+`list_agent_associations(workspace_ref)` projects the admin access snapshot
+down to agent subjects:
+
+```python
+associations = client.workspaces.list_agent_associations("team-knowledge")
+# [WorkspaceAgentAssociation(workspace_id, agent_id, role, expires_at)]
+```
+
+This is an admin-only projection built from the access snapshot. For
+non-admins it raises:
+
+```
+ValueError: Workspace agent associations are available only to Workspace admins.
+```
+
+Each association's `expires_at` is the latest expiration across that agent's
+grants, or `None` when any grant has no expiration.
+
+## Files
+
+Upload an original source file and poll until processing finishes:
+
+```python
+uploaded = client.workspaces.upload(
+    "team-knowledge",
+    "./report.pdf",
+    workspace_path="projects/example/report.pdf",
+)
+
+processed = client.workspaces.wait_until_processed(
+    "team-knowledge",
+    "projects/example/report.pdf",
+)
+```
+
+`wait_until_processed` polls `get_file` until `file_state` and
+`processing_state` are both `processed`, and raises on `failed` or `deleted`.
+Options: `timeout=300.0`, `poll_interval=2.0` (seconds).
+
+Register, inspect, update, and search files:
+
+```python
+registered = client.workspaces.register_file(
+    "team-knowledge",
+    path="projects/example/report.pdf",
+    source_filename="report.pdf",
+    source_size_bytes=size_bytes,
+    source_sha256=sha256,
+    keywords=["launch", "report"],
+)
+
+files = client.workspaces.list_files("team-knowledge")
+one = client.workspaces.get_file("team-knowledge", "projects/example/report.pdf")
+
+client.workspaces.update_file(
+    "team-knowledge",
+    "projects/example/report.pdf",
+    display_name="Launch Report",
+    keywords=["launch"],
+    summary="Q3 launch retrospective",
+)
+
+results = client.workspaces.search_files("team-knowledge", "handoff")
+client.workspaces.regenerate_file("team-knowledge", "projects/example/report.pdf")
+client.workspaces.delete_file("team-knowledge", "projects/example/report.pdf")
+```
+
+`file_ref` accepts a file ID or workspace-relative path.
+
+## Manifest And Markdown
+
+`manifest(workspace_ref)` returns the workspace's Markdown projection
+snapshot:
+
+```python
+manifest = client.workspaces.manifest("team-knowledge")
+# WorkspaceManifest(workspace_id, workspace_name, workspace_slug,
+#                   snapshot_id, base_path, markdown_files)
+```
+
+`markdown_file(workspace_ref, file_ref)` resolves a file through the manifest
+and returns both the manifest entry and the Markdown projection text:
+
+```python
+markdown_file, markdown = client.workspaces.markdown_file(
+    "team-knowledge",
+    "projects/example/report.pdf",
+)
+```
+
+## Download
+
+`download_url` returns a time-limited signed URL for the original file plus a
+ready-to-run download command:
+
+```python
+info = client.workspaces.download_url("team-knowledge", "projects/example/report.pdf")
+# DownloadUrl(file_id, path, version, url, download_command)
+```
+
+Signed URLs are credentials for the referenced object until they expire. Do
+not paste them into public logs.
+
+`download` returns raw bytes:
+
+```python
+content = client.workspaces.download(
+    "team-knowledge",
+    "projects/example/report.pdf",
+    raw=True,
+)
+```
+
+By default the Markdown projection is returned; pass `raw=True` for the
+original S3-backed file. `meta(workspace_ref, file_ref)` returns the file's
+metadata payload without downloading content.
+
+## Sync To Disk
+
+`sync_manifest` writes every Markdown projection in a workspace to a local
+directory rooted at the workspace slug:
+
+```python
+written = client.workspaces.sync_manifest("team-knowledge", "./shared")
+```
+
+Pass `ready_only=True` to skip files whose projections are not yet
+`processed`. `sync_all(output_dir)` syncs every workspace the credential can
+see and returns a `{slug: [paths]}` mapping:
+
+```python
+synced = client.workspaces.sync_all("./shared", ready_only=True)
+```

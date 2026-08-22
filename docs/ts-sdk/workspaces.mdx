@@ -1,0 +1,227 @@
+---
+title: Workspaces SDK
+description: TypeScript SDK guide for shared Workspaces, grants, access snapshots, agent associations, and file upload, manifest, Markdown projection, and download helpers.
+---
+
+## Overview
+
+`client.workspaces` exposes the shared knowledge service mounted at
+`/workspaces`. A Workspace is a shared Markdown-backed file collection with
+versioned original files, deterministic `.tomd` Markdown projections, search,
+and grants to users and agents.
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({ apiKey: "hyper_..." });
+
+const workspaces = await client.workspaces.list();
+```
+
+The base URL derives from the agents API base, replacing the `/agents` suffix
+with `/workspaces`. Set `HYPER_WORKSPACES_API_BASE` to override it.
+
+For the CLI equivalent of these operations, see
+[hyper workspaces](/cli/commands/workspaces).
+
+## List And Search
+
+```ts
+const all = await client.workspaces.list();
+const team = await client.workspaces.get("team-knowledge");
+const matches = await client.workspaces.search("launch handoff", {}, { vector: true });
+```
+
+`workspaceRef` accepts a workspace ID, slug, or name. `search(query, subject?,
+{ vector? })` hits the backend search endpoint with vector search enabled by
+default; pass `{ vector: false }` for keyword-only search.
+
+## Create, Update, Delete
+
+```ts
+const created = await client.workspaces.create({
+  name: "Team Knowledge",
+  slug: "team-knowledge",
+  description: "Shared launch context",
+});
+
+const updated = await client.workspaces.update("team-knowledge", {
+  description: "Updated context",
+});
+
+await client.workspaces.delete("team-knowledge");
+```
+
+## Ensure A Workspace Exists
+
+`ensureWorkspace(options)` is an idempotent get-or-create:
+
+```ts
+const { workspace, created } = await client.workspaces.ensureWorkspace({
+  name: "Team Knowledge",
+  slug: "team-knowledge",
+  description: "Shared launch context",
+});
+```
+
+Matching is resolved in order:
+
+1. `match?: (workspace) => boolean` custom predicate
+2. exact `slug` match, when `slug` is provided
+3. exact `name` match, when no `slug` is provided
+
+If no match is found, the workspace is created. If creation returns a `409`
+(someone else created it concurrently), the SDK re-lists and returns the
+matching workspace with `created: false`. The result is always
+`{ workspace, created }`.
+
+## Grants And Access Snapshots
+
+Grants give users or agents a role (`viewer`, `contributor`, `admin`) in a
+workspace:
+
+```ts
+const grant = await client.workspaces.grant("team-knowledge", {
+  subjectType: "agent",
+  subjectId: "agent-id",
+  role: "viewer",
+  displayName: "Research Agent",
+  expiresAt: "2026-12-31T00:00:00Z",
+});
+
+const grants = await client.workspaces.listGrants("team-knowledge");
+
+await client.workspaces.updateGrant("team-knowledge", grant.id, {
+  role: "contributor",
+  expiresAt: null,
+});
+
+await client.workspaces.revokeGrant("team-knowledge", grant.id);
+```
+
+`accessSnapshot(workspaceRef)` builds a point-in-time access view:
+
+```ts
+const snapshot = await client.workspaces.accessSnapshot("team-knowledge");
+```
+
+- If your current role is not `admin`, the snapshot has
+  `visibility: "current-access-only"` with `entries: null` and
+  `grants: null`.
+- If your current role is `admin`, the snapshot has
+  `visibility: "all-direct-access"`. `grants` contains every grant on the
+  workspace, and `entries` groups non-revoked, non-expired grants by subject
+  with the strongest role per subject.
+
+## Agent Associations
+
+`listAgentAssociations(workspaceRef)` projects the admin access snapshot down
+to agent subjects:
+
+```ts
+const associations = await client.workspaces.listAgentAssociations("team-knowledge");
+// [{ workspaceId, agentId, role, expiresAt }]
+```
+
+This is an admin-only projection built from the access snapshot. For
+non-admins it throws:
+
+```
+Workspace agent associations are available only to Workspace admins.
+```
+
+Each association's `expiresAt` is the latest expiration across that agent's
+grants, or `null` when any grant has no expiration.
+
+## Files
+
+Upload an original source file and poll until processing finishes:
+
+```ts
+const file = await client.workspaces.uploadFile(
+  "team-knowledge",
+  new Blob([bytes], { type: "application/pdf" }),
+  { path: "projects/example/report.pdf", filename: "report.pdf" },
+);
+
+const processed = await client.workspaces.waitUntilProcessed(
+  "team-knowledge",
+  "projects/example/report.pdf",
+);
+```
+
+`waitUntilProcessed` polls `getFile` until `fileState` and `processingState`
+are both `processed`, and throws on `failed` or `deleted`. Options:
+`{ timeoutMs?, pollIntervalMs? }`.
+
+Register, inspect, update, and search files:
+
+```ts
+const registered = await client.workspaces.registerFile("team-knowledge", {
+  path: "projects/example/report.pdf",
+  sourceFilename: "report.pdf",
+  sourceSizeBytes: bytes.length,
+  sourceSha256: sha256,
+  keywords: ["launch", "report"],
+});
+
+const files = await client.workspaces.listFiles("team-knowledge");
+const one = await client.workspaces.getFile("team-knowledge", "projects/example/report.pdf");
+
+await client.workspaces.updateFile("team-knowledge", "projects/example/report.pdf", {
+  displayName: "Launch Report",
+  keywords: ["launch"],
+  summary: "Q3 launch retrospective",
+});
+
+const results = await client.workspaces.searchFiles("team-knowledge", "handoff");
+await client.workspaces.regenerateFile("team-knowledge", "projects/example/report.pdf");
+await client.workspaces.deleteFile("team-knowledge", "projects/example/report.pdf");
+```
+
+`fileRef` accepts a file ID or workspace-relative path.
+
+## Manifest And Markdown
+
+`manifest(workspaceRef)` returns the workspace's Markdown projection snapshot:
+
+```ts
+const manifest = await client.workspaces.manifest("team-knowledge");
+// { workspaceId, workspaceName, workspaceSlug, snapshotId, basePath, markdownFiles }
+```
+
+`markdownFile(workspaceRef, fileRef)` resolves a file through the manifest and
+returns both the manifest entry and the Markdown projection text:
+
+```ts
+const { markdownFile, markdown } = await client.workspaces.markdownFile(
+  "team-knowledge",
+  "projects/example/report.pdf",
+);
+```
+
+## Download
+
+`downloadUrl` returns a time-limited signed URL for the original file plus a
+ready-to-run download command:
+
+```ts
+const info = await client.workspaces.downloadUrl("team-knowledge", "projects/example/report.pdf");
+// { fileId, path, version, url, downloadCommand }
+```
+
+Signed URLs are credentials for the referenced object until they expire. Do
+not paste them into public logs.
+
+`downloadFileBytes` returns raw bytes:
+
+```ts
+const { content, path, name } = await client.workspaces.downloadFileBytes(
+  "team-knowledge",
+  "projects/example/report.pdf",
+  { raw: true },
+);
+```
+
+By default the Markdown projection is returned; pass `{ raw: true }` for the
+original S3-backed file.

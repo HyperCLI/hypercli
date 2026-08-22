@@ -10,6 +10,7 @@ mod keys;
 mod openclaw;
 mod runtime_auth;
 mod types;
+mod workspaces;
 
 pub use client::{
     FileApiReadyOptions, HyperCliClient, HyperCliError, AGENT_FILE_WRITE_MAX_BYTES,
@@ -55,4 +56,14 @@ pub use types::{
     UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
     BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
     CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
+};
+pub use workspaces::{
+    derive_workspaces_api_base, CreateWorkspaceGrantRequest, CreateWorkspaceRequest,
+    DownloadWorkspaceFileOptions, EnsureWorkspaceOptions, EnsureWorkspaceResult,
+    RegisterWorkspaceFileRequest, UpdateWorkspaceFileRequest, UpdateWorkspaceGrantRequest,
+    UpdateWorkspaceRequest, UploadWorkspaceFileOptions, WaitUntilProcessedOptions, Workspace,
+    WorkspaceAccessEntry, WorkspaceAccessSnapshot, WorkspaceAccessVisibility,
+    WorkspaceAgentAssociation, WorkspaceDownloadUrl, WorkspaceFile, WorkspaceFileBytes,
+    WorkspaceFileSearchResult, WorkspaceGrant, WorkspaceManifest, WorkspaceMarkdownFile,
+    WorkspacesApiClient, WorkspacesApiError,
 };

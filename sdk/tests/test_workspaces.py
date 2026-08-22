@@ -288,7 +288,7 @@ def test_access_snapshot_rejects_malformed_grants_payload(monkeypatch):
         api.access_snapshot("team")
 
 
-def test_list_agents_projects_admin_snapshot_and_rejects_non_admin(monkeypatch):
+def test_list_agent_associations_projects_admin_snapshot_and_rejects_non_admin(monkeypatch):
     calls = []
     responses = [
         {"id": "workspace-1", "name": "Team", "slug": "team", "role": "admin"},
@@ -350,7 +350,7 @@ def test_list_agents_projects_admin_snapshot_and_rejects_non_admin(monkeypatch):
     monkeypatch.setattr("hypercli.workspaces.datetime", FixedDateTime)
     api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
 
-    assert api.list_agents("team") == [
+    assert api.list_agent_associations("team") == [
         WorkspaceAgentAssociation(
             workspace_id="workspace-1",
             agent_id="agent-1",
@@ -368,11 +368,88 @@ def test_list_agents_projects_admin_snapshot_and_rejects_non_admin(monkeypatch):
         ValueError,
         match="Workspace agent associations are available only to Workspace admins",
     ):
-        api.list_agents("viewer")
+        api.list_agent_associations("viewer")
     assert calls == [
         ("GET", "http://workspaces.test/workspaces/team"),
         ("GET", "http://workspaces.test/workspaces/team/grants"),
         ("GET", "http://workspaces.test/workspaces/viewer"),
+    ]
+
+
+def test_ensure_workspace_returns_existing_match_without_creating(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url))
+        return [{"id": "workspace-general", "name": "General", "slug": "general"}]
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    result = api.ensure_workspace(name="General", slug="general")
+
+    assert result.workspace.id == "workspace-general"
+    assert result.workspace.slug == "general"
+    assert result.created is False
+    assert calls == [("GET", "http://workspaces.test/workspaces")]
+
+
+def test_ensure_workspace_creates_when_no_match_exists(monkeypatch):
+    calls = []
+    responses = [
+        [],
+        {"id": "workspace-general", "name": "General", "slug": "general"},
+    ]
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url, kwargs.get("json")))
+        return responses.pop(0)
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    result = api.ensure_workspace(name="General", slug="general")
+
+    assert result.workspace.id == "workspace-general"
+    assert result.workspace.slug == "general"
+    assert result.created is True
+    assert calls == [
+        ("GET", "http://workspaces.test/workspaces", None),
+        (
+            "POST",
+            "http://workspaces.test/workspaces",
+            {"name": "General", "slug": "general"},
+        ),
+    ]
+
+
+def test_ensure_workspace_recovers_after_concurrent_create_conflict(monkeypatch):
+    calls = []
+    responses = [
+        [],
+        APIError(409, "Workspace slug already exists"),
+        [{"id": "workspace-general", "name": "General", "slug": "general"}],
+    ]
+
+    def fake_request(method, url, *, api_key, user_id=None, agent_id=None, **kwargs):
+        calls.append((method, url))
+        response = responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr("hypercli.workspaces._request", fake_request)
+    api = WorkspacesAPI("key", api_base="http://workspaces.test/workspaces")
+
+    result = api.ensure_workspace(name="General", slug="general")
+
+    assert result.workspace.id == "workspace-general"
+    assert result.workspace.slug == "general"
+    assert result.created is False
+    assert calls == [
+        ("GET", "http://workspaces.test/workspaces"),
+        ("POST", "http://workspaces.test/workspaces"),
+        ("GET", "http://workspaces.test/workspaces"),
     ]
 
 

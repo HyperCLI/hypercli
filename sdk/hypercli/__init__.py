@@ -43,6 +43,7 @@ from .models import Model, ModelsAPI
 from .keys import ApiKey, KeysAPI, issue_api_key_from_jwt
 from .workspaces import (
     DownloadUrl,
+    EnsureWorkspaceResult,
     Workspace,
     WorkspaceAccessEntry,
     WorkspaceAccessSnapshot,
@@ -215,6 +216,7 @@ __all__ = [
     "Model",
     "ModelsAPI",
     "DownloadUrl",
+    "EnsureWorkspaceResult",
     "Workspace",
     "WorkspaceAccessEntry",
     "WorkspaceAccessSnapshot",

@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Callable, Literal
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -151,6 +151,12 @@ class WorkspaceAgentAssociation:
             role=data.get("role", ""),
             expires_at=data.get("expires_at"),
         )
+
+
+@dataclass
+class EnsureWorkspaceResult:
+    workspace: Workspace
+    created: bool
 
 
 @dataclass
@@ -336,6 +342,20 @@ def _latest_grant_expiration(grants: list[WorkspaceGrant]) -> str | None:
     ).expires_at
 
 
+def _workspace_matches_ensure_options(
+    workspace: Workspace,
+    *,
+    name: str,
+    slug: str | None = None,
+    match: Callable[[Workspace], bool] | None = None,
+) -> bool:
+    if match is not None and match(workspace):
+        return True
+    if slug is not None and workspace.slug == slug:
+        return True
+    return slug is None and workspace.name == name
+
+
 @dataclass
 class WorkspaceManifest:
     workspace_id: str
@@ -441,14 +461,13 @@ class WorkspacesAPI:
             grants=grants,
         )
 
-    def list_agents(
+    def list_agent_associations(
         self,
         workspace_ref: str,
         *,
         user_id: str | None = None,
         agent_id: str | None = None,
     ) -> list[WorkspaceAgentAssociation]:
-        """Deprecated compatibility projection; use access_snapshot for grant details."""
         snapshot = self.access_snapshot(
             workspace_ref,
             user_id=user_id,
@@ -495,6 +514,63 @@ class WorkspacesAPI:
             payload["description"] = description
         data = _request("POST", self.api_base, api_key=self.api_key, user_id=user_id, json=payload)
         return Workspace.from_dict(data)
+
+    def ensure_workspace(
+        self,
+        *,
+        name: str,
+        slug: str | None = None,
+        description: str | None = None,
+        match: Callable[[Workspace], bool] | None = None,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+    ) -> EnsureWorkspaceResult:
+        """Return the first matching workspace, creating it when absent.
+
+        A 409 conflict from a concurrent create is recovered by re-listing and
+        returning the recovered match with created=False.
+        """
+        listed = self.list(user_id=user_id, agent_id=agent_id)
+        existing = next(
+            (
+                workspace
+                for workspace in listed
+                if _workspace_matches_ensure_options(
+                    workspace, name=name, slug=slug, match=match
+                )
+            ),
+            None,
+        )
+        if existing is not None:
+            return EnsureWorkspaceResult(workspace=existing, created=False)
+
+        try:
+            return EnsureWorkspaceResult(
+                workspace=self.create(
+                    name=name,
+                    slug=slug,
+                    description=description,
+                    user_id=user_id,
+                ),
+                created=True,
+            )
+        except APIError as exc:
+            if exc.status_code != 409:
+                raise
+            recovered = self.list(user_id=user_id, agent_id=agent_id)
+            recovered_workspace = next(
+                (
+                    workspace
+                    for workspace in recovered
+                    if _workspace_matches_ensure_options(
+                        workspace, name=name, slug=slug, match=match
+                    )
+                ),
+                None,
+            )
+            if recovered_workspace is not None:
+                return EnsureWorkspaceResult(workspace=recovered_workspace, created=False)
+            raise
 
     def update(
         self,
