@@ -113,6 +113,23 @@ describe("first agent setup draft", () => {
     });
   });
 
+  it("normalizes the saved agent type and defaults legacy drafts to openclaw", () => {
+    expect(parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "legacy-type-agent",
+    }))?.agentType).toBe("openclaw");
+    expect(parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "hermes-agent",
+      agentType: "hermes",
+    }))?.agentType).toBe("hermes");
+    expect(parseFirstAgentSetupDraft(JSON.stringify({
+      source: "first-agent-setup",
+      name: "unknown-type-agent",
+      agentType: "something-else",
+    }))?.agentType).toBe("openclaw");
+  });
+
   it("clears persisted account and workspace ownership when explicitly set to null", () => {
     const input = {
       knowledgeCollectionId: null,

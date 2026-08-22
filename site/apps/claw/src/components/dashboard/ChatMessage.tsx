@@ -1357,12 +1357,22 @@ export function ChatMessageBubble({
           );
         })()}
 
-        {/* Internal reasoning is intentionally not exposed in chat. */}
+        {/* Reasoning streams unrolled while the run is in flight, then collapses to the final chip. */}
         {message.thinking && !isUser && (
-          <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs text-text-muted">
-            <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="truncate">Internal reasoning hidden</span>
-          </div>
+          isStreaming ? (
+            <div className="mb-2 max-w-full rounded-xl border border-primary/20 bg-primary/8 px-3 py-2 text-xs text-text-muted">
+              <div className="mb-1 flex items-center gap-1.5 font-medium">
+                <Brain className="h-3.5 w-3.5 shrink-0 animate-pulse text-primary" />
+                <span>Reasoning</span>
+              </div>
+              <div className="whitespace-pre-wrap break-words leading-relaxed">{message.thinking}</div>
+            </div>
+          ) : (
+            <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs text-text-muted">
+              <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="truncate">Internal reasoning hidden</span>
+            </div>
+          )
         )}
 
         {/* Tool calls */}

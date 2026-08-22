@@ -340,6 +340,7 @@ export {
 } from './agents.js';
 
 export * from './hermes/gateway.js';
+export * from './session.js';
 
 export {
   type AgentSkillOrigin,

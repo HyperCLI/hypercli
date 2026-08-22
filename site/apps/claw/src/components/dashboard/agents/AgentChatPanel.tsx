@@ -1097,6 +1097,10 @@ export function AgentChatPanel({
     }
   }, [activeSessionSending, chat, temporaryChatTransitioning]);
   const modelMenuAvailable = chat.backend === "openclaw";
+  // Hermes chatSend does not forward attachments yet; hide the attach action
+  // rather than silently dropping user files. Unspecced sessions (legacy test
+  // doubles) keep the openclaw behavior.
+  const attachmentsAvailable = chat.backend !== "hermes";
   const mobileComposerRightPadding = composerHasText ? "pr-12" : activeSessionSending ? "pr-40" : "pr-32";
   const desktopComposerRightPadding = modelMenuAvailable
     ? activeSessionSending ? "sm:pr-84" : "sm:pr-76"
@@ -1959,6 +1963,7 @@ export function AgentChatPanel({
                           />
                         </div>
                       ) : null}
+                      {attachmentsAvailable ? (
                       <TooltipHint label={attachFileTooltip} disabled={composerDisabled}>
                         <button
                           type="button"
@@ -1971,6 +1976,7 @@ export function AgentChatPanel({
                           <Paperclip className="h-4 w-4" />
                         </button>
                       </TooltipHint>
+                      ) : null}
                       <TooltipHint
                         label={recordVoiceTooltip}
                         disabled={composerDisabled || composerHasText}

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { archiveAgent, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
+import { archiveAgent, createHermesAgentDeployment, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -11,6 +11,7 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
     deploymentsInstance: {
       createOpenClaw: vi.fn(),
       createOpenClawPro: vi.fn(),
+      createHermesAgent: vi.fn(),
       archive: vi.fn(),
       delete: vi.fn(),
       get: vi.fn(),
@@ -18,6 +19,7 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
       setEnv: vi.fn(),
       start: vi.fn(),
       startOpenClaw: vi.fn(),
+      startHermesAgent: vi.fn(),
       restore: vi.fn(),
       stop: vi.fn(),
       waitForState: vi.fn(),
@@ -89,6 +91,17 @@ function redactedOpenClawLaunchConfig(overrides: Record<string, unknown> = {}) {
   return launchConfig;
 }
 
+function redactedHermesLaunchConfig(overrides: Record<string, unknown> = {}) {
+  return redactedOpenClawLaunchConfig({
+    image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
+    routes: { hermes: { port: 8642, auth: false, prefix: "" } },
+    sync_root: "/opt/data",
+    sync_uid: 10000,
+    sync_gid: 10000,
+    ...overrides,
+  });
+}
+
 describe("agent-client", () => {
   it("classifies stale lifecycle conflicts without treating service failures as stale state", () => {
     expect(isAgentLifecycleStateConflictError({
@@ -134,12 +147,14 @@ describe("agent-client", () => {
     });
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
+    deploymentsInstance.createHermesAgent.mockReset();
     deploymentsInstance.archive.mockReset();
     deploymentsInstance.delete.mockReset();
     deploymentsInstance.list.mockReset();
     deploymentsInstance.setEnv.mockReset();
     deploymentsInstance.start.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
+    deploymentsInstance.startHermesAgent.mockReset();
     deploymentsInstance.restore.mockReset();
     deploymentsInstance.stop.mockReset();
     deploymentsInstance.waitForState.mockReset();
@@ -308,6 +323,97 @@ describe("agent-client", () => {
         }),
       },
     );
+  });
+
+  it("creates hermes agents through the hermes deployment helper", async () => {
+    const created = { id: "agent-hermes", state: "CREATING", runtime: "hermes-agent" };
+    deploymentsInstance.createHermesAgent.mockResolvedValue(created);
+
+    await expect(createHermesAgentDeployment("hyper_api_test", {
+      name: "Hermes",
+      size: "small",
+      meta: { ui: { avatar: { icon_index: 3 } } },
+    })).resolves.toBe(created);
+
+    expect(deploymentsInstance.createHermesAgent).toHaveBeenCalledWith({
+      name: "Hermes",
+      size: "small",
+      meta: { ui: { avatar: { icon_index: 3 } } },
+      env: { API_SERVER_CORS_ORIGINS: window.location.origin },
+      corsOrigins: [window.location.origin],
+    });
+    expect(deploymentsInstance.createOpenClaw).not.toHaveBeenCalled();
+    expect(deploymentsInstance.createOpenClawPro).not.toHaveBeenCalled();
+  });
+
+  it("starts a hermes agent from its stored launch config without the OpenClaw origin env", async () => {
+    const accepted = { id: "agent-hermes", state: "STARTING", runtime: "hermes-agent", launchEpoch: 9 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-hermes",
+      state: "STOPPED",
+      runtime: "hermes-agent",
+      launchConfig: redactedHermesLaunchConfig(),
+    });
+    deploymentsInstance.startHermesAgent.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-hermes")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
+    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith(
+      "agent-hermes",
+      {
+        launchConfig: expect.objectContaining({
+          image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
+          routes: { hermes: { port: 8642, auth: false, prefix: "" } },
+          sync_root: "/opt/data",
+          env: { API_SERVER_CORS_ORIGINS: window.location.origin },
+          cors: { allowed_origins: [window.location.origin] },
+        }),
+      },
+    );
+    const submitted = deploymentsInstance.startHermesAgent.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    expect(submitted).not.toHaveProperty("secrets");
+    expect(submitted).not.toHaveProperty("registry_auth");
+    expect(submitted.env).not.toHaveProperty("OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN");
+  });
+
+  it("does not start a hermes agent when the stored launch config is incomplete", async () => {
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-hermes",
+      state: "STOPPED",
+      runtime: "hermes-agent",
+      launchConfig: { env: {} },
+    });
+
+    await expect(requestAgentStart("hyper_api_test", "agent-hermes")).rejects.toThrow(
+      "Hermes start requires a complete launch configuration",
+    );
+
+    expect(deploymentsInstance.startHermesAgent).not.toHaveBeenCalled();
+    expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
+  });
+
+  it("repairs a missing hermes image from the configured default on start", async () => {    process.env.NEXT_PUBLIC_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes-agent:prod";
+    const accepted = { id: "agent-hermes", state: "STARTING", runtime: "hermes-agent", launchEpoch: 10 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-hermes",
+      state: "STOPPED",
+      runtime: "hermes-agent",
+      launchConfig: redactedHermesLaunchConfig({ image: null }),
+    });
+    deploymentsInstance.startHermesAgent.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-hermes")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith(
+      "agent-hermes",
+      {
+        launchConfig: expect.objectContaining({
+          image: "ghcr.io/hypercli/hypercli-hermes-agent:prod",
+        }),
+      },
+    );
+    delete process.env.NEXT_PUBLIC_HERMES_AGENT_IMAGE;
   });
 
   it("returns an already-running accepted start without opening another wait", async () => {

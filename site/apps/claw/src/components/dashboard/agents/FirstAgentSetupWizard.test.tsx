@@ -631,6 +631,52 @@ describe("FirstAgentSetupWizard", () => {
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });
 
+  it("skips the workspace step and launches without bootstrap files for hermes agents", async () => {
+    const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-hermes");
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        skipPlanSelection
+        capacityReady
+        capacityContent={<div>Embedded capacity catalog</div>}
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={vi.fn()}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-team",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(screen.getByTestId("agent-setup-runtime-openclaw")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByTestId("agent-setup-runtime-hermes"));
+    expect(screen.getByTestId("agent-setup-runtime-hermes")).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.queryByRole("button", { name: /^Research a market/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledOnce());
+    expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentType: "hermes",
+      files: [],
+      enableDesktop: false,
+      enableMemoryIndex: false,
+    }));
+  });
+
   it("replaces the setup form with the startup loader as soon as creation begins", async () => {
     const onCreateAgent = vi.fn(() => new Promise<string | null>(() => undefined));
 

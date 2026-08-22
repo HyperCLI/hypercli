@@ -2298,7 +2298,7 @@ function HandoffThreadView({
               onClose={() => setShowAgentCreator(false)}
               onCreated={async (name, iconIndex, size) => {
                 if (onCreateAgent) {
-                  const createdId = await onCreateAgent({ name, iconIndex, size, files: [], enableDesktop: false, knowledgeCollectionId: null });
+                  const createdId = await onCreateAgent({ name, iconIndex, size, agentType: "openclaw", files: [], enableDesktop: false, knowledgeCollectionId: null });
                   setShowAgentCreator(false);
                   if (createdId) {
                     onStartAgentChat?.({ id: createdId, name, type: "agent" });

@@ -727,7 +727,7 @@ export function IntegrationsDirectoryPanel({
     ));
   }, [integrationFilter, searchQuery, tiles]);
 
-  if (customIntegrationSelected) {
+  if (customIntegrationSelected && gatewaySession.backend === "openclaw") {
     return (
       <div className="h-full min-h-0 overflow-y-auto bg-background px-5 py-5 text-foreground">
         <div className="mx-auto w-full max-w-6xl">

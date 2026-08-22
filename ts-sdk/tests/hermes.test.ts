@@ -62,6 +62,25 @@ describe('Hermes deployment lifecycle', () => {
     expect(agent.api).toBeInstanceOf(HermesApiClient);
   });
 
+  it('maps corsOrigins onto API_SERVER_CORS_ORIGINS env, merging any env value', async () => {
+    const post = vi.fn().mockResolvedValue(deployment());
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createHermesAgent({
+      name: 'Hermes',
+      env: { API_SERVER_CORS_ORIGINS: 'https://claw.hypercli.com' },
+      corsOrigins: ['http://127.0.0.1:4003', 'https://claw.hypercli.com'],
+    });
+
+    const body = post.mock.calls[0][1] as { env: Record<string, string>; cors: { allowed_origins: string[] } };
+    expect(body.env.API_SERVER_CORS_ORIGINS).toBe('https://claw.hypercli.com,http://127.0.0.1:4003');
+    expect(body.cors.allowed_origins).toEqual(['https://claw.hypercli.com', 'http://127.0.0.1:4003']);
+  });
+
   it('does not rotate the application gateway key on start', async () => {
     const post = vi.fn().mockResolvedValue(deployment());
     const deployments = new Deployments(
@@ -151,6 +170,51 @@ describe('Hermes deployment lifecycle', () => {
     expect(result).toBe(ready);
     expect(result.apiServerKey).toBe(starting.apiServerKey);
     expect(result.api).toBeInstanceOf(HermesApiClient);
+  });
+
+  it('connects with the retained key and returns the canonical session client', async () => {
+    const agent = HermesAgent.fromDict({ ...deployment(), state: 'RUNNING' });
+    agent.apiServerKey = 'retained-key';
+    agent._deployments = {} as unknown as Deployments;
+    const urls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.endsWith('/health')) {
+        return new Response(JSON.stringify({ status: 'ok', platform: 'hermes-agent', version: '0.20.0' }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ platform: 'hermes-agent', model: 'kimi-k2.6', auth: { type: 'bearer', required: true }, features: {}, endpoints: {} }), { status: 200 });
+    });
+
+    const session = await agent.connect({ fetch: fetchMock as typeof fetch });
+
+    expect(session.runtimeKind).toBe('hermes');
+    expect(session.connected).toBe(true);
+    expect(urls).toEqual([
+      'https://hermes-agent.example.test/health',
+      'https://hermes-agent.example.test/v1/capabilities',
+    ]);
+  });
+
+  it('rehydrates API_SERVER_KEY from the deployment secret when the instance lacks it', async () => {
+    const agent = HermesAgent.fromDict({ ...deployment(), state: 'RUNNING' });
+    const secret = vi.fn().mockResolvedValue({
+      agent_id: 'agent-hermes',
+      key: 'API_SERVER_KEY',
+      value: 'secret-server-key',
+      launch_epoch: 3,
+    });
+    agent._deployments = { secret } as unknown as Deployments;
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ status: 'ok', platform: 'hermes-agent', version: '0.20.0' }),
+      { status: 200 },
+    ));
+    // capabilities needs a richer payload; reuse ok payload for both calls.
+    const session = await agent.connect({ fetch: fetchMock as typeof fetch });
+
+    expect(secret).toHaveBeenCalledWith('agent-hermes', 'API_SERVER_KEY');
+    expect(agent.apiServerKey).toBe('secret-server-key');
+    expect(session.connected).toBe(true);
   });
 });
 

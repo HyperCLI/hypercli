@@ -225,8 +225,8 @@ function fallbackSessionLabel(sessionKey: string): string {
 
 function normalizeSessionOptions(sessionOptions: ScheduledSessionOption[], sessionKey: string): ScheduledSessionOption[] {
   const options: ScheduledSessionOption[] = [];
-  const add = (key: string, label: string) => {
-    const normalizedKey = key.trim();
+  const add = (key: string | null | undefined, label: string) => {
+    const normalizedKey = key?.trim() ?? "";
     if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
     options.push({ key: normalizedKey, label: label.trim() || fallbackSessionLabel(normalizedKey) });
   };

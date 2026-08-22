@@ -14,11 +14,14 @@ export interface AgentGatewaySession extends OpenClawGatewaySession {
 
 type AgentGatewaySessionInput = OpenClawGatewaySession | AgentGatewaySession;
 
-export function asAgentGatewaySession(session: AgentGatewaySessionInput): AgentGatewaySession {
-  if ("backend" in session) return session;
+export function asAgentGatewaySession(
+  session: AgentGatewaySessionInput,
+  backend?: AgentGatewayBackend,
+): AgentGatewaySession {
+  if ("backend" in session && backend === undefined) return session;
   return {
     ...session,
-    backend: "openclaw",
+    backend: backend ?? ("backend" in session ? session.backend : "openclaw"),
   };
 }
 

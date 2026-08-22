@@ -71,6 +71,11 @@ import type {
   OpenClawSlackSocketConfiguration,
 } from './openclaw/slack.js';
 import { HermesApiClient } from './hermes/gateway.js';
+import {
+  HermesSessionClient,
+  OpenClawSessionClient,
+  type AgentSessionConnectOptions,
+} from './session.js';
 
 const AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS = 300_000;
 const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
@@ -801,6 +806,7 @@ export interface AgentLaunchConfig {
   env: Record<string, string>;
   secrets: Record<string, string>;
   routes: Record<string, AgentRouteConfig>;
+  cors?: AgentCorsConfig | null;
   command: string[];
   entrypoint: string[];
   restart: boolean;
@@ -880,6 +886,8 @@ export interface BuildAgentConfigOptions {
   syncGid?: number | null;
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
+  /** Route-plane CORS policy reconciled onto the agent's public routes. */
+  cors?: AgentCorsConfig | null;
   restart?: boolean;
   runtimeScopes?: readonly string[] | null;
 }
@@ -1115,6 +1123,8 @@ export interface HermesAgentCreateOptions extends CreateAgentOptions {
   hermesRoute?: HermesAgentRouteOptions | null;
   /** Explicit inbound Hermes API credential; a fresh 32-byte key is generated when omitted. */
   apiServerKey?: string | null;
+  /** Browser origins allowed to call the Hermes API; mapped to API_SERVER_CORS_ORIGINS. */
+  corsOrigins?: string[] | null;
 }
 
 export interface HermesAgentStartOptions extends StartAgentOptions {
@@ -2150,6 +2160,7 @@ export function buildAgentConfig(
     registry_auth: registryAuth,
     runtime_scopes: [...(options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES)],
   };
+  if (options.cors !== undefined) prepared.cors = options.cors === null ? null : structuredClone(options.cors);
   if (options.syncInclude !== undefined) {
     if (options.syncInclude !== null && options.syncInclude.length === 0) {
       throw new Error('syncInclude must contain at least one path; omit it to sync all');
@@ -2188,6 +2199,9 @@ function buildAgentCreateConfig(
   if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = complete.sync_gid;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = complete.registry_url;
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = complete.registry_auth;
+  if (Object.prototype.hasOwnProperty.call(complete, 'cors') && complete.cors != null) {
+    prepared.cors = complete.cors;
+  }
   prepared.restart = complete.restart;
   if (options.runtimeScopes !== undefined && options.runtimeScopes !== null) prepared.runtime_scopes = complete.runtime_scopes;
   return prepared;
@@ -3433,6 +3447,57 @@ export class HermesAgent extends Agent {
     ready.apiServerKey = this.apiServerKey;
     return ready;
   }
+
+  /**
+   * Connect to this agent's Hermes session API and return the canonical
+   * session client. Waits for the agent to be RUNNING with its route live,
+   * then resolves API_SERVER_KEY from the SDK-retained key or the deployment
+   * Secret (so a fresh page can reconnect), and verifies reachability plus
+   * authorization before resolving.
+   */
+  async connect(options: AgentSessionConnectOptions = {}): Promise<HermesSessionClient> {
+    const deployments = this.requireDeployments();
+    const timeoutMs = options.timeoutMs ?? 60_000;
+    const deadline = Date.now() + timeoutMs;
+    const callerAbortError = (): Error => {
+      if (options.signal?.reason instanceof Error) return options.signal.reason;
+      const error = new Error('Hermes session connect cancelled');
+      error.name = 'AbortError';
+      return error;
+    };
+
+    let apiUrl = this.apiUrl;
+    let current: Agent = this;
+    while (true) {
+      if (options.signal?.aborted) throw callerAbortError();
+      if (current.state.toUpperCase() !== 'RUNNING' || !apiUrl) {
+        if (Date.now() >= deadline) {
+          throw new Error(`Timed out waiting for Hermes agent ${this.id} to become reachable`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        current = await deployments.get(this.id);
+        apiUrl = apiUrl ?? (current instanceof HermesAgent ? current.apiUrl : null);
+        continue;
+      }
+      break;
+    }
+
+    let apiServerKey = this.apiServerKey;
+    if (!apiServerKey) {
+      // Rehydrate the redacted Secret through the explicit per-secret
+      // retrieval endpoint; never read launch_config.env for it.
+      const secretData = await deployments.secret(this.id, 'API_SERVER_KEY');
+      apiServerKey = secretData.value;
+      this.apiServerKey = apiServerKey;
+    }
+
+    const client = new HermesSessionClient(apiUrl, {
+      apiKey: apiServerKey,
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+    });
+    await client.connect(options);
+    return client;
+  }
 }
 
 export class OpenClawAgent extends Agent {
@@ -3765,6 +3830,13 @@ export class OpenClawAgent extends Agent {
     const client = this.gateway(options);
     await client.connect();
     return client;
+  }
+
+  /** Connect and return the canonical runtime-neutral session client view. */
+  async connectSession(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<OpenClawSessionClient> {
+    return new OpenClawSessionClient(await this.connect(options));
   }
 
   /** Run one operation against the deployment-scoped managed gateway. */
@@ -4728,12 +4800,29 @@ export class Deployments {
     const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
     const env: Record<string, string> = { ...(options.env ?? {}) };
     delete env.API_SERVER_KEY;
+    const corsOrigins = [
+      ...(env.API_SERVER_CORS_ORIGINS ?? '').split(','),
+      ...(options.corsOrigins ?? []),
+    ]
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0);
+    if (corsOrigins.length > 0) {
+      env.API_SERVER_CORS_ORIGINS = [...new Set(corsOrigins)].join(',');
+    }
     const secrets = { ...(options.secrets ?? {}), API_SERVER_KEY: apiServerKey };
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime: 'hermes-agent',
       env,
       secrets,
+      // Both layers: the pod env gates origins inside the Hermes API server,
+      // the launch-config cors drives the route-plane middleware (which alone
+      // can stamp CORS headers on SSE responses).
+      cors: options.cors !== undefined
+        ? options.cors
+        : corsOrigins.length > 0
+          ? { allowed_origins: [...new Set(corsOrigins)] }
+          : undefined,
       image: defaultHermesAgentImage(options.image),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,

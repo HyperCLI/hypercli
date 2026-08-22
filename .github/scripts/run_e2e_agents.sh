@@ -31,7 +31,7 @@ on_exit() {
     trap - EXIT
     echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
     echo "Claw: ${TEST_BASE_URL}" >&2
-    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-e2e.spec.ts" >&2
+    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-openclaw-e2e.spec.ts" >&2
     tail -f /dev/null
   fi
   cleanup
@@ -228,17 +228,18 @@ cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
-# One spec, one journey: the whole user flow clicked through the real frontend
-# (trial -> create -> chat -> stop -> delete) on the identity the workflow
-# bootstrapped. The old battery of mocked suites lived here; it was retired
-# deliberately -- this run exists to prove a commit does not nuke the flow.
+# One spec per runtime, one journey each: the whole user flow clicked through
+# the real frontend (trial -> create -> chat -> stop -> delete) on identities
+# the workflow bootstrapped. The old battery of mocked suites lived here; it
+# was retired deliberately -- these runs exist to prove a commit does not nuke
+# the flow.
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
   --project=chromium \
   --max-failures=1 \
   --workers=1 \
-  tests/claw/agents-e2e.spec.ts
+  tests/claw/agents-openclaw-e2e.spec.ts
 status=$?
 set -e
 

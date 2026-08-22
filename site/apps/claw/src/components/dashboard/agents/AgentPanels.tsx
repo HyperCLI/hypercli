@@ -22,9 +22,11 @@ import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationIte
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient, createBrowserHyperCLIClient, startAgent, waitForCreatedAgentStopped } from "@/lib/agent-client";
+import { createAgentClient, createBrowserHyperCLIClient, createHermesAgentDeployment, startAgent, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { buildHermesLaunchOptions, getHermesDefaultImage } from "@/lib/hermes-launch";
+import { isHermesAgentRuntime } from "@/lib/agent-runtime";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
 import {
@@ -809,6 +811,17 @@ function buildUpdatedLaunchConfig(
 ): Record<string, unknown> {
   const launchConfig = editableLaunchConfigFromAgent(agent);
   if (image) launchConfig.image = image;
+  if (isHermesAgentRuntime(agent.runtime)) {
+    // Hermes launch configs carry no OpenClaw routes/env; only the image and
+    // the user's additional env are editable. Managed platform keys survive.
+    launchConfig.env = {
+      ...Object.fromEntries(
+        Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
+      ),
+      ...parseAdditionalEnvText(additionalEnvText),
+    };
+    return launchConfig;
+  }
   const routes = isRecord(launchConfig.routes) ? { ...launchConfig.routes } : {};
   if (!isRecord(routes.openclaw)) {
     routes.openclaw = { ...DEFAULT_OPENCLAW_ROUTE };
@@ -1256,6 +1269,7 @@ function AgentSectionSettingsContent({
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
+  const hermesRuntime = isHermesAgentRuntime(agent.runtime);
   const failedRuntimeNeedsCleanup = agent.state === "FAILED";
   const canStartAgent = isAgentStartable(agent);
   const canStopAgent = isAgentStoppable(agent);
@@ -1475,18 +1489,21 @@ function AgentSectionSettingsContent({
             </div>
           </AgentProfileSettingsRow>
 
-          <div hidden>
-            <AgentProfileSettingsRow label="Docker image" description="Container image used when this agent starts.">
-              <input
-                value={agentImageDraft}
-                onChange={(event) => onAgentImageChange(event.target.value)}
-                placeholder="ghcr.io/hypercli/hypercli-openclaw:prod"
-                aria-label="Agent Docker image"
-                className={SETTINGS_FIELD_CLASS}
-              />
-            </AgentProfileSettingsRow>
-          </div>
+          <AgentProfileSettingsRow label="Docker image" description="Public container image used when this agent starts. Private registries are not supported yet.">
+            <input
+              value={agentImageDraft}
+              onChange={(event) => onAgentImageChange(event.target.value)}
+              placeholder={hermesRuntime
+                ? (getHermesDefaultImage() || "ghcr.io/hypercli/hypercli-hermes-agent:latest")
+                : "ghcr.io/hypercli/hypercli-openclaw:prod"}
+              aria-label="Agent Docker image"
+              spellCheck={false}
+              className={SETTINGS_FIELD_CLASS}
+            />
+          </AgentProfileSettingsRow>
 
+          {!hermesRuntime ? (
+          <>
           <AgentProfileSettingsRow id="agent-desktop-setting" label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
             <div className="flex h-9 items-center justify-end">
               <Switch
@@ -1543,6 +1560,8 @@ function AgentSectionSettingsContent({
               </div>
             </div>
           </AgentProfileSettingsRow>
+          </>
+          ) : null}
 
           <AgentProfileSettingsRow label="Additional env" description="Extra runtime variables, one KEY=value per line.">
             <div className="space-y-3">
@@ -1581,6 +1600,7 @@ function AgentSectionSettingsContent({
             </div>
           </AgentProfileSettingsRow>
 
+          {!hermesRuntime ? (
           <AgentProfileSettingsRow label="Default model" description="Model used by this agent.">
             <select
               aria-label="Default model"
@@ -1603,6 +1623,7 @@ function AgentSectionSettingsContent({
               )}
             </select>
           </AgentProfileSettingsRow>
+          ) : null}
 
           <AgentProfileSettingsRow label="Visibility" description="Who can access this agent.">
             <select
@@ -2078,6 +2099,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const profileAvatarChanged = Boolean(profileAvatarFile) || profileAvatar !== savedProfileAvatar;
   const profileChanged = profileNameChanged || profileAvatarChanged;
   const externalAgent = agent?.managed === false;
+  const hermesRuntime = isHermesAgentRuntime(agent?.runtime);
   const normalizedSavedAgentHandle = normalizeAgentHandle(savedAgentHandle);
   const normalizedAgentHandleDraft = normalizeAgentHandle(agentHandleDraft);
   const agentAvatarChanged = Boolean(agentAvatarFile) || agentAvatarDraft !== savedAgentAvatar;
@@ -2216,7 +2238,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
-    if (agentImageChanged && !reportedChannelsReady) {
+    if (!hermesRuntime && agentImageChanged && !reportedChannelsReady) {
       setAgentSettingsError("Connect the agent and wait for its channels to load before changing the Docker image.");
       return;
     }
@@ -2410,6 +2432,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     externalAgent,
     getToken,
     hasSettingsChanges,
+    hermesRuntime,
     memoryIndexChanged,
     memoryIndexDraft,
     managedHyperEnvDraft,
@@ -2987,24 +3010,32 @@ export function AgentList({
     openAgentLauncher();
   }, [isDesktopViewport, openAgentLauncher, renderMobileNavigation, rosterLoading, sidebarCreatorSignal]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeCollectionId }: AgentCreationSetupCreateParams) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, agentType = "openclaw", files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeCollectionId }: AgentCreationSetupCreateParams) => {
     try {
       if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
       const token = await getToken();
-      const created = await createOpenClawAgent(token, {
-        name: name || undefined,
-        handle,
-        size,
-        meta: { ui: { avatar: { icon_index: iconIndex } } },
-        ...buildOpenClawLaunchOptions({
-          desktopEnabled: enableDesktop,
-          customImage,
-          skipBootstrap: files.length > 0,
-          memoryIndex: enableMemoryIndex
-            ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
-            : null,
-        }),
-      });
+      const created = agentType === "hermes"
+        ? await createHermesAgentDeployment(token, {
+          name: name || undefined,
+          handle,
+          size,
+          meta: { ui: { avatar: { icon_index: iconIndex } } },
+          ...buildHermesLaunchOptions({ customImage }),
+        })
+        : await createOpenClawAgent(token, {
+          name: name || undefined,
+          handle,
+          size,
+          meta: { ui: { avatar: { icon_index: iconIndex } } },
+          ...buildOpenClawLaunchOptions({
+            desktopEnabled: enableDesktop,
+            customImage,
+            skipBootstrap: files.length > 0,
+            memoryIndex: enableMemoryIndex
+              ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
+              : null,
+          }),
+        });
       const createdId = created.id ?? null;
       if (createdId) {
         const agentClient = createAgentClient(token);
@@ -3030,7 +3061,7 @@ export function AgentList({
         // starter files are staged alongside the start; a file that never lands
         // is reported afterwards instead of stranding a created Agent.
         let starterFileWarning: string | null = null;
-        if (files.length > 0) {
+        if (files.length > 0 && agentType !== "hermes") {
           const staged = await stageAgentStarterFilesAndStart({
             agentId: createdId,
             files,

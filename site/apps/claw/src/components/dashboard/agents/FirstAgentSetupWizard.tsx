@@ -20,6 +20,8 @@ import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
 import { agentAvatar, randomAgentAvatarIconIndex } from "@/lib/avatar";
 import { getOpenClawDefaultImage } from "@/lib/openclaw-launch";
+import { getHermesDefaultImage } from "@/lib/hermes-launch";
+import { normalizeLauncherAgentType, type LauncherAgentType } from "@/lib/agent-runtime";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import { generateAgentName } from "@/lib/agent-name";
 import { managedAgentHandleFromDisplayName } from "@/lib/agent-profile-updates";
@@ -64,6 +66,7 @@ export interface FirstAgentSetupCreateParams {
   handle?: string | null;
   iconIndex: number;
   size: string;
+  agentType: LauncherAgentType;
   files: File[];
   enableDesktop: boolean;
   enableMemoryIndex?: boolean;
@@ -863,6 +866,9 @@ export function FirstAgentSetupWizard({
   const agentNameErrorId = React.useId();
   const [selectedCategory] = React.useState(restoredDraft?.category ?? "General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(() => restoredDraft?.iconIndex ?? randomAgentAvatarIconIndex());
+  const [agentType, setAgentType] = React.useState<LauncherAgentType>(() => (
+    normalizeLauncherAgentType(restoredDraft?.agentType)
+  ));
   const [enableDesktop, setEnableDesktop] = React.useState(restoredDraft?.enableDesktop ?? false);
   const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(restoredDraft?.enableMemoryIndex ?? false);
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
@@ -961,8 +967,16 @@ export function FirstAgentSetupWizard({
         restoredDraft.enableMemoryIndex ? "Memory ready" : null,
       ].filter((capability): capability is string => Boolean(capability))
     : [];
-  const defaultCustomImage = getOpenClawDefaultImage(enableDesktop);
+  const defaultCustomImage = agentType === "hermes" ? getHermesDefaultImage() : getOpenClawDefaultImage(enableDesktop);
   const effectiveCustomImage = customImageEdited ? customImage : defaultCustomImage;
+  const handleAgentTypeChange = React.useCallback((nextType: LauncherAgentType) => {
+    setAgentType(nextType);
+    if (nextType === "hermes") {
+      // Desktop browser and memory indexing are OpenClaw-only launch features.
+      setEnableDesktop(false);
+      setEnableMemoryIndex(false);
+    }
+  }, []);
   const runBootstrapGeneration = React.useCallback(async (rawInputs: OpenClawBootstrapInputs) => {
     const runId = bootstrapGenerationRunRef.current + 1;
     bootstrapGenerationRunRef.current = runId;
@@ -1036,6 +1050,7 @@ export function FirstAgentSetupWizard({
       iconIndex,
       category: selectedCategory,
       plan: plan?.catalogPlanId ?? plan?.id ?? retainedPlanId,
+      agentType,
       enableDesktop,
       enableMemoryIndex,
       enableCustomImage,
@@ -1046,6 +1061,7 @@ export function FirstAgentSetupWizard({
       bootstrapDraft,
     });
   }, [
+    agentType,
     bootstrapDraft,
     agentName,
     deploymentName,
@@ -1114,16 +1130,17 @@ export function FirstAgentSetupWizard({
 
   React.useEffect(() => {
     if (!restoredDraft || draftResumeOpen) return;
+    const resumeWorkspaceStep = directCapacityFlow && agentType !== "hermes";
     const timeout = window.setTimeout(() => {
-      if (directCapacityFlow) setWorkspaceStage("personality");
+      if (resumeWorkspaceStep) setWorkspaceStage("personality");
       dispatchWizard({
         type: "GO_TO_STEP",
-        stepIndex: steps.indexOf(directCapacityFlow ? "workspace" : "plan"),
+        stepIndex: steps.indexOf(resumeWorkspaceStep ? "workspace" : "plan"),
         maxStepIndex: steps.length - 1,
       });
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [directCapacityFlow, draftResumeOpen, restoredDraft]);
+  }, [agentType, directCapacityFlow, draftResumeOpen, restoredDraft]);
 
   React.useEffect(() => {
     if (
@@ -1218,7 +1235,8 @@ export function FirstAgentSetupWizard({
         handle: agentName.trim() ? managedAgentHandleFromDisplayName(agentName) : null,
         iconIndex: creationIconIndex,
         size: plan.size,
-        files: bootstrapDraft.files.map((file) => (
+        agentType,
+        files: agentType === "hermes" ? [] : bootstrapDraft.files.map((file) => (
           new File([file.content], file.name, { type: "text/markdown" })
         )),
         enableDesktop,
@@ -1466,9 +1484,69 @@ export function FirstAgentSetupWizard({
               largePresentation ? "px-[clamp(1.25rem,2.7vw,2rem)] py-[clamp(1.25rem,4vw,3rem)]" : "px-5 py-4 sm:px-6",
             )} data-slot="agent-setup-scroll-body">
               <div className={cx("mx-auto grid min-h-full w-full content-center", (embeddedPresentation || inlinePresentation) && "max-w-[660px]")}>
-                <label htmlFor="first-agent-name" className={cx(
+                <span className={cx(
                   "block font-semibold leading-none text-foreground",
                   largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
+                )}>Agent type</span>
+                <div
+                  role="group"
+                  aria-label="Agent type"
+                  data-testid="agent-setup-runtime-selector"
+                  className={cx("grid sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2")}
+                >
+                  {([
+                    {
+                      type: "openclaw" as LauncherAgentType,
+                      testId: "agent-setup-runtime-openclaw",
+                      name: "OpenClaw",
+                      description: "Workspace agent with chat, files, and built-in tools.",
+                    },
+                    {
+                      type: "hermes" as LauncherAgentType,
+                      testId: "agent-setup-runtime-hermes",
+                      name: "Hermes",
+                      description: "Self-improving agent with an OpenAI-compatible API.",
+                    },
+                  ]).map((option) => {
+                    const selected = agentType === option.type;
+                    return (
+                      <button
+                        key={option.type}
+                        type="button"
+                        data-testid={option.testId}
+                        aria-pressed={selected}
+                        onClick={() => handleAgentTypeChange(option.type)}
+                        className={cx(
+                          "flex items-start border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/40",
+                          largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5",
+                          selected
+                            ? "border-selection-accent/65 bg-[rgb(var(--selection-accent-rgb)_/_0.055)]"
+                            : "border-border bg-background hover:border-border-strong hover:bg-surface-high",
+                        )}
+                      >
+                        <span className={cx(
+                          "mt-1 flex shrink-0 items-center justify-center rounded-full border",
+                          largePresentation ? "h-4 w-4" : "h-3.5 w-3.5",
+                          selected ? "border-selection-accent" : "border-border-strong",
+                        )}>
+                          {selected ? <span className="block h-1.5 w-1.5 rounded-full bg-selection-accent" /> : null}
+                        </span>
+                        <span className="min-w-0">
+                          <span className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[15px]" : "text-[12px]")}>
+                            {option.name}
+                          </span>
+                          <span className={cx("mt-1 block text-text-muted", largePresentation ? "text-[13px] leading-5" : "text-[11px] leading-4")}>
+                            {option.description}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <label htmlFor="first-agent-name" className={cx(
+                  "block font-semibold leading-none text-foreground",
+                  largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] mt-[clamp(1.5rem,4vw,3rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 mt-4 text-[13px]",
                 )}>Agent name</label>
                 <input
                   id="first-agent-name"
@@ -1539,6 +1617,7 @@ export function FirstAgentSetupWizard({
                   <p className={cx("text-text-muted", largePresentation ? "mt-2 text-[13px] leading-5" : "mt-1.5 text-[11px] leading-4")}>Assign only the business knowledge this agent needs. You can change Collection access later.</p>
                 </div>
 
+                {(enableCustomImageOption || agentType === "openclaw") ? (
                 <details
                   data-testid="agent-setup-advanced-settings"
                   open={advancedOpen}
@@ -1574,7 +1653,7 @@ export function FirstAgentSetupWizard({
                             setEnableCustomImage(Boolean(nextImage.trim()));
                           }}
                           aria-label="Custom agent image"
-                          placeholder="ghcr.io/example/openclaw:latest"
+                          placeholder={agentType === "hermes" ? "ghcr.io/example/hermes-agent:latest" : "ghcr.io/example/openclaw:latest"}
                           spellCheck={false}
                           className={cx(
                             "w-full border border-border bg-background font-mono text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong",
@@ -1585,6 +1664,7 @@ export function FirstAgentSetupWizard({
                       </div>
                     ) : null}
 
+                    {agentType === "openclaw" ? (
                     <div className={cx("grid sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2", enableCustomImageOption && (largePresentation ? "mt-5" : "mt-3"))}>
                       <label className={cx("flex items-start border border-border bg-background", largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5")}>
                         <input
@@ -1620,8 +1700,10 @@ export function FirstAgentSetupWizard({
                         </span>
                       </label>
                     </div>
+                    ) : null}
                   </div>
                 </details>
+                ) : null}
               </div>
             </div>
 
@@ -1642,6 +1724,11 @@ export function FirstAgentSetupWizard({
                   }
                 }
                 if (saveDraftAsYouGo) persistDraft();
+                if (agentType === "hermes") {
+                  // Hermes agents have no OpenClaw bootstrap workspace step.
+                  goToStep(2);
+                  return;
+                }
                 setWorkspaceStage("objective");
                 goToStep(1);
               }} large={largePresentation}>Continue</WizardButton>
@@ -1743,7 +1830,7 @@ export function FirstAgentSetupWizard({
                       onBackFromCheckout();
                       return;
                     }
-                    goToStep(1);
+                    goToStep(agentType === "hermes" ? 0 : 1);
                   }}
                 >
                   <ChevronLeft className="mr-2 h-4 w-4" />
@@ -1752,6 +1839,17 @@ export function FirstAgentSetupWizard({
               </div>
               {largePresentation ? null : <WizardMomentum stage={embeddedCheckoutStep ? "checkout" : "capacity"} />}
               <div aria-hidden="true" className="min-w-0 flex-1" />
+              {!embeddedCheckoutStep && availableLaunchPlan ? (
+                <WizardButton
+                  large={largePresentation}
+                  testId="agent-setup-launch"
+                  disabled={!capacityReady || creating || openingCapacity}
+                  busy={creating || openingCapacity}
+                  onClick={handleWorkspaceAction}
+                >
+                  {workspaceActionLabel}
+                </WizardButton>
+              ) : null}
             </footer>
           </>
         ) : (
@@ -1865,7 +1963,7 @@ export function FirstAgentSetupWizard({
             "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
             largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
           )}>
-            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(1)}>
+            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(agentType === "hermes" ? 0 : 1)}>
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back
             </WizardButton>

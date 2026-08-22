@@ -30,6 +30,7 @@ import {
   AGENT_CLEANUP_START_MESSAGE,
   archiveAgent,
   createAgentClient,
+  createHermesAgentDeployment,
   createHyperAgentClient,
   createOpenClawAgent,
   createPublicHyperAgentClient,
@@ -98,7 +99,7 @@ import {
 } from "@hypercli/shared-ui";
 import { inferFileMimeType, isAudioFileReference, isFileTypeReference, isImageFileReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
-import type { DeploymentEvent, Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { DeploymentEvent, Deployments, HermesAgent as SdkHermesAgent, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
@@ -128,6 +129,9 @@ import {
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
+import { buildHermesLaunchOptions } from "@/lib/hermes-launch";
+import { isHermesAgentRuntime } from "@/lib/agent-runtime";
+import { useHermesSession } from "@/hooks/useHermesSession";
 import {
   buildOpenClawBootstrapFileGenerationMessages,
   buildOpenClawBootstrapFileResponseFormat,
@@ -2989,8 +2993,16 @@ function AgentsPageContent() {
     workspacesLoading,
   ]);
   const selectedOpenClawAgent = useMemo(
-    () => (selectedSdkAgent && typeof (selectedSdkAgent as { connect?: unknown }).connect === "function"
+    () => (selectedSdkAgent
+      && !isHermesAgentRuntime(selectedSdkAgent.runtime)
+      && typeof (selectedSdkAgent as { connect?: unknown }).connect === "function"
       ? (selectedSdkAgent as SdkOpenClawAgent)
+      : null),
+    [selectedSdkAgent],
+  );
+  const selectedHermesAgent = useMemo(
+    () => (selectedSdkAgent && isHermesAgentRuntime(selectedSdkAgent.runtime)
+      ? (selectedSdkAgent as SdkHermesAgent)
       : null),
     [selectedSdkAgent],
   );
@@ -3151,12 +3163,18 @@ function AgentsPageContent() {
     openclawSettingsOpen
     ) ? "full" : settingsAgentConfigurationActive ? "full" : "sessions";
 
-  const chat = useOpenClawSession(
+  const openClawChat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     gatewayEnabled,
     selectedSessionRouteValue,
     { hydrationMode: openClawHydrationMode },
   );
+  const hermesChat = useHermesSession(
+    selectedHermesAgent,
+    Boolean(selectedHermesAgent && isSelectedRunning && gatewayEnabled),
+    selectedSessionRouteValue,
+  );
+  const chat = selectedHermesAgent ? hermesChat : openClawChat;
   const userVisibleChatSessions = useMemo(
     () => chat.sessions.filter((session) => !isOpenClawMainSessionKey(session.key)),
     [chat.sessions],
@@ -3225,7 +3243,10 @@ function AgentsPageContent() {
   }), [canonicalSelectedSessionKey, selectedAgentId]);
   const skillDraftScope = useMemo(() => ({ ownerId: user?.email ?? "local", agentId: selectedAgentId ?? "unknown-agent" }), [selectedAgentId, user?.email]);
   const activeSkillDraftTest = useSkillDraftTestSession(skillDraftScope, selectedSessionKey);
-  const gatewayChat = asAgentGatewaySession(chat);
+  const gatewayChat = asAgentGatewaySession(
+    chat,
+    isHermesAgentRuntime(selectedAgent?.runtime) ? "hermes" : "openclaw",
+  );
   const activeChatTargetRef = useRef({ agentId: selectedAgentId, sessionKey: chat.activeSessionKey });
   useLayoutEffect(() => {
     activeChatTargetRef.current = { agentId: selectedAgentId, sessionKey: chat.activeSessionKey };
@@ -3298,7 +3319,9 @@ function AgentsPageContent() {
 
   const refreshChatFileReferences = useCallback(async () => {
     if (mainTab !== "chat") return;
-    if (!selectedAgentId || !chat.connected) {
+    if (!selectedAgentId || !chat.connected || selectedHermesAgent) {
+      // Workspace file mentions read the OpenClaw workspace prefix; hermes
+      // agents have no such directory, and probing it spams 404s.
       setChatFileReferenceCandidates([]);
       return;
     }
@@ -3309,7 +3332,7 @@ function AgentsPageContent() {
       activeChatTargetRef.current.sessionKey !== target.sessionKey
     ) return;
     setChatFileReferenceCandidates(entries.map(workspaceFileReferenceFromEntry).filter((file): file is ChatPendingFile => Boolean(file)));
-  }, [chat.activeSessionKey, chat.connected, listAgentFiles, mainTab, selectedAgentId]);
+  }, [chat.activeSessionKey, chat.connected, listAgentFiles, mainTab, selectedAgentId, selectedHermesAgent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3744,7 +3767,11 @@ function AgentsPageContent() {
     for (const session of userVisibleChatSessions) {
       addSession(session.key, displayOpenClawSessionName(session));
     }
-    addSession(selectedSessionKey, selectedSessionKey === "main" ? "Main Session" : "Current Session");
+    // Hermes sessions are server-assigned and absent until the first connect;
+    // there is no "main" fallback to offer, so a null selection adds nothing.
+    if (selectedSessionKey) {
+      addSession(selectedSessionKey, selectedSessionKey === "main" ? "Main Session" : "Current Session");
+    }
     return options;
   }, [selectedSessionKey, userVisibleChatSessions]);
 
@@ -4033,6 +4060,7 @@ function AgentsPageContent() {
     handle = null,
     iconIndex,
     size,
+    agentType = "openclaw",
     files,
     enableDesktop,
     enableMemoryIndex = false,
@@ -4062,24 +4090,36 @@ function AgentsPageContent() {
       setError(null);
       const token = await getToken();
       if (generation !== agentDataGenerationRef.current) return null;
-      const created = await createOpenClawAgent(token, {
-        name: name || undefined,
-        handle,
-        size,
-        meta: {
-          ui: {
-            avatar: { icon_index: iconIndex },
+      const created = agentType === "hermes"
+        ? await createHermesAgentDeployment(token, {
+          name: name || undefined,
+          handle,
+          size,
+          meta: {
+            ui: {
+              avatar: { icon_index: iconIndex },
+            },
           },
-        },
-        ...buildOpenClawLaunchOptions({
-          desktopEnabled: enableDesktop,
-          customImage,
-          skipBootstrap: files.length > 0,
-          memoryIndex: enableMemoryIndex
-            ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
-            : null,
-        }),
-      });
+          ...buildHermesLaunchOptions({ customImage }),
+        })
+        : await createOpenClawAgent(token, {
+          name: name || undefined,
+          handle,
+          size,
+          meta: {
+            ui: {
+              avatar: { icon_index: iconIndex },
+            },
+          },
+          ...buildOpenClawLaunchOptions({
+            desktopEnabled: enableDesktop,
+            customImage,
+            skipBootstrap: files.length > 0,
+            memoryIndex: enableMemoryIndex
+              ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
+              : null,
+          }),
+        });
       if (generation !== agentDataGenerationRef.current) return null;
       if (created.id) {
         const agentClient = createAgentClient(token);
@@ -4113,7 +4153,7 @@ function AgentsPageContent() {
         // never land are a warning, never a failed launch.
         let starterFileWarning: string | null = null;
         try {
-          if (files.length > 0) {
+          if (files.length > 0 && agentType !== "hermes") {
             const staged = await stageAgentStarterFilesAndStart({
               agentId: created.id,
               files,
@@ -4231,12 +4271,14 @@ function AgentsPageContent() {
       paidFirstAgentCreationAttemptsRef.current.add(attemptKey);
 
       const bootstrap = draft.bootstrapDraft ?? createOpenClawBootstrapDraft(draft.name);
+      const draftAgentType = draft.agentType === "hermes" ? "hermes" : "openclaw";
       void handleCreateFirstAgent({
         name: draft.name,
         handle: draft.displayName ? managedAgentHandleFromDisplayName(draft.displayName) : null,
         iconIndex: draft.iconIndex,
         size: pending.agentSize,
-        files: bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
+        agentType: draftAgentType,
+        files: draftAgentType === "hermes" ? [] : bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
         enableDesktop: draft.enableDesktop,
         enableMemoryIndex: draft.enableMemoryIndex,
         customImage: draft.enableCustomImage ? draft.customImage || null : null,
@@ -4557,9 +4599,6 @@ function AgentsPageContent() {
       agentMutationVersionsRef.current.delete(agentId);
       clearOpenClawSessionPins(agentId);
       const nextAgents = removeSdkAgent(sdkAgents, agentId);
-      const deletedIndex = sdkAgents.findIndex((agent) => agent.id === agentId);
-      const replacementIndex = deletedIndex === -1 ? 0 : Math.min(deletedIndex, nextAgents.length - 1);
-      const replacementAgentId = nextAgents[replacementIndex]?.id ?? null;
       setSdkAgents((current) => removeSdkAgent(current, agentId));
       removeAgentAvatarOverride(agentId);
       setSelectedSessionKeysByAgent((current) => {
@@ -4568,16 +4607,13 @@ function AgentsPageContent() {
         delete next[agentId];
         return next;
       });
+      // Deleting the selected agent returns to the agents overview rather
+      // than silently jumping into a different agent's workspace.
       const nextSelectedAgentId = selectedAgentId === agentId || !selectedAgentId || !nextAgents.some((agent) => agent.id === selectedAgentId)
-        ? replacementAgentId
+        ? null
         : selectedAgentId;
       setSelectedAgentId(nextSelectedAgentId);
-      replaceAgentChatRoute(
-        nextSelectedAgentId,
-        nextSelectedAgentId
-          ? selectedSessionKeysByAgent[nextSelectedAgentId] ?? null
-          : null,
-      );
+      replaceAgentChatRoute(nextSelectedAgentId, null);
       const scheduler = deploymentRefreshSchedulerRef.current;
       if (scheduler) {
         // Register a post-response invalidation even if the server event raced
@@ -5201,6 +5237,21 @@ function AgentsPageContent() {
       setOpenclawSettingsOpen(false);
     }
   }, [openclawSettingsOpen, selectedAgent]);
+
+  // OpenClaw settings surfaces are openclaw-only; other runtimes (hermes has
+  // no gateway config schema) fall back to the chat tab.
+  const selectedAgentIsOpenClaw = !selectedAgent?.runtime
+    || selectedAgent.runtime === "openclaw"
+    || selectedAgent.runtime === "openclaw-pro";
+  useEffect(() => {
+    if (!selectedAgent || selectedAgentIsOpenClaw) return;
+    if (!openclawSettingsOpen && mainTab !== "openclaw") return;
+    const timeout = window.setTimeout(() => {
+      if (openclawSettingsOpen) setOpenclawSettingsOpen(false);
+      if (mainTab === "openclaw") setMainTab("chat");
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [mainTab, openclawSettingsOpen, selectedAgent, selectedAgentIsOpenClaw]);
 
   useEffect(() => {
     if (!selectedAgent) {

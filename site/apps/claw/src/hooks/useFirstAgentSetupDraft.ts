@@ -5,6 +5,10 @@ import {
   parseOpenClawBootstrapDraft,
   type OpenClawBootstrapDraft,
 } from "@/lib/openclaw-bootstrap-pack";
+import {
+  normalizeLauncherAgentType,
+  type LauncherAgentType,
+} from "@/lib/agent-runtime";
 
 export const FIRST_AGENT_SETUP_DRAFT_KEY = "hypercli-first-agent-draft";
 
@@ -24,6 +28,7 @@ export interface FirstAgentSetupDraft {
   iconIndex: number;
   category: string;
   plan: string | null;
+  agentType: LauncherAgentType;
   enableDesktop: boolean;
   enableMemoryIndex: boolean;
   enableCustomImage: boolean;
@@ -34,8 +39,8 @@ export interface FirstAgentSetupDraft {
 
 export type FirstAgentSetupDraftInput = Omit<
   FirstAgentSetupDraft,
-  "source" | "updatedAt" | "setupId" | "principalId" | "workspaceId" | "bootstrapDraft"
-> & Partial<Pick<FirstAgentSetupDraft, "setupId" | "principalId" | "workspaceId" | "bootstrapDraft">>;
+  "source" | "updatedAt" | "setupId" | "principalId" | "workspaceId" | "bootstrapDraft" | "agentType"
+> & Partial<Pick<FirstAgentSetupDraft, "setupId" | "principalId" | "workspaceId" | "bootstrapDraft" | "agentType">>;
 
 let fallbackRawDraft: string | null = null;
 let volatileStorage = false;
@@ -83,6 +88,7 @@ export function parseFirstAgentSetupDraft(raw: string | null): FirstAgentSetupDr
       iconIndex: Number.isFinite(iconIndex) ? Math.abs(Math.trunc(iconIndex)) % 16 : 0,
       category,
       plan: normalizeOptionalString(value.plan, 80),
+      agentType: normalizeLauncherAgentType(value.agentType),
       enableDesktop: Boolean(value.enableDesktop),
       enableMemoryIndex: Boolean(value.enableMemoryIndex),
       enableCustomImage: Boolean(value.enableCustomImage),

@@ -1274,6 +1274,15 @@ export function AgentWorkspaceSidebar({
         else onOpenDesktopPreview?.();
       },
     },
+    ...(noSelectedAgent
+      ? []
+      : [{
+          id: "agent-settings",
+          label: "Agent Settings",
+          icon: Settings,
+          active: settingsActive,
+          onClick: onOpenSettings,
+        }]),
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;
@@ -1286,10 +1295,15 @@ export function AgentWorkspaceSidebar({
       : agentNotRunning
         ? { disabled: true, disabledReason: stoppedReason }
         : {};
+  const openClawRuntimeSelected = !selectedAgent?.runtime
+    || selectedAgent.runtime === "openclaw"
+    || selectedAgent.runtime === "openclaw-pro";
   const advancedItems: WorkspaceItem[] = [
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
-    { id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
+    ...(openClawRuntimeSelected
+      ? [{ id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) }]
+      : []),
     { id: "settings", label: "Agent Settings", icon: Settings, active: settingsActive, onClick: onOpenSettings },
   ];
   const advancedActive = advancedItems.some((item) => item.active);

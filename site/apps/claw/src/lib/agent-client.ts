@@ -1,11 +1,12 @@
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import type { Agent as SdkAgent, AgentLaunchConfig, OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
+import type { Agent as SdkAgent, AgentLaunchConfig, HermesAgentCreateOptions, OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
 import { generateAgentName, isGeneratedAgentName } from "./agent-name";
+import { getHermesDefaultImage } from "./hermes-launch";
 import {
   controlUiAllowedOriginsFromLaunchConfig,
   currentControlUiOrigin,
@@ -23,6 +24,9 @@ type OpenClawAgentUiMeta = { ui?: AgentUiMeta | null } | null;
 type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta"> & {
   meta?: OpenClawAgentUiMeta;
 };
+type FrontendHermesAgentCreateOptions = Omit<HermesAgentCreateOptions, "meta"> & {
+  meta?: OpenClawAgentUiMeta;
+};
 type ListedAgent = Awaited<ReturnType<Deployments["list"]>>[number];
 type AgentLifecycleAccepted = (agent: SdkAgent) => void;
 type AgentLifecycleObserved = (agent: SdkAgent) => void;
@@ -38,7 +42,8 @@ const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
-const REQUIRED_OPENCLAW_START_LAUNCH_KEYS = [
+const HERMES_CORS_ORIGINS_ENV = "API_SERVER_CORS_ORIGINS";
+const REQUIRED_START_LAUNCH_KEYS = [
   "config",
   "image",
   "env",
@@ -61,20 +66,63 @@ function cloneRecord<T>(value: T): T {
   return structuredClone(value);
 }
 
-function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string): AgentLaunchConfig {
+function cloneStoredStartLaunchConfig(agent: SdkAgent, runtimeLabel: string): AgentLaunchConfig {
   const launchConfig = cloneRecord((agent as { launchConfig?: unknown }).launchConfig ?? {});
   if (!isRecord(launchConfig)) {
-    throw new Error("OpenClaw start requires a stored launch configuration.");
+    throw new Error(`${runtimeLabel} start requires a stored launch configuration.`);
   }
-  const missing = REQUIRED_OPENCLAW_START_LAUNCH_KEYS.filter((key) => !(key in launchConfig));
+  const missing = REQUIRED_START_LAUNCH_KEYS.filter((key) => !(key in launchConfig));
   if (missing.length > 0) {
-    throw new Error(`OpenClaw start requires a complete launch configuration; missing: ${missing.join(", ")}`);
+    throw new Error(`${runtimeLabel} start requires a complete launch configuration; missing: ${missing.join(", ")}`);
   }
+  return launchConfig as unknown as AgentLaunchConfig;
+}
+
+function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string): AgentLaunchConfig {
+  const launchConfig = cloneStoredStartLaunchConfig(agent, "OpenClaw") as unknown as Record<string, unknown>;
   launchConfig.env = {
     ...(isRecord(launchConfig.env) ? launchConfig.env : {}),
     [CONTROL_UI_ALLOWED_ORIGIN_ENV]: controlUiOrigin,
   };
   return launchConfig as unknown as AgentLaunchConfig;
+}
+
+function buildHermesStartLaunchConfig(agent: SdkAgent): AgentLaunchConfig {
+  const launchConfig = cloneStoredStartLaunchConfig(agent, "Hermes") as unknown as Record<string, unknown>;
+  // Agents created before the launcher sent an image carry image: null; START
+  // replays the stored contract verbatim, so repair it with the configured
+  // default or the pod keeps resolving a stale image.
+  if (typeof launchConfig.image !== "string" || !launchConfig.image.trim()) {
+    const defaultImage = getHermesDefaultImage();
+    if (defaultImage) launchConfig.image = defaultImage;
+  }
+  // The Hermes API 403s any browser Origin it does not recognize. Re-seed the
+  // allowlist on every start so the current dashboard origin always works —
+  // both layers: the pod env gates inside the API server, the launch-config
+  // cors drives the route-plane middleware (which alone stamps SSE headers).
+  const origins = hermesCorsOriginsList(
+    isRecord(launchConfig.env) && typeof launchConfig.env[HERMES_CORS_ORIGINS_ENV] === "string"
+      ? launchConfig.env[HERMES_CORS_ORIGINS_ENV]
+      : "",
+    isRecord(launchConfig.cors) && Array.isArray(launchConfig.cors.allowed_origins)
+      ? launchConfig.cors.allowed_origins.filter((origin): origin is string => typeof origin === "string")
+      : [],
+  );
+  const env = isRecord(launchConfig.env) ? { ...launchConfig.env } : {};
+  env[HERMES_CORS_ORIGINS_ENV] = origins.join(",");
+  launchConfig.env = env;
+  launchConfig.cors = {
+    ...(isRecord(launchConfig.cors) ? launchConfig.cors : {}),
+    allowed_origins: origins,
+  };
+  return launchConfig as unknown as AgentLaunchConfig;
+}
+
+function hermesCorsOriginsList(...sources: Array<string | string[]>): string[] {
+  const origins = sources.flatMap((source) => Array.isArray(source) ? source : source.split(","));
+  const origin = currentControlUiOrigin();
+  if (origin) origins.push(origin);
+  return [...new Set(origins.map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
 }
 
 function errorText(value: unknown): string {
@@ -143,7 +191,7 @@ function agentCreatedAtMs(value: unknown): number {
 
 async function reconcileCreatedAgent(
   agentClient: Deployments,
-  options: FrontendOpenClawCreateOptions,
+  options: { name?: string },
 ): Promise<ListedAgent | null> {
   const expectedName = options.name?.trim();
   if (!expectedName) return null;
@@ -403,14 +451,11 @@ export function createPublicHyperAgentClient(origin?: string): HyperAgent {
   return createHyperAgentClient("", origin);
 }
 
-export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
-  const preparedOptions = withConfiguredControlUiOrigins(
-    await withUserSlackRelayLaunchConfig(apiKey, options),
-  );
-  const agentClient = createAgentClient(apiKey);
-  const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
-    ? agentClient.createOpenClawPro.bind(agentClient)
-    : agentClient.createOpenClaw.bind(agentClient);
+async function createAgentWithNameRetry<T extends { name?: string }>(
+  agentClient: Deployments,
+  create: (options: T) => Promise<SdkAgent>,
+  preparedOptions: T,
+): Promise<SdkAgent> {
   const canRegenerateName = isGeneratedAgentName(preparedOptions.name);
   const attemptedNames = new Set<string>();
   let candidateOptions = preparedOptions;
@@ -437,6 +482,31 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
   }
 }
 
+export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
+  const preparedOptions = withConfiguredControlUiOrigins(
+    await withUserSlackRelayLaunchConfig(apiKey, options),
+  );
+  const agentClient = createAgentClient(apiKey);
+  const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
+    ? agentClient.createOpenClawPro.bind(agentClient)
+    : agentClient.createOpenClaw.bind(agentClient);
+  return createAgentWithNameRetry(agentClient, create, preparedOptions);
+}
+
+export async function createHermesAgentDeployment(apiKey: string, options: FrontendHermesAgentCreateOptions = {}) {
+  const agentClient = createAgentClient(apiKey);
+  const corsOrigins = hermesCorsOriginsList(options.env?.[HERMES_CORS_ORIGINS_ENV] ?? "");
+  const preparedOptions: FrontendHermesAgentCreateOptions = {
+    ...options,
+    env: {
+      ...(options.env ?? {}),
+      [HERMES_CORS_ORIGINS_ENV]: corsOrigins.join(","),
+    },
+    corsOrigins,
+  };
+  return createAgentWithNameRetry(agentClient, agentClient.createHermesAgent.bind(agentClient), preparedOptions);
+}
+
 export async function requestAgentStart(
   apiKey: string,
   agentId: string,
@@ -455,12 +525,22 @@ export async function requestAgentStart(
       { statusCode: 409 },
     );
   }
-  const origin = currentControlUiOrigin();
-  if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
-  const launchConfig = buildOpenClawStartLaunchConfig(current, origin);
+  const isHermesRuntime = (current as { runtime?: string | null }).runtime === "hermes-agent";
   let accepted: SdkAgent;
   try {
-    accepted = await agentClient.startOpenClaw(agentId, { launchConfig });
+    if (isHermesRuntime) {
+      // Hermes launches carry API_SERVER_KEY in secrets; the SDK rehydrates the
+      // redacted projection server-side, so the stored launch config round-trips.
+      accepted = await agentClient.startHermesAgent(agentId, {
+        launchConfig: buildHermesStartLaunchConfig(current),
+      });
+    } else {
+      const origin = currentControlUiOrigin();
+      if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
+      accepted = await agentClient.startOpenClaw(agentId, {
+        launchConfig: buildOpenClawStartLaunchConfig(current, origin),
+      });
+    }
   } catch (error) {
     if (!isAgentLifecycleTimeout(error)) throw error;
     accepted = await reconcileTimedOutAgentStart(agentClient, agentId);

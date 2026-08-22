@@ -89,7 +89,7 @@ async function loginAs(page: Page, email: string): Promise<void> {
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/dashboard");
 }
 
-test.describe.serial("Agents E2E", () => {
+test.describe.serial("Agents E2E (OpenClaw)", () => {
   // When the harness (bootstrap_agents_e2e_user.py) owns the identity it sets
   // TEST_EMAIL + TEST_USER_TOKEN, and this spec neither creates nor deletes
   // anything admin-side -- that path survives a killed runner. The in-process
