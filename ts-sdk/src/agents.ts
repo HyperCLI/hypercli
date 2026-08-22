@@ -1198,7 +1198,7 @@ function buildBuzzLaunchEnv(
     if (value) env[key] = value;
   }
   if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
-  if (buzz.requireReply) env.BUZZ_ACP_REQUIRE_REPLY = 'true';
+  if (buzz.requireReply !== false) env.BUZZ_ACP_REQUIRE_REPLY = 'true';
   return env;
 }
 

@@ -330,7 +330,7 @@ class BuzzLaunchConfig:
     respond_to_allowlist: list[str] = field(default_factory=list)
     display_name: str | None = None
     text_mentions: bool = False
-    require_reply: bool = False
+    require_reply: bool = True
     session_title: str | None = None
     rust_log: str | None = None
 

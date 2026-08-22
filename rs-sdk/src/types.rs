@@ -464,7 +464,7 @@ impl BuzzLaunchConfig {
             respond_to_allowlist: Vec::new(),
             display_name: None,
             text_mentions: false,
-            require_reply: false,
+            require_reply: true,
             session_title: None,
             rust_log: None,
         }
