@@ -1,0 +1,49 @@
+# Standalone workspace: keeps Tauri's GUI dependency tree out of the root
+# workspace so `cargo test --workspace` in the provider release stays lean.
+[workspace]
+
+[package]
+name = "hypercli-menubar"
+version = "0.1.0"
+description = "HyperCLI menubar agent launcher"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/HyperCLI/hypercli"
+
+[lib]
+name = "hypercli_menubar_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["image-png", "macos-private-api", "tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
+# Windows/Linux deliver deep links to a NEW instance's argv; this forwards
+# them to the running instance and focuses it (Buzz pattern).
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+tauri-plugin-notification = "2.3.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+base64 = "0.22"
+atomic-write-file = "0.3"
+nostr = "0.44"
+nostr-sdk = "0.44"
+dirs = "6"
+gethostname = "0.5"
+secrecy = "0.10"
+uuid = { version = "1", features = ["v4"] }
+hypercli-sdk = { path = "../../rs-sdk" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["sync-secret-service", "vendored"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "vendored"] }
+
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native", "vendored"] }

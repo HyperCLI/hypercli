@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+/* HyperCLI Aurora tokens (see ~/dev/hypercli-styles/STYLE.md), light + dark. */
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f7f9fc;
+  --raised: #eef2f7;
+  --ink: #1f2937;
+  --ink-secondary: #64748b;
+  --ink-dim: #94a3b8;
+  --rule: #eef2f7;
+  --rule-strong: #e2e8f0;
+  --brand: #4f7cff;
+  --brand-hover: #3d68e6;
+  --accent: #3d68e6;
+  --success: #0ea57a;
+  --warning: #b45309;
+  --danger: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #10151f;
+    --surface: #1a2230;
+    --raised: #1b2331;
+    --ink: #e8edf4;
+    --ink-secondary: #b9c4d6;
+    --ink-dim: #7c8ba1;
+    --rule: rgba(255, 255, 255, 0.08);
+    --rule-strong: rgba(255, 255, 255, 0.15);
+    --brand: #4f7cff;
+    --brand-hover: #5d87ff;
+    --accent: #9db4ff;
+    --success: #6ce8c4;
+    --warning: #ffd76a;
+    --danger: #f87171;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-dim: var(--ink-dim);
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body[data-window="panel"] {
+  background-color: var(--bg);
+}
