@@ -4806,6 +4806,18 @@ class Deployments:
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs/token")
 
+    def logs_tail(self, agent_id: str, tail_lines: int = 100) -> str:
+        """Return the persisted log tail. Works in any agent state, including
+        stopped — unlike the streaming token, which the backend only mints for
+        running agents."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        data = self._get(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs")
+        logs = str(data.get("logs") or "")
+        lines = logs.splitlines()
+        if tail_lines >= 0 and len(lines) > tail_lines:
+            logs = "\n".join(lines[-tail_lines:]) if tail_lines else ""
+        return logs
+
     def env(self, agent_id: str) -> dict[str, Any]:
         """Fetch the deployment's non-secret environment."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
@@ -5070,7 +5082,14 @@ class Deployments:
 
         # Get JWT token
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        token_data = self.logs_token(resolved_agent_id)
+        try:
+            token_data = self.logs_token(resolved_agent_id)
+        except APIError as error:
+            if follow or error.status_code != 409:
+                raise
+            for line in self.logs_tail(resolved_agent_id, tail_lines).splitlines():
+                yield line
+            return
         jwt = token_data["jwt"]
 
         url = (

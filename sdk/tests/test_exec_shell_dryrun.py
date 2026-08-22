@@ -3,6 +3,7 @@ import json
 import pytest
 
 from hypercli.jobs import Jobs
+from hypercli.http import APIError
 from hypercli.agents import (
     AGENT_EXEC_OUTPUT_MAX_BYTES,
     AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES,
@@ -464,3 +465,45 @@ async def test_agents_logs_stream_ws_stops_after_history_when_not_following(monk
     ]
 
     assert lines == ["first"]
+
+
+@pytest.mark.asyncio
+async def test_agents_logs_stream_ws_falls_back_to_persisted_tail_when_stopped(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+
+    def stopped_token(agent_id):
+        raise APIError(409, "Agent is not running")
+
+    monkeypatch.setattr(agents, "logs_token", stopped_token)
+    monkeypatch.setattr(
+        agents,
+        "_get",
+        lambda path: {"agent_id": "agent-1", "logs": "one\ntwo\nthree"},
+    )
+
+    lines = [
+        line
+        async for line in agents.logs_stream_ws(
+            "agent-1",
+            tail_lines=2,
+            follow=False,
+        )
+    ]
+
+    assert lines == ["two", "three"]
+
+
+@pytest.mark.asyncio
+async def test_agents_logs_stream_ws_follow_still_errors_when_stopped(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+
+    def stopped_token(agent_id):
+        raise APIError(409, "Agent is not running")
+
+    monkeypatch.setattr(agents, "logs_token", stopped_token)
+
+    with pytest.raises(APIError) as excinfo:
+        async for _ in agents.logs_stream_ws("agent-1", follow=True):
+            pass
+
+    assert excinfo.value.status_code == 409
