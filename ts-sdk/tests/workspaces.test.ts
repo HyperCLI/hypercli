@@ -357,7 +357,7 @@ describe('Workspaces SDK', () => {
     vi.stubGlobal('fetch', fetchMock);
     const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
 
-    await expect(api.listAgents('team')).resolves.toEqual([
+    await expect(api.listAgentAssociations('team')).resolves.toEqual([
       {
         workspaceId: 'workspace-1',
         agentId: 'agent-1',
@@ -371,7 +371,7 @@ describe('Workspaces SDK', () => {
         expiresAt: null,
       },
     ]);
-    await expect(api.listAgents('viewer')).rejects.toThrow(
+    await expect(api.listAgentAssociations('viewer')).rejects.toThrow(
       'Workspace agent associations are available only to Workspace admins.',
     );
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
@@ -381,7 +381,7 @@ describe('Workspaces SDK', () => {
     ]);
   });
 
-  it('lists agent associations through the non-deprecated projection helper', async () => {
+  it('lists agent associations for admin members', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-22T12:00:00.000Z'));
     const fetchMock = vi

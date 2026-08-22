@@ -474,14 +474,6 @@ export class WorkspacesAPI {
       }));
   }
 
-  /** @deprecated Use listAgentAssociations(). */
-  async listAgents(
-    workspaceRef: string,
-    subject: WorkspaceSubjectOptions = {},
-  ): Promise<WorkspaceAgentAssociation[]> {
-    return this.listAgentAssociations(workspaceRef, subject);
-  }
-
   async search(
     query: string,
     subject: WorkspaceSubjectOptions = {},

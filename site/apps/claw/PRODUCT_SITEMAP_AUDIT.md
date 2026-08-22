@@ -889,7 +889,7 @@ Provider functions:
 - Select a Collection and persist that selection.
 - Load selected-Collection agent associations.
 - Create Collections and grant an agent viewer access.
-- Fall back from `listAgents` to active agent grants for older services.
+- Fall back from `listAgentAssociations` to active agent grants for older services.
 
 Weak points:
 

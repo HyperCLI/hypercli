@@ -85,7 +85,7 @@ function mockWorkspaces(overrides: Record<string, unknown> = {}) {
     create: vi.fn(async (_body: { name: string; description?: string }) => workspace({ id: "workspace-2", name: "Support Docs", slug: "support-docs", description: "Customer support procedures." })),
     listFiles: vi.fn(async (_workspaceRef: string) => [workspaceFile()]),
     listGrants: vi.fn(async (_workspaceRef: string) => [workspaceGrant()]),
-    listAgents: vi.fn(async (_workspaceRef: string) => [{
+    listAgentAssociations: vi.fn(async (_workspaceRef: string) => [{
       workspaceId: "workspace-1",
       agentId: "agent-docs",
       role: "viewer",
@@ -559,7 +559,7 @@ describe("SharedKnowledgePanel", () => {
 
   it("keeps viewer Workspaces read-only without requesting admin-only grants", async () => {
     const listGrants = vi.fn();
-    const listAgents = vi.fn(async () => [{
+    const listAgentAssociations = vi.fn(async () => [{
       workspaceId: "workspace-1",
       agentId: "agent-docs",
       role: "viewer",
@@ -568,12 +568,12 @@ describe("SharedKnowledgePanel", () => {
     renderSharedKnowledgePanel(mockWorkspaces({
       list: vi.fn(async () => [workspace({ role: "viewer" })]),
       listGrants,
-      listAgents,
+      listAgentAssociations,
     }));
     await expandTeamKnowledge();
 
     expect(listGrants).not.toHaveBeenCalled();
-    expect(listAgents).toHaveBeenCalledWith("team-knowledge");
+    expect(listAgentAssociations).toHaveBeenCalledWith("team-knowledge");
     expect(screen.getByText("1 agent")).toBeInTheDocument();
     expect(screen.getByText("viewer")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit team knowledge/i })).not.toBeInTheDocument();
@@ -586,7 +586,7 @@ describe("SharedKnowledgePanel", () => {
     const missingRoute = Object.assign(new Error("Not found"), { statusCode: 404 });
     renderSharedKnowledgePanel(mockWorkspaces({
       list: vi.fn(async () => [workspace({ role: "viewer" })]),
-      listAgents: vi.fn(async () => { throw missingRoute; }),
+      listAgentAssociations: vi.fn(async () => { throw missingRoute; }),
     }));
     await expandTeamKnowledge();
 
