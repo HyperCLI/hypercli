@@ -882,8 +882,9 @@ async fn resolve_new_session_channel_context(
 /// on the agent (first session only), and apply `desired_model` if set.
 ///
 /// On error from `session_new_full()`, returns the `AcpError` — caller handles
-/// error reporting. Model-switch failures are logged and gracefully ignored
-/// (the agent proceeds with its default model).
+/// error reporting. A config-supplied `desired_model` that the child does not
+/// advertise is fatal (exit 2): launches never silently fall back to the
+/// default model. Live picker switches stay soft (unsupported_model result).
 async fn create_session_and_apply_model(
     agent: &mut OwnedAgent,
     ctx: &PromptContext,
@@ -975,6 +976,17 @@ async fn create_session_and_apply_model(
                 true
             }
             None => {
+                if !agent.model_overridden {
+                    // Launch-config model (BUZZ_ACP_MODEL): never fall back
+                    // silently — the operator asked for a model this child does
+                    // not advertise, so the launch is invalid. Exit and let the
+                    // deployment report failed instead of running the default.
+                    tracing::error!(
+                        target: "pool::model",
+                        "desired model {desired} is not in the agent's advertised catalog — exiting rather than falling back to the default model"
+                    );
+                    std::process::exit(2);
+                }
                 tracing::warn!(
                     target: "pool::model",
                     "desired model {desired} not found in agent's available models — proceeding with agent default"
