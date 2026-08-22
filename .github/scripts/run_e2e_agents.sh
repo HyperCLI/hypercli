@@ -228,18 +228,20 @@ cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
-# One spec per runtime, one journey each: the whole user flow clicked through
-# the real frontend (trial -> create -> chat -> stop -> delete) on identities
-# the workflow bootstrapped. The old battery of mocked suites lived here; it
-# was retired deliberately -- these runs exist to prove a commit does not nuke
-# the flow.
+# One spec per runtime, one journey each, in parallel lanes: the whole user
+# flow clicked through the real frontend (trial -> create -> chat -> stop ->
+# delete). OpenClaw uses the harness identity; Hermes bootstraps its own so the
+# two trial claims never share an account. The old battery of mocked suites
+# lived here; it was retired deliberately -- these runs exist to prove a commit
+# does not nuke the flow.
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
   --project=chromium \
   --max-failures=1 \
-  --workers=1 \
-  tests/claw/agents-openclaw-e2e.spec.ts
+  --workers=2 \
+  tests/claw/agents-openclaw-e2e.spec.ts \
+  tests/claw/agents-hermes-e2e.spec.ts
 status=$?
 set -e
 

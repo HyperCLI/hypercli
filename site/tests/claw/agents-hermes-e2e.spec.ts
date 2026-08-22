@@ -78,13 +78,12 @@ async function loginAs(page: Page, email: string): Promise<void> {
 }
 
 test.describe.serial("Agents E2E (Hermes)", () => {
-  const harnessEmail = (process.env.TEST_USER_TOKEN ?? "").trim()
-    ? (process.env.TEST_EMAIL ?? "").trim()
-    : "";
+  // Always its own identity: the harness identity belongs to the OpenClaw
+  // lane, and two trial claims on one identity collide.
   let identity: AdminUserIdentity | null = null;
 
   test.beforeAll(async () => {
-    if (!harnessEmail) identity = await bootstrapAdminUser("agents-hermes-e2e");
+    identity = await bootstrapAdminUser("agents-hermes-e2e");
   });
 
   test.afterAll(async () => {
@@ -110,7 +109,7 @@ test.describe.serial("Agents E2E (Hermes)", () => {
       }
     });
 
-    await loginAs(page, harnessEmail || identity!.email);
+    await loginAs(page, identity!.email);
     await step(page, "logged-in");
 
     // -- Trial ---------------------------------------------------------------

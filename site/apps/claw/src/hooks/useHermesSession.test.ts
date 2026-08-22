@@ -221,6 +221,33 @@ describe("useHermesSession (AgentGatewaySession adapter)", () => {
     expect(client.close).not.toHaveBeenCalled();
   });
 
+  it("does not clobber a live transcript when a late history load resolves", async () => {
+    let releaseHistory!: () => void;
+    const client = fakeClient({
+      sessionsList: vi.fn(async () => [{ key: "sess-1", label: "Chat" }]),
+      chatHistory: vi.fn(async () => {
+        await new Promise<void>((resolve) => { releaseHistory = resolve; });
+        return [];
+      }),
+      chatSend: vi.fn(async function* () {
+        yield { type: "content" as const, text: "reply" };
+        yield { type: "done" as const };
+      }),
+    });
+    const agent = fakeAgent(client);
+
+    const { result } = renderHook(() => useHermesSession(agent, true));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    await act(async () => {
+      await result.current.sendMessage("hello");
+    });
+    releaseHistory();
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+
+    expect(result.current.messages.map((message) => message.content)).toEqual(["hello", "reply"]);
+  });
+
   it("resets when disabled and closes the client on agent change", async () => {
     const client = fakeClient();
     const agent = fakeAgent(client);

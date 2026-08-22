@@ -159,6 +159,9 @@ export function useHermesSession(
   const sendAbortRef = React.useRef<AbortController | null>(null);
   const activeSessionKeyRef = React.useRef<string | null>(null);
   const requestedSessionKeyRef = React.useRef<string | null>(null);
+  // Set when a send appended local rows for a session; a late history load
+  // must not clobber a live transcript with a stale snapshot.
+  const transcriptDirtyRef = React.useRef<string | null>(null);
 
   // The roster rehydrates Agent instances on every poll; reconnecting on
   // identity change would wipe live transcripts. Key the connection on
@@ -182,9 +185,11 @@ export function useHermesSession(
     try {
       const history = await client.chatHistory(sessionKey, 100);
       if (generationRef.current !== generation || activeSessionKeyRef.current !== sessionKey) return;
-      setMessages(history
-        .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
-        .map(historyMessageToChatMessage));
+      if (transcriptDirtyRef.current !== sessionKey) {
+        setMessages(history
+          .filter((message) => message.role === "user" || message.role === "assistant" || message.role === "system")
+          .map(historyMessageToChatMessage));
+      }
       setHistoryPhase("ready");
     } catch (cause) {
       if (generationRef.current !== generation || activeSessionKeyRef.current !== sessionKey) return;
@@ -366,6 +371,7 @@ export function useHermesSession(
       sessionKey,
     };
     const assistantRenderId = createChatRenderId("assistant");
+    transcriptDirtyRef.current = sessionKey;
     setMessages((current) => [
       ...current,
       userMessage,

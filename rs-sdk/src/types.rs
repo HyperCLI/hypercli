@@ -1625,7 +1625,10 @@ mod tests {
             Some("kimi-k3")
         );
         assert_eq!(
-            agent_request.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
+            agent_request
+                .env
+                .get("BUZZ_AGENT_MODEL")
+                .map(String::as_str),
             Some("kimi-k3")
         );
 
