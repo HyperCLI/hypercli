@@ -88,6 +88,15 @@ export const startAgent = (agentId: string) =>
   invoke<LauncherAgent>("start_agent", { agentId });
 export const stopAgent = (agentId: string) =>
   invoke<LauncherAgent>("stop_agent", { agentId });
+export const archiveAgent = (agentId: string) =>
+  invoke<LauncherAgent>("archive_agent", { agentId });
+export const deleteAgent = (agentId: string) =>
+  invoke<void>("delete_agent", { agentId });
+export const setAgentAvatar = (
+  agentId: string,
+  data: number[],
+  contentType: string,
+) => invoke<string>("set_agent_avatar", { agentId, data, contentType });
 export const openAgentChat = (agentId: string) =>
   invoke<void>("open_agent_chat", { agentId });
 export const openDashboard = () => invoke<void>("open_dashboard");

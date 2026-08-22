@@ -1,9 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Play, Plus, Settings, Square } from "lucide-react";
+import { Archive, Pencil, Play, Plus, Settings, Square, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   agentMetrics,
+  archiveAgent,
+  deleteAgent,
   type KeyValidation,
   type LauncherAgent,
   listAgents,
@@ -13,6 +15,7 @@ import {
   openCreateWindow,
   openSettingsWindow,
   saveApiKey,
+  setAgentAvatar,
   startAgent,
   startLogin,
   stopAgent,
@@ -85,6 +88,9 @@ function AgentRow({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const act = async (fn: (id: string) => Promise<unknown>) => {
     setBusy(true);
     try {
@@ -96,53 +102,117 @@ function AgentRow({
       onChanged();
     }
   };
+
+  const pickAvatar = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+      await setAgentAvatar(agent.id, bytes, file.type);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setBusy(false);
+      onChanged();
+    }
+  };
+
   return (
     <div className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-surface">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(event) => {
+          void pickAvatar(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        disabled={busy}
+        title="Set profile picture"
+        className="relative h-8 w-8 shrink-0"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-raised text-sm font-semibold text-ink-secondary">
+          {agent.avatar_url ? (
+            <img
+              src={agent.avatar_url}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            (agent.name.trim().charAt(0) || "?").toUpperCase()
+          )}
+        </span>
+        <span className="absolute inset-0 hidden items-center justify-center rounded-full bg-bg/70 text-ink group-hover:flex">
+          <Pencil size={12} />
+        </span>
+        <span
+          className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateColor(agent.state)}`}
+        />
+      </button>
+      <button
+        type="button"
+        className="min-w-0 flex-1 text-left"
         onClick={() => {
           void openAgentChat(agent.id).catch(console.error);
         }}
       >
-        <span className="relative h-8 w-8 shrink-0">
-          <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-raised text-sm font-semibold text-ink-secondary">
-            {agent.avatar_url ? (
-              <img
-                src={agent.avatar_url}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              (agent.name.trim().charAt(0) || "?").toUpperCase()
-            )}
-          </span>
-          <span
-            className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateColor(agent.state)}`}
-          />
+        <span className="block truncate text-sm font-medium text-ink">
+          {agent.name || "Untitled agent"}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink">
-            {agent.name || "Untitled agent"}
-          </span>
-          <span className="block truncate text-xs text-ink-dim">
-            {agent.state}
-            {agent.runtime ? ` · ${agent.runtime}` : ""}
-            {metrics?.cpu ? ` · ${metrics.cpu} cpu` : ""}
-            {metrics?.memory ? ` · ${metrics.memory}` : ""}
-          </span>
+        <span className="block truncate text-xs text-ink-dim">
+          {agent.state}
+          {agent.runtime ? ` · ${agent.runtime}` : ""}
+          {metrics?.cpu ? ` · ${metrics.cpu} cpu` : ""}
+          {metrics?.memory ? ` · ${metrics.memory}` : ""}
         </span>
       </button>
       {agent.can_start && (
-        <button
-          type="button"
-          disabled={busy}
-          title="Start"
-          className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-success disabled:opacity-40"
-          onClick={() => void act(startAgent)}
-        >
-          <Play size={14} />
-        </button>
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            title="Start"
+            className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-success disabled:opacity-40"
+            onClick={() => void act(startAgent)}
+          >
+            <Play size={14} />
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            title="Archive"
+            className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-warning disabled:opacity-40"
+            onClick={() => void act(archiveAgent)}
+          >
+            <Archive size={14} />
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            title={confirmDelete ? "Click again to delete permanently" : "Delete"}
+            className={`rounded-md p-1.5 disabled:opacity-40 ${
+              confirmDelete
+                ? "bg-danger/15 text-danger"
+                : "text-ink-dim hover:bg-raised hover:text-danger"
+            }`}
+            onClick={() => {
+              if (!confirmDelete) {
+                setConfirmDelete(true);
+                setTimeout(() => setConfirmDelete(false), 3000);
+                return;
+              }
+              setConfirmDelete(false);
+              void act(deleteAgent);
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </>
       )}
       {agent.can_stop && (
         <button

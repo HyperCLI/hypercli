@@ -309,11 +309,19 @@ export default function CreateWindow({
                     value={model}
                     onChange={(event) => setModel(event.target.value)}
                     placeholder="Default"
+                    list="buzz-model-suggestions"
                     spellCheck={false}
                     autoCorrect="off"
                     autoCapitalize="off"
                     className={inputClass}
                   />
+                  <datalist id="buzz-model-suggestions">
+                    <option value="kimi-k3-anthropic" />
+                    <option value="kimi-k3" />
+                    <option value="kimi-k2.6-anthropic" />
+                    <option value="kimi-k2.6" />
+                    <option value="glm-5" />
+                  </datalist>
                 </Field>
                 <Field label="Concurrency">
                   <input

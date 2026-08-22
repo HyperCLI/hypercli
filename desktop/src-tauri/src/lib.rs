@@ -372,6 +372,62 @@ async fn stop_agent(agent_id: String) -> Result<LauncherAgent, String> {
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn archive_agent(agent_id: String) -> Result<LauncherAgent, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent_id = checked_agent_id(&agent_id)?;
+        managed_client()?
+            .archive_deployment(&agent_id)
+            .map(LauncherAgent::from)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn delete_agent(agent_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent_id = checked_agent_id(&agent_id)?;
+        managed_client()?
+            .delete_deployment(&agent_id)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn set_agent_avatar(
+    agent_id: String,
+    data: Vec<u8>,
+    content_type: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let agent_id = checked_agent_id(&agent_id)?;
+        if data.is_empty() || data.len() > 5 * 1024 * 1024 {
+            return Err("Profile picture must be an image under 5 MB".to_owned());
+        }
+        let content_type = match content_type.as_str() {
+            "image/png" | "image/jpeg" | "image/webp" | "image/gif" => content_type,
+            _ => {
+                return Err(
+                    "Profile picture must be a PNG, JPEG, WebP, or GIF image".to_owned(),
+                )
+            }
+        };
+        let response = managed_client()?
+            .upload_deployment_profile_image(&agent_id, &data, &content_type)
+            .map_err(|error| error.to_string())?;
+        response
+            .avatar_url
+            .ok_or_else(|| "Profile picture upload returned no URL".to_owned())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[derive(Deserialize)]
 pub struct CreateAgentInput {
     name: Option<String>,
@@ -982,6 +1038,9 @@ pub fn run() {
             buzz_launch::list_buzz_channels,
             start_agent,
             stop_agent,
+            archive_agent,
+            delete_agent,
+            set_agent_avatar,
             agent_metrics,
             draft_agent_prompt,
             open_agent_chat,
