@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import nextVitals from "eslint-config-next/core-web-vitals";
+import reactHooks from "eslint-plugin-react-hooks";
 import storybook from "eslint-plugin-storybook";
 
 const siteRoot = fileURLToPath(new URL(".", import.meta.url));
@@ -11,9 +12,11 @@ const config = [
   {
     ignores: [
       "**/.next/**",
+      "**/.netlify/**",
       "**/.turbo/**",
       "**/coverage/**",
       "**/node_modules/**",
+      "**/out/**",
       "**/playwright-report/**",
       "**/storybook-static/**",
       "**/next-env.d.ts",
@@ -22,6 +25,9 @@ const config = [
   ...nextVitals,
   ...storybook.configs["flat/recommended"],
   {
+    plugins: {
+      "react-hooks": reactHooks,
+    },
     settings: {
       next: {
         rootDir: nextRootDirs,
