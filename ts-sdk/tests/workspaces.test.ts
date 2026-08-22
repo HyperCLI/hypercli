@@ -381,6 +381,112 @@ describe('Workspaces SDK', () => {
     ]);
   });
 
+  it('lists agent associations through the non-deprecated projection helper', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T12:00:00.000Z'));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: 'workspace-1', name: 'Team', slug: 'team', role: 'admin' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify([
+            {
+              id: 'agent-viewer',
+              workspace_id: 'workspace-1',
+              subject_type: 'agent',
+              subject_id: 'agent-1',
+              role: 'viewer',
+              expires_at: null,
+              revoked_at: null,
+            },
+          ]),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.listAgentAssociations('team')).resolves.toEqual([
+      {
+        workspaceId: 'workspace-1',
+        agentId: 'agent-1',
+        role: 'viewer',
+        expiresAt: null,
+      },
+    ]);
+  });
+
+  it('ensures a workspace by returning an existing match without creating', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: 'workspace-general', name: 'General', slug: 'general' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.ensureWorkspace({ name: 'General', slug: 'general' })).resolves.toEqual({
+      workspace: expect.objectContaining({ id: 'workspace-general', slug: 'general' }),
+      created: false,
+    });
+    expect(fetchMock.mock.calls.map(([, options]) => options.method)).toEqual(['GET']);
+  });
+
+  it('ensures a workspace by creating when no match exists', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'workspace-general', name: 'General', slug: 'general' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.ensureWorkspace({ name: 'General', slug: 'general' })).resolves.toEqual({
+      workspace: expect.objectContaining({ id: 'workspace-general', slug: 'general' }),
+      created: true,
+    });
+    expect(fetchMock.mock.calls.map(([url, options]) => [url, options.method])).toEqual([
+      ['http://workspaces.test/workspaces', 'GET'],
+      ['http://workspaces.test/workspaces', 'POST'],
+    ]);
+  });
+
+  it('recovers an ensured workspace after a concurrent create conflict', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Workspace slug already exists' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'workspace-general', name: 'General', slug: 'general' }]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = new WorkspacesAPI('key', { apiBase: 'http://workspaces.test/workspaces' });
+
+    await expect(api.ensureWorkspace({ name: 'General', slug: 'general' })).resolves.toEqual({
+      workspace: expect.objectContaining({ id: 'workspace-general', slug: 'general' }),
+      created: false,
+    });
+    expect(fetchMock.mock.calls.map(([, options]) => options.method)).toEqual(['GET', 'POST', 'GET']);
+  });
+
   it('preserves plain-text and structured API error details', async () => {
     const fetchMock = vi
       .fn()

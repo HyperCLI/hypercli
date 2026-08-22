@@ -127,6 +127,18 @@ export interface WorkspaceSubjectOptions {
   agentId?: string;
 }
 
+export interface EnsureWorkspaceResult {
+  workspace: Workspace;
+  created: boolean;
+}
+
+export interface EnsureWorkspaceOptions {
+  name: string;
+  slug?: string;
+  description?: string;
+  match?: (workspace: Workspace) => boolean;
+}
+
 function workspaceFromDict(data: any): Workspace {
   return {
     id: String(data?.id || ''),
@@ -349,6 +361,12 @@ function encodeFileRef(value: string): string {
     .join('/');
 }
 
+function workspaceMatchesEnsureOptions(workspace: Workspace, options: EnsureWorkspaceOptions): boolean {
+  if (options.match?.(workspace)) return true;
+  if (options.slug && workspace.slug === options.slug) return true;
+  return !options.slug && workspace.name === options.name;
+}
+
 export class WorkspacesAPI {
   private apiBase: string;
   private apiKey: string;
@@ -438,8 +456,7 @@ export class WorkspacesAPI {
     };
   }
 
-  /** @deprecated Compatibility projection. Use accessSnapshot() for grant-level access details. */
-  async listAgents(
+  async listAgentAssociations(
     workspaceRef: string,
     subject: WorkspaceSubjectOptions = {},
   ): Promise<WorkspaceAgentAssociation[]> {
@@ -455,6 +472,14 @@ export class WorkspacesAPI {
         role: entry.role,
         expiresAt: latestGrantExpiration(entry.grants),
       }));
+  }
+
+  /** @deprecated Use listAgentAssociations(). */
+  async listAgents(
+    workspaceRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<WorkspaceAgentAssociation[]> {
+    return this.listAgentAssociations(workspaceRef, subject);
   }
 
   async search(
@@ -473,6 +498,32 @@ export class WorkspacesAPI {
   ): Promise<Workspace> {
     const data = await this.request('POST', '', subject, body);
     return workspaceFromDict(data);
+  }
+
+  async ensureWorkspace(
+    options: EnsureWorkspaceOptions,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<EnsureWorkspaceResult> {
+    const listed = await this.list(subject);
+    const existing = listed.find((workspace) => workspaceMatchesEnsureOptions(workspace, options));
+    if (existing) return { workspace: existing, created: false };
+
+    try {
+      return {
+        workspace: await this.create({
+          name: options.name,
+          ...(options.slug !== undefined ? { slug: options.slug } : {}),
+          ...(options.description !== undefined ? { description: options.description } : {}),
+        }, subject),
+        created: true,
+      };
+    } catch (error) {
+      if (!(error instanceof APIError) || error.statusCode !== 409) throw error;
+      const recovered = await this.list(subject);
+      const recoveredWorkspace = recovered.find((workspace) => workspaceMatchesEnsureOptions(workspace, options));
+      if (recoveredWorkspace) return { workspace: recoveredWorkspace, created: false };
+      throw error;
+    }
   }
 
   async update(

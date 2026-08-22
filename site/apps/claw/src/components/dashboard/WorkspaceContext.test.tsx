@@ -35,11 +35,6 @@ const generalWorkspace = {
   slug: "general",
 };
 
-const replacementGeneralWorkspace = {
-  ...generalWorkspace,
-  id: "workspace-general-replacement",
-};
-
 function workspaceAgent(agentId: string, workspaceId = teamWorkspace.id) {
   return {
     workspaceId,
@@ -60,7 +55,7 @@ const mocks = vi.hoisted(() => ({
   client: {
     list: vi.fn(),
     get: vi.fn(),
-    listAgents: vi.fn(),
+    listAgentAssociations: vi.fn(),
     listGrants: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
@@ -162,7 +157,7 @@ describe("WorkspaceProvider", () => {
     mocks.createWorkspacesClient.mockReturnValue(mocks.client);
     mocks.client.list.mockResolvedValue([teamWorkspace, productWorkspace, generalWorkspace]);
     mocks.client.get.mockResolvedValue(generalWorkspace);
-    mocks.client.listAgents.mockResolvedValue([]);
+    mocks.client.listAgentAssociations.mockResolvedValue([]);
     mocks.client.listGrants.mockResolvedValue([]);
     mocks.client.create.mockResolvedValue(generalWorkspace);
     mocks.client.grant.mockResolvedValue({
@@ -181,11 +176,11 @@ describe("WorkspaceProvider", () => {
 
   it("lists agents for the initially selected Workspace", async () => {
     let resolveAgents: ((associations: ReturnType<typeof workspaceAgent>[]) => void) | undefined;
-    mocks.client.listAgents.mockReturnValue(new Promise((resolve) => { resolveAgents = resolve; }));
+    mocks.client.listAgentAssociations.mockReturnValue(new Promise((resolve) => { resolveAgents = resolve; }));
 
     renderProvider();
 
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-team"));
+    await waitFor(() => expect(mocks.client.listAgentAssociations).toHaveBeenCalledWith("workspace-team"));
     expect(screen.getByTestId("agent-roster-state")).toHaveTextContent("loading");
     expect(screen.getByTestId("agent-roster-ids")).toHaveTextContent("[]");
 
@@ -196,7 +191,7 @@ describe("WorkspaceProvider", () => {
   });
 
   it("deduplicates selected Collection agent IDs", async () => {
-    mocks.client.listAgents.mockResolvedValue([
+    mocks.client.listAgentAssociations.mockResolvedValue([
       workspaceAgent("agent-1"),
       workspaceAgent("agent-1"),
       workspaceAgent("agent-2"),
@@ -210,14 +205,14 @@ describe("WorkspaceProvider", () => {
   it("represents a resolved Workspace with no associated agents", async () => {
     renderProvider();
 
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-team"));
+    await waitFor(() => expect(mocks.client.listAgentAssociations).toHaveBeenCalledWith("workspace-team"));
     await waitFor(() => expect(screen.getByTestId("agent-roster-state")).toHaveTextContent("resolved"));
     expect(screen.getByTestId("agent-roster-ids")).toHaveTextContent("[]");
     expect(screen.getByTestId("agent-roster-error")).toHaveTextContent("none");
   });
 
   it("falls back to active admin-visible grants when the roster route is not deployed", async () => {
-    mocks.client.listAgents.mockRejectedValue(Object.assign(new Error("Not found"), { statusCode: 404 }));
+    mocks.client.listAgentAssociations.mockRejectedValue(Object.assign(new Error("Not found"), { statusCode: 404 }));
     mocks.client.listGrants.mockResolvedValue([
       {
         id: "grant-active",
@@ -265,7 +260,7 @@ describe("WorkspaceProvider", () => {
   });
 
   it("reports selected Collection agent loading failures without fallback IDs", async () => {
-    mocks.client.listAgents.mockRejectedValue(new Error("Agent roster unavailable"));
+    mocks.client.listAgentAssociations.mockRejectedValue(new Error("Agent roster unavailable"));
 
     renderProvider();
 
@@ -279,9 +274,9 @@ describe("WorkspaceProvider", () => {
     let resolveProduct: ((associations: ReturnType<typeof workspaceAgent>[]) => void) | undefined;
     const pendingTeamRefresh = new Promise<ReturnType<typeof workspaceAgent>[]>((resolve) => { resolveTeamRefresh = resolve; });
     const pendingProduct = new Promise<ReturnType<typeof workspaceAgent>[]>((resolve) => { resolveProduct = resolve; });
-    mocks.client.listAgents.mockImplementation((workspaceId: string) => {
+    mocks.client.listAgentAssociations.mockImplementation((workspaceId: string) => {
       if (workspaceId === productWorkspace.id) return pendingProduct;
-      if (mocks.client.listAgents.mock.calls.length === 1) return Promise.resolve([workspaceAgent("agent-team")]);
+      if (mocks.client.listAgentAssociations.mock.calls.length === 1) return Promise.resolve([workspaceAgent("agent-team")]);
       return pendingTeamRefresh;
     });
 
@@ -289,12 +284,12 @@ describe("WorkspaceProvider", () => {
     await waitFor(() => expect(screen.getByTestId("agent-roster-ids")).toHaveTextContent('["agent-team"]'));
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh agents" }));
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.client.listAgentAssociations).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole("button", { name: "Select product" }));
 
     expect(screen.getByTestId("agent-roster-state")).toHaveTextContent("loading");
     expect(screen.getByTestId("agent-roster-ids")).toHaveTextContent("[]");
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-product"));
+    await waitFor(() => expect(mocks.client.listAgentAssociations).toHaveBeenCalledWith("workspace-product"));
     await act(async () => { resolveProduct?.([workspaceAgent("agent-product", productWorkspace.id)]); });
     await waitFor(() => expect(screen.getByTestId("agent-roster-ids")).toHaveTextContent('["agent-product"]'));
 
@@ -303,7 +298,7 @@ describe("WorkspaceProvider", () => {
   });
 
   it("grants viewer access and refreshes membership for an admin", async () => {
-    mocks.client.listAgents
+    mocks.client.listAgentAssociations
       .mockResolvedValueOnce([workspaceAgent("agent-existing")])
       .mockResolvedValueOnce([workspaceAgent("agent-existing"), workspaceAgent("agent-new")]);
 
@@ -317,17 +312,17 @@ describe("WorkspaceProvider", () => {
       role: "viewer",
     }));
     await waitFor(() => expect(screen.getByTestId("agent-roster-ids")).toHaveTextContent('["agent-existing","agent-new"]'));
-    expect(mocks.client.listAgents).toHaveBeenCalledTimes(2);
+    expect(mocks.client.listAgentAssociations).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("association-error")).toHaveTextContent("none");
   });
 
   it("does not report association complete when the roster cannot refresh", async () => {
-    mocks.client.listAgents
+    mocks.client.listAgentAssociations
       .mockResolvedValueOnce([])
       .mockRejectedValueOnce(new Error("Roster refresh failed"));
 
     renderProvider();
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.client.listAgentAssociations).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByTestId("agent-roster-state")).toHaveTextContent("resolved"));
     fireEvent.click(screen.getByRole("button", { name: "Associate agent" }));
 
@@ -364,56 +359,37 @@ describe("WorkspaceProvider", () => {
     expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-team");
   });
 
-  it("creates and selects General when the account has no Collections", async () => {
+  it("loads an empty Collection catalog without provisioning General", async () => {
     mocks.client.list.mockResolvedValue([]);
-    mocks.client.create.mockResolvedValue({ ...generalWorkspace, role: null });
 
     renderProvider();
 
-    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
-    expect(mocks.client.create).toHaveBeenCalledOnce();
-    expect(mocks.client.create).toHaveBeenCalledWith({ name: "General", slug: "general" });
-    expect(mocks.client.get).toHaveBeenCalledWith("workspace-general");
-    expect(screen.getByTestId("workspace-count")).toHaveTextContent("1");
-    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general");
-    await waitFor(() => expect(mocks.client.listAgents).toHaveBeenCalledWith("workspace-general"));
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("none"));
+    expect(mocks.client.create).not.toHaveBeenCalled();
+    expect(mocks.client.get).not.toHaveBeenCalled();
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("0");
+    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBeNull();
+    expect(mocks.client.listAgentAssociations).not.toHaveBeenCalled();
   });
 
-  it("provisions General without replacing an existing Collection", async () => {
+  it("does not provision General when an existing Collection is present", async () => {
     mocks.client.list.mockResolvedValue([teamWorkspace]);
-    mocks.client.create.mockResolvedValue(generalWorkspace);
 
     renderProvider();
 
-    await waitFor(() => expect(mocks.client.create).toHaveBeenCalledWith({ name: "General", slug: "general" }));
-    expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge");
-    expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Team Knowledge"));
+    expect(mocks.client.create).not.toHaveBeenCalled();
+    expect(screen.getByTestId("workspace-count")).toHaveTextContent("1");
   });
 
-  it("uses a concurrently created General Collection when provisioning conflicts", async () => {
-    mocks.client.list
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([teamWorkspace, generalWorkspace]);
-    mocks.client.create.mockRejectedValue(Object.assign(new Error("Workspace already exists"), { statusCode: 409 }));
-
-    renderProvider();
-
-    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
-    expect(mocks.client.create).toHaveBeenCalledWith({ name: "General", slug: "general" });
-    expect(mocks.client.list).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId("workspace-count")).toHaveTextContent("2");
-    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general");
-  });
-
-  it("waits for a stable principal before provisioning General", async () => {
+  it("waits for a stable principal before loading Collections", async () => {
     mocks.auth.user = null;
     mocks.client.list.mockResolvedValue([]);
-    mocks.client.create.mockResolvedValue({ ...generalWorkspace, role: null });
 
     const view = renderProvider();
     await act(async () => { await Promise.resolve(); });
     expect(mocks.auth.getToken).not.toHaveBeenCalled();
-    expect(mocks.client.create).not.toHaveBeenCalled();
+    expect(mocks.client.list).not.toHaveBeenCalled();
 
     mocks.auth.user = { id: "user-1" };
     view.rerender(
@@ -422,26 +398,9 @@ describe("WorkspaceProvider", () => {
       </WorkspaceProvider>,
     );
 
-    await waitFor(() => expect(mocks.client.create).toHaveBeenCalledOnce());
-    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("General"));
-  });
-
-  it("repairs an externally emptied account with a replacement General Collection", async () => {
-    mocks.client.list.mockResolvedValue([]);
-    mocks.client.create
-      .mockResolvedValueOnce({ ...generalWorkspace, role: null })
-      .mockResolvedValueOnce({ ...replacementGeneralWorkspace, role: null });
-    mocks.client.get.mockImplementation(async (workspaceId: string) => (
-      workspaceId === replacementGeneralWorkspace.id ? replacementGeneralWorkspace : generalWorkspace
-    ));
-
-    renderProvider();
-    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general"));
-
-    fireEvent.click(screen.getByRole("button", { name: "Refresh Workspaces" }));
-
-    await waitFor(() => expect(mocks.client.create).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBe("workspace-general-replacement"));
+    await waitFor(() => expect(mocks.client.list).toHaveBeenCalledOnce());
+    expect(mocks.client.create).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("none"));
   });
 
   it("refreshes the catalog and selects a newly created Workspace", async () => {
@@ -492,7 +451,7 @@ describe("WorkspaceProvider", () => {
     };
     const secondClient = {
       list: vi.fn(async () => [secondAccountWorkspace, generalWorkspace]),
-      listAgents: vi.fn(async () => []),
+      listAgentAssociations: vi.fn(async () => []),
       create: vi.fn(),
       grant: vi.fn(),
     };

@@ -1015,7 +1015,7 @@ export function SharedKnowledgePanel({
                 .filter((grant) => grant.subjectType === "agent" && grantIsActive(grant))
                 .map((grant) => grant.subjectId))),
             }))
-          : workspaces.listAgents(workspace.slug).then((associations) => ({
+          : workspaces.listAgentAssociations(workspace.slug).then((associations) => ({
               grants: [] as WorkspaceGrant[],
               agentIds: Array.from(new Set(associations.map((association) => association.agentId))),
             }));

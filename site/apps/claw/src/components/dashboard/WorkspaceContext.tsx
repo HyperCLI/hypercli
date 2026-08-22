@@ -20,10 +20,7 @@ import type {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createWorkspacesClient } from "@/lib/agent-client";
 import {
-  GENERAL_COLLECTION_NAME,
-  GENERAL_COLLECTION_SLUG,
   collectionDisplayName,
-  isGeneralCollection,
 } from "@/lib/account-collection";
 
 const WORKSPACE_SELECTION_STORAGE_PREFIX = "claw.selectedWorkspace.v1";
@@ -123,19 +120,6 @@ function describeWorkspaceError(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-async function confirmGeneralCollection(client: WorkspacesAPI, candidate: Workspace): Promise<Workspace> {
-  try {
-    const confirmed = await client.get(candidate.id);
-    if (confirmed.role === "admin") return confirmed;
-  } catch {
-    // A catalog refresh below also handles delayed read-after-write visibility.
-  }
-  const listed = await client.list();
-  const confirmed = listed.find((workspace) => workspace.id === candidate.id);
-  if (confirmed?.role === "admin") return confirmed;
-  throw new Error(`${GENERAL_COLLECTION_NAME} was created, but admin access is not ready. Refresh Collections to retry.`);
-}
-
 function workspaceErrorStatus(error: unknown): number | null {
   if (!error || typeof error !== "object" || !("statusCode" in error)) return null;
   return typeof error.statusCode === "number" ? error.statusCode : null;
@@ -153,7 +137,7 @@ async function listWorkspaceAgentAssociations(
   workspace: Workspace,
 ): Promise<WorkspaceAgentAssociation[]> {
   try {
-    return await client.listAgents(workspace.id);
+    return await client.listAgentAssociations(workspace.id);
   } catch (cause) {
     if (workspaceErrorStatus(cause) !== 404) throw cause;
     // Older Workspace services expose agent associations only through the admin grants catalog.
@@ -209,12 +193,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   });
   const listRequestRef = useRef(0);
   const agentRosterRequestRef = useRef(0);
-  const generalCollectionCreationRef = useRef<{
-    principalId: string;
-    client: WorkspacesAPI;
-    promise: Promise<Workspace>;
-  } | null>(null);
-
   const connectionIsCurrent = connection.principalId === principalId && connection.tokenGetter === getToken;
   const workspacesClient = !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.client : null;
   const connectionError = !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.error : null;
@@ -301,52 +279,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }));
 
     try {
-      let selectionPreference = preferredWorkspaceId;
-      let listed = await workspacesClient.list();
+      const selectionPreference = preferredWorkspaceId;
+      const listed = await workspacesClient.list();
       if (
         requestId !== listRequestRef.current
         || activeConnectionRef.current.client !== workspacesClient
         || activeConnectionRef.current.principalId !== principalId
       ) return false;
-      if (!listed.some(isGeneralCollection)) {
-        const shouldSelectGeneral = listed.length === 0 && !preferredWorkspaceId;
-        const existingCreation = generalCollectionCreationRef.current;
-        const creationPromise = existingCreation?.principalId === principalId
-          && existingCreation.client === workspacesClient
-          ? existingCreation.promise
-          : workspacesClient
-              .create({ name: GENERAL_COLLECTION_NAME, slug: GENERAL_COLLECTION_SLUG })
-              .then((created) => confirmGeneralCollection(workspacesClient, created));
-        generalCollectionCreationRef.current = {
-          principalId,
-          client: workspacesClient,
-          promise: creationPromise,
-        };
-        try {
-          const general = await creationPromise;
-          listed = [...listed.filter((workspace) => workspace.id !== general.id), general];
-          if (shouldSelectGeneral) selectionPreference = general.id;
-        } catch (cause) {
-          if (workspaceErrorStatus(cause) !== 409) throw cause;
-          const recovered = await workspacesClient.list();
-          const general = recovered.find(isGeneralCollection);
-          if (!general) throw cause;
-          const confirmed = general.role === "admin"
-            ? general
-            : await confirmGeneralCollection(workspacesClient, general);
-          listed = recovered.map((workspace) => workspace.id === confirmed.id ? confirmed : workspace);
-          if (shouldSelectGeneral) selectionPreference = confirmed.id;
-        } finally {
-          if (generalCollectionCreationRef.current?.promise === creationPromise) {
-            generalCollectionCreationRef.current = null;
-          }
-        }
-        if (
-          requestId !== listRequestRef.current
-          || activeConnectionRef.current.client !== workspacesClient
-          || activeConnectionRef.current.principalId !== principalId
-        ) return false;
-      }
       setCatalog({ client: workspacesClient, workspaces: listed, loading: false, error: null });
       setSelection((current) => {
         const currentWorkspaceId = current.principalId === principalId ? current.workspaceId : null;
