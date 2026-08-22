@@ -14,7 +14,9 @@ use hypercli_sdk::{
     HyperCliClient, ManagedRuntime, StartDeploymentRequest,
 };
 use nostr::hashes::{sha256, Hash};
-use nostr::{Event as NostrEvent, EventBuilder as NostrEventBuilder, Kind as NostrKind, Tag as NostrTag};
+use nostr::{
+    Event as NostrEvent, EventBuilder as NostrEventBuilder, Kind as NostrKind, Tag as NostrTag,
+};
 use nostr_sdk::Client as NostrClient;
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -162,10 +164,7 @@ pub fn save_buzz_connection(
 }
 
 #[tauri::command]
-pub fn remove_buzz_connection(
-    app: tauri::AppHandle,
-    connection_id: String,
-) -> Result<(), String> {
+pub fn remove_buzz_connection(app: tauri::AppHandle, connection_id: String) -> Result<(), String> {
     let connection_id = checked_agent_id(&connection_id)?;
     buzz_connection_repository()?
         .remove_connection(&connection_id)
@@ -914,7 +913,14 @@ fn create_buzz_deployment_blocking(
         prepared.relay.clone(),
     );
     buzz.auth_tag = Some(prepared.auth_tag.expose_secret().to_owned());
-    buzz.system_prompt = Some(input.instructions.as_deref().unwrap_or("").trim().to_owned());
+    buzz.system_prompt = Some(
+        input
+            .instructions
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .to_owned(),
+    );
     buzz.model = model.map(str::to_owned);
     buzz.parallelism = parallelism;
     buzz.respond_to = Some(input.respond_to.trim().to_owned());
@@ -924,8 +930,7 @@ fn create_buzz_deployment_blocking(
         .map(|value| value.trim().to_owned())
         .collect();
     buzz.display_name = Some(input.name.trim().to_owned());
-    buzz
-        .apply_to(&mut request, Some(input.name.trim()))
+    buzz.apply_to(&mut request, Some(input.name.trim()))
         .map_err(|error| error.to_string())?;
     request.size = Some(requested_size);
     request.mark_buzz_deployment(Some(&prepared.agent_public_hex));

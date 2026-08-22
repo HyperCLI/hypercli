@@ -130,7 +130,9 @@ fn home_dir() -> Result<PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "cannot resolve home directory".to_string())
 }
 
-fn launch_env(config: &hypercli_sdk::DeploymentLaunchConfig) -> Option<std::collections::BTreeMap<String, String>> {
+fn launch_env(
+    config: &hypercli_sdk::DeploymentLaunchConfig,
+) -> Option<std::collections::BTreeMap<String, String>> {
     let object = config.as_map().get("env")?.as_object()?;
     object
         .iter()
@@ -315,10 +317,7 @@ async fn list_agents() -> Result<Vec<LauncherAgent>, String> {
 
 /// Start an OpenClaw agent after locking its control UI to the dashboard
 /// origin. Other runtimes start directly.
-fn start_with_control_ui(
-    client: &HyperCliClient,
-    agent_id: &str,
-) -> Result<LauncherAgent, String> {
+fn start_with_control_ui(client: &HyperCliClient, agent_id: &str) -> Result<LauncherAgent, String> {
     let current = client
         .get_deployment(agent_id)
         .map_err(|error| error.to_string())?;
@@ -411,11 +410,7 @@ async fn set_agent_avatar(
         }
         let content_type = match content_type.as_str() {
             "image/png" | "image/jpeg" | "image/webp" | "image/gif" => content_type,
-            _ => {
-                return Err(
-                    "Profile picture must be a PNG, JPEG, WebP, or GIF image".to_owned(),
-                )
-            }
+            _ => return Err("Profile picture must be a PNG, JPEG, WebP, or GIF image".to_owned()),
         };
         let response = managed_client()?
             .upload_deployment_profile_image(&agent_id, &data, &content_type)
@@ -662,7 +657,10 @@ fn start_login(app: tauri::AppHandle) -> Result<(), String> {
 fn open_agent_chat(app: tauri::AppHandle, agent_id: String) -> Result<(), String> {
     let agent_id = checked_agent_id(&agent_id)?;
     tauri_plugin_opener::OpenerExt::opener(&app)
-        .open_url(format!("{DASHBOARD_URL}?agentId={agent_id}"), None::<String>)
+        .open_url(
+            format!("{DASHBOARD_URL}?agentId={agent_id}"),
+            None::<String>,
+        )
         .map_err(|e| e.to_string())?;
     hide_popup(&app);
     Ok(())
@@ -690,18 +688,14 @@ fn show_panel_window(app: &tauri::AppHandle, view: &str) {
         return;
     }
     let url = format!("index.html?view={view}");
-    let window = tauri::WebviewWindowBuilder::new(
-        app,
-        "panel",
-        tauri::WebviewUrl::App(url.into()),
-    )
-    .title("")
-    .inner_size(400.0, 540.0)
-    .min_inner_size(400.0, 480.0)
-    .max_inner_size(400.0, 760.0)
-    .visible(false)
-    .center()
-    .build();
+    let window = tauri::WebviewWindowBuilder::new(app, "panel", tauri::WebviewUrl::App(url.into()))
+        .title("")
+        .inner_size(400.0, 540.0)
+        .min_inner_size(400.0, 480.0)
+        .max_inner_size(400.0, 760.0)
+        .visible(false)
+        .center()
+        .build();
     match window {
         Ok(window) => {
             let _ = window.show();
@@ -822,8 +816,7 @@ fn toggle_popup(app: &tauri::AppHandle, anchor: Option<Rect>) {
 
 fn init_tray(app: &tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, SHOW_ITEM_ID, "Show HyperCLI", true, None::<&str>)?;
-    let new_agent =
-        MenuItem::with_id(app, NEW_AGENT_ITEM_ID, "New Agent…", true, None::<&str>)?;
+    let new_agent = MenuItem::with_id(app, NEW_AGENT_ITEM_ID, "New Agent…", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, QUIT_ITEM_ID, "Quit HyperCLI", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &new_agent, &separator, &quit])?;
@@ -849,9 +842,7 @@ fn init_tray(app: &tauri::App) -> tauri::Result<()> {
                 toggle_popup(tray.app_handle(), Some(rect));
             }
         });
-    if let Ok(icon) =
-        tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png"))
-    {
+    if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png")) {
         builder = builder.icon(icon).icon_as_template(true);
     }
     builder.build(app)?;
@@ -943,9 +934,7 @@ async fn run_agent_watcher(
                     }
                     *known = agents
                         .iter()
-                        .map(|agent| {
-                            (agent.id.clone(), (agent.name.clone(), agent.state.clone()))
-                        })
+                        .map(|agent| (agent.id.clone(), (agent.name.clone(), agent.state.clone())))
                         .collect();
                 } else {
                     *known = Some(
