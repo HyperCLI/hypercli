@@ -612,7 +612,32 @@ impl BuzzLaunchConfig {
             "BUZZ_ACP_SYSTEM_PROMPT",
             self.system_prompt.as_deref(),
         );
-        insert_nonempty(&mut request.env, "BUZZ_ACP_MODEL", self.model.as_deref());
+        if let Some(model) = self
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request
+                .env
+                .insert("BUZZ_ACP_MODEL".to_owned(), model.to_owned());
+            let gateway = model.strip_prefix("hypercli/").unwrap_or(model);
+            match request.runtime {
+                ManagedRuntime::BuzzAgent => {
+                    request.env.insert(
+                        "BUZZ_AGENT_MODEL".to_owned(),
+                        anthropic_route_model(gateway),
+                    );
+                }
+                ManagedRuntime::Goose => {
+                    request.env.insert(
+                        "GOOSE_MODEL".to_owned(),
+                        anthropic_route_model(gateway),
+                    );
+                }
+                _ => {}
+            }
+        }
         insert_nonempty(
             &mut request.env,
             "BUZZ_ACP_RESPOND_TO",
@@ -647,6 +672,14 @@ impl BuzzLaunchConfig {
 fn insert_nonempty(env: &mut BTreeMap<String, String>, key: &str, value: Option<&str>) {
     if let Some(value) = value.filter(|value| !value.is_empty()) {
         env.insert(key.to_owned(), value.to_owned());
+    }
+}
+
+fn anthropic_route_model(model: &str) -> String {
+    if model.starts_with("kimi-") && !model.ends_with("-anthropic") {
+        format!("{model}-anthropic")
+    } else {
+        model.to_owned()
     }
 }
 
@@ -1587,6 +1620,46 @@ mod tests {
         assert_eq!(
             request.env.get("RUST_LOG").map(String::as_str),
             Some("debug")
+        );
+    }
+
+    #[test]
+    fn buzz_launch_maps_model_to_runtime_native_env() {
+        let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+        buzz.model = Some("kimi-k3".to_owned());
+
+        let mut agent_request = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
+        buzz.apply_to(&mut agent_request, None).unwrap();
+        assert_eq!(
+            agent_request.env.get("BUZZ_ACP_MODEL").map(String::as_str),
+            Some("kimi-k3")
+        );
+        assert_eq!(
+            agent_request.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
+            Some("kimi-k3-anthropic")
+        );
+
+        let mut goose_request = CreateDeploymentRequest::new(ManagedRuntime::Goose);
+        buzz.apply_to(&mut goose_request, None).unwrap();
+        assert_eq!(
+            goose_request.env.get("GOOSE_MODEL").map(String::as_str),
+            Some("kimi-k3-anthropic")
+        );
+
+        buzz.model = Some("hypercli/kimi-k2.6-anthropic".to_owned());
+        let mut prefixed = CreateDeploymentRequest::new(ManagedRuntime::BuzzAgent);
+        buzz.apply_to(&mut prefixed, None).unwrap();
+        assert_eq!(
+            prefixed.env.get("BUZZ_AGENT_MODEL").map(String::as_str),
+            Some("kimi-k2.6-anthropic")
+        );
+
+        buzz.model = Some("glm-5".to_owned());
+        let mut glm_request = CreateDeploymentRequest::new(ManagedRuntime::Goose);
+        buzz.apply_to(&mut glm_request, None).unwrap();
+        assert_eq!(
+            glm_request.env.get("GOOSE_MODEL").map(String::as_str),
+            Some("glm-5")
         );
     }
 
