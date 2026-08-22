@@ -14,7 +14,7 @@ import { useTheme } from "../components/ThemeProvider";
 export type PrivyLoginMethod = "email" | "wallet" | "google" | "sms" | "twitter" | "discord" | "github" | "linkedin" | "apple";
 
 // The one place login methods are defined; every consumer references this.
-export const DEFAULT_PRIVY_LOGIN_METHODS: PrivyLoginMethod[] = ["email", "wallet", "google", "apple"];
+export const DEFAULT_PRIVY_LOGIN_METHODS: PrivyLoginMethod[] = ["email", "wallet", "google", "github", "apple"];
 
 interface PrivyAuthBoundaryProps {
   appId: string;
