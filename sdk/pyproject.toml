@@ -58,6 +58,7 @@ packages = ["hypercli"]
 line-length = 100
 
 [tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
 markers = [
     "integration: tests that require live HyperCLI credentials and services",
 ]
