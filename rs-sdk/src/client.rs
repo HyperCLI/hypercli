@@ -26,7 +26,7 @@ use crate::{
     CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse, Deployment,
     DeploymentEnvironment, DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
-    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
+    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan,
     HyperAgentEntitlementsSummary, HyperAgentPlan, JobLifecycleEvent, NativeRuntime,
     RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
