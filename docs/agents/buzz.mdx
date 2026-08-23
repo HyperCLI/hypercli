@@ -1,7 +1,64 @@
 ---
-title: Buzz Desktop
-description: Run stock Buzz coding-agent harnesses in isolated HyperCLI managed runtimes
+title: Buzz
+description: Run Buzz coding agents in hosted HyperCLI runtimes — from the menubar app or from stock Buzz Desktop
 ---
+
+Buzz is the multi-agent chat/control surface HyperCLI coding agents plug into.
+Two ways to get a Buzz agent running in a hosted HyperCLI runtime:
+
+| Path | Who it's for | What you install | How you chat |
+| --- | --- | --- | --- |
+| **HyperCLI menubar app** | You want the fastest path: click to launch an agent, watch it in the menu bar | HyperCLI menubar app (macOS) | Stock Buzz, pointed at your HyperCLI identity |
+| **Buzz Desktop + HyperCLI provider** | You live in Buzz Desktop already and want agents to launch into HyperCLI from its "Run on" menu | Stock Buzz + the `buzz-backend-hypercli` provider binary | Buzz Desktop itself |
+
+Both paths end at the same thing: an isolated HyperCLI managed runtime running
+one of the Buzz harness images (OpenCode, Codex, Claude Code, Goose, Kimi Code,
+or the Buzz Agent runtime), with `/home/node` as the persistent sync root.
+
+## Path A — HyperCLI menubar app
+
+The menubar app is the HyperCLI-owned control surface. It keeps its own Nostr
+identity for Buzz (owner keys never leave the app), remembers your Buzz relay
+connections, launches the agent, enrolls it in Buzz, and starts it — one
+create → enroll → start sequence.
+
+### 1. Sign in
+
+Open the menubar app and sign in with your HyperCLI API key (or the saved
+`~/.hypercli/config` credential). The roster shows your agents with live
+CPU/RAM load bars; the pulse icon in the header toggles those graphs.
+
+### 2. Add a Buzz connection
+
+The app stores named Buzz connections (relay URL + your owner key) locally.
+The owner key is used only to sign enrollments and channel events from the
+app — it is not sent to the HyperCLI backend.
+
+### 3. Launch an agent ("+ New Agent")
+
+Pick the runtime (OpenCode, Codex, Claude Code, Goose, Kimi Code, or Buzz
+Agent), the size tier, and optionally the channels and people allowlist to
+enroll into. The model defaults to `default-anthropic` (the stable alias for
+the current coding model — currently `kimi-k3-anthropic`); the app offers the
+account's model catalog if you want a specific one.
+
+On launch the app:
+
+1. Generates a fresh agent Nostr keypair for the runtime.
+2. Creates the HyperCLI managed deployment with the resolved image and size.
+3. Enrolls the agent in your saved Buzz channels (owner-signed events).
+4. Starts the runtime.
+
+The agent appears in the menubar roster with its state dot and load bars once
+the runtime reports metrics.
+
+### 4. Chat from Buzz
+
+Point stock Buzz (desktop or CLI) at the same HyperCLI/Nostr identity the
+menubar app enrolled. The agent answers in the channels it was enrolled into
+and in DMs with the owner.
+
+## Path B — Buzz Desktop + HyperCLI provider
 
 <Warning>
 The HyperCLI provider is a development preview. The published v0.1.0 macOS
@@ -11,7 +68,7 @@ with production agent identities, model credentials, or sensitive
 repositories.
 </Warning>
 
-## What the integration does
+### What the integration does
 
 Stock Buzz Desktop discovers the external `buzz-backend-hypercli-*`
 executables; no custom Desktop build is required. They are hardlinks to one
@@ -38,7 +95,7 @@ normal size choice. See
 [Coding runtimes and persistence](/agents/coding-runtimes) for each runtime's
 inference, login, and selective-sync intent.
 
-## Install the provider
+### Install the provider
 
 Current source builds require Rust 1.95:
 
@@ -88,7 +145,7 @@ source above, so they do not contain the current source contract.
 The table hashes the archives, not their small sibling `.sha256` files. The
 release also contains a combined `SHA256SUMS`.
 
-### macOS Gatekeeper
+#### macOS Gatekeeper
 
 The v0.1.0 macOS artifacts are not signed or notarized. After verifying the
 downloaded archive's checksum, run the direct `info` check above. If macOS
@@ -98,7 +155,7 @@ confirm the prompt.
 Do not disable Gatekeeper globally. Signed and notarized distribution remains
 a production requirement.
 
-## Find HyperCLI in Buzz Desktop
+### Find HyperCLI in Buzz Desktop
 
 Buzz scans its executable directory, its process `PATH`, and
 `~/.local/bin` for executable filenames beginning with `buzz-backend-`. The
@@ -136,7 +193,7 @@ The v0.5.2 source paths for this flow are
 `desktop/src-tauri/src/managed_agents/discovery.rs`, and
 `desktop/src-tauri/src/commands/agent_providers.rs`.
 
-## Authenticate HyperCLI
+### Authenticate HyperCLI
 
 The provider calls the managed-agents HTTP API directly; it does not shell out
 to the Python `hyper` CLI. Authenticate the local CLI first, then verify the
@@ -160,7 +217,7 @@ The agents API base uses `AGENTS_API_BASE_URL`, `HYPER_API_BASE`, or
 `HYPERCLI_API_URL`. HyperCLI credentials do not belong in the Buzz provider
 form: both Buzz and the provider reject secret-looking configuration fields.
 
-## Configure the hosted runtime
+### Configure the hosted runtime
 
 Choose a HyperCLI backend with **Run on** and select the coding harness in
 Buzz's agent configuration. Desktop stages every provider executable as
@@ -187,7 +244,7 @@ non-Buzz SDK launches keep using the generic `hypercli-opencode`,
 `hypercli-codex`, `hypercli-claude-code`, `hypercli-goose`, and
 `hypercli-kimi-code` image families.
 
-### Filesystem and instruction layout
+#### Filesystem and instruction layout
 
 The persistence and workspace roots are intentionally different:
 
@@ -216,7 +273,7 @@ provider and model are mapped into Goose's runtime environment.
 Image overrides receive the generated agent identity and runtime environment.
 Use only a trusted immutable image reference.
 
-## Message behavior
+### Message behavior
 
 Stock Buzz delivers inbound conversation events to the remote `buzz-acp`
 harness, but ordinary ACP assistant chunks are activity telemetry—not channel
@@ -230,7 +287,7 @@ The default `RUST_LOG` filter sets `acp::stream=off` to keep generated content
 out of centralized container logs. Overriding that filter can expose message
 content.
 
-## Lifecycle behavior
+### Lifecycle behavior
 
 Stock Buzz v0.5.2 invokes backend providers for `info` and `deploy` only. It
 does not invoke provider stop, undeploy, status, logs, or delete operations.
@@ -271,9 +328,9 @@ of the stock Buzz protocol. It skips lookup and restart logic and sends one
 backend create-validation request with `dry_run: true`; it relies on that API
 honoring its non-mutating dry-run contract.
 
-## Ownership modes
+### Ownership modes
 
-### Desktop-owned agents
+#### Desktop-owned agents
 
 This is the implemented provider path. Desktop creates the identity and local
 managed-agent record, then stores the returned HyperCLI deployment ID. The
@@ -282,7 +339,7 @@ agent appears in the local **Agents** view on the Desktop that created it.
 Importing the same human owner identity on another Desktop does not reconstruct
 that local managed-agent record.
 
-### Hosted, preprovisioned community agents
+#### Hosted, preprovisioned community agents
 
 HyperCLI can separately provision a community, channels, agent identities, and
 managed deployments. Those agents can participate in channels, but stock Desktop
@@ -290,7 +347,7 @@ does not adopt them into the user's local **Agents** inventory. HyperCLI remains
 their lifecycle authority. Remote discovery/adoption requires a future upstream
 provider contract.
 
-## Test boundaries
+### Test boundaries
 
 Current automated coverage includes:
 
@@ -311,7 +368,7 @@ binary, send a relay prompt, or prove a Desktop-visible tool response. A real
 Desktop → relay → `buzz-acp` → runtime → explicit send-tool E2E remains a
 production acceptance requirement.
 
-## Security boundaries
+### Security boundaries
 
 The provider receives the agent nsec and merged runtime environment and sends
 them as raw deployment environment values. The backend currently persists

@@ -44,7 +44,7 @@ Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "hypercli/glm-5-anthropic",
+  "model": "hypercli/coding-anthropic",
   "provider": {
     "hypercli": {
       "npm": "@ai-sdk/anthropic",
@@ -54,18 +54,15 @@ Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
         "apiKey": "{env:HYPER_AGENTS_API_KEY}"
       },
       "models": {
-        "glm-5-anthropic": {
-          "name": "glm-5-anthropic",
+        "coding-anthropic": {
+          "name": "coding-anthropic",
           "limit": {
             "context": 262144,
             "output": 65536
-          }
-        },
-        "kimi-k2.6-anthropic": {
-          "name": "kimi-k2.6-anthropic",
-          "limit": {
-            "context": 262144,
-            "output": 65536
+          },
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
           }
         }
       }
@@ -74,9 +71,15 @@ Add HyperCLI as a provider in your `opencode.json` (or `.opencode.json`):
 }
 ```
 
-Then select the model with `hypercli/glm-5-anthropic` in OpenCode.
+Then select the model with `hypercli/coding-anthropic` in OpenCode.
 OpenCode uses `{env:NAME}` for environment variable interpolation in provider
-options.
+options. `coding-anthropic` is a stable routing alias for the current coding
+model on the Anthropic Messages route (currently `kimi-k3-anthropic`), so
+hosted improvements do not require config changes; `default-anthropic` points
+at the same model for non-coding defaults. Pin `kimi-k3-anthropic` instead if
+you need an exact model revision. OpenCode defaults custom-provider models to
+text-only input; the `modalities` block is what enables pasting images into
+the TUI for vision-capable models like Kimi K3 (`input` includes `image`).
 
 ## OpenClaw
 
@@ -94,8 +97,8 @@ Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers
         "authHeader": true,
         "models": [
           {
-            "id": "kimi-k2.6-anthropic",
-            "name": "Kimi K2.6 Anthropic",
+            "id": "default-anthropic",
+            "name": "HyperCLI Default (Anthropic)",
             "reasoning": true,
             "input": ["text", "image"],
             "contextWindow": 262144
@@ -120,7 +123,7 @@ Add a `hypercli` provider in `~/.openclaw/openclaw.json` under `models.providers
 ```
 
 For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
-For the branded HyperCLI setup, use `hypercli/kimi-k2.6-anthropic` directly.
+For the branded HyperCLI setup, use `hypercli/default-anthropic` directly.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
 
@@ -135,8 +138,8 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
         "api": "openai-completions",
         "models": [
           {
-            "id": "kimi-k2.6",
-            "name": "Kimi K2.6",
+            "id": "default",
+            "name": "HyperCLI Default",
             "reasoning": true,
             "input": ["text", "image"],
             "contextWindow": 262144,
@@ -149,18 +152,18 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
 }
 ```
 
-Then reference the model as `hypercli/kimi-k2.6-anthropic` in your agent config, or set it as primary:
+Then reference the model as `hypercli/default` in your agent config, or set it as primary:
 
 ```json
 {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "hypercli/kimi-k2.6-anthropic"
+        "primary": "hypercli/default"
       },
       "models": {
-        "hypercli/kimi-k2.6-anthropic": {
-          "alias": "kimi"
+        "hypercli/default": {
+          "alias": "hyper"
         }
       }
     }
@@ -177,10 +180,10 @@ export OPENAI_API_KEY="hyper_api_YOUR_API_KEY"
 export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 
 # Claude Code
-claude --model hypercli/kimi-k2.6-anthropic
+claude --model hypercli/default-anthropic
 
 # OpenAI Codex
-codex --model hypercli/kimi-k2.6-anthropic
+codex --model hypercli/default
 ```
 
 ## Python (OpenAI SDK)
@@ -194,7 +197,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="kimi-k2.6-anthropic",
+    model="default",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)
@@ -211,7 +214,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: 'kimi-k2.6-anthropic',
+  model: 'default',
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```
@@ -223,7 +226,7 @@ curl https://api.hypercli.com/v1/chat/completions \
   -H "Authorization: Bearer hyper_api_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kimi-k2.6-anthropic",
+    "model": "default",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -251,9 +254,9 @@ Use this when your downstream LiteLLM is routing through the OpenAI-compatible
 
 ```yaml
 model_list:
-  - model_name: kimi-k2.6
+  - model_name: default
     litellm_params:
-      model: openai/kimi-k2.6
+      model: openai/default
       api_base: https://api.hypercli.com/v1
       api_key: hyper_api_YOUR_API_KEY
 
@@ -269,9 +272,9 @@ calling:
 
 ```yaml
 model_list:
-  - model_name: kimi-k2.6-anthropic
+  - model_name: default-anthropic
     litellm_params:
-      model: anthropic/kimi-k2.6-anthropic
+      model: anthropic/default-anthropic
       api_base: https://api.hypercli.com
       api_key: hyper_api_YOUR_API_KEY
 
@@ -283,15 +286,15 @@ If you want to offer both surfaces from one downstream LiteLLM:
 
 ```yaml
 model_list:
-  - model_name: kimi-k2.6
+  - model_name: default
     litellm_params:
-      model: openai/kimi-k2.6
+      model: openai/default
       api_base: https://api.hypercli.com/v1
       api_key: hyper_api_YOUR_API_KEY
 
-  - model_name: kimi-k2.6-anthropic
+  - model_name: default-anthropic
     litellm_params:
-      model: anthropic/kimi-k2.6-anthropic
+      model: anthropic/default-anthropic
       api_base: https://api.hypercli.com
       api_key: hyper_api_YOUR_API_KEY
 ```
@@ -303,8 +306,11 @@ that expect `/v1`.
 
 | Model | Context | Description |
 |-------|---------|-------------|
-| `kimi-k2.6-anthropic` | 262K tokens | Kimi K2.6 on the recommended Anthropic Messages route |
-| `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route |
+| `coding-anthropic` | 262K tokens | Stable alias for the coding model on the recommended Anthropic Messages route; currently `kimi-k3-anthropic` |
+| `default-anthropic` | 262K tokens | Stable alias for the default Anthropic-route model; currently `kimi-k3-anthropic` |
+| `coding` | 262K tokens | Stable alias for the coding model on the OpenAI-compatible route; currently `kimi-k3` |
+| `kimi-k3-anthropic` | 262K tokens | Kimi K3 on the Anthropic Messages route (pinned) |
+| `kimi-k3` | 262K tokens | Kimi K3 on the OpenAI-compatible route (pinned) |
 
 Check available models at any time:
 
