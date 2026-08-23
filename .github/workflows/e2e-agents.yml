@@ -14,7 +14,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [openclaw, hermes]
+        include:
+          - lane: openclaw
+            spec: tests/claw/agents-e2e.spec.ts
+          - lane: hermes
+            spec: tests/claw/agents-hermes-e2e.spec.ts
     name: e2e-${{ matrix.lane }}
     concurrency:
       group: hypercli-frontend-e2e-agents
@@ -29,7 +33,7 @@ jobs:
       TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
-      E2E_SPECS: tests/claw/agents-${{ matrix.lane }}-e2e.spec.ts
+      E2E_SPECS: ${{ matrix.spec }}
       PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-agents-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
