@@ -45,8 +45,6 @@ jobs:
 
       - name: Bootstrap isolated agents test user
         run: |
-          exec 9>/tmp/hypercli-dev-control-plane.lock
-          flock --shared 9
           python3 .github/scripts/bootstrap_agents_e2e_user.py bootstrap \
             --suite agents-${{ matrix.lane }}-e2e \
             --state-file "${RUNNER_TEMP}/hypercli-agents-${{ matrix.lane }}-e2e-user-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
@@ -67,8 +65,6 @@ jobs:
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          exec 9>/tmp/hypercli-dev-control-plane.lock
-          flock --shared 9
           ARTIFACTS_DIR="${PLAYWRIGHT_ARTIFACTS_DIR}"
           rm -rf "${ARTIFACTS_DIR}"
           mkdir -p "${ARTIFACTS_DIR}"
@@ -122,8 +118,6 @@ jobs:
       - name: Cleanup isolated agents test user
         if: always() && env.AGENTS_E2E_USER_STATE_FILE != ''
         run: |
-          exec 9>/tmp/hypercli-dev-control-plane.lock
-          flock --shared 9
           python3 .github/scripts/bootstrap_agents_e2e_user.py cleanup \
             --state-file "${AGENTS_E2E_USER_STATE_FILE}"
 

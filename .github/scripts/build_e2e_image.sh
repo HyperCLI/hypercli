@@ -7,16 +7,12 @@ IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
 BUILD_CTX="${BUILD_CTX:-${RUNNER_TEMP:-/tmp}/hypercli-e2e-${IMAGE_TAG}}"
 E2E_IMAGE="${E2E_IMAGE:-hypercli-e2e:${IMAGE_TAG}}"
 E2E_IMAGE_FAMILY="${E2E_IMAGE_FAMILY:-}"
-DOCKER_BUILD_LOCK="${DOCKER_BUILD_LOCK:-/tmp/hypercli-docker-build.lock}"
 
 cleanup() {
   rm -rf -- "${BUILD_CTX}"
 }
 
 trap cleanup EXIT
-
-exec 9>"${DOCKER_BUILD_LOCK}"
-flock 9
 
 if [[ -n "${E2E_IMAGE_FAMILY}" ]]; then
   image_repository="${E2E_IMAGE%:*}"

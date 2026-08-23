@@ -175,6 +175,10 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - Before every commit, run `git diff --check` and reject any unresolved merge
   marker. A red or unavailable GitHub Actions run is never permission to merge
   or push known-broken source to `main`.
+- CI must not use runner-local lock files or `flock` for repository, Docker,
+  deployment, restart, or E2E coordination. Use GitHub Actions concurrency,
+  unique per-run resources, idempotent cleanup, or explicit backend-side state
+  instead. Do not coordinate across repositories through shared files in `/tmp`.
 - Tech stack: Next.js 16, React 19, TypeScript, Tailwind v4, Turbo monorepo.
 - Shared UI lives in `site/packages/shared-ui`; prefer editing there when a
   change impacts multiple apps.
