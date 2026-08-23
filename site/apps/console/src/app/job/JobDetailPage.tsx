@@ -14,6 +14,7 @@ import {
 } from "../../lib/job-log-stream";
 import EnvVarsSection from "../../components/EnvVarsSection";
 import { getConsoleClient } from "../../lib/sdk";
+import { formatJobCommandForDisplay, type JobCommand } from "../../lib/job-command";
 import type { JobLifecycleEvent, JobMetrics } from "@hypercli.com/sdk/browser";
 
 const PENDING_JOB_POLL_INTERVAL_MS = 5_000;
@@ -34,7 +35,7 @@ interface Job {
   docker_image: string;
   dockerfile: string | null;
   hf_space: string | null;
-  command: string[];
+  command: JobCommand;
   env_vars: { [key: string]: string } | null;
   ports: { [key: string]: number } | null;
   auth: boolean;
@@ -111,6 +112,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     message: "",
     type: "info",
   });
+  const commandDisplay = formatJobCommandForDisplay(job?.command);
 
   // Fetch job details on mount
   useEffect(() => {
@@ -1215,13 +1217,13 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                 </div>
               )}
 
-              {job.command && job.command.length > 0 && (
+              {commandDisplay && (
                 <div className="md:col-span-2">
                   <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Command
                   </h3>
                   <p className="font-mono text-sm text-foreground bg-background border border-border rounded-lg p-3 whitespace-pre-wrap break-all">
-                    {job.command.join(" ")}
+                    {commandDisplay}
                   </p>
                 </div>
               )}
