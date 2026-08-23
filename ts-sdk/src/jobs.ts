@@ -56,6 +56,17 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export interface JobLifecycleEvent {
+  event: string;
+  jobId?: string;
+  state?: string;
+  reason?: string;
+  error?: string;
+  instanceId?: string;
+  runtime?: number;
+  payload: Record<string, unknown>;
+}
+
 export interface GPUMetrics {
   index: number;
   name: string;
@@ -222,6 +233,19 @@ function execResultFromDict(data: any): ExecResult {
   };
 }
 
+function lifecycleEventFromDict(data: any): JobLifecycleEvent {
+  return {
+    event: String(data?.event || ''),
+    jobId: data?.job_id || undefined,
+    state: data?.state || undefined,
+    reason: data?.reason || undefined,
+    error: data?.error || undefined,
+    instanceId: data?.instance_id || undefined,
+    runtime: typeof data?.runtime === 'number' ? data.runtime : undefined,
+    payload: data && typeof data === 'object' ? { ...data } : {},
+  };
+}
+
 function gpuMetricsFromDict(data: any): GPUMetrics {
   return {
     index: data.index || 0,
@@ -384,8 +408,93 @@ export class Jobs {
    * Get job GPU metrics
    */
   async metrics(jobId: string): Promise<JobMetrics> {
-    const data = await this.http.get(`/api/jobs/${jobId}/metrics`);
-    return jobMetricsFromDict(data);
+    const stream = this.metricsStream(jobId, { interval: 60 });
+    const result = await stream.next();
+    await stream.return(undefined).catch(() => undefined);
+    if (result.done) throw new Error('metrics stream closed before first snapshot');
+    return result.value;
+  }
+
+  async *metricsStream(
+    jobId: string,
+    options: { interval?: number } = {},
+  ): AsyncGenerator<JobMetrics> {
+    const interval = options.interval ?? 5;
+    const job = await this.get(jobId);
+    const wsBase = (this.http as any).baseUrl
+      .replace('https://', 'wss://')
+      .replace('http://', 'ws://')
+      .replace(/\/api$/, '');
+    const url = `${wsBase}/orchestra/ws/metrics/jobs/${encodeURIComponent(job.jobKey)}?interval=${encodeURIComponent(String(interval))}`;
+    const ws = new WebSocket(url);
+
+    const queue: JobMetrics[] = [];
+    let done = false;
+    let pending: ((value: IteratorResult<JobMetrics>) => void) | null = null;
+    let rejectPending: ((error: Error) => void) | null = null;
+    let failed: Error | null = null;
+
+    ws.on('message', (data: Buffer) => {
+      try {
+        const parsed = JSON.parse(data.toString());
+        if (parsed?.event === 'metrics_error') {
+          throw new Error(String(parsed.detail || 'metrics stream failed'));
+        }
+        if (parsed?.event !== 'metrics_snapshot') return;
+        const metrics = jobMetricsFromDict(parsed.data || {});
+        if (pending) {
+          pending({ done: false, value: metrics });
+          pending = null;
+          rejectPending = null;
+        } else {
+          queue.push(metrics);
+        }
+      } catch (error) {
+        failed = error instanceof Error ? error : new Error('invalid metrics frame');
+        done = true;
+        if (rejectPending) {
+          rejectPending(failed);
+          pending = null;
+          rejectPending = null;
+        }
+      }
+    });
+    ws.on('close', () => {
+      done = true;
+      if (pending) {
+        pending({ done: true, value: undefined });
+        pending = null;
+        rejectPending = null;
+      }
+    });
+    ws.on('error', (error: Error) => {
+      failed = error;
+      done = true;
+      if (rejectPending) {
+        rejectPending(error);
+        pending = null;
+        rejectPending = null;
+      }
+    });
+
+    try {
+      while (!done || queue.length > 0) {
+        if (failed) throw failed;
+        const metrics = queue.shift();
+        if (metrics) {
+          yield metrics;
+          continue;
+        }
+        const result = await new Promise<IteratorResult<JobMetrics>>((resolve, reject) => {
+          pending = resolve;
+          rejectPending = reject;
+        });
+        if (result.done) break;
+        yield result.value;
+      }
+    } finally {
+      ws.close();
+    }
   }
 
   /**
@@ -430,6 +539,78 @@ export class Jobs {
         resolve(ws);
       });
     });
+  }
+
+  /**
+   * Stream job-scoped lifecycle events. Treat events as wakeups; call get()
+   * when an authoritative job snapshot is required.
+   */
+  async *lifecycleStream(jobId: string): AsyncGenerator<JobLifecycleEvent> {
+    const job = await this.get(jobId);
+    const wsBase = (this.http as any).baseUrl
+      .replace('https://', 'wss://')
+      .replace('http://', 'ws://')
+      .replace(/\/api$/, '');
+    const url = `${wsBase}/orchestra/ws/lifecycle/${encodeURIComponent(job.jobKey)}`;
+
+    const ws = new WebSocket(url);
+    const queue: JobLifecycleEvent[] = [];
+    let done = false;
+    let pending: ((value: IteratorResult<JobLifecycleEvent>) => void) | null = null;
+    let rejectPending: ((error: Error) => void) | null = null;
+    let failed: Error | null = null;
+
+    ws.on('message', (data: Buffer) => {
+      try {
+        const parsed = JSON.parse(data.toString());
+        const event = lifecycleEventFromDict(parsed);
+        if (pending) {
+          pending({ done: false, value: event });
+          pending = null;
+          rejectPending = null;
+        } else {
+          queue.push(event);
+        }
+      } catch {
+        // Ignore malformed frames.
+      }
+    });
+    ws.on('close', () => {
+      done = true;
+      if (pending) {
+        pending({ done: true, value: undefined });
+        pending = null;
+        rejectPending = null;
+      }
+    });
+    ws.on('error', (error: Error) => {
+      failed = error;
+      done = true;
+      if (rejectPending) {
+        rejectPending(error);
+        pending = null;
+        rejectPending = null;
+      }
+    });
+
+    try {
+      while (!done || queue.length > 0) {
+        if (failed) throw failed;
+        const event = queue.shift();
+        if (event) {
+          yield event;
+          continue;
+        }
+        const result = await new Promise<IteratorResult<JobLifecycleEvent>>((resolve, reject) => {
+          pending = resolve;
+          rejectPending = reject;
+        });
+        if (result.done) break;
+        yield result.value;
+      }
+    } finally {
+      ws.close();
+    }
   }
 }
 

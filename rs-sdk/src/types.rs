@@ -1146,6 +1146,25 @@ pub struct DeploymentEvent {
     pub observed_at: Option<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct JobLifecycleEvent {
+    pub event: String,
+    #[serde(default)]
+    pub job_id: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub instance_id: Option<String>,
+    #[serde(default)]
+    pub runtime: Option<u64>,
+    #[serde(flatten)]
+    pub extra: BTreeMap<String, serde_json::Value>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct DeploymentEnvironment {
     pub agent_id: String,

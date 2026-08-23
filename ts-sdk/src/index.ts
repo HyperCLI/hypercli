@@ -43,6 +43,7 @@ export {
   type SystemMetrics,
   type JobMetrics,
   type ExecResult,
+  type JobLifecycleEvent,
   type CreateJobOptions,
   type ListJobsOptions,
   findJob,

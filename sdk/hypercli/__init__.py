@@ -25,6 +25,7 @@ from .http import APIError, AsyncHTTPClient
 from .instances import GPUType, GPUConfig, Region, GPUPricing, PricingTier
 from .jobs import (
     Job,
+    JobLifecycleEvent,
     JobListPage,
     JobMetrics,
     GPUMetrics,

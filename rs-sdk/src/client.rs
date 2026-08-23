@@ -16,7 +16,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::Message,
+    MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
@@ -28,8 +32,9 @@ use crate::{
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
     ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
     HyperAgentEntitlementsSummary, HyperAgentPlan, NativeRuntime, RuntimeAuthError,
-    RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest,
-    SetDeploymentRoutesRequest, StartDeploymentRequest, UpdateDeploymentRequest,
+    JobLifecycleEvent, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    UpdateDeploymentRequest,
 };
 
 type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -847,6 +852,125 @@ impl HyperCliClient {
             tokio::time::sleep(retry_delay).await;
             retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
         }
+    }
+
+    /// Subscribe to job-scoped GPU/job lifecycle ticks using the job key.
+    ///
+    /// Events are low-latency wakeups. Refresh the job over REST when an
+    /// authoritative snapshot is required.
+    pub async fn subscribe_job_lifecycle<F>(
+        &self,
+        job_key: &str,
+        mut handler: F,
+    ) -> Result<(), HyperCliError>
+    where
+        F: FnMut(JobLifecycleEvent),
+    {
+        let url = self.product_ws_url(&["orchestra", "ws", "lifecycle", job_key])?;
+        let mut retry_delay = Duration::from_millis(250);
+        loop {
+            let (mut socket, _) = match connect_async(url.as_str()).await {
+                Ok(connection) => connection,
+                Err(_) => {
+                    tokio::time::sleep(retry_delay).await;
+                    retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
+                    continue;
+                }
+            };
+            retry_delay = Duration::from_millis(250);
+            while let Some(message) = socket.next().await {
+                match message {
+                    Ok(Message::Text(value)) => {
+                        if let Ok(event) = serde_json::from_str::<JobLifecycleEvent>(value.as_ref())
+                        {
+                            handler(event);
+                        }
+                    }
+                    Ok(Message::Ping(value)) => match socket.send(Message::Pong(value)).await {
+                        Ok(()) => {}
+                        Err(_) => break,
+                    },
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => {}
+                }
+            }
+            tokio::time::sleep(retry_delay).await;
+            retry_delay = (retry_delay * 2).min(Duration::from_secs(5));
+        }
+    }
+
+    /// Get one GPU job metrics snapshot over the Orchestra job-key metrics WebSocket.
+    pub async fn job_metrics(&self, job_key: &str) -> Result<Value, HyperCliError> {
+        let mut seen = None;
+        self.job_metrics_stream(job_key, Duration::from_secs(60), true, |metrics| {
+            if seen.is_none() {
+                seen = Some(metrics);
+            }
+        })
+        .await?;
+        seen.ok_or_else(|| HyperCliError::InvalidResponse("metrics stream closed before first snapshot".into()))
+    }
+
+    /// Subscribe to GPU job metrics snapshots over the Orchestra job-key metrics WebSocket.
+    pub async fn subscribe_job_metrics<F>(
+        &self,
+        job_key: &str,
+        interval: Duration,
+        handler: F,
+    ) -> Result<(), HyperCliError>
+    where
+        F: FnMut(Value),
+    {
+        self.job_metrics_stream(job_key, interval, false, handler).await
+    }
+
+    async fn job_metrics_stream<F>(
+        &self,
+        job_key: &str,
+        interval: Duration,
+        once: bool,
+        mut handler: F,
+    ) -> Result<(), HyperCliError>
+    where
+        F: FnMut(Value),
+    {
+        let interval = interval.as_secs_f64().clamp(1.0, 60.0).to_string();
+        let mut url = self.product_ws_url(&["orchestra", "ws", "metrics", "jobs", job_key])?;
+        url.query_pairs_mut().append_pair("interval", &interval);
+        let (mut socket, _) = connect_async(url.as_str())
+            .await
+            .map_err(|_| HyperCliError::Transport("metrics websocket connection failed".into()))?;
+        while let Some(message) = socket.next().await {
+            match message {
+                Ok(Message::Text(value)) => {
+                    let parsed: Value = serde_json::from_str(value.as_ref()).map_err(|error| {
+                        HyperCliError::InvalidResponse(format!("invalid metrics frame: {error}"))
+                    })?;
+                    if parsed.get("event") == Some(&json!("metrics_error")) {
+                        let detail = parsed
+                            .get("detail")
+                            .and_then(Value::as_str)
+                            .unwrap_or("metrics stream failed");
+                        return Err(HyperCliError::InvalidResponse(detail.to_owned()));
+                    }
+                    if parsed.get("event") == Some(&json!("metrics_snapshot")) {
+                        handler(parsed.get("data").cloned().unwrap_or(Value::Null));
+                        if once {
+                            break;
+                        }
+                    }
+                }
+                Ok(Message::Ping(value)) => {
+                    socket
+                        .send(Message::Pong(value))
+                        .await
+                        .map_err(|_| HyperCliError::Transport("metrics websocket closed".into()))?;
+                }
+                Ok(Message::Close(_)) | Err(_) => break,
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// Wait for a deployment state using WebSocket wakeups and REST confirmation.
@@ -1862,6 +1986,28 @@ impl HyperCliClient {
             self.product_api_base(),
             path.trim_start_matches('/')
         )
+    }
+
+    fn product_ws_url(&self, path_segments: &[&str]) -> Result<Url, HyperCliError> {
+        let mut url = Url::parse(&self.product_api_base())
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        let scheme = match url.scheme() {
+            "https" => "wss",
+            "http" => "ws",
+            other => other,
+        }
+        .to_owned();
+        url.set_scheme(&scheme)
+            .map_err(|_| HyperCliError::InvalidResponse("invalid websocket scheme".to_owned()))?;
+        {
+            let mut segments = url
+                .path_segments_mut()
+                .map_err(|_| HyperCliError::InvalidResponse("invalid websocket URL".to_owned()))?;
+            for segment in path_segments {
+                segments.push(segment);
+            }
+        }
+        Ok(url)
     }
 
     fn send_json<T: DeserializeOwned>(

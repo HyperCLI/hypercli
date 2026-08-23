@@ -4,7 +4,8 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING, AsyncIterator, Iterator
+from urllib.parse import quote
 
 if TYPE_CHECKING:
     from .http import HTTPClient
@@ -240,6 +241,36 @@ class ExecResult:
 
 
 @dataclass
+class JobLifecycleEvent:
+    event: str
+    job_id: str = ""
+    state: str | None = None
+    reason: str | None = None
+    error: str | None = None
+    instance_id: str | None = None
+    runtime: int | None = None
+    payload: dict = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JobLifecycleEvent":
+        runtime = data.get("runtime")
+        try:
+            runtime = int(runtime) if runtime is not None else None
+        except (TypeError, ValueError):
+            runtime = None
+        return cls(
+            event=str(data.get("event", "")),
+            job_id=str(data.get("job_id", "")),
+            state=data.get("state"),
+            reason=data.get("reason"),
+            error=data.get("error"),
+            instance_id=data.get("instance_id"),
+            runtime=runtime,
+            payload=dict(data),
+        )
+
+
+@dataclass
 class JobListPage:
     jobs: list[Job] = field(default_factory=list)
     total_count: int = 0
@@ -407,10 +438,33 @@ class Jobs:
         data = self._http.get(f"/api/jobs/{job_id}/logs")
         return data.get("logs", "")
 
+    async def metrics_stream(self, job_id: str, interval: float = 5.0) -> AsyncIterator[JobMetrics]:
+        """Stream job GPU metrics snapshots over WebSocket."""
+        import json
+
+        websocket = await self._connect_metrics_websocket(job_id, interval=interval)
+        async with websocket:
+            async for raw in websocket:
+                try:
+                    data = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                if data.get("event") == "metrics_error":
+                    raise RuntimeError(str(data.get("detail", "metrics stream failed")))
+                if data.get("event") == "metrics_snapshot":
+                    yield JobMetrics.from_dict(data.get("data") or {})
+
     def metrics(self, job_id: str) -> JobMetrics:
-        """Get job GPU metrics"""
-        data = self._http.get(f"/api/jobs/{job_id}/metrics")
-        return JobMetrics.from_dict(data)
+        """Get one job GPU metrics snapshot over WebSocket."""
+        return _run_async_blocking(self.metrics_snapshot(job_id))
+
+    async def metrics_snapshot(self, job_id: str) -> JobMetrics:
+        """Get one job GPU metrics snapshot over WebSocket from async code."""
+        async for metrics in self.metrics_stream(job_id, interval=60):
+            return metrics
+        raise RuntimeError("metrics stream closed before first snapshot")
 
     def token(self, job_id: str) -> str:
         """Get job auth token"""
@@ -473,6 +527,40 @@ class Jobs:
         ws_base = ws_base.removesuffix("/api")
         url = f"{ws_base}/orchestra/ws/shell/{job_id}?token={job_key}&shell={shell}"
 
+        return await websockets.connect(url, ping_interval=20, ping_timeout=20)
+
+    async def lifecycle_stream(self, job_id: str) -> AsyncIterator[JobLifecycleEvent]:
+        """Stream job-scoped lifecycle events from Director.
+
+        Events are low-latency notifications. Refresh via get(job_id) when a
+        caller needs the authoritative job snapshot.
+        """
+        import json
+        import websockets
+
+        job = self.get(job_id)
+        job_key = quote(job.job_key, safe="")
+        ws_base = self._http.base_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_base = ws_base.removesuffix("/api")
+        url = f"{ws_base}/orchestra/ws/lifecycle/{job_key}"
+
+        async with websockets.connect(url, ping_interval=20, ping_timeout=20) as websocket:
+            async for raw in websocket:
+                try:
+                    data = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(data, dict):
+                    yield JobLifecycleEvent.from_dict(data)
+
+    async def _connect_metrics_websocket(self, job_id: str, interval: float):
+        import websockets
+
+        job = self.get(job_id)
+        job_key = quote(job.job_key, safe="")
+        ws_base = self._http.base_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_base = ws_base.removesuffix("/api")
+        url = f"{ws_base}/orchestra/ws/metrics/jobs/{job_key}?interval={float(interval)}"
         return await websockets.connect(url, ping_interval=20, ping_timeout=20)
 
 
@@ -565,3 +653,28 @@ def find_job(jobs: Jobs, identifier: str, state: str = None) -> Job | None:
 
     # Try IP match (slower, requires DNS lookup)
     return find_by_ip(job_list, identifier)
+
+
+def _run_async_blocking(coro):
+    import asyncio
+    import threading
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result = {}
+
+    def runner():
+        try:
+            result["value"] = asyncio.run(coro)
+        except BaseException as exc:
+            result["error"] = exc
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    thread.join()
+    if "error" in result:
+        raise result["error"]
+    return result["value"]
