@@ -12,6 +12,10 @@ import {
   reconcileJobLogSnapshots,
   shouldStreamJobLogs,
 } from "../../lib/job-log-stream";
+import EnvVarsSection from "../../components/EnvVarsSection";
+
+const PENDING_JOB_POLL_INTERVAL_MS = 5_000;
+const RUNNING_JOB_REFRESH_INTERVAL_MS = 30_000;
 
 interface Job {
   job_id: string;
@@ -309,8 +313,10 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     }
   }, [getAuthToken, jobId]);
 
-  const startPolling = useCallback(() => {
-    if (pollingIntervalRef.current) return;
+  const startPolling = useCallback((intervalMs: number) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
 
     const poll = async () => {
       try {
@@ -334,7 +340,7 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
       }
     };
 
-    pollingIntervalRef.current = setInterval(poll, 5000);
+    pollingIntervalRef.current = setInterval(poll, intervalMs);
     poll(); // Initial poll
   }, [getAuthToken, jobId]);
 
@@ -570,7 +576,12 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     activeJobKeyRef.current = jobKey;
 
     if (['queued', 'assigned'].includes(jobState)) {
-      startPolling();
+      startPolling(PENDING_JOB_POLL_INTERVAL_MS);
+    } else if (jobState === 'running') {
+      // Running jobs otherwise render from one initial fetch plus a purely
+      // client-side countdown, so Time Remaining drifts from the server view
+      // and terminal states never arrive. Re-fetch job data on a slow poll.
+      startPolling(RUNNING_JOB_REFRESH_INTERVAL_MS);
     } else {
       stopPolling();
     }
@@ -1167,6 +1178,80 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
               )}
             </div>
           </div>
+
+          {/* Launch Configuration */}
+          <div className="bg-surface-low border border-border p-6 rounded-lg mb-6">
+            <h2 className="text-xl font-bold text-foreground mb-6">Launch Configuration</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="md:col-span-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                  Docker Image
+                </h3>
+                <p className="font-mono text-sm text-foreground break-all">{job.docker_image}</p>
+              </div>
+
+              {job.hf_space && (
+                <div className="md:col-span-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Hugging Face Space
+                  </h3>
+                  <p className="font-mono text-sm text-foreground break-all">{job.hf_space}</p>
+                </div>
+              )}
+
+              {job.command && job.command.length > 0 && (
+                <div className="md:col-span-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Command
+                  </h3>
+                  <p className="font-mono text-sm text-foreground bg-background border border-border rounded-lg p-3 whitespace-pre-wrap break-all">
+                    {job.command.join(" ")}
+                  </p>
+                </div>
+              )}
+
+              {job.ports && Object.keys(job.ports).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Exposed Ports
+                  </h3>
+                  <ul className="space-y-1">
+                    {Object.entries(job.ports).map(([name, port]) => (
+                      <li key={name} className="font-mono text-sm text-foreground">
+                        {name === 'lb' ? 'Load balancer' : name}: {port}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                  Interruptible
+                </h3>
+                <p className="text-foreground">{job.interruptible ? 'Yes' : 'No'}</p>
+              </div>
+
+              {job.dockerfile && (
+                <div className="md:col-span-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Dockerfile
+                  </h3>
+                  <details className="bg-background border border-border rounded-lg">
+                    <summary className="cursor-pointer select-none px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
+                      Show Dockerfile
+                    </summary>
+                    <p className="font-mono text-sm text-foreground p-3 pt-0 whitespace-pre-wrap break-all">
+                      {job.dockerfile}
+                    </p>
+                  </details>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Environment Variables (masked by default) */}
+          <EnvVarsSection envVars={job.env_vars} />
 
           {/* Live Metrics */}
           {metrics && (job.state === 'running' || job.state === 'assigned') && (

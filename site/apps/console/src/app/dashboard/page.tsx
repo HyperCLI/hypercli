@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { Header, Footer, ThemeSelector, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
+import { useRouter } from "next/navigation";
+import { Header, Footer, ThemeSelector, TopUpModal, AlertDialog, formatDateTime, getBadgeClass, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
 import LLMTransactionRow from "../../components/LLMTransactionRow";
@@ -17,7 +18,24 @@ import {
   type ConsoleUserProfile as UserProfile,
 } from "../../lib/sdk";
 
+interface RunningJob {
+  job_id: string;
+  state: string;
+  gpu_type: string;
+  gpu_count: number;
+  hostname: string | null;
+  ports: { [key: string]: number } | null;
+  price_per_hour: number;
+  price_per_second: number;
+  started_at: string | number | null;
+  created_at: string;
+}
+
+const RUNNING_JOBS_REFRESH_INTERVAL_MS = 10_000;
+const RUNNING_JOBS_PAGE_SIZE = 20;
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isEditing, setIsEditing] = useState<{ name: boolean; email: boolean }>({ name: false, email: false });
   const [editValues, setEditValues] = useState({ name: "", email: "" });
@@ -26,6 +44,9 @@ export default function DashboardPage() {
   const [profileError, setProfileError] = useState<string | null>(null);
 
   const [balance, setBalance] = useState<Balance | null>(null);
+  const [runningJobs, setRunningJobs] = useState<RunningJob[]>([]);
+  const [runningJobsTotal, setRunningJobsTotal] = useState(0);
+  const [jobsLoading, setJobsLoading] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [totalTxCount, setTotalTxCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -35,6 +56,7 @@ export default function DashboardPage() {
   const [showTopUpModal, setShowTopUpModal] = useState(false);
 
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const jobsPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const pollingStartTimeRef = useRef<number>(0);
   const initialTxCountRef = useRef<number>(0);
   const [alertDialog, setAlertDialog] = useState<{
@@ -110,6 +132,77 @@ export default function DashboardPage() {
     } catch (error) {
       console.error('Error fetching balance:', error);
     }
+  };
+
+  const fetchRunningJobs = useCallback(async (silent = false) => {
+    if (!silent) {
+      setJobsLoading(true);
+    }
+    try {
+      const authToken = getAuthCookieToken();
+      if (!authToken) {
+        setRunningJobs([]);
+        setRunningJobsTotal(0);
+        return;
+      }
+
+      const response = await fetch(
+        getAuthBackendUrl(`/jobs?page=1&page_size=${RUNNING_JOBS_PAGE_SIZE}&state=running`),
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          },
+          cache: 'no-store',
+        }
+      );
+
+      if (response.ok) {
+        const jobsData = await response.json();
+        // Handle both array (legacy) and paginated response
+        setRunningJobs(Array.isArray(jobsData) ? jobsData : jobsData.jobs || []);
+        setRunningJobsTotal(Array.isArray(jobsData) ? jobsData.length : jobsData.total_count || 0);
+      } else if (response.status === 404) {
+        setRunningJobs([]);
+        setRunningJobsTotal(0);
+      } else if (!silent) {
+        console.error('Failed to load running jobs:', response.status);
+      }
+    } catch (error) {
+      console.error('Error fetching running jobs:', error);
+    } finally {
+      if (!silent) {
+        setJobsLoading(false);
+      }
+    }
+  }, []);
+
+  // Initial fetch + periodic refresh of running jobs
+  useEffect(() => {
+    void fetchRunningJobs();
+    jobsPollingIntervalRef.current = setInterval(() => {
+      void fetchRunningJobs(true);
+    }, RUNNING_JOBS_REFRESH_INTERVAL_MS);
+
+    return () => {
+      if (jobsPollingIntervalRef.current) {
+        clearInterval(jobsPollingIntervalRef.current);
+        jobsPollingIntervalRef.current = null;
+      }
+    };
+  }, [fetchRunningJobs]);
+
+  // Estimated accrued cost for a running job, mirroring the jobs page
+  const getRunningJobCost = (job: RunningJob): number => {
+    if (job.state !== 'running' || !job.started_at) {
+      return 0;
+    }
+    const startedTime = typeof job.started_at === 'number'
+      ? job.started_at
+      : new Date(job.started_at).getTime() / 1000;
+    const duration = Math.max(0, Date.now() / 1000 - startedTime);
+    return duration * job.price_per_second;
   };
 
   const fetchTransactions = async () => {
@@ -369,6 +462,133 @@ export default function DashboardPage() {
               </div>
             </>
           )}
+
+          {/* Running Jobs */}
+          <div className="mt-12">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-foreground">Running Jobs</h2>
+              <Link
+                href="/jobs"
+                className="text-primary hover:text-primary-hover font-semibold text-sm"
+              >
+                View all jobs
+              </Link>
+            </div>
+            <div className="bg-surface-low border border-border rounded-lg overflow-hidden">
+              {jobsLoading ? (
+                <div className="p-8 text-center text-muted-foreground">Loading running jobs...</div>
+              ) : runningJobs.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">No running jobs</div>
+              ) : (
+                <>
+                  <table className="min-w-full divide-y divide-border">
+                    <thead className="bg-background">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-24">
+                          Status
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-32">
+                          Job ID
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-28">
+                          Type
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-64">
+                          Hostname
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
+                          Price/Hour
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-20">
+                          Cost
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-20">
+                          Created
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-surface-low divide-y divide-border">
+                      {runningJobs.map((job) => (
+                        <tr
+                          key={job.job_id}
+                          className="hover:bg-surface-medium cursor-pointer"
+                          onClick={(e) => {
+                            // Ctrl/Cmd+click opens in new tab
+                            if (e.ctrlKey || e.metaKey) {
+                              window.open(`/job/${job.job_id}`, '_blank');
+                            } else {
+                              router.push(`/job/${job.job_id}`);
+                            }
+                          }}
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap w-24">
+                            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(job.state)}`}>
+                              {job.state}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap w-32">
+                            <span className="font-mono text-sm text-foreground">
+                              {job.job_id.substring(0, 8)}...
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap w-28">
+                            <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-background text-foreground border-border">
+                              {job.gpu_count}x {job.gpu_type}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-mono w-64">
+                            {job.hostname ? (
+                              job.ports?.lb ? (
+                                <a
+                                  href={`https://${job.hostname}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="inline-flex items-center gap-1 text-primary hover:text-primary-hover hover:underline truncate"
+                                >
+                                  <span className="truncate">{job.hostname}</span>
+                                  <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                  </svg>
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground truncate block">{job.hostname}</span>
+                              )
+                            ) : (
+                              <span className="text-tertiary-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
+                            ${job.price_per_hour.toFixed(6)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm w-20">
+                            <span className="text-foreground">
+                              ${getRunningJobCost(job).toFixed(2)}+
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground w-20">
+                            {formatDateTime(job.created_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {runningJobsTotal > runningJobs.length && (
+                    <div className="bg-background px-6 py-3 border-t border-border text-sm text-muted-foreground">
+                      Showing <span className="font-medium text-foreground">{runningJobs.length}</span>
+                      {' of '}
+                      <span className="font-medium text-foreground">{runningJobsTotal}</span>
+                      {' running jobs — '}
+                      <Link href="/jobs" className="text-primary hover:text-primary-hover font-medium">
+                        view all
+                      </Link>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
 
           {/* Transaction History */}
           <div className="mt-12">
