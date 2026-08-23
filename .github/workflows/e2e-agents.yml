@@ -11,6 +11,11 @@ jobs:
   playwright-agents:
     runs-on: self-hosted
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [openclaw, hermes]
+    name: e2e-${{ matrix.lane }}
     concurrency:
       group: hypercli-frontend-e2e-agents
       cancel-in-progress: false
@@ -24,7 +29,8 @@ jobs:
       TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
-      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-agents-${{ github.run_id }}-${{ github.run_attempt }}
+      E2E_SPECS: tests/claw/agents-${{ matrix.lane }}-e2e.spec.ts
+      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-agents-${{ matrix.lane }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,17 +44,17 @@ jobs:
           exec 9>/tmp/hypercli-dev-control-plane.lock
           flock --shared 9
           python3 .github/scripts/bootstrap_agents_e2e_user.py bootstrap \
-            --suite agents-e2e \
-            --state-file "${RUNNER_TEMP}/hypercli-agents-e2e-user-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
+            --suite agents-${{ matrix.lane }}-e2e \
+            --state-file "${RUNNER_TEMP}/hypercli-agents-${{ matrix.lane }}-e2e-user-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json" \
             --github-env-file "$GITHUB_ENV"
 
       - name: Build E2E image
         id: build-e2e
         run: |
-          rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-agents-"*
+          rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-agents-${{ matrix.lane }}-"*
           E2E_IMAGE_FAMILY="e2e-agents" \
           PRUNE_BUILD_CACHE=1 \
-          IMAGE_TAG="e2e-agents-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+          IMAGE_TAG="e2e-agents-${{ matrix.lane }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
       - name: Run dockerized Playwright tests
@@ -78,6 +84,7 @@ jobs:
             -e TEST_AGENTS_API_BASE_URL \
             -e TEST_STRIPE_AGENTS_SECRET_KEY \
             -e NOTIFY_URL \
+            -e E2E_SPECS \
             -e NOTIFY_API_KEY \
             -e GITHUB_RUN_URL \
             -e E2E_ARTIFACTS_DIR=/artifacts \
@@ -89,7 +96,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-agents-artifacts
+          name: playwright-${{ matrix.lane }}-artifacts
           path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
           retention-days: 3
@@ -123,14 +130,14 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Frontend playwright-agents passed"
+          MESSAGE="Frontend e2e-${{ matrix.lane }} passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
-            --workflow "playwright-agents" \
+            --workflow "e2e-${{ matrix.lane }}" \
             --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 

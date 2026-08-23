@@ -228,20 +228,21 @@ cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
-# One spec per runtime, one journey each, in parallel lanes: the whole user
-# flow clicked through the real frontend (trial -> create -> chat -> stop ->
-# delete). OpenClaw uses the harness identity; Hermes bootstraps its own so the
-# two trial claims never share an account. The old battery of mocked suites
-# lived here; it was retired deliberately -- these runs exist to prove a commit
-# does not nuke the flow.
+# One spec per runtime, one journey each: the whole user flow clicked through
+# the real frontend (trial -> create -> chat -> stop -> delete). OpenClaw uses
+# the harness identity; Hermes bootstraps its own so the two trial claims never
+# share an account. CI runs each lane as its own matrix job (E2E_SPECS); a bare
+# local run executes both in parallel. The old battery of mocked suites lived
+# here; it was retired deliberately -- these runs exist to prove a commit does
+# not nuke the flow.
 set +e
+read -r -a E2E_SPEC_FILES <<< "${E2E_SPECS:-tests/claw/agents-e2e.spec.ts tests/claw/agents-hermes-e2e.spec.ts}"
 npx playwright test \
   --config tests/claw/playwright.config.ts \
   --project=chromium \
   --max-failures=1 \
   --workers=2 \
-  tests/claw/agents-e2e.spec.ts \
-  tests/claw/agents-hermes-e2e.spec.ts
+  "${E2E_SPEC_FILES[@]}"
 status=$?
 set -e
 
