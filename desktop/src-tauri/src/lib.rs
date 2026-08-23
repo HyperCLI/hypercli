@@ -18,7 +18,6 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, Position, Rect};
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_notification::NotificationExt;
 use tokio::sync::{mpsc, watch};
 
 /// Capabilities held by a Desktop-minted machine key. Agent management is
@@ -66,6 +65,20 @@ pub struct LauncherAgent {
     is_buzz: bool,
     can_start: bool,
     can_stop: bool,
+    /// Archived agents stay listed but render grayed out and inert.
+    archived: bool,
+    /// Paid claim in vCPU cores from the deployment record. Informational
+    /// only — never a load-bar denominator.
+    cpu: Option<f64>,
+    /// Paid claim in GiB from the deployment record. Informational only —
+    /// never a load-bar denominator.
+    memory: Option<f64>,
+    /// The pod's CPU burst ceiling in vCPU cores; the sole denominator for
+    /// the CPU load bar. Rows without it render no CPU bar.
+    cpu_limit: Option<f64>,
+    /// The pod's memory burst ceiling in GiB; the sole denominator for the
+    /// memory load bar. Rows without it render no memory bar.
+    memory_limit: Option<f64>,
 }
 
 struct AgentActions {
@@ -110,6 +123,10 @@ impl From<Deployment> for LauncherAgent {
         } else {
             None
         };
+        let state = normalized_state(&deployment.state);
+        // The archive contract sets `archived_at` on ARCHIVED agents; accept
+        // the bare state too so older backends still gray the row out.
+        let archived = deployment.archived_at.is_some() || state == "archived";
         Self {
             id: deployment.id,
             name: display_name,
@@ -118,10 +135,81 @@ impl From<Deployment> for LauncherAgent {
                 .runtime
                 .and_then(|runtime| serde_json::to_value(runtime).ok())
                 .and_then(|value| value.as_str().map(str::to_owned)),
-            state: normalized_state(&deployment.state),
+            state,
             is_buzz,
             can_start: actions.start,
             can_stop: actions.stop,
+            archived,
+            cpu: None,
+            memory: None,
+            cpu_limit: None,
+            memory_limit: None,
+        }
+    }
+}
+
+impl LauncherAgent {
+    fn with_resources(mut self, resources: Option<&DeploymentResources>) -> Self {
+        if let Some(resources) = resources {
+            self.cpu = resources.cpu;
+            self.memory = resources.memory;
+            self.cpu_limit = resources.cpu_limit;
+            self.memory_limit = resources.memory_limit;
+        }
+        self
+    }
+}
+
+/// Pods burst above the paid claim to a higher limit, and the limit is the
+/// sole live-usage denominator. The typed SDK `Deployment` drops all of
+/// these resource fields, so they are fetched as raw JSON — keeping the SDK
+/// stock.
+#[derive(Clone, Default, Deserialize)]
+#[serde(default)]
+struct DeploymentResources {
+    cpu: Option<f64>,
+    memory: Option<f64>,
+    cpu_limit: Option<f64>,
+    memory_limit: Option<f64>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct DeploymentResourceEntry {
+    id: String,
+    #[serde(flatten)]
+    resources: DeploymentResources,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct DeploymentResourceEnvelope {
+    items: Vec<DeploymentResourceEntry>,
+}
+
+/// Reads the deployments list as raw JSON to recover the resource fields
+/// the typed SDK `Deployment` drops. Failure is non-fatal: an empty map
+/// leaves the rows rendering text-only metrics.
+fn fetch_deployment_resources(config: &ClientConfig) -> HashMap<String, DeploymentResources> {
+    let url = format!(
+        "{}/deployments",
+        config.api_base.as_str().trim_end_matches('/')
+    );
+    let result = reqwest::blocking::Client::new()
+        .get(&url)
+        .bearer_auth(config.api_key.expose_secret())
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.json::<DeploymentResourceEnvelope>());
+    match result {
+        Ok(envelope) => envelope
+            .items
+            .into_iter()
+            .map(|entry| (entry.id, entry.resources))
+            .collect(),
+        Err(error) => {
+            eprintln!("hypercli-menubar: deployment resource fetch failed: {error}");
+            HashMap::new()
         }
     }
 }
@@ -298,21 +386,9 @@ async fn validate_key() -> Result<KeyValidation, String> {
 
 #[tauri::command]
 async fn list_agents() -> Result<Vec<LauncherAgent>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let capacity = managed_client()?
-            .list_deployments_with_capacity()
-            .map_err(|error| error.to_string())?;
-        Ok::<_, String>(
-            capacity
-                .items
-                .into_iter()
-                .filter(|deployment| deployment.archived_at.is_none())
-                .map(LauncherAgent::from)
-                .collect(),
-        )
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    tauri::async_runtime::spawn_blocking(fetch_launcher_agents)
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 /// Start an OpenClaw agent after locking its control UI to the dashboard
@@ -849,10 +925,10 @@ fn init_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Agent id → (display name, last known state). `None` until the first
-/// roster fetch primes the baseline — transitions are only notified against
-/// a primed baseline, never on initial load.
-type AgentStateBaseline = Arc<Mutex<Option<HashMap<String, (String, String)>>>>;
+/// Agent id → (display name, last known state, avatar URL). `None` until the
+/// first roster fetch primes the baseline — transitions are only notified
+/// against a primed baseline, never on initial load.
+type AgentStateBaseline = Arc<Mutex<Option<HashMap<String, (String, String, Option<String>)>>>>;
 
 /// Watches the deployment event stream (/ws) and turns state transitions
 /// into native notifications plus an `agents-updated` event carrying the
@@ -873,35 +949,105 @@ impl AgentWatcher {
     }
 }
 
-fn notify_lifecycle(app: &tauri::AppHandle, name: &str, from: &str, to: &str) {
+/// Map an image content type to the file extension the notification backends
+/// decode by. Anything that is not an image degrades to a plain notification.
+fn avatar_extension(content_type: Option<&str>) -> Option<&'static str> {
+    match content_type.map(|value| value.split(';').next().unwrap_or("").trim()) {
+        Some("image/png") => Some("png"),
+        Some("image/jpeg") => Some("jpg"),
+        Some("image/webp") => Some("webp"),
+        Some("image/gif") => Some("gif"),
+        _ => None,
+    }
+}
+
+/// Cache an agent's avatar under the app cache dir, keyed by agent id and URL
+/// content so a re-upload lands on a fresh path (backends cache by path) and
+/// stale variants get pruned. Returns the path for `Notification::image_path`.
+fn cache_agent_avatar(cache_dir: &PathBuf, agent_id: &str, url: &str) -> Option<PathBuf> {
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+
+    let mut request = reqwest::blocking::Client::new().get(url);
+    if let Ok(config) = discover_client_config() {
+        request = request.bearer_auth(config.api_key.expose_secret());
+    }
+    let response = request
+        .send()
+        .and_then(|response| response.error_for_status())
+        .ok()?;
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let bytes = response.bytes().ok()?;
+    if bytes.is_empty() || bytes.len() > 10 * 1024 * 1024 {
+        return None;
+    }
+    let extension = avatar_extension(content_type.as_deref())?;
+
+    let dir = cache_dir.join("avatars");
+    std::fs::create_dir_all(&dir).ok()?;
+
+    let fingerprint: u64 = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        url.hash(&mut hasher);
+        hasher.finish()
+    };
+    let file_name = format!("{agent_id}-{fingerprint:x}.{extension}");
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&format!("{agent_id}-")) && name != file_name {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let path = dir.join(file_name);
+    if !path.exists() {
+        std::fs::write(&path, &bytes).ok()?;
+    }
+    Some(path)
+}
+
+/// Push a lifecycle transition to the OS notification center with the agent
+/// avatar as the image (macOS attachment / XDG image on Linux). Goes through
+/// notify-rust directly: the Tauri plugin wraps it but hides `image_path`.
+fn notify_lifecycle(name: &str, from: &str, to: &str, avatar: Option<&std::path::Path>) {
     let body = match to {
         "running" if from != "running" => Some(format!("{name} is online")),
         "failed" => Some(format!("{name} failed")),
         "stopped" if from == "running" => Some(format!("{name} stopped")),
         _ => None,
     };
-    if let Some(body) = body {
-        if let Err(error) = app
-            .notification()
-            .builder()
-            .title("HyperCLI")
-            .body(&body)
-            .show()
-        {
-            eprintln!("hypercli-menubar: notification failed: {error}");
-        }
+    let Some(body) = body else { return };
+
+    let mut notification = notify_rust::Notification::new();
+    notification.summary("HyperCLI").body(&body);
+    if let Some(avatar) = avatar {
+        notification.image_path(&avatar.to_string_lossy());
+    }
+    if let Err(error) = notification.show() {
+        eprintln!("hypercli-menubar: notification failed: {error}");
     }
 }
 
 fn fetch_launcher_agents() -> Result<Vec<LauncherAgent>, String> {
-    let capacity = managed_client()?
+    let config = discover_client_config().map_err(|error| error.to_string())?;
+    let resources = fetch_deployment_resources(&config);
+    let capacity = HyperCliClient::new(config)
+        .map_err(|error| error.to_string())?
         .list_deployments_with_capacity()
         .map_err(|error| error.to_string())?;
     Ok(capacity
         .items
         .into_iter()
-        .filter(|deployment| deployment.archived_at.is_none())
-        .map(LauncherAgent::from)
+        .map(|deployment| {
+            let resources = resources.get(&deployment.id);
+            LauncherAgent::from(deployment).with_resources(resources)
+        })
         .collect())
 }
 
@@ -911,6 +1057,11 @@ async fn run_agent_watcher(
     mut restart: watch::Receiver<u64>,
 ) {
     let (invalidate_tx, mut invalidate_rx) = mpsc::channel::<()>(8);
+    let avatar_cache_dir = app.path().app_cache_dir().unwrap_or_else(|_| {
+        dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("hypercli-menubar")
+    });
     // Debounced refetch task: coalesce bursts of stream events into one
     // roster refetch, diff, notify, and push the roster to the popup.
     let refetch_app = app.clone();
@@ -922,30 +1073,71 @@ async fn run_agent_watcher(
                 Ok(Ok(agents)) => agents,
                 _ => continue,
             };
-            {
+            let transitions: Vec<(String, String, String, String, Option<String>)> = {
                 let mut known = states.lock().unwrap_or_else(|error| error.into_inner());
+                let mut transitions = Vec::new();
                 if let Some(known) = known.as_mut() {
                     for agent in &agents {
-                        if let Some((name, previous)) = known.get(&agent.id) {
+                        if let Some((name, previous, _)) = known.get(&agent.id) {
                             if *previous != agent.state {
-                                notify_lifecycle(&refetch_app, name, previous, &agent.state);
+                                transitions.push((
+                                    agent.id.clone(),
+                                    name.clone(),
+                                    previous.clone(),
+                                    agent.state.clone(),
+                                    agent.avatar_url.clone(),
+                                ));
                             }
                         }
                     }
                     *known = agents
                         .iter()
-                        .map(|agent| (agent.id.clone(), (agent.name.clone(), agent.state.clone())))
+                        .map(|agent| {
+                            (
+                                agent.id.clone(),
+                                (
+                                    agent.name.clone(),
+                                    agent.state.clone(),
+                                    agent.avatar_url.clone(),
+                                ),
+                            )
+                        })
                         .collect();
                 } else {
                     *known = Some(
                         agents
                             .iter()
                             .map(|agent| {
-                                (agent.id.clone(), (agent.name.clone(), agent.state.clone()))
+                                (
+                                    agent.id.clone(),
+                                    (
+                                        agent.name.clone(),
+                                        agent.state.clone(),
+                                        agent.avatar_url.clone(),
+                                    ),
+                                )
                             })
                             .collect(),
                     );
                 }
+                transitions
+            };
+            for (agent_id, name, previous, state, avatar_url) in transitions {
+                // Avatar downloads stay off the async executor; the
+                // notification falls back to plain text when they fail.
+                let avatar_path = match avatar_url.filter(|url| !url.trim().is_empty()) {
+                    Some(url) => {
+                        let cache_dir = avatar_cache_dir.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            cache_agent_avatar(&cache_dir, &agent_id, &url)
+                        })
+                        .await
+                        .ok()
+                        .flatten()
+                    }
+                    None => None,
+                };
+                notify_lifecycle(&name, &previous, &state, avatar_path.as_deref());
             }
             let _ = refetch_app.emit("agents-updated", agents);
         }
@@ -1116,5 +1308,40 @@ mod tests {
         assert!(agent_actions("creating").stop);
         assert!(!agent_actions("failed").start);
         assert!(!agent_actions("failed").stop);
+        assert!(!agent_actions("archived").start);
+        assert!(!agent_actions("archived").stop);
+    }
+
+    #[test]
+    fn launcher_agent_marks_archived() {
+        let mut deployment = Deployment::default();
+        deployment.archived_at = Some("2026-08-01T00:00:00Z".to_owned());
+        let agent = LauncherAgent::from(deployment);
+        assert!(agent.archived);
+        assert!(!agent.can_start);
+        assert!(!agent.can_stop);
+
+        let mut deployment = Deployment::default();
+        deployment.state = "archived".to_owned();
+        assert!(LauncherAgent::from(deployment).archived);
+    }
+
+    #[test]
+    fn avatar_extension_maps_image_types() {
+        assert_eq!(avatar_extension(Some("image/png")), Some("png"));
+        assert_eq!(avatar_extension(Some("image/jpeg")), Some("jpg"));
+        assert_eq!(
+            avatar_extension(Some("image/jpeg; charset=binary")),
+            Some("jpg")
+        );
+        assert_eq!(avatar_extension(Some("image/webp")), Some("webp"));
+        assert_eq!(avatar_extension(Some("image/gif")), Some("gif"));
+    }
+
+    #[test]
+    fn avatar_extension_rejects_non_images() {
+        assert_eq!(avatar_extension(Some("text/html")), None);
+        assert_eq!(avatar_extension(None), None);
+        assert_eq!(avatar_extension(Some("application/octet-stream")), None);
     }
 }

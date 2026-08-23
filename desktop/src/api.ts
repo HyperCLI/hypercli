@@ -18,6 +18,16 @@ export interface LauncherAgent {
   is_buzz: boolean;
   can_start: boolean;
   can_stop: boolean;
+  /** Archived agents stay listed but render grayed out and inert. */
+  archived: boolean;
+  /** Allocated vCPU cores; null when the backend did not report it. */
+  cpu: number | null;
+  /** Allocated memory in GiB; null when the backend did not report it. */
+  memory: number | null;
+  /** CPU burst ceiling in vCPU cores; null on older backends. */
+  cpu_limit: number | null;
+  /** Memory burst ceiling in GiB; null on older backends. */
+  memory_limit: number | null;
 }
 
 export interface BuzzConnectionMetadata {

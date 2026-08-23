@@ -1,7 +1,24 @@
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Archive, Pencil, Play, Plus, Settings, Square, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Activity,
+  Archive,
+  Cpu,
+  MemoryStick,
+  Pencil,
+  Play,
+  Plus,
+  Settings,
+  Square,
+  Trash2,
+} from "lucide-react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   agentMetrics,
   archiveAgent,
@@ -34,6 +51,51 @@ const METRICS_POLL_MS = 30_000;
 interface AgentMetricsSummary {
   cpu?: string;
   memory?: string;
+  /** Parsed from `cpu` (a k8s quantity) as vCPU cores. */
+  cpuCores?: number;
+  /** Parsed from `memory` (a k8s quantity) as bytes. */
+  memoryBytes?: number;
+}
+
+/** Parses a Kubernetes CPU quantity ("250m", "1", "12345678n") into cores. */
+function parseCpuQuantity(value: string): number | undefined {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?)(n|u|m)?$/);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  switch (match[2]) {
+    case "n":
+      return amount / 1e9;
+    case "u":
+      return amount / 1e6;
+    case "m":
+      return amount / 1e3;
+    default:
+      return amount;
+  }
+}
+
+/** Parses a Kubernetes memory quantity ("20Mi", "1Gi", "1048576") into bytes. */
+function parseMemoryQuantity(value: string): number | undefined {
+  const match = value
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?$/);
+  if (!match) return undefined;
+  const amount = Number(match[1]);
+  const suffixes: Record<string, number> = {
+    Ki: 2 ** 10,
+    Mi: 2 ** 20,
+    Gi: 2 ** 30,
+    Ti: 2 ** 40,
+    Pi: 2 ** 50,
+    Ei: 2 ** 60,
+    k: 1e3,
+    M: 1e6,
+    G: 1e9,
+    T: 1e12,
+    P: 1e15,
+    E: 1e18,
+  };
+  return amount * (match[2] === undefined ? 1 : suffixes[match[2]]);
 }
 
 /** Depth-limited search for the first string-valued cpu/memory keys in the
@@ -60,7 +122,97 @@ function summarizeMetrics(payload: unknown): AgentMetricsSummary {
     }
   };
   visit(payload, 0);
+  found.cpuCores =
+    found.cpu === undefined ? undefined : parseCpuQuantity(found.cpu);
+  found.memoryBytes =
+    found.memory === undefined ? undefined : parseMemoryQuantity(found.memory);
   return found;
+}
+
+/** Formats vCPU cores for display, trimming noise ("0.52", "1", "2.5"). */
+function formatCores(cores: number): string {
+  return `${Math.round(cores * 100) / 100}`;
+}
+
+/** Formats bytes as GB with one decimal under 10 GB ("1.6", "8", "12"). */
+function formatGigabytes(bytes: number): string {
+  const gigabytes = bytes / 1024 ** 3;
+  return gigabytes >= 10
+    ? `${Math.round(gigabytes)}`
+    : `${Math.round(gigabytes * 10) / 10}`;
+}
+
+/**
+ * Fixed-decimal companions for in-row labels. The variable-precision
+ * helpers above shift label widths between rows, which makes the bar
+ * tracks misalign; these keep every row's label the same shape.
+ */
+function formatCoresFixed(cores: number): string {
+  return cores.toFixed(2);
+}
+
+/** Formats bytes as GB with exactly one decimal ("2.6", "8.0"). */
+function formatGigabytesFixed(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
+
+function loadBarColor(ratio: number): string {
+  if (ratio >= 0.85) return "bg-danger";
+  if (ratio >= 0.6) return "bg-warning";
+  return "bg-success";
+}
+
+function LoadBar({
+  icon,
+  label,
+  ratio,
+  valueText,
+  detail,
+}: {
+  icon: ReactNode;
+  label: string;
+  /** Usage ÷ limit. Undefined when the backend reports no limit — the bar
+   * renders as an empty track with the absolute usage value instead of a
+   * percentage. */
+  ratio?: number;
+  /** Shown in place of the percentage when `ratio` is unknown. */
+  valueText: string;
+  detail: string;
+}) {
+  const percent =
+    ratio === undefined
+      ? undefined
+      : Math.min(100, Math.max(0, Math.round(ratio * 100)));
+  return (
+    <span
+      className="flex w-full items-center gap-1.5"
+      title={
+        percent === undefined
+          ? `${label}: ${detail}`
+          : `${label}: ${detail} (${percent}%)`
+      }
+    >
+      <span className="shrink-0 text-ink-dim">{icon}</span>
+      <span
+        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-raised"
+        role="progressbar"
+        aria-label={`${label} load`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        {...(percent === undefined ? {} : { "aria-valuenow": percent })}
+      >
+        {percent !== undefined && (
+          <span
+            className={`block h-full rounded-full transition-[width] duration-500 ${loadBarColor(ratio ?? 0)}`}
+            style={{ width: `${percent}%` }}
+          />
+        )}
+      </span>
+      <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-ink-dim">
+        {percent !== undefined ? `${percent}%` : valueText}
+      </span>
+    </span>
+  );
 }
 
 function stateColor(state: string): string {
@@ -81,15 +233,45 @@ function stateColor(state: string): string {
 function AgentRow({
   agent,
   metrics,
+  showGraphs,
   onChanged,
 }: {
   agent: LauncherAgent;
   metrics?: AgentMetricsSummary;
+  showGraphs: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Bars normalize against the pod's burst limit exclusively; the paid
+  // claim is never used as a denominator. Usage without a reported limit
+  // still renders a bar strip — empty track plus the absolute value — so
+  // the graphs toggle stays meaningful before limits go live.
+  const cpuCapacity = agent.cpu_limit;
+  const memoryCapacity = agent.memory_limit;
+  const cpuRatio =
+    metrics?.cpuCores !== undefined && cpuCapacity
+      ? metrics.cpuCores / cpuCapacity
+      : undefined;
+  const memoryRatio =
+    metrics?.memoryBytes !== undefined && memoryCapacity
+      ? metrics.memoryBytes / (memoryCapacity * 1024 ** 3)
+      : undefined;
+  const hasCpuUsage = metrics?.cpuCores !== undefined;
+  const hasMemoryUsage = metrics?.memoryBytes !== undefined;
+
+  const cpuText =
+    metrics?.cpuCores !== undefined
+        ? `${formatCoresFixed(metrics.cpuCores)} cpu`
+      : metrics?.cpu
+        ? `${metrics.cpu} cpu`
+        : undefined;
+  const memoryText =
+    metrics?.memoryBytes !== undefined
+      ? `${formatGigabytesFixed(metrics.memoryBytes)} GB`
+      : metrics?.memory;
 
   const act = async (fn: (id: string) => Promise<unknown>) => {
     setBusy(true);
@@ -117,113 +299,160 @@ function AgentRow({
     }
   };
 
+  const showBars = showGraphs && (hasCpuUsage || hasMemoryUsage);
+  const archived = agent.archived;
+
   return (
-    <div className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 hover:bg-surface">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        className="hidden"
-        onChange={(event) => {
-          void pickAvatar(event.target.files?.[0]);
-          event.target.value = "";
-        }}
-      />
-      <button
-        type="button"
-        disabled={busy}
-        title="Set profile picture"
-        className="relative h-8 w-8 shrink-0"
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-raised text-sm font-semibold text-ink-secondary">
-          {agent.avatar_url ? (
-            <img
-              src={agent.avatar_url}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            (agent.name.trim().charAt(0) || "?").toUpperCase()
-          )}
-        </span>
-        <span className="absolute inset-0 hidden items-center justify-center rounded-full bg-bg/70 text-ink group-hover:flex">
-          <Pencil size={12} />
-        </span>
-        <span
-          className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateColor(agent.state)}`}
+    <div
+      className={`group flex w-full flex-col rounded-lg px-3 py-2 ${
+        archived ? "opacity-50" : "hover:bg-surface"
+      }`}
+    >
+      <div className="flex w-full items-center gap-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          onChange={(event) => {
+            void pickAvatar(event.target.files?.[0]);
+            event.target.value = "";
+          }}
         />
-      </button>
-      <button
-        type="button"
-        className="min-w-0 flex-1 text-left"
-        onClick={() => {
-          void openAgentChat(agent.id).catch(console.error);
-        }}
-      >
-        <span className="block truncate text-sm font-medium text-ink">
-          {agent.name || "Untitled agent"}
-        </span>
-        <span className="block truncate text-xs text-ink-dim">
-          {agent.state}
-          {agent.runtime ? ` · ${agent.runtime}` : ""}
-          {metrics?.cpu ? ` · ${metrics.cpu} cpu` : ""}
-          {metrics?.memory ? ` · ${metrics.memory}` : ""}
-        </span>
-      </button>
-      {agent.can_start && (
-        <>
-          <button
-            type="button"
-            disabled={busy}
-            title="Start"
-            className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-success disabled:opacity-40"
-            onClick={() => void act(startAgent)}
-          >
-            <Play size={14} />
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            title="Archive"
-            className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-warning disabled:opacity-40"
-            onClick={() => void act(archiveAgent)}
-          >
-            <Archive size={14} />
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            title={confirmDelete ? "Click again to delete permanently" : "Delete"}
-            className={`rounded-md p-1.5 disabled:opacity-40 ${
-              confirmDelete
-                ? "bg-danger/15 text-danger"
-                : "text-ink-dim hover:bg-raised hover:text-danger"
-            }`}
-            onClick={() => {
-              if (!confirmDelete) {
-                setConfirmDelete(true);
-                setTimeout(() => setConfirmDelete(false), 3000);
-                return;
-              }
-              setConfirmDelete(false);
-              void act(deleteAgent);
-            }}
-          >
-            <Trash2 size={14} />
-          </button>
-        </>
-      )}
-      {agent.can_stop && (
         <button
           type="button"
-          disabled={busy}
-          title="Stop"
-          className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-danger disabled:opacity-40"
-          onClick={() => void act(stopAgent)}
+          disabled={busy || archived}
+          title={archived ? "Archived" : "Set profile picture"}
+          className="relative h-8 w-8 shrink-0 disabled:cursor-default"
+          onClick={() => fileInputRef.current?.click()}
         >
-          <Square size={13} />
+          <span
+            className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-raised text-sm font-semibold text-ink-secondary ${archived ? "grayscale" : ""}`}
+          >
+            {agent.avatar_url ? (
+              <img
+                src={agent.avatar_url}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              (agent.name.trim().charAt(0) || "?").toUpperCase()
+            )}
+          </span>
+          <span className="absolute inset-0 hidden items-center justify-center rounded-full bg-bg/70 text-ink group-hover:flex">
+            <Pencil size={12} />
+          </span>
+          <span
+            className={`absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-bg ${stateColor(agent.state)}`}
+          />
         </button>
+        <button
+          type="button"
+          disabled={archived}
+          title={archived ? "Archived" : undefined}
+          className="min-w-0 flex-1 text-left disabled:cursor-default"
+          onClick={() => {
+            void openAgentChat(agent.id).catch(console.error);
+          }}
+        >
+          <span className="block truncate text-sm font-medium text-ink">
+            {agent.name || "Untitled agent"}
+          </span>
+          <span className="block truncate text-xs text-ink-dim">
+            {agent.state}
+            {agent.runtime ? ` · ${agent.runtime}` : ""}
+            {cpuText && !(showBars && hasCpuUsage) ? ` · ${cpuText}` : ""}
+            {memoryText && !(showBars && hasMemoryUsage)
+              ? ` · ${memoryText}`
+              : ""}
+          </span>
+        </button>
+        {agent.can_start && (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              title="Start"
+              className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-success disabled:opacity-40"
+              onClick={() => void act(startAgent)}
+            >
+              <Play size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              title="Archive"
+              className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-warning disabled:opacity-40"
+              onClick={() => void act(archiveAgent)}
+            >
+              <Archive size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              title={
+                confirmDelete ? "Click again to delete permanently" : "Delete"
+              }
+              className={`rounded-md p-1.5 disabled:opacity-40 ${
+                confirmDelete
+                  ? "bg-danger/15 text-danger"
+                  : "text-ink-dim hover:bg-raised hover:text-danger"
+              }`}
+              onClick={() => {
+                if (!confirmDelete) {
+                  setConfirmDelete(true);
+                  setTimeout(() => setConfirmDelete(false), 3000);
+                  return;
+                }
+                setConfirmDelete(false);
+                void act(deleteAgent);
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </>
+        )}
+        {agent.can_stop && (
+          <button
+            type="button"
+            disabled={busy}
+            title="Stop"
+            className="rounded-md p-1.5 text-ink-dim hover:bg-raised hover:text-danger disabled:opacity-40"
+            onClick={() => void act(stopAgent)}
+          >
+            <Square size={13} />
+          </button>
+        )}
+      </div>
+      {showBars && (
+        <div className="mt-1.5 flex flex-col gap-1.5 pb-0.5">
+          {hasCpuUsage && (
+            <LoadBar
+              icon={<Cpu size={10} />}
+              label="CPU"
+              ratio={cpuRatio}
+              valueText={cpuText ?? "?"}
+              detail={
+                cpuCapacity
+                  ? `${formatCores(metrics?.cpuCores ?? 0)} of ${formatCores(cpuCapacity)} core${cpuCapacity === 1 ? "" : "s"}`
+                  : `${formatCores(metrics?.cpuCores ?? 0)} used — no usage limit reported`
+              }
+            />
+          )}
+          {hasMemoryUsage && (
+            <LoadBar
+              icon={<MemoryStick size={10} />}
+              label="RAM"
+              ratio={memoryRatio}
+              valueText={memoryText ?? "?"}
+              detail={
+                memoryCapacity
+                  ? `${formatGigabytes(metrics?.memoryBytes ?? 0)} of ${formatGigabytesFixed(memoryCapacity)} GB`
+                  : `${formatGigabytes(metrics?.memoryBytes ?? 0)} used — no usage limit reported`
+              }
+            />
+          )}
+        </div>
       )}
     </div>
   );
@@ -234,6 +463,7 @@ export default function App() {
   const [agents, setAgents] = useState<LauncherAgent[]>([]);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<Record<string, AgentMetricsSummary>>({});
+  const [showGraphs, setShowGraphs] = useState(true);
   const [pasteKey, setPasteKey] = useState("");
   const [busy, setBusy] = useState(false);
   const phaseRef = useRef(phase);
@@ -281,20 +511,30 @@ export default function App() {
     let cancelled = false;
     const fetchMetrics = async () => {
       const running = agentsRef.current.filter((agent) => agent.state === "running");
-      const next: Record<string, AgentMetricsSummary> = {};
+      const fetched: Record<string, AgentMetricsSummary> = {};
       await Promise.all(
         running.map(async (agent) => {
           try {
             const summary = summarizeMetrics(await agentMetrics(agent.id));
             if (summary.cpu !== undefined || summary.memory !== undefined) {
-              next[agent.id] = summary;
+              fetched[agent.id] = summary;
             }
           } catch {
             // Metrics are best-effort; a starting agent may have none yet.
           }
         }),
       );
-      if (!cancelled) setMetrics(next);
+      if (cancelled) return;
+      setMetrics((previous) => {
+        const next: Record<string, AgentMetricsSummary> = {};
+        for (const agent of running) {
+          // Retain the last good sample when a poll fails so the graphs do
+          // not disappear on a transient metrics-socket error.
+          const summary = fetched[agent.id] ?? previous[agent.id];
+          if (summary !== undefined) next[agent.id] = summary;
+        }
+        return next;
+      });
     };
     void fetchMetrics();
     const interval = setInterval(() => void fetchMetrics(), METRICS_POLL_MS);
@@ -383,6 +623,18 @@ export default function App() {
           {phase.kind === "connected" && (
             <button
               type="button"
+              title={showGraphs ? "Hide load graphs" : "Show load graphs"}
+              className={`rounded-md p-1.5 hover:bg-surface ${
+                showGraphs ? "text-brand" : "text-ink-dim"
+              }`}
+              onClick={() => setShowGraphs((value) => !value)}
+            >
+              <Activity size={14} />
+            </button>
+          )}
+          {phase.kind === "connected" && (
+            <button
+              type="button"
               title="Settings"
               className="rounded-md p-1.5 text-ink-dim hover:bg-surface hover:text-ink-secondary"
               onClick={() => void openSettingsWindow().catch(console.error)}
@@ -460,14 +712,17 @@ export default function App() {
                 No agents yet. Create one from the dashboard.
               </p>
             )}
-            {agents.map((agent) => (
-              <AgentRow
-                key={agent.id}
-                agent={agent}
-                metrics={metrics[agent.id]}
-                onChanged={() => void refreshAgents()}
-              />
-            ))}
+            {[...agents]
+              .sort((a, b) => Number(a.archived) - Number(b.archived))
+              .map((agent) => (
+                <AgentRow
+                  key={agent.id}
+                  agent={agent}
+                  metrics={metrics[agent.id]}
+                  showGraphs={showGraphs}
+                  onChanged={() => void refreshAgents()}
+                />
+              ))}
           </div>
           <footer className="border-t border-rule px-3 py-2">
             <button
