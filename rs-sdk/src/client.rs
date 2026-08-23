@@ -16,11 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    connect_async,
-    tungstenite::Message,
-    MaybeTlsStream, WebSocketStream,
-};
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
@@ -31,8 +27,8 @@ use crate::{
     DeploymentEnvironment, DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
     ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan, HyperAgentEntitlement,
-    HyperAgentEntitlementsSummary, HyperAgentPlan, NativeRuntime, RuntimeAuthError,
-    JobLifecycleEvent, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
+    HyperAgentEntitlementsSummary, HyperAgentPlan, JobLifecycleEvent, NativeRuntime,
+    RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
     UpdateDeploymentRequest,
 };
@@ -899,6 +895,23 @@ impl HyperCliClient {
         }
     }
 
+    /// Subscribe to job-scoped GPU/job lifecycle ticks using the public job ID.
+    ///
+    /// This resolves the job key internally, matching the Python and TypeScript
+    /// SDK surfaces while keeping [`HyperCliClient::subscribe_job_lifecycle`]
+    /// available for callers that already hold a job key.
+    pub async fn subscribe_job_lifecycle_by_id<F>(
+        &self,
+        job_id: &str,
+        handler: F,
+    ) -> Result<(), HyperCliError>
+    where
+        F: FnMut(JobLifecycleEvent),
+    {
+        let job_key = self.job_key_for_job_id(job_id).await?;
+        self.subscribe_job_lifecycle(&job_key, handler).await
+    }
+
     /// Get one GPU job metrics snapshot over the Orchestra job-key metrics WebSocket.
     pub async fn job_metrics(&self, job_key: &str) -> Result<Value, HyperCliError> {
         let mut seen = None;
@@ -908,7 +921,15 @@ impl HyperCliClient {
             }
         })
         .await?;
-        seen.ok_or_else(|| HyperCliError::InvalidResponse("metrics stream closed before first snapshot".into()))
+        seen.ok_or_else(|| {
+            HyperCliError::InvalidResponse("metrics stream closed before first snapshot".into())
+        })
+    }
+
+    /// Get one GPU job metrics snapshot using the public job ID.
+    pub async fn job_metrics_by_id(&self, job_id: &str) -> Result<Value, HyperCliError> {
+        let job_key = self.job_key_for_job_id(job_id).await?;
+        self.job_metrics(&job_key).await
     }
 
     /// Subscribe to GPU job metrics snapshots over the Orchestra job-key metrics WebSocket.
@@ -921,7 +942,47 @@ impl HyperCliClient {
     where
         F: FnMut(Value),
     {
-        self.job_metrics_stream(job_key, interval, false, handler).await
+        self.job_metrics_stream(job_key, interval, false, handler)
+            .await
+    }
+
+    /// Subscribe to GPU job metrics snapshots using the public job ID.
+    pub async fn subscribe_job_metrics_by_id<F>(
+        &self,
+        job_id: &str,
+        interval: Duration,
+        handler: F,
+    ) -> Result<(), HyperCliError>
+    where
+        F: FnMut(Value),
+    {
+        let job_key = self.job_key_for_job_id(job_id).await?;
+        self.subscribe_job_metrics(&job_key, interval, handler)
+            .await
+    }
+
+    async fn job_key_for_job_id(&self, job_id: &str) -> Result<String, HyperCliError> {
+        let url = self.product_endpoint(&format!("api/jobs/{job_id}"));
+        let response = self
+            .async_http
+            .get(&url)
+            .bearer_auth(self.api_key.expose_secret())
+            .send()
+            .await
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        if !response.status().is_success() {
+            return Err(HyperCliError::Status(response.status()));
+        }
+        let payload: Value = response
+            .json()
+            .await
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        payload
+            .get("job_key")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| HyperCliError::InvalidResponse("job response missing job_key".into()))
     }
 
     async fn job_metrics_stream<F>(
