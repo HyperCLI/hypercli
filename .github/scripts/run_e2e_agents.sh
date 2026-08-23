@@ -31,7 +31,7 @@ on_exit() {
     trap - EXIT
     echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
     echo "Claw: ${TEST_BASE_URL}" >&2
-    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-openclaw-e2e.spec.ts" >&2
+    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-e2e.spec.ts" >&2
     tail -f /dev/null
   fi
   cleanup
@@ -240,7 +240,7 @@ npx playwright test \
   --project=chromium \
   --max-failures=1 \
   --workers=2 \
-  tests/claw/agents-openclaw-e2e.spec.ts \
+  tests/claw/agents-e2e.spec.ts \
   tests/claw/agents-hermes-e2e.spec.ts
 status=$?
 set -e
