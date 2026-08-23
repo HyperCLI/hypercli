@@ -1,4 +1,5 @@
 import { Billing } from './billing.js';
+import { BrowserJobs } from './browser-jobs.js';
 import {
   getAgentsApiBaseUrl,
   getAgentsApiBaseUrlFromProductBase,
@@ -34,6 +35,7 @@ import { HyperAgent } from './agent.js';
 import { UserAPI } from './user.js';
 import { VoiceAPI } from './voice.js';
 import { WorkspacesAPI } from './workspaces.js';
+export { BrowserJobs } from './browser-jobs.js';
 export {
   API_KEY_BASELINE_FAMILIES,
   issueApiKeyFromJwt,
@@ -43,6 +45,12 @@ export {
   type CreateApiKeyOptions,
   type IssueApiKeyFromJwtOptions,
 } from './keys.js';
+export type {
+  Job,
+  JobLifecycleEvent,
+  JobListPage,
+  JobMetrics,
+} from './job-codecs.js';
 
 export interface BrowserHyperCLIOptions {
   apiUrl: string;
@@ -65,6 +73,7 @@ export class BrowserHyperCLI {
   private readonly http: HTTPClient;
 
   public readonly billing: Billing;
+  public readonly jobs: BrowserJobs;
   public readonly agent: HyperAgent;
   public readonly user: UserAPI;
   public readonly instances: Instances;
@@ -77,6 +86,7 @@ export class BrowserHyperCLI {
     this.http = new HTTPClient(apiUrl, options.token, options.timeout);
 
     this.billing = new Billing(this.http);
+    this.jobs = new BrowserJobs(this.http);
     const agentsApiBaseUrl =
       options.agentsApiBaseUrl ||
       (options.agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl));

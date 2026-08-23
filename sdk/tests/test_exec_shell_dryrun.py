@@ -187,6 +187,36 @@ async def test_jobs_metrics_stream_raises_metrics_error(monkeypatch):
             pass
 
 
+@pytest.mark.asyncio
+async def test_jobs_lifecycle_stream_uses_job_key_websocket(monkeypatch):
+    jobs = Jobs(DummyHTTP())
+    captured = {}
+
+    def fake_connect(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return FakeAsyncMetricsWebSocket([
+            json.dumps({
+                "event": "runtime_extended",
+                "job_id": "job-1",
+                "runtime": 900,
+            })
+        ])
+
+    monkeypatch.setattr("websockets.connect", fake_connect)
+
+    events = []
+    async for event in jobs.lifecycle_stream("job-1"):
+        events.append(event)
+
+    assert events[0].event == "runtime_extended"
+    assert events[0].job_id == "job-1"
+    assert events[0].runtime == 900
+    assert captured["url"] == "wss://api.hypercli.com/orchestra/ws/lifecycle/job-key-123"
+    assert "additional_headers" not in captured["kwargs"]
+    assert "extra_headers" not in captured["kwargs"]
+
+
 def _closed(code=1000, reason=""):
     from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
     from websockets.frames import Close

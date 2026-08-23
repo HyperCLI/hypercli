@@ -6,7 +6,7 @@
  * Works in both Node (`ws` package, Authorization header) and the browser
  * (global WebSocket, `?jwt=` query — browsers cannot set WS headers).
  */
-import NodeWebSocket from 'ws';
+import type NodeWebSocket from 'ws';
 
 export type VoiceSessionState = 'closed' | 'idle' | 'rendering' | 'receiving';
 
@@ -100,6 +100,14 @@ interface Waiter {
   reject: (error: Error) => void;
 }
 
+type NodeWebSocketConstructor = typeof NodeWebSocket;
+
+async function loadNodeWebSocket(): Promise<NodeWebSocketConstructor> {
+  const moduleName = 'ws';
+  const mod = await import(moduleName);
+  return (mod.default ?? mod) as NodeWebSocketConstructor;
+}
+
 export class VoiceSession {
   state: VoiceSessionState = 'closed';
 
@@ -120,9 +128,6 @@ export class VoiceSession {
   async open(): Promise<this> {
     if (this.ws) return this;
     const useBrowserSocket = 'localStorage' in globalThis && typeof WebSocket !== 'undefined';
-    if (!useBrowserSocket && typeof NodeWebSocket === 'undefined') {
-      throw new Error('WebSocket is not available in this environment');
-    }
 
     await new Promise<void>((resolve, reject) => {
       if (useBrowserSocket) {
@@ -137,16 +142,20 @@ export class VoiceSession {
           this.handleClose(event.code ?? 1006, String(event.reason ?? ''));
         return;
       }
-      const ws = new NodeWebSocket(`${this.wsUrl}/voice`, {
-        headers: { Authorization: `Bearer ${this.credential}` },
-      });
-      this.ws = ws;
-      ws.on('open', () => resolve());
-      ws.on('message', (data: NodeWebSocket.RawData) =>
-        this.enqueue(typeof data === 'string' ? data : data.toString()));
-      ws.on('error', (error: Error) => reject(error));
-      ws.on('close', (code: number, reason: Buffer) =>
-        this.handleClose(code ?? 1006, reason?.toString() ?? ''));
+      loadNodeWebSocket()
+        .then((NodeSocket) => {
+          const ws = new NodeSocket(`${this.wsUrl}/voice`, {
+            headers: { Authorization: `Bearer ${this.credential}` },
+          });
+          this.ws = ws;
+          ws.on('open', () => resolve());
+          ws.on('message', (data: NodeWebSocket.RawData) =>
+            this.enqueue(typeof data === 'string' ? data : data.toString()));
+          ws.on('error', (error: Error) => reject(error));
+          ws.on('close', (code: number, reason: Buffer) =>
+            this.handleClose(code ?? 1006, reason?.toString() ?? ''));
+        })
+        .catch(() => reject(new Error('WebSocket is not available in this environment')));
     });
 
     this.state = 'idle';

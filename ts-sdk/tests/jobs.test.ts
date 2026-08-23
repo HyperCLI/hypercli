@@ -3,10 +3,55 @@ import { Jobs } from '../src/jobs.js';
 import type { HTTPClient } from '../src/http.js';
 import { BaseJob } from '../src/job/base.js';
 
+const wsMock = vi.hoisted(() => {
+  class MockWebSocket {
+    static instances: MockWebSocket[] = [];
+
+    readonly handlers: Record<string, Array<(...args: any[]) => void>> = {};
+    closed = false;
+
+    constructor(readonly url: string) {
+      MockWebSocket.instances.push(this);
+    }
+
+    on(event: string, handler: (...args: any[]) => void): this {
+      this.handlers[event] = [...(this.handlers[event] ?? []), handler];
+      return this;
+    }
+
+    once(event: string, handler: (...args: any[]) => void): this {
+      const wrapped = (...args: any[]) => {
+        this.off(event, wrapped);
+        handler(...args);
+      };
+      return this.on(event, wrapped);
+    }
+
+    off(event: string, handler: (...args: any[]) => void): this {
+      this.handlers[event] = (this.handlers[event] ?? []).filter((candidate) => candidate !== handler);
+      return this;
+    }
+
+    emit(event: string, ...args: any[]): void {
+      for (const handler of this.handlers[event] ?? []) handler(...args);
+    }
+
+    close(): void {
+      this.closed = true;
+      this.emit('close');
+    }
+  }
+
+  return { MockWebSocket };
+});
+
+vi.mock('ws', () => ({ default: wsMock.MockWebSocket }));
+
 describe('Jobs API', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+    wsMock.MockWebSocket.instances = [];
   });
 
   it('forwards exact exec argv without shell parsing', async () => {
@@ -261,6 +306,63 @@ describe('Jobs API', () => {
       { state: 'running', tag: ['team=ml', 'env=prod'], page: 2, page_size: 25 },
     ]);
   });
+
+  it('streams metrics over job-key scoped websocket URLs', async () => {
+    const jobs = new Jobs(fakeStreamHttp());
+
+    const stream = jobs.metricsStream('job-1', { interval: 7 });
+    const next = stream.next();
+
+    await waitUntil(() => wsMock.MockWebSocket.instances[0] !== undefined);
+    const socket = wsMock.MockWebSocket.instances[0];
+    expect(socket?.url).toBe('wss://api.hypercli.com/orchestra/ws/metrics/jobs/job-key?interval=7');
+    socket?.emit('message', Buffer.from(JSON.stringify({
+      event: 'metrics_snapshot',
+      data: {
+        gpus: [{ index: 0, name: 'L40S', utilization_gpu_percent: 51, memory_used_mb: 64, memory_total_mb: 128 }],
+        system: { cpu_percent: 12, cpu_cores: 4, memory_used_mb: 256, memory_limit_mb: 512 },
+      },
+    })));
+
+    await expect(next).resolves.toMatchObject({
+      done: false,
+      value: {
+        gpus: [{ index: 0, name: 'L40S', utilization: 51, memoryUsed: 64, memoryTotal: 128 }],
+        system: { cpuPercent: 12, cpuCores: 4, memoryUsed: 256, memoryLimit: 512 },
+      },
+    });
+    await stream.return(undefined);
+    expect(socket?.closed).toBe(true);
+  });
+
+  it('streams lifecycle over job-key scoped websocket URLs', async () => {
+    const jobs = new Jobs(fakeStreamHttp());
+
+    const stream = jobs.lifecycleStream('job-1');
+    const next = stream.next();
+
+    await waitUntil(() => wsMock.MockWebSocket.instances[0] !== undefined);
+    const socket = wsMock.MockWebSocket.instances[0];
+    expect(socket?.url).toBe('wss://api.hypercli.com/orchestra/ws/lifecycle/job-key');
+    socket?.emit('message', Buffer.from(JSON.stringify({
+      event: 'terminated',
+      job_id: 'job-1',
+      state: 'terminated',
+      reason: 'user',
+    })));
+
+    await expect(next).resolves.toMatchObject({
+      done: false,
+      value: {
+        event: 'terminated',
+        jobId: 'job-1',
+        state: 'terminated',
+        reason: 'user',
+      },
+    });
+    await stream.return(undefined);
+    expect(socket?.closed).toBe(true);
+  });
 });
 
 describe('BaseJob hostname settling', () => {
@@ -289,3 +391,30 @@ describe('BaseJob hostname settling', () => {
     expect(health).toHaveBeenCalledTimes(1);
   });
 });
+
+function fakeStreamHttp(): HTTPClient {
+  return {
+    baseUrl: 'https://api.hypercli.com',
+    get: vi.fn().mockResolvedValue({
+      job_id: 'job-1',
+      job_key: 'job-key',
+      state: 'running',
+      gpu_type: 'l40s',
+      gpu_count: 1,
+      region: 'us',
+      interruptible: true,
+      price_per_hour: 1,
+      price_per_second: 1 / 3600,
+      docker_image: 'ubuntu',
+      runtime: 600,
+    }),
+  } as unknown as HTTPClient;
+}
+
+async function waitUntil(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  expect(predicate()).toBe(true);
+}

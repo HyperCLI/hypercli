@@ -8,7 +8,7 @@
  */
 
 import { getPublicKeyAsync, signAsync, utils as edUtils } from "@noble/ed25519";
-import NodeWebSocket from "ws";
+import type NodeWebSocket from "ws";
 import type {
   OpenClawSlackHttpConfiguration,
   OpenClawSlackRelayConfiguration,
@@ -2856,6 +2856,14 @@ function isConcurrentPairingApproval(error: unknown): boolean {
 
 type GatewaySocket = WebSocket | NodeWebSocket;
 
+type NodeWebSocketConstructor = typeof NodeWebSocket;
+
+async function loadNodeWebSocket(): Promise<NodeWebSocketConstructor> {
+  const moduleName = "ws";
+  const mod = await import(moduleName);
+  return (mod.default ?? mod) as NodeWebSocketConstructor;
+}
+
 function isSocketOpen(ws: GatewaySocket | null): boolean {
   return Boolean(ws && ws.readyState === 1);
 }
@@ -3403,7 +3411,7 @@ export class GatewayClient {
       const useBrowserSocket = typeof globalThis.WebSocket !== "undefined";
       const socket: GatewaySocket = useBrowserSocket
         ? new WebSocket(parsed.toString())
-        : new NodeWebSocket(parsed.toString());
+        : new (await loadNodeWebSocket())(parsed.toString());
       const payload = await new Promise<Record<string, unknown>>((resolve, reject) => {
         let opened = false;
         let result: Record<string, unknown> | null = null;
@@ -3530,9 +3538,6 @@ export class GatewayClient {
   private openSocket(): void {
     if (this.closed || this.ws) return;
     const useBrowserSocket = "localStorage" in globalThis && typeof WebSocket !== "undefined";
-    if (!useBrowserSocket && typeof NodeWebSocket === "undefined") {
-      throw new Error("WebSocket is not available in this environment");
-    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -3540,12 +3545,37 @@ export class GatewayClient {
     const wsUrl = this.token
       ? `${this.url}${this.url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.token)}`
       : this.url;
-    const ws: GatewaySocket = useBrowserSocket
-      ? new WebSocket(wsUrl)
-      : new NodeWebSocket(
-          wsUrl,
-          this.origin ? { headers: { Origin: this.origin } } : undefined,
-        );
+    if (!useBrowserSocket) {
+      loadNodeWebSocket()
+        .then((NodeSocket) => {
+          if (this.closed || this.ws) return;
+          this.attachSocket(new NodeSocket(
+            wsUrl,
+            this.origin ? { headers: { Origin: this.origin } } : undefined,
+          ), false);
+        })
+        .catch((error) => {
+          const websocketError = error instanceof Error
+            ? error
+            : new Error("WebSocket is not available in this environment");
+          this.pendingConnectError = toCloseError(websocketError);
+          this.setConnectionState("disconnected");
+          this.rejectInitialConnect(websocketError);
+        });
+      return;
+    }
+    this.attachSocket(new WebSocket(wsUrl), true);
+  }
+
+  private attachSocket(ws: GatewaySocket, useBrowserSocket: boolean): void {
+    if (this.closed || this.ws) {
+      try {
+        ws.close();
+      } catch {
+        // already closed
+      }
+      return;
+    }
     this.ws = ws;
     this.lastSeq = null;
 

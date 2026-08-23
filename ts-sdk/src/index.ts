@@ -5,6 +5,7 @@
 // Main client
 export { HyperCLI, type HyperCLIOptions, type SystemStatus } from './client.js';
 export { BrowserHyperCLI, type BrowserHyperCLIOptions } from './browser.js';
+export { BrowserJobs } from './browser-jobs.js';
 
 // Configuration
 export {
