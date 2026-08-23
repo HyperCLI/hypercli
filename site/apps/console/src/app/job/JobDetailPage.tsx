@@ -13,9 +13,12 @@ import {
   shouldStreamJobLogs,
 } from "../../lib/job-log-stream";
 import EnvVarsSection from "../../components/EnvVarsSection";
+import { getConsoleClient } from "../../lib/sdk";
+import type { JobLifecycleEvent, JobMetrics } from "@hypercli.com/sdk/browser";
 
 const PENDING_JOB_POLL_INTERVAL_MS = 5_000;
 const RUNNING_JOB_REFRESH_INTERVAL_MS = 30_000;
+const METRICS_STREAM_INTERVAL_SECONDS = 5;
 
 interface Job {
   job_id: string;
@@ -76,12 +79,11 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
   const [showExtendModal, setShowExtendModal] = useState(false);
   const [extensionSeconds, setExtensionSeconds] = useState(3600);
   const [extending, setExtending] = useState(false);
-  const [metrics, setMetrics] = useState<any>(null);
+  const [metrics, setMetrics] = useState<JobMetrics | null>(null);
   const [instanceTypes, setInstanceTypes] = useState<Record<string, InstanceType>>({});
 
   const wsRef = useRef<WebSocket | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const metricsIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const terminalRef = useRef<HTMLDivElement>(null);
   const hasFetchedLogsRef = useRef<boolean>(false);
   const hasFetchedTokenRef = useRef<boolean>(false);
@@ -313,36 +315,39 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     }
   }, [getAuthToken, jobId]);
 
+  // Silent refetch of the job snapshot; used by lifecycle wakeups and by the
+  // fallback REST poll when the streams are unavailable.
+  const refreshJobSilently = useCallback(async () => {
+    try {
+      const authToken = getAuthToken();
+      if (!authToken) return;
+
+      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json'
+        },
+        cache: 'no-store',
+      });
+
+      if (response.ok) {
+        setJob(await response.json());
+      }
+    } catch (err) {
+      console.error('Job refresh failed:', err);
+    }
+  }, [getAuthToken, jobId]);
+
+  // Fallback REST polling for when the lifecycle WebSocket is unavailable.
   const startPolling = useCallback((intervalMs: number) => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
     }
-
-    const poll = async () => {
-      try {
-        const authToken = getAuthToken();
-        if (!authToken) return;
-
-        const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          },
-          cache: 'no-store',
-        });
-
-        if (response.ok) {
-          const jobData = await response.json();
-          setJob(jobData);
-        }
-      } catch (err) {
-        console.error('Polling error:', err);
-      }
-    };
-
-    pollingIntervalRef.current = setInterval(poll, intervalMs);
-    poll(); // Initial poll
-  }, [getAuthToken, jobId]);
+    pollingIntervalRef.current = setInterval(() => {
+      void refreshJobSilently();
+    }, intervalMs);
+    void refreshJobSilently(); // Initial refresh
+  }, [refreshJobSilently]);
 
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
@@ -575,13 +580,42 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     }
     activeJobKeyRef.current = jobKey;
 
-    if (['queued', 'assigned'].includes(jobState)) {
-      startPolling(PENDING_JOB_POLL_INTERVAL_MS);
-    } else if (jobState === 'running') {
-      // Running jobs otherwise render from one initial fetch plus a purely
-      // client-side countdown, so Time Remaining drifts from the server view
-      // and terminal states never arrive. Re-fetch job data on a slow poll.
-      startPolling(RUNNING_JOB_REFRESH_INTERVAL_MS);
+    let lifecycleCancelled = false;
+    let lifecycleStream: AsyncGenerator<JobLifecycleEvent> | undefined;
+    if (['queued', 'assigned', 'running'].includes(jobState)) {
+      const fallbackIntervalMs = ['queued', 'assigned'].includes(jobState)
+        ? PENDING_JOB_POLL_INTERVAL_MS
+        : RUNNING_JOB_REFRESH_INTERVAL_MS;
+
+      // Server-pushed lifecycle events (transitions, runtime changes) act as
+      // wakeups that keep Time Remaining and the detail card in sync. REST
+      // polling only takes over if the socket is unavailable.
+      lifecycleStream = getConsoleClient().jobs.lifecycleStream(jobId);
+      const stream = lifecycleStream;
+      const watchLifecycle = async () => {
+        try {
+          for await (const event of stream) {
+            if (lifecycleCancelled) return;
+            if (typeof event.runtime === 'number') {
+              // Apply runtime hints instantly so the countdown reflects
+              // extensions without waiting for the refetch.
+              const runtime = event.runtime;
+              setJob((prev) => (prev ? { ...prev, runtime } : prev));
+            }
+            // Frames are hints; the REST snapshot stays authoritative.
+            await refreshJobSilently();
+          }
+          if (!lifecycleCancelled) {
+            startPolling(fallbackIntervalMs);
+          }
+        } catch (err) {
+          if (!lifecycleCancelled) {
+            console.error('Lifecycle stream failed, falling back to REST polling:', err);
+            startPolling(fallbackIntervalMs);
+          }
+        }
+      };
+      void watchLifecycle();
     } else {
       stopPolling();
     }
@@ -618,7 +652,13 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
       }
     }
 
-    return stopPolling;
+    return () => {
+      lifecycleCancelled = true;
+      // Dispose the generator so its socket actually closes; .return() runs
+      // the stream's finally block. The flag then blocks late setState.
+      void lifecycleStream?.return(undefined);
+      stopPolling();
+    };
   }, [
     closeWebSocket,
     fetchJobToken,
@@ -626,6 +666,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     jobHostname,
     jobKey,
     jobState,
+    jobId,
+    refreshJobSilently,
     startPolling,
     stopPolling,
   ]);
@@ -773,64 +815,38 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
     return 'text-error';
   };
 
-  const fetchMetrics = async () => {
-    try {
-      const authToken = getAuthToken();
-      if (!authToken) return;
-
-      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}/metrics`), {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setMetrics(data);
-      } else if (response.status === 400 || response.status === 503 || response.status === 504) {
-        // Job not running or metrics not available - stop polling
-        stopMetricsPolling();
-      }
-    } catch (error) {
-      console.error('Error fetching metrics:', error);
-    }
-  };
-
-  const startMetricsPolling = () => {
-    // Clear any existing interval
-    if (metricsIntervalRef.current) {
-      clearInterval(metricsIntervalRef.current);
-    }
-
-    // Fetch immediately
-    fetchMetrics();
-
-    // Poll every 5 seconds
-    metricsIntervalRef.current = setInterval(fetchMetrics, 5000);
-  };
-
-  const stopMetricsPolling = () => {
-    if (metricsIntervalRef.current) {
-      clearInterval(metricsIntervalRef.current);
-      metricsIntervalRef.current = null;
-    }
-    setMetrics(null);
-  };
-
-  // Start/stop metrics polling based on job state
+  // Live GPU/system metrics are server-pushed over WebSocket while the job
+  // runs; the stream closes when metrics are unavailable (job ended).
   useEffect(() => {
-    if (job && (job.state === 'running' || job.state === 'assigned')) {
-      startMetricsPolling();
-    } else {
-      stopMetricsPolling();
+    if (!jobState || (jobState !== 'running' && jobState !== 'assigned')) {
+      setMetrics(null);
+      return;
     }
+
+    let cancelled = false;
+    const metricsStream = getConsoleClient().jobs.metricsStream(jobId, {
+      interval: METRICS_STREAM_INTERVAL_SECONDS,
+    });
+    const streamMetrics = async () => {
+      try {
+        for await (const snapshot of metricsStream) {
+          if (cancelled) return;
+          setMetrics(snapshot);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Metrics stream failed:', err);
+          setMetrics(null);
+        }
+      }
+    };
+    void streamMetrics();
 
     return () => {
-      stopMetricsPolling();
+      cancelled = true;
+      void metricsStream.return(undefined);
     };
-  }, [job?.state, jobId]);
+  }, [jobId, jobState]);
 
   const handleExtendJob = async () => {
     if (!job) return;
@@ -1266,36 +1282,36 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {/* CPU Usage */}
-                    {metrics.system.cpu_percent !== undefined && effectiveCpuCores && (
+                    {effectiveCpuCores && (
                       <div>
-                        <div className="flex justify-between text-sm mb-1">
+                        <div className="flex items-baseline gap-2 text-sm mb-1">
                           <span className="text-muted-foreground">CPU</span>
-                          <span className="font-medium text-foreground">
-                            {(metrics.system.cpu_percent / effectiveCpuCores).toFixed(1)}%
+                          <span className="font-medium text-foreground tabular-nums text-left">
+                            {(metrics.system.cpuPercent / effectiveCpuCores).toFixed(1)}%
                           </span>
                         </div>
                         <div className="w-full bg-background rounded-full h-2">
                           <div
                             className="bg-chart-2 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(metrics.system.cpu_percent / effectiveCpuCores, 100)}%` }}
+                            style={{ width: `${Math.min(metrics.system.cpuPercent / effectiveCpuCores, 100)}%` }}
                           ></div>
                         </div>
                       </div>
                     )}
 
                     {/* Memory Usage */}
-                    {metrics.system.memory_used_mb !== undefined && metrics.system.memory_limit_mb !== undefined && (
+                    {metrics.system.memoryLimit > 0 && (
                       <div>
-                        <div className="flex justify-between text-sm mb-1">
+                        <div className="flex items-baseline gap-2 text-sm mb-1">
                           <span className="text-muted-foreground">RAM</span>
-                          <span className="font-medium text-foreground">
-                            {(metrics.system.memory_used_mb / 1024).toFixed(1)} / {(metrics.system.memory_limit_mb / 1024).toFixed(1)} GB
+                          <span className="font-medium text-foreground tabular-nums text-left">
+                            {(metrics.system.memoryUsed / 1024).toFixed(1)} / {(metrics.system.memoryLimit / 1024).toFixed(1)} GB
                           </span>
                         </div>
                         <div className="w-full bg-background rounded-full h-2">
                           <div
                             className="bg-chart-3 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${(metrics.system.memory_used_mb / metrics.system.memory_limit_mb * 100).toFixed(1)}%` }}
+                            style={{ width: `${(metrics.system.memoryUsed / metrics.system.memoryLimit * 100).toFixed(1)}%` }}
                           ></div>
                         </div>
                       </div>
@@ -1315,47 +1331,45 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                     metrics.gpus.length === 2 ? 'grid-cols-1 md:grid-cols-2' :
                     'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
                   }`}>
-                    {metrics.gpus.map((gpu: any, idx: number) => (
+                    {metrics.gpus.map((gpu, idx) => (
                       <div key={idx} className="space-y-4">
                         <div className="flex items-center justify-between text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                           <span>GPU {idx}: {gpu.name}</span>
-                          {gpu.power_draw_w !== undefined && (
+                          {gpu.powerDraw > 0 && (
                             <span className="text-muted-foreground normal-case">
-                              Power: <span className={getPowerColor(gpu.power_draw_w)}>{gpu.power_draw_w.toFixed(1)}W</span>
+                              Power: <span className={`${getPowerColor(gpu.powerDraw)} tabular-nums`}>{gpu.powerDraw.toFixed(1)}W</span>
                             </span>
                           )}
                         </div>
 
                         <div className={metrics.gpus.length === 1 ? 'grid grid-cols-2 gap-6' : 'space-y-4'}>
                           {/* GPU Utilization */}
-                          {gpu.utilization_gpu_percent !== undefined && (
-                            <div>
-                              <div className="flex justify-between text-sm mb-1">
-                                <span className="text-muted-foreground">GPU</span>
-                                <span className="font-medium text-foreground">{gpu.utilization_gpu_percent}%</span>
-                              </div>
-                              <div className="w-full bg-background rounded-full h-2">
-                                <div
-                                  className="bg-primary h-2 rounded-full transition-all duration-300"
-                                  style={{ width: `${gpu.utilization_gpu_percent}%` }}
-                                ></div>
-                              </div>
+                          <div>
+                            <div className="flex items-baseline gap-2 text-sm mb-1">
+                              <span className="text-muted-foreground">GPU</span>
+                              <span className="font-medium text-foreground tabular-nums text-left">{gpu.utilization}%</span>
                             </div>
-                          )}
+                            <div className="w-full bg-background rounded-full h-2">
+                              <div
+                                className="bg-primary h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${gpu.utilization}%` }}
+                              ></div>
+                            </div>
+                          </div>
 
                           {/* GPU Memory */}
-                          {gpu.memory_used_mb !== undefined && gpu.memory_total_mb !== undefined && (
+                          {gpu.memoryTotal > 0 && (
                             <div>
-                              <div className="flex justify-between text-sm mb-1">
+                              <div className="flex items-baseline gap-2 text-sm mb-1">
                                 <span className="text-muted-foreground">VRAM</span>
-                                <span className="font-medium text-foreground">
-                                  {(gpu.memory_used_mb / 1024).toFixed(1)} / {(gpu.memory_total_mb / 1024).toFixed(1)} GB
+                                <span className="font-medium text-foreground tabular-nums text-left">
+                                  {(gpu.memoryUsed / 1024).toFixed(1)} / {(gpu.memoryTotal / 1024).toFixed(1)} GB
                                 </span>
                               </div>
                               <div className="w-full bg-background rounded-full h-2">
                                 <div
                                   className="bg-primary-hover h-2 rounded-full transition-all duration-300"
-                                  style={{ width: `${(gpu.memory_used_mb / gpu.memory_total_mb * 100).toFixed(1)}%` }}
+                                  style={{ width: `${(gpu.memoryUsed / gpu.memoryTotal * 100).toFixed(1)}%` }}
                                 ></div>
                               </div>
                             </div>

@@ -138,7 +138,7 @@ async function consoleApiGet<T>(path: string, params?: Record<string, string>): 
   return response.json() as Promise<T>;
 }
 
-function requireClient(): BrowserHyperCLI {
+export function getConsoleClient(): BrowserHyperCLI {
   const token = getAuthToken();
   if (!token) {
     throw new Error("No auth token found");
@@ -151,7 +151,7 @@ function requireClient(): BrowserHyperCLI {
 }
 
 export async function getConsoleUserProfile(): Promise<ConsoleUserProfile> {
-  const user = await requireClient().user.get();
+  const user = await getConsoleClient().user.get();
   return {
     user_id: user.userId,
     name: user.name,
@@ -168,7 +168,7 @@ export async function getConsoleUserProfile(): Promise<ConsoleUserProfile> {
 export async function updateConsoleUserProfile(
   updates: { name?: string; email?: string }
 ): Promise<ConsoleUserProfile> {
-  const user = await requireClient().user.update(updates);
+  const user = await getConsoleClient().user.update(updates);
   return {
     user_id: user.userId,
     name: user.name,
@@ -183,7 +183,7 @@ export async function updateConsoleUserProfile(
 }
 
 export async function getConsoleBalance(): Promise<ConsoleBalance> {
-  const balance = await requireClient().billing.balanceDetails();
+  const balance = await getConsoleClient().billing.balanceDetails();
   const decimals = balance.decimals ?? 2;
   return {
     user_id: balance.userId ?? "",
@@ -211,7 +211,7 @@ export async function getConsoleTransactions(options: {
   status?: string;
   jobId?: string;
 } = {}): Promise<ConsoleTransactionsResponse> {
-  const data = await requireClient().billing.listTransactions(options);
+  const data = await getConsoleClient().billing.listTransactions(options);
   return {
     transactions: data.transactions.map((tx) => ({
       id: tx.id,
@@ -264,7 +264,7 @@ export async function getConsoleTransaction(transactionId: string): Promise<Cons
 }
 
 export async function getConsoleApiKeys(): Promise<ConsoleApiKey[]> {
-  const keys = await requireClient().keys.list();
+  const keys = await getConsoleClient().keys.list();
   return keys.map((key) => ({
     key_id: key.keyId,
     name: key.name,
@@ -279,7 +279,7 @@ export async function getConsoleApiKeys(): Promise<ConsoleApiKey[]> {
 }
 
 export async function createConsoleApiKey(name: string, tags?: string[]): Promise<ConsoleApiKey> {
-  const key = await requireClient().keys.create(name, tags);
+  const key = await getConsoleClient().keys.create(name, tags);
   return {
     key_id: key.keyId,
     name: key.name,
@@ -294,7 +294,7 @@ export async function createConsoleApiKey(name: string, tags?: string[]): Promis
 }
 
 export async function disableConsoleApiKey(keyId: string): Promise<void> {
-  await requireClient().keys.disable(keyId);
+  await getConsoleClient().keys.disable(keyId);
 }
 
 export async function getConsoleInvoices(options: {
