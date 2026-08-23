@@ -1284,8 +1284,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                     {/* CPU Usage */}
                     {effectiveCpuCores && (
                       <div>
-                        <div className="flex items-baseline gap-2 text-sm mb-1">
-                          <span className="text-muted-foreground">CPU</span>
+                        <div className="flex items-baseline text-sm mb-1">
+                          <span className="text-muted-foreground w-16 shrink-0">CPU</span>
                           <span className="font-medium text-foreground tabular-nums text-left">
                             {(metrics.system.cpuPercent / effectiveCpuCores).toFixed(1)}%
                           </span>
@@ -1302,8 +1302,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                     {/* Memory Usage */}
                     {metrics.system.memoryLimit > 0 && (
                       <div>
-                        <div className="flex items-baseline gap-2 text-sm mb-1">
-                          <span className="text-muted-foreground">RAM</span>
+                        <div className="flex items-baseline text-sm mb-1">
+                          <span className="text-muted-foreground w-16 shrink-0">RAM</span>
                           <span className="font-medium text-foreground tabular-nums text-left">
                             {(metrics.system.memoryUsed / 1024).toFixed(1)} / {(metrics.system.memoryLimit / 1024).toFixed(1)} GB
                           </span>
@@ -1345,8 +1345,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                         <div className={metrics.gpus.length === 1 ? 'grid grid-cols-2 gap-6' : 'space-y-4'}>
                           {/* GPU Utilization */}
                           <div>
-                            <div className="flex items-baseline gap-2 text-sm mb-1">
-                              <span className="text-muted-foreground">GPU</span>
+                            <div className="flex items-baseline text-sm mb-1">
+                              <span className="text-muted-foreground w-16 shrink-0">GPU</span>
                               <span className="font-medium text-foreground tabular-nums text-left">{gpu.utilization}%</span>
                             </div>
                             <div className="w-full bg-background rounded-full h-2">
@@ -1360,8 +1360,8 @@ export function JobDetailPage({ jobId }: JobDetailPageProps) {
                           {/* GPU Memory */}
                           {gpu.memoryTotal > 0 && (
                             <div>
-                              <div className="flex items-baseline gap-2 text-sm mb-1">
-                                <span className="text-muted-foreground">VRAM</span>
+                              <div className="flex items-baseline text-sm mb-1">
+                                <span className="text-muted-foreground w-16 shrink-0">VRAM</span>
                                 <span className="font-medium text-foreground tabular-nums text-left">
                                   {(gpu.memoryUsed / 1024).toFixed(1)} / {(gpu.memoryTotal / 1024).toFixed(1)} GB
                                 </span>
