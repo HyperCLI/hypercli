@@ -107,7 +107,6 @@ ws.close();
 
 ```typescript
 const models = await client.agent.models();
-const trial = await client.agent.claimTrialEntitlement();
 const activation = await client.agent.redeemGrantCode('PROMO123');
 const renewal = await client.agent.redeemGrantCode('PROMO123', { extendExisting: true });
 
@@ -412,7 +411,7 @@ copying the gateway Secret into application storage. The shared
 identity is stored separately under `openclaw.device.auth.v1`, with device
 tokens and pending pairing scoped to the deployment and role.
 
-`client.agent.claimTrialEntitlement()` sends an authenticated, bodyless claim to `/agents/plans/trial` and returns the backend-created introductory entitlement. Trial eligibility is decided exclusively by the backend. `client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
+`client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
 
 Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
 

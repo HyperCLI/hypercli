@@ -1,17 +1,35 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { HyperCLILogo, PrivyLoginPanel, RecoveryState, notifyBillingPlanChanged } from "@hypercli/shared-ui";
+import { HyperCLILogo, PrivyLoginPanel, RecoveryState } from "@hypercli/shared-ui";
 import DashboardShell from "@/components/dashboard/DashboardShell";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createHyperAgentClient } from "@/lib/agent-client";
+import {
+  createPlanCheckoutAttemptId,
+  createTeamTrialCheckoutState,
+  writePendingPlanCheckout,
+} from "@/lib/plan-checkout-state";
+import { startTrial } from "@/lib/trial-checkout";
 
-type TrialClaimState = "idle" | "claiming" | "success";
+type TrialClaimState = "idle" | "claiming";
 type TrialRecovery = { title: string; description: string };
 
+function buildDashboardTrialReturnUrl(
+  status: "success" | "cancelled",
+  attemptId?: string | null,
+): string {
+  const url = new URL("/dashboard/agents", window.location.href);
+  url.searchParams.set("checkout", status);
+  if (attemptId?.trim()) url.searchParams.set("checkout_attempt", attemptId.trim());
+  if (status === "success") {
+    const separator = url.search ? "&" : "?";
+    return `${url.toString()}${separator}session_id={CHECKOUT_SESSION_ID}`;
+  }
+  return url.toString();
+}
+
 export default function TrialPage() {
-  const { getToken, isAuthenticated, isLoading } = useAgentAuth();
+  const { getToken, isAuthenticated, isLoading, user } = useAgentAuth();
   const [claimState, setClaimState] = useState<TrialClaimState>("idle");
   const [error, setError] = useState<TrialRecovery | null>(null);
 
@@ -30,7 +48,7 @@ export default function TrialPage() {
           <HyperCLILogo />
           <PrivyLoginPanel
             title="Start your free trial"
-            description="Sign in to continue. No payment method is required."
+            description="Sign in to continue. A card is required to verify the trial."
             tokenStorageKey="claw_auth_token"
             securityNote="A secure one-time code will be sent to your email."
             errorMessage="Sign-in did not finish. Retry to reopen the session."
@@ -42,20 +60,33 @@ export default function TrialPage() {
   }
 
   const claimTrial = async () => {
-    if (claimState === "claiming" || claimState === "success") return;
+    if (claimState === "claiming") return;
     setClaimState("claiming");
     setError(null);
     try {
-      const client = createHyperAgentClient(await getToken());
-      await client.claimTrialEntitlement();
-      await client.subscriptionSummary().catch(() => null);
-      notifyBillingPlanChanged();
-      setClaimState("success");
+      const principalId = user?.id;
+      if (!principalId) throw new Error("Sign in again before starting the trial.");
+      const token = await getToken();
+      const checkoutAttemptId = createPlanCheckoutAttemptId();
+      const { checkout, pending } = await createTeamTrialCheckoutState(
+        { startTrial: (request) => startTrial(token, request) },
+        {
+          successUrl: buildDashboardTrialReturnUrl("success", checkoutAttemptId),
+          cancelUrl: buildDashboardTrialReturnUrl("cancelled", checkoutAttemptId),
+        },
+        {
+          principalId,
+          summary: null,
+          checkoutAttemptId,
+        },
+      );
+      writePendingPlanCheckout(pending);
+      window.location.href = checkout.checkoutUrl;
     } catch {
       setClaimState("idle");
       setError({
-        title: "Check your plan, then retry the trial",
-        description: "Review your plan before sending another request. We could not confirm whether trial access started.",
+        title: "Retry to open secure checkout",
+        description: "Checkout did not open. Retry when you are ready to continue.",
       });
     }
   };
@@ -69,41 +100,31 @@ export default function TrialPage() {
             Try HyperCLI Agents
           </h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-text-secondary sm:text-base">
-            Start seven days of trial access. No card, checkout, or purchase is required. Eligibility is verified securely when you continue.
+            Start seven days of trial access with a card on file. You will not be charged until the trial ends.
           </p>
 
-          {claimState === "success" ? (
-            <div id="trial-claim-success" className="trial-claim-success mt-8 rounded-xl border border-success/30 bg-success/10 p-5" role="status">
-              <h2 className="text-lg font-semibold text-foreground">Trial access is ready</h2>
-              <p className="mt-2 text-sm text-text-secondary">Your trial entitlement is active and ready to use.</p>
-              <Link id="trial-continue-button" className="trial-continue-button btn-primary mt-5 inline-flex min-h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold" href="/dashboard/agents">
-                Continue to Agents
-              </Link>
-            </div>
-          ) : (
-            <div className="mt-8">
-              <button
-                id="claim-trial-button"
-                className="claim-trial-button btn-primary inline-flex min-h-11 items-center justify-center rounded-lg px-5 text-sm font-semibold disabled:cursor-wait disabled:opacity-70"
-                type="button"
-                disabled={claimState === "claiming"}
-                onClick={() => void claimTrial()}
-              >
-                {claimState === "claiming" ? "Starting trial…" : "Start free trial"}
-              </button>
-              {error ? (
-                <RecoveryState
-                  id="trial-claim-error"
-                  presentation="compact"
-                  announcement="assertive"
-                  title={error.title}
-                  description={error.description}
-                  primaryAction={{ label: "Retry trial request", onAction: () => { void claimTrial(); } }}
-                  className="trial-claim-error mt-4"
-                />
-              ) : null}
-            </div>
-          )}
+          <div className="mt-8">
+            <button
+              id="claim-trial-button"
+              className="claim-trial-button btn-primary inline-flex min-h-11 items-center justify-center rounded-lg px-5 text-sm font-semibold disabled:cursor-wait disabled:opacity-70"
+              type="button"
+              disabled={claimState === "claiming"}
+              onClick={() => void claimTrial()}
+            >
+              {claimState === "claiming" ? "Opening checkout..." : "Start free trial"}
+            </button>
+            {error ? (
+              <RecoveryState
+                id="trial-claim-error"
+                presentation="compact"
+                announcement="assertive"
+                title={error.title}
+                description={error.description}
+                primaryAction={{ label: "Retry checkout", onAction: () => { void claimTrial(); } }}
+                className="trial-claim-error mt-4"
+              />
+            ) : null}
+          </div>
         </section>
       </main>
     </DashboardShell>

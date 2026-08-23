@@ -144,7 +144,10 @@ import { displayNameForDashboard } from "@/lib/dashboard-greeting";
 import {
   clearStripeCheckoutReturnState,
   clearPendingPlanCheckout,
+  buildStripeCheckoutReturnUrl,
   catalogPlanOffersTeamTrial,
+  createPlanCheckoutAttemptId,
+  createTeamTrialCheckoutState,
   getCheckoutReflectionStatus,
   getCheckoutOwnedCountFromSummary,
   getEffectivePlanName,
@@ -157,8 +160,10 @@ import {
   TEAM_TRIAL_PLAN_ID,
   type PendingPlanCheckout,
   type FirstAgentTrialCheckoutContext,
+  writePendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 import { getActiveAgentTrial } from "@/lib/agent-trial";
+import { startTrial as requestTrialCheckout } from "@/lib/trial-checkout";
 import {
   billingReflectionReducer,
   checkoutSyncBannerFromBillingState,
@@ -1246,6 +1251,7 @@ function AgentsPageContent() {
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [planName, setPlanName] = useState<string | null>(null);
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
+  const [hasBillingHistory, setHasBillingHistory] = useState<boolean | null>(null);
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
   const [tokenUsageByAgent, setTokenUsageByAgent] = useState<Record<string, number> | null>(null);
@@ -1729,6 +1735,7 @@ function AgentsPageContent() {
     setBudget(null);
     setPlanName(null);
     setSubscriptionSummary(null);
+    setHasBillingHistory(null);
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
     setTokenUsageByAgent(null);
@@ -2008,10 +2015,14 @@ function AgentsPageContent() {
         if (!isCurrentRequest()) return null;
         const hyperAgent = createHyperAgentClient(token);
         markDashboardPerformance("enrichment-start");
-        const [catalogData, currentPlan, summaryResult, agentUsage, typeCatalogData] = await Promise.all([
+        const [catalogData, currentPlan, summaryResult, billingHistoryResult, agentUsage, typeCatalogData] = await Promise.all([
           optionalDashboardData(hyperAgent.plans(), [] as HyperAgentPlan[]),
           optionalDashboardData(hyperAgent.currentPlan(), null),
           hyperAgent.subscriptionSummary().then(
+            (value) => ({ status: "fulfilled" as const, value }),
+            () => ({ status: "rejected" as const }),
+          ),
+          hyperAgent.billingHistory().then(
             (value) => ({ status: "fulfilled" as const, value }),
             () => ({ status: "rejected" as const }),
           ),
@@ -2034,6 +2045,11 @@ function AgentsPageContent() {
         setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
         const summaryObservedAt = Date.now();
         setSubscriptionSummary(summary);
+        setHasBillingHistory(
+          billingHistoryResult.status === "fulfilled"
+            ? billingHistoryResult.value.hasBillingHistory
+            : null,
+        );
         setTrialSummaryObservedAt(summaryObservedAt);
         setTrialClock(summaryObservedAt);
         setBillingDataPrincipalId(billingReady ? principalId : null);
@@ -2047,6 +2063,7 @@ function AgentsPageContent() {
         if (!isCurrentRequest()) return null;
         setBillingDataPrincipalId(null);
         setBillingDataError("Billing data could not be loaded. Retry before checkout.");
+        setHasBillingHistory(null);
         return null;
       }
     })();
@@ -2653,6 +2670,10 @@ function AgentsPageContent() {
     () => buildUpgradeProducts(catalogPlans).filter((product) => product.id !== "free" && product.price > 0),
     [catalogPlans],
   );
+  const teamTrialProduct = useMemo(
+    () => upgradeProducts.find((product) => product.id === TEAM_TRIAL_PLAN_ID) ?? null,
+    [upgradeProducts],
+  );
   const upgradeOwnedCounts = useMemo(
     () => Object.fromEntries(upgradeProducts.map((product) => [product.id, countOwnedProduct(subscriptionSummary, product)])),
     [subscriptionSummary, upgradeProducts],
@@ -2676,6 +2697,32 @@ function AgentsPageContent() {
   const canStartTeamTrial = !activeTrial;
 
   useEffect(() => {
+    if (
+      authLoading ||
+      !isAuthenticated ||
+      !user?.id ||
+      billingDataPrincipalId !== user.id ||
+      hasBillingHistory !== false ||
+      stripeCheckoutRecoveryRequested ||
+      checkoutReturnRecoveryActive ||
+      pendingAuthIntent ||
+      trialCheckoutPending
+    ) return;
+    router.replace("/trial");
+  }, [
+    authLoading,
+    billingDataPrincipalId,
+    checkoutReturnRecoveryActive,
+    hasBillingHistory,
+    isAuthenticated,
+    pendingAuthIntent,
+    router,
+    stripeCheckoutRecoveryRequested,
+    trialCheckoutPending,
+    user?.id,
+  ]);
+
+  useEffect(() => {
     if (!activeTrial) return;
     const interval = window.setInterval(() => setTrialClock(Date.now()), 60_000);
     return () => window.clearInterval(interval);
@@ -2691,8 +2738,8 @@ function AgentsPageContent() {
     return () => window.removeEventListener("pageshow", handlePageShow);
   }, []);
 
-  const startTeamTrial = useCallback(async (
-    _firstAgentSetup?: FirstAgentTrialCheckoutContext,
+  const startTrial = useCallback(async (
+    firstAgentSetup?: FirstAgentTrialCheckoutContext,
   ) => {
     const principalId = user?.id ?? null;
     if (!principalId || trialClaimPrincipalRef.current === principalId) return;
@@ -2707,22 +2754,34 @@ function AgentsPageContent() {
     try {
       const token = await getToken();
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
-      const hyperAgent = createHyperAgentClient(token);
       clearTeamTrialIntentSearchParams();
-      await hyperAgent.claimTrialEntitlement();
+      const checkoutAttemptId = createPlanCheckoutAttemptId();
+      const { checkout, pending } = await createTeamTrialCheckoutState(
+        { startTrial: (request) => requestTrialCheckout(token, request) },
+        {
+          successUrl: buildStripeCheckoutReturnUrl("success", checkoutAttemptId),
+          cancelUrl: buildStripeCheckoutReturnUrl("cancelled", checkoutAttemptId),
+        },
+        {
+          principalId,
+          summary: subscriptionSummary,
+          catalogProduct: teamTrialProduct,
+          firstAgentSetup,
+          checkoutAttemptId,
+        },
+      );
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
-      await refreshAgentEnrichment({ force: true, token });
+      writePendingPlanCheckout(pending);
       setLauncherPreferredPlanId(TEAM_TRIAL_PLAN_ID);
       setLauncherSelectedCatalogPlanId(TEAM_TRIAL_PLAN_ID);
-      trialClaimPrincipalRef.current = null;
-      setTrialCheckoutPending(false);
+      window.location.href = checkout.checkoutUrl;
     } catch (claimError) {
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
       trialClaimPrincipalRef.current = null;
       setTrialCheckoutPending(false);
       setError(trialClaimErrorMessage(claimError));
     }
-  }, [activeTrial, getToken, refreshAgentEnrichment, user?.id]);
+  }, [activeTrial, getToken, subscriptionSummary, teamTrialProduct, user?.id]);
 
   const beginTeamTrial = useCallback((
     firstAgentSetup?: FirstAgentTrialCheckoutContext,
@@ -2762,10 +2821,10 @@ function AgentsPageContent() {
           return;
         }
       }
-      void startTeamTrial(intent.firstAgentSetup);
+      void startTrial(intent.firstAgentSetup);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [activeTrial, authLoading, firstAgentSetupDraft, isAuthenticated, pendingAuthIntent, startTeamTrial, user?.id]);
+  }, [activeTrial, authLoading, firstAgentSetupDraft, isAuthenticated, pendingAuthIntent, startTrial, user?.id]);
 
   useEffect(() => {
     if (!teamTrialIntentRequested || stripeCheckoutRecoveryRequested) {

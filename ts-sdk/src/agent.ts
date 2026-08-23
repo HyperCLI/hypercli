@@ -406,6 +406,12 @@ export interface HyperAgentPaymentsOptions {
   status?: string;
 }
 
+export interface HyperAgentBillingHistory {
+  hasBillingHistory: boolean;
+  subscriptionCount: number;
+  paymentCount: number;
+}
+
 export interface HyperAgentGrant {
   id: string;
   userId: string | null;
@@ -441,11 +447,6 @@ export interface HyperAgentStripeCheckoutRequest {
   successUrl?: string;
   cancelUrl?: string;
   quantity?: number;
-}
-
-export interface HyperAgentStripeTrialCheckoutRequest {
-  successUrl?: string;
-  cancelUrl?: string;
 }
 
 export interface HyperAgentStripeCheckoutResponse {
@@ -1189,22 +1190,6 @@ export class HyperAgent {
     return response.json() as Promise<T>;
   }
 
-  private async controlPostBodyless<T = any>(path: string): Promise<T> {
-    const url = `${this.controlBaseUrl}${path}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw await responseAPIError(response, 'POST', url);
-    }
-
-    return response.json() as Promise<T>;
-  }
-
   private async controlPut<T = any>(path: string, body?: any): Promise<T> {
     const response = await fetch(`${this.controlBaseUrl}${path}`, {
       method: 'PUT',
@@ -1460,6 +1445,20 @@ export class HyperAgent {
     return hyperAgentPaymentFromDict(await this.controlGet(`/billing/payments/${encodeURIComponent(paymentId)}`));
   }
 
+  async billingHistory(): Promise<HyperAgentBillingHistory> {
+    const [subscriptions, payments] = await Promise.all([
+      this.subscriptions(),
+      this.payments({ limit: 1 }),
+    ]);
+    const subscriptionCount = subscriptions.length;
+    const paymentCount = payments.items.length;
+    return {
+      hasBillingHistory: subscriptionCount > 0 || paymentCount > 0,
+      subscriptionCount,
+      paymentCount,
+    };
+  }
+
   async purchaseEntitlementFromBalance(
     planId: string,
     request: HyperAgentBalanceEntitlementPurchaseRequest,
@@ -1485,11 +1484,6 @@ export class HyperAgent {
     );
   }
 
-  /** Claim the authenticated fresh user's introductory trial entitlement. */
-  async claimTrialEntitlement(): Promise<HyperAgentEntitlement> {
-    return hyperAgentEntitlementFromDict(await this.controlPostBodyless('/plans/trial'));
-  }
-
   async createStripeCheckout(
     request: HyperAgentStripeCheckoutRequest = {},
     planId?: string,
@@ -1504,17 +1498,6 @@ export class HyperAgent {
     };
     const path = planId ? `/stripe/${encodeURIComponent(planId)}` : '/stripe/checkout';
     return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
-  }
-
-  async createStripeTrialCheckout(
-    request: HyperAgentStripeTrialCheckoutRequest = {},
-  ): Promise<HyperAgentStripeCheckoutResponse> {
-    return hyperAgentStripeCheckoutResponseFromDict(
-      await this.controlPost('/stripe/trial', {
-        ...(request.successUrl !== undefined ? { success_url: request.successUrl } : {}),
-        ...(request.cancelUrl !== undefined ? { cancel_url: request.cancelUrl } : {}),
-      }),
-    );
   }
 
   async createStripeBillingPortalSession(

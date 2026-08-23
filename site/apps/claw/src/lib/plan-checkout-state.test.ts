@@ -218,7 +218,7 @@ describe("plan checkout state", () => {
 
   it("creates a Team trial checkout without querying the plan catalog", async () => {
     const client = {
-      createStripeTrialCheckout: vi.fn().mockResolvedValue({
+      startTrial: vi.fn().mockResolvedValue({
         checkoutUrl: "https://checkout.stripe.com/trial",
         checkoutSessionId: null,
         checkoutAttemptId: null,
@@ -232,8 +232,8 @@ describe("plan checkout state", () => {
       { principalId: "user-1", summary: null, startedAt: 10 },
     );
 
-    expect(client.createStripeTrialCheckout).toHaveBeenCalledOnce();
-    expect(client.createStripeTrialCheckout).toHaveBeenCalledWith({
+    expect(client.startTrial).toHaveBeenCalledOnce();
+    expect(client.startTrial).toHaveBeenCalledWith({
       successUrl: "https://agents.example/success",
       cancelUrl: "https://agents.example/cancel",
     });
@@ -252,7 +252,7 @@ describe("plan checkout state", () => {
 
   it("uses already-loaded Team catalog data only to enrich pending checkout state", async () => {
     const client = {
-      createStripeTrialCheckout: vi.fn().mockResolvedValue({
+      startTrial: vi.fn().mockResolvedValue({
         checkoutUrl: "https://checkout.stripe.com/trial",
         checkoutSessionId: "cs_trial",
         checkoutAttemptId: "attempt-original",
@@ -288,7 +288,7 @@ describe("plan checkout state", () => {
 
   it("preserves first-agent setup through a Team trial checkout", async () => {
     const client = {
-      createStripeTrialCheckout: vi.fn().mockResolvedValue({
+      startTrial: vi.fn().mockResolvedValue({
         checkoutUrl: "https://checkout.stripe.com/trial",
         checkoutSessionId: null,
         checkoutAttemptId: null,

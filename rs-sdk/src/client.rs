@@ -680,16 +680,6 @@ impl HyperCliClient {
         self.get_json("entitlements")
     }
 
-    /// Claim the authenticated fresh user's introductory trial entitlement.
-    pub fn claim_trial_entitlement(&self) -> Result<HyperAgentEntitlement, HyperCliError> {
-        let url = self.endpoint("plans/trial");
-        let builder = self
-            .http
-            .post(&url)
-            .bearer_auth(self.api_key.expose_secret());
-        self.send_json("claim_trial_entitlement", "POST", &url, None, builder)
-    }
-
     pub fn get_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}"));
         let started = Instant::now();
@@ -3318,66 +3308,6 @@ mod tests {
         assert_eq!(entitlements.agent_slots[0].size, "medium");
         assert!(entitlements.has_active_plan());
         summary.assert();
-    }
-
-    #[test]
-    fn claim_trial_entitlement_posts_bodyless_and_decodes_entitlement() {
-        let mut server = Server::new();
-        let claim = server
-            .mock("POST", "/agents/plans/trial")
-            .match_header("authorization", "Bearer test-credential")
-            .match_body(Matcher::Missing)
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({
-                    "id": "ent-trial-1",
-                    "user_id": "user-1",
-                    "subscription_id": null,
-                    "plan_id": "team",
-                    "plan_name": "Team",
-                    "provider": "TRIAL",
-                    "status": "ACTIVE",
-                    "starts_at": "2026-08-11T12:00:00Z",
-                    "expires_at": "2026-08-18T12:00:00Z",
-                    "slot_grants": {"medium": 3}
-                })
-                .to_string(),
-            )
-            .create();
-
-        let entitlement = client(&server).claim_trial_entitlement().unwrap();
-        assert_eq!(entitlement.id, "ent-trial-1");
-        assert_eq!(entitlement.user_id, "user-1");
-        assert_eq!(entitlement.plan_id, "team");
-        assert_eq!(entitlement.provider, "TRIAL");
-        assert_eq!(
-            entitlement.starts_at.as_deref(),
-            Some("2026-08-11T12:00:00Z")
-        );
-        assert_eq!(
-            entitlement.expires_at.as_deref(),
-            Some("2026-08-18T12:00:00Z")
-        );
-        assert_eq!(entitlement.slot_grants.get("medium"), Some(&3));
-        claim.assert();
-    }
-
-    #[test]
-    fn claim_trial_entitlement_preserves_conflict_status() {
-        let mut server = Server::new();
-        let claim = server
-            .mock("POST", "/agents/plans/trial")
-            .match_header("authorization", "Bearer test-credential")
-            .match_body(Matcher::Missing)
-            .with_status(409)
-            .with_header("content-type", "application/json")
-            .with_body(r#"{"detail":"trial_not_eligible"}"#)
-            .create();
-
-        let error = client(&server).claim_trial_entitlement().unwrap_err();
-        assert_eq!(error.status(), Some(StatusCode::CONFLICT));
-        claim.assert();
     }
 
     #[test]

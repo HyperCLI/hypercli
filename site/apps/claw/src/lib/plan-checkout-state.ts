@@ -2,8 +2,6 @@ import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
   HyperAgentPlan,
-  HyperAgentStripeCheckoutResponse,
-  HyperAgentStripeTrialCheckoutRequest,
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
@@ -14,6 +12,7 @@ import {
   mergeLaunchSlotInventories,
 } from "@/lib/agent-launch-state";
 import { bundleKey, compactBundle, subscriptionSlotBundle, type SlotBundle } from "@/lib/subscriptions";
+import type { TrialCheckoutRequest, TrialCheckoutResponse } from "@/lib/trial-checkout";
 
 export {
   getEffectivePlanIdFromSummary,
@@ -138,14 +137,12 @@ function provisionedTrialSlotBundle(
 }
 
 interface TeamTrialCheckoutClient {
-  createStripeTrialCheckout(
-    request?: HyperAgentStripeTrialCheckoutRequest,
-  ): Promise<HyperAgentStripeCheckoutResponse>;
+  startTrial(request?: TrialCheckoutRequest): Promise<TrialCheckoutResponse>;
 }
 
 export async function createTeamTrialCheckoutState(
   client: TeamTrialCheckoutClient,
-  request: HyperAgentStripeTrialCheckoutRequest,
+  request: TrialCheckoutRequest,
   options: {
     principalId: string;
     summary: HyperAgentSubscriptionSummary | null;
@@ -154,8 +151,8 @@ export async function createTeamTrialCheckoutState(
     checkoutAttemptId?: string | null;
     startedAt?: number;
   },
-): Promise<{ checkout: HyperAgentStripeCheckoutResponse; pending: PendingPlanCheckout }> {
-  const checkout = await client.createStripeTrialCheckout(request);
+): Promise<{ checkout: TrialCheckoutResponse; pending: PendingPlanCheckout }> {
+  const checkout = await client.startTrial(request);
   const checkoutAttemptId = checkout.checkoutAttemptId?.trim()
     || options.checkoutAttemptId?.trim()
     || null;

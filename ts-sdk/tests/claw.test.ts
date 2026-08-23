@@ -708,152 +708,58 @@ describe('HyperAgent API', () => {
     }
   });
 
-  it('claims a trial entitlement with an authenticated bodyless request', async () => {
+  it('reports billing history from existing subscriptions and payments', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     const fetchMock = globalThis.fetch;
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const calls: string[] = [];
 
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: String(input), init });
-      return new Response(JSON.stringify({
-        id: 'ent-trial-1',
-        user_id: 'user-1',
-        subscription_id: null,
-        plan_id: 'team',
-        plan_name: 'Team',
-        provider: 'TRIAL',
-        status: 'ACTIVE',
-        starts_at: '2026-08-11T12:00:00Z',
-        expires_at: '2026-08-18T12:00:00Z',
-        slot_grants: { medium: 3 },
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith('/agents/subscriptions')) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (url.endsWith('/agents/billing/payments?limit=1')) {
+        return new Response(JSON.stringify({
+          items: [{
+            id: 'pay-1',
+            user_id: 'user-1',
+            provider: 'STRIPE',
+            status: 'SUCCEEDED',
+            amount: '7900',
+            currency: 'usd',
+          }],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return new Response('{}', { status: 404 });
     }) as typeof fetch;
 
     try {
-      await expect(agent.claimTrialEntitlement()).resolves.toMatchObject({
-        id: 'ent-trial-1',
-        userId: 'user-1',
-        planId: 'team',
-        provider: 'TRIAL',
-        startsAt: new Date('2026-08-11T12:00:00Z'),
-        expiresAt: new Date('2026-08-18T12:00:00Z'),
-        slotGrants: { medium: 3 },
+      await expect(agent.billingHistory()).resolves.toEqual({
+        hasBillingHistory: true,
+        subscriptionCount: 0,
+        paymentCount: 1,
       });
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/plans/trial');
-      expect(calls[0]?.init?.method).toBe('POST');
-      expect(calls[0]?.init?.headers).toEqual({ Authorization: 'Bearer sk-hyper-test' });
-      expect(calls[0]?.init?.body).toBeUndefined();
+      expect(calls).toContain('https://api.hypercli.com/agents/subscriptions');
+      expect(calls).toContain('https://api.hypercli.com/agents/billing/payments?limit=1');
     } finally {
       globalThis.fetch = fetchMock;
     }
   });
 
-  it('surfaces an ineligible trial claim as an APIError', async () => {
+  it('keeps trial-start mutations out of the public SDK surface', () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
-    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
-    const fetchMock = globalThis.fetch;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents') as any;
 
-    globalThis.fetch = (async () => new Response(
-      JSON.stringify({ detail: 'trial_not_eligible' }),
-      {
-        status: 409,
-        statusText: 'Conflict',
-        headers: { 'Content-Type': 'application/json' },
-      },
-    )) as typeof fetch;
-
-    try {
-      const error = await agent.claimTrialEntitlement().then(
-        () => null,
-        (reason: unknown) => reason,
-      );
-      expect(error).toBeInstanceOf(APIError);
-      expect(error).toMatchObject({
-        statusCode: 409,
-        detail: 'trial_not_eligible',
-        method: 'POST',
-        url: 'https://api.hypercli.com/agents/plans/trial',
-      });
-    } finally {
-      globalThis.fetch = fetchMock;
-    }
-  });
-
-  it('creates a Team trial Stripe checkout on the agents control host', async () => {
-    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
-    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
-    const fetchMock = globalThis.fetch;
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
-
-    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      calls.push({ url: String(input), init });
-      return new Response(JSON.stringify({
-        checkout_url: 'https://checkout.stripe.com/c/pay/cs_trial',
-        session_id: 'cs_trial',
-        checkout_attempt_id: 'attempt-trial',
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }) as typeof fetch;
-
-    try {
-      await expect(agent.createStripeTrialCheckout({
-        successUrl: 'https://claw.hypercli.com/plans?trial=success',
-        cancelUrl: 'https://claw.hypercli.com/plans?trial=canceled',
-      })).resolves.toEqual({
-        checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_trial',
-        checkoutSessionId: 'cs_trial',
-        checkoutAttemptId: 'attempt-trial',
-      });
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/stripe/trial');
-      expect(calls[0]?.init?.method).toBe('POST');
-      expect(calls[0]?.init?.headers).toEqual(expect.objectContaining({
-        Authorization: 'Bearer sk-hyper-test',
-        'Content-Type': 'application/json',
-      }));
-      expect(calls[0]?.init?.body).toBe(JSON.stringify({
-        success_url: 'https://claw.hypercli.com/plans?trial=success',
-        cancel_url: 'https://claw.hypercli.com/plans?trial=canceled',
-      }));
-    } finally {
-      globalThis.fetch = fetchMock;
-    }
-  });
-
-  it('surfaces trial checkout conflicts as APIError details', async () => {
-    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
-    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
-    const fetchMock = globalThis.fetch;
-
-    globalThis.fetch = (async () => new Response(
-      JSON.stringify({ detail: 'Team trial has already been used' }),
-      {
-        status: 409,
-        statusText: 'Conflict',
-        headers: { 'Content-Type': 'application/json' },
-      },
-    )) as typeof fetch;
-
-    try {
-      const error = await agent.createStripeTrialCheckout().then(
-        () => null,
-        (reason: unknown) => reason,
-      );
-      expect(error).toBeInstanceOf(APIError);
-      expect(error).toMatchObject({
-        statusCode: 409,
-        detail: 'Team trial has already been used',
-        method: 'POST',
-        url: 'https://api.hypercli.com/agents/stripe/trial',
-      });
-    } finally {
-      globalThis.fetch = fetchMock;
-    }
+    expect(agent.claimTrialEntitlement).toBeUndefined();
+    expect(agent.createStripeTrialCheckout).toBeUndefined();
   });
 
   it('creates a Stripe billing portal session for payment method updates', async () => {

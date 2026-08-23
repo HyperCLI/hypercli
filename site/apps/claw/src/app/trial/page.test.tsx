@@ -9,21 +9,43 @@ const mocks = vi.hoisted(() => ({
     getToken: vi.fn().mockResolvedValue("token"),
     isAuthenticated: true,
     isLoading: false,
+    user: { id: "user-1" },
   },
-  claimTrialEntitlement: vi.fn().mockResolvedValue({ id: "ent-trial" }),
-  subscriptionSummary: vi.fn().mockResolvedValue({}),
-  notifyBillingPlanChanged: vi.fn(),
+  startTrial: vi.fn().mockResolvedValue({
+    checkoutUrl: "https://checkout.stripe.com/c/pay/cs_trial",
+    checkoutSessionId: "cs_trial",
+    checkoutAttemptId: "attempt-trial",
+  }),
+  writePendingPlanCheckout: vi.fn(),
 }));
 
 vi.mock("@/hooks/useAgentAuth", () => ({
   useAgentAuth: () => mocks.auth,
 }));
 
-vi.mock("@/lib/agent-client", () => ({
-  createHyperAgentClient: () => ({
-    claimTrialEntitlement: mocks.claimTrialEntitlement,
-    subscriptionSummary: mocks.subscriptionSummary,
+vi.mock("@/lib/trial-checkout", () => ({
+  startTrial: mocks.startTrial,
+}));
+
+vi.mock("@/lib/plan-checkout-state", () => ({
+  createPlanCheckoutAttemptId: () => "attempt-local",
+  createTeamTrialCheckoutState: async (
+    client: { startTrial: (request: unknown) => Promise<unknown> },
+    request: unknown,
+    options: { principalId: string; checkoutAttemptId?: string | null },
+  ) => ({
+    checkout: await client.startTrial(request),
+    pending: {
+      principalId: options.principalId,
+      planId: "team",
+      planName: "Team",
+      ownedCount: 0,
+      startedAt: 10,
+      checkoutAttemptId: options.checkoutAttemptId ?? undefined,
+      flow: "team-trial",
+    },
   }),
+  writePendingPlanCheckout: mocks.writePendingPlanCheckout,
 }));
 
 vi.mock("@/components/dashboard/DashboardShell", () => ({
@@ -45,20 +67,23 @@ vi.mock("@hypercli/shared-ui", () => ({
       {primaryAction ? <button onClick={primaryAction.onAction}>{primaryAction.label}</button> : null}
     </section>
   ),
-  notifyBillingPlanChanged: mocks.notifyBillingPlanChanged,
 }));
 
 describe("TrialPage", () => {
   beforeEach(() => {
     mocks.auth.isAuthenticated = true;
     mocks.auth.isLoading = false;
+    mocks.auth.user = { id: "user-1" };
     mocks.auth.getToken.mockClear();
-    mocks.claimTrialEntitlement.mockClear();
-    mocks.subscriptionSummary.mockClear();
-    mocks.notifyBillingPlanChanged.mockClear();
+    mocks.startTrial.mockClear();
+    mocks.writePendingPlanCheckout.mockClear();
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, href: "http://localhost/trial" },
+      writable: true,
+    });
   });
 
-  it("claims the backend-owned entitlement without opening checkout", async () => {
+  it("starts a Stripe-backed trial checkout", async () => {
     render(<TrialPage />);
 
     const claimButton = screen.getByRole("button", { name: "Start free trial" });
@@ -66,10 +91,17 @@ describe("TrialPage", () => {
     expect(claimButton).toHaveClass("claim-trial-button");
     fireEvent.click(claimButton);
 
-    await waitFor(() => expect(mocks.claimTrialEntitlement).toHaveBeenCalledOnce());
-    expect(mocks.subscriptionSummary).toHaveBeenCalledOnce();
-    expect(mocks.notifyBillingPlanChanged).toHaveBeenCalledOnce();
-    expect(await screen.findByText("Trial access is ready")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.startTrial).toHaveBeenCalledOnce());
+    expect(mocks.startTrial).toHaveBeenCalledWith("token", {
+      successUrl: "http://localhost/dashboard/agents?checkout=success&checkout_attempt=attempt-local&session_id={CHECKOUT_SESSION_ID}",
+      cancelUrl: "http://localhost/dashboard/agents?checkout=cancelled&checkout_attempt=attempt-local",
+    });
+    expect(mocks.writePendingPlanCheckout).toHaveBeenCalledWith(expect.objectContaining({
+      principalId: "user-1",
+      planId: "team",
+      flow: "team-trial",
+    }));
+    expect(window.location.href).toBe("https://checkout.stripe.com/c/pay/cs_trial");
   });
 
   it("keeps authentication on the stable trial URL", () => {
@@ -81,17 +113,17 @@ describe("TrialPage", () => {
   });
 
   it("uses ambiguous recovery copy when trial activation cannot be confirmed", async () => {
-    mocks.claimTrialEntitlement.mockRejectedValueOnce(
-      new Error("POST /agents/trial token=private-trial-token returned 504"),
+    mocks.startTrial.mockRejectedValueOnce(
+      new Error("POST /agents/stripe/trial token=private-trial-token returned 504"),
     );
     render(<TrialPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
 
-    expect(await screen.findByRole("heading", { name: "Check your plan, then retry the trial" })).toBeVisible();
-    expect(screen.getByText(/Review your plan before sending another request/i)).toBeVisible();
-    expect(screen.queryByText(/POST \/agents\/trial/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry trial request" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Retry to open secure checkout" })).toBeVisible();
+    expect(screen.getByText(/Checkout did not open/i)).toBeVisible();
+    expect(screen.queryByText(/POST \/agents\/stripe\/trial/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry checkout" })).toBeVisible();
     expect(document.querySelector("#trial-claim-error")).not.toBeNull();
   });
 });
