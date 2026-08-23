@@ -167,7 +167,7 @@ export function useHermesSession(
   // Set when a send appended local rows for a session; a late history load
   // must not clobber a live transcript with a stale snapshot.
   const transcriptDirtyRef = React.useRef<string | null>(null);
-  const connectRetryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRetryTimerRef = React.useRef<number | null>(null);
   const connectRetryAttemptRef = React.useRef(0);
   const connectAbortRef = React.useRef<AbortController | null>(null);
 
