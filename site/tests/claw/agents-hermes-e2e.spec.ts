@@ -190,6 +190,13 @@ test.describe.serial("Agents E2E (Hermes)", () => {
 
     const createResponse = await created;
     expect(createResponse.ok(), `expected the create to be accepted, got ${createResponse.status()}`).toBe(true);
+    const createRequestBody = createResponse.request().postDataJSON() as {
+      env?: Record<string, unknown>;
+      cors?: { allowed_origins?: unknown };
+    };
+    const pageOrigin = await page.evaluate(() => window.location.origin);
+    expect(createRequestBody.env?.API_SERVER_CORS_ORIGINS, "Hermes launch must allow the browser origin").toContain(pageOrigin);
+    expect(createRequestBody.cors?.allowed_origins, "Hermes route CORS must allow the browser origin").toContain(pageOrigin);
     const createBody = (await createResponse.json()) as { id?: unknown; runtime?: unknown };
     const agentId = String(createBody.id ?? "");
     expect(agentId, "expected the create response to carry the Agent id").toBeTruthy();

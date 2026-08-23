@@ -19,6 +19,7 @@ const asyncNull = async () => null;
 const asyncEmptyObject = async () => ({});
 const EMPTY_LIST: never[] = [];
 const EMPTY_RECORD: Record<string, never> = {};
+const HERMES_CONNECT_RETRY_DELAYS_MS = [750, 1_500, 3_000, 5_000, 10_000, 15_000, 30_000, 30_000] as const;
 
 /**
  * OpenClaw-only members, inert under hermes. Module-level so every identity
@@ -94,6 +95,10 @@ function errorText(value: unknown): string {
   return "Hermes request failed";
 }
 
+function hermesConnectRetryDelay(attempt: number): number | null {
+  return HERMES_CONNECT_RETRY_DELAYS_MS[attempt] ?? null;
+}
+
 function sessionLabel(session: AgentSessionSummary): string {
   return session.label?.trim() || `Session ${session.key.slice(0, 8)}`;
 }
@@ -162,6 +167,9 @@ export function useHermesSession(
   // Set when a send appended local rows for a session; a late history load
   // must not clobber a live transcript with a stale snapshot.
   const transcriptDirtyRef = React.useRef<string | null>(null);
+  const connectRetryTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectRetryAttemptRef = React.useRef(0);
+  const connectAbortRef = React.useRef<AbortController | null>(null);
 
   // The roster rehydrates Agent instances on every poll; reconnecting on
   // identity change would wipe live transcripts. Key the connection on
@@ -179,6 +187,23 @@ export function useHermesSession(
   React.useEffect(() => {
     requestedSessionKeyRef.current = requestedSessionKey ?? null;
   }, [requestedSessionKey]);
+
+  const clearConnectRetryTimer = React.useCallback(() => {
+    if (!connectRetryTimerRef.current) return;
+    window.clearTimeout(connectRetryTimerRef.current);
+    connectRetryTimerRef.current = null;
+  }, []);
+
+  const cancelPendingConnect = React.useCallback((reason: string) => {
+    clearConnectRetryTimer();
+    connectAbortRef.current?.abort(new Error(reason));
+    connectAbortRef.current = null;
+  }, [clearConnectRetryTimer]);
+
+  const closeConnectedClient = React.useCallback(() => {
+    clientRef.current?.close();
+    clientRef.current = null;
+  }, []);
 
   const loadHistory = React.useCallback(async (client: AgentSessionClient, sessionKey: string, generation: number) => {
     setHistoryPhase("loading");
@@ -216,15 +241,21 @@ export function useHermesSession(
   const connect = React.useCallback(async (generation: number) => {
     const connectTarget = agentRef.current;
     if (!connectTarget) return;
+    cancelPendingConnect("Hermes session reconnecting");
+    const abortController = new AbortController();
+    connectAbortRef.current = abortController;
+    let client: AgentSessionClient | null = null;
     setStatus("connecting");
     setError(null);
     try {
-      const client = await connectTarget.connect();
+      client = await connectTarget.connect({ signal: abortController.signal });
+      if (connectAbortRef.current === abortController) connectAbortRef.current = null;
       if (generationRef.current !== generation) {
         client.close();
         return;
       }
       clientRef.current = client;
+      connectRetryAttemptRef.current = 0;
       setStatus("connected");
       const listed = await client.sessionsList();
       if (generationRef.current !== generation) return;
@@ -253,11 +284,23 @@ export function useHermesSession(
       if (sessionKey) await loadHistory(client, sessionKey, generation);
     } catch (cause) {
       if (generationRef.current !== generation) return;
-      clientRef.current = null;
+      if (abortController.signal.aborted) return;
+      if (connectAbortRef.current === abortController) connectAbortRef.current = null;
+      if (clientRef.current === client) clientRef.current = null;
+      client?.close();
       setStatus("error");
       setError(errorText(cause));
+      const retryDelay = hermesConnectRetryDelay(connectRetryAttemptRef.current);
+      if (retryDelay !== null) {
+        connectRetryAttemptRef.current += 1;
+        connectRetryTimerRef.current = window.setTimeout(() => {
+          connectRetryTimerRef.current = null;
+          if (generationRef.current !== generation || !agentRef.current) return;
+          void connect(generation);
+        }, retryDelay);
+      }
     }
-  }, [loadHistory]);
+  }, [cancelPendingConnect, loadHistory]);
 
   // Follow route-driven session selection, mirroring the openclaw hook.
   React.useEffect(() => {
@@ -274,8 +317,9 @@ export function useHermesSession(
   React.useEffect(() => {
     if (!agentIdentityKey || !enabled) {
       generationRef.current += 1;
-      clientRef.current?.close();
-      clientRef.current = null;
+      connectRetryAttemptRef.current = 0;
+      cancelPendingConnect("Hermes session disabled");
+      closeConnectedClient();
       const resetTimer = window.setTimeout(() => {
         setStatus("disconnected");
         setError(null);
@@ -292,14 +336,16 @@ export function useHermesSession(
     }
     const generation = generationRef.current + 1;
     generationRef.current = generation;
+    connectRetryAttemptRef.current = 0;
+    cancelPendingConnect("Hermes session starting");
     void connect(generation);
     return () => {
       if (generationRef.current === generation) generationRef.current += 1;
+      cancelPendingConnect("Hermes session changed");
       sendAbortRef.current?.abort();
-      clientRef.current?.close();
-      clientRef.current = null;
+      closeConnectedClient();
     };
-  }, [agentIdentityKey, enabled, connect]);
+  }, [agentIdentityKey, enabled, cancelPendingConnect, closeConnectedClient, connect]);
 
   const selectSession = React.useCallback((sessionKey: string) => {
     const client = clientRef.current;
@@ -475,8 +521,11 @@ export function useHermesSession(
   const retry = React.useCallback(async () => {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
+    connectRetryAttemptRef.current = 0;
+    cancelPendingConnect("Hermes session retry requested");
+    closeConnectedClient();
     await connect(generation);
-  }, [connect]);
+  }, [cancelPendingConnect, closeConnectedClient, connect]);
 
   const retryAndRefreshSessions = React.useCallback(async () => {
     await retry();

@@ -82,6 +82,34 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert agent.launch_config is None
 
 
+def test_create_hermes_agent_maps_cors_origins_to_env_and_route_cors(
+    deployments: Deployments,
+) -> None:
+    with (
+        patch("httpx.Client") as client_class,
+        patch("hypercli.agents.secrets.token_urlsafe", return_value="h" * 43),
+    ):
+        client = MagicMock()
+        client.post.return_value = _mock_response(_deployment_payload())
+        client.__enter__.return_value = client
+        client.__exit__.return_value = False
+        client_class.return_value = client
+
+        deployments.create_hermes_agent(
+            name="hermes",
+            env={"API_SERVER_CORS_ORIGINS": "https://claw.hypercli.com"},
+            cors_origins=["http://127.0.0.1:4003", "https://claw.hypercli.com"],
+        )
+
+    body = client.post.call_args.kwargs["json"]
+    assert body["env"]["API_SERVER_CORS_ORIGINS"] == (
+        "https://claw.hypercli.com,http://127.0.0.1:4003"
+    )
+    assert body["cors"] == {
+        "allowed_origins": ["https://claw.hypercli.com", "http://127.0.0.1:4003"]
+    }
+
+
 def test_start_hermes_agent_does_not_rotate_api_server_key(deployments: Deployments) -> None:
     with (
         patch("httpx.Client") as client_class,

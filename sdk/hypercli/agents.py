@@ -122,6 +122,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
         "env",
         "secrets",
         "routes",
+        "cors",
         "command",
         "entrypoint",
         "sync_root",
@@ -551,6 +552,31 @@ def _inject_hermes_api_server_key(
     return env_map, secret_map, effective_key
 
 
+def _resolve_hermes_cors(
+    env: dict[str, Any],
+    cors_origins: list[str] | tuple[str, ...] | set[str] | None,
+    cors: AgentCorsConfig | dict | None | object,
+) -> tuple[dict[str, Any], AgentCorsConfig | dict | None | object]:
+    origins = [
+        item.strip()
+        for source in (
+            str(env.get("API_SERVER_CORS_ORIGINS") or "").split(","),
+            list(cors_origins or []),
+        )
+        for item in source
+        if str(item).strip()
+    ]
+    if not origins:
+        return env, cors
+
+    deduped = list(dict.fromkeys(origins))
+    prepared_env = dict(env)
+    prepared_env["API_SERVER_CORS_ORIGINS"] = ",".join(deduped)
+    if cors is not _UNSET:
+        return prepared_env, cors
+    return prepared_env, {"allowed_origins": deduped}
+
+
 def _inject_openclaw_gateway_token(
     env: dict | None,
     secret_env: dict | None,
@@ -840,6 +866,7 @@ def _build_agent_launch(
     env: dict | None = None,
     secrets: dict | None = None,
     routes: dict | None = None,
+    cors: AgentCorsConfig | dict | None | object = _UNSET,
     command: list[str] | None = None,
     entrypoint: list[str] | None = None,
     image: str | None = None,
@@ -896,6 +923,8 @@ def _build_agent_launch(
         if sync_exclude is not None and {"*", "**"} & set(sync_exclude):
             raise ValueError("sync_exclude cannot exclude the entire sync root; omit it to sync all")
         complete_launch["sync_exclude"] = None if sync_exclude is None else list(sync_exclude)
+    if cors is not _UNSET:
+        complete_launch["cors"] = None if cors is None else copy.deepcopy(dict(cors))
     if _complete:
         return complete_launch
 
@@ -906,6 +935,8 @@ def _build_agent_launch(
         launch["env"] = env_map
     if secret_map:
         launch["secrets"] = secret_map
+    if cors is not _UNSET and cors is not None:
+        launch["cors"] = copy.deepcopy(dict(cors))
     for key, value, provided in (
         ("routes", routes, routes is not None),
         ("command", command, command is not None),
@@ -3433,6 +3464,7 @@ class Deployments:
         env: dict = None,
         secrets: dict = None,
         routes: dict = None,
+        cors: AgentCorsConfig | dict | None | object = _UNSET,
         command: list[str] = None,
         entrypoint: list[str] = None,
         image: str = None,
@@ -3474,6 +3506,7 @@ class Deployments:
             "env": env,
             "secrets": secrets,
             "routes": routes,
+            "cors": cors,
             "command": command,
             "entrypoint": entrypoint,
             "image": image,
@@ -3603,6 +3636,8 @@ class Deployments:
         env: dict = None,
         secrets: dict = None,
         routes: dict = None,
+        cors: AgentCorsConfig | dict | None | object = _UNSET,
+        cors_origins: list[str] | tuple[str, ...] | set[str] | None = None,
         command: list[str] = None,
         entrypoint: list[str] = None,
         image: str = None,
@@ -3627,6 +3662,11 @@ class Deployments:
             secrets,
             api_server_key,
         )
+        effective_env, effective_cors = _resolve_hermes_cors(
+            effective_env,
+            cors_origins,
+            cors,
+        )
         agent = self.create(
             name=name,
             handle=handle,
@@ -3641,6 +3681,7 @@ class Deployments:
                 hermes_routes=hermes_routes,
                 hermes_route_options=hermes_route_options,
             ),
+            cors=effective_cors,
             command=command,
             entrypoint=entrypoint,
             image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,

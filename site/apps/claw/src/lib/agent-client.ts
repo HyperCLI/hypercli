@@ -120,6 +120,7 @@ function buildHermesStartLaunchConfig(agent: SdkAgent): AgentLaunchConfig {
 
 function hermesCorsOriginsList(...sources: Array<string | string[]>): string[] {
   const origins = sources.flatMap((source) => Array.isArray(source) ? source : source.split(","));
+  origins.push(...configuredUiOrigins());
   const origin = currentControlUiOrigin();
   if (origin) origins.push(origin);
   return [...new Set(origins.map((entry) => entry.trim()).filter((entry) => entry.length > 0))];
@@ -495,13 +496,9 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
 
 export async function createHermesAgentDeployment(apiKey: string, options: FrontendHermesAgentCreateOptions = {}) {
   const agentClient = createAgentClient(apiKey);
-  const corsOrigins = hermesCorsOriginsList(options.env?.[HERMES_CORS_ORIGINS_ENV] ?? "");
+  const corsOrigins = hermesCorsOriginsList(options.env?.[HERMES_CORS_ORIGINS_ENV] ?? "", options.corsOrigins ?? []);
   const preparedOptions: FrontendHermesAgentCreateOptions = {
     ...options,
-    env: {
-      ...(options.env ?? {}),
-      [HERMES_CORS_ORIGINS_ENV]: corsOrigins.join(","),
-    },
     corsOrigins,
   };
   return createAgentWithNameRetry(agentClient, agentClient.createHermesAgent.bind(agentClient), preparedOptions);

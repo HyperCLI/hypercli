@@ -4,7 +4,6 @@ import { archiveAgent, createHermesAgentDeployment, createHyperAgentClient, crea
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
-  process.env.NEXT_PUBLIC_AGENTS_URL = "https://agents.hypercli.com";
   process.env.NEXT_PUBLIC_SLACK_RELAY_BASE_URL = "https://api.hypercli.com";
   return {
     deploymentsConstructor: vi.fn(),
@@ -339,11 +338,39 @@ describe("agent-client", () => {
       name: "Hermes",
       size: "small",
       meta: { ui: { avatar: { icon_index: 3 } } },
-      env: { API_SERVER_CORS_ORIGINS: window.location.origin },
       corsOrigins: [window.location.origin],
     });
     expect(deploymentsInstance.createOpenClaw).not.toHaveBeenCalled();
     expect(deploymentsInstance.createOpenClawPro).not.toHaveBeenCalled();
+  });
+
+  it("passes hermes CORS through corsOrigins without constructing env", async () => {
+    const created = { id: "agent-hermes", state: "CREATING", runtime: "hermes-agent" };
+    deploymentsInstance.createHermesAgent.mockResolvedValue(created);
+    process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS = "https://control.hypercli.com";
+
+    await expect(createHermesAgentDeployment("hyper_api_test", {
+      name: "Hermes",
+      env: {
+        API_SERVER_CORS_ORIGINS: "https://legacy.hypercli.com",
+        FOO: "bar",
+      },
+      corsOrigins: ["https://custom.hypercli.com"],
+    })).resolves.toBe(created);
+
+    expect(deploymentsInstance.createHermesAgent).toHaveBeenCalledWith({
+      name: "Hermes",
+      env: {
+        API_SERVER_CORS_ORIGINS: "https://legacy.hypercli.com",
+        FOO: "bar",
+      },
+      corsOrigins: [
+        "https://legacy.hypercli.com",
+        "https://custom.hypercli.com",
+        "https://control.hypercli.com",
+        window.location.origin,
+      ],
+    });
   });
 
   it("starts a hermes agent from its stored launch config without the OpenClaw origin env", async () => {

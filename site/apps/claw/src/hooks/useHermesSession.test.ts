@@ -34,6 +34,7 @@ function fakeAgent(client: AgentSessionClient): HermesAgent {
 describe("useHermesSession (AgentGatewaySession adapter)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it("reports the hermes backend and connects with an auto-created first session", async () => {
@@ -168,6 +169,91 @@ describe("useHermesSession (AgentGatewaySession adapter)", () => {
       await result.current.retry();
     });
     await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.error).toBeNull();
+  });
+
+  it("automatically retries transient connect failures", async () => {
+    vi.useFakeTimers();
+    const client = fakeClient();
+    const agent = {
+      connect: vi.fn()
+        .mockRejectedValueOnce(new Error("route not ready"))
+        .mockResolvedValue(client),
+    } as unknown as HermesAgent;
+
+    const { result } = renderHook(() => useHermesSession(agent, true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+    expect(result.current.error).toBe("route not ready");
+    expect(result.current.connected).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750);
+      await Promise.resolve();
+    });
+
+    expect(result.current.connected).toBe(true);
+    expect(agent.connect).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("manual retry clears a queued automatic retry", async () => {
+    vi.useFakeTimers();
+    const client = fakeClient();
+    const agent = {
+      connect: vi.fn()
+        .mockRejectedValueOnce(new Error("route not ready"))
+        .mockResolvedValue(client),
+    } as unknown as HermesAgent;
+
+    const { result } = renderHook(() => useHermesSession(agent, true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    });
+    expect(result.current.error).toBe("route not ready");
+    expect(agent.connect).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(result.current.connected).toBe(true);
+    expect(agent.connect).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(750);
+      await Promise.resolve();
+    });
+    expect(agent.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("aborts an in-flight initial connect when disabled", async () => {
+    let connectSignal: AbortSignal | null = null;
+    const agent = {
+      connect: vi.fn(({ signal }: { signal?: AbortSignal } = {}) => {
+        connectSignal = signal ?? null;
+        return new Promise<AgentSessionClient>((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+        });
+      }),
+    } as unknown as HermesAgent;
+
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) => useHermesSession(agent, enabled),
+      { initialProps: { enabled: true } },
+    );
+
+    await waitFor(() => expect(agent.connect).toHaveBeenCalledOnce());
+    expect(result.current.connecting).toBe(true);
+
+    rerender({ enabled: false });
+
+    expect(connectSignal?.aborted).toBe(true);
+    await waitFor(() => expect(result.current.connected).toBe(false));
     expect(result.current.error).toBeNull();
   });
 
