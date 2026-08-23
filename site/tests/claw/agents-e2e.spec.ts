@@ -6,7 +6,11 @@ import {
   cleanupAdminUser,
   type AdminUserIdentity,
 } from "./fixtures/admin-user-bootstrap";
-import { completeStripeCheckout } from "./fixtures/auth";
+import {
+  completeStripeCheckout,
+  deleteClawAgentThroughUi,
+  stopClawAgentThroughUi,
+} from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 test.use({ trace: "off", video: "off" });
@@ -139,6 +143,8 @@ async function claimTeamTrialThroughStripeCheckout(page: Page): Promise<void> {
 }
 
 test.describe.serial("Agents E2E", () => {
+  test.describe.configure({ retries: 0 });
+
   // When the harness (bootstrap_agents_e2e_user.py) owns the identity it sets
   // TEST_EMAIL + TEST_USER_TOKEN, and this spec neither creates nor deletes
   // anything admin-side -- that path survives a killed runner. The in-process
@@ -221,27 +227,13 @@ test.describe.serial("Agents E2E", () => {
     await step(page, "chat-reply");
 
     // -- Stop from Agent Settings ----------------------------------------------
-    await page.getByRole("button", { name: "Account links" }).click();
-    await page.getByRole("button", { name: "Advanced" }).click();
-    await page.getByRole("menuitem", { name: "Agent Settings" }).click();
-    await step(page, "settings-open");
-    await page.getByTestId("agent-stop").click();
-    // The runtime card flips to the start affordance only once the deployment
-    // is STOPPED -- which is also the Danger Zone's precondition for delete.
-    await expect(page.getByRole("button", { name: "Start agent" }), "expected the Agent to reach STOPPED")
-      .toBeVisible({ timeout: 240_000 });
-
+    // Click the real UI control, then observe the authoritative lifecycle state
+    // through the deployments client. The UI label is not the source of truth.
+    await stopClawAgentThroughUi(page, agentId);
     await step(page, "stopped");
 
     // -- Delete from the Danger Zone --------------------------------------------
-    const deleted = page.waitForResponse(
-      (r) => r.request().method() === "DELETE" && new URL(r.url()).pathname.endsWith(`/agents/deployments/${agentId}`),
-      { timeout: 120_000 },
-    );
-    await page.getByTestId("agent-danger-delete").click();
-    await page.getByTestId("agent-danger-delete-confirm").click();
-    const deleteResponse = await deleted;
-    expect(deleteResponse.ok(), `expected the delete to be accepted, got ${deleteResponse.status()}`).toBe(true);
+    await deleteClawAgentThroughUi(page, agentId);
     await step(page, "deleted");
   });
 });
