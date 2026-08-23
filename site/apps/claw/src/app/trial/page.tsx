@@ -82,7 +82,8 @@ export default function TrialPage() {
       );
       writePendingPlanCheckout(pending);
       window.location.href = checkout.checkoutUrl;
-    } catch {
+    } catch (error) {
+      console.error("Trial checkout failed", error);
       setClaimState("idle");
       setError({
         title: "Retry to open secure checkout",

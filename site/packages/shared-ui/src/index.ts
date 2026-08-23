@@ -14,6 +14,7 @@ export {
   getStoredToken,
   setStoredToken,
   clearStoredToken,
+  getStoredSessionPrincipal,
   isTokenExpired,
   exchangePrivyToken,
   getAppToken,

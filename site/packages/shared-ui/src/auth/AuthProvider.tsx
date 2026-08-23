@@ -118,6 +118,17 @@ export function hasStoredSession(tokenStorageKey = "app_auth_token", cookieName 
   return Boolean(getStoredSession(tokenStorageKey, cookieName));
 }
 
+export function getStoredSessionPrincipal(tokenStorageKey = "app_auth_token", cookieName = "auth_token"): string | null {
+  const token = getStoredSession(tokenStorageKey, cookieName);
+  if (!token) return null;
+  try {
+    const sub = decodeJwtPayload(token).sub;
+    return typeof sub === "string" && sub.trim() ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
 export function setStoredToken(token: string, tokenStorageKey = "app_auth_token"): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(tokenStorageKey, token);
@@ -190,6 +201,19 @@ function usernameFromLinkedAccounts(accounts: unknown): string | undefined {
     if (username) return username;
   }
   return undefined;
+}
+
+function sameAuthUser(a: AuthUser | null, b: AuthUser | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.id === b.id &&
+    a.email === b.email &&
+    a.walletAddress === b.walletAddress &&
+    a.name === b.name &&
+    a.fullName === b.fullName &&
+    a.username === b.username
+  );
 }
 
 export function isTokenExpired(token: string): boolean {
@@ -439,12 +463,14 @@ function PrivySessionAuthProvider({
   }, [privyUser]);
 
   const completeSession = useCallback(() => {
-    setUser(getUserFromPrivy());
+    const storedPrincipal = getStoredSessionPrincipal(tokenStorageKey, cookieName);
+    const nextUser = getUserFromPrivy() ?? (storedPrincipal ? { id: storedPrincipal } : null);
+    setUser((previousUser) => (sameAuthUser(previousUser, nextUser) ? previousUser : nextUser));
     setError(null);
     setFlowState("complete");
     setIsAuthenticated(true);
     setIsLoading(false);
-  }, [getUserFromPrivy]);
+  }, [cookieName, getUserFromPrivy, tokenStorageKey]);
 
   const resetSession = useCallback((nextState: AuthFlowState = "idle", nextError: string | null = null) => {
     clearStoredToken(tokenStorageKey, cookieName);

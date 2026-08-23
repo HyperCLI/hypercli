@@ -3135,46 +3135,6 @@ function agentSettingsHref(agentId: string): string {
  * API because the UI reports it as a label rather than a value -- that read is
  * an observation, not the action under test.
  */
-/**
- * Claim the trial the way a user does: on /trial, by clicking the button.
- *
- * The identity is bootstrapped with a login and nothing else, so this is where
- * it earns a plan. Deliberately a click and not a POST -- /trial is a real
- * product surface, it is how a user without a card gets access, and nothing
- * else covers it. It is also why this works on a localhost run: the page
- * claims an entitlement (POST /plans/trial) rather than opening a Stripe
- * checkout whose redirect could never come back.
- */
-export async function startClawTeamTrialThroughUi(page: Page): Promise<void> {
-  await page.goto("/trial", { waitUntil: "domcontentloaded" });
-
-  const claimButton = page.locator("#claim-trial-button");
-  await expect(claimButton, "expected the trial claim control on /trial").toBeVisible({ timeout: 90_000 });
-  await expect(claimButton).toBeEnabled({ timeout: 90_000 });
-
-  const trialResponse = page.waitForResponse(
-    (response) => response.request().method() === "POST"
-      && new URL(response.url()).pathname.endsWith("/plans/trial"),
-    { timeout: 120_000 },
-  );
-  await claimButton.click();
-  const response = await trialResponse;
-  expect(response.ok(), `expected the trial claim to be accepted, got ${response.status()}`).toBe(true);
-
-  // The page renders its own success state only once the entitlement is live,
-  // so this is the UI's statement that the trial took -- not merely that the
-  // request returned 200.
-  await expect(
-    page.locator("#trial-claim-success"),
-    "expected /trial to confirm the entitlement is active",
-  ).toBeVisible({ timeout: 120_000 });
-
-  await page.locator("#trial-continue-button").click();
-  await page.waitForURL(/\/dashboard\/agents/, { timeout: 90_000 });
-  console.log("[agents-plans] team trial claimed through /trial");
-}
-
-
 export async function stopClawAgentThroughUi(page: Page, agentId: string): Promise<DeploymentRecord> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);

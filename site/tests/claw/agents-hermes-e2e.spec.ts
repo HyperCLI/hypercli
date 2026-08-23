@@ -6,6 +6,7 @@ import {
   cleanupAdminUser,
   type AdminUserIdentity,
 } from "./fixtures/admin-user-bootstrap";
+import { completeStripeCheckout } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 test.use({ trace: "off", video: "off" });
@@ -17,9 +18,10 @@ test.use({ trace: "off", video: "off" });
  * chat round-trip runs over the Hermes HTTP/SSE API through the standard
  * chat UI.
  *
- *   bootstrap identity -> mint its JWT -> claim the Team trial on /trial ->
- *   pick Hermes in the launcher -> it starts on its own -> Ready -> one chat
- *   round-trip -> stop from settings -> delete from the Danger Zone.
+ *   bootstrap identity -> mint its JWT -> claim the Team trial on /trial via
+ *   Stripe hosted checkout (sandbox card) -> pick Hermes in the launcher ->
+ *   it starts on its own -> Ready -> one chat round-trip -> stop from
+ *   settings -> delete from the Danger Zone.
  */
 
 const startedAt = Date.now();
@@ -77,6 +79,52 @@ async function loginAs(page: Page, email: string): Promise<void> {
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/dashboard");
 }
 
+/**
+ * Claim the Team trial through Stripe hosted checkout.
+ *
+ * The trial is a paid checkout now, not a cardless grant: /trial's
+ * #claim-trial-button asks POST /agents/stripe/trial for a session and
+ * navigates to checkout.stripe.com, the sandbox card pays there, and Stripe
+ * redirects back to /dashboard/agents where the checkout-return recovery
+ * consumes the query params and waits for the entitlement to reflect. This
+ * checkout is the critical contract of the spec and must not be skipped.
+ *
+ * The Stripe form fill delegates to the shared completeStripeCheckout -- the
+ * same driver the console lanes use -- so the trial and console checkouts
+ * stay in lockstep. It polls every known field variant across frames, which
+ * is what the Link/Apple-Pay-first layouts demand: a single-iframe
+ * input[name='number'] selector finds nothing when the card form is mounted
+ * late or under different field names.
+ */
+async function claimTeamTrialThroughStripeCheckout(page: Page): Promise<void> {
+  await page.goto(`${appBase()}/trial`, { waitUntil: "domcontentloaded" });
+
+  // completeSession is async, so the planted session needs to settle before
+  // the claim button will hand off to Stripe at all.
+  const claimButton = page.locator("#claim-trial-button");
+  await expect(claimButton, "expected the trial claim control on /trial").toBeEnabled({ timeout: 90_000 });
+  await claimButton.click();
+  await page.waitForURL(/checkout\.stripe\.com/, { timeout: 120_000 });
+
+  // Currency is geo-dependent and completeStripeCheckout does not touch it:
+  // pick USD when Stripe offers the choice, and carry on without complaining
+  // when it does not.
+  const usdButton = page.getByRole("button", { name: "USD", exact: true }).first();
+  if (await usdButton.isVisible().catch(() => false)) {
+    await usdButton.click().catch(() => {});
+  }
+
+  // completeStripeCheckout fills the sandbox card, clicks Stripe's own
+  // submit (.SubmitButton / button[type='submit'], which covers the
+  // "Start trial" label), and waits until the browser has left
+  // checkout.stripe.com.
+  await completeStripeCheckout(page, `${appBase()}/dashboard/agents`);
+
+  // Stripe returns to /dashboard/agents?checkout=success&..., which the app's
+  // checkout-return recovery consumes while the trial entitlement reflects.
+  await page.waitForURL(/\/dashboard\/agents/, { timeout: 180_000 });
+}
+
 test.describe.serial("Agents E2E (Hermes)", () => {
   // Always its own identity: the harness identity belongs to the OpenClaw
   // lane, and two trial claims on one identity collide.
@@ -113,16 +161,10 @@ test.describe.serial("Agents E2E (Hermes)", () => {
     await step(page, "logged-in");
 
     // -- Trial ---------------------------------------------------------------
-    await page.goto(`${appBase()}/trial`, { waitUntil: "domcontentloaded" });
-    const trialClaimed = page.waitForResponse(
-      (r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/plans/trial"),
-      { timeout: 120_000 },
-    );
-    await page.locator("#claim-trial-button").click();
-    expect((await trialClaimed).ok(), "expected the trial claim to be accepted").toBe(true);
-    await expect(page.locator("#trial-claim-success")).toBeVisible({ timeout: 120_000 });
-    await page.locator("#trial-continue-button").click();
-    await page.waitForURL(/\/dashboard\/agents/, { timeout: 90_000 });
+    // Same hosted Stripe checkout as the OpenClaw lane: paid with the sandbox
+    // card, and the redirect back to /dashboard/agents is the contract this
+    // spec must not skip.
+    await claimTeamTrialThroughStripeCheckout(page);
     await step(page, "trial-claimed");
 
     // -- Create a Hermes agent through the setup wizard -----------------------

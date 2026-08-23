@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { allowConsoleError } from "@/test/setup";
 import TrialPage from "./page";
 
 const mocks = vi.hoisted(() => ({
@@ -113,6 +114,7 @@ describe("TrialPage", () => {
   });
 
   it("uses ambiguous recovery copy when trial activation cannot be confirmed", async () => {
+    allowConsoleError("Trial checkout failed");
     mocks.startTrial.mockRejectedValueOnce(
       new Error("POST /agents/stripe/trial token=private-trial-token returned 504"),
     );

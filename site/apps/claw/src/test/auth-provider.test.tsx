@@ -4,6 +4,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   AuthProvider,
   getAppToken,
+  getStoredSessionPrincipal,
   useAuth,
 } from "../../../../packages/shared-ui/src/auth/AuthProvider";
 
@@ -19,8 +20,8 @@ vi.mock("@privy-io/react-auth", () => ({
   }),
 }));
 
-function createToken(exp: number): string {
-  const payload = Buffer.from(JSON.stringify({ exp, tags: ["*:*"] })).toString("base64url");
+function createToken(exp: number, extraPayload: Record<string, unknown> = {}): string {
+  const payload = Buffer.from(JSON.stringify({ exp, tags: ["*:*"], ...extraPayload })).toString("base64url");
   return `header.${payload}.signature`;
 }
 
@@ -35,6 +36,11 @@ function deferred<T>() {
 function AuthProbe() {
   const { isLoading, isAuthenticated } = useAuth();
   return <div>{isLoading ? "loading" : isAuthenticated ? "authenticated" : "anonymous"}</div>;
+}
+
+function PrincipalProbe() {
+  const { isLoading, user } = useAuth();
+  return <div>{isLoading ? "loading" : (user?.id ?? "no-user")}</div>;
 }
 
 describe("shared AuthProvider", () => {
@@ -54,6 +60,88 @@ describe("shared AuthProvider", () => {
     );
 
     await waitFor(() => expect(screen.getByText("authenticated")).toBeInTheDocument());
+  });
+
+  it("exposes the stored token subject as the user id when no Privy session exists", async () => {
+    localStorage.setItem(
+      "claw_auth_token",
+      createToken(Math.floor(Date.now() / 1000) + 3600, { sub: "orchestra-user-1" }),
+    );
+
+    render(
+      <AuthProvider apiBaseUrl="https://api.example.test" tokenStorageKey="claw_auth_token">
+        <PrincipalProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("orchestra-user-1")).toBeInTheDocument());
+  });
+
+  it("keeps the user null when the stored token has no subject", async () => {
+    localStorage.setItem("claw_auth_token", createToken(Math.floor(Date.now() / 1000) + 3600));
+
+    render(
+      <AuthProvider apiBaseUrl="https://api.example.test" tokenStorageKey="claw_auth_token">
+        <PrincipalProbe />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("no-user")).toBeInTheDocument());
+  });
+
+  describe("getStoredSessionPrincipal", () => {
+    it("returns the subject of a valid stored token", () => {
+      localStorage.setItem(
+        "claw_auth_token",
+        createToken(Math.floor(Date.now() / 1000) + 3600, { sub: "orchestra-user-1" }),
+      );
+
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBe("orchestra-user-1");
+    });
+
+    it("returns null when no token is stored", () => {
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBeNull();
+    });
+
+    it("returns null when the stored token has no subject", () => {
+      localStorage.setItem("claw_auth_token", createToken(Math.floor(Date.now() / 1000) + 3600));
+
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBeNull();
+    });
+
+    it("returns null when the stored token has an empty subject", () => {
+      localStorage.setItem(
+        "claw_auth_token",
+        createToken(Math.floor(Date.now() / 1000) + 3600, { sub: "   " }),
+      );
+
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBeNull();
+    });
+
+    it("returns null when the stored token is malformed", () => {
+      localStorage.setItem("claw_auth_token", "not-a-jwt");
+
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBeNull();
+    });
+
+    it("returns null when the token is expired", () => {
+      localStorage.setItem(
+        "claw_auth_token",
+        createToken(Math.floor(Date.now() / 1000) - 3600, { sub: "orchestra-user-1" }),
+      );
+
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBeNull();
+    });
+
+    it("returns null when the logout marker is set", () => {
+      localStorage.setItem(
+        "claw_auth_token",
+        createToken(Math.floor(Date.now() / 1000) + 3600, { sub: "orchestra-user-1" }),
+      );
+      document.cookie = `hypercli_logged_out=${Date.now()}; path=/`;
+
+      expect(getStoredSessionPrincipal("claw_auth_token")).toBeNull();
+    });
   });
 
   it("does not exchange or persist a Privy token after cancellation", async () => {
