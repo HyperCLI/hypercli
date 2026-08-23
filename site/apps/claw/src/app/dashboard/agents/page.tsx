@@ -100,13 +100,14 @@ import {
 import { inferFileMimeType, isAudioFileReference, isFileTypeReference, isImageFileReference, type FileEntry } from "@hypercli/shared-ui/files";
 import { buildBrowserDesktopUrl } from "@hypercli.com/sdk/agents";
 import type { DeploymentEvent, Deployments, HermesAgent as SdkHermesAgent, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
-import type {
-  HyperAgentCurrentPlan,
-  HyperAgentEntitlement,
-  HyperAgentPlan,
-  HyperAgentSubscription,
-  HyperAgentSubscriptionSummary,
-  HyperAgentTypeCatalog,
+import {
+  hasActivePlan,
+  type HyperAgentCurrentPlan,
+  type HyperAgentEntitlement,
+  type HyperAgentPlan,
+  type HyperAgentSubscription,
+  type HyperAgentSubscriptionSummary,
+  type HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "./types";
 import { isAgentDeletable, isAgentStartable, isAgentStoppable, isAgentTransitionalState, resolveAgentLaunchLifecycleAction } from "./types";
@@ -2695,6 +2696,9 @@ function AgentsPageContent() {
     [subscriptionSummary, trialClock, trialSummaryObservedAt],
   );
   const canStartTeamTrial = !activeTrial;
+  // Activation-code grant entitlements carry no subscription or payment history,
+  // so the billing-history check alone would wrongly offer a trial to grant holders.
+  const hasActivePlanAccess = subscriptionSummary ? hasActivePlan(subscriptionSummary) : false;
 
   useEffect(() => {
     if (
@@ -2703,6 +2707,7 @@ function AgentsPageContent() {
       !user?.id ||
       billingDataPrincipalId !== user.id ||
       hasBillingHistory !== false ||
+      hasActivePlanAccess ||
       stripeCheckoutRecoveryRequested ||
       checkoutReturnRecoveryActive ||
       pendingAuthIntent ||
@@ -2713,6 +2718,7 @@ function AgentsPageContent() {
     authLoading,
     billingDataPrincipalId,
     checkoutReturnRecoveryActive,
+    hasActivePlanAccess,
     hasBillingHistory,
     isAuthenticated,
     pendingAuthIntent,
