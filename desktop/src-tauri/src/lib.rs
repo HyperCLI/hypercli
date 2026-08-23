@@ -2,7 +2,7 @@ mod buzz_connections;
 mod buzz_launch;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -964,7 +964,7 @@ fn avatar_extension(content_type: Option<&str>) -> Option<&'static str> {
 /// Cache an agent's avatar under the app cache dir, keyed by agent id and URL
 /// content so a re-upload lands on a fresh path (backends cache by path) and
 /// stale variants get pruned. Returns the path for `Notification::image_path`.
-fn cache_agent_avatar(cache_dir: &PathBuf, agent_id: &str, url: &str) -> Option<PathBuf> {
+fn cache_agent_avatar(cache_dir: &Path, agent_id: &str, url: &str) -> Option<PathBuf> {
     let url = url.trim();
     if url.is_empty() {
         return None;
@@ -1314,15 +1314,19 @@ mod tests {
 
     #[test]
     fn launcher_agent_marks_archived() {
-        let mut deployment = Deployment::default();
-        deployment.archived_at = Some("2026-08-01T00:00:00Z".to_owned());
+        let deployment = Deployment {
+            archived_at: Some("2026-08-01T00:00:00Z".to_owned()),
+            ..Default::default()
+        };
         let agent = LauncherAgent::from(deployment);
         assert!(agent.archived);
         assert!(!agent.can_start);
         assert!(!agent.can_stop);
 
-        let mut deployment = Deployment::default();
-        deployment.state = "archived".to_owned();
+        let deployment = Deployment {
+            state: "archived".to_owned(),
+            ..Default::default()
+        };
         assert!(LauncherAgent::from(deployment).archived);
     }
 
