@@ -253,6 +253,12 @@ describe('HyperAgent API', () => {
               status: 'ACTIVE',
               quantity: 2,
               current_period_end: '2026-04-15T00:00:00Z',
+              payment_method: {
+                brand: 'visa',
+                last4: '4242',
+                exp_month: 12,
+                exp_year: 2030,
+              },
             },
           ],
         }),
@@ -266,6 +272,12 @@ describe('HyperAgent API', () => {
     try {
       const subscriptions = await agent.subscriptions();
       expect(subscriptions[0]?.quantity).toBe(2);
+      expect(subscriptions[0]?.paymentMethod).toEqual({
+        brand: 'visa',
+        last4: '4242',
+        expMonth: 12,
+        expYear: 2030,
+      });
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {

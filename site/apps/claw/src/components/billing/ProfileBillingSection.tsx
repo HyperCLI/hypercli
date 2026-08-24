@@ -274,12 +274,29 @@ function describeBillingCadence(subscription: HyperAgentSubscription | null): st
   return subscription.provider.toLowerCase() === "stripe" ? "Monthly" : formatProvider(subscription.provider);
 }
 
+function formatCardBrand(brand: string | null | undefined): string {
+  const normalized = String(brand || "").trim().toLowerCase();
+  if (!normalized) return "Card";
+  if (normalized === "amex") return "American Express";
+  return normalized
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function describePaymentMethod(
   subscription: HyperAgentSubscription | null,
   receipts: ReceiptRecord[],
 ): string {
   const provider = subscription?.provider?.toLowerCase();
-  if (provider === "stripe") return "Stripe card on file";
+  if (provider === "stripe") {
+    const paymentMethod = subscription?.paymentMethod;
+    if (paymentMethod?.last4) {
+      return `${formatCardBrand(paymentMethod.brand)} ending in ${paymentMethod.last4}`;
+    }
+    return "Stripe card on file";
+  }
   if (provider === "x402") return "USDC wallet payments";
   if (provider) return "Account payment method";
   if (receipts.some((receipt) => String(receipt.meta?.payment_method).toLowerCase() === "stripe")) {

@@ -162,6 +162,7 @@ export {
   type HyperAgentEntitlements,
   type HyperAgentEntitlementsSummary,
   type HyperAgentEntitlement,
+  type HyperAgentPaymentMethodSummary,
   type HyperAgentSubscription,
   type HyperAgentSubscriptionTrial,
   type HyperAgentSubscriptionMutationResult,

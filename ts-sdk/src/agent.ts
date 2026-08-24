@@ -134,6 +134,13 @@ export interface HyperAgentSubscriptionTrial {
   secondsRemaining: number | null;
 }
 
+export interface HyperAgentPaymentMethodSummary {
+  brand: string | null;
+  last4: string | null;
+  expMonth: number | null;
+  expYear: number | null;
+}
+
 export interface HyperAgentSubscription {
   id: string;
   userId: string;
@@ -145,6 +152,7 @@ export interface HyperAgentSubscription {
   expiresAt: Date | null;
   updatedAt: Date | null;
   stripeSubscriptionId: string | null;
+  paymentMethod: HyperAgentPaymentMethodSummary | null;
   cancelAtPeriodEnd: boolean;
   canCancel: boolean;
   isCurrent: boolean;
@@ -733,6 +741,19 @@ function hyperAgentSubscriptionTrialFromDict(
   };
 }
 
+function hyperAgentPaymentMethodSummaryFromDict(data: any): HyperAgentPaymentMethodSummary | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const brand = data.brand == null ? null : String(data.brand);
+  const last4 = data.last4 == null ? null : String(data.last4);
+  if (!brand && !last4) return null;
+  return {
+    brand,
+    last4,
+    expMonth: nullableNumberFromDict(data.exp_month),
+    expYear: nullableNumberFromDict(data.exp_year),
+  };
+}
+
 function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
   const periodEnd = data.current_period_end || data.expires_at || null;
   const expiresAt = validDateFromDict(periodEnd);
@@ -754,6 +775,7 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
     expiresAt,
     updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
     stripeSubscriptionId: data.stripe_subscription_id || null,
+    paymentMethod: hyperAgentPaymentMethodSummaryFromDict(data.payment_method),
     cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
     canCancel: Boolean(data.can_cancel),
     isCurrent: Boolean(data.is_current),
