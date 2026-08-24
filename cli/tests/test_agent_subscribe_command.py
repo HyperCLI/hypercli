@@ -129,7 +129,7 @@ def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources(
 
 
 def test_agent_activate_code_redeems_via_sdk(monkeypatch):
-    class _FakeAgent:
+    class _FakeDeployments:
         def redeem_grant_code(self, code: str, **kwargs):
             assert code == "promo-123"
             assert kwargs == {"extend_existing": None}
@@ -146,7 +146,7 @@ def test_agent_activate_code_redeems_via_sdk(monkeypatch):
             }
 
     class _FakeClient:
-        agent = _FakeAgent()
+        deployments = _FakeDeployments()
 
     monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
 
@@ -161,7 +161,7 @@ def test_agent_activate_code_redeems_via_sdk(monkeypatch):
 def test_agent_activate_code_can_request_extension(monkeypatch):
     calls = []
 
-    class _FakeAgent:
+    class _FakeDeployments:
         def redeem_grant_code(self, code: str, **kwargs):
             calls.append((code, kwargs))
             return {
@@ -177,7 +177,7 @@ def test_agent_activate_code_can_request_extension(monkeypatch):
             }
 
     class _FakeClient:
-        agent = _FakeAgent()
+        deployments = _FakeDeployments()
 
     monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
 

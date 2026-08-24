@@ -784,7 +784,7 @@ def activate_code(
 ):
     """Redeem a HyperCLI activation code for the current account."""
     client = _get_agent_query_client(dev)
-    result = client.agent.redeem_grant_code(
+    result = client.deployments.redeem_grant_code(
         code,
         extend_existing=True if extend_existing else None,
     )
