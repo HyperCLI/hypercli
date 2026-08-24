@@ -46,7 +46,7 @@ export function resolveAgentLifecycleControls(
         : null,
     canStop: state === "CREATING" || state === "STARTING" || state === "RUNNING" || state === "FAILED",
     canArchive: state === "STOPPED",
-    canDelete: state === "STOPPED",
+    canDelete: state === "STOPPED" || state === "ARCHIVED",
     transitioning,
   };
 }

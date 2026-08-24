@@ -1398,9 +1398,9 @@ describe("AgentSettingsPanel", () => {
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
 
-  it("opens the delete confirmation from agent settings", () => {
+  it.each(["STOPPED", "ARCHIVED"] as const)("opens the delete confirmation for a %s agent", (state) => {
     const onDeleteAgent = vi.fn();
-    renderAgentSettingsPanel({ agent: { ...agent, state: "STOPPED" }, onDeleteAgent });
+    renderAgentSettingsPanel({ agent: { ...agent, state }, onDeleteAgent });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete agent" }));

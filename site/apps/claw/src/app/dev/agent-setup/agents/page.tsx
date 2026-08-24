@@ -36,7 +36,7 @@ import {
   createHyperAgentClient,
   createWorkspacesClient,
   createOpenClawAgent,
-  deleteStoppedAgent,
+  deleteInactiveAgent,
   isAgentCleanupConflictError,
   isAgentLifecycleStateConflictError,
   requestAgentStart,
@@ -1557,7 +1557,7 @@ export default function DevAgentSetupAgentsPage() {
     const generation = agentDataGenerationRef.current;
     const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
     if (!agentToDelete || !isAgentDeletable(agentToDelete)) {
-      setError("Stop the agent and wait for cleanup to finish before deleting it.");
+      setError("Agents can only be deleted after they are stopped or archived.");
       return;
     }
     deletingAgentIdsRef.current.add(agentId);
@@ -1567,7 +1567,7 @@ export default function DevAgentSetupAgentsPage() {
       const deleted = await runAgentMutation(agentId, async () => {
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current) return false;
-        await deleteStoppedAgent(token, agentId);
+        await deleteInactiveAgent(token, agentId);
         return true;
       });
       if (!deleted || generation !== agentDataGenerationRef.current) return;

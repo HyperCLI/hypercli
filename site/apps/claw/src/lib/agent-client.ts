@@ -620,11 +620,12 @@ export async function restoreAgent(apiKey: string, agentId: string, onAccepted?:
   );
 }
 
-export async function deleteStoppedAgent(apiKey: string, agentId: string): Promise<Record<string, unknown>> {
+export async function deleteInactiveAgent(apiKey: string, agentId: string): Promise<Record<string, unknown>> {
   const agentClient = createAgentClient(apiKey);
   const current = await agentClient.get(agentId);
-  if (current.state.toUpperCase() !== "STOPPED") {
-    throw new Error("Stop the agent and wait for cleanup to finish before deleting it.");
+  const state = current.state.toUpperCase();
+  if (state !== "STOPPED" && state !== "ARCHIVED") {
+    throw new Error("Agents can only be deleted after they are stopped or archived.");
   }
   return agentClient.delete(current.id);
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { archiveAgent, createHermesAgentDeployment, createHyperAgentClient, createOpenClawAgent, deleteStoppedAgent, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
+import { archiveAgent, createHermesAgentDeployment, createHyperAgentClient, createOpenClawAgent, deleteInactiveAgent, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -697,15 +697,19 @@ describe("agent-client", () => {
     expect(deploymentsInstance.get).toHaveBeenCalledTimes(4);
   });
 
-  it("deletes only an authoritative stopped agent", async () => {
+  it("deletes an authoritative stopped or archived agent", async () => {
     deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPED" });
     deploymentsInstance.delete.mockResolvedValue({ ok: true, id: "agent-123" });
 
-    await expect(deleteStoppedAgent("hyper_api_test", "agent-123")).resolves.toEqual({ ok: true, id: "agent-123" });
+    await expect(deleteInactiveAgent("hyper_api_test", "agent-123")).resolves.toEqual({ ok: true, id: "agent-123" });
+    expect(deploymentsInstance.delete).toHaveBeenCalledWith("agent-123");
+
+    deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "ARCHIVED" });
+    await expect(deleteInactiveAgent("hyper_api_test", "agent-123")).resolves.toEqual({ ok: true, id: "agent-123" });
     expect(deploymentsInstance.delete).toHaveBeenCalledWith("agent-123");
 
     deploymentsInstance.get.mockResolvedValue({ id: "agent-123", state: "STOPPING" });
-    await expect(deleteStoppedAgent("hyper_api_test", "agent-123")).rejects.toThrow("wait for cleanup");
+    await expect(deleteInactiveAgent("hyper_api_test", "agent-123")).rejects.toThrow("stopped or archived");
   });
 
   it("creates OpenClaw agents with origin locking on by default", async () => {

@@ -1659,7 +1659,7 @@ function AgentSectionSettingsContent({
               <p className="mt-1 max-w-[420px] text-sm leading-5 text-text-muted">
                 {canDeleteAgent
                   ? "Permanently delete this agent and all related settings. This action cannot be undone."
-                  : "Stop the agent and wait for cleanup to finish before deleting it."}
+                  : "Agents can only be deleted after they are stopped or archived."}
               </p>
             </div>
             <button
