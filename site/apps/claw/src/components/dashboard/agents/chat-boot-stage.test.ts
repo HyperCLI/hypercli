@@ -69,8 +69,8 @@ describe("getAgentChatBootStatus", () => {
       isSelectedRunning: false,
     })).toMatchObject({
       status: "error",
-      title: "Agent failed",
-      detail: "Needs attention before it can run.",
+      title: "Review this agent before restarting",
+      detail: "Clean up the interrupted launch, then start the agent again.",
     });
   });
 
@@ -134,8 +134,9 @@ describe("getAgentChatBootStatus", () => {
     })).toMatchObject({
       status: "error",
       phase: "error",
-      title: "Could not connect",
-      detail: "Gateway handshake failed",
+      title: "Try again to reconnect",
+      detail: "The agent connection was interrupted. Your saved conversation is still available.",
+      technicalDetail: "Gateway handshake failed",
       stage: "gateway",
     });
   });

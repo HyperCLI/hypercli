@@ -808,9 +808,9 @@ describe("AgentChatPanel", () => {
     expect(emptyStateFrame).toHaveClass("self-stretch");
     expect(emptyStateFrame).not.toHaveClass("max-h-full");
     expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /connect slack/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open slack setup/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /open workspace files/i }));
-    fireEvent.click(screen.getByRole("button", { name: /open integrations/i }));
+    fireEvent.click(screen.getByRole("button", { name: /connect any tool/i }));
     fireEvent.click(screen.getByRole("button", { name: /open skills/i }));
     fireEvent.click(screen.getByRole("button", { name: /open scheduled work/i }));
 
@@ -929,8 +929,8 @@ describe("AgentChatPanel", () => {
       chat: buildChat({ error: "Stale gateway error" }),
     });
 
-    expect(screen.getByText("Agent failed")).toBeInTheDocument();
-    expect(screen.getByText("Needs attention before it can run.")).toBeInTheDocument();
+    expect(screen.getByText("Review this agent before restarting")).toBeInTheDocument();
+    expect(screen.getByText("Clean up the interrupted launch, then start the agent again.")).toBeInTheDocument();
     expect(screen.queryByText("Stale gateway error")).not.toBeInTheDocument();
   });
 
@@ -961,7 +961,7 @@ describe("AgentChatPanel", () => {
       }),
     });
 
-    const alert = screen.getByText("Needs attention before it can run.").closest('[role="alert"]');
+    const alert = screen.getByText("Clean up the interrupted launch, then start the agent again.").closest('[role="alert"]');
     expect(alert).not.toBeNull();
     expect(alert?.querySelector("button")).toBeNull();
   });
@@ -3657,10 +3657,11 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    const alert = screen.getByRole("alert", { name: new RegExp(`could not connect ${longError}`, "i") });
+    const alert = screen.getByRole("alert", { name: /try again to reconnect the agent connection was interrupted/i });
+    fireEvent.click(within(alert).getByRole("button", { name: "What happened" }));
     const detail = within(alert).getByText(longError);
     expect(detail).toBeVisible();
-    expect(detail).toHaveClass("whitespace-pre-wrap", "[overflow-wrap:anywhere]");
+    expect(detail).toHaveClass("whitespace-pre-wrap", "break-words");
     expect(detail).not.toHaveClass("truncate");
     const retryButton = screen.getByRole("button", { name: /retry/i });
     expect(retryButton).toBeVisible();
@@ -3682,7 +3683,9 @@ describe("AgentChatPanel", () => {
       },
     });
 
-    expect(screen.getByRole("alert", { name: /agents\.hypercli\.com.*agents\.feat\.hypercli\.com/i })).toBeInTheDocument();
+    const alert = screen.getByRole("alert", { name: /try again to reconnect the agent connection was interrupted/i });
+    fireEvent.click(within(alert).getByRole("button", { name: "What happened" }));
+    expect(within(alert).getByText(/agents\.hypercli\.com.*agents\.feat\.hypercli\.com/i)).toBeVisible();
     expect(screen.queryByRole("button", { name: /stop agent/i })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /retry/i }));
     expect(retry).toHaveBeenCalledTimes(1);

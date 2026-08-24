@@ -278,6 +278,7 @@ describe("AgentFilesPanel", () => {
     });
     fireEvent.click(actions);
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete file" }));
     await waitFor(() => expect(onDeleteFile).toHaveBeenCalledWith(".openclaw/workspace/notes.txt", undefined));
     await waitFor(() => expect(onListFiles.mock.calls.length).toBeGreaterThanOrEqual(4));
   });

@@ -1,5 +1,5 @@
 import { createRef } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AgentTerminalPanel } from "./AgentTerminalPanel";
@@ -47,8 +47,10 @@ describe("AgentTerminalPanel", () => {
     );
 
     expect(screen.getByText("Unable to load shell")).toBeInTheDocument();
+    expect(screen.getByText("The connection was interrupted. Your saved work is still available.")).toBeInTheDocument();
+    expect(screen.getByRole("alert", { name: /unable to load shell the connection was interrupted/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "What happened" }));
     expect(screen.getByText("The terminal could not be loaded.")).toBeInTheDocument();
-    expect(screen.getByRole("alert", { name: /unable to load shell the terminal could not be loaded/i })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 

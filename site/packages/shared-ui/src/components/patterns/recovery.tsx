@@ -130,6 +130,8 @@ function RecoveryActionButton({
 function RecoveryContent({
   title,
   description,
+  titleId,
+  descriptionId,
   presentation,
   icon: Icon = RotateCcw,
   details,
@@ -150,7 +152,7 @@ function RecoveryContent({
   | "primaryAction"
   | "secondaryAction"
   | "headingLevel"
->) {
+> & { titleId?: string; descriptionId?: string }) {
   const Heading = `h${headingLevel ?? (presentation === "empty" ? 2 : 3)}` as "h2" | "h3" | "h4";
   const compact = presentation === "compact";
 
@@ -167,14 +169,14 @@ function RecoveryContent({
           <Icon className={compact ? "size-4" : "size-5"} />
         </span>
         <div className="min-w-0 flex-1">
-          <Heading className={cn(
+          <Heading id={titleId} className={cn(
             "text-balance font-semibold tracking-[-0.02em] text-foreground",
             compact ? "text-sm leading-5" : "text-lg leading-6 sm:text-xl",
           )}>
             {title}
           </Heading>
-          <div className={cn(
-            "max-w-[68ch] text-text-secondary",
+          <div id={descriptionId} className={cn(
+            "max-w-[68ch] whitespace-pre-wrap text-text-secondary [overflow-wrap:anywhere]",
             compact ? "mt-1 text-xs leading-5" : "mt-2 text-sm leading-6",
           )}>
             {description}
@@ -222,6 +224,8 @@ export function RecoveryState({
 }: RecoveryStateProps) {
   const role = announcement === "assertive" ? "alert" : announcement === "polite" ? "status" : undefined;
   const live = announcement === "assertive" ? "assertive" : announcement === "polite" ? "polite" : undefined;
+  const titleId = React.useId();
+  const descriptionId = React.useId();
 
   return (
     <section
@@ -230,6 +234,7 @@ export function RecoveryState({
       role={role}
       aria-live={live}
       aria-atomic={role ? "true" : undefined}
+      aria-labelledby={`${titleId} ${descriptionId}`}
       className={cn(
         "relative text-left text-foreground",
         presentation === "compact" && "rounded-xl border border-border bg-surface-low/65 p-3",
@@ -252,6 +257,8 @@ export function RecoveryState({
       <RecoveryContent
         title={title}
         description={description}
+        titleId={titleId}
+        descriptionId={descriptionId}
         presentation={presentation}
         icon={Icon}
         details={details}

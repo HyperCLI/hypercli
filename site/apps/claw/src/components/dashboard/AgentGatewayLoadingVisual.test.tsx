@@ -20,11 +20,10 @@ describe("AgentGatewayErrorVisual", () => {
     expect(message).toBeVisible();
     expect(message).toHaveClass("whitespace-pre-wrap", "[overflow-wrap:anywhere]");
     expect(message).not.toHaveClass("truncate");
-    expect(alert).toHaveClass("grid-cols-[auto_minmax(0,1fr)]");
-    expect(alert.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(alert.querySelector("svg")?.closest('[aria-hidden="true"]')).not.toBeNull();
 
     const retry = within(alert).getByRole("button", { name: "Retry" });
-    expect(retry).toHaveClass("col-start-2", "shrink-0", "whitespace-nowrap");
+    expect(retry).toBeVisible();
     fireEvent.click(retry);
     expect(onRetry).toHaveBeenCalledTimes(1);
   });

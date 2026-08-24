@@ -61,7 +61,9 @@ describe("AgentScheduledPanel", () => {
   it("renders a disconnected gateway error without a loading animation", () => {
     renderPanel({ connected: false, error: "Gateway handshake failed" });
 
-    expect(screen.getByRole("alert", { name: /could not load scheduled work gateway handshake failed/i })).toBeInTheDocument();
+    expect(screen.getByRole("alert", { name: /could not load scheduled work the connection was interrupted/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "What happened" }));
+    expect(screen.getByText("Gateway handshake failed")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /agent workspace loading/i })).not.toBeInTheDocument();
   });
 
