@@ -7,6 +7,7 @@ import { renderHookWithClient } from "@/test/utils";
 import {
   openClawChatHistoryCacheKey,
   readCachedOpenClawChatHistory,
+  writeCachedOpenClawChatHistory,
 } from "@/lib/openclaw-chat-history-cache";
 import { useOpenClawSession } from "./useOpenClawSession";
 
@@ -2257,7 +2258,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps the materialized first session when creating a second session", async () => {
+  it("reuses the materialized empty session instead of creating a second empty session", async () => {
     const gateway = buildGateway();
     gateway.sessionsList.mockResolvedValue([{
       key: "agent:default:main",
@@ -2278,24 +2279,406 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.activeSessionSelectionResolved).toBe(true));
     const firstSessionKey = result.current.activeSessionKey;
     await waitFor(() => expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: firstSessionKey, title: "New Session" }),
+      expect.objectContaining({ key: firstSessionKey, title: "New Session", messageCount: 0 }),
     ])));
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
 
     let secondSessionKey = "";
     await act(async () => {
       secondSessionKey = await result.current.createSession({ waitForCreation: true });
     });
 
-    expect(secondSessionKey).toMatch(/^dashboard:/);
-    expect(secondSessionKey).not.toBe(firstSessionKey);
-    expect(gateway.sessionsCreate.mock.calls.map(([params]) => params.key)).toEqual([
-      firstSessionKey,
-      secondSessionKey,
+    expect(secondSessionKey).toBe(firstSessionKey);
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions.filter((session) => session.title === "New Session")).toEqual([
+      expect.objectContaining({ key: firstSessionKey }),
     ]);
-    expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: firstSessionKey, title: "New Session" }),
-      expect.objectContaining({ key: secondSessionKey, title: "New Session" }),
+    expect(result.current.creatingSessionKeys).not.toContain(firstSessionKey);
+    unmount();
+  });
+
+  it("reuses an existing eligible empty session instead of creating a duplicate", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-empty", title: "Empty", messageCount: 0, updatedAt: 5 },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const sessionKeysBefore = result.current.sessions.map((session) => session.key);
+
+    let reusedSessionKey = "";
+    await act(async () => {
+      reusedSessionKey = await result.current.createSession();
+    });
+
+    expect(reusedSessionKey).toBe("session-empty");
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(gateway.chatSend).not.toHaveBeenCalled();
+    expect(result.current.sessions.map((session) => session.key)).toEqual(sessionKeysBefore);
+    expect(result.current.sessions.filter((session) => session.key === "session-empty")).toHaveLength(1);
+    expect(result.current.creatingSessionKeys).toEqual([]);
+    expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}")).toEqual({});
+    expect(result.current.activeSessionKey).toBe("main");
+    unmount();
+  });
+
+  it("reuses the locally pending empty session from a first ordinary createSession call", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
+    const reset = deferred<string>();
+    gateway.sessionsReset.mockReturnValueOnce(reset.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let firstCreation!: Promise<string>;
+    let secondKey = "";
+    await act(async () => {
+      firstCreation = result.current.createSession();
+      secondKey = await result.current.createSession();
+    });
+    const firstKey = await firstCreation;
+
+    expect(firstKey).toMatch(/^dashboard:/);
+    expect(secondKey).toBe(firstKey);
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions.filter((session) => session.key === firstKey)).toHaveLength(1);
+    expect(result.current.sessions.filter((session) => session.title === "New Session")).toHaveLength(1);
+
+    await act(async () => {
+      reset.resolve(`agent:default:${firstKey}`);
+      await reset.promise;
+    });
+
+    let thirdKey = "";
+    await act(async () => {
+      thirdKey = await result.current.createSession();
+    });
+
+    expect(thirdKey).toBe(firstKey);
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.sessions.filter((session) => session.title === "New Session")).toHaveLength(1));
+    unmount();
+  });
+
+  it("creates exactly one new session when every existing session already has messages", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main", messageCount: 7, updatedAt: 9 },
+      { key: "session-full", title: "Full", messageCount: 4, updatedAt: 5 },
+    ]);
+    const release = deferred<void>();
+    gateway.chatSend.mockImplementation((async function* () {
+      await release.promise;
+      yield { type: "done" as const, data: {} };
+    }) as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-full"));
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    act(() => {
+      result.current.setInput("hello full");
+    });
+    let sendPromise!: Promise<void>;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession();
+    });
+
+    expect(newSessionKey).toMatch(/^dashboard:/);
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: newSessionKey });
+    expect(result.current.activeSessionKey).toBe("session-full");
+    expect(result.current.activeSessionSending).toBe(true);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "hello full" }),
+    ]);
+    expect(result.current.sessions.filter((session) => session.key === newSessionKey)).toHaveLength(1);
+
+    await act(async () => {
+      release.resolve();
+      await sendPromise;
+    });
+    expect(result.current.sending).toBe(false);
+    unmount();
+  });
+
+  it("selects the first eligible empty session in the current session ordering", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-full", title: "Full", messageCount: 2, updatedAt: 9 },
+      { key: "session-empty-b", title: "Empty B", messageCount: 0, updatedAt: 8 },
+      { key: "session-empty-a", title: "Empty A", messageCount: 0, updatedAt: 7 },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let reusedSessionKey = "";
+    await act(async () => {
+      reusedSessionKey = await result.current.createSession();
+    });
+
+    expect(reusedSessionKey).toBe("session-empty-b");
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.sessions.map((session) => session.key)).toEqual([
+      "main",
+      "session-full",
+      "session-empty-b",
+      "session-empty-a",
+    ]);
+    unmount();
+  });
+
+  it("does not reuse read-only, ephemeral, subagent, or actively running empty sessions", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-telegram", sourceChannelId: "telegram", messageCount: 0, updatedAt: 9 },
+      { key: "session-hypercli-ephemeral-019789ab-cdef-4abc-8def-0123456789ab", title: "Private chat", messageCount: 0, updatedAt: 8 },
+      { key: "session-spawned", title: "Spawned", spawnedBy: "run-9", messageCount: 0, updatedAt: 7 },
+      { key: "session-running", title: "Running", status: "running", hasActiveRun: true, activeRunIds: ["run-1"], messageCount: 0, updatedAt: 6 },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "session-telegram", readOnly: true }),
+      expect.objectContaining({ key: "session-running", hasActiveRun: true }),
+    ])));
+    const sessionCountBefore = result.current.sessions.length;
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession();
+    });
+
+    expect(newSessionKey).toMatch(/^dashboard:/);
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions).toHaveLength(sessionCountBefore + 1);
+    expect(result.current.sessions.filter((session) => session.key === newSessionKey)).toHaveLength(1);
+    unmount();
+  });
+
+  it("does not reuse an empty session that has a local composer draft", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-empty", title: "Empty", messageCount: 0, updatedAt: 5 },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-empty"));
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    act(() => {
+      result.current.setInput("drafted message in the empty session");
+    });
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession();
+    });
+
+    expect(newSessionKey).toMatch(/^dashboard:/);
+    expect(newSessionKey).not.toBe("session-empty");
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions.filter((session) => session.key === "session-empty")).toHaveLength(1);
+    expect(result.current.input).toBe("drafted message in the empty session");
+    unmount();
+  });
+
+  it("does not reuse an empty session with local live chat history, but picks the idle empty one", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-busy", title: "Busy", messageCount: 0, updatedAt: 9 },
+      { key: "session-empty", title: "Empty", messageCount: 0, updatedAt: 5 },
+    ]);
+    gateway.chatSend.mockImplementation(async function* (_message: string): AsyncGenerator<ChatEvent, void, unknown> {
+      yield { type: "content", text: "busy reply" };
+      yield { type: "done" };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-busy"));
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    await act(async () => {
+      await result.current.sendMessage("question in busy session");
+    });
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: "question in busy session" }),
+    ])));
+
+    let reusedSessionKey = "";
+    await act(async () => {
+      reusedSessionKey = await result.current.createSession();
+    });
+
+    expect(reusedSessionKey).toBe("session-empty");
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.sessions.filter((session) => session.key === "session-busy")).toHaveLength(1);
+    expect(result.current.sessions.filter((session) => session.key === "session-empty")).toHaveLength(1);
+    expect(result.current.activeSessionKey).toBe("session-busy");
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: "question in busy session" }),
     ]));
+    unmount();
+  });
+
+  it("does not reuse an empty session that still has cached chat history", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-empty", title: "Empty", messageCount: 0, updatedAt: 5 },
+    ]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "user", content: "cached earlier message" },
+    ] as any, "session-empty");
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession();
+    });
+
+    expect(newSessionKey).toMatch(/^dashboard:/);
+    expect(newSessionKey).not.toBe("session-empty");
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions.filter((session) => session.key === "session-empty")).toHaveLength(1);
+    unmount();
+  });
+
+  it("still creates a fresh session for an initial message even when an eligible empty session exists", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main" },
+      { key: "session-empty", title: "Empty", messageCount: 0, updatedAt: 5 },
+    ]);
+    const reset = deferred<string>();
+    gateway.sessionsReset.mockReturnValueOnce(reset.promise);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let newSessionKey = "";
+    await act(async () => {
+      newSessionKey = await result.current.createSession({ initialMessage: "Test skill in new session" });
+    });
+
+    expect(newSessionKey).toMatch(/^dashboard:/);
+    expect(newSessionKey).not.toBe("session-empty");
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
+    expect(gateway.chatSend).not.toHaveBeenCalled();
+
+    await act(async () => {
+      reset.resolve(`agent:default:${newSessionKey}`);
+      await reset.promise;
+    });
+
+    await waitFor(() => {
+      expect(gateway.chatSend).toHaveBeenCalledWith(
+        "Test skill in new session",
+        `agent:default:${newSessionKey}`,
+        undefined,
+      );
+    });
+    expect(gateway.chatSend.mock.calls.map(([, sessionKey]) => sessionKey)).not.toContain("session-empty");
     unmount();
   });
 
@@ -4189,17 +4572,15 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("creates a new session while another session is sending", async () => {
+  it("reuses an idle empty session without disturbing an in-flight send on another session", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([
       { key: "session-alpha", title: "Alpha" },
-      { key: "session-beta", title: "Beta" },
+      { key: "session-beta", title: "Beta", messageCount: 0 },
     ] as any);
     gateway.chatHistory.mockResolvedValue([]);
     const release = deferred<void>();
-    const reset = deferred<string>();
-    gateway.sessionsReset.mockReturnValue(reset.promise);
     gateway.chatSend.mockImplementation((async function* () {
       await release.promise;
       yield { type: "done" as const, data: {} };
@@ -4231,31 +4612,29 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
 
-    let newSessionKey = "";
+    let reusedSessionKey = "";
     await act(async () => {
-      newSessionKey = await result.current.createSession();
+      reusedSessionKey = await result.current.createSession();
     });
 
-    expect(newSessionKey).toMatch(/^dashboard:/);
-    expect(gateway.sessionsReset).toHaveBeenCalledWith(newSessionKey, "new");
+    expect(reusedSessionKey).toBe("session-beta");
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
     expect(result.current.activeSessionKey).toBe("session-alpha");
     expect(result.current.activeSessionSending).toBe(true);
     expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
     expect(result.current.messages).toEqual([
       expect.objectContaining({ role: "user", content: "hello alpha" }),
     ]);
+    expect(result.current.sessions.filter((session) => session.key === "session-beta")).toHaveLength(1);
 
-    rerender({ sessionKey: newSessionKey });
+    rerender({ sessionKey: reusedSessionKey });
 
-    await waitFor(() => expect(result.current.activeSessionKey).toBe(newSessionKey));
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
     await waitFor(() => expect(result.current.messages).toEqual([]));
     expect(result.current.activeSessionSending).toBe(false);
     expect(result.current.thinkingSessionKeys).toEqual(["session-alpha"]);
 
-    await act(async () => {
-      reset.resolve(undefined);
-      await reset.promise;
-    });
     await act(async () => {
       release.resolve();
       await sendPromise;

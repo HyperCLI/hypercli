@@ -89,6 +89,7 @@ import {
   isEphemeralOpenClawSessionName,
   isGeneratedOpenClawSessionName,
   isOpenClawHeartbeatSessionKey,
+  isOpenClawMainSessionKey,
   isOpenClawSubagentSession,
   listOpenClawSessions,
   normalizeOpenClawGeneratedSessionTitle,
@@ -369,6 +370,18 @@ function localOpenClawSessionRecord(sessionKey: string, title = fallbackOpenClaw
     ...(isEphemeralOpenClawSessionName(sessionKey) ? { ephemeral: true } : {}),
     raw: { key: sessionKey, title },
   };
+}
+
+function isReusableEmptyOpenClawSession(session: OpenClawSessionRecord): boolean {
+  return session.messageCount === 0 &&
+    !session.readOnly &&
+    !session.ephemeral &&
+    session.raw.archived !== true &&
+    !isOpenClawMainSessionKey(session.key) &&
+    !isOpenClawHeartbeatSessionKey(session.key) &&
+    !isEphemeralOpenClawSessionName(session.key) &&
+    !isOpenClawSubagentSession(session) &&
+    !openClawSessionHasActiveRun(session);
 }
 
 function chatHistoryTargetKey(target: ChatHistoryTarget): string {
@@ -880,6 +893,7 @@ export function useOpenClawSession(
   const connectionLiveHistoryTargetsRef = useRef<Set<string>>(new Set());
   const chatSendAuthoritiesRef = useRef<Map<string, ChatSendAuthorityEntry>>(new Map());
   const createdSessionGatewayKeysRef = useRef<Map<string, string>>(new Map());
+  const pendingOrdinarySessionCreationKeysRef = useRef<Map<string, string>>(new Map());
   const initialSessionCreationRef = useRef<InitialSessionCreationEntry | null>(null);
   const deferredComposerSendTargetsRef = useRef<Map<string, ChatHistoryTarget>>(new Map());
   const chatHistoryRecoveryTargetsRef = useRef<Set<string>>(new Set());
@@ -4011,15 +4025,52 @@ export function useOpenClawSession(
 
     const sessionSnapshot = sessionSnapshotRef.current;
     const currentSessions = sessionSnapshot.agentId === agentId ? sessionSnapshot.sessions : sessions;
+    const initialMessage = options.initialMessage?.trim() ?? "";
+    const initialDisplayContent = options.initialDisplayContent?.trim() || undefined;
+    if (!initialMessage) {
+      const pendingSessionKey = pendingOrdinarySessionCreationKeysRef.current.get(agentId);
+      if (pendingSessionKey) return pendingSessionKey;
+
+      const sessionHasLocalConversationState = (sessionKey: string) => {
+        const target = { agentId, sessionKey };
+        const targetKey = chatHistoryTargetKey(target);
+        const draft = composerDraftsByTargetRef.current.get(targetKey);
+        if (
+          draft && (
+            Boolean(draft.input.trim()) ||
+            draft.pendingAttachments.length > 0 ||
+            draft.pendingAttachmentReads > 0 ||
+            draft.pendingFiles.length > 0
+          )
+        ) return true;
+        if ((liveChatHistoryByTargetRef.current.get(targetKey)?.length ?? 0) > 0) return true;
+        if (
+          activeChatStreamsRef.current.has(targetKey) ||
+          activeChatSendTargetsRef.current.has(targetKey) ||
+          sendingTargetsRef.current.has(targetKey) ||
+          reconnectPendingChatTargetsRef.current.has(targetKey) ||
+          deferredComposerSendTargetsRef.current.has(targetKey) ||
+          optimisticChatHistoryTargetsRef.current.has(targetKey) ||
+          connectionLiveHistoryTargetsRef.current.has(targetKey)
+        ) return true;
+        if (pendingMessages.some((item) => sameChatHistoryTarget(item.target, target))) return true;
+        return openClawSessionTitleMapKeys(sessionKey).some((candidateKey) => (
+          readCachedOpenClawChatHistory(agentId, candidateKey).length > 0
+        ));
+      };
+      const reusableSession = currentSessions.find((session) => (
+        isReusableEmptyOpenClawSession(session) && !sessionHasLocalConversationState(session.key)
+      ));
+      if (reusableSession) return reusableSession.key;
+    }
     const generatedInitialSessions = Array.from(generatedActiveSessionKeysRef.current.values(), (entry) => entry.session);
     const sessionKey = createOpenClawSessionKey([...currentSessions, ...generatedInitialSessions]);
     const target = { agentId, sessionKey };
     const pendingSession = localOpenClawSessionRecord(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
-    const initialMessage = options.initialMessage?.trim() ?? "";
-    const initialDisplayContent = options.initialDisplayContent?.trim() || undefined;
     clearCachedOpenClawChatHistory(agentId, sessionKey);
     setSessionTitleOverride(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
     creatingSessionKeysRef.current.add(sessionKey);
+    if (!initialMessage) pendingOrdinarySessionCreationKeysRef.current.set(agentId, sessionKey);
     setCreatingSessionKeys((prev) => prev.includes(sessionKey) ? prev : [...prev, sessionKey]);
     setTitledSessions((current) => [
       pendingSession,
@@ -4085,12 +4136,16 @@ export function useOpenClawSession(
         setError(errMsg);
         appendActivity({ type: "error", action: "Session creation failed", detail: errMsg });
         throw e;
+      } finally {
+        if (pendingOrdinarySessionCreationKeysRef.current.get(creationAgentId) === sessionKey) {
+          pendingOrdinarySessionCreationKeysRef.current.delete(creationAgentId);
+        }
       }
     };
     if (options.waitForCreation) await performCreation();
     else void performCreation().catch(() => undefined);
     return sessionKey;
-  }, [gateway, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, endTemporaryChat, grantChatSendAuthority, revokeChatSendAuthority, sendMessage, setChatHistoryPhase, updateComposerDraftForTarget]);
+  }, [gateway, sessionsFetchedAgentId, agentId, sessions, pendingMessages, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, endTemporaryChat, grantChatSendAuthority, revokeChatSendAuthority, sendMessage, setChatHistoryPhase, updateComposerDraftForTarget]);
 
   const renameSession = useCallback(async (sessionKey: string, title: string) => {
     if (!agentId) throw new Error("Session rename is unavailable.");
