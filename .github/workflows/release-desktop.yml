@@ -120,15 +120,20 @@ jobs:
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
           # Never release while either the fast Desktop contract or the real
-          # dev-relay launch/message/cleanup gate is red or unfinished.
+          # Buzz provider launch/message gate is red or unfinished. The Buzz
+          # E2E lives in the hyperclaw-backend repo (Build & Push Images,
+          # tests/smoke/test_buzz_provider_hypercli_e2e.py against the dev
+          # relay), so it is queried cross-repo by name.
           # Unrelated site/SDK pipelines must not hold desktop releases hostage.
-          for WORKFLOW in "Desktop CI" "Desktop Buzz E2E"; do
-            STATE="$(gh run list --workflow "$WORKFLOW" --branch main --limit 1 \
+          for SPEC in "HyperCLI/hypercli|Desktop CI" "HyperCLI/hyperclaw-backend|Build & Push Images"; do
+            REPO="${SPEC%%|*}"
+            WORKFLOW="${SPEC#*|}"
+            STATE="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch main --limit 1 \
               --json status,conclusion \
               --jq 'if length == 0 then "missing"
                     else .[0] | if .status != "completed" then "pending" else (.conclusion // "pending") end end')"
             if [[ "$STATE" != "success" && "$STATE" != "skipped" ]]; then
-              echo "$WORKFLOW on main is '$STATE'; wait for green before releasing" >&2
+              echo "$REPO / $WORKFLOW on main is '$STATE'; wait for green before releasing" >&2
               exit 1
             fi
           done
