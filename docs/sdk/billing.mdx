@@ -20,7 +20,7 @@ Python SDK surfaces are split between `client.agent` and `client.deployments`:
   schedule a recurring Stripe subscription for cancellation at period end
 - `client.agent.update_subscription(subscription_id, plan_id=..., quantity=1)`
   change a recurring subscription using one canonical plan and quantity
-- `client.agent.redeem_grant_code(code, extend_existing=...)`
+- `client.deployments.redeem_grant_code(code, extend_existing=...)`
   apply an activation-code grant
 - `client.deployments.purchase_entitlement_from_balance(...)`
   charge Orchestra balance and apply the resulting grant

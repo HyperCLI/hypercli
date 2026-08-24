@@ -64,8 +64,6 @@ Major methods:
 - `subscription_summary()`
 - `entitlements()`
 - `entitlement_instances()`
-- `purchase_entitlement_from_balance(plan_id, duration=..., tags=None, extend_existing=None)`
-- `redeem_grant_code(code, extend_existing=None)`
 - `update_subscription(subscription_id, plan_id=..., quantity=1)`
 - `cancel_subscription(subscription_id)`
 - `create_stripe_trial_checkout(*, success_url=None, cancel_url=None)`
@@ -73,6 +71,13 @@ Major methods:
 - `discovery_health()`
 - `discovery_config()`
 - convenience inference helpers such as `chat()` and `openai()`
+
+## `client.deployments`
+
+Billing-backed deployment helpers:
+
+- `purchase_entitlement_from_balance(plan_id, duration=..., tags=None, extend_existing=None)`
+- `redeem_grant_code(code, extend_existing=None)`
 
 Important account types:
 
