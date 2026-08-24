@@ -480,8 +480,27 @@ describe('coding agents', () => {
         relayUrl: 'wss://buzz.example.test',
       },
     })).rejects.toThrow(
-      "Buzz coding agents require size='large'",
+      "Buzz coding agents require size='large' or 'medium'",
     );
+  });
+
+  it('allows a medium Buzz coding agent and forwards the requested size', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      size: 'medium',
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    });
+
+    expect(post.mock.calls[0][1].size).toBe('medium');
   });
 
   it('hydrates coding runtimes returned by get', async () => {

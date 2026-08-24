@@ -4870,8 +4870,8 @@ export class Deployments {
       throw new Error('Buzz launch cannot be combined with an explicit command');
     }
     const buzzLaunch = options.buzzEnabled || options.buzz !== undefined && options.buzz !== null;
-    if (buzzLaunch && options.size !== undefined && options.size !== 'large') {
-      throw new Error("Buzz coding agents require size='large'");
+    if (buzzLaunch && options.size !== undefined && options.size !== 'large' && options.size !== 'medium') {
+      throw new Error("Buzz coding agents require size='large' or 'medium'");
     }
     const effectiveEnv: Record<string, string> = {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
@@ -4917,7 +4917,7 @@ export class Deployments {
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime,
-      size: buzzLaunch ? 'large' : options.size,
+      size: buzzLaunch ? (options.size ?? 'large') : options.size,
       env: effectiveEnv,
       secrets: effectiveSecrets,
       routes: options.routes ?? {},
