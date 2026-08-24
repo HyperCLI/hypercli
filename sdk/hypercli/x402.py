@@ -125,7 +125,9 @@ def _x402_post(
         response = client.post(endpoint, headers=headers, json=payload)
 
         if response.status_code == 402:
-            payment_headers, _ = http_client.handle_402_response(dict(response.headers), response.content)
+            payment_headers, _ = http_client.handle_402_response(
+                dict(response.headers), response.content, endpoint
+            )
             retry_headers = {**headers, **payment_headers}
             retry_headers["Access-Control-Expose-Headers"] = "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE"
             response = client.post(endpoint, headers=retry_headers, json=payload)

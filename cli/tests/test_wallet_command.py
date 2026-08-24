@@ -363,7 +363,8 @@ def test_wallet_topup_passes_explicit_passphrase(monkeypatch, tmp_path):
         def __init__(self, _client):
             pass
 
-        def handle_402_response(self, headers, content):
+        def handle_402_response(self, headers, content, request_url):
+            assert request_url == "https://api.example.com/api/x402/top_up"
             return ({"X-Payment": "sig"}, None)
 
         def get_payment_settle_response(self, getter):

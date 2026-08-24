@@ -548,7 +548,7 @@ def topup(
             console.print("[bold]Signing x402 payment...[/bold]")
             try:
                 payment_headers, _ = http_client.handle_402_response(
-                    dict(resp.headers), resp.content
+                    dict(resp.headers), resp.content, topup_endpoint
                 )
             except Exception as e:
                 console.print(f"[red]❌ Failed to build payment header: {e}[/red]")
