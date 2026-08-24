@@ -6,7 +6,7 @@ description: TypeScript SDK helpers for creating, starting, and calling Hermes A
 Use `client.deployments.createHermesAgent(...)` for the managed Hermes runtime.
 The helper selects runtime `hermes-agent`, image
 `ghcr.io/hypercli/hypercli-hermes-agent:latest`, route `hermes` on port `8642`,
-sync root `/opt/data`, and UID/GID `10000`.
+sync root `/home/hermes`, `syncExclude: ["shared/**"]`, and UID/GID `10000`.
 
 Hermes is not ACP. It exposes a bearer-authenticated HTTP/SSE API Server and
 OpenAI-compatible `/v1` endpoints.
@@ -45,7 +45,8 @@ const launchConfig = buildAgentConfig({}, {
   image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
   secrets: { API_SERVER_KEY: "server-key-you-stored" },
   routes: buildHermesAgentRoutes(),
-  syncRoot: "/opt/data",
+  syncRoot: "/home/hermes",
+  syncExclude: ["shared/**"],
   syncUid: 10000,
   syncGid: 10000,
 }).config;

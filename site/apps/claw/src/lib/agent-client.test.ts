@@ -94,7 +94,8 @@ function redactedHermesLaunchConfig(overrides: Record<string, unknown> = {}) {
   return redactedOpenClawLaunchConfig({
     image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
     routes: { hermes: { port: 8642, auth: false, prefix: "" } },
-    sync_root: "/opt/data",
+    sync_root: "/home/hermes",
+    sync_exclude: ["shared/**"],
     sync_uid: 10000,
     sync_gid: 10000,
     ...overrides,
@@ -392,7 +393,8 @@ describe("agent-client", () => {
         launchConfig: expect.objectContaining({
           image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
           routes: { hermes: { port: 8642, auth: false, prefix: "" } },
-          sync_root: "/opt/data",
+          sync_root: "/home/hermes",
+          sync_exclude: ["shared/**"],
           env: { API_SERVER_CORS_ORIGINS: window.location.origin },
           cors: { allowed_origins: [window.location.origin] },
         }),

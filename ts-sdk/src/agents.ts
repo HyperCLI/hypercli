@@ -267,7 +267,8 @@ const LAUNCH_CONFIG_KEYS = new Set([
   'runtime_scopes',
 ]);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
-export const DEFAULT_HERMES_AGENT_SYNC_ROOT = '/opt/data';
+export const DEFAULT_HERMES_AGENT_SYNC_ROOT = '/home/hermes';
+export const DEFAULT_HERMES_AGENT_SYNC_EXCLUDE = ['shared/**'] as const;
 export const DEFAULT_HERMES_AGENT_SYNC_UID = 10000;
 export const DEFAULT_HERMES_AGENT_SYNC_GID = 10000;
 export const AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024;
@@ -4826,6 +4827,9 @@ export class Deployments {
       image: defaultHermesAgentImage(options.image),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       syncRoot: options.syncRoot ?? DEFAULT_HERMES_AGENT_SYNC_ROOT,
+      syncExclude: options.syncInclude === undefined && options.syncExclude === undefined
+        ? [...DEFAULT_HERMES_AGENT_SYNC_EXCLUDE]
+        : options.syncExclude,
       syncUid: options.syncUid ?? DEFAULT_HERMES_AGENT_SYNC_UID,
       syncGid: options.syncGid ?? DEFAULT_HERMES_AGENT_SYNC_GID,
       routes: options.routes === undefined

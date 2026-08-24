@@ -35,6 +35,7 @@ describe('Hermes deployment lifecycle', () => {
       runtime: string;
       image: string;
       sync_root: string;
+      sync_exclude: string[];
       sync_uid: number;
       sync_gid: number;
       routes: Record<string, Record<string, unknown>>;
@@ -46,7 +47,8 @@ describe('Hermes deployment lifecycle', () => {
     expect(post.mock.calls[0][0]).toBe('/deployments');
     expect(body.runtime).toBe('hermes-agent');
     expect(body.image).toBe(DEFAULT_HERMES_AGENT_IMAGE);
-    expect(body.sync_root).toBe('/opt/data');
+    expect(body.sync_root).toBe('/home/hermes');
+    expect(body.sync_exclude).toEqual(['shared/**']);
     expect(body).not.toHaveProperty('sync_enabled');
     expect(body.sync_uid).toBe(10000);
     expect(body.sync_gid).toBe(10000);

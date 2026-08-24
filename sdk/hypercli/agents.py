@@ -116,6 +116,7 @@ DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
     ".openclaw/browser/**/GrShaderCache/**",
     ".openclaw/browser/**/optimization_guide_model_store/**",
 )
+DEFAULT_HERMES_AGENT_SYNC_EXCLUDE = ("shared/**",)
 LAUNCH_CONFIG_KEYS = frozenset(
     {
         "image",
@@ -137,7 +138,7 @@ LAUNCH_CONFIG_KEYS = frozenset(
     }
 )
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
-DEFAULT_HERMES_AGENT_SYNC_ROOT = "/opt/data"
+DEFAULT_HERMES_AGENT_SYNC_ROOT = "/home/hermes"
 DEFAULT_CODING_AGENT_SYNC_ROOT = "/home/node"
 AGENT_FILE_MAX_BYTES = 250 * 1024 * 1024
 # Reef file writes traverse the Cloudflare-proxied agent hostname
@@ -3687,7 +3688,11 @@ class Deployments:
             image=DEFAULT_HERMES_AGENT_IMAGE if image is None else image,
             sync_root=sync_root if sync_root is not None else DEFAULT_HERMES_AGENT_SYNC_ROOT,
             sync_include=sync_include,
-            sync_exclude=sync_exclude,
+            sync_exclude=(
+                list(DEFAULT_HERMES_AGENT_SYNC_EXCLUDE)
+                if sync_include is _UNSET and sync_exclude is _UNSET
+                else sync_exclude
+            ),
             sync_uid=10000 if sync_uid is None else sync_uid,
             sync_gid=10000 if sync_gid is None else sync_gid,
             registry_url=registry_url,

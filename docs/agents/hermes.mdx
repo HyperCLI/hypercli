@@ -16,15 +16,18 @@ protocols for normal control.
 | Default image | `ghcr.io/hypercli/hypercli-hermes-agent:latest` |
 | Public route | `hermes` |
 | API Server port | `8642` |
-| Persistent root | `/opt/data` |
+| Persistent root | `/home/hermes` |
 | Persistent owner | UID/GID `10000` |
 
 The managed image starts Hermes with `API_SERVER_ENABLED=true`,
 `API_SERVER_HOST=0.0.0.0`, and `API_SERVER_PORT=8642`. HyperCLI exposes that
 port through the route named `hermes`.
 
-Hermes stores runtime state under `/opt/data`. The SDK defaults to full-root
-persistence for that path and sets `sync_uid=10000`, `sync_gid=10000`.
+Hermes stores runtime state under `/home/hermes`. The SDK defaults to
+full-root-minus-Workspace persistence for that path with `sync_exclude:
+["shared/**"]`, and sets `sync_uid=10000`, `sync_gid=10000`. The retained PVC
+still carries `/home/hermes/shared`; the exclude only keeps boot-materialized
+Workspace projections out of Reef/S3 backup.
 
 ## Authentication
 

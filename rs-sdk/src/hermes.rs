@@ -25,6 +25,8 @@ use crate::{
 
 pub const HERMES_AGENT_IMAGE: &str = "ghcr.io/hypercli/hypercli-hermes-agent:latest";
 pub const HERMES_API_PORT: u16 = 8642;
+pub const HERMES_SYNC_ROOT: &str = "/home/hermes";
+pub const HERMES_SYNC_EXCLUDE: [&str; 1] = ["shared/**"];
 const HERMES_ROUTE: &str = "hermes";
 
 /// Minimal managed launch defaults for the HyperCLI Hermes image.
@@ -125,9 +127,14 @@ impl HermesLaunchConfig {
                 auth: self.route_auth,
                 prefix: Some(self.route_prefix.clone()),
             });
-        sync_root.get_or_insert_with(|| "/opt/data".to_owned());
+        sync_root.get_or_insert_with(|| HERMES_SYNC_ROOT.to_owned());
         if sync_include.is_none() && sync_exclude.is_none() {
-            *sync_exclude = Some(Vec::new());
+            *sync_exclude = Some(
+                HERMES_SYNC_EXCLUDE
+                    .iter()
+                    .map(|path| (*path).to_owned())
+                    .collect(),
+            );
         }
         sync_uid.get_or_insert(10_000);
         sync_gid.get_or_insert(10_000);
@@ -953,9 +960,12 @@ mod tests {
         launch.apply_to_create(&mut request);
         assert_eq!(request.runtime, ManagedRuntime::HermesAgent);
         assert_eq!(request.image.as_deref(), Some(HERMES_AGENT_IMAGE));
-        assert_eq!(request.sync_root.as_deref(), Some("/opt/data"));
+        assert_eq!(request.sync_root.as_deref(), Some(HERMES_SYNC_ROOT));
         assert_eq!(request.sync_include, None);
-        assert_eq!(request.sync_exclude, Some(Vec::new()));
+        assert_eq!(
+            request.sync_exclude.as_deref(),
+            Some(vec!["shared/**".to_owned()].as_slice())
+        );
         assert_eq!(
             (request.sync_uid, request.sync_gid),
             (Some(10_000), Some(10_000))
@@ -973,7 +983,10 @@ mod tests {
             .insert("API_SERVER_KEY".into(), "legacy-public-value".into());
         launch.apply_to_start(&mut start);
         assert_eq!(start.sync_include, None);
-        assert_eq!(start.sync_exclude, Some(Vec::new()));
+        assert_eq!(
+            start.sync_exclude.as_deref(),
+            Some(vec!["shared/**".to_owned()].as_slice())
+        );
         assert!(!start.env.contains_key("API_SERVER_KEY"));
         assert_eq!(start.secrets["API_SERVER_KEY"], "gateway-secret-only");
     }

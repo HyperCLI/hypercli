@@ -63,10 +63,10 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     body = client.post.call_args.kwargs["json"]
     assert body["runtime"] == "hermes-agent"
     assert body["image"] == DEFAULT_HERMES_AGENT_IMAGE
-    assert body["sync_root"] == "/opt/data"
+    assert body["sync_root"] == "/home/hermes"
     assert "sync_enabled" not in body
     assert "sync_include" not in body
-    assert "sync_exclude" not in body
+    assert body["sync_exclude"] == ["shared/**"]
     assert body["sync_uid"] == 10000
     assert body["sync_gid"] == 10000
     assert body["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
@@ -169,7 +169,7 @@ def test_hermes_helper_rejects_conflicting_api_keys(
 
 def test_hermes_include_takes_precedence(deployments: Deployments) -> None:
     launch = build_agent_config(
-        sync_root="/opt/data",
+        sync_root="/home/hermes",
         sync_include=["workspace"],
         sync_exclude=["tmp"],
     )

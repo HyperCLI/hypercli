@@ -845,7 +845,8 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
                 "env": {"SAVED": "1"},
                 "image": "ghcr.io/hypercli/hypercli-hermes-agent:saved",
                 "routes": {"hermes-agent": {"port": 8642, "auth": False, "prefix": ""}},
-                "sync_root": "/opt/data",
+                "sync_root": "/home/hermes",
+                "sync_exclude": ["shared/**"],
                 "sync_uid": 10000,
                 "sync_gid": 10000,
             },
@@ -862,8 +863,10 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
                 api_server_key=None,
             )
 
-        def start_hermes_agent(self, agent_id_arg, **kwargs):
+        def start_hermes_agent(self, agent_id_arg, launch_config, **kwargs):
             captured["agent_id"] = agent_id_arg
+            captured["launch_config"] = launch_config
+            captured.update(launch_config)
             captured.update(kwargs)
             return SimpleNamespace(id=agent_id_arg, name="hermes", dry_run=True, api_url=None)
 
@@ -887,11 +890,14 @@ def test_agents_start_hermes_reuses_saved_key_and_launch_fields(monkeypatch):
     assert captured["api_server_key"] == "saved-api-server-key"
     assert captured["config"] == {"model": {"default": "hyper/model"}}
     assert captured["env"] == {"SAVED": "1", "NEW": "2"}
-    assert captured["sync_root"] == "/opt/data"
+    assert captured["sync_root"] == "/home/hermes"
+    assert captured["sync_exclude"] == ["shared/**"]
     assert captured["sync_uid"] == 10000
     assert captured["sync_gid"] == 10000
+    assert "models:*" in captured["runtime_scopes"]
+    assert "workspaces:*" in captured["runtime_scopes"]
+    assert captured["dry_run"] is True
     assert "sync_include" not in captured
-    assert "sync_exclude" not in captured
 
 
 def test_agents_delete_by_name_removes_canonical_state(monkeypatch):

@@ -5,7 +5,7 @@ description: Inference, authentication, and selective-sync defaults for managed 
 
 HyperCLI provides six ACP coding-runtime container families plus the OpenClaw
 and Hermes gateway-style runtimes. The ACP families and OpenClaw use
-`/home/node`; Hermes uses `/opt/data`. They do not all use the same inference,
+`/home/node`; Hermes uses `/home/hermes`. They do not all use the same inference,
 API-authentication, or backup policy.
 
 The Python and TypeScript coding-agent helpers apply the defaults below. A
@@ -23,7 +23,7 @@ Buzz-managed launch selects the corresponding `hypercli-buzz-*` image and adds
 | Goose | HyperCLI-first through the image's injected `hypercli` provider and agent-scoped credential. | `.goose` | No separate vendor login is required for the default. Direct SDK callers that bypass the typed provider mapping must supply Goose-specific provider settings themselves. |
 | Kimi Code | Native-first through Kimi/Moonshot's device-login flow. | `.kimi-code` | In a Buzz-managed launch only, `HYPERCLI_RUNTIME_INFERENCE=hypercli` explicitly selects the HyperCLI compatibility provider. The SDK surface has no noninteractive logout. |
 | OpenClaw | HyperCLI-first through the managed image's `hypercli` provider. No vendor login is needed for that default; OpenClaw gateway authentication is a separate application-level token. | `/home/node` minus Workspace projections, package caches, reindex scratch files, and browser caches | OpenClaw is a gateway runtime, not an ACP coding harness. Update its persisted `.openclaw/openclaw.json` through gateway config RPCs rather than writing it directly from application code. |
-| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. Its HTTP API Server uses a separate generated `API_SERVER_KEY`. | Full `/opt/data` (no include or exclude policy), UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. The API key is write-only launch material; a later list/get cannot recover it. |
+| Hermes Agent | HyperCLI-first through the managed image's backend-injected model credential. Its HTTP API Server uses a separate generated `API_SERVER_KEY`. | `/home/hermes` minus `shared/**`, UID/GID 10000 | Hermes is an API/SSE gateway runtime, not an ACP harness. The API key is write-only launch material; a later list/get cannot recover it. |
 
 Claude Code, Codex, and Kimi Code images expose the normalized
 `/usr/local/bin/hypercli-runtime-auth` wrapper. Their login commands run inside
@@ -62,7 +62,7 @@ uses `syncInclude` and `syncExclude`.
   only the active policy.
 - An explicit empty include list is invalid.
 - On generic create, supplying a sync root with neither policy field selects
-  the complete root (`/home/node` for the ACP/OpenClaw families, `/opt/data`
+  the complete root (`/home/node` for the ACP/OpenClaw families, `/home/hermes`
   for Hermes). Explicit `null` has the same full-root meaning. An empty
   exclude list also excludes nothing.
 - Paths are relative to the sync root. Do not use absolute paths or `..`.
@@ -74,8 +74,10 @@ The OpenClaw helpers do not use the generic full-root default. They exclude
 `Code Cache/**`, `GPUCache/**`, `ShaderCache/**`, `GrShaderCache/**`, and
 `optimization_guide_model_store/**` trees. Pass an explicit `null` policy at
 creation when full-root persistence is intentional.
-Hermes does use full-root persistence under `/opt/data`, where its runtime
-state is owned by UID/GID 10000.
+The Hermes helper follows the OpenClaw Workspace convention: `/home/hermes`
+is retained, while `shared/**` is excluded from Reef/S3 backup because
+Workspace projections are boot-materialized and can drift during sessions.
+Hermes runtime state is owned by UID/GID 10000.
 Coding runtimes default to the smallest roots needed to preserve their native
 configuration, credentials, and state. HyperCLI Workspace projections under
 `/home/node/shared` are a separate feature and are not added to a coding

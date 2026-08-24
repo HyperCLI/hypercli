@@ -6,7 +6,7 @@ description: Python SDK helpers for creating, starting, and calling Hermes Agent
 Use `client.deployments.create_hermes_agent(...)` for the managed Hermes
 runtime. The helper selects runtime `hermes-agent`, image
 `ghcr.io/hypercli/hypercli-hermes-agent:latest`, route `hermes` on port `8642`,
-sync root `/opt/data`, and UID/GID `10000`.
+sync root `/home/hermes`, `sync_exclude=["shared/**"]`, and UID/GID `10000`.
 
 Hermes is not ACP. It exposes a bearer-authenticated HTTP/SSE API Server and
 OpenAI-compatible `/v1` endpoints.
@@ -45,7 +45,8 @@ launch_config = build_agent_config(
     image="ghcr.io/hypercli/hypercli-hermes-agent:latest",
     secrets={"API_SERVER_KEY": "server-key-you-stored"},
     routes=build_hermes_agent_routes(),
-    sync_root="/opt/data",
+    sync_root="/home/hermes",
+    sync_exclude=["shared/**"],
     sync_uid=10000,
     sync_gid=10000,
 )

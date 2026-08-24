@@ -11,6 +11,7 @@ from pathlib import Path
 import typer
 from hypercli.agents import (
     AGENT_FILE_MAX_BYTES,
+    DEFAULT_AGENT_RUNTIME_SCOPES,
     DEFAULT_HERMES_AGENT_IMAGE,
     DEFAULT_OPENCLAW_IMAGE,
     DEFAULT_OPENCLAW_PRO_IMAGE,
@@ -1161,10 +1162,30 @@ def start(
             **sync_policy,
         }
         if is_hermes:
+            hermes_launch_config = {
+                key: copy.deepcopy(value)
+                for key, value in common.items()
+                if key != "dry_run"
+            }
+            hermes_launch_config["secrets"] = copy.deepcopy(saved_launch_fields.get("secrets") or {})
+            hermes_launch_config["routes"] = copy.deepcopy(hermes_launch_config.get("routes") or {})
+            hermes_launch_config["command"] = list(hermes_launch_config.get("command") or [])
+            hermes_launch_config["entrypoint"] = list(hermes_launch_config.get("entrypoint") or [])
+            hermes_launch_config["restart"] = bool(hermes_launch_config.get("restart") or False)
+            hermes_launch_config["registry_auth"] = copy.deepcopy(hermes_launch_config.get("registry_auth") or {})
+            hermes_launch_config["runtime_scopes"] = list(
+                hermes_launch_config.get("runtime_scopes") or DEFAULT_AGENT_RUNTIME_SCOPES
+            )
+            if not sync_policy:
+                if "sync_include" in saved_launch_fields:
+                    hermes_launch_config["sync_include"] = copy.deepcopy(saved_launch_fields.get("sync_include"))
+                elif "sync_exclude" in saved_launch_fields:
+                    hermes_launch_config["sync_exclude"] = copy.deepcopy(saved_launch_fields.get("sync_exclude"))
             pod = agents.start_hermes_agent(
                 requested_agent_id if requested_agent_id == "self" else agent_id,
-                **common,
+                hermes_launch_config,
                 api_server_key=effective_api_server_key,
+                dry_run=dry_run,
             )
         else:
             start_func = agents.start_openclaw_pro if desktop_enabled else agents.start_openclaw
