@@ -46,7 +46,7 @@ type Phase =
   | { kind: "connected"; auth: KeyValidation };
 
 const POLL_MS = 15_000;
-const METRICS_POLL_MS = 30_000;
+const METRICS_POLL_MS = 2_000;
 
 interface AgentMetricsSummary {
   cpu?: string;
@@ -148,7 +148,7 @@ function formatGigabytes(bytes: number): string {
  * tracks misalign; these keep every row's label the same shape.
  */
 function formatCoresFixed(cores: number): string {
-  return cores.toFixed(2);
+  return cores.toFixed(1);
 }
 
 /** Formats bytes as GB with exactly one decimal ("2.6", "8.0"). */
@@ -166,30 +166,38 @@ function LoadBar({
   icon,
   label,
   ratio,
-  valueText,
+  value,
+  unit,
   detail,
+  showPercent = true,
 }: {
   icon: ReactNode;
   label: string;
-  /** Usage ÷ limit. Undefined when the backend reports no limit — the bar
-   * renders as an empty track with the absolute usage value instead of a
-   * percentage. */
+  /** Drives the bar fill (0–1). Undefined renders an empty track. */
   ratio?: number;
-  /** Shown in place of the percentage when `ratio` is unknown. */
-  valueText: string;
+  /** Absolute usage text, shown when `showPercent` is false. */
+  value: string;
+  /** Unit suffix for `value` (kept in its own column so numbers align). */
+  unit: string;
   detail: string;
+  /** When false, the bar fills from `ratio` but the label shows the absolute
+   * `value` instead of a percentage (used when no real limit is reported, so
+   * the fallback-scaled fill isn't misread as a true utilization %). */
+  showPercent?: boolean;
 }) {
   const percent =
     ratio === undefined
       ? undefined
       : Math.min(100, Math.max(0, Math.round(ratio * 100)));
+  const labelText = showPercent && percent !== undefined ? `${percent}%` : value;
+  const unitText = showPercent && percent !== undefined ? "" : unit;
   return (
     <span
       className="flex w-full items-center gap-1.5"
       title={
-        percent === undefined
-          ? `${label}: ${detail}`
-          : `${label}: ${detail} (${percent}%)`
+        showPercent && percent !== undefined
+          ? `${label}: ${detail} (${percent}%)`
+          : `${label}: ${detail}`
       }
     >
       <span className="shrink-0 text-ink-dim">{icon}</span>
@@ -208,8 +216,9 @@ function LoadBar({
           />
         )}
       </span>
-      <span className="w-[4.5rem] shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-ink-dim">
-        {percent !== undefined ? `${percent}%` : valueText}
+      <span className="flex w-[4.5rem] shrink-0 items-baseline whitespace-nowrap text-xs tabular-nums text-ink-dim">
+        <span className="shrink-0 text-left">{unitText}</span>
+        <span className="ml-auto shrink-0 text-right">{labelText}</span>
       </span>
     </span>
   );
@@ -245,32 +254,36 @@ function AgentRow({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Bars normalize against the pod's burst limit exclusively; the paid
-  // claim is never used as a denominator. Usage without a reported limit
-  // still renders a bar strip — empty track plus the absolute value — so
-  // the graphs toggle stays meaningful before limits go live.
+  // Bars normalize against the pod's burst limit when one is reported; the
+  // paid claim is never used as a denominator. When no limit is reported we
+  // fall back to a reference ceiling so usage still renders a visible fill
+  // (proportional to that ceiling) instead of an empty track.
   const cpuCapacity = agent.cpu_limit;
   const memoryCapacity = agent.memory_limit;
-  const cpuRatio =
-    metrics?.cpuCores !== undefined && cpuCapacity
-      ? metrics.cpuCores / cpuCapacity
-      : undefined;
-  const memoryRatio =
-    metrics?.memoryBytes !== undefined && memoryCapacity
-      ? metrics.memoryBytes / (memoryCapacity * 1024 ** 3)
-      : undefined;
   const hasCpuUsage = metrics?.cpuCores !== undefined;
   const hasMemoryUsage = metrics?.memoryBytes !== undefined;
+  // Reference ceilings only apply when the pod reports no limit. Chosen so a
+  // small idle footprint still shows a modest fill rather than an empty bar.
+  const CPU_FALLBACK_CORES = 4;
+  const MEMORY_FALLBACK_GB = 8;
+  const cpuRatio = hasCpuUsage
+    ? cpuCapacity
+      ? metrics!.cpuCores! / cpuCapacity
+      : metrics!.cpuCores! / CPU_FALLBACK_CORES
+    : undefined;
+  const memoryRatio = hasMemoryUsage
+    ? memoryCapacity
+      ? metrics!.memoryBytes! / (memoryCapacity * 1024 ** 3)
+      : metrics!.memoryBytes! / (MEMORY_FALLBACK_GB * 1024 ** 3)
+    : undefined;
 
   const cpuText =
     metrics?.cpuCores !== undefined
-        ? `${formatCoresFixed(metrics.cpuCores)} cpu`
-      : metrics?.cpu
-        ? `${metrics.cpu} cpu`
-        : undefined;
+        ? formatCoresFixed(metrics.cpuCores)
+      : metrics?.cpu;
   const memoryText =
     metrics?.memoryBytes !== undefined
-      ? `${formatGigabytesFixed(metrics.memoryBytes)} GB`
+      ? formatGigabytesFixed(metrics.memoryBytes)
       : metrics?.memory;
 
   const act = async (fn: (id: string) => Promise<unknown>) => {
@@ -361,9 +374,9 @@ function AgentRow({
           <span className="block truncate text-xs text-ink-dim">
             {agent.state}
             {agent.runtime ? ` · ${agent.runtime}` : ""}
-            {cpuText && !(showBars && hasCpuUsage) ? ` · ${cpuText}` : ""}
+            {cpuText && !(showBars && hasCpuUsage) ? ` · ${cpuText} CPU` : ""}
             {memoryText && !(showBars && hasMemoryUsage)
-              ? ` · ${memoryText}`
+              ? ` · ${memoryText} GB`
               : ""}
           </span>
         </button>
@@ -431,7 +444,9 @@ function AgentRow({
               icon={<Cpu size={10} />}
               label="CPU"
               ratio={cpuRatio}
-              valueText={cpuText ?? "?"}
+              value={cpuText ?? "?"}
+              unit="CPU"
+              showPercent={Boolean(cpuCapacity)}
               detail={
                 cpuCapacity
                   ? `${formatCores(metrics?.cpuCores ?? 0)} of ${formatCores(cpuCapacity)} core${cpuCapacity === 1 ? "" : "s"}`
@@ -444,7 +459,9 @@ function AgentRow({
               icon={<MemoryStick size={10} />}
               label="RAM"
               ratio={memoryRatio}
-              valueText={memoryText ?? "?"}
+              value={memoryText ?? "?"}
+              unit="GB"
+              showPercent={Boolean(memoryCapacity)}
               detail={
                 memoryCapacity
                   ? `${formatGigabytes(metrics?.memoryBytes ?? 0)} of ${formatGigabytesFixed(memoryCapacity)} GB`
@@ -463,6 +480,7 @@ export default function App() {
   const [agents, setAgents] = useState<LauncherAgent[]>([]);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<Record<string, AgentMetricsSummary>>({});
+  const [windowFocused, setWindowFocused] = useState(true);
   const [showGraphs, setShowGraphs] = useState(true);
   const [pasteKey, setPasteKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -505,46 +523,55 @@ export default function App() {
     return () => clearInterval(interval);
   }, [phase.kind, refreshAgents]);
 
-  // Live metrics for running agents, refreshed on a slower cadence.
-  useEffect(() => {
-    if (phase.kind !== "connected") return;
-    let cancelled = false;
-    const fetchMetrics = async () => {
-      const running = agentsRef.current.filter((agent) => agent.state === "running");
-      const fetched: Record<string, AgentMetricsSummary> = {};
-      await Promise.all(
-        running.map(async (agent) => {
-          try {
-            const summary = summarizeMetrics(await agentMetrics(agent.id));
-            if (summary.cpu !== undefined || summary.memory !== undefined) {
-              fetched[agent.id] = summary;
-            }
-          } catch {
-            // Metrics are best-effort; a starting agent may have none yet.
+  // Live metrics for running agents. Polls while the window is focused; the
+  // WebView suspends timers when hidden, so the interval would otherwise only
+  // fire while the app happened to be visible. We drive the cadence off the
+  // window's focus state and refresh immediately on focus.
+  const fetchMetrics = useCallback(async () => {
+    const running = agentsRef.current.filter((agent) => agent.state === "running");
+    if (running.length === 0) {
+      setMetrics({});
+      return;
+    }
+    const fetched: Record<string, AgentMetricsSummary> = {};
+    await Promise.all(
+      running.map(async (agent) => {
+        try {
+          const summary = summarizeMetrics(await agentMetrics(agent.id));
+          if (summary.cpu !== undefined || summary.memory !== undefined) {
+            fetched[agent.id] = summary;
           }
-        }),
-      );
-      if (cancelled) return;
-      setMetrics((previous) => {
-        const next: Record<string, AgentMetricsSummary> = {};
-        for (const agent of running) {
-          // Retain the last good sample when a poll fails so the graphs do
-          // not disappear on a transient metrics-socket error.
-          const summary = fetched[agent.id] ?? previous[agent.id];
-          if (summary !== undefined) next[agent.id] = summary;
+        } catch {
+          // Metrics are best-effort; a starting agent may have none yet.
         }
-        return next;
-      });
-    };
-    void fetchMetrics();
-    const interval = setInterval(() => void fetchMetrics(), METRICS_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [phase.kind, agents]);
+      }),
+    );
+    setMetrics((previous) => {
+      const next: Record<string, AgentMetricsSummary> = {};
+      for (const agent of running) {
+        // Retain the last good sample when a poll fails so the graphs do
+        // not disappear on a transient metrics-socket error.
+        const summary = fetched[agent.id] ?? previous[agent.id];
+        if (summary !== undefined) next[agent.id] = summary;
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
+    if (phase.kind !== "connected" || !windowFocused) return;
+    void fetchMetrics();
+    const interval = setInterval(() => void fetchMetrics(), METRICS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [phase.kind, windowFocused, fetchMetrics]);
+
+  useEffect(() => {
+    // Sync the initial focus state so the metrics loop starts correctly when
+    // the app launches already-focused (or stays stopped if launched hidden).
+    void getCurrentWindow()
+      .isFocused()
+      .then((focused) => setWindowFocused(focused))
+      .catch(() => {});
     const unlisteners = [
       listen<string>("auth-token", (event) => {
         void (async () => {
@@ -569,7 +596,11 @@ export default function App() {
         void refreshAgents();
       }),
       getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-        if (focused) void refreshAgents();
+        setWindowFocused(focused);
+        if (focused) {
+          void refreshAgents();
+          void fetchMetrics();
+        }
       }),
     ];
     return () => {
@@ -577,7 +608,7 @@ export default function App() {
         void pending.then((unlisten) => unlisten());
       }
     };
-  }, [refreshAuth, refreshAgents]);
+  }, [refreshAuth, refreshAgents, fetchMetrics]);
 
   const handleLogin = async () => {
     setBusy(true);
