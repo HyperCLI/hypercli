@@ -79,6 +79,9 @@ advertised by a child ACP runtime. Model switching prefers stable
 `BUZZ_ACP_MODEL` is a launch configuration input. If the selected model is not
 advertised by the child runtime, `buzz-acp` exits with status `2` so the hosted
 deployment fails loudly instead of running an unintended default model.
+Set `BUZZ_MODEL_PREFIX` to qualify bare launch models before catalog lookup;
+for example the hosted OpenCode image sets `BUZZ_MODEL_PREFIX=hypercli/` so
+`BUZZ_ACP_MODEL=coding-anthropic` resolves to `hypercli/coding-anthropic`.
 
 ## Maintenance Notes
 

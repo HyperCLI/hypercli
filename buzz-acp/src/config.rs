@@ -454,6 +454,10 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_MODEL")]
     pub model: Option<String>,
 
+    /// Prefix applied to an unqualified BUZZ_ACP_MODEL before ACP catalog lookup.
+    #[arg(long, env = "BUZZ_MODEL_PREFIX")]
+    pub model_prefix: Option<String>,
+
     /// Title for the agent's ACP sessions, passed out-of-band in `session/new`
     /// `_meta`. Adapters that recognize it name the session after this value;
     /// others ignore it. Never enters the prompt.
@@ -1108,7 +1112,7 @@ impl Config {
         // Spawned desktop agents now carry a complete instance snapshot. Team
         // instructions arrive independently so they can be layered at runtime.
         let mut persona_env_vars = Vec::new();
-        let model = args.model;
+        let model = resolve_model_with_prefix(args.model, args.model_prefix);
 
         // Inject CODEX_CONFIG so the @agentclientprotocol/codex-acp adapter (1.x)
         // opens the Seatbelt network sandbox for buzz-cli (an MCP subprocess). No-op
@@ -1499,6 +1503,19 @@ fn rule_applies_to_channel(rule: &SubscriptionRule, channel_id: Uuid) -> bool {
             .iter()
             .any(|id| id.parse::<Uuid>().ok() == Some(channel_id)),
         _ => false,
+    }
+}
+
+fn resolve_model_with_prefix(model: Option<String>, prefix: Option<String>) -> Option<String> {
+    let model = model?.trim().to_string();
+    if model.is_empty() || model.contains('/') {
+        return if model.is_empty() { None } else { Some(model) };
+    }
+    let prefix = prefix?.trim().to_string();
+    if prefix.is_empty() {
+        Some(model)
+    } else {
+        Some(format!("{prefix}{model}"))
     }
 }
 
@@ -2297,6 +2314,49 @@ channels = "ALL"
         let args = CliArgs::try_parse_from(["buzz-acp", "--private-key", &key, "--lazy-pool=true"]);
         assert!(args.is_err(), "bool flags do not take an explicit value");
         assert!(CliArgs::parse_from(["buzz-acp", "--private-key", &key, "--lazy-pool"]).lazy_pool);
+    }
+
+    #[test]
+    fn model_prefix_qualifies_bare_launch_model() {
+        let args = CliArgs::parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--model",
+            "coding-anthropic",
+            "--model-prefix",
+            "hypercli/",
+        ]);
+        let config = Config::from_args(args).expect("model prefix config should parse");
+        assert_eq!(config.model.as_deref(), Some("hypercli/coding-anthropic"));
+    }
+
+    #[test]
+    fn model_prefix_preserves_qualified_launch_model() {
+        let args = CliArgs::parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--model",
+            "other/provider-model",
+            "--model-prefix",
+            "hypercli/",
+        ]);
+        let config = Config::from_args(args).expect("model prefix config should parse");
+        assert_eq!(config.model.as_deref(), Some("other/provider-model"));
+    }
+
+    #[test]
+    fn model_prefix_without_model_is_noop() {
+        let args = CliArgs::parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--model-prefix",
+            "hypercli/",
+        ]);
+        let config = Config::from_args(args).expect("model prefix config should parse");
+        assert_eq!(config.model, None);
     }
 
     #[test]
