@@ -1,6 +1,6 @@
 ---
 title: hyper agent
-description: Detailed reference for HyperCLI account, subscription, config, onboarding, and local audio commands.
+description: Detailed reference for HyperCLI account, subscription, onboarding, and local audio commands.
 ---
 
 `hyper agent` is the account and local-tooling surface for HyperCLI.
@@ -10,7 +10,6 @@ Use it for:
 - onboarding
 - wallet-based subscribe/login
 - plan and model discovery
-- provider config snippets
 - local transcription
 - voice and embedding helpers
 
@@ -21,7 +20,7 @@ Use it for:
 | Onboarding and payment | `onboard`, `subscribe`, `login`, `activate-code` |
 | Account inspection | `status`, `plans`, `current-plan`, `subscriptions`, `subscription-summary`, `models` |
 | Lifecycle aliases | `start`, `stop`, `exec`, `shell` |
-| Integrations and config | `enable`, `openclaw-setup`, `config` |
+| Integrations | `enable`, `openclaw-setup` |
 | Inference helpers | `voice`, `embed` |
 
 The `voice` and `embed` entries are nested command groups. Use
@@ -37,7 +36,6 @@ Guided flow for:
 - funding
 - plan selection
 - x402 entitlement purchase
-- config generation
 - verification
 
 ### `subscribe`
@@ -122,66 +120,6 @@ hyper agent enable <agent> --restart --wait
 Without `--restart`, OpenClaw may need a later restart to read the persisted
 Slack configuration. This command changes remote integration state.
 
-### `config`
-
-Generate config snippets for:
-
-- `openclaw`
-- `opencode`
-- `env`
-
-```bash
-hyper config openclaw --apply
-hyper config opencode --placeholder-env HYPER_AGENTS_API_KEY
-hyper agent config env
-```
-
-Without `--apply`, the command prints the generated JSON blob to stdout.
-
-OpenCode configs use `{env:NAME}` for environment variable interpolation:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "model": "hypercli/glm-5-anthropic",
-  "provider": {
-    "hypercli": {
-      "npm": "@ai-sdk/anthropic",
-      "name": "HyperCLI",
-      "options": {
-        "baseURL": "https://api.hypercli.com/v1",
-        "apiKey": "{env:HYPER_AGENTS_API_KEY}"
-      },
-      "models": {
-        "glm-5-anthropic": {
-          "name": "glm-5-anthropic",
-          "limit": { "context": 262144, "output": 65536 }
-        },
-        "kimi-k2.6-anthropic": {
-          "name": "kimi-k2.6-anthropic",
-          "limit": { "context": 262144, "output": 65536 }
-        }
-      }
-    }
-  }
-}
-```
-
-The full generated `~/.openclaw/openclaw.json` example lives in:
-
-- [Configuration](/cli/configuration)
-
-With `--apply`, the command:
-
-- writes `~/.openclaw/openclaw.json`
-- runs `openclaw models list` to regenerate the active agent `models.json`
-
-It does not restart OpenClaw automatically. Restart when you are ready:
-
-```bash
-openclaw gateway restart
-```
-
 ### `openclaw-setup`
 
 Patch `~/.openclaw/openclaw.json` directly using the saved HyperCLI key.
@@ -192,7 +130,7 @@ hyper agent openclaw-setup --default
 ```
 
 With `--default`, the generated OpenClaw config sets the primary coding model to
-`hypercli/kimi-k2.6-anthropic`.
+the first recommended Anthropic-compatible HyperCLI model returned by the API.
 
 ### `exec` and `shell`
 
@@ -244,5 +182,4 @@ sentences and reports dimensions, tokens, and cosine similarity.
 1. `hyper agent plans`
 2. `hyper agent subscribe solo`
 3. `hyper agent status`
-4. `hyper config openclaw --apply`
-5. `hyper agents create ...`
+4. `hyper agents create ...`

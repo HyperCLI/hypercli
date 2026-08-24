@@ -16,7 +16,6 @@ ROOT_COMMAND_DOCS = {
     "configure": "docs/cli/configuration.mdx",
     "agents": "docs/cli/commands/agents.mdx",
     "agent": "docs/cli/commands/agent.mdx",
-    "config": "docs/cli/configuration.mdx",
     "billing": "docs/cli/commands/billing.mdx",
     "comfyui": "docs/cli/commands/comfyui.mdx",
     "files": "docs/cli/commands/files.mdx",
@@ -41,7 +40,6 @@ GROUP_DOCS = {
 GROUP_SKILL_OWNERS = {
     "agents": "hypercli-agents",
     "billing": "hypercli-account",
-    "config": "hypercli-auth",
     "files": "hypercli-knowledge",
     "flow": "hypercli-flows",
     "instances": "hypercli-compute",
@@ -101,7 +99,7 @@ EXPECTED_SKILL_LEAF_COUNTS = {
     "hypercli": 3,
     "hypercli-account": 24,
     "hypercli-agents": 38,
-    "hypercli-auth": 7,
+    "hypercli-auth": 4,
     "hypercli-compute": 14,
     "hypercli-flows": 14,
     "hypercli-knowledge": 23,
@@ -201,7 +199,7 @@ def test_every_cli_leaf_has_exactly_one_skill_owner_or_policy_exclusion():
             continue
         owner_counts[owner] = owner_counts.get(owner, 0) + 1
     assert owner_counts == EXPECTED_SKILL_LEAF_COUNTS
-    assert len(leaves) == sum(EXPECTED_SKILL_LEAF_COUNTS.values()) + len(excluded) == 139
+    assert len(leaves) == sum(EXPECTED_SKILL_LEAF_COUNTS.values()) + len(excluded) == 136
 
     skill_names = {
         path.parent.name for path in (REPO_ROOT / "skills").glob("*/SKILL.md")

@@ -46,7 +46,6 @@ hyper files upload ./source.png
 hyper agent plans
 hyper agent subscribe solo
 hyper agent activate-code PROMO123
-hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>
 hyper agents create --name docs-demo --size small
@@ -65,8 +64,7 @@ live catalog with `hyper agent plans` before checkout.
 
 ## Notes
 
-- `hyper llm` provides one-shot chat and image inference. For persistent agent
-  configuration, use `hyper config ...` and the OpenAI/Anthropic-compatible
-  provider settings.
+- `hyper llm` provides one-shot chat and image inference. Persistent hosted
+  agent runtimes use the image-provided provider configuration.
 - Use `hyper flow status <render_id> --output json` for structured status.
   `hyper flow get` uses `--format` for metadata and `--output` for downloads.

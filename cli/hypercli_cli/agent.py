@@ -3,8 +3,6 @@
 import asyncio
 import json
 import os
-import shutil
-import subprocess
 import time
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -272,9 +270,7 @@ def subscribe(
         )
         console.print(f"\n[green]✓[/green] Key saved to [bold]{AGENT_KEY_PATH}[/bold]")
         console.print(f"[green]✓[/green] Key history: [bold]{keys_history_path}[/bold]")
-        console.print(
-            "\nConfigure OpenClaw with: [bold]hyper config openclaw --apply[/bold]"
-        )
+        console.print("\nLaunch an agent with: [bold]hyper agents create[/bold]")
 
 
 async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = None):
@@ -902,7 +898,6 @@ def login(
     After login, you can use:
       hyper agents create    Launch an OpenClaw agent pod
       hyper agents list      List your agents
-      hyper config openclaw  Generate OpenClaw provider config
     """
     try:
         from eth_account.messages import encode_defunct
@@ -1001,7 +996,6 @@ def login(
     console.print(f"  Wallet:  {wallet_addr}")
     console.print(f"\n[green]You're all set![/green]")
     console.print(f"  Launch agent:   [bold]hyper agents create[/bold]")
-    console.print(f"  Configure:      [bold]hyper config openclaw --apply[/bold]")
 
 
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
@@ -1069,12 +1063,6 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
                 "reasoning": True,
                 "contextWindow": 262144,
             },
-            "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
-            "zai-org/glm-5": {
-                "name": "GLM-5",
-                "reasoning": True,
-                "contextWindow": 202752,
-            },
             "qwen3-embedding-4b": {
                 "name": "Qwen3 Embedding 4B",
                 "reasoning": False,
@@ -1127,18 +1115,18 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
         console.print("[yellow]  Using fallback model list[/yellow]")
         return [
             {
-                "id": "kimi-k2.5",
-                "name": "Kimi K2.5",
+                "id": "kimi-k3",
+                "name": "Kimi K3",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "contextWindow": 262144,
             },
             {
-                "id": "glm-5",
-                "name": "GLM-5",
+                "id": "kimi-k3-anthropic",
+                "name": "Kimi K3 Anthropic",
                 "reasoning": True,
                 "input": ["text", "image"],
-                "contextWindow": 202752,
+                "contextWindow": 262144,
             },
             {
                 "id": "qwen3-embedding-4b",
@@ -1153,7 +1141,7 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
 
 def _preferred_agent_models(models: list[dict]) -> list[dict]:
     """Return the recommended agent models in priority order."""
-    preferred = ["glm-5-anthropic", "kimi-k2.6-anthropic", "kimi-k2.5-anthropic"]
+    preferred = ["coding-anthropic", "default-anthropic", "kimi-k3-anthropic"]
     picked = [
         model for model_id in preferred for model in models if model["id"] == model_id
     ]
@@ -1231,7 +1219,7 @@ def openclaw_setup(
 
 
 # ---------------------------------------------------------------------------
-# hyper config — generate / apply provider configs for various tools
+# OpenClaw config helpers
 # ---------------------------------------------------------------------------
 
 
@@ -1266,15 +1254,17 @@ def _config_openclaw(
 
     def _is_supported_openclaw_model(model: dict) -> bool:
         suffix = _model_suffix(model.get("id", ""))
-        return suffix == "glm-5" or "kimi" in suffix or "embedding" in suffix
+        return "kimi" in suffix or "coding" in suffix or "default" in suffix or "embedding" in suffix
 
     api_base = api_base.rstrip("/")
 
     def _openclaw_model_order(model: dict) -> tuple[int, str]:
         suffix = _model_suffix(model.get("id", ""))
-        if "kimi" in suffix:
+        if suffix == "coding-anthropic":
             return (0, suffix)
-        if suffix == "glm-5":
+        if suffix == "default-anthropic":
+            return (1, suffix)
+        if "kimi" in suffix:
             return (1, suffix)
         if "embedding" in suffix:
             return (3, suffix)
@@ -1287,18 +1277,22 @@ def _config_openclaw(
     embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
     chat_models = [m for m in supported_models if m.get("mode") != "embedding"]
     kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
-    glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
-    other_chat_models = [
-        m for m in chat_models if m not in kimi_models and m not in glm_models
+    alias_models = [
+        m
+        for m in chat_models
+        if _model_suffix(m.get("id", "")) in {"coding-anthropic", "default-anthropic"}
     ]
-    provider_models = kimi_models + glm_models + other_chat_models
+    other_chat_models = [
+        m for m in chat_models if m not in kimi_models and m not in alias_models
+    ]
+    provider_models = alias_models + kimi_models + other_chat_models
     embedding_model_id = embedding_models[0]["id"] if embedding_models else None
     primary_model = (
-        f"hypercli/{kimi_models[0]['id']}"
-        if kimi_models
+        f"hypercli/{alias_models[0]['id']}"
+        if alias_models
         else (
-            f"hypercli/{glm_models[0]['id']}"
-            if glm_models
+            f"hypercli/{kimi_models[0]['id']}"
+            if kimi_models
             else (
                 f"hypercli/{other_chat_models[0]['id']}" if other_chat_models else None
             )
@@ -1323,8 +1317,8 @@ def _config_openclaw(
             "defaults": {
                 **({"model": {"primary": primary_model}} if primary_model else {}),
                 "models": {
+                    **{f"hypercli/{m['id']}": {"alias": m["id"].split("-")[0]} for m in alias_models},
                     **{f"hypercli/{m['id']}": {"alias": "kimi"} for m in kimi_models},
-                    **{f"hypercli/{m['id']}": {"alias": "glm"} for m in glm_models},
                     **{
                         f"hypercli/{m['id']}": {"alias": m["id"].split("-")[0]}
                         for m in other_chat_models
@@ -1349,57 +1343,6 @@ def _config_openclaw(
     }
 
 
-def _config_opencode(
-    api_key: str,
-    models: list[dict],
-    api_base: str = PROD_INFERENCE_API_BASE,
-    placeholder_env: str | None = None,
-) -> dict:
-    """OpenCode opencode.json provider snippet."""
-    api_base = api_base.rstrip("/")
-    config_api_key = f"{{env:{placeholder_env}}}" if placeholder_env else api_key
-    models = _preferred_agent_models(models)
-    model_entries = {}
-    for m in models:
-        entry = {"name": m["id"]}
-        context = m.get("contextWindow") or m.get("context_window") or m.get("context")
-        if context:
-            entry["limit"] = {
-                "context": context,
-                "output": m.get("outputLimit") or m.get("output_limit") or 65536,
-            }
-        model_entries[m["id"]] = entry
-    return {
-        "$schema": "https://opencode.ai/config.json",
-        "provider": {
-            "hypercli": {
-                "npm": "@ai-sdk/anthropic",
-                "name": "HyperCLI",
-                "options": {
-                    "baseURL": f"{api_base}/v1",
-                    "apiKey": config_api_key,
-                },
-                "models": model_entries,
-            }
-        },
-        "model": f"hypercli/{models[0]['id']}",
-    }
-
-
-def _config_env(
-    api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE
-) -> str:
-    """Shell env vars for generic OpenAI-compatible tools."""
-    api_base = api_base.rstrip("/")
-    models = _preferred_agent_models(models)
-    lines = [
-        f'export OPENAI_API_KEY="{api_key}"',
-        f'export OPENAI_BASE_URL="{api_base}/v1"',
-        f"# Available models: {', '.join(m['id'] for m in models)}",
-    ]
-    return "\n".join(lines)
-
-
 @app.command("exec")
 def exec_cmd(
     agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
@@ -1422,144 +1365,6 @@ def shell_cmd(
     from . import agents
 
     agents.shell(agent_id=agent_id)
-
-
-FORMAT_CHOICES = ["openclaw", "opencode", "env"]
-
-
-@app.command("config")
-def config_cmd(
-    format: str = typer.Argument(
-        None,
-        help=f"Output format: {', '.join(FORMAT_CHOICES)}. Omit to show all.",
-    ),
-    key: str = typer.Option(
-        None,
-        "--key",
-        "-k",
-        help="API key (hyper_api_...). Uses ~/.hypercli/agent-key.json when omitted",
-    ),
-    base_url: str = typer.Option(
-        None,
-        "--base-url",
-        help="HyperCLI API base URL. Uses HYPER_API_BASE or prod/dev defaults when omitted",
-    ),
-    placeholder_env: str = typer.Option(
-        None,
-        "--placeholder-env",
-        help="Write tool-specific environment placeholders into generated config instead of literal API keys",
-    ),
-    apply: bool = typer.Option(
-        False,
-        "--apply",
-        help="Write config to the appropriate file (openclaw/opencode only)",
-    ),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
-):
-    """Generate provider configs for OpenClaw, OpenCode, and other tools.
-
-    Examples:
-      hyper config env                            # Shell export lines
-      hyper config openclaw                       # OpenClaw snippet
-      hyper config opencode --key hyper_api_...   # OpenCode with explicit key
-      hyper config openclaw --base-url https://api.dev.hypercli.com
-      hyper config openclaw --apply               # Write directly to openclaw.json
-    """
-    api_key = _resolve_api_key(key)
-    api_base = _resolve_api_base(base_url, dev)
-
-    # Validate key & fetch models
-    console.print(f"[dim]Validating key against {api_base}...[/dim]")
-    models = fetch_models(api_key, api_base)
-    model_names = ", ".join(m["id"] for m in models)
-    console.print(f"[green]✓[/green] Key valid — models: [bold]{model_names}[/bold]\n")
-
-    formats = [format] if format else FORMAT_CHOICES
-    for fmt in formats:
-        if fmt not in FORMAT_CHOICES:
-            console.print(f"[red]Unknown format: {fmt}[/red]")
-            console.print(f"Choose from: {', '.join(FORMAT_CHOICES)}")
-            raise typer.Exit(1)
-
-    for fmt in formats:
-        if fmt == "openclaw":
-            snippet = _config_openclaw(
-                api_key, models, api_base, placeholder_env=placeholder_env
-            )
-            _show_snippet(
-                "OpenClaw",
-                "~/.openclaw/openclaw.json",
-                snippet,
-                apply,
-                OPENCLAW_CONFIG_PATH,
-            )
-        elif fmt == "opencode":
-            snippet = _config_opencode(
-                api_key, models, api_base, placeholder_env=placeholder_env
-            )
-            target = Path.cwd() / "opencode.json"
-            _show_snippet("OpenCode", "opencode.json", snippet, apply, target)
-        elif fmt == "env":
-            console.print("[bold]── Shell Environment ──[/bold]")
-            console.print(_config_env(api_key, models, api_base))
-            console.print()
-
-
-def _show_snippet(
-    name: str, path_hint: str, data: dict, apply: bool, target_path: Path
-):
-    """Print a JSON snippet and optionally apply it."""
-    console.print(f"[bold]── {name} ({path_hint}) ──[/bold]")
-    formatted = json.dumps(data, indent=2)
-    console.print(formatted)
-    console.print()
-
-    if apply:
-        if target_path.exists():
-            with open(target_path) as f:
-                existing = json.load(f)
-            if name == "OpenClaw":
-                merged = _merge_openclaw_config(existing, data)
-            else:
-                _deep_merge(existing, data)
-                merged = existing
-        else:
-            merged = data
-
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(target_path, "w") as f:
-            json.dump(merged, f, indent=2)
-            f.write("\n")
-        console.print(f"[green]✅ Written to {target_path}[/green]\n")
-        if name == "OpenClaw":
-            _refresh_openclaw_runtime()
-
-
-def _refresh_openclaw_runtime():
-    """Best-effort refresh of OpenClaw generated runtime state after config changes."""
-    if shutil.which("openclaw") is None:
-        console.print("[yellow]⚠[/yellow] OpenClaw CLI not found in PATH.")
-        console.print("Run after install: [bold]openclaw models list[/bold]")
-        console.print(
-            "Then restart when ready: [bold]openclaw gateway restart[/bold]\n"
-        )
-        return
-
-    try:
-        subprocess.run(
-            ["openclaw", "models", "list"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
-        console.print("[green]✓[/green] Regenerated OpenClaw model cache.")
-    except Exception:
-        console.print(
-            "[yellow]⚠[/yellow] Could not regenerate OpenClaw model cache automatically."
-        )
-        console.print("Run manually: [bold]openclaw models list[/bold]")
-    console.print("Restart when ready: [bold]openclaw gateway restart[/bold]\n")
 
 
 def _deep_merge(base: dict, overlay: dict):

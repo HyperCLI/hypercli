@@ -10,8 +10,6 @@ HyperCLI exposes two chat surfaces:
 
 For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
  
-`hyper config openclaw --apply` already configures the `hypercli` provider and the `/v1` memory-search remote automatically.
-
 ## Anthropic Messages API
 
 Use this when your tool or SDK supports Anthropic-compatible providers:
@@ -309,8 +307,19 @@ that expect `/v1`.
 | `coding-anthropic` | 262K tokens | Stable alias for the coding model on the recommended Anthropic Messages route; currently `kimi-k3-anthropic` |
 | `default-anthropic` | 262K tokens | Stable alias for the default Anthropic-route model; currently `kimi-k3-anthropic` |
 | `coding` | 262K tokens | Stable alias for the coding model on the OpenAI-compatible route; currently `kimi-k3` |
+| `default` | 262K tokens | Stable alias for the default OpenAI-compatible route; currently `kimi-k3` |
 | `kimi-k3-anthropic` | 262K tokens | Kimi K3 on the Anthropic Messages route (pinned) |
 | `kimi-k3` | 262K tokens | Kimi K3 on the OpenAI-compatible route (pinned) |
+| `kimi-k2.6-anthropic` | 262K tokens | Kimi K2.6 on the Anthropic Messages route (pinned) |
+| `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route (pinned) |
+| `kimi-k2.5-anthropic` | 262K tokens | Legacy compatibility alias for `kimi-k2.6-anthropic` |
+| `kimi-k2.5` | 262K tokens | Legacy compatibility alias for `kimi-k2.6` |
+
+For agent runtimes and tool-calling workloads, prefer the `-anthropic` model
+names. They use the Anthropic Messages route and are the expected surface for
+the best tool-calling behavior. The non-suffixed names are kept for
+OpenAI-compatible SDKs, simple chat clients, and framework integrations that
+expect `/v1`.
 
 Check available models at any time:
 

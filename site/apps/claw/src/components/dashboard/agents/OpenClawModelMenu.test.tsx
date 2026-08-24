@@ -65,7 +65,7 @@ describe("OpenClawModelMenu", () => {
               name: "hypercli",
               models: [
                 { id: "kimi-k2.6-anthropic", name: "Kimi K2.6" },
-                { id: "glm-5-anthropic", name: "GLM-5" },
+                { id: "kimi-k3-anthropic", name: "Kimi K3" },
               ],
             },
           },

@@ -23,11 +23,11 @@ const MOCK_MODELS = [
     description: "High-performance reasoning model with extended context. Excellent for complex analysis and multi-step tasks.",
   },
   {
-    id: "glm-5",
-    name: "GLM-5",
-    contextWindow: "202K",
-    capabilities: ["Reasoning", "Tool Use"],
-    description: "Fast, capable reasoning model. Great for general-purpose tasks and quick responses.",
+    id: "kimi-k3",
+    name: "Kimi K3",
+    contextWindow: "262K",
+    capabilities: ["Reasoning", "Vision", "Tool Use"],
+    description: "Current coding and default reasoning model with extended context.",
   },
 ];
 

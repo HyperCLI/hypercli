@@ -1,14 +1,12 @@
-from pathlib import Path
-
-from hypercli_cli.agent import _config_opencode, _config_openclaw, _merge_openclaw_config, _show_snippet
+from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config
 
 
 def test_config_openclaw_limits_runtime_models_to_supported_set():
     api_key = "hyper_api_test"
     api_base = "https://api.agents.hypercli.com"
     models = [
-        {"id": "kimi-k2.5", "name": "Kimi K2.5", "reasoning": True},
-        {"id": "glm-5", "name": "GLM-5", "reasoning": True},
+        {"id": "coding-anthropic", "name": "coding", "reasoning": True},
+        {"id": "kimi-k3-anthropic", "name": "Kimi K3", "reasoning": True},
         {
             "id": "qwen3-embedding-4b",
             "name": "Qwen3 Embedding 4B",
@@ -24,10 +22,13 @@ def test_config_openclaw_limits_runtime_models_to_supported_set():
 
     assert set(providers) == {"hypercli"}
     assert providers["hypercli"]["authHeader"] is True
-    assert [m["id"] for m in providers["hypercli"]["models"]] == ["kimi-k2.5", "glm-5"]
+    assert [m["id"] for m in providers["hypercli"]["models"]] == [
+        "coding-anthropic",
+        "kimi-k3-anthropic",
+    ]
 
     defaults = config["agents"]["defaults"]
-    assert defaults["model"]["primary"] == "hypercli/kimi-k2.5"
+    assert defaults["model"]["primary"] == "hypercli/coding-anthropic"
     assert defaults["memorySearch"]["provider"] == "openai"
     assert defaults["memorySearch"]["model"] == "qwen3-embedding-4b"
     assert defaults["memorySearch"]["remote"]["baseUrl"] == "https://api.agents.hypercli.com/v1"
@@ -37,7 +38,7 @@ def test_config_openclaw_uses_first_embedding_model_for_memory_search():
     config = _config_openclaw(
         "hyper_api_test",
         [
-            {"id": "kimi-k2.5", "name": "Kimi K2.5", "reasoning": True},
+            {"id": "kimi-k3", "name": "Kimi K3", "reasoning": True},
             {"id": "text-embedding-3-large", "name": "Text Embedding 3 Large", "mode": "embedding"},
         ],
         "https://api.agents.hypercli.com",
@@ -51,8 +52,8 @@ def test_config_openclaw_supports_placeholder_api_key_env():
     config = _config_openclaw(
         "hyper_api_real",
         [
-            {"id": "kimi-k2.5", "name": "Kimi K2.5", "reasoning": True},
-            {"id": "glm-5", "name": "GLM-5", "reasoning": True},
+            {"id": "coding-anthropic", "name": "coding", "reasoning": True},
+            {"id": "kimi-k3-anthropic", "name": "Kimi K3", "reasoning": True},
             {"id": "qwen3-embedding-4b", "name": "Qwen3 Embedding 4B", "mode": "embedding"},
         ],
         "https://api.agents.hypercli.com",
@@ -64,46 +65,24 @@ def test_config_openclaw_supports_placeholder_api_key_env():
     assert config["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "${HYPER_API_KEY}"
 
 
-def test_config_opencode_supports_env_placeholder_and_glm_limits():
-    config = _config_opencode(
-        "hyper_api_real",
-        [
-            {"id": "kimi-k2.6-anthropic", "name": "Kimi K2.6", "contextWindow": 262144},
-            {"id": "glm-5-anthropic", "name": "GLM-5", "contextWindow": 262144},
-            {"id": "kimi-k2.5-anthropic", "name": "Kimi K2.5"},
-        ],
-        "https://api.hypercli.com",
-        placeholder_env="HYPER_AGENTS_API_KEY",
-    )
-
-    assert config["model"] == "hypercli/glm-5-anthropic"
-    provider = config["provider"]["hypercli"]
-    assert provider["options"]["baseURL"] == "https://api.hypercli.com/v1"
-    assert provider["options"]["apiKey"] == "{env:HYPER_AGENTS_API_KEY}"
-    assert provider["models"]["glm-5-anthropic"]["limit"] == {
-        "context": 262144,
-        "output": 65536,
-    }
-
-
 def test_merge_openclaw_config_replaces_stale_provider_sections():
     legacy_provider = "hyper" + "claw"
     existing = {
         "models": {
             "providers": {
-                legacy_provider: {"models": [{"id": "glm-5"}]},
-                "kimi-coding": {"models": [{"id": "kimi-k2.5"}]},
+                legacy_provider: {"models": [{"id": "old-model"}]},
+                "kimi-coding": {"models": [{"id": "kimi-k2.6"}]},
             }
         },
         "agents": {
             "defaults": {
                 "model": {
-                    "primary": f"{legacy_provider}/glm-5",
+                    "primary": f"{legacy_provider}/old-model",
                     "fallbacks": ["anthropic/claude-opus-4-6"],
                 },
                 "models": {
-                    "kimi-coding/kimi-k2.5": {"alias": "kimi"},
-                    f"{legacy_provider}/glm-5": {"alias": "glm"},
+                    "kimi-coding/kimi-k2.6": {"alias": "kimi"},
+                    f"{legacy_provider}/old-model": {"alias": "old"},
                 }
             }
         },
@@ -113,18 +92,18 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
         "models": {
             "providers": {
                 "hypercli": {
-                    "models": [{"id": "kimi-k2.5"}, {"id": "glm-5"}]
+                    "models": [{"id": "coding-anthropic"}, {"id": "kimi-k3-anthropic"}]
                 }
             }
         },
         "agents": {
             "defaults": {
                 "model": {
-                    "primary": "hypercli/kimi-k2.5",
+                    "primary": "hypercli/coding-anthropic",
                 },
                 "models": {
-                    "hypercli/kimi-k2.5": {"alias": "kimi"},
-                    "hypercli/glm-5": {"alias": "glm"},
+                    "hypercli/coding-anthropic": {"alias": "coding"},
+                    "hypercli/kimi-k3-anthropic": {"alias": "kimi"},
                 }
             }
         },
@@ -134,49 +113,10 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
 
     assert set(merged["models"]["providers"]) == {"hypercli"}
     assert set(merged["agents"]["defaults"]["models"]) == {
-        "hypercli/kimi-k2.5",
-        "hypercli/glm-5",
+        "hypercli/coding-anthropic",
+        "hypercli/kimi-k3-anthropic",
     }
     assert merged["agents"]["defaults"]["model"] == {
-        "primary": "hypercli/kimi-k2.5",
+        "primary": "hypercli/coding-anthropic",
     }
     assert merged["gateway"]["port"] == 18789
-
-
-def test_show_snippet_openclaw_apply_regenerates_models_cache(monkeypatch, tmp_path):
-    calls = []
-
-    def fake_run(args, capture_output, text, timeout, check):
-        calls.append(args)
-        class Result:
-            returncode = 0
-        return Result()
-
-    monkeypatch.setattr("hypercli_cli.agent.shutil.which", lambda name: "/usr/bin/openclaw")
-    monkeypatch.setattr("hypercli_cli.agent.subprocess.run", fake_run)
-
-    target = tmp_path / "openclaw.json"
-    data = {
-        "models": {
-            "providers": {
-                "hypercli": {
-                    "baseUrl": "https://api.agents.hypercli.com",
-                    "apiKey": "hyper_api_xxx",
-                    "api": "anthropic-messages",
-                    "authHeader": True,
-                    "models": [{"id": "kimi-k2.5"}],
-                }
-            }
-        },
-        "agents": {
-            "defaults": {
-                "model": {"primary": "hypercli/kimi-k2.5"},
-                "models": {"hypercli/kimi-k2.5": {"alias": "kimi"}},
-            }
-        },
-    }
-
-    _show_snippet("OpenClaw", str(Path("~/.openclaw/openclaw.json")), data, True, target)
-
-    assert target.exists()
-    assert calls == [["openclaw", "models", "list"]]

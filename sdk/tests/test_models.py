@@ -11,8 +11,8 @@ class DummyHTTP:
         return {
             "object": "list",
             "data": [
-                {"id": "glm-5", "object": "model", "owned_by": "hypercli"},
-                {"id": "kimi-k2.5", "object": "model", "owned_by": "hypercli"},
+                {"id": "kimi-k3", "object": "model", "owned_by": "hypercli"},
+                {"id": "kimi-k2.6", "object": "model", "owned_by": "hypercli"},
             ],
         }
 
@@ -23,5 +23,5 @@ def test_models_list_reads_openai_models_payload():
 
     listed = models.list()
 
-    assert [model.id for model in listed] == ["glm-5", "kimi-k2.5"]
+    assert [model.id for model in listed] == ["kimi-k3", "kimi-k2.6"]
     assert http.calls == [("get", "/v1/models", None)]

@@ -58,7 +58,7 @@ def test_pick_default_model_prefers_kimi():
         "data": [
             {"id": "qwen3-embedding-4b"},
             {"id": "kimi-k2.5"},
-            {"id": "glm-5"},
+            {"id": "kimi-k3"},
         ]
     }
 
@@ -72,7 +72,7 @@ def test_pick_default_vision_model_prefers_kimi_vision():
         "data": [
             {"id": "kimi-k2.5"},
             {"id": "kimi-k2.6"},
-            {"id": "glm-5"},
+            {"id": "kimi-k3"},
         ]
     }
 

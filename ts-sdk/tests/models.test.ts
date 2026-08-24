@@ -8,8 +8,8 @@ describe('Models SDK', () => {
       get: vi.fn().mockResolvedValue({
         object: 'list',
         data: [
-          { id: 'glm-5', object: 'model', owned_by: 'hypercli' },
-          { id: 'kimi-k2.5', object: 'model', owned_by: 'hypercli' },
+          { id: 'kimi-k3', object: 'model', owned_by: 'hypercli' },
+          { id: 'kimi-k2.6', object: 'model', owned_by: 'hypercli' },
         ],
       }),
     } as unknown as HTTPClient;
@@ -17,7 +17,7 @@ describe('Models SDK', () => {
     const models = new ModelsAPI(http);
     const listed = await models.list();
 
-    expect(listed.map((model) => model.id)).toEqual(['glm-5', 'kimi-k2.5']);
+    expect(listed.map((model) => model.id)).toEqual(['kimi-k3', 'kimi-k2.6']);
     expect((http.get as any).mock.calls[0][0]).toBe('/v1/models');
   });
 });

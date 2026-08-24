@@ -52,8 +52,8 @@ def test_jobs_get_shows_command_and_env(monkeypatch):
                 gpu_type="H200",
                 gpu_count=8,
                 region="oh",
-                docker_image="vllm/vllm-openai:glm5",
-                command="vllm serve zai-org/GLM-5-FP8 --host 0.0.0.0 --port 8000",
+                docker_image="vllm/vllm-openai:kimi-k3",
+                command="vllm serve moonshotai/Kimi-K3 --host 0.0.0.0 --port 8000",
                 env_vars={"LD_LIBRARY_PATH": "/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu"},
                 runtime=3600,
             )
@@ -65,7 +65,7 @@ def test_jobs_get_shows_command_and_env(monkeypatch):
     result = runner.invoke(app, ["jobs", "get", FULL_JOB_ID])
 
     assert result.exit_code == 0
-    assert "vllm serve zai-org/GLM-5-FP8" in result.stdout
+    assert "vllm serve moonshotai/Kimi-K3" in result.stdout
     assert "LD_LIBRARY_PATH" in result.stdout
 
 

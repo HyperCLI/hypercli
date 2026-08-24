@@ -68,8 +68,6 @@ agent key.
 
 Do not assume the common resolver applies everywhere:
 
-- `hyper config openclaw` and `hyper config opencode`: explicit `--key`, then
-  only `~/.hypercli/agent-key.json`. They do not use the shared config resolver.
 - `hyper voice`: explicit `--key`, common product resolution, common agent
   resolution, then a non-expired `agent-key.json`.
 - `hyper agent embed`: explicit `--key`, environment `HYPER_API_KEY`, then
@@ -82,26 +80,20 @@ Run `hyper <group> <command> --help` before relying on a key flag. Avoid
 
 ### Compatibility configuration commands
 
-Two legacy `hyper agent` commands still own local provider configuration:
+The old generated-config command surface has been removed. Do not recommend
+deleted provider-config generators.
+
+One legacy `hyper agent` command can still patch local OpenClaw configuration:
 
 ```bash
 hyper agent openclaw-setup
 hyper agent openclaw-setup --default
-hyper agent config env
-hyper agent config openclaw
-hyper agent config opencode
 ```
 
 `openclaw-setup` reads only `~/.hypercli/agent-key.json` and patches the
 `models.providers.hypercli` section of `~/.openclaw/openclaw.json`. With
-`--default`, it also selects `hypercli/kimi-k2.6-anthropic` as the primary
-model. It does not restart OpenClaw.
-
-`agent config` validates a key, fetches the available models, and prints
-`env`, `openclaw`, or `opencode` output. Omitting the format prints all three.
-Its `--apply` option is valid only for OpenClaw and OpenCode. Prefer the newer
-top-level `hyper config openclaw|opencode` form in new automation, but preserve
-the compatibility form when maintaining an existing script.
+`--default`, it also selects the first recommended Anthropic-compatible
+HyperCLI model returned by the API. It does not restart OpenClaw.
 
 ### SDK drift boundary
 
@@ -151,9 +143,6 @@ Important exceptions:
   `HYPER_AGENTS_API_BASE`, then a fixed prod/dev agents base.
 - `hyper agent login` uses explicit `--api-url`, then production. It does not
   read the common base resolver.
-- `hyper config openclaw|opencode` uses explicit `--base-url`, environment
-  `HYPER_API_BASE`, then its prod/dev inference host. It ignores saved URL
-  config and legacy `HYPERCLI_API_URL`.
 - `hyper voice` uses explicit `--base-url`, environment `HYPER_API_BASE`,
   environment legacy `HYPERCLI_API_URL`, then production; it ignores saved URL
   config and `AGENTS_API_BASE_URL`.
@@ -162,28 +151,13 @@ Important exceptions:
 Python CLI agents-base setting. Use `AGENTS_API_BASE_URL` for common CLI/SDK
 configuration.
 
-## Generate Provider Config Safely
+## Patch OpenClaw Config Safely
 
-The current provider-config commands are:
-
-```bash
-hyper config openclaw
-hyper config opencode --placeholder-env HYPER_AGENTS_API_KEY
-hyper agent config env
-```
-
-The root `hyper config` commands and compatibility `hyper agent config` share
-the same implementation. They validate the selected key and print generated
-config unless `--apply` writes the OpenClaw or OpenCode file. Without explicit
-`--key`, this legacy path reads only `~/.hypercli/agent-key.json`; it does not
-consume the injected runtime key. Avoid a literal command-line key. Use these
-commands only in a private session and review the destination before `--apply`.
-
-`hyper agent openclaw-setup` is a separate legacy mutation. It reads
+`hyper agent openclaw-setup` is a legacy mutation. It reads
 `agent-key.json`, patches `~/.openclaw/openclaw.json`, and preserves unrelated
-config. `--default` also selects `hypercli/kimi-k2.6-anthropic` as the primary
-model. Back up the file and obtain approval before either form; prefer
-`hyper config openclaw` for new instructions.
+config. `--default` also selects the first recommended Anthropic-compatible
+HyperCLI model returned by the API. Back up the file and obtain approval before
+running it.
 
 ## Diagnose Without Revealing Secrets
 
