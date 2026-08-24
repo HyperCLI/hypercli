@@ -4556,11 +4556,16 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
         const token = await getToken();
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return archiveAgent(token, agentId, (accepted) => {
-          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
-            applyAgentMutationResult(accepted);
-          }
-        });
+        try {
+          return await archiveAgent(token, agentId, (accepted) => {
+            if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+              applyAgentMutationResult(accepted);
+            }
+          });
+        } catch (error) {
+          await refreshExactAgentAfterLifecycleConflict(agentId, token, generation, error);
+          throw error;
+        }
       });
       if (!archivedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(archivedAgent);
@@ -4640,6 +4645,7 @@ function AgentsPageContent() {
     const generation = agentDataGenerationRef.current;
     const agentToDelete = agents.find((agent) => agent.id === agentId) ?? null;
     if (!agentToDelete || !isAgentDeletable(agentToDelete)) {
+      setPendingAgentDelete(null);
       setError("Agents can only be deleted after they are stopped or archived.");
       return;
     }
@@ -6259,8 +6265,15 @@ function AgentsPageContent() {
       loading={agentsLoading}
       error={agentsLoadError}
       onSelect={selectSettingsAgent}
+      onArchive={(agentId) => { void handleArchive(agentId); }}
+      onDelete={(agentId) => {
+        const agent = orderedRosterAgents.find((candidate) => candidate.id === agentId);
+        if (agent) setPendingAgentDelete({ id: agent.id, name: agentDisplayLabel(agent) });
+      }}
       onRetry={() => fetchAgents({ force: true }).then(() => undefined)}
       onCreateAgent={openAgentLauncherFromCurrentSection}
+      archivingAgentId={archivingId}
+      deletingAgentId={deletingId}
       filterInputRef={settingsAgentFilterRef}
     />
   );

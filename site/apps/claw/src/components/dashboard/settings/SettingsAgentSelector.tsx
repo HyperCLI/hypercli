@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useState, type Ref } from "react";
+import { Archive, Loader2, Trash2 } from "lucide-react";
 import {
   Alert,
   AlertDescription,
@@ -24,7 +25,7 @@ import {
 } from "@hypercli/shared-ui";
 
 import type { Agent } from "@/app/dashboard/agents/types";
-import { isAgentTransitionalState } from "@/app/dashboard/agents/types";
+import { isAgentTransitionalState, resolveAgentLifecycleControls } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { agentProfileImageUrl } from "@/lib/avatar";
 
@@ -78,16 +79,24 @@ export function SettingsAgentSelector({
   loading,
   error,
   onSelect,
+  onArchive,
+  onDelete,
   onRetry,
   onCreateAgent,
+  archivingAgentId = null,
+  deletingAgentId = null,
   filterInputRef,
 }: {
   agents: Agent[];
   loading: boolean;
   error: string | null;
   onSelect: (agentId: string) => void;
+  onArchive: (agentId: string) => void;
+  onDelete: (agentId: string) => void;
   onRetry: () => void | Promise<void>;
   onCreateAgent: () => void;
+  archivingAgentId?: string | null;
+  deletingAgentId?: string | null;
   filterInputRef?: Ref<HTMLInputElement>;
 }) {
   const [query, setQuery] = useState("");
@@ -207,53 +216,103 @@ export function SettingsAgentSelector({
                   {filteredAgents.map((agent) => {
                     const name = agentDisplayLabel(agent);
                     const avatarUrl = agentProfileImageUrl(agent);
+                    const lifecycle = resolveAgentLifecycleControls(agent);
+                    const archiving = archivingAgentId === agent.id;
+                    const deleting = deletingAgentId === agent.id;
+                    const lifecycleBusy = archiving || deleting;
 
                     return (
                       <li key={agent.id} className="min-w-0">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => onSelect(agent.id)}
-                          data-testid={`settings-agent-option-${agent.id}`}
-                          aria-label={`Open settings for ${name}`}
-                          className={cn(
-                            "h-auto w-full items-stretch justify-start gap-0 whitespace-normal rounded-xl bg-surface-high/70 p-0 text-left shadow-none hover:border-border-strong hover:bg-surface-high",
-                            layout === "grid" ? "min-h-52 flex-col" : "min-h-20",
-                          )}
-                        >
-                          <span className={cn(
-                            "grid grid-cols-[auto_minmax(0,1fr)] gap-4",
-                            layout === "grid" ? "w-full p-5" : "min-w-0 flex-1 p-4",
-                          )}>
-                            <Avatar className="size-12 border border-border bg-background" title={name}>
-                              {avatarUrl ? <AvatarImage src={avatarUrl} alt={`${name} avatar`} className="object-cover" /> : null}
-                              <AvatarFallback className="bg-background text-sm font-semibold text-text-secondary">
-                                {agentInitials(name)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="min-w-0 pt-0.5">
-                              <span className="block truncate text-base font-semibold leading-5 text-foreground">
-                                {name}
+                        <Card className={cn(
+                          "gap-0 overflow-hidden rounded-xl bg-surface-high/70 shadow-none",
+                          layout === "grid" ? "min-h-52" : "min-h-20 flex-col sm:flex-row sm:items-stretch",
+                        )}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() => onSelect(agent.id)}
+                            data-testid={`settings-agent-option-${agent.id}`}
+                            aria-label={`Open settings for ${name}`}
+                            className={cn(
+                              "h-auto min-w-0 flex-1 items-stretch justify-start gap-0 whitespace-normal rounded-none p-0 text-left hover:bg-surface-high",
+                              layout === "grid" && "w-full",
+                            )}
+                          >
+                            <span className={cn(
+                              "grid w-full grid-cols-[auto_minmax(0,1fr)] gap-4",
+                              layout === "grid" ? "p-5" : "p-4",
+                            )}>
+                              <Avatar className="size-12 border border-border bg-background" title={name}>
+                                {avatarUrl ? <AvatarImage src={avatarUrl} alt={`${name} avatar`} className="object-cover" /> : null}
+                                <AvatarFallback className="bg-background text-sm font-semibold text-text-secondary">
+                                  {agentInitials(name)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="min-w-0 pt-0.5">
+                                <span className="block truncate text-base font-semibold leading-5 text-foreground">
+                                  {name}
+                                </span>
+                                <Badge variant={agentStateBadgeVariant(agent.state)} className="mt-2 rounded-full">
+                                  {agentStateLabel(agent.state)}
+                                </Badge>
                               </span>
-                              <Badge variant={agentStateBadgeVariant(agent.state)} className="mt-2 rounded-full">
-                                {agentStateLabel(agent.state)}
-                              </Badge>
                             </span>
-                          </span>
-                          <span className={cn(
-                            "flex",
-                            layout === "grid" ? "mt-auto w-full p-5 pt-3" : "shrink-0 items-center p-4 pl-0",
+                          </Button>
+                          <CardFooter className={cn(
+                            "flex flex-wrap items-center gap-2",
+                            layout === "grid" ? "mt-auto p-5 pt-3" : "justify-end p-4 pt-0 sm:shrink-0 sm:p-4 sm:pl-0",
                           )}>
-                            <span className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground">
+                            {lifecycle.canArchive ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => onArchive(agent.id)}
+                                disabled={lifecycleBusy}
+                                aria-label={archiving ? `Archiving ${name}` : `Archive ${name}`}
+                                aria-busy={archiving || undefined}
+                                className="rounded-lg bg-background"
+                              >
+                                {archiving ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Archive />}
+                                <span className={layout === "rows" ? "sr-only xl:not-sr-only" : undefined}>
+                                  {archiving ? "Archiving" : "Archive"}
+                                </span>
+                              </Button>
+                            ) : null}
+                            {lifecycle.canDelete ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => onDelete(agent.id)}
+                                disabled={lifecycleBusy}
+                                aria-label={deleting ? `Deleting ${name}` : `Delete ${name}`}
+                                aria-busy={deleting || undefined}
+                                className="rounded-lg border-destructive/30 bg-background text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              >
+                                {deleting ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <Trash2 />}
+                                <span className={layout === "rows" ? "sr-only xl:not-sr-only" : undefined}>
+                                  {deleting ? "Deleting" : "Delete"}
+                                </span>
+                              </Button>
+                            ) : null}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onSelect(agent.id)}
+                              aria-label={`Open ${name} settings`}
+                              className="rounded-lg bg-background"
+                            >
                               {layout === "rows" ? (
                                 <>
                                   <span className="sm:hidden">Open</span>
                                   <span className="hidden sm:inline">Open settings</span>
                                 </>
                               ) : "Open settings"}
-                            </span>
-                          </span>
-                        </Button>
+                            </Button>
+                          </CardFooter>
+                        </Card>
                       </li>
                     );
                   })}
