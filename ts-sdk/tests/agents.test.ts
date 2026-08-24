@@ -1097,6 +1097,34 @@ describe('Agents SDK', () => {
     expect(sent.registry_auth).toEqual({});
   });
 
+  it.each([null, 'yes', 0])(
+    'rejects an explicitly supplied launch config whose restart is %s instead of a boolean',
+    async (restart) => {
+      // Legacy projections carry the nullable restart representation; an
+      // explicit launchConfig only takes the rehydration repair, which never
+      // rewrites restart, so the completeness gatekeeper must reject it.
+      const stored: Record<string, any> = buildAgentConfig().config;
+      stored.restart = restart;
+      delete stored.secrets;
+      delete stored.registry_auth;
+      const { post, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
+
+      await expect(deployments.start(STORED_AGENT_ID, { launchConfig: stored as any }))
+        .rejects.toThrow('launchConfig restart must be a boolean');
+      expect(post).not.toHaveBeenCalled();
+    },
+  );
+
+  it('normalizes a legacy nullable restart when rebuilding the stored launch config', async () => {
+    const stored: Record<string, any> = buildAgentConfig().config;
+    stored.restart = null;
+    const { post, deployments } = installStoredProjection(stored);
+
+    await deployments.start(STORED_AGENT_ID);
+
+    expect(post.mock.calls[0][1].launch_config.restart).toBe(false);
+  });
+
   it('repairs stale managed OpenClaw images from the desktop gate on startOpenClaw', async () => {
     const post = vi.fn().mockResolvedValue({
       id: STORED_AGENT_ID,

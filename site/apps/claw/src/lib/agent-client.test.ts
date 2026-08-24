@@ -252,6 +252,79 @@ describe("agent-client", () => {
     expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
   });
 
+  it("normalizes the legacy nullable restart field before starting an existing agent", async () => {
+    const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "openclaw",
+      launchConfig: redactedOpenClawLaunchConfig({ restart: null }),
+    });
+    deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith(
+      "agent-123",
+      {
+        launchConfig: expect.objectContaining({ restart: false }),
+      },
+    );
+  });
+
+  it.each([true, false])("preserves an explicit restart=%s without rewriting it", async (restart) => {
+    const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "openclaw",
+      launchConfig: redactedOpenClawLaunchConfig({ restart }),
+    });
+    deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+
+    const submitted = deploymentsInstance.startOpenClaw.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    expect(submitted.restart).toBe(restart);
+  });
+
+  it.each(["yes", 0])("forwards the malformed restart=%s unchanged so the typed SDK start contract rejects it", async (restart) => {
+    const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-123",
+      state: "STOPPED",
+      runtime: "openclaw",
+      launchConfig: redactedOpenClawLaunchConfig({ restart }),
+    });
+    deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
+
+    const submitted = deploymentsInstance.startOpenClaw.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    expect(submitted.restart).toBe(restart);
+  });
+
+  it("normalizes the legacy nullable restart field on the hermes start path", async () => {
+    const accepted = { id: "agent-hermes", state: "STARTING", runtime: "hermes-agent", launchEpoch: 9 };
+    deploymentsInstance.get.mockResolvedValue({
+      id: "agent-hermes",
+      state: "STOPPED",
+      runtime: "hermes-agent",
+      launchConfig: redactedHermesLaunchConfig({ restart: null }),
+    });
+    deploymentsInstance.startHermesAgent.mockResolvedValue(accepted);
+
+    await expect(requestAgentStart("hyper_api_test", "agent-hermes")).resolves.toBe(accepted);
+
+    expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
+    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith(
+      "agent-hermes",
+      {
+        launchConfig: expect.objectContaining({ restart: false }),
+      },
+    );
+  });
+
   it("passes the launch environment on start whatever runtime the agent reports", async () => {
     const accepted = { id: "agent-123", state: "RUNNING", launchEpoch: 8 };
     deploymentsInstance.get.mockResolvedValue({

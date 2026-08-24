@@ -75,6 +75,9 @@ function cloneStoredStartLaunchConfig(agent: SdkAgent, runtimeLabel: string): Ag
   if (missing.length > 0) {
     throw new Error(`${runtimeLabel} start requires a complete launch configuration; missing: ${missing.join(", ")}`);
   }
+  if (launchConfig.restart === null) {
+    launchConfig.restart = false;
+  }
   return launchConfig as unknown as AgentLaunchConfig;
 }
 
