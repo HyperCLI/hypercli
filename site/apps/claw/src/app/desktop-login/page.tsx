@@ -68,7 +68,6 @@ export default function DesktopLoginPage() {
   const [copied, setCopied] = useState(false);
 
   const autoLoginTriggered = useRef(false);
-  const autoRedirectTriggered = useRef(false);
   const appName = APP_NAMES[redirectUri] ?? "your desktop app";
 
   // Validate ?redirect_uri= from the query string. Absent defaults to the
@@ -100,28 +99,27 @@ export default function DesktopLoginPage() {
     [redirectUri],
   );
 
-  const fetchTokenAndRedirect = useCallback(async () => {
+  // Fetch the session token but never navigate on our own: the hand-off to
+  // the desktop app happens only when the user clicks the Open button below.
+  const fetchToken = useCallback(async () => {
     try {
       setTokenError(null);
       const jwt = await getToken();
       setToken(jwt);
-      if (!autoRedirectTriggered.current) {
-        autoRedirectTriggered.current = true;
-        openApp(jwt);
-      }
     } catch {
       setTokenError({
         title: "Retry to reopen the desktop session",
         description: "The secure handoff did not finish. Retry to open a new session for the desktop app.",
       });
     }
-  }, [getToken, openApp]);
+  }, [getToken]);
 
-  // Once authenticated, exchange for the app JWT and hand off to the app.
+  // Once authenticated, exchange for the app JWT; the user then confirms the
+  // redirect explicitly by clicking the Open button.
   useEffect(() => {
     if (paramStatus !== "valid" || !isAuthenticated || token) return;
-    void fetchTokenAndRedirect();
-  }, [paramStatus, isAuthenticated, token, fetchTokenAndRedirect]);
+    void fetchToken();
+  }, [paramStatus, isAuthenticated, token, fetchToken]);
 
   const copyToken = useCallback(async () => {
     if (!token) return;
@@ -204,7 +202,7 @@ export default function DesktopLoginPage() {
           announcement="assertive"
           title={tokenError.title}
           description={tokenError.description}
-          primaryAction={{ label: "Try again", onAction: () => { void fetchTokenAndRedirect(); } }}
+          primaryAction={{ label: "Try again", onAction: () => { void fetchToken(); } }}
         />
       </CardShell>
     );
@@ -224,11 +222,11 @@ export default function DesktopLoginPage() {
   return (
     <CardShell>
       <h1 className="text-base font-semibold text-foreground">
-        Opening {appName}&hellip;
+        You are signed in
       </h1>
       <p className="mt-2 text-sm text-text-muted">
-        You are signed in. If the app did not open automatically, use the
-        button below.
+        Click below to return to the {appName} desktop app and finish
+        connecting it to your HyperCLI account.
       </p>
       <button
         type="button"
