@@ -248,6 +248,11 @@ import {
   type DeploymentRefreshScheduler,
 } from "@/components/dashboard/agents/deploymentRefreshScheduler";
 import {
+  createTokenUsageRefreshScheduler,
+  type TokenUsageRefreshScheduler,
+  type TokenUsageSnapshot,
+} from "@/components/dashboard/agents/tokenUsageRefreshScheduler";
+import {
   countPendingSlotReleasesByTier,
   markPendingSlotReleaseComplete,
   reconcileCompletedSlotReleases,
@@ -310,7 +315,6 @@ const ANONYMOUS_AGENT_PREVIEW_SECTIONS: readonly AnonymousAgentPreviewSection[] 
 ];
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 const INTEGRATION_QUERY_IDS = new Set(["telegram", "discord", "slack", "whatsapp", "github"]);
-const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
 const AGENT_CLEANUP_CONFLICT_COOLDOWN_MS = 30_000;
 const CHAT_UPLOAD_DRAIN_WAIT_MS = 1_500;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
@@ -511,6 +515,18 @@ function dailyTokenUsageTotal(
     ? usage.agents.reduce((total, entry) => total + Math.max(finiteNumber(entry.totalTokens), 0), 0)
     : 0;
   return attributed + Math.max(finiteNumber(usage.unattributed?.totalTokens), 0);
+}
+
+function tokenUsageSnapshot(
+  usage: {
+    agents?: Array<{ agentId?: unknown; totalTokens?: unknown }>;
+    unattributed?: { totalTokens?: unknown };
+  },
+): TokenUsageSnapshot {
+  return {
+    byAgent: agentTokenUsageMap(usage) ?? {},
+    dailyTotal: dailyTokenUsageTotal(usage) ?? 0,
+  };
 }
 
 function agentTokenLimit(
@@ -1312,8 +1328,7 @@ function AgentsPageContent() {
   const [pendingSlotReleases, setPendingSlotReleases] = useState<Record<string, number>>({});
   const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingSlotReleasesRef = useRef<PendingSlotReleaseMap>(new Map());
-  const tokenUsageRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const tokenUsageRefreshInFlightRef = useRef(false);
+  const tokenUsageRefreshSchedulerRef = useRef<TokenUsageRefreshScheduler | null>(null);
   const checkoutReturnHandledRef = useRef(false);
   const appliedTeamTrialIntentRef = useRef<string | null>(null);
   const trialClaimPrincipalRef = useRef<string | null>(null);
@@ -1429,8 +1444,8 @@ function AgentsPageContent() {
     return () => {
       pageActiveRef.current = false;
       stoppedTimersRef.current.forEach((t) => clearTimeout(t));
-      tokenUsageRefreshTimersRef.current.forEach((t) => clearTimeout(t));
-      tokenUsageRefreshTimersRef.current = [];
+      tokenUsageRefreshSchedulerRef.current?.dispose();
+      tokenUsageRefreshSchedulerRef.current = null;
       for (const objectUrl of agentAvatarObjectUrlsRef.current.values()) {
         URL.revokeObjectURL(objectUrl);
       }
@@ -1728,6 +1743,8 @@ function AgentsPageContent() {
     if (privatePrincipalRef.current === nextPrincipal) return;
     const previousPrincipal = privatePrincipalRef.current;
     privatePrincipalRef.current = nextPrincipal;
+    tokenUsageRefreshSchedulerRef.current?.dispose();
+    tokenUsageRefreshSchedulerRef.current = null;
     setAnonymousDesktopPreviewOpen(false);
     setAnonymousPreviewSelectionMade(false);
     clearAgentAvatarOverrides();
@@ -1933,11 +1950,6 @@ function AgentsPageContent() {
     setInspectorSheetOpen(true);
   }, [completeJourneyForEvent]);
 
-  const clearScheduledTokenUsageRefreshes = useCallback(() => {
-    tokenUsageRefreshTimersRef.current.forEach((timer) => clearTimeout(timer));
-    tokenUsageRefreshTimersRef.current = [];
-  }, []);
-
   const syncPendingSlotReleaseCounts = useCallback(() => {
     setPendingSlotReleases(countPendingSlotReleasesByTier(pendingSlotReleasesRef.current));
   }, []);
@@ -1966,34 +1978,50 @@ function AgentsPageContent() {
     }
   }, [syncPendingSlotReleaseCounts]);
 
-  const refreshTokenUsage = useCallback(async () => {
-    if (!isAuthenticated) return;
-    if (tokenUsageRefreshInFlightRef.current) return;
-    const generation = agentDataGenerationRef.current;
-    tokenUsageRefreshInFlightRef.current = true;
-    try {
-      const hyperAgent = createHyperAgentClient(await getToken());
-      const usage = await hyperAgent.agentUsage(1);
-      if (generation === agentDataGenerationRef.current) {
-        setTokenUsageByAgent(agentTokenUsageMap(usage));
-        setDailyTokenUsage(dailyTokenUsageTotal(usage));
-      }
-    } catch {
-      // Keep the last displayed value on transient usage refresh failures.
-    } finally {
-      tokenUsageRefreshInFlightRef.current = false;
+  const applyTokenUsageSnapshot = useCallback((snapshot: TokenUsageSnapshot) => {
+    setTokenUsageByAgent(snapshot.byAgent);
+    setDailyTokenUsage(snapshot.dailyTotal);
+  }, []);
+
+  const publishTokenUsage = useCallback((usage: Parameters<typeof tokenUsageSnapshot>[0] | null) => {
+    if (!usage) {
+      setTokenUsageByAgent(null);
+      setDailyTokenUsage(null);
+      return;
     }
+    const snapshot = tokenUsageSnapshot(usage);
+    const scheduler = tokenUsageRefreshSchedulerRef.current;
+    if (scheduler) scheduler.acceptSnapshot(snapshot);
+    else applyTokenUsageSnapshot(snapshot);
+  }, [applyTokenUsageSnapshot]);
+
+  const fetchTokenUsageSnapshot = useCallback(async (): Promise<TokenUsageSnapshot> => {
+    const principalId = privatePrincipalRef.current;
+    if (!isAuthenticated || !principalId) throw new Error("Token usage is not available");
+    const generation = agentDataGenerationRef.current;
+    const hyperAgent = createHyperAgentClient(await getToken());
+    const usage = await hyperAgent.agentUsage(1);
+    if (
+      generation !== agentDataGenerationRef.current ||
+      privatePrincipalRef.current !== principalId
+    ) throw new Error("Token usage request was superseded");
+    return tokenUsageSnapshot(usage);
   }, [getToken, isAuthenticated]);
 
-  const refreshTokenUsageAfterChat = useCallback(() => {
-    clearScheduledTokenUsageRefreshes();
-    void refreshTokenUsage();
-    tokenUsageRefreshTimersRef.current = TOKEN_USAGE_RECONCILE_DELAYS_MS.map((delay) => (
-      setTimeout(() => {
-        void refreshTokenUsage();
-      }, delay)
-    ));
-  }, [clearScheduledTokenUsageRefreshes, refreshTokenUsage]);
+  useEffect(() => {
+    const scheduler = createTokenUsageRefreshScheduler(
+      fetchTokenUsageSnapshot,
+      applyTokenUsageSnapshot,
+    );
+    scheduler.setVisible(typeof document === "undefined" || document.visibilityState !== "hidden");
+    tokenUsageRefreshSchedulerRef.current = scheduler;
+    return () => {
+      scheduler.dispose();
+      if (tokenUsageRefreshSchedulerRef.current === scheduler) {
+        tokenUsageRefreshSchedulerRef.current = null;
+      }
+    };
+  }, [applyTokenUsageSnapshot, fetchTokenUsageSnapshot]);
 
   const refreshAgentEnrichment = useCallback((options?: {
     force?: boolean;
@@ -2055,8 +2083,7 @@ function AgentsPageContent() {
         setTrialClock(summaryObservedAt);
         setBillingDataPrincipalId(billingReady ? principalId : null);
         setBillingDataError(billingReady ? null : "Billing data could not be loaded. Retry before checkout.");
-        setTokenUsageByAgent(agentTokenUsageMap(agentUsage));
-        setDailyTokenUsage(dailyTokenUsageTotal(agentUsage));
+        publishTokenUsage(agentUsage);
         markDashboardPerformance("enrichment-ready");
         measureDashboardPerformance("enrichment", "enrichment-start", "enrichment-ready");
         return { subscriptionSummary: summary, budget: nextBudget, billingReady };
@@ -2075,7 +2102,7 @@ function AgentsPageContent() {
       }
     });
     return promise;
-  }, [getToken, isAuthenticated, reconcilePendingSlotReleases, user?.id]);
+  }, [getToken, isAuthenticated, publishTokenUsage, reconcilePendingSlotReleases, user?.id]);
 
   const invalidateAgentCapacity = useCallback(() => {
     const scheduler = deploymentRefreshSchedulerRef.current;
@@ -2364,8 +2391,8 @@ function AgentsPageContent() {
 
       setSdkAgents([]);
       setAgentDataPrincipalId(null);
-      clearScheduledTokenUsageRefreshes();
-      tokenUsageRefreshInFlightRef.current = false;
+      tokenUsageRefreshSchedulerRef.current?.dispose();
+      tokenUsageRefreshSchedulerRef.current = null;
       setBudget(null);
       setPlanName(null);
       setSubscriptionSummary(null);
@@ -2394,7 +2421,7 @@ function AgentsPageContent() {
         });
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [authLoading, clearScheduledTokenUsageRefreshes, fetchAgents, isAuthenticated, user?.id]);
+  }, [authLoading, fetchAgents, isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (!requestedIntegrationId || !INTEGRATION_QUERY_IDS.has(requestedIntegrationId)) {
@@ -3076,26 +3103,29 @@ function AgentsPageContent() {
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
-    const refreshIfVisible = () => {
-      if (document.visibilityState === "hidden") return;
-      void refreshTokenUsage();
+    const handleVisibilityChange = () => {
+      const visible = document.visibilityState !== "hidden";
+      tokenUsageRefreshSchedulerRef.current?.setVisible(visible);
     };
-    window.addEventListener("focus", refreshIfVisible);
-    document.addEventListener("visibilitychange", refreshIfVisible);
+    const refreshOnFocus = () => {
+      if (document.visibilityState !== "hidden") tokenUsageRefreshSchedulerRef.current?.refresh();
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      window.removeEventListener("focus", refreshIfVisible);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [refreshTokenUsage]);
+  }, []);
 
   useEffect(() => {
     if (!isSelectedRunning || typeof window === "undefined") return;
     const timer = setInterval(() => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      void refreshTokenUsage();
+      tokenUsageRefreshSchedulerRef.current?.refresh();
     }, TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [isSelectedRunning, refreshTokenUsage]);
+  }, [isSelectedRunning]);
 
   const selectedAgentStartGuidance = useMemo(
     () =>
@@ -3978,10 +4008,16 @@ function AgentsPageContent() {
   }, [chatMessageCount, latestChatMessageClientTurnId, latestChatMessageRole, mainTab, scheduleChatScroll]);
 
   const prevSendingRef = useRef(chat.sending);
+  const sendingAgentIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (prevSendingRef.current && !chat.sending) refreshTokenUsageAfterChat();
+    if (!prevSendingRef.current && chat.sending) {
+      sendingAgentIdRef.current = activeChatTargetRef.current.agentId;
+    } else if (prevSendingRef.current && !chat.sending) {
+      tokenUsageRefreshSchedulerRef.current?.reconcile(sendingAgentIdRef.current);
+      sendingAgentIdRef.current = null;
+    }
     prevSendingRef.current = chat.sending;
-  }, [chat.sending, refreshTokenUsageAfterChat]);
+  }, [chat.sending]);
 
   const prevActiveSessionSendingRef = useRef(chat.activeSessionSending);
   useEffect(() => {
