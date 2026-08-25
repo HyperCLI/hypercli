@@ -21,6 +21,14 @@ const devAgentSetupPageSource = readFileSync(
 );
 
 describe("dashboard agents page release boundary", () => {
+  it("keeps Schedule reachable only as a coming-soon preview while its manager is under review", () => {
+    expect(pageSource).toContain("SCHEDULED_MANAGER_ENABLED,");
+    expect(pageSource).toContain("SCHEDULED_MANAGER_ENABLED ? (");
+    expect(pageSource).toContain("<AgentScheduledEmptyState />");
+    expect(pageSource).toContain("if (SCHEDULED_MANAGER_ENABLED && chat.connected)");
+    expect(pageSource).not.toContain("scheduledDisabled=");
+  });
+
   it("gates Knowledge Hub route activation behind the availability policy", () => {
     // The page must not activate the knowledge-hub section from a direct URL
     // unless the release policy allows it.
@@ -182,6 +190,14 @@ describe("dashboard agents SDK lifetime boundary", () => {
 });
 
 describe("dev agents page release boundary", () => {
+  it("keeps its Schedule surface and inspector behind the shared coming-soon policy", () => {
+    expect(devAgentSetupPageSource).toContain("<AgentScheduledEmptyState />");
+    expect(devAgentSetupPageSource).toContain("showCronManager: SCHEDULED_MANAGER_ENABLED");
+    expect(devAgentSetupPageSource).toContain("agentCronJobs: SCHEDULED_MANAGER_ENABLED ? agentCronJobsForView : []");
+    expect(devAgentSetupPageSource).toMatch(/onCronRemove: SCHEDULED_MANAGER_ENABLED\s*\?/);
+    expect(devAgentSetupPageSource).not.toContain("showCronManager: true");
+  });
+
   it("does not construct or render Collection-backed Workspace surfaces", () => {
     expect(devAgentSetupPageSource).not.toContain("createWorkspacesClient");
     expect(devAgentSetupPageSource).not.toContain("SharedKnowledgePanel");

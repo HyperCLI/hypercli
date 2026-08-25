@@ -3751,31 +3751,22 @@ export function AgentSkillsEmptyState({
   );
 }
 
-export function AgentScheduledEmptyState({
-  onCreate,
-  launchLabel,
-  launchingLabel,
-  launching,
-  launchBlocked,
-  launchBlockedReason,
-  onLaunchAction,
-}: AgentEmptyStateProps & AgentLaunchActionProps) {
+export function AgentScheduledEmptyState() {
   return (
-    <LaunchAgentCenteredEmptyStateContent
+    <AgentFeatureEmptyState
       icon={CalendarClock}
-      title="Work that keeps moving"
-      description="Schedule recurring jobs and one-off tasks so your agent can keep projects moving without waiting for the next prompt."
+      title="Scheduled work is coming soon"
+      description="We're reviewing scheduled workflows before release. Soon, your agent will be able to run recurring and one-off tasks without waiting for another prompt."
       examples={[
         "Run recurring research, reporting, and follow-up work on a dependable schedule",
         "Send each task to the right conversation with the context it needs",
         "Review upcoming runs and adjust schedules as priorities change",
       ]}
-      launchLabel={launchLabel}
-      launchingLabel={launchingLabel}
-      launching={launching}
-      launchBlocked={launchBlocked}
-      launchBlockedReason={launchBlockedReason}
-      onLaunch={onLaunchAction ?? onCreate}
+      actionLabel="Coming soon"
+      actionDisabled
+      actionDisabledReason="Scheduled workflows are under review."
+      onAction={() => undefined}
+      testId="agent-scheduled-empty-state"
     />
   );
 }

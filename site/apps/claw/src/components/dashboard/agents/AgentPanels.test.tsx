@@ -182,7 +182,7 @@ vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
   };
 });
 
-import { AgentDesktopEmptyState, AgentEmptyState, AgentList, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
+import { AgentDesktopEmptyState, AgentEmptyState, AgentList, AgentScheduledEmptyState, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -514,6 +514,17 @@ describe("AgentEmptyState", () => {
     expect(screen.getByText(/Ask questions across Slack/).parentElement).toHaveClass("min-h-16", "items-center", "text-[13px]", "text-left", "md:flex-col", "md:min-h-[118px]");
     expect(screen.getByRole("button", { name: "Launch agent" })).toHaveClass("h-12", "md:h-10");
     expect(screen.getByTestId("agent-launch-entry")).toHaveAccessibleName("Launch agent");
+  });
+});
+
+describe("AgentScheduledEmptyState", () => {
+  it("presents scheduled workflows as coming soon while they are under review", () => {
+    render(<AgentScheduledEmptyState />);
+
+    expect(screen.getByTestId("agent-scheduled-empty-state")).toHaveClass("overflow-y-auto");
+    expect(screen.getByRole("heading", { name: "Scheduled work is coming soon" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Coming soon" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Launch agent" })).not.toBeInTheDocument();
   });
 });
 

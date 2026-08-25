@@ -3102,10 +3102,10 @@ describe("AgentChatPanel", () => {
 
     expect(onOpenScheduled).toHaveBeenCalledTimes(1);
     expect(setInput).toHaveBeenCalledWith("");
-    expect(screen.getByRole("status", { name: /scheduled opened/i })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /scheduled work is coming soon/i })).toBeInTheDocument();
   });
 
-  it("passes schedule slash command text into the scheduled draft", async () => {
+  it("does not stage schedule slash command text while the manager is under review", async () => {
     const setInput = vi.fn();
     const onOpenScheduled = vi.fn();
     renderAgentChatPanel({
@@ -3125,12 +3125,12 @@ describe("AgentChatPanel", () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
     });
 
-    expect(onOpenScheduled).toHaveBeenCalledWith("Every weekday at 9am, send a standup digest");
+    expect(onOpenScheduled).toHaveBeenCalledWith();
     expect(setInput).toHaveBeenCalledWith("");
-    expect(screen.getByRole("status", { name: /scheduled draft opened/i })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /scheduled work is coming soon/i })).toBeInTheDocument();
   });
 
-  it("runs and removes scheduled jobs from slash commands", async () => {
+  it("blocks scheduled job mutations from slash commands while the manager is under review", async () => {
     const setInput = vi.fn();
     const runCron = vi.fn(async () => undefined);
     const removeCron = vi.fn(async () => undefined);
@@ -3151,15 +3151,11 @@ describe("AgentChatPanel", () => {
     await act(async () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
     });
-    expect(screen.getByRole("heading", { name: "Run scheduled job" })).toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    });
-
-    expect(runCron).toHaveBeenCalledWith("job-1");
-    expect(refreshCron).toHaveBeenCalledTimes(1);
-    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.queryByRole("heading", { name: "Run scheduled job" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Scheduled work is coming soon.")).toHaveLength(2);
+    expect(runCron).not.toHaveBeenCalled();
+    expect(refreshCron).not.toHaveBeenCalled();
+    expect(setInput).not.toHaveBeenCalled();
 
     const removeChat = buildChat({
       status: "connected",
@@ -3176,13 +3172,9 @@ describe("AgentChatPanel", () => {
     await act(async () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
     });
-    expect(screen.getByRole("heading", { name: "Remove scheduled job" })).toBeInTheDocument();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
-    });
-
-    expect(removeCron).toHaveBeenCalledWith("job-1");
+    expect(screen.queryByRole("heading", { name: "Remove scheduled job" })).not.toBeInTheDocument();
+    expect(removeCron).not.toHaveBeenCalled();
+    expect(refreshCron).not.toHaveBeenCalled();
   });
 
   it("lets escaped slash text send as a normal chat message", () => {

@@ -2,6 +2,9 @@ export type DashboardReleaseSurface = "knowledge-hub" | "members";
 
 export type DashboardReleaseAvailability = Readonly<Record<DashboardReleaseSurface, boolean>>;
 
+// Keep the Schedule tab visible as a preview without exposing its manager.
+export const SCHEDULED_MANAGER_ENABLED = false;
+
 // Keep unstable implementations in place while excluding them from shipped navigation and routes.
 export const DASHBOARD_RELEASE_AVAILABILITY: DashboardReleaseAvailability = {
   "knowledge-hub": false,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DASHBOARD_RELEASE_AVAILABILITY,
+  SCHEDULED_MANAGER_ENABLED,
   isDashboardReleaseSurfaceAvailable,
   normalizeDashboardReleaseSearchParams,
   type DashboardReleaseAvailability,
@@ -18,6 +19,10 @@ const ALL_DISABLED: DashboardReleaseAvailability = {
 };
 
 describe("DASHBOARD_RELEASE_AVAILABILITY", () => {
+  it("ships the Schedule manager as a coming-soon preview", () => {
+    expect(SCHEDULED_MANAGER_ENABLED).toBe(false);
+  });
+
   it("ships with Knowledge Hub and Members disabled for this release", () => {
     expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
       "knowledge-hub": false,
