@@ -1,9 +1,23 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  clearCachedOpenClawChatHistory,
+  openClawChatHistoryCacheKey,
   readCachedOpenClawChatHistory,
   writeCachedOpenClawChatHistory,
 } from "./openclaw-chat-history-cache";
+
+const DECLARED_CACHE_BUDGET_CHARS = 900_000;
+
+function cachedHistoryKeys(agentId: string): string[] {
+  return Object.keys(window.localStorage).filter((key) => key.includes(`:${encodeURIComponent(agentId)}`));
+}
+
+function requireCacheKey(agentId: string, sessionKey?: string): string {
+  const key = openClawChatHistoryCacheKey(agentId, sessionKey);
+  if (!key) throw new Error("expected a cache key for this target");
+  return key;
+}
 
 describe("openclaw chat history cache", () => {
   beforeEach(() => {
@@ -49,5 +63,113 @@ describe("openclaw chat history cache", () => {
       content: "Legacy question",
       renderId: expect.any(String),
     });
+  });
+
+  it("bounds the serialized payload when messages carry oversized inline media", () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
+    const oversizedInlineAudio = `data:audio/mpeg;base64,${"A".repeat(1_200_000)}`;
+    try {
+      writeCachedOpenClawChatHistory("agent-media", [
+        { role: "user", content: "What did I say?" },
+        { role: "assistant", content: "Transcript answer", mediaUrls: [oversizedInlineAudio] },
+        { role: "assistant", content: "Second answer", mediaUrls: [oversizedInlineAudio] },
+      ]);
+
+      const write = setItemSpy.mock.calls.find(([key]) => typeof key === "string" && key.includes("agent-media"));
+      expect(write).toBeTruthy();
+      const serialized = typeof write?.[1] === "string" ? write[1] : "";
+      expect(serialized.length).toBeLessThanOrEqual(DECLARED_CACHE_BUDGET_CHARS);
+
+      // The conversation text must survive even when the inline media payloads
+      // cannot fit the local-history budget.
+      expect(readCachedOpenClawChatHistory("agent-media").map((message) => message.content)).toEqual([
+        "What did I say?",
+        "Transcript answer",
+        "Second answer",
+      ]);
+    } finally {
+      setItemSpy.mockRestore();
+    }
+  });
+
+  it("drops oversized inline media from the cache but keeps short remote URLs", () => {
+    const oversizedInlineAudio = `data:audio/webm;base64,${"B".repeat(1_200_000)}`;
+    writeCachedOpenClawChatHistory("agent-media-mixed", [
+      {
+        role: "assistant",
+        content: "Two replies attached",
+        mediaUrls: [oversizedInlineAudio, "https://cdn.example.com/reply.mp3"],
+      },
+    ]);
+
+    const restored = readCachedOpenClawChatHistory("agent-media-mixed");
+    expect(restored).toHaveLength(1);
+    expect(restored[0]?.content).toBe("Two replies attached");
+    expect(restored[0]?.mediaUrls).toEqual(["https://cdn.example.com/reply.mp3"]);
+  });
+
+  it("survives a corrupt cached payload", () => {
+    const key = requireCacheKey("agent-corrupt");
+    window.localStorage.setItem(key, "{not-json");
+    window.localStorage.setItem(`${key}:session:${encodeURIComponent("dashboard:local-dirty")}`, "[]");
+
+    expect(readCachedOpenClawChatHistory("agent-corrupt")).toEqual([]);
+    expect(readCachedOpenClawChatHistory("agent-corrupt", "dashboard:local-dirty")).toEqual([]);
+  });
+
+  it("ignores payloads written by a previous cache version", () => {
+    const key = requireCacheKey("agent-version");
+    window.localStorage.setItem(key, JSON.stringify({
+      version: 0,
+      updatedAt: Date.now(),
+      messages: [{ role: "user", content: "stale" }],
+    }));
+
+    expect(readCachedOpenClawChatHistory("agent-version")).toEqual([]);
+  });
+
+  it("scopes entries by session and never stores ephemeral private chats", () => {
+    expect(openClawChatHistoryCacheKey("agent-scope", "session-hypercli-ephemeral-1234abcd")).toBeNull();
+
+    writeCachedOpenClawChatHistory("agent-scope", [{ role: "user", content: "main thread" }]);
+    writeCachedOpenClawChatHistory("agent-scope", [{ role: "user", content: "side thread" }], "dashboard:local-1");
+    writeCachedOpenClawChatHistory("agent-scope", [{ role: "user", content: "private thread" }], "session-hypercli-ephemeral-1234abcd");
+    writeCachedOpenClawChatHistory("agent-other", [{ role: "user", content: "other agent" }]);
+
+    expect(readCachedOpenClawChatHistory("agent-scope").map((message) => message.content)).toEqual(["main thread"]);
+    expect(readCachedOpenClawChatHistory("agent-scope", "dashboard:local-1").map((message) => message.content)).toEqual(["side thread"]);
+    expect(readCachedOpenClawChatHistory("agent-scope", "session-hypercli-ephemeral-1234abcd")).toEqual([]);
+    expect(readCachedOpenClawChatHistory("agent-other").map((message) => message.content)).toEqual(["other agent"]);
+
+    clearCachedOpenClawChatHistory("agent-scope", "dashboard:local-1");
+    expect(readCachedOpenClawChatHistory("agent-scope", "dashboard:local-1")).toEqual([]);
+    expect(cachedHistoryKeys("agent-scope")).toHaveLength(1);
+  });
+
+  it("never throws when the browser refuses the write (quota or private mode)", () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota exceeded", "QuotaExceededError");
+    });
+    try {
+      expect(() => writeCachedOpenClawChatHistory("agent-quota", [
+        { role: "user", content: "still fine" },
+      ])).not.toThrow();
+    } finally {
+      setItemSpy.mockRestore();
+    }
+    expect(readCachedOpenClawChatHistory("agent-quota")).toEqual([]);
+  });
+
+  it("re-bounds oversized legacy payloads on read instead of replaying them raw", () => {
+    const key = requireCacheKey("agent-legacy-huge");
+    window.localStorage.setItem(key, JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [{ role: "assistant", content: "x".repeat(2_000_000) }],
+    }));
+
+    const restored = readCachedOpenClawChatHistory("agent-legacy-huge");
+    expect(restored).toHaveLength(1);
+    expect(restored[0]?.content.length ?? 0).toBeLessThanOrEqual(60_000);
   });
 });

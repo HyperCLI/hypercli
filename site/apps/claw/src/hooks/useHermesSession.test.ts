@@ -334,6 +334,144 @@ describe("useHermesSession (AgentGatewaySession adapter)", () => {
     expect(result.current.messages.map((message) => message.content)).toEqual(["hello", "reply"]);
   });
 
+  it("restores a session's history when switching back after a local send", async () => {
+    const client = fakeClient({
+      sessionsList: vi.fn(async () => [
+        { key: "sess-a", label: "Alpha" },
+        { key: "sess-b", label: "Beta" },
+      ]),
+      chatHistory: vi.fn(async (key?: string) => (key === "sess-a"
+        ? [
+            { role: "user" as const, text: "alpha question", messageId: "a1" },
+            { role: "assistant" as const, text: "alpha answer", messageId: "a2" },
+          ]
+        : [{ role: "user" as const, text: "beta question", messageId: "b1" }])),
+      chatSend: vi.fn(async function* () {
+        yield { type: "done" as const };
+      }),
+    });
+    const agent = fakeAgent(client);
+
+    const { result, rerender } = renderHook(
+      ({ sessionKey }: { sessionKey: string | null }) => useHermesSession(agent, true, sessionKey),
+      { initialProps: { sessionKey: "sess-a" as string | null } },
+    );
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("sess-a"));
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual([
+      "alpha question",
+      "alpha answer",
+    ]));
+
+    await act(async () => {
+      await result.current.sendMessage("follow up");
+    });
+
+    rerender({ sessionKey: "sess-b" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("sess-b"));
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["beta question"]));
+
+    rerender({ sessionKey: "sess-a" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("sess-a"));
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+
+    // The round trip wiped the local rows, so a late history snapshot is the
+    // only remaining source for this session and must be applied.
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "alpha question",
+      "alpha answer",
+    ]);
+  });
+
+  it("restores history after a reconnect that follows a local send", async () => {
+    const client = fakeClient({
+      sessionsList: vi.fn(async () => [{ key: "sess-1", label: "Chat" }]),
+      chatHistory: vi.fn(async () => [
+        { role: "user" as const, text: "persisted question", messageId: "m1" },
+        { role: "assistant" as const, text: "persisted answer", messageId: "m2" },
+      ]),
+      chatSend: vi.fn(async function* () {
+        yield { type: "done" as const };
+      }),
+    });
+    const agent = fakeAgent(client);
+
+    const { result } = renderHook(() => useHermesSession(agent, true));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    await act(async () => {
+      await result.current.sendMessage("local turn");
+    });
+
+    await act(async () => {
+      await result.current.retry();
+    });
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "persisted question",
+      "persisted answer",
+    ]);
+  });
+
+  it("restores a completed turn after switching away and back during its stream", async () => {
+    let releaseSend!: () => void;
+    let sentTurnPersisted = false;
+    const client = fakeClient({
+      sessionsList: vi.fn(async () => [
+        { key: "sess-a", label: "Alpha" },
+        { key: "sess-b", label: "Beta" },
+      ]),
+      chatHistory: vi.fn(async (key?: string) => {
+        if (key === "sess-b") {
+          return [{ role: "user" as const, text: "beta question", messageId: "b1" }];
+        }
+        return sentTurnPersisted
+          ? [
+              { role: "user" as const, text: "alpha question", messageId: "a1" },
+              { role: "user" as const, text: "follow up", messageId: "a2" },
+              { role: "assistant" as const, text: "finished answer", messageId: "a3" },
+            ]
+          : [{ role: "user" as const, text: "alpha question", messageId: "a1" }];
+      }),
+      chatSend: vi.fn(async function* () {
+        await new Promise<void>((resolve) => { releaseSend = resolve; });
+        sentTurnPersisted = true;
+        yield { type: "done" as const };
+      }),
+    });
+    const agent = fakeAgent(client);
+
+    const { result, rerender } = renderHook(
+      ({ sessionKey }: { sessionKey: string }) => useHermesSession(agent, true, sessionKey),
+      { initialProps: { sessionKey: "sess-a" } },
+    );
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["alpha question"]));
+
+    let sendDone: Promise<void> | null = null;
+    act(() => {
+      sendDone = result.current.sendMessage("follow up") as unknown as Promise<void>;
+    });
+    await waitFor(() => expect(result.current.sending).toBe(true));
+
+    rerender({ sessionKey: "sess-b" });
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["beta question"]));
+    rerender({ sessionKey: "sess-a" });
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["alpha question"]));
+
+    await act(async () => {
+      releaseSend();
+      await sendDone;
+    });
+
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual([
+      "alpha question",
+      "follow up",
+      "finished answer",
+    ]));
+  });
+
   it("resets when disabled and closes the client on agent change", async () => {
     const client = fakeClient();
     const agent = fakeAgent(client);

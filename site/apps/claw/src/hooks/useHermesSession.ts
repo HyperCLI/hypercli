@@ -281,6 +281,7 @@ export function useHermesSession(
       }
       setActiveSessionKey(sessionKey);
       activeSessionKeyRef.current = sessionKey;
+      transcriptDirtyRef.current = null;
       setMessages([]);
       if (sessionKey) await loadHistory(client, sessionKey, generation);
     } catch (cause) {
@@ -311,6 +312,7 @@ export function useHermesSession(
     const generation = generationRef.current;
     setActiveSessionKey(requestedSessionKey);
     activeSessionKeyRef.current = requestedSessionKey;
+    transcriptDirtyRef.current = null;
     setMessages([]);
     void loadHistory(client, requestedSessionKey, generation);
   }, [requestedSessionKey, loadHistory]);
@@ -328,6 +330,7 @@ export function useHermesSession(
         setSessionsFetched(false);
         setActiveSessionKey(null);
         setHistoryPhase("idle");
+        transcriptDirtyRef.current = null;
         setMessages([]);
         setSending(false);
         setAborting(false);
@@ -354,6 +357,7 @@ export function useHermesSession(
     const generation = generationRef.current;
     setActiveSessionKey(sessionKey);
     activeSessionKeyRef.current = sessionKey;
+    transcriptDirtyRef.current = null;
     setMessages([]);
     void loadHistory(client, sessionKey, generation);
   }, [loadHistory]);
@@ -367,6 +371,7 @@ export function useHermesSession(
     setSessions((current) => [created, ...current]);
     setActiveSessionKey(created.key);
     activeSessionKeyRef.current = created.key;
+    transcriptDirtyRef.current = null;
     setMessages([]);
     setHistoryPhase("ready");
     return toSessionRecord(created);
@@ -395,6 +400,7 @@ export function useHermesSession(
         const next = remaining[0]?.key ?? null;
         setActiveSessionKey(next);
         activeSessionKeyRef.current = next;
+        transcriptDirtyRef.current = null;
         setMessages([]);
         if (next) void loadHistory(client, next, generation);
         else setHistoryPhase("idle");
@@ -499,10 +505,16 @@ export function useHermesSession(
     } finally {
       if (generationRef.current === generation) {
         sendAbortRef.current = null;
-        setSending(false);
+        if (
+          activeSessionKeyRef.current === sessionKey &&
+          transcriptDirtyRef.current !== sessionKey
+        ) {
+          await loadHistory(client, sessionKey, generation);
+        }
+        if (generationRef.current === generation) setSending(false);
       }
     }
-  }, [input, sending]);
+  }, [input, loadHistory, sending]);
 
   const abortMessage = React.useCallback(async () => {
     const client = clientRef.current;
