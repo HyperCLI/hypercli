@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  OpenClawSkillProposalsProvider,
   OpenClawSkillsProvider,
   normalizeOpenClawSkill,
   type OpenClawSkillsClient,
   type OpenClawSkillsFiles,
+  type OpenClawSkillProposalsClient,
 } from '../src/openclaw/skills.js';
 import type { GatewaySkillStatusEntry } from '../src/openclaw/gateway.js';
 
@@ -77,19 +79,20 @@ function workspaceSkill(overrides: Partial<GatewaySkillStatusEntry> = {}): Gatew
 
 describe('OpenClawSkillsProvider', () => {
   it('normalizes provider-specific status and card availability', () => {
-    expect(normalizeOpenClawSkill(statusEntry({ skillCard: { present: true } }))).toMatchObject({
+    expect(normalizeOpenClawSkill(statusEntry({ skillCard: { present: true, path: '/provider/card.md', sizeBytes: 12 } }))).toMatchObject({
       id: 'weather',
       origin: 'built-in',
       availability: 'active',
       enabled: true,
       ready: true,
-      documentAvailable: true,
+      documentAvailable: false,
       resourceAccess: 'none',
       requirements: { env: ['WEATHER_API_KEY'], bins: ['curl'], os: [] },
+      skillCard: { path: '/provider/card.md', sizeBytes: 12 },
     });
-    expect(normalizeOpenClawSkill(statusEntry({ eligible: false }))).toMatchObject({
+    expect(normalizeOpenClawSkill(statusEntry({ eligible: false }), 'none', true)).toMatchObject({
       availability: 'needs-setup',
-      documentAvailable: false,
+      documentAvailable: true,
       ready: false,
     });
     expect(normalizeOpenClawSkill(statusEntry({ source: 'plugin', bundled: false }))).toMatchObject({ origin: 'extension' });
@@ -133,6 +136,15 @@ describe('OpenClawSkillsProvider', () => {
 
   it('keeps catalog, document, update, search, and install operations on Gateway', async () => {
     const sdk = client({
+      supportsMethod: vi.fn((method) => method === 'skills.read'),
+      skillsRead: vi.fn(async ({ skillKey }) => ({
+        schema: 'openclaw.skills.read.v1',
+        skillKey,
+        path: '/provider/weather/SKILL.md',
+        source: 'openclaw-bundled',
+        sizeBytes: 13,
+        content: '# Weather\n',
+      })),
       skillsSearch: vi.fn(async () => ({
         results: [{ score: 1, slug: 'release-helper', displayName: 'Release Helper', summary: 'Prepare releases.' }],
       })),
@@ -140,14 +152,17 @@ describe('OpenClawSkillsProvider', () => {
     const files = agentFiles();
     const provider = new OpenClawSkillsProvider(sdk, files);
 
-    await expect(provider.list()).resolves.toEqual([expect.objectContaining({ id: 'weather', resourceAccess: 'read-write' })]);
-    await expect(provider.readDocument('weather')).resolves.toEqual({ skillId: 'weather', content: '# Weather', sizeBytes: 12 });
+    await expect(provider.list()).resolves.toEqual([expect.objectContaining({ id: 'weather', documentAvailable: true, resourceAccess: 'none' })]);
+    await expect(provider.readDocument('weather')).resolves.toEqual({
+      skillId: 'weather', content: '# Weather\n', sizeBytes: 13, path: '/provider/weather/SKILL.md',
+    });
     await provider.update('weather', { enabled: false });
     await expect(provider.search('release')).resolves.toEqual([expect.objectContaining({ id: 'release-helper' })]);
     await expect(provider.install({ source: 'registry', id: 'release-helper' })).resolves.toMatchObject({ ok: true, skillId: 'release-helper' });
 
     expect(sdk.skillsUpdate).toHaveBeenCalledWith({ skillKey: 'weather', enabled: false });
-    expect(sdk.skillsSkillCard).toHaveBeenCalledWith({ agentId: 'default', skillKey: 'weather' });
+    expect(sdk.skillsRead).toHaveBeenCalledWith({ agentId: 'default', skillKey: 'weather' });
+    expect(sdk.skillsSkillCard).not.toHaveBeenCalled();
     expect(sdk.skillsInstall).toHaveBeenCalledWith({ source: 'clawhub', slug: 'release-helper', version: undefined, force: undefined });
     expect(files.list).not.toHaveBeenCalled();
   });
@@ -159,7 +174,11 @@ describe('OpenClawSkillsProvider', () => {
         workspaceDir: '/home/node/.openclaw/workspace',
         managedSkillsDir: '/managed',
         skills: [
-          statusEntry({ skillKey: 'Plugin:Weather', skillCard: { present: true } }),
+          workspaceSkill({
+            skillKey: 'Plugin:Weather',
+            baseDir: '/home/node/.openclaw/workspace/skills/Plugin:Weather',
+            filePath: '/home/node/.openclaw/workspace/skills/Plugin:Weather/SKILL.md',
+          }),
           statusEntry({ skillKey: 'Vendor/Release.Helper', skillCard: { present: true } }),
         ],
       })),
@@ -176,14 +195,18 @@ describe('OpenClawSkillsProvider', () => {
     ]));
     await expect(provider.readDocument('Plugin:Weather')).resolves.toMatchObject({ skillId: 'Plugin:Weather' });
     await expect(provider.readResource('Plugin:Weather', 'SKILL.md')).resolves.toEqual(new Uint8Array([4]));
+    expect(files.readBytes).toHaveBeenCalledWith(
+      '.openclaw/workspace/skills/Plugin:Weather/SKILL.md',
+      { maxBytes: 256_000 },
+    );
     expect(files.readBytes).toHaveBeenCalledWith('.openclaw/workspace/skills/Plugin:Weather/SKILL.md');
-    await expect(provider.readResource('Vendor/Release.Helper', 'SKILL.md')).rejects.toThrow(/one exact path segment/i);
-    expect(files.readBytes).toHaveBeenCalledTimes(1);
+    await expect(provider.readResource('Vendor/Release.Helper', 'SKILL.md')).rejects.toThrow(/unavailable/i);
+    expect(files.readBytes).toHaveBeenCalledTimes(2);
     await provider.update('Plugin:Weather', { enabled: true });
     await expect(provider.search('release')).resolves.toEqual([expect.objectContaining({ id: 'Vendor/Release.Helper' })]);
     await provider.install({ source: 'registry', id: 'Vendor/Release.Helper' });
 
-    expect(sdk.skillsSkillCard).toHaveBeenCalledWith({ agentId: 'default', skillKey: 'Plugin:Weather' });
+    expect(sdk.skillsSkillCard).not.toHaveBeenCalled();
     expect(sdk.skillsUpdate).toHaveBeenCalledWith({ skillKey: 'Plugin:Weather', enabled: true });
     expect(sdk.skillsInstall).toHaveBeenCalledWith({
       source: 'clawhub', slug: 'Vendor/Release.Helper', version: undefined, force: undefined,
@@ -332,8 +355,8 @@ describe('OpenClawSkillsProvider', () => {
             skillKey: 'vendor.skill_v2',
             source: 'workspace',
             bundled: false,
-            baseDir: '/home/node/.openclaw/workspace/skills',
-            filePath: '/home/node/.openclaw/workspace/skills/SKILL.md',
+            baseDir: '/home/node/.openclaw/workspace/skills/vendor.skill_v2',
+            filePath: '/home/node/.openclaw/workspace/skills/vendor.skill_v2/SKILL.md',
           }),
         ],
       })),
@@ -347,7 +370,169 @@ describe('OpenClawSkillsProvider', () => {
     ]));
     await expect(provider.readResource('vendor.skill_v2', 'SKILL.md')).resolves.toEqual(new Uint8Array([7]));
     expect(files.readBytes).toHaveBeenCalledWith('.openclaw/workspace/skills/vendor.skill_v2/SKILL.md');
-    await expect(provider.readResource('../bad', 'SKILL.md')).rejects.toThrow(/one exact path segment/i);
+    await expect(provider.readResource('../bad', 'SKILL.md')).rejects.toThrow(/unavailable/i);
     expect(files.readBytes).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps managed skill resources read-only', async () => {
+    const sdk = client({
+      skillsStatus: vi.fn(async () => ({
+        agentId: 'default',
+        workspaceDir: '/home/node/.openclaw/workspace',
+        managedSkillsDir: '/home/node/managed',
+        skills: [workspaceSkill({
+          source: 'managed',
+          baseDir: '/home/node/managed/weather',
+          filePath: '/home/node/managed/weather/SKILL.md',
+        })],
+      })),
+    });
+    const files = agentFiles();
+    const provider = new OpenClawSkillsProvider(sdk, files, { syncRoot: '/home/node' });
+
+    await expect(provider.list()).resolves.toEqual([
+      expect.objectContaining({ id: 'weather', resourceAccess: 'read-only' }),
+    ]);
+    await expect(provider.writeResource('weather', 'SKILL.md', new Uint8Array([1]))).rejects.toThrow(/read-only/i);
+    expect(files.writeBytes).not.toHaveBeenCalled();
+  });
+
+  it('rejects duplicate Gateway skill keys before exposing ambiguous resources', async () => {
+    const sdk = client({
+      skillsStatus: vi.fn(async () => ({
+        agentId: 'default',
+        workspaceDir: '/home/node/.openclaw/workspace',
+        managedSkillsDir: '/managed',
+        skills: [statusEntry(), statusEntry({ filePath: '/other/weather/SKILL.md' })],
+      })),
+    });
+
+    await expect(new OpenClawSkillsProvider(sdk, agentFiles()).list()).rejects.toThrow(/duplicate.*weather/i);
+  });
+
+  it('bounds fallback SKILL.md reads and writes and rejects invalid UTF-8', async () => {
+    const sdk = client({
+      skillsStatus: vi.fn(async () => ({
+        agentId: 'default',
+        workspaceDir: '/home/node/.openclaw/workspace',
+        managedSkillsDir: '/managed',
+        skills: [workspaceSkill()],
+      })),
+    });
+    const files = agentFiles({
+      readBytes: vi.fn(async () => new Uint8Array([0xff])),
+    });
+    const provider = new OpenClawSkillsProvider(sdk, files);
+
+    await expect(provider.readDocument('weather')).rejects.toThrow(/UTF-8/i);
+    expect(files.readBytes).toHaveBeenCalledWith(
+      '.openclaw/workspace/skills/weather/SKILL.md',
+      { maxBytes: 256_000 },
+    );
+    await expect(provider.writeResource('weather', 'SKILL.md', new Uint8Array(256_001))).rejects.toThrow(/256 KB/i);
+    expect(files.writeBytes).not.toHaveBeenCalled();
+  });
+});
+
+describe('OpenClawSkillProposalsProvider', () => {
+  function proposalsClient(overrides: Partial<OpenClawSkillProposalsClient> = {}): OpenClawSkillProposalsClient {
+    return {
+      supportsMethod: vi.fn(() => true),
+      hasGrantedScope: vi.fn(() => true),
+      skillsProposalsList: vi.fn(async () => ({ proposals: [] })),
+      skillsProposalInspect: vi.fn(),
+      skillsProposalApply: vi.fn(),
+      skillsProposalReject: vi.fn(),
+      ...overrides,
+    };
+  }
+
+  it('allows review but fails closed on mutation without administrator scope', async () => {
+    const client = proposalsClient({
+      hasGrantedScope: vi.fn((scope) => scope === 'operator.read'),
+    });
+    const provider = new OpenClawSkillProposalsProvider(client);
+
+    expect(provider.capabilities).toEqual({ list: true, inspect: true, apply: false, reject: false });
+    await expect(provider.apply({ proposalId: 'weather' })).rejects.toThrow(/administrator/i);
+    expect(client.skillsProposalApply).not.toHaveBeenCalled();
+  });
+
+  it('forwards one revision-bound approval to the Gateway', async () => {
+    const apply = vi.fn(async () => ({ record: {}, targetSkillFile: 'SKILL.md' } as never));
+    const client = proposalsClient({ skillsProposalApply: apply });
+    const provider = new OpenClawSkillProposalsProvider(client);
+
+    await provider.apply({
+      proposalId: 'weather-20260824-abcdef0123',
+      expectedRevision: 'a'.repeat(64),
+    });
+    expect(apply).toHaveBeenCalledOnce();
+    expect(apply).toHaveBeenCalledWith({
+      agentId: undefined,
+      proposalId: 'weather-20260824-abcdef0123',
+      expectedRevisionHash: 'a'.repeat(64),
+    });
+  });
+
+  it('maps runtime inspection metadata to the generic proposal contract', async () => {
+    const inspect = vi.fn(async () => ({
+      record: {} as never,
+      content: '# Weather\n',
+      revisionHash: 'a'.repeat(64),
+    }));
+    const provider = new OpenClawSkillProposalsProvider(proposalsClient({ skillsProposalInspect: inspect }));
+
+    await expect(provider.inspect('weather')).resolves.toEqual({
+      content: '# Weather\n',
+      revision: 'a'.repeat(64),
+    });
+    expect(inspect).toHaveBeenCalledWith({ agentId: undefined, proposalId: 'weather' });
+  });
+
+  it('rejects duplicate proposal IDs before selecting the wrong review', async () => {
+    const duplicate = {
+      id: 'weather',
+      kind: 'create' as const,
+      status: 'pending' as const,
+      title: 'Weather',
+      description: 'Weather skill',
+      skillName: 'Weather',
+      skillKey: 'weather',
+      createdAt: '2026-08-24T12:00:00.000Z',
+      updatedAt: '2026-08-24T12:00:00.000Z',
+      scanState: 'clean' as const,
+    };
+    const client = proposalsClient({
+      skillsProposalsList: vi.fn(async () => ({ proposals: [duplicate, duplicate] })),
+    });
+
+    await expect(new OpenClawSkillProposalsProvider(client).list()).rejects.toThrow(/duplicate.*weather/i);
+  });
+
+  it('returns only pending proposals for review', async () => {
+    const base = {
+      id: 'weather',
+      kind: 'create' as const,
+      title: 'Weather',
+      description: 'Weather skill',
+      skillName: 'Weather',
+      skillKey: 'weather',
+      createdAt: '2026-08-24T12:00:00.000Z',
+      updatedAt: '2026-08-24T12:00:00.000Z',
+      scanState: 'clean' as const,
+    };
+    const client = proposalsClient({
+      skillsProposalsList: vi.fn(async () => ({
+        proposals: [
+          { ...base, status: 'pending' as const },
+          { ...base, id: 'applied-weather', status: 'applied' as const },
+        ],
+      })),
+    });
+
+    await expect(new OpenClawSkillProposalsProvider(client).list()).resolves.toEqual([
+      expect.objectContaining({ id: 'weather', status: 'pending' }),
+    ]);
   });
 });

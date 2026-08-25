@@ -91,18 +91,32 @@ class MockWebSocket {
     });
   }
 
-  emitHello(id: string, deviceToken = "device-token-1") {
+  emitHello(
+    id: string,
+    deviceToken = "device-token-1",
+    overrides: {
+      version?: string;
+      methods?: string[];
+      capabilities?: string[];
+      scopes?: string[];
+    } = {},
+  ) {
     this.emit({
       type: "res",
       id,
       ok: true,
       payload: {
         protocol: 3,
-        server: { version: "test-version" },
+        server: { version: overrides.version ?? "test-version" },
+        features: {
+          methods: overrides.methods ?? [],
+          events: [],
+          capabilities: overrides.capabilities ?? [],
+        },
         auth: {
           deviceToken,
           role: "operator",
-          scopes: ["operator.admin"],
+          scopes: overrides.scopes ?? ["operator.admin"],
         },
       },
     });
@@ -211,6 +225,154 @@ describe("GatewayClient", () => {
 
     return { client, ws, request };
   }
+
+  async function connectClientWithHello(overrides: Parameters<MockWebSocket["emitHello"]>[2]) {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+    const ws = MockWebSocket.instances.at(-1);
+    if (!ws) throw new Error("Missing websocket instance");
+    ws.emitChallenge();
+    const request = await parseFirstRequest(ws);
+    ws.emitHello(request.id, "device-token-1", overrides);
+    await connectPromise;
+    return { client, ws };
+  }
+
+  async function parseLatestRequest(ws: MockWebSocket) {
+    await waitForSentFrame(ws);
+    return JSON.parse(ws.sent.at(-1) ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, unknown>;
+    };
+  }
+
+  it("retains authenticated Gateway methods and granted scopes", async () => {
+    const { client } = await connectClientWithHello({
+      version: "2026.8.1-beta.3",
+      methods: ["skills.read", "skills.proposals.list"],
+      scopes: ["operator.read"],
+    });
+
+    expect(client.hello).toMatchObject({
+      server: { version: "2026.8.1-beta.3" },
+      features: { methods: ["skills.read", "skills.proposals.list"] },
+      auth: { scopes: ["operator.read"] },
+    });
+    expect(client.supportsMethod("skills.read")).toBe(true);
+    expect(client.skillsProposalDialect).toBe("revision-bound");
+  });
+
+  it("uses the authenticated revision capability when the server version is ambiguous", async () => {
+    const { client } = await connectClientWithHello({
+      version: "2026.8.0",
+      methods: ["skills.proposals.apply"],
+      capabilities: ["skill-proposals-revision-bound-v1"],
+      scopes: ["operator.admin"],
+    });
+
+    expect(client.skillsProposalDialect).toBe("revision-bound");
+  });
+
+  it("uses the deployed legacy proposal decision payload without replaying a mutation", async () => {
+    const { client, ws } = await connectClientWithHello({
+      version: "2026.7.1-2",
+      methods: ["skills.proposals.apply"],
+      scopes: ["operator.admin"],
+    });
+    const promise = client.skillsProposalApply({
+      agentId: "default",
+      proposalId: "weather-20260824-abcdef0123",
+      expectedRevisionHash: "ignored-on-legacy",
+      correlationId: "ignored-on-legacy",
+      reason: "Reviewed",
+    });
+    const request = await parseLatestRequest(ws);
+
+    expect(request).toMatchObject({
+      method: "skills.proposals.apply",
+      params: {
+        agentId: "default",
+        proposalId: "weather-20260824-abcdef0123",
+        reason: "Reviewed",
+      },
+    });
+    expect(request.params).not.toHaveProperty("expectedRevisionHash");
+    expect(request.params).not.toHaveProperty("correlationId");
+    ws.emit({ type: "res", id: request.id, ok: true, payload: { record: {}, targetSkillFile: "SKILL.md" } });
+    await promise;
+  });
+
+  it("requires and sends the reviewed revision on current proposal decisions", async () => {
+    const { client, ws } = await connectClientWithHello({
+      version: "2026.8.1",
+      methods: ["skills.proposals.apply"],
+      scopes: ["operator.admin"],
+    });
+
+    await expect(client.skillsProposalApply({ proposalId: "weather" })).rejects.toThrow(/expectedRevisionHash/i);
+    expect(ws.sent).toHaveLength(1);
+
+    const promise = client.skillsProposalApply({
+      proposalId: "weather",
+      expectedRevisionHash: "a".repeat(64),
+      correlationId: "review-1",
+    });
+    const request = await parseLatestRequest(ws);
+    expect(request.params).toMatchObject({
+      proposalId: "weather",
+      expectedRevisionHash: "a".repeat(64),
+      correlationId: "review-1",
+    });
+    ws.emit({ type: "res", id: request.id, ok: true, payload: { record: {}, targetSkillFile: "SKILL.md" } });
+    await promise;
+  });
+
+  it("fails closed when proposal methods or mutation scopes were not granted", async () => {
+    const { client } = await connectClientWithHello({
+      version: "2026.8.1",
+      methods: ["skills.proposals.list", "skills.proposals.apply"],
+      scopes: ["operator.read"],
+    });
+
+    await expect(client.skillsProposalApply({
+      proposalId: "weather",
+      expectedRevisionHash: "a".repeat(64),
+    })).rejects.toThrow(/operator\.admin/i);
+    await expect(client.skillsProposalInspect({ proposalId: "weather" })).rejects.toThrow(/did not advertise/i);
+  });
+
+  it("reads authoritative skill instructions only when advertised", async () => {
+    const { client, ws } = await connectClientWithHello({
+      version: "2026.8.1",
+      methods: ["skills.read"],
+      scopes: ["operator.read"],
+    });
+    const promise = client.skillsRead({ agentId: "default", skillKey: "hypercli" });
+    const request = await parseLatestRequest(ws);
+    expect(request).toMatchObject({
+      method: "skills.read",
+      params: { agentId: "default", skillKey: "hypercli" },
+    });
+    ws.emit({
+      type: "res",
+      id: request.id,
+      ok: true,
+      payload: {
+        schema: "openclaw.skills.read.v1",
+        skillKey: "hypercli",
+        path: "/opt/hypercli/skills/hypercli/SKILL.md",
+        source: "openclaw-extra",
+        sizeBytes: 11,
+        content: "# HyperCLI\n",
+      },
+    });
+    await expect(promise).resolves.toMatchObject({ content: "# HyperCLI\n" });
+  });
 
   it("removes request abort listeners after an RPC timeout", async () => {
     vi.useFakeTimers();

@@ -33,12 +33,65 @@ export interface AgentSkillSummary {
   emoji?: string;
   homepage?: string;
   installHints?: string[];
+  skillCard?: AgentSkillCardMetadata;
+}
+
+export interface AgentSkillCardMetadata {
+  path: string;
+  sizeBytes: number;
 }
 
 export interface AgentSkillDocument {
   skillId: string;
   content: string;
   sizeBytes?: number;
+  path?: string;
+}
+
+export type AgentSkillProposalKind = 'create' | 'update';
+
+export type AgentSkillProposalStatus = 'pending' | 'applied' | 'rejected' | 'quarantined' | 'stale';
+
+export type AgentSkillProposalScanState = 'pending' | 'clean' | 'failed' | 'quarantined';
+
+export interface AgentSkillProposalSummary {
+  id: string;
+  kind: AgentSkillProposalKind;
+  status: AgentSkillProposalStatus;
+  title: string;
+  description: string;
+  skillName: string;
+  skillKey: string;
+  createdAt: string;
+  updatedAt: string;
+  scanState: AgentSkillProposalScanState;
+}
+
+export interface AgentSkillProposalInspection {
+  content: string;
+  /** Opaque proposal revision that must be returned with a review decision when present. */
+  revision?: string;
+}
+
+export interface AgentSkillProposalCapabilities {
+  list: boolean;
+  inspect: boolean;
+  apply: boolean;
+  reject: boolean;
+}
+
+export interface AgentSkillProposalDecision {
+  proposalId: string;
+  expectedRevision?: string;
+  reason?: string;
+}
+
+export interface AgentSkillProposalsProvider {
+  readonly capabilities: AgentSkillProposalCapabilities;
+  list(): Promise<AgentSkillProposalSummary[]>;
+  inspect(proposalId: string): Promise<AgentSkillProposalInspection>;
+  apply(decision: AgentSkillProposalDecision): Promise<void>;
+  reject(decision: AgentSkillProposalDecision): Promise<void>;
 }
 
 export interface AgentSkillUpdate {

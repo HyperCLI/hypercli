@@ -505,6 +505,7 @@ function runFetchOtpScript(args: string[]): string {
   return execFileSync("python3", args, {
     env: privyImapEnv(),
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
@@ -513,7 +514,14 @@ async function getHyperAgentClient(token: string): Promise<HyperAgentClientLike>
     import("@hypercli.com/sdk/http"),
     import("@hypercli.com/sdk"),
   ]);
-  return new HyperAgent(new HTTPClient(getAgentsApiBaseUrl(), token), token, true);
+  const agentsApiBaseUrl = getAgentsApiBaseUrl();
+  const dev = new URL(agentsApiBaseUrl).hostname.includes(".dev.");
+  return new HyperAgent(
+    new HTTPClient(agentsApiBaseUrl, token),
+    token,
+    dev,
+    agentsApiBaseUrl,
+  );
 }
 
 async function getDeploymentsClient(token: string): Promise<DeploymentsClientLike> {
@@ -842,20 +850,22 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
     }
 
     const values = await readOtpValues();
-    console.log(`[privy-auth:otp-values] ${JSON.stringify(values.slice(0, targetLength))}`);
+    console.log(
+      `[privy-auth:otp-values] populated=${values.slice(0, targetLength).filter(Boolean).length}/${targetLength}`
+    );
     return;
   }
 
   const singleInput = otpInputs.first();
   if (await singleInput.isVisible()) {
     await singleInput.fill(otp);
-    console.log(`[privy-auth:otp-single-value] ${JSON.stringify(await singleInput.inputValue())}`);
+    console.log(`[privy-auth:otp-single-value] populated=${Boolean(await singleInput.inputValue())}`);
     return;
   }
 
   const textbox = page.getByRole("textbox").last();
   await textbox.fill(otp);
-  console.log(`[privy-auth:otp-textbox-value] ${JSON.stringify(await textbox.inputValue())}`);
+  console.log(`[privy-auth:otp-textbox-value] populated=${Boolean(await textbox.inputValue())}`);
 }
 
 async function submitPrivyOtp(page: Page): Promise<void> {
@@ -2019,6 +2029,12 @@ export async function launchClawAgentAndWaitForGateway(
     // exactly when an Agent is most likely to be left behind and 409 the user
     // teardown.
     onAgentCreated?: (agentId: string) => void;
+    /** Reports safe capability metadata from the product's authenticated gateway socket. */
+    onGatewayHello?: (hello: {
+      methods: string[];
+      scopes: string[];
+      serverVersion: string;
+    }) => void;
   } = {},
 ): Promise<DeploymentRecord> {
   const token = await getClawAuthToken(page);
@@ -2026,6 +2042,7 @@ export async function launchClawAgentAndWaitForGateway(
   const enableDesktop = options.enableDesktop ?? true;
   const createVia = options.createVia ?? "ui";
   const reportAgentCreated = options.onAgentCreated;
+  const reportGatewayHello = options.onGatewayHello;
 
   // Gateway traffic is recorded from here -- before the dashboard is ever
   // opened -- and filtered later, once the Agent and its route exist.
@@ -2642,6 +2659,31 @@ export async function launchClawAgentAndWaitForGateway(
           connectRequestIds.has(parsed.id)
         ) {
           authenticatedGatewayConnections += 1;
+          const hello = parsed.payload && typeof parsed.payload === "object"
+            ? parsed.payload as Record<string, unknown>
+            : null;
+          const features = hello?.features && typeof hello.features === "object"
+            ? hello.features as Record<string, unknown>
+            : null;
+          const auth = hello?.auth && typeof hello.auth === "object"
+            ? hello.auth as Record<string, unknown>
+            : null;
+          const server = hello?.server && typeof hello.server === "object"
+            ? hello.server as Record<string, unknown>
+            : null;
+          try {
+            reportGatewayHello?.({
+              methods: Array.isArray(features?.methods)
+                ? features.methods.filter((method): method is string => typeof method === "string")
+                : [],
+              scopes: Array.isArray(auth?.scopes)
+                ? auth.scopes.filter((scope): scope is string => typeof scope === "string")
+                : [],
+              serverVersion: typeof server?.version === "string" ? server.version : "unknown",
+            });
+          } catch {
+            // Capability reporting is observational and must not affect readiness.
+          }
         }
         if (
           parsed.type === "res" &&

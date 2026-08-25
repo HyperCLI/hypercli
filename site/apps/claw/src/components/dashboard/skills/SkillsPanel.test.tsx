@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import type { AgentSkillProposalSummary } from "@hypercli.com/sdk/skills";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
@@ -48,6 +49,22 @@ function providerSkill(overrides: Partial<AgentSkill> = {}): AgentSkill {
     resourceAccess: "read-only",
     contentLoaded: true,
     ...overrides,
+  };
+}
+
+function skillProposal(index: number): AgentSkillProposalSummary {
+  const suffix = String(index).padStart(2, "0");
+  return {
+    id: `mapped-skill-${suffix}-20260824-abcdef0123`,
+    kind: "create",
+    skillName: `Mapped skill ${suffix}`,
+    skillKey: `mapped-skill-${suffix}`,
+    title: `Mapped skill ${suffix}`,
+    description: `Correct description for mapped skill ${suffix}.`,
+    status: "pending",
+    scanState: "clean",
+    createdAt: `2026-08-24T12:${suffix}:00.000Z`,
+    updatedAt: `2026-08-24T12:${suffix}:00.000Z`,
   };
 }
 
@@ -119,6 +136,120 @@ describe("SkillsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /back to skills/i }));
     expect(screen.getByPlaceholderText(/search skills/i)).toBeInTheDocument();
     expect(screen.getByText("Weather")).toBeInTheDocument();
+  });
+
+  it("shows every mapped pending skill in My skills with its own description and no installed controls", () => {
+    const proposals = Array.from({ length: 13 }, (_, index) => skillProposal(index + 1));
+    renderPanel({
+      installedSkills: [providerSkill()],
+      skillProposals: proposals,
+      canInspectSkillProposals: true,
+      onInspectSkillProposal: vi.fn(),
+      onApplySkillProposal: vi.fn(),
+      onRejectSkillProposal: vi.fn(),
+    });
+
+    expect(screen.getByRole("button", { name: /my skills.*14/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /all skills.*14/i })).toHaveAttribute("aria-pressed", "false");
+    for (const proposal of proposals) {
+      const card = screen.getByTestId(`skill-proposal-${proposal.id}`);
+      expect(within(card).getByRole("heading", { name: proposal.skillName })).toBeInTheDocument();
+      expect(card).toHaveTextContent(proposal.description);
+      expect(within(card).getByRole("button", { name: "Review proposal" })).toBeEnabled();
+      expect(within(card).queryByRole("switch")).not.toBeInTheDocument();
+      expect(within(card).queryByRole("button", { name: /test/i })).not.toBeInTheDocument();
+    }
+
+    fireEvent.change(screen.getByPlaceholderText(/search skills/i), { target: { value: "description for mapped skill 13" } });
+    expect(screen.getByText("Mapped skill 13")).toBeInTheDocument();
+    expect(screen.queryByText("Mapped skill 12")).not.toBeInTheDocument();
+    expect(screen.queryByText("Notion")).not.toBeInTheDocument();
+  });
+
+  it("inspects authoritative proposal content before approval and refreshes installed skills", async () => {
+    const proposal = skillProposal(1);
+    const onInspectSkillProposal = vi.fn(async () => ({
+      content: "---\nname: mapped-skill-01\ndescription: Correct description for mapped skill 01.\n---\n# Reviewed instructions\n\nUse the mapped workflow.",
+      revision: "a".repeat(64),
+    }));
+    const onApplySkillProposal = vi.fn(async () => undefined);
+    const onRefreshSkills = vi.fn(async () => []);
+    renderPanel({
+      skillProposals: [proposal],
+      canInspectSkillProposals: true,
+      canApplySkillProposals: true,
+      canRejectSkillProposals: true,
+      onInspectSkillProposal,
+      onApplySkillProposal,
+      onRejectSkillProposal: vi.fn(async () => undefined),
+      onRefreshSkills,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Review proposal" }));
+    await waitFor(() => expect(onInspectSkillProposal).toHaveBeenCalledWith(proposal.id));
+    expect(await screen.findByRole("heading", { name: "Reviewed instructions" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Approve skill" }));
+    await waitFor(() => expect(onApplySkillProposal).toHaveBeenCalledWith(proposal.id, "a".repeat(64)));
+    await waitFor(() => expect(onRefreshSkills).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps a proposal open after a stale approval failure and requires reloading", async () => {
+    const proposal = skillProposal(2);
+    const onInspectSkillProposal = vi.fn(async () => ({
+      content: "# Current proposal\n\nReview me.",
+      revision: "b".repeat(64),
+    }));
+    const onApplySkillProposal = vi.fn(async () => {
+      throw new Error("revision conflict: proposal changed");
+    });
+    renderPanel({
+      skillProposals: [proposal],
+      canInspectSkillProposals: true,
+      canApplySkillProposals: true,
+      onInspectSkillProposal,
+      onApplySkillProposal,
+      onRejectSkillProposal: vi.fn(),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Review proposal" }));
+    await screen.findByRole("heading", { name: "Current proposal" });
+    fireEvent.click(screen.getByRole("button", { name: "Approve skill" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/reload the latest proposal/i);
+    expect(screen.getByRole("heading", { name: proposal.skillName })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve skill" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Reload proposal" }));
+    await waitFor(() => expect(onInspectSkillProposal).toHaveBeenCalledTimes(2));
+  });
+
+  it("allows read-only operators to inspect proposals without mutation controls", async () => {
+    const proposal = skillProposal(3);
+    renderPanel({
+      skillProposals: [proposal],
+      canInspectSkillProposals: true,
+      canApplySkillProposals: false,
+      canRejectSkillProposals: false,
+      onInspectSkillProposal: vi.fn(async () => ({
+        content: "# Read-only proposal\n\nInspect without changing it.",
+        revision: "c".repeat(64),
+      })),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Review proposal" }));
+    expect(await screen.findByRole("heading", { name: "Read-only proposal" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve skill" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("does not hide installed skills when pending reviews fail to load", () => {
+    renderPanel({
+      installedSkills: [providerSkill()],
+      skillProposalsError: "gateway unavailable",
+      onRefreshSkillProposals: vi.fn(async () => undefined),
+    });
+
+    expect(screen.getByText("Notion")).toBeInTheDocument();
+    expect(screen.getByText(/pending skill reviews could not be loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText("gateway unavailable")).not.toBeInTheDocument();
   });
 
   it("defaults to My skills and reveals HyperCLI skills through their filter", () => {
@@ -225,6 +356,53 @@ describe("SkillsPanel", () => {
     expect(screen.getByText("file API unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
     await waitFor(() => expect(onLoadSkillDocument).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not allow editing until authoritative installed instructions are loaded", async () => {
+    const onLoadSkillDocument = vi.fn(async () => undefined);
+    const { rerender } = renderPanel({
+      installedSkills: [providerSkill({ editable: true, content: "", body: "", contentLoaded: false, documentState: "idle" })],
+      requestedSkillId: "notion",
+      onLoadSkillDocument,
+    });
+
+    await waitFor(() => expect(onLoadSkillDocument).toHaveBeenCalledWith("notion"));
+    expect(screen.queryByRole("button", { name: "Edit instructions" })).not.toBeInTheDocument();
+
+    rerender(
+      <SkillsPanel
+        agentName="Agent"
+        draftScope={{ ownerId: "test@example.com", agentId: "agent-1" }}
+        connected
+        installedSkills={[providerSkill({ editable: true, documentState: "loaded" })]}
+        loading={false}
+        error={null}
+        requestedSkillId="notion"
+        onLoadSkillDocument={onLoadSkillDocument}
+        onTestSkill={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Edit instructions" })).toBeEnabled();
+  });
+
+  it("never writes a blank replacement over loaded installed instructions", () => {
+    const writeResource = vi.fn(async () => undefined);
+    renderPanel({
+      installedSkills: [providerSkill({ editable: true, resourceAccess: "read-write", resourcesAvailable: true })],
+      requestedSkillId: "notion",
+      skillResourceOperations: {
+        listResources: vi.fn(async () => []),
+        readResource: vi.fn(),
+        writeResource,
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit instructions" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "   " } });
+    const save = screen.getByRole("button", { name: "Save to agent" });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(writeResource).not.toHaveBeenCalled();
   });
 
   it("toggles installed skills through the provider", async () => {

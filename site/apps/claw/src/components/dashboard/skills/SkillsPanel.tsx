@@ -1,8 +1,15 @@
 "use client";
 
 import * as React from "react";
-import type { AgentSkillCreateRequest, AgentSkillRecoverRequest, AgentSkillRecoverResult, AgentSkillRecoveryCandidate } from "@hypercli.com/sdk/skills";
-import { FolderInput, Plus, Settings2, TestTube2, Upload } from "lucide-react";
+import type {
+  AgentSkillCreateRequest,
+  AgentSkillProposalInspection,
+  AgentSkillProposalSummary,
+  AgentSkillRecoverRequest,
+  AgentSkillRecoverResult,
+  AgentSkillRecoveryCandidate,
+} from "@hypercli.com/sdk/skills";
+import { FileClock, FolderInput, Plus, Settings2, TestTube2, Upload } from "lucide-react";
 import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader, RecoveryDetails, Switch, toast } from "@hypercli/shared-ui";
 import {
   SkillCard,
@@ -12,6 +19,7 @@ import {
 import { AgentLoadingState } from "../agents/page-helpers";
 import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
 import { SkillDetail } from "./SkillDetail";
+import { SkillProposalDetail } from "./SkillProposalDetail";
 import type { SkillResourceOperations } from "./SkillFilesPanel";
 import { SkillMarkdown } from "./SkillMarkdown";
 import { SkillsCreateModal } from "./SkillsCreateModal";
@@ -143,6 +151,16 @@ export interface SkillsPanelProps {
   onRecoverSkill?: (request: AgentSkillRecoverRequest) => Promise<AgentSkillRecoverResult>;
   onGenerateSkill?: (prompt: string, options: { signal: AbortSignal; timeoutMs: number; maxResponseChars: number }) => Promise<string>;
   onTestSkill: (skill: AgentSkill) => Promise<void> | void;
+  skillProposals?: AgentSkillProposalSummary[];
+  skillProposalsLoading?: boolean;
+  skillProposalsError?: string | null;
+  canInspectSkillProposals?: boolean;
+  canApplySkillProposals?: boolean;
+  canRejectSkillProposals?: boolean;
+  onInspectSkillProposal?: (proposalId: string) => Promise<AgentSkillProposalInspection>;
+  onApplySkillProposal?: (proposalId: string, expectedRevision?: string) => Promise<unknown>;
+  onRejectSkillProposal?: (proposalId: string, expectedRevision?: string) => Promise<unknown>;
+  onRefreshSkillProposals?: () => Promise<unknown>;
 }
 
 export function SkillsPanel({
@@ -164,6 +182,16 @@ export function SkillsPanel({
   onRecoverSkill,
   onGenerateSkill,
   onTestSkill,
+  skillProposals = [],
+  skillProposalsLoading = false,
+  skillProposalsError,
+  canInspectSkillProposals = false,
+  canApplySkillProposals = false,
+  canRejectSkillProposals = false,
+  onInspectSkillProposal,
+  onApplySkillProposal,
+  onRejectSkillProposal,
+  onRefreshSkillProposals,
 }: SkillsPanelProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
   const [selectedFilters, setSelectedFilters] = React.useState<string[]>([MY_SKILLS_FILTER_ID]);
@@ -172,6 +200,7 @@ export function SkillsPanel({
   const [recoveryCandidateId, setRecoveryCandidateId] = React.useState<string | null>(null);
   const [dismissedRecoveryCandidateIds, setDismissedRecoveryCandidateIds] = React.useState<string[]>([]);
   const [selectedSkillId, setSelectedSkillId] = React.useState<string | null>(null);
+  const [selectedProposalId, setSelectedProposalId] = React.useState<string | null>(null);
   const [dismissedRequestedSkillId, setDismissedRequestedSkillId] = React.useState<string | null>(null);
   const [configOverrides, setConfigOverrides] = React.useState<Record<string, SkillConfigEntry>>({});
   const [togglingSkillId, setTogglingSkillId] = React.useState<string | null>(null);
@@ -214,7 +243,7 @@ export function SkillsPanel({
 
   const skillFilterOptions = React.useMemo(() => {
     const sourceCounts = new Map<string, { label: string; count: number }>([
-      [MY_SKILLS_FILTER_ID, { label: "My skills", count: 0 }],
+      [MY_SKILLS_FILTER_ID, { label: "My skills", count: skillProposals.length }],
     ]);
     const categoryCounts = new Map<string, number>();
     skillRows.forEach((row) => {
@@ -229,7 +258,7 @@ export function SkillsPanel({
       ...sources.sort((a, b) => (SKILL_SOURCE_ORDER.get(a.id) ?? 2) - (SKILL_SOURCE_ORDER.get(b.id) ?? 2) || a.label.localeCompare(b.label)),
       ...categories.sort((a, b) => a.label.localeCompare(b.label)),
     ];
-  }, [skillRows]);
+  }, [skillProposals.length, skillRows]);
 
   const filteredRows = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -251,7 +280,20 @@ export function SkillsPanel({
       );
     });
   }, [searchQuery, selectedFilters, skillRows]);
-  const hasMySkills = skillRows.some((row) => skillSourceFilterId(row) === MY_SKILLS_FILTER_ID);
+  const filteredProposals = React.useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    const selectedSources = selectedFilters.filter((id) => id.startsWith("source:"));
+    const selectedSkillCategories = selectedFilters.filter((id) => id.startsWith("category:"));
+    if (selectedSources.length > 0 && !selectedSources.includes(MY_SKILLS_FILTER_ID)) return [];
+    if (selectedSkillCategories.length > 0) return [];
+    if (!query) return skillProposals;
+    return skillProposals.filter((proposal) => (
+      proposal.skillName.toLowerCase().includes(query) ||
+      proposal.description.toLowerCase().includes(query) ||
+      proposal.id.toLowerCase().includes(query)
+    ));
+  }, [searchQuery, selectedFilters, skillProposals]);
+  const hasMySkills = skillProposals.length > 0 || skillRows.some((row) => skillSourceFilterId(row) === MY_SKILLS_FILTER_ID);
   const showFirstSkillInvitation = !hasMySkills
     && selectedFilters.length === 1
     && selectedFilters[0] === MY_SKILLS_FILTER_ID
@@ -262,6 +304,9 @@ export function SkillsPanel({
     ? skillRows.find((row) => row.skill.id === requestedSkillId) ?? null
     : null;
   const selectedRow = selectedById ?? selectedByRequest;
+  const selectedProposal = selectedProposalId
+    ? skillProposals.find((proposal) => proposal.id === selectedProposalId) ?? null
+    : null;
   const selectedConfig = selectedRow ? getSkillConfigEntry(selectedRow.skill.id, configOverrides) : { env: {} };
   const resetFilters = () => {
     setSelectedFilters([MY_SKILLS_FILTER_ID]);
@@ -423,6 +468,21 @@ export function SkillsPanel({
     );
   }
 
+  if (selectedProposal && canInspectSkillProposals && onInspectSkillProposal) {
+    return (
+      <SkillProposalDetail
+        proposal={selectedProposal}
+        canApply={canApplySkillProposals}
+        canReject={canRejectSkillProposals}
+        onBack={() => setSelectedProposalId(null)}
+        onInspect={onInspectSkillProposal}
+        onApply={onApplySkillProposal}
+        onReject={onRejectSkillProposal}
+        onApproved={async () => { await onRefreshSkills?.(); }}
+      />
+    );
+  }
+
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-background text-foreground">
       <CatalogHeader
@@ -457,7 +517,7 @@ export function SkillsPanel({
             })}
             <CatalogFilterButton
               pressed={selectedFilters.length === 0}
-              aria-label={`All skills (${skillRows.length})`}
+              aria-label={`All skills (${skillRows.length + skillProposals.length})`}
               onClick={() => setSelectedFilters([])}
             >
               All
@@ -488,6 +548,14 @@ export function SkillsPanel({
               <RecoveryDetails label="Technical details" technicalDetails={recoveryError} className="mt-2 text-left" />
             </div>
           )}
+          {skillProposalsError && (
+            <div className="rounded-xl border border-warning/25 bg-warning/10 px-3 py-2 text-[11px] text-warning">
+              <p role="status">Pending skill reviews could not be loaded. Installed skills are still available.</p>
+              <RecoveryDetails label="Technical details" technicalDetails={skillProposalsError} className="mt-2 text-left" />
+              {onRefreshSkillProposals ? <Button type="button" variant="outline" size="sm" onClick={() => void onRefreshSkillProposals().catch(() => undefined)} className="mt-3">Retry pending reviews</Button> : null}
+            </div>
+          )}
+          {skillProposalsLoading && !loading && <p role="status" className="text-[11px] text-text-muted">Checking for pending skill reviews...</p>}
 
           {loading ? (
             <SkillsLoadingState className="rounded-2xl border border-border bg-surface-low/25" />
@@ -519,8 +587,23 @@ export function SkillsPanel({
                 </p>
               </div>
             </section>
-          ) : filteredRows.length > 0 ? (
+          ) : filteredRows.length > 0 || filteredProposals.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {filteredProposals.map((proposal) => (
+                <article key={proposal.id} data-testid={`skill-proposal-${proposal.id}`} className="flex min-h-44 flex-col rounded-2xl border border-warning/30 bg-warning/[0.04] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-warning/25 bg-warning/10"><FileClock className="h-4 w-4 text-warning" aria-hidden="true" /></span>
+                    <span className="rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-semibold text-warning">Pending review</span>
+                  </div>
+                  <div className="mt-3 min-w-0 flex-1">
+                    <h3 className="truncate text-sm font-semibold text-foreground">{proposal.skillName}</h3>
+                    <p className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-text-secondary">{proposal.description}</p>
+                  </div>
+                  <div className="mt-3 flex justify-end border-t border-warning/15 pt-3">
+                    <Button type="button" variant="secondary" size="sm" disabled={!canInspectSkillProposals} onClick={() => setSelectedProposalId(proposal.id)} className="h-7 min-h-0 px-2 text-[10px]">Review proposal</Button>
+                  </div>
+                </article>
+              ))}
               {filteredRows.map((row) => (
                 <SkillCard
                   key={row.skill.id}

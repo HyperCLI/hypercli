@@ -20,7 +20,7 @@ import {
   type OpenClawWhatsAppPairingStartOptions,
   type OpenClawWhatsAppProgressEvent,
 } from "@hypercli.com/sdk/openclaw/whatsapp";
-import { OpenClawSkillsProvider } from "@hypercli.com/sdk/openclaw/skills";
+import { OpenClawSkillProposalsProvider, OpenClawSkillsProvider } from "@hypercli.com/sdk/openclaw/skills";
 import { inferFileMimeType, isFileTypeReference } from "@hypercli/shared-ui/files";
 import type {
   ChatEvent,
@@ -39,11 +39,13 @@ import type {
   GatewayEphemeralChatOptions,
   GatewaySkillsInstallParams,
   GatewaySkillsSearchParams,
+  GatewaySkillsReadParams,
   GatewaySkillsSkillCardParams,
   GatewaySkillsStatusParams,
   GatewaySkillsUpdateParams,
   OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/openclaw/gateway";
+import { launchConfigSyncRoot } from "@/lib/agent-file-path";
 import {
   type ChatAttachment,
   type ChatMessage,
@@ -4398,6 +4400,11 @@ export function useOpenClawSession(
     return gateway.skillsSkillCard(params);
   }, [gateway]);
 
+  const skillsRead = useCallback(async (params: GatewaySkillsReadParams) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.skillsRead(params);
+  }, [gateway]);
+
   const skillsInstall = useCallback(async (params: GatewaySkillsInstallParams) => {
     if (!gateway) throw new Error("Not connected");
     const result = await gateway.skillsInstall(params);
@@ -4418,13 +4425,23 @@ export function useOpenClawSession(
     return result;
   }, [gateway, appendActivity]);
 
-  const skillsProvider = useMemo(() => new OpenClawSkillsProvider({
-    skillsStatus,
-    skillsSkillCard,
-    skillsUpdate,
-    skillsSearch,
-    skillsInstall,
-  }, agent?.files), [agent, skillsInstall, skillsSearch, skillsSkillCard, skillsStatus, skillsUpdate]);
+  const skillsProvider = useMemo(() => {
+    const syncRoot = launchConfigSyncRoot(agent?.launchConfig);
+    return new OpenClawSkillsProvider({
+      skillsStatus,
+      skillsSkillCard,
+      skillsRead,
+      supportsMethod: (method) => gateway?.supportsMethod(method) ?? false,
+      skillsUpdate,
+      skillsSearch,
+      skillsInstall,
+    }, agent?.files, syncRoot ? { syncRoot } : undefined);
+  }, [agent, gateway, skillsInstall, skillsRead, skillsSearch, skillsSkillCard, skillsStatus, skillsUpdate]);
+
+  const skillProposalsProvider = useMemo(
+    () => gateway ? new OpenClawSkillProposalsProvider(gateway) : null,
+    [gateway],
+  );
 
   const integrationsAuthStart = useCallback(async (params: GatewayIntegrationAuthStartParams) => {
     if (!gateway) throw new Error("Not connected");
@@ -4695,6 +4712,7 @@ export function useOpenClawSession(
     runCron,
     readGatewayMediaBytes,
     skillsProvider,
+    skillProposalsProvider,
     integrationsAuthStart,
     integrationsAuthStatus,
     integrationsStatus,

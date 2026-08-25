@@ -72,6 +72,7 @@ import {
   linkSkillDraftTestSession,
   saveSkillDraftFromTest,
   useAgentSkills,
+  useSkillProposals,
   useSkillDraftTestSession,
   type AgentSkill,
 } from "@/components/dashboard/skills";
@@ -3522,6 +3523,11 @@ function AgentsPageContent() {
     enabled: mainTab === "integrations" || mainTab === "skills",
     connected: chat.connected,
     provider: selectedAgentId ? chat.skillsProvider : null,
+  });
+  const skillProposals = useSkillProposals({
+    enabled: mainTab === "skills",
+    connected: chat.connected,
+    provider: selectedAgentId ? chat.skillProposalsProvider : null,
   });
 
   const saveAgentFile = useCallback(async (path: string, content: string) => {
@@ -7115,6 +7121,16 @@ function AgentsPageContent() {
               onRecoverSkill={agentSkills.capabilities?.recoverSkill ? agentSkills.recover : undefined}
               onGenerateSkill={chat.ready ? chat.runEphemeralPrompt : undefined}
               onTestSkill={testSkillInNewSession}
+              skillProposals={skillProposals.proposals}
+              skillProposalsLoading={skillProposals.loading}
+              skillProposalsError={skillProposals.error}
+              canInspectSkillProposals={skillProposals.capabilities?.inspect === true}
+              canApplySkillProposals={skillProposals.capabilities?.apply === true}
+              canRejectSkillProposals={skillProposals.capabilities?.reject === true}
+              onInspectSkillProposal={skillProposals.capabilities?.inspect ? skillProposals.inspect : undefined}
+              onApplySkillProposal={skillProposals.capabilities?.apply ? skillProposals.apply : undefined}
+              onRejectSkillProposal={skillProposals.capabilities?.reject ? skillProposals.reject : undefined}
+              onRefreshSkillProposals={skillProposals.capabilities?.list ? skillProposals.refresh : undefined}
             />
           ) : mainTab === "knowledge-hub" ? (
             <KnowledgeHub

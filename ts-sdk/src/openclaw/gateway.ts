@@ -145,7 +145,7 @@ export interface GatewayOptions {
   /** Default RPC timeout in ms (default: 30000) */
   timeout?: number;
   /** Called after a successful hello-ok response */
-  onHello?: (hello: Record<string, any>) => void;
+  onHello?: (hello: GatewayHelloSnapshot) => void;
   /** Called after the socket closes */
   onClose?: (info: GatewayCloseInfo) => void;
   /** Called when an event sequence gap is detected */
@@ -154,6 +154,28 @@ export interface GatewayOptions {
   onProtocolError?: (info: GatewayProtocolErrorInfo) => void;
   /** Called when a browser device pairing request is pending or updated. */
   onPairing?: (pairing: GatewayPairingState | null) => void;
+}
+
+export interface GatewayHelloSnapshot extends Record<string, unknown> {
+  protocol: number;
+  server: {
+    version: string;
+    buildId?: string;
+    bootId?: string;
+    connId?: string;
+    [key: string]: unknown;
+  };
+  features: {
+    methods: string[];
+    events: string[];
+    capabilities: string[];
+    [key: string]: unknown;
+  };
+  auth: {
+    role: string;
+    scopes: string[];
+    [key: string]: unknown;
+  };
 }
 
 export interface GatewayConnectOptions {
@@ -634,6 +656,115 @@ export interface GatewaySkillsSkillCardResult {
   sizeBytes: number;
   content: string;
 }
+
+export interface GatewaySkillsReadParams {
+  agentId?: string;
+  skillKey: string;
+}
+
+export interface GatewaySkillsReadResult {
+  schema: "openclaw.skills.read.v1";
+  skillKey: string;
+  path: string;
+  source: string;
+  sizeBytes: number;
+  content: string;
+}
+
+export type GatewaySkillProposalStatus = "pending" | "applied" | "rejected" | "quarantined" | "stale";
+export type GatewaySkillProposalKind = "create" | "update";
+export type GatewaySkillProposalScanState = "pending" | "clean" | "failed" | "quarantined";
+
+export interface GatewaySkillProposalManifestEntry extends Record<string, unknown> {
+  id: string;
+  kind: GatewaySkillProposalKind;
+  status: GatewaySkillProposalStatus;
+  title: string;
+  description: string;
+  skillName: string;
+  skillKey: string;
+  createdAt: string;
+  updatedAt: string;
+  scanState: GatewaySkillProposalScanState;
+  workspaceMismatch?: true;
+  degradedState?: "draft-missing";
+}
+
+export interface GatewaySkillsProposalsListParams {
+  agentId?: string;
+}
+
+export interface GatewaySkillsProposalsListResult extends Record<string, unknown> {
+  schema: "openclaw.skill-workshop.proposals-manifest.v1";
+  updatedAt: string;
+  proposals: GatewaySkillProposalManifestEntry[];
+}
+
+export interface GatewaySkillProposalRecord extends Record<string, unknown> {
+  schema: "openclaw.skill-workshop.proposal.v1";
+  id: string;
+  kind: GatewaySkillProposalKind;
+  status: GatewaySkillProposalStatus;
+  title: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  proposedVersion: string;
+  draftFile: "PROPOSAL.md";
+  draftHash: string;
+  target: {
+    skillName: string;
+    skillKey: string;
+    skillDir: string;
+    skillFile: string;
+    source?: string;
+    currentContentHash?: string;
+  };
+  scan: {
+    state: GatewaySkillProposalScanState;
+    scannedAt: string;
+    critical: number;
+    warn: number;
+    info: number;
+    findings: unknown[];
+  };
+}
+
+export interface GatewaySkillProposalSupportFile {
+  path: string;
+  content: string;
+}
+
+export interface GatewaySkillsProposalInspectParams {
+  agentId?: string;
+  proposalId: string;
+}
+
+export interface GatewaySkillsProposalInspectResult extends Record<string, unknown> {
+  record: GatewaySkillProposalRecord;
+  /** Present on revision-bound OpenClaw servers and absent on the deployed legacy dialect. */
+  revisionHash?: string;
+  content: string;
+  supportFiles?: GatewaySkillProposalSupportFile[];
+}
+
+export interface GatewaySkillsProposalDecisionParams {
+  agentId?: string;
+  proposalId: string;
+  /** Required by revision-bound servers; omitted on the known v2026.7.1-2 legacy wire dialect. */
+  expectedRevisionHash?: string;
+  correlationId?: string;
+  reason?: string;
+}
+
+export interface GatewaySkillsProposalApplyResult extends Record<string, unknown> {
+  record: GatewaySkillProposalRecord;
+  targetSkillFile: string;
+}
+
+export type GatewaySkillsProposalRejectResult = GatewaySkillProposalRecord;
+export type GatewaySkillsProposalDialect = "legacy-v2026.7.1-2" | "revision-bound";
+export const OPENCLAW_SKILL_PROPOSALS_REVISION_BOUND_CAPABILITY = "skill-proposals-revision-bound-v1";
 
 export interface GatewayClawHubSkillInstallParams {
   source: "clawhub";
@@ -1387,6 +1518,54 @@ function asRecord(value: unknown): Record<string, any> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
     : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+}
+
+function normalizeGatewayHelloSnapshot(value: Record<string, any>): GatewayHelloSnapshot {
+  const server = asRecord(value.server) ?? {};
+  const features = asRecord(value.features) ?? {};
+  const auth = asRecord(value.auth) ?? {};
+  return {
+    ...value,
+    protocol: typeof value.protocol === "number" ? value.protocol : 0,
+    server: {
+      ...server,
+      version: typeof server.version === "string"
+        ? server.version
+        : typeof value.version === "string" ? value.version : "",
+    },
+    features: {
+      ...features,
+      methods: stringArray(features.methods),
+      events: stringArray(features.events),
+      capabilities: stringArray(features.capabilities),
+    },
+    auth: {
+      ...auth,
+      role: typeof auth.role === "string" ? auth.role : "",
+      scopes: stringArray(auth.scopes),
+    },
+  };
+}
+
+function parseOpenClawCalver(value: string): [number, number, number] | null {
+  const match = /^v?(\d{4})\.(\d{1,2})\.(\d{1,2})(?:[-+].*)?$/.exec(value.trim());
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+function compareCalver(
+  left: [number, number, number],
+  right: [number, number, number],
+): number {
+  if (left[0] !== right[0]) return left[0] - right[0];
+  if (left[1] !== right[1]) return left[1] - right[1];
+  return left[2] - right[2];
 }
 
 type GatewayResponseFrame =
@@ -2945,6 +3124,7 @@ export class GatewayClient {
   private rejectConnectPromise: ((error: unknown) => void) | null = null;
   private _version: string | null = null;
   private _protocol: number | null = null;
+  private _hello: GatewayHelloSnapshot | null = null;
   onDisconnect: (() => void) | null = null;
 
   constructor(options: GatewayOptions) {
@@ -2999,7 +3179,7 @@ export class GatewayClient {
     this.pairingState = loadPendingPairing(this.storageScope(), this.role);
   }
 
-  private readonly onHello?: (hello: Record<string, any>) => void;
+  private readonly onHello?: (hello: GatewayHelloSnapshot) => void;
   private readonly onClose?: (info: GatewayCloseInfo) => void;
   private readonly onGap?: (info: { expected: number; received: number }) => void;
   private readonly onProtocolError?: (info: GatewayProtocolErrorInfo) => void;
@@ -3011,6 +3191,20 @@ export class GatewayClient {
 
   get protocol() {
     return this._protocol;
+  }
+
+  /** Latest authenticated hello, retained while a shared connection is reused or reconnecting. */
+  get hello(): GatewayHelloSnapshot | null {
+    return this._hello;
+  }
+
+  supportsMethod(method: string): boolean {
+    return this._hello?.features.methods.includes(method) === true;
+  }
+
+  hasGrantedScope(scope: "operator.read" | "operator.admin"): boolean {
+    const scopes = this._hello?.auth.scopes ?? [];
+    return scopes.includes("operator.admin") || scopes.includes(scope);
   }
 
   get isConnected() {
@@ -3827,8 +4021,10 @@ export class GatewayClient {
         });
       }
 
-      this._version = hello?.server?.version ?? hello?.version ?? null;
-      this._protocol = hello?.protocol ?? null;
+      const helloSnapshot = normalizeGatewayHelloSnapshot(hello);
+      this._hello = helloSnapshot;
+      this._version = helloSnapshot.server.version || null;
+      this._protocol = helloSnapshot.protocol || null;
       this.connected = true;
       this.setConnectionState("connected");
       this.pendingConnectError = null;
@@ -3841,7 +4037,7 @@ export class GatewayClient {
       this.resolveInitialConnect();
 
       try {
-        this.onHello?.(hello);
+        this.onHello?.(helloSnapshot);
       } catch {
         // Hello callbacks are observational and must not affect an authenticated socket.
       }
@@ -4306,6 +4502,57 @@ export class GatewayClient {
   // Skills
   // ---------------------------------------------------------------------------
 
+  private requireAdvertisedMethod(method: string, scope: "operator.read" | "operator.admin"): void {
+    const hello = this._hello;
+    if (!hello) throw new Error(`Cannot call ${method} before an authenticated Gateway hello.`);
+    if (!hello.features.methods.includes(method)) {
+      throw new Error(`The authenticated Gateway did not advertise ${method}.`);
+    }
+    if (!this.hasGrantedScope(scope)) {
+      throw new Error(`${method} requires granted ${scope} scope.`);
+    }
+  }
+
+  get skillsProposalDialect(): GatewaySkillsProposalDialect | null {
+    const hello = this._hello;
+    if (!hello) return null;
+    if (hello.features.capabilities.includes(OPENCLAW_SKILL_PROPOSALS_REVISION_BOUND_CAPABILITY)) {
+      return "revision-bound";
+    }
+    const version = parseOpenClawCalver(hello.server.version);
+    if (!version) return null;
+    if (compareCalver(version, [2026, 7, 1]) === 0) return "legacy-v2026.7.1-2";
+    if (compareCalver(version, [2026, 8, 1]) >= 0) return "revision-bound";
+    return null;
+  }
+
+  private proposalDecisionPayload(
+    method: "skills.proposals.apply" | "skills.proposals.reject",
+    params: GatewaySkillsProposalDecisionParams,
+  ): Record<string, unknown> {
+    this.requireAdvertisedMethod(method, "operator.admin");
+    const dialect = this.skillsProposalDialect;
+    if (!dialect) {
+      throw new Error(
+        `Cannot safely select the ${method} wire dialect from the authenticated Gateway version and capabilities.`,
+      );
+    }
+    const base = {
+      ...(params.agentId ? { agentId: params.agentId } : {}),
+      proposalId: params.proposalId,
+      ...(params.reason !== undefined ? { reason: params.reason } : {}),
+    };
+    if (dialect === "legacy-v2026.7.1-2") return base;
+    if (!params.expectedRevisionHash) {
+      throw new Error(`${method} requires expectedRevisionHash on a revision-bound Gateway.`);
+    }
+    return {
+      ...base,
+      expectedRevisionHash: params.expectedRevisionHash,
+      ...(params.correlationId !== undefined ? { correlationId: params.correlationId } : {}),
+    };
+  }
+
   async skillsStatus(params: GatewaySkillsStatusParams = {}): Promise<GatewaySkillsStatusReport> {
     return await this.rpc("skills.status", params);
   }
@@ -4326,6 +4573,45 @@ export class GatewayClient {
 
   async skillsSkillCard(params: GatewaySkillsSkillCardParams): Promise<GatewaySkillsSkillCardResult> {
     return await this.rpc("skills.skillCard", params);
+  }
+
+  async skillsRead(
+    params: GatewaySkillsReadParams,
+  ): Promise<GatewaySkillsReadResult> {
+    this.requireAdvertisedMethod("skills.read", "operator.read");
+    return await this.rpc("skills.read", params);
+  }
+
+  async skillsProposalsList(
+    params: GatewaySkillsProposalsListParams = {},
+  ): Promise<GatewaySkillsProposalsListResult> {
+    this.requireAdvertisedMethod("skills.proposals.list", "operator.read");
+    return await this.rpc("skills.proposals.list", params);
+  }
+
+  async skillsProposalInspect(
+    params: GatewaySkillsProposalInspectParams,
+  ): Promise<GatewaySkillsProposalInspectResult> {
+    this.requireAdvertisedMethod("skills.proposals.inspect", "operator.read");
+    return await this.rpc("skills.proposals.inspect", params);
+  }
+
+  async skillsProposalApply(
+    params: GatewaySkillsProposalDecisionParams,
+  ): Promise<GatewaySkillsProposalApplyResult> {
+    return await this.rpc(
+      "skills.proposals.apply",
+      this.proposalDecisionPayload("skills.proposals.apply", params),
+    );
+  }
+
+  async skillsProposalReject(
+    params: GatewaySkillsProposalDecisionParams,
+  ): Promise<GatewaySkillsProposalRejectResult> {
+    return await this.rpc(
+      "skills.proposals.reject",
+      this.proposalDecisionPayload("skills.proposals.reject", params),
+    );
   }
 
   async skillsInstall(params: GatewaySkillsInstallParams): Promise<GatewaySkillsInstallResult> {

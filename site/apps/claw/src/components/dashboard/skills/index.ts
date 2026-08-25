@@ -19,6 +19,7 @@ export {
   type SkillDraftData,
 } from "./skill-authoring";
 export { useAgentSkills } from "./useAgentSkills";
+export { useSkillProposals } from "./useSkillProposals";
 export {
   buildSkillTestPrompt,
   assertSkillDraftTestable,
