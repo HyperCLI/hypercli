@@ -84,7 +84,7 @@
 }
 
 /*
-  Keep landing-header visibility independent of Tailwind utility ordering.
+  Keep server-rendered navigation visibility independent of Tailwind utility ordering.
   This avoids cases where `.hidden` wins over `md:flex` in split CSS chunks.
 */
 .claw-header-desktop {
@@ -101,6 +101,14 @@
 
 .dashboard-agent-rail {
   display: none;
+}
+
+.agents-page-loading-desktop {
+  display: none;
+}
+
+.agents-page-loading-mobile {
+  display: flex;
 }
 
 .dashboard-overview-toolbar {
@@ -211,6 +219,17 @@
 
   .claw-header-mobile-toggle,
   .claw-header-mobile-menu {
+    display: none;
+  }
+}
+
+/* Mirrors AGENT_DASHBOARD_DESKTOP_MEDIA_QUERY for the pre-hydration shell. */
+@media (min-width: 64rem), (min-width: 48rem) and (min-height: 31.25rem) {
+  .agents-page-loading-desktop {
+    display: flex;
+  }
+
+  .agents-page-loading-mobile {
     display: none;
   }
 }

@@ -220,6 +220,7 @@ import { AgentLogsController, type AgentLogsControllerHandle } from "@/component
 import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel, type DashboardSurfaceHeader } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentsPageLoadingShell } from "@/components/dashboard/agents/AgentsPageLoadingShell";
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, CollectionCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
@@ -1071,7 +1072,7 @@ function getWorkspaceSidebarDisabledReason({
 
 export default function AgentsPage() {
   return (
-    <React.Suspense fallback={null}>
+    <React.Suspense fallback={<AgentsPageLoadingShell />}>
       <AgentsPageContent />
     </React.Suspense>
   );
