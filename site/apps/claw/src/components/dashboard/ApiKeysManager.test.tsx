@@ -190,4 +190,229 @@ describe("ApiKeysManager", () => {
     });
     expect(screen.getByText("No API keys match your search and filters.")).toBeInTheDocument();
   });
+
+  describe("table containment contract", () => {
+    // Mirrors the Claw settings-surface call site at
+    // site/apps/claw/src/app/dashboard/keys/page.tsx, which is embedded under
+    // the max-w-6xl pane in src/app/dashboard/agents/page.tsx ("api-keys"
+    // section).
+    const CLAW_SETTINGS_CARD_CLASS_NAME =
+      "min-h-[calc(100dvh-7rem)] overflow-hidden rounded-2xl border-border bg-card";
+
+    const POPULATED_KEYS = [
+      {
+        keyId: "key-frontend",
+        name: "frontend",
+        tags: ["*:*"],
+        apiKey: null,
+        apiKeyPreview: "••••••••••••d123",
+        last4: "d123",
+        isActive: true,
+        createdAt: "2026-04-11T10:04:00Z",
+        lastUsedAt: "2026-04-12T13:10:00Z",
+        expiresAt: null,
+        source: "agent",
+      },
+    ];
+
+    function renderManager(props?: { cardClassName?: string }) {
+      return render(
+        <ApiKeysManager
+          apiBaseUrl="https://api.dev.hypercli.com/api"
+          getToken={async () => "app-token"}
+          {...props}
+        />,
+      );
+    }
+
+    // Structural contract that jsdom CAN prove: the keys table is the direct
+    // child of the shared Table wrapper that owns horizontal overflow, the
+    // table still fills available width, exactly one overflow owner exists,
+    // and the clipping card encloses the scroll container. jsdom CANNOT prove
+    // actual layout geometry (scrollWidth vs clientWidth at real viewports);
+    // that requires the complementary browser coverage named in the report.
+    function expectContainedTable(container: HTMLElement) {
+      const manager = container.firstElementChild;
+      expect(manager).toHaveClass("@container/api-keys", "min-w-0", "w-full");
+
+      const table = container.querySelector('[data-slot="table"]');
+      expect(table).not.toBeNull();
+
+      const scrollContainer = table?.parentElement ?? null;
+      expect(scrollContainer?.getAttribute("data-slot")).toBe("table-container");
+      // The wrapper owns horizontal overflow so the settings pane never has to.
+      expect(scrollContainer).toHaveClass("relative", "w-full", "overflow-x-auto");
+      // The compact table fits the small-desktop settings pane, then restores
+      // the full column layout when its own container reaches 60rem.
+      expect(table).toHaveClass(
+        "w-full",
+        "min-w-[40rem]",
+        "table-fixed",
+        "@min-[60rem]/api-keys:min-w-[60rem]",
+      );
+      expect(table).not.toHaveClass("min-w-[980px]");
+      // Exactly one horizontal overflow owner for the keys table.
+      expect(container.querySelectorAll('[data-slot="table-container"]')).toHaveLength(1);
+
+      const card = container.querySelector('[data-slot="card"]');
+      expect(card).not.toBeNull();
+      expect(card?.contains(table as Node)).toBe(true);
+      // The card is the residual clip boundary: scroll-container content can
+      // never escape visually into the settings pane.
+      expect(card).toHaveClass("overflow-hidden");
+    }
+
+    it("keeps the populated table inside its scroll container and clipping card with default props (Console keys page configuration)", async () => {
+      sdkMocks.list.mockResolvedValue(POPULATED_KEYS);
+
+      const { container } = renderManager();
+
+      expect(await screen.findByText("frontend")).toBeInTheDocument();
+      expectContainedTable(container);
+    });
+
+    it("keeps the same containment structure when the Claw settings surface provides its card classes", async () => {
+      sdkMocks.list.mockResolvedValue(POPULATED_KEYS);
+
+      const { container } = renderManager({ cardClassName: CLAW_SETTINGS_CARD_CLASS_NAME });
+
+      expect(await screen.findByText("frontend")).toBeInTheDocument();
+      expectContainedTable(container);
+      // Consumer-provided classes must merge rather than replace the
+      // structure. In the populated list state the manager intentionally
+      // overrides the consumer background with bg-background.
+      const card = container.querySelector('[data-slot="card"]');
+      expect(card).toHaveClass("min-h-[calc(100dvh-7rem)]", "rounded-2xl", "bg-background");
+    });
+
+    it("preserves all eight columns in order, including the visually hidden Actions header", async () => {
+      sdkMocks.list.mockResolvedValue(POPULATED_KEYS);
+
+      renderManager();
+
+      expect(await screen.findByText("frontend")).toBeInTheDocument();
+      const headers = screen.getAllByRole("columnheader");
+      expect(headers.map((header) => header.textContent)).toEqual([
+        "Key ID",
+        "Name",
+        "Source",
+        "Access",
+        "Status",
+        "Created",
+        "Last Used",
+        "Actions",
+      ]);
+      expect(screen.getByRole("columnheader", { name: "Source" })).toHaveClass(
+        "hidden",
+        "@min-[60rem]/api-keys:table-cell",
+      );
+      expect(screen.getByRole("columnheader", { name: "Created" })).toHaveClass(
+        "hidden",
+        "@min-[60rem]/api-keys:table-cell",
+      );
+    });
+
+    it("keeps containment and column-count coherence in the no-results filter state", async () => {
+      sdkMocks.list.mockResolvedValue(POPULATED_KEYS);
+
+      const { container } = renderManager();
+
+      expect(await screen.findByText("frontend")).toBeInTheDocument();
+      fireEvent.change(screen.getByRole("searchbox", { name: "Search API keys" }), {
+        target: { value: "missing" },
+      });
+
+      const emptyCell = screen.getByText("No API keys match your search and filters.");
+      expect(emptyCell).toBeInTheDocument();
+      // The min-width table must remain inside its overflow owner even with
+      // zero matching rows.
+      expectContainedTable(container);
+      // The empty-row cell must span every rendered column; a column added or
+      // removed without updating colSpan fails here.
+      expect(emptyCell).toHaveAttribute(
+        "colspan",
+        String(screen.getAllByRole("columnheader").length),
+      );
+    });
+
+    it("keeps containment with long unbroken values, preview fallback, and every status variant", async () => {
+      const longUnbrokenName = `ci-runner-${"x".repeat(180)}`;
+      sdkMocks.list.mockResolvedValue([
+        {
+          keyId: "key-fallback-preview-0001",
+          name: longUnbrokenName,
+          tags: ["*:*"],
+          apiKey: null,
+          apiKeyPreview: null,
+          last4: null,
+          isActive: true,
+          createdAt: "2026-01-05T00:00:00Z",
+          lastUsedAt: null,
+          expiresAt: null,
+        },
+        {
+          keyId: "key-scoped",
+          name: "scoped",
+          tags: Array.from({ length: 12 }, (_, index) => `team-${index}=owner`),
+          apiKey: null,
+          apiKeyPreview: "••••••••••••ab99",
+          last4: "ab99",
+          isActive: false,
+          createdAt: "2026-02-01T00:00:00Z",
+          lastUsedAt: "2026-02-02T00:00:00Z",
+          expiresAt: null,
+        },
+        {
+          keyId: "key-expired",
+          name: "expired",
+          tags: [],
+          apiKey: null,
+          apiKeyPreview: null,
+          last4: "zz11",
+          isActive: true,
+          createdAt: "2019-06-01T00:00:00Z",
+          lastUsedAt: null,
+          expiresAt: "2020-01-01T00:00:00Z",
+        },
+      ]);
+
+      const { container } = renderManager();
+
+      expect(await screen.findByText(longUnbrokenName)).toBeInTheDocument();
+      expect(screen.getByText(longUnbrokenName)).toHaveClass("block", "truncate");
+      expect(screen.getByText(longUnbrokenName)).toHaveAttribute("title", longUnbrokenName);
+      expect(screen.getByText(longUnbrokenName).closest("td")).toHaveClass("min-w-0");
+      expect(screen.getAllByText(/^Source: /)).toHaveLength(3);
+      screen.getAllByText(/^Source: /).forEach((source) => {
+        expect(source).toHaveClass("@min-[60rem]/api-keys:hidden");
+      });
+      // keyPreview falls back to the raw keyId when no preview/last4 exists.
+      expect(screen.getByText("key-fallback-preview-0001")).toBeInTheDocument();
+      expect(screen.getByText("Active")).toBeInTheDocument();
+      expect(screen.getByText("Inactive")).toBeInTheDocument();
+      expect(screen.getByText("Expired")).toBeInTheDocument();
+      expect(screen.getByText("12 permissions")).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: /Actions for / })).toHaveLength(3);
+      expect(screen.getAllByRole("row")).toHaveLength(4);
+      expectContainedTable(container);
+    });
+
+    it("renders no table scroll machinery in the forced empty presentation", async () => {
+      const { container } = render(
+        <ApiKeysManager
+          apiBaseUrl="https://api.dev.hypercli.com/api"
+          getToken={async () => "app-token"}
+          previewState="empty"
+        />,
+      );
+
+      expect(
+        await screen.findByRole("heading", { name: "Connect HyperCLI to your tools" }),
+      ).toBeInTheDocument();
+      expect(container.querySelector('[data-slot="table"]')).toBeNull();
+      expect(container.querySelectorAll('[data-slot="table-container"]')).toHaveLength(0);
+      // The card still owns the clip boundary for the empty presentation.
+      expect(container.querySelector('[data-slot="card"]')).toHaveClass("overflow-hidden");
+    });
+  });
 });

@@ -506,7 +506,7 @@ export function ApiKeysManager({
   const showKeysList = !loading && !showEmptyState && keys.length > 0;
 
   return (
-    <div className={className}>
+    <div className={cn("@container/api-keys min-w-0 w-full", className)}>
       {showKeysList ? (
         <div className="mb-4 flex items-center justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -686,15 +686,15 @@ export function ApiKeysManager({
         ) : loading ? (
           <LoadingState title="Loading API keys" className="min-h-72 flex-1" />
         ) : (
-          <Table className="min-w-[980px]">
+          <Table className="min-w-[40rem] table-fixed @min-[60rem]/api-keys:min-w-[60rem]">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Key ID</TableHead>
                 <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Name</TableHead>
-                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Source</TableHead>
+                <TableHead className="hidden h-12 px-4 text-xs font-medium text-foreground @min-[60rem]/api-keys:table-cell">Source</TableHead>
                 <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Access</TableHead>
                 <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Status</TableHead>
-                <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Created</TableHead>
+                <TableHead className="hidden h-12 px-4 text-xs font-medium text-foreground @min-[60rem]/api-keys:table-cell">Created</TableHead>
                 <TableHead className="h-12 px-4 text-xs font-medium text-foreground">Last Used</TableHead>
                 <TableHead className="h-12 w-16 px-4 text-right">
                   <span className="sr-only">Actions</span>
@@ -705,28 +705,57 @@ export function ApiKeysManager({
               {visibleKeys.length > 0 ? visibleKeys.map((key) => {
                 const lifecycleStatus = keyLifecycleStatus(key, filterReferenceTime);
                 const lifecycleLabel = lifecycleStatus === "expired" ? "Expired" : statusLabel(key);
+                const sourceLabel = keySourceLabel(key);
+                const createdAtLabel = formatDateTime(key.createdAt);
+                const lastUsedAtLabel = formatDateTime(key.lastUsedAt);
                 return (
                   <TableRow key={key.keyId}>
-                    <TableCell className="max-w-52 truncate px-4 py-4 font-mono text-xs text-text-secondary">
+                    <TableCell
+                      title={keyPreview(key)}
+                      className="max-w-52 truncate px-4 py-4 font-mono text-xs text-text-secondary"
+                    >
                       {keyPreview(key)}
                     </TableCell>
-                    <TableCell className="px-4 py-4 text-sm text-foreground">{key.name}</TableCell>
-                    <TableCell className="px-4 py-4 text-sm text-text-secondary">{keySourceLabel(key)}</TableCell>
-                    <TableCell className="px-4 py-4">
-                      <Badge variant="outline" className="rounded-full bg-surface-low text-text-secondary">
+                    <TableCell className="min-w-0 px-4 py-4 text-sm text-foreground">
+                      <span className="block truncate" title={key.name}>{key.name}</span>
+                      <span className="mt-1 block truncate text-xs text-text-muted @min-[60rem]/api-keys:hidden">
+                        Source: {sourceLabel}
+                      </span>
+                    </TableCell>
+                    <TableCell
+                      title={sourceLabel}
+                      className="hidden truncate px-4 py-4 text-sm text-text-secondary @min-[60rem]/api-keys:table-cell"
+                    >
+                      {sourceLabel}
+                    </TableCell>
+                    <TableCell className="overflow-hidden px-4 py-4">
+                      <Badge variant="outline" className="max-w-full rounded-full bg-surface-low text-text-secondary">
                         {accessLabel(key)}
                       </Badge>
                     </TableCell>
-                    <TableCell className="px-4 py-4">
+                    <TableCell className="overflow-hidden px-4 py-4">
                       <Badge
                         variant={lifecycleStatus === "active" ? "active" : lifecycleStatus === "expired" ? "destructive" : "secondary"}
-                        className="rounded-full"
+                        className="max-w-full rounded-full"
                       >
                         {lifecycleLabel}
                       </Badge>
                     </TableCell>
-                    <TableCell className="px-4 py-4 text-sm text-text-secondary">{formatDateTime(key.createdAt)}</TableCell>
-                    <TableCell className="px-4 py-4 text-sm text-text-secondary">{formatDateTime(key.lastUsedAt)}</TableCell>
+                    <TableCell
+                      title={createdAtLabel}
+                      className="hidden truncate px-4 py-4 text-sm text-text-secondary @min-[60rem]/api-keys:table-cell"
+                    >
+                      {createdAtLabel}
+                    </TableCell>
+                    <TableCell className="min-w-0 px-4 py-4 text-sm text-text-secondary">
+                      <span className="block truncate" title={lastUsedAtLabel}>{lastUsedAtLabel}</span>
+                      <span
+                        title={`Created ${createdAtLabel}`}
+                        className="mt-1 block truncate text-xs text-text-muted @min-[60rem]/api-keys:hidden"
+                      >
+                        Created {createdAtLabel}
+                      </span>
+                    </TableCell>
                     <TableCell className="px-4 py-4 text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
