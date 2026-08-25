@@ -1580,6 +1580,16 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText("Purchased plans")).not.toBeInTheDocument();
   });
 
+  it("shows the real pooled daily count against the pooled limit", () => {
+    renderAgentWorkspaceSidebar({
+      tokenUsed: 12_500,
+      tokenLimit: 100_000_000,
+    });
+
+    expect(screen.getByText("Tokens today")).toBeInTheDocument();
+    expect(screen.getByText("12.5K / 100M")).toBeInTheDocument();
+  });
+
   it("shows an unknown limit when the selected agent has no token entitlement", () => {
     renderAgentWorkspaceSidebar({
       tokenUsed: 1_200,

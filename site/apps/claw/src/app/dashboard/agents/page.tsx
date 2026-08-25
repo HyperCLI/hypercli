@@ -252,6 +252,7 @@ import {
   type TokenUsageRefreshScheduler,
   type TokenUsageSnapshot,
 } from "@/components/dashboard/agents/tokenUsageRefreshScheduler";
+import { tokenUsageSnapshot } from "@/components/dashboard/agents/agentTokenUsage";
 import {
   countPendingSlotReleasesByTier,
   markPendingSlotReleaseComplete,
@@ -492,52 +493,6 @@ function clearTeamTrialIntentSearchParams(): void {
   params.delete("intent");
   if (params.get("plan")?.toLowerCase() === TEAM_TRIAL_PLAN_ID) params.delete("plan");
   syncDashboardSearchParams(params);
-}
-
-function agentTokenUsageMap(
-  usage: { agents?: Array<{ agentId?: unknown; totalTokens?: unknown }> } | null | undefined,
-): Record<string, number> | null {
-  if (!Array.isArray(usage?.agents)) return null;
-  return Object.fromEntries(usage.agents.flatMap((entry) => {
-    const agentId = typeof entry.agentId === "string" ? entry.agentId.trim() : "";
-    return agentId ? [[agentId, finiteNumber(entry.totalTokens)]] : [];
-  }));
-}
-
-function dailyTokenUsageTotal(
-  usage: {
-    agents?: Array<{ totalTokens?: unknown }>;
-    unattributed?: { totalTokens?: unknown };
-  } | null | undefined,
-): number | null {
-  if (!usage) return null;
-  const attributed = Array.isArray(usage.agents)
-    ? usage.agents.reduce((total, entry) => total + Math.max(finiteNumber(entry.totalTokens), 0), 0)
-    : 0;
-  return attributed + Math.max(finiteNumber(usage.unattributed?.totalTokens), 0);
-}
-
-function tokenUsageSnapshot(
-  usage: {
-    agents?: Array<{ agentId?: unknown; totalTokens?: unknown }>;
-    unattributed?: { totalTokens?: unknown };
-  },
-): TokenUsageSnapshot {
-  return {
-    byAgent: agentTokenUsageMap(usage) ?? {},
-    dailyTotal: dailyTokenUsageTotal(usage) ?? 0,
-  };
-}
-
-function agentTokenLimit(
-  summary: HyperAgentSubscriptionSummary | null,
-  agentId: string | null,
-): number | null {
-  if (!agentId) return null;
-  const entitlement = summary?.entitlementItems.find((item) => item.activeAgentIds.includes(agentId));
-  return entitlement && Number.isFinite(entitlement.tpdLimit) && entitlement.tpdLimit > 0
-    ? entitlement.tpdLimit
-    : null;
 }
 
 function normalizeBundle(value: unknown): SlotBundle {
@@ -1271,7 +1226,6 @@ function AgentsPageContent() {
   const [hasBillingHistory, setHasBillingHistory] = useState<boolean | null>(null);
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
-  const [tokenUsageByAgent, setTokenUsageByAgent] = useState<Record<string, number> | null>(null);
   const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
@@ -1474,13 +1428,11 @@ function AgentsPageContent() {
       current?.id === collection?.id && current?.name === collection?.name ? current : collection
     ));
   }, []);
-  const tokenUsage = selectedAgentId && tokenUsageByAgent
-    ? tokenUsageByAgent[selectedAgentId] ?? 0
-    : null;
-  const tokenLimit = agentTokenLimit(subscriptionSummary, selectedAgentId);
   const dailyTokenLimit = subscriptionSummary
     ? Math.max(subscriptionSummary.entitlements?.pooledTpd ?? subscriptionSummary.pooledTpd ?? 0, 0)
     : null;
+  const tokenUsage = dailyTokenUsage;
+  const tokenLimit = dailyTokenLimit;
   const tokenUsageLoading = isAuthenticated && billingDataPrincipalId !== user?.id && !billingDataError;
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId && requestedSessionKey
@@ -1756,7 +1708,6 @@ function AgentsPageContent() {
     setHasBillingHistory(null);
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
-    setTokenUsageByAgent(null);
     setDailyTokenUsage(null);
     setDeployments(null);
     setAgentsLoadError(null);
@@ -1979,16 +1930,11 @@ function AgentsPageContent() {
   }, [syncPendingSlotReleaseCounts]);
 
   const applyTokenUsageSnapshot = useCallback((snapshot: TokenUsageSnapshot) => {
-    setTokenUsageByAgent(snapshot.byAgent);
     setDailyTokenUsage(snapshot.dailyTotal);
   }, []);
 
   const publishTokenUsage = useCallback((usage: Parameters<typeof tokenUsageSnapshot>[0] | null) => {
-    if (!usage) {
-      setTokenUsageByAgent(null);
-      setDailyTokenUsage(null);
-      return;
-    }
+    if (!usage) return;
     const snapshot = tokenUsageSnapshot(usage);
     const scheduler = tokenUsageRefreshSchedulerRef.current;
     if (scheduler) scheduler.acceptSnapshot(snapshot);
@@ -2398,7 +2344,6 @@ function AgentsPageContent() {
       setSubscriptionSummary(null);
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
-      setTokenUsageByAgent(null);
       setDailyTokenUsage(null);
       deploymentsRef.current = null;
       setDeployments(null);
