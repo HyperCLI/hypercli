@@ -9,6 +9,7 @@ const MAX_CACHED_MESSAGES = 300;
 const MAX_CACHE_CHARS = 900_000;
 const MAX_MESSAGE_CONTENT_CHARS = 60_000;
 const MAX_TOOL_TEXT_CHARS = 8_000;
+const MAX_MEDIA_URL_CHARS = 4_096;
 const TRUNCATED_MESSAGE_SUFFIX = "\n\n[Message shortened in local history.]";
 const TRUNCATED_TOOL_SUFFIX = "\n\n[Tool output shortened in local history.]";
 
@@ -69,7 +70,9 @@ function compactMessage(message: ChatMessage): ChatMessage | null {
       })).filter((file) => file.name || file.path)
     : undefined;
   const mediaUrls = Array.isArray(normalized.mediaUrls)
-    ? normalized.mediaUrls.filter((url): url is string => typeof url === "string").slice(0, 20)
+    ? normalized.mediaUrls
+        .filter((url): url is string => typeof url === "string" && url.length <= MAX_MEDIA_URL_CHARS)
+        .slice(0, 20)
     : undefined;
   const toolCalls = Array.isArray(normalized.toolCalls)
     ? normalized.toolCalls.slice(0, 40).map((toolCall) => ({
