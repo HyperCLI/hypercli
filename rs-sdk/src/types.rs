@@ -447,6 +447,11 @@ pub struct BuzzLaunchConfig {
     pub require_reply: bool,
     pub session_title: Option<String>,
     pub rust_log: Option<String>,
+    /// Opt-out for the hyper-acp activity introspection surface. When true
+    /// (the default), `apply_to` provisions the listener env, the session-log
+    /// path, the `hyper-acp` edge route, and the `HYPER_ACP_WS_TOKEN` secret
+    /// (keep-if-present), mirroring the ts-sdk `createCodingAgent` default.
+    pub activity: bool,
 }
 
 impl BuzzLaunchConfig {
@@ -467,6 +472,7 @@ impl BuzzLaunchConfig {
             require_reply: true,
             session_title: None,
             rust_log: None,
+            activity: true,
         }
     }
 
@@ -663,7 +669,49 @@ impl BuzzLaunchConfig {
                 self.respond_to_allowlist.join(","),
             );
         }
+        if self.activity {
+            provision_hyper_acp_activity(request);
+        }
         Ok(())
+    }
+}
+
+/// Provision the hyper-acp activity introspection surface for a buzz launch.
+/// Sets the listener env and session-log path (authoritative, after the route
+/// clear), attaches the `hyper-acp` edge route, and pins the
+/// `HYPER_ACP_WS_TOKEN` secret keep-if-present — mirroring the ts-sdk
+/// `createCodingAgent` default and the buzz provider's `buzz_activity` gate.
+fn provision_hyper_acp_activity(request: &mut CreateDeploymentRequest) {
+    request
+        .env
+        .insert("HYPER_ACP_WS_LISTEN".to_owned(), "0.0.0.0:7799".to_owned());
+    // buzz-acp's session-log sqlite path inside the pod harness state dir.
+    request.env.insert(
+        "HYPER_ACP_LOG".to_owned(),
+        "/home/node/.coding-agent/hyper-acp.db".to_owned(),
+    );
+    request.routes.insert(
+        "hyper-acp".to_owned(),
+        RouteConfig {
+            port: 7799,
+            auth: false,
+            prefix: None,
+        },
+    );
+    // Keep-if-present: a pre-provisioned token survives verbatim; only an
+    // absent or blank entry earns a fresh `hyper_acp_<64 lowercase hex>`.
+    let needs_token = request
+        .secrets
+        .get("HYPER_ACP_WS_TOKEN")
+        .is_none_or(|value| value.trim().is_empty());
+    if needs_token {
+        request.secrets.insert(
+            "HYPER_ACP_WS_TOKEN".to_owned(),
+            format!(
+                "hyper_acp_{}",
+                nostr::Keys::generate().secret_key().display_secret()
+            ),
+        );
     }
 }
 
@@ -1578,7 +1626,10 @@ mod tests {
             request.runtime_scopes,
             BUZZ_RUNTIME_SCOPES.map(str::to_owned)
         );
-        assert!(request.routes.is_empty());
+        // The only route a buzz launch owns is the hyper-acp introspection
+        // surface (provisioned by default); no caller routes survive the clear.
+        assert_eq!(request.routes.len(), 1);
+        assert!(request.routes.contains_key("hyper-acp"));
         assert_eq!(
             request.env.get("BUZZ_RELAY_URL").map(String::as_str),
             Some("wss://buzz.example.test")
@@ -2057,6 +2108,67 @@ mod tests {
             request.env["CLAUDE_CODE_EXECUTABLE"],
             "/usr/local/bin/claude"
         );
+    }
+
+    #[test]
+    fn buzz_launch_provisions_hyper_acp_activity_by_default() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut request, None)
+            .unwrap();
+
+        assert_eq!(
+            request.env.get("HYPER_ACP_WS_LISTEN").map(String::as_str),
+            Some("0.0.0.0:7799")
+        );
+        assert_eq!(
+            request.env.get("HYPER_ACP_LOG").map(String::as_str),
+            Some("/home/node/.coding-agent/hyper-acp.db")
+        );
+        let route = request.routes.get("hyper-acp").expect("hyper-acp route");
+        assert_eq!(route.port, 7799);
+        assert!(!route.auth);
+        let token = request
+            .secrets
+            .get("HYPER_ACP_WS_TOKEN")
+            .expect("ws token secret");
+        assert!(token.starts_with("hyper_acp_"));
+        let hex = &token["hyper_acp_".len()..];
+        assert_eq!(hex.len(), 64);
+        assert!(hex
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn buzz_launch_keeps_a_preprovisioned_hyper_acp_token() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        request.secrets.insert(
+            "HYPER_ACP_WS_TOKEN".to_owned(),
+            "hyper_acp_preexisting".to_owned(),
+        );
+        BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
+            .apply_to(&mut request, None)
+            .unwrap();
+        assert_eq!(
+            request
+                .secrets
+                .get("HYPER_ACP_WS_TOKEN")
+                .map(String::as_str),
+            Some("hyper_acp_preexisting")
+        );
+    }
+
+    #[test]
+    fn buzz_launch_activity_opt_out_provisions_nothing() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
+        let mut buzz = BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test");
+        buzz.activity = false;
+        buzz.apply_to(&mut request, None).unwrap();
+        assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
+        assert!(!request.env.contains_key("HYPER_ACP_LOG"));
+        assert!(!request.routes.contains_key("hyper-acp"));
+        assert!(!request.secrets.contains_key("HYPER_ACP_WS_TOKEN"));
     }
 
     #[test]
