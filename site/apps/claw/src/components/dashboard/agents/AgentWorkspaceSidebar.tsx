@@ -1680,7 +1680,7 @@ export function AgentWorkspaceSidebar({
             ) : null}
             <div className="flex items-center justify-between gap-1.5 text-[11px] leading-none">
               <span className="shrink-0 whitespace-nowrap text-text-muted">Tokens today</span>
-              <span className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">{tokenUsageLabel}</span>
+              <span data-testid="agent-token-usage" className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">{tokenUsageLabel}</span>
             </div>
             {isAuthenticated ? (
               <div className="h-1 rounded-full bg-surface-low">

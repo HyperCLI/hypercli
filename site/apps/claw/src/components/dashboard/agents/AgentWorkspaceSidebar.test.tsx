@@ -1590,6 +1590,39 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("12.5K / 100M")).toBeInTheDocument();
   });
 
+  it("shows zero when the account has no pooled usage", () => {
+    renderAgentWorkspaceSidebar({
+      tokenUsed: 0,
+      tokenLimit: 100_000_000,
+    });
+
+    expect(screen.getByText("0 / 100M")).toBeInTheDocument();
+    expect(screen.queryByText("-- / 100M")).not.toBeInTheDocument();
+  });
+
+  it("shows the usage placeholder while pooled usage is still loading", () => {
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      tokenUsed: null,
+      tokenLimit: 100_000_000,
+    });
+
+    expect(screen.getByText("-- / 100M")).toBeInTheDocument();
+  });
+
+  it("caps the progress bar when pooled usage exceeds the pooled limit", () => {
+    renderAgentWorkspaceSidebar({
+      tokenUsed: 250_000_000,
+      tokenLimit: 100_000_000,
+    });
+
+    expect(screen.getByText("250M / 100M")).toBeInTheDocument();
+    const usageLabel = screen.getByText("Tokens today");
+    const progressTrack = usageLabel.parentElement?.nextElementSibling;
+    const progressBar = progressTrack?.firstElementChild;
+    expect(progressBar).toHaveStyle({ width: "100%" });
+  });
+
   it("shows an unknown limit when the selected agent has no token entitlement", () => {
     renderAgentWorkspaceSidebar({
       tokenUsed: 1_200,
