@@ -878,7 +878,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText("Loading conversation")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /connect slack/i })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox")).toBeDisabled();
-    expect(screen.getByPlaceholderText("Verifying conversation...")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Loading conversation...")).toBeInTheDocument();
   });
 
   it("keeps existing messages visible instead of showing the history loader while refresh is pending", () => {
@@ -890,6 +890,7 @@ describe("AgentChatPanel", () => {
         connected: true,
         historyPhase: "loading",
         historyPending: true,
+        activeSessionCanSend: false,
         messages: [{ role: "assistant", content: "Saved answer", renderId: "saved-answer" }],
       }),
       isSelectedRunning: true,
@@ -900,6 +901,47 @@ describe("AgentChatPanel", () => {
     )?.message?.content === "Saved answer")).toBe(true);
     expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
     expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Loading conversation...")).toBeInTheDocument();
+  });
+
+  it("uses neutral composer copy while a retained gateway prepares the conversation", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: false,
+        connecting: true,
+        historyPhase: "loading",
+        historyPending: true,
+        activeSessionCanSend: false,
+        messages: [{ role: "assistant", content: "Saved answer", renderId: "saved-answer" }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Loading conversation...")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Preparing chat...")).not.toBeInTheDocument();
+  });
+
+  it("keeps preparation copy while a cold gateway connection is opening", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connecting",
+        gatewayConnected: false,
+        ready: false,
+        connected: false,
+        connecting: true,
+        activeSessionCanSend: false,
+        messages: [{ role: "assistant", content: "Saved answer", renderId: "saved-answer" }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Preparing chat...")).toBeInTheDocument();
   });
 
   it("keeps existing messages visible and exposes retry when history refresh fails", () => {

@@ -588,7 +588,7 @@ export function AgentMainPanel({
                   onUpdate={onUpdateAgentDisplayName}
                   className="w-full"
                 />
-                {!chatConnected && (
+                {!chatConnected && effectiveAgentStatus?.tone !== "ready" && (
                   <p className="max-w-full truncate text-center text-xs text-text-muted">
                     {chatConnecting ? "Preparing chat" : selectedAgent.state === "RUNNING" ? "Gateway disconnected" : selectedAgent.state}
                   </p>

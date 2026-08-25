@@ -164,6 +164,43 @@ describe("AgentMainPanel", () => {
     expect(screen.getByText("Gateway disconnected")).toHaveClass("text-center");
   });
 
+  it("keeps retained warm-switch status quiet while send authority refreshes", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      chatConnected: false,
+      chatConnecting: true,
+      agentStatus: {
+        label: "Ready",
+        detail: "Agent is online.",
+        tone: "ready",
+      },
+    });
+
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByText("Preparing chat")).not.toBeInTheDocument();
+  });
+
+  it("keeps preparation feedback for a true cold gateway connection", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      chatConnected: false,
+      chatConnecting: true,
+      agentStatus: {
+        label: "Preparing",
+        detail: "Preparing the selected conversation.",
+        tone: "connecting",
+        loading: true,
+      },
+    });
+
+    expect(screen.getByText("Preparing")).toBeInTheDocument();
+    expect(screen.getByText("Preparing chat")).toBeInTheDocument();
+  });
+
   it("updates the display name from the agent header", async () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({
       name: "research-agent",

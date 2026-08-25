@@ -1131,9 +1131,11 @@ export function AgentChatPanel({
         ? "Message agent..."
         : chat.historyPhase === "error"
           ? "Retry conversation before sending..."
-          : "Verifying conversation..."
+          : "Loading conversation..."
       : chat.connecting
-        ? "Preparing chat..."
+        ? chat.gatewayConnected
+          ? "Loading conversation..."
+          : "Preparing chat..."
         : "Connect gateway to message...";
   React.useLayoutEffect(() => {
     const textarea = textareaRef.current;

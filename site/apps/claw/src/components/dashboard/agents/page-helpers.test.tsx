@@ -5,7 +5,7 @@ import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
 import { AgentLaunchPrompt, AgentLoadingState, getAgentWorkspaceStatus } from "./page-helpers";
 
 describe("getAgentWorkspaceStatus", () => {
-  it("distinguishes gateway acquisition from conversation verification", () => {
+  it("distinguishes cold gateway acquisition from a retained conversation", () => {
     expect(getAgentWorkspaceStatus({
       connected: false,
       connecting: true,
@@ -25,13 +25,13 @@ describe("getAgentWorkspaceStatus", () => {
       hydrating: true,
       conversation: true,
     })).toMatchObject({
-      label: "Verifying",
-      detail: "Verifying the selected conversation.",
-      loading: true,
+      label: "Ready",
+      detail: "Agent is online.",
+      tone: "ready",
     });
   });
 
-  it("keeps non-chat workspace hydration and readiness explicit", () => {
+  it("keeps the agent ready while a retained non-chat workspace hydrates", () => {
     expect(getAgentWorkspaceStatus({
       connected: false,
       connecting: true,
@@ -39,9 +39,9 @@ describe("getAgentWorkspaceStatus", () => {
       hydrating: true,
       conversation: false,
     })).toMatchObject({
-      label: "Loading",
-      detail: "Loading the selected workspace.",
-      loading: true,
+      label: "Ready",
+      detail: "Agent is online.",
+      tone: "ready",
     });
 
     expect(getAgentWorkspaceStatus({
@@ -52,11 +52,11 @@ describe("getAgentWorkspaceStatus", () => {
       conversation: false,
     })).toMatchObject({
       label: "Ready",
-      detail: "Workspace is ready.",
+      detail: "Agent is online.",
     });
   });
 
-  it("does not report Hermes ready while its retained session is hydrating", () => {
+  it("keeps Hermes ready while its retained session is hydrating", () => {
     expect(getAgentWorkspaceStatus({
       connected: true,
       connecting: false,
@@ -64,9 +64,23 @@ describe("getAgentWorkspaceStatus", () => {
       hydrating: true,
       conversation: true,
     })).toMatchObject({
-      label: "Verifying",
-      detail: "Verifying the selected conversation.",
-      loading: true,
+      label: "Ready",
+      detail: "Agent is online.",
+      tone: "ready",
+    });
+  });
+
+  it("reports a stopped transport as disconnected", () => {
+    expect(getAgentWorkspaceStatus({
+      connected: false,
+      connecting: false,
+      gatewayConnected: false,
+      hydrating: false,
+      conversation: true,
+    })).toEqual({
+      label: "Disconnected",
+      detail: "Gateway disconnected.",
+      tone: "disconnected",
     });
   });
 });
