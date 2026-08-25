@@ -2245,61 +2245,6 @@ describe('Agents SDK', () => {
     );
   });
 
-  it('gets, uploads, and deletes external-agent profile images through dedicated routes', async () => {
-    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => new Response(
-      JSON.stringify(init?.method === 'GET' ? {
-        id: 'external-123',
-        user_id: 'user-456',
-        state: 'active',
-        name: 'external-agent',
-        managed: false,
-        runtime: 'openclaw',
-      } : {
-        id: 'external-123',
-        avatar_url: init?.method === 'DELETE'
-          ? null
-          : 'https://cdn.example.test/prod/user-456/external-123.png',
-        s3_key: init?.method === 'DELETE'
-          ? null
-          : 'prod/user-456/external-123.png',
-      }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    ));
-    vi.stubGlobal('fetch', fetchMock);
-    const http = new HTTPClient('https://api.test.hypercli.com/agents', 'hyper_api_test');
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-    const file = new Blob(['png'], { type: 'image/png' });
-
-    const external = await deployments.getExternalAgent('external-123');
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      'https://api.test.hypercli.com/agents/external-agents/external-123',
-      expect.objectContaining({ method: 'GET' }),
-    );
-    expect(external.managed).toBe(false);
-
-    await expect(deployments.uploadExternalAgentProfileImage('external-123', file)).resolves.toEqual({
-      id: 'external-123',
-      avatar_url: 'https://cdn.example.test/prod/user-456/external-123.png',
-      s3_key: 'prod/user-456/external-123.png',
-    });
-    await expect(deployments.deleteExternalAgentProfileImage('external-123')).resolves.toEqual({
-      id: 'external-123',
-      avatar_url: null,
-      s3_key: null,
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      'https://api.test.hypercli.com/agents/external-agents/external-123/profile-image',
-      expect.objectContaining({ method: 'POST', body: file }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      3,
-      'https://api.test.hypercli.com/agents/external-agents/external-123/profile-image',
-      expect.objectContaining({ method: 'DELETE' }),
-    );
-  });
-
   it('starts Slack OAuth through the relay REST endpoint', async () => {
     const fetchMock = vi.fn(async () => new Response(
       JSON.stringify({
@@ -2606,7 +2551,6 @@ describe('Agents SDK', () => {
       is_launchable: false,
       launch_config: { image: 'ghcr.io/hypercli/hypercli-openclaw:prod' },
       gateway_id: 'gateway-123',
-      runtime_key_alias: 'key-123',
       relay_key: { api_key: 'hyper_api_secret', key_id: 'key-123' },
     } as any);
 
@@ -2623,7 +2567,6 @@ describe('Agents SDK', () => {
     expect(agent.isLaunchable).toBe(false);
     expect(agent.launchConfig).toEqual({ image: 'ghcr.io/hypercli/hypercli-openclaw:prod' });
     expect(agent.gatewayId).toBe('gateway-123');
-    expect(agent.runtimeKeyAlias).toBe('key-123');
     expect(agent.relayKey).toEqual({ api_key: 'hyper_api_secret', key_id: 'key-123' });
 
     const legacy = Agent.fromDict({
@@ -2636,78 +2579,6 @@ describe('Agents SDK', () => {
     expect(legacy.avatarUrl).toBeNull();
     expect(legacy.managed).toBe(false);
     expect(legacy.isLaunchable).toBe(false);
-  });
-
-  it('updates external agents by exact id with nullable camel-case fields', async () => {
-    const http = {
-      patch: vi.fn().mockResolvedValue({
-        id: 'backend-external-id',
-        user_id: 'user-456',
-        state: 'inactive',
-        name: 'external-agent-renamed',
-        display_name: null,
-        managed: false,
-        runtime: 'openclaw',
-      }),
-    } as unknown as HTTPClient;
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-
-    const agent = await deployments.updateExternalAgent('backend-external-id', {
-      name: 'external-agent-renamed',
-      displayName: null,
-      handle: null,
-      runtime: 'openclaw',
-      status: 'inactive',
-      meta: null,
-    });
-
-    expect(http.patch).toHaveBeenCalledWith('/external-agents/backend-external-id', {
-      name: 'external-agent-renamed',
-      display_name: null,
-      handle: null,
-      runtime: 'openclaw',
-      status: 'inactive',
-      meta: null,
-    });
-    expect(agent.id).toBe('backend-external-id');
-    expect(agent.managed).toBe(false);
-  });
-
-  it('creates and rotates external agent relay keys through dedicated routes', async () => {
-    const http = {
-      post: vi
-        .fn()
-        .mockResolvedValueOnce({
-          id: 'external-123',
-          user_id: 'user-456',
-          state: 'active',
-          managed: false,
-          runtime: 'openclaw',
-          runtime_key_alias: 'key-123',
-          relay_key: { api_key: 'hyper_api_secret', key_id: 'key-123' },
-        })
-        .mockResolvedValueOnce({ relay_key: { api_key: 'hyper_api_next', key_id: 'key-456' } }),
-    } as unknown as HTTPClient;
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-
-    const agent = await deployments.createExternalAgent({
-      name: 'external-agent',
-      displayName: 'External',
-      handle: 'external',
-    });
-    const rotated = await deployments.rotateExternalAgentKey('external-123');
-
-    expect(http.post).toHaveBeenNthCalledWith(1, '/external-agents', {
-      name: 'external-agent',
-      runtime: 'openclaw',
-      status: 'active',
-      display_name: 'External',
-      handle: 'external',
-    });
-    expect(agent.isLaunchable).toBe(false);
-    expect(agent.relayKey).toEqual({ api_key: 'hyper_api_secret', key_id: 'key-123' });
-    expect(http.post).toHaveBeenNthCalledWith(2, '/external-agents/external-123/keys/rotate');
-    expect(rotated).toEqual({ relay_key: { api_key: 'hyper_api_next', key_id: 'key-456' } });
   });
 
   it('configures Slack relay through the gateway helper', async () => {

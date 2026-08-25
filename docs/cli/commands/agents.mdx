@@ -25,7 +25,6 @@ It covers:
 | Read-only discovery | `budget`, `list`/`ls`, `status`, `metrics`, `web-search` |
 | Lifecycle | `create`, `wait`, `start`, `stop`, `delete` |
 | Routes | `routes list`, `routes add`, `routes remove` |
-| External runtimes | `external-create`, `external-rotate-key` |
 | Container access | `exec`, `cp`, `shell`, `logs`, `token` |
 | Compatibility chat | `chat` |
 | Gateway | `config`, `config-patch`, `models`, `files`, `sessions`, `cron`, `cron-add`, `cron-remove`, `cron-run`, `gateway-chat` |
@@ -272,25 +271,9 @@ ID, status code, or timestamp and redact before sharing. Never mutate or
 restart a workload as part of diagnosis without approval.
 
 Ask before using `exec`, `shell`, remote-destination `cp`, `config-patch`,
-`cron-add`, `cron-remove`, `cron-run`, `token`, `start`, `stop`, `delete`,
-`external-create`, or `external-rotate-key`.
+`cron-add`, `cron-remove`, `cron-run`, `token`, `start`, `stop`, or `delete`.
 
-## External Agents And Search
-
-`external-create` and `external-rotate-key` are host-administrator operations
-for a separately customer-hosted runtime. They are not launch options for a
-HyperCLI-managed agent and should not be used to start, restart, repair, or
-configure the current runtime.
-
-Register a customer-hosted runtime:
-
-```bash
-hyper agents external-create example-runtime
-hyper agents external-rotate-key <agent_id>
-```
-
-Both commands can print a relay key that is shown once. Capture it only in an
-approved secret store; do not paste the text or JSON output into chat.
+## Search
 
 Search through the HyperCLI Brave proxy:
 

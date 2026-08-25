@@ -484,7 +484,6 @@ interface AgentSettingsPanelProps {
   reportedChannels?: AgentChannelSummary[];
   reportedChannelsReady?: boolean;
   onUpdateAgentProfile?: (agentId: string, profile: { name?: string; handle?: string | null }) => Promise<void>;
-  onUpdateExternalAgentProfile?: (agentId: string, profile: { name?: string; displayName?: string | null; handle?: string | null }) => Promise<void>;
   onUploadAgentAvatar?: (agentId: string, file: File) => Promise<string>;
   onDeleteAgentAvatar?: (agentId: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
@@ -1278,7 +1277,6 @@ function AgentSectionSettingsContent({
   const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
-  const externalAgent = agent.managed === false;
   const hermesRuntime = isHermesAgentRuntime(agent.runtime);
   const failedRuntimeNeedsCleanup = agent.state === "FAILED";
   const canStartAgent = isAgentStartable(agent);
@@ -1413,7 +1411,7 @@ function AgentSectionSettingsContent({
               value={agentName}
               onChange={(event) => onAgentNameChange(event.target.value)}
               placeholder="Agent name"
-              maxLength={externalAgent ? 64 : 32}
+              maxLength={32}
               spellCheck={false}
               className={SETTINGS_FIELD_CLASS}
             />
@@ -1421,32 +1419,18 @@ function AgentSectionSettingsContent({
 
           <AgentProfileSettingsRow
             label="Display name"
-            description={externalAgent
-              ? "Shown in the agent roster and other user-facing views."
-              : `Shown across HyperCLI. Spaces become dashes when this name is used with @${SLACK_APP_HANDLE} in Slack.`}
+            description={`Shown across HyperCLI. Spaces become dashes when this name is used with @${SLACK_APP_HANDLE} in Slack.`}
           >
             <input
               aria-label="Agent display name"
               value={agentDisplayName}
               onChange={(event) => onAgentDisplayNameChange(event.target.value)}
               placeholder="Display name"
-              maxLength={externalAgent ? 255 : 64}
-              spellCheck={externalAgent}
+              maxLength={64}
+              spellCheck={false}
               className={SETTINGS_FIELD_CLASS}
             />
           </AgentProfileSettingsRow>
-
-          {externalAgent ? (
-            <AgentProfileSettingsRow label="Slack handle" description={`Mention as @${SLACK_APP_HANDLE} ${agentHandle || "agent"}.`}>
-              <input
-                value={agentHandle}
-                onChange={(event) => onAgentHandleChange(event.target.value)}
-                placeholder="coder"
-                spellCheck={false}
-                className={SETTINGS_FIELD_CLASS}
-              />
-            </AgentProfileSettingsRow>
-          ) : null}
 
           <AgentProfileSettingsRow
             label="Avatar"
@@ -1901,7 +1885,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     reportedChannels = [],
     reportedChannelsReady = false,
     onUpdateAgentProfile,
-    onUpdateExternalAgentProfile,
     onUploadAgentAvatar,
     onDeleteAgentAvatar,
     onUpdateAgentLaunchConfig,
@@ -2108,7 +2091,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const profileNameChanged = profileName !== savedProfileName;
   const profileAvatarChanged = Boolean(profileAvatarFile) || profileAvatar !== savedProfileAvatar;
   const profileChanged = profileNameChanged || profileAvatarChanged;
-  const externalAgent = agent?.managed === false;
   const hermesRuntime = isHermesAgentRuntime(agent?.runtime);
   const normalizedSavedAgentHandle = normalizeAgentHandle(savedAgentHandle);
   const normalizedAgentHandleDraft = normalizeAgentHandle(agentHandleDraft);
@@ -2177,16 +2159,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const nextAgentName = agentNameDraft.trim();
     const agentDisplayNameChanged = agentDisplayNameDraft !== savedAgentDisplayName;
     const nextAgentDisplayName = agentDisplayNameDraft.trim() || null;
-    const managedDisplayNameChanged = !externalAgent && agentDisplayNameChanged;
-    const nextAgentHandle = externalAgent
-      ? normalizedAgentHandleDraft
-      : nextAgentDisplayName === nextAgentName
-        ? null
-        : normalizeAgentHandle(agentDisplayNameDraft);
-    const agentHandleChanged = externalAgent
-      ? normalizedAgentHandleDraft !== normalizedSavedAgentHandle
-      : managedDisplayNameChanged;
-    const backendProfileChanged = agentNameChanged || agentHandleChanged || (externalAgent && agentDisplayNameChanged);
+    const managedDisplayNameChanged = agentDisplayNameChanged;
+    const nextAgentHandle = nextAgentDisplayName === nextAgentName
+      ? null
+      : normalizeAgentHandle(agentDisplayNameDraft);
+    const agentHandleChanged = managedDisplayNameChanged;
+    const backendProfileChanged = agentNameChanged || agentHandleChanged;
     const agentImageChanged = agentImageDraft !== savedAgentImage;
     const additionalEnvChanged = additionalEnvDraft !== savedAdditionalEnvDraft;
     const managedHyperEnvChanged = managedHyperEnvDraft !== savedManagedHyperEnvDraft;
@@ -2198,9 +2176,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     }
 
     if (agentHandleChanged && !validAgentHandle(nextAgentHandle)) {
-      setAgentSettingsError(externalAgent
-        ? "Slack handles must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes."
-        : "Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
+      setAgentSettingsError("Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
       return;
     }
 
@@ -2219,7 +2195,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       }
     }
 
-    if (backendProfileChanged && (externalAgent ? !onUpdateExternalAgentProfile : !onUpdateAgentProfile)) {
+    if (backendProfileChanged && !onUpdateAgentProfile) {
       setAgentSettingsError("Agent profile updates are unavailable.");
       return;
     }
@@ -2299,28 +2275,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setProfileSuccess("Profile updated.");
       }
 
-      if (backendProfileChanged && externalAgent && onUpdateExternalAgentProfile) {
-        savingSection = "agent";
-        await onUpdateExternalAgentProfile(agent.id, {
-          ...(agentNameChanged ? { name: nextAgentName } : {}),
-          ...(agentDisplayNameChanged ? { displayName: nextAgentDisplayName } : {}),
-          ...(agentHandleChanged ? { handle: nextAgentHandle } : {}),
-        });
-        if (agentNameChanged) {
-          setAgentNameDraft(nextAgentName);
-          setSavedAgentName(nextAgentName);
-        }
-        if (agentDisplayNameChanged) {
-          const savedDisplayName = nextAgentDisplayName ?? nextAgentName;
-          setAgentDisplayNameDraft(savedDisplayName);
-          setSavedAgentDisplayName(savedDisplayName);
-        }
-        if (agentHandleChanged) {
-          setAgentHandleDraft(nextAgentHandle ?? "");
-          setSavedAgentHandle(nextAgentHandle ?? "");
-        }
-        setAgentSettingsSuccess("Agent settings updated.");
-      } else if (backendProfileChanged && !externalAgent && onUpdateAgentProfile) {
+      if (backendProfileChanged && onUpdateAgentProfile) {
         savingSection = "agent";
         await onUpdateAgentProfile(agent.id, {
           ...(agentNameChanged ? { name: nextAgentName } : {}),
@@ -2439,7 +2394,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     configuredChannelIds,
     desktopChanged,
     desktopEnabledDraft,
-    externalAgent,
     getToken,
     hasSettingsChanges,
     hermesRuntime,
@@ -2451,7 +2405,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     modelDraft,
     normalizedAgentHandleDraft,
     normalizedSavedAgentHandle,
-    onUpdateExternalAgentProfile,
     onUpdateAgentLaunchConfig,
     onUpdateAgentProfile,
     onProfileAvatarChange,

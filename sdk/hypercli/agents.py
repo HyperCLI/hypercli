@@ -1258,7 +1258,6 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "managed": data.get("managed"),
         "is_launchable": bool(is_launchable),
         "gateway_id": data.get("gateway_id"),
-        "runtime_key_alias": data.get("runtime_key_alias"),
         "relay_key": data.get("relay_key") if isinstance(data.get("relay_key"), dict) else None,
         "cpu": data.get("cpu", 0),
         "memory": data.get("memory", 0),
@@ -2011,7 +2010,6 @@ class Agent:
     managed: Optional[bool] = None
     is_launchable: bool = True
     gateway_id: Optional[str] = None
-    runtime_key_alias: Optional[str] = None
     relay_key: Optional[dict] = None
     cpu: int = 0  # cores
     memory: int = 0  # GB
@@ -4044,63 +4042,6 @@ class Deployments:
             with. ``is_agent_runtime_key`` is True when it belongs to one Agent.
         """
         return AgentAccessIdentity.from_dict(self._get(f"{AGENTS_API_PREFIX}/auth/me"))
-
-    def create_external_agent(
-        self,
-        *,
-        name: str,
-        display_name: str | None = None,
-        handle: str | None = None,
-        runtime: str = "openclaw",
-        status: str = "active",
-        meta: dict | None = None,
-    ) -> Agent:
-        """Register a customer-hosted external agent and return its show-once relay key."""
-        body: dict[str, Any] = {
-            "name": name,
-            "runtime": runtime,
-            "status": status,
-        }
-        if display_name is not None:
-            body["display_name"] = display_name
-        if handle is not None:
-            body["handle"] = handle
-        if meta is not None:
-            body["meta"] = meta
-        return self._hydrate_agent(self._post("/external-agents", body))
-
-    def update_external_agent(
-        self,
-        external_agent_id: str,
-        *,
-        name: str | None | object = _UNSET,
-        display_name: str | None | object = _UNSET,
-        handle: str | None | object = _UNSET,
-        runtime: Literal["openclaw"] | None | object = _UNSET,
-        status: Literal["active", "inactive", "error"] | None | object = _UNSET,
-        meta: dict | None | object = _UNSET,
-    ) -> Agent:
-        """Update a customer-hosted external agent by its exact backend ID."""
-        body: dict[str, Any] = {}
-        if name is not _UNSET:
-            body["name"] = name
-        if display_name is not _UNSET:
-            body["display_name"] = display_name
-        if handle is not _UNSET:
-            body["handle"] = handle
-        if runtime is not _UNSET:
-            body["runtime"] = runtime
-        if status is not _UNSET:
-            body["status"] = status
-        if meta is not _UNSET:
-            body["meta"] = meta
-        data = self._patch(f"/external-agents/{external_agent_id}", body)
-        return self._hydrate_agent(data)
-
-    def rotate_external_agent_key(self, agent_id_or_name: str) -> dict:
-        """Rotate an external agent relay key and return the new plaintext key once."""
-        agent_id = self.resolve_agent_id(agent_id_or_name)
-        return self._post(f"/external-agents/{agent_id}/keys/rotate")
 
     def attach_slack_relay_agent(
         self,

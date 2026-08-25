@@ -136,7 +136,6 @@ def test_status_passes_self_without_local_resolution(monkeypatch):
         display_name=None,
         avatar_url=None,
         runtime="opencode",
-        runtime_key_alias="runtime-key-1",
         cpu=4,
         memory=16,
         state="running",

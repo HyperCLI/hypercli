@@ -716,7 +716,6 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
             "is_launchable": False,
             "launch_config": {"image": "ghcr.io/hypercli/hypercli-openclaw:prod"},
             "gateway_id": "gateway-123",
-            "runtime_key_alias": "key-123",
             "relay_key": {"api_key": "hyper_api_secret", "key_id": "key-123"},
         }
     )
@@ -734,7 +733,6 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
     assert agent.is_launchable is False
     assert agent.launch_config == {"image": "ghcr.io/hypercli/hypercli-openclaw:prod"}
     assert agent.gateway_id == "gateway-123"
-    assert agent.runtime_key_alias == "key-123"
     assert agent.relay_key == {"api_key": "hyper_api_secret", "key_id": "key-123"}
 
     legacy = Agent.from_dict(
@@ -749,103 +747,6 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
     assert legacy.avatar_url is None
     assert legacy.managed is False
     assert legacy.is_launchable is False
-
-
-def test_deployments_external_agent_helpers_call_expected_routes():
-    http = Mock(spec=HTTPClient)
-    deployments = Deployments(
-        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
-    )
-
-    with patch.object(deployments, "_post") as post:
-        post.return_value = {
-            "id": "external-123",
-            "user_id": "user-456",
-            "state": "active",
-            "managed": False,
-            "runtime": "openclaw",
-            "runtime_key_alias": "key-123",
-            "relay_key": {"api_key": "hyper_api_secret", "key_id": "key-123"},
-        }
-        agent = deployments.create_external_agent(
-            name="external-agent", display_name="External", handle="external"
-        )
-
-    post.assert_called_once_with(
-        "/external-agents",
-        {
-            "name": "external-agent",
-            "runtime": "openclaw",
-            "status": "active",
-            "display_name": "External",
-            "handle": "external",
-        },
-    )
-    assert agent.is_launchable is False
-    assert agent.relay_key == {"api_key": "hyper_api_secret", "key_id": "key-123"}
-
-    with patch.object(
-        deployments, "_post", return_value={"relay_key": {"api_key": "hyper_api_next"}}
-    ) as post:
-        assert deployments.rotate_external_agent_key("external-123") == {
-            "relay_key": {"api_key": "hyper_api_next"}
-        }
-
-    post.assert_called_once_with("/external-agents/external-123/keys/rotate")
-
-
-def test_update_external_agent_uses_exact_id_and_preserves_explicit_nulls():
-    http = Mock(spec=HTTPClient)
-    deployments = Deployments(
-        http, api_key="hyper_api_test", api_base="https://api.test.hypercli.com/agents"
-    )
-    response = {
-        "id": "backend-external-id",
-        "user_id": "user-456",
-        "state": "inactive",
-        "name": "external-agent-renamed",
-        "display_name": None,
-        "managed": False,
-        "runtime": "openclaw",
-    }
-
-    with (
-        patch.object(deployments, "_patch", return_value=response) as patch_request,
-        patch.object(
-            deployments,
-            "resolve_agent_id",
-            side_effect=AssertionError("external agent IDs must not use managed resolution"),
-        ) as resolve_agent_id,
-    ):
-        agent = deployments.update_external_agent(
-            "backend-external-id",
-            name="external-agent-renamed",
-            display_name=None,
-            handle=None,
-            runtime="openclaw",
-            status="inactive",
-            meta=None,
-        )
-        deployments.update_external_agent("backend-external-id", name="external-agent-renamed")
-
-    assert patch_request.call_args_list[0].args == (
-        "/external-agents/backend-external-id",
-        {
-            "name": "external-agent-renamed",
-            "display_name": None,
-            "handle": None,
-            "runtime": "openclaw",
-            "status": "inactive",
-            "meta": None,
-        },
-    )
-    assert patch_request.call_args_list[1].args == (
-        "/external-agents/backend-external-id",
-        {"name": "external-agent-renamed"},
-    )
-    resolve_agent_id.assert_not_called()
-    assert agent.id == "backend-external-id"
-    assert agent.managed is False
 
 
 @pytest.mark.asyncio

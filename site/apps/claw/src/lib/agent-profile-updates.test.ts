@@ -20,7 +20,6 @@ describe("managedAgentHandleFromDisplayName", () => {
 function updateClient() {
   return {
     update: vi.fn(async () => ({ endpoint: "managed" })),
-    updateExternalAgent: vi.fn(async () => ({ endpoint: "external" })),
   };
 }
 
@@ -126,16 +125,14 @@ describe("agent profile updates", () => {
     expect(upsertAgentSnapshot([newerStarting], delayedStopped)).toEqual([newerStarting]);
   });
 
-  it("routes canonical names by explicit external provenance", async () => {
+  it("routes canonical names through the managed endpoint", async () => {
     const client = updateClient();
 
     await persistAgentCanonicalName(client, { id: "managed-1", managed: true, name: "managed" }, " Managed Name ");
     await persistAgentCanonicalName(client, { id: "unknown-1", managed: null, name: "unknown" }, "Unknown Name");
-    await persistAgentCanonicalName(client, { id: "external-1", managed: false, name: "external" }, "External Name");
 
     expect(client.update).toHaveBeenNthCalledWith(1, "managed-1", { name: "Managed Name" });
     expect(client.update).toHaveBeenNthCalledWith(2, "unknown-1", { name: "Unknown Name" });
-    expect(client.updateExternalAgent).toHaveBeenCalledWith("external-1", { name: "External Name" });
   });
 
   it("persists managed and unknown display names as backend handles", async () => {
@@ -160,20 +157,6 @@ describe("agent profile updates", () => {
     expect(client.update).toHaveBeenNthCalledWith(1, "managed-1", { handle: "managed_alias" });
     expect(client.update).toHaveBeenNthCalledWith(2, "unknown-1", { handle: "unknown" });
     expect(client.update).toHaveBeenNthCalledWith(3, "managed-2", { handle: "best-one-in-the-world" });
-    expect(client.updateExternalAgent).not.toHaveBeenCalled();
-  });
-
-  it("persists external display names through the external-agent endpoint", async () => {
-    const client = updateClient();
-
-    await expect(persistAgentDisplayName(
-      client,
-      { id: "external-1", managed: false, name: "external" },
-      " External Alias ",
-    )).resolves.toEqual({ endpoint: "external" });
-
-    expect(client.updateExternalAgent).toHaveBeenCalledWith("external-1", { displayName: "External Alias" });
-    expect(client.update).not.toHaveBeenCalled();
   });
 
   it("rejects managed display names that cannot be backend handles", async () => {
@@ -185,6 +168,5 @@ describe("agent profile updates", () => {
       "Friendly Alias!",
     )).rejects.toThrow("Display names must start with a letter or number and contain 2-64 letters, numbers, spaces, underscores, or dashes.");
     expect(client.update).not.toHaveBeenCalled();
-    expect(client.updateExternalAgent).not.toHaveBeenCalled();
   });
 });

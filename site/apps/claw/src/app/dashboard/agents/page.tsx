@@ -6187,17 +6187,6 @@ function AgentsPageContent() {
       if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(updatedAgent);
     },
-    onUpdateExternalAgentProfile: async (agentId, profile) => {
-      const generation = agentDataGenerationRef.current;
-      const updatedAgent = await runAgentMutation(agentId, async () => {
-        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        const token = await getToken();
-        if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-        return createAgentClient(token).updateExternalAgent(agentId, profile);
-      });
-      if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-      applyAgentMutationResult(updatedAgent);
-    },
     onUploadAgentAvatar: async (agentId, file) => {
       const generation = agentDataGenerationRef.current;
       return runAgentMutation(agentId, async () => {
@@ -6208,17 +6197,12 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during upload.");
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
         const client = createAgentClient(token);
-        const external = targetAgent.managed === false;
-        const upload = external
-          ? await client.uploadExternalAgentProfileImage(agentId, file, file.type || "image/png")
-          : await client.uploadProfileImage(agentId, file, file.type || "image/png");
+        const upload = await client.uploadProfileImage(agentId, file, file.type || "image/png");
         if (!upload.avatar_url) throw new Error("Avatar upload returned no URL.");
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return upload.avatar_url;
         setAgentAvatarOverride(agentId, upload.avatar_url, file);
         try {
-          const updatedAgent = external
-            ? await client.getExternalAgent(agentId)
-            : await client.get(agentId);
+          const updatedAgent = await client.get(agentId);
           if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
             applyAgentMutationResult(updatedAgent);
           }
@@ -6238,15 +6222,11 @@ function AgentsPageContent() {
         if (generation !== agentDataGenerationRef.current) throw new Error("Account changed during avatar removal.");
         if (deletingAgentIdsRef.current.has(agentId)) throw new Error("Agent is being deleted.");
         const client = createAgentClient(token);
-        const external = targetAgent.managed === false;
-        if (external) await client.deleteExternalAgentProfileImage(agentId);
-        else await client.deleteProfileImage(agentId);
+        await client.deleteProfileImage(agentId);
         if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
         setAgentAvatarOverride(agentId, null);
         try {
-          const updatedAgent = external
-            ? await client.getExternalAgent(agentId)
-            : await client.get(agentId);
+          const updatedAgent = await client.get(agentId);
           if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
             applyAgentMutationResult(updatedAgent);
           }

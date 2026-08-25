@@ -1039,24 +1039,6 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
   runtime?: ManagedAgentRuntime;
 }
 
-export interface CreateExternalAgentOptions {
-  name: string;
-  displayName?: string | null;
-  handle?: string | null;
-  runtime?: string;
-  status?: string;
-  meta?: Record<string, any> | null;
-}
-
-export interface UpdateExternalAgentOptions {
-  name?: string | null;
-  displayName?: string | null;
-  handle?: string | null;
-  runtime?: 'openclaw' | null;
-  status?: 'active' | 'inactive' | 'error' | null;
-  meta?: Record<string, any> | null;
-}
-
 export interface StartAgentOptions {
   /**
    * Complete replacement launch configuration. The two keys the owner-facing
@@ -1519,7 +1501,6 @@ export interface AgentStateFields {
   managed?: boolean | null;
   isLaunchable?: boolean;
   gatewayId?: string | null;
-  runtimeKeyAlias?: string | null;
   relayKey?: AgentRelayKey | null;
   cpu: number;
   memory: number;
@@ -1560,7 +1541,6 @@ export interface AgentHydrationData {
   managed?: boolean | null;
   is_launchable?: boolean;
   gateway_id?: string | null;
-  runtime_key_alias?: string | null;
   relay_key?: AgentRelayKey | null;
   cpu?: number;
   memory?: number;
@@ -2065,7 +2045,6 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     managed: data.managed ?? null,
     isLaunchable: data.is_launchable ?? data.managed !== false,
     gatewayId: data.gateway_id ?? null,
-    runtimeKeyAlias: data.runtime_key_alias ?? null,
     relayKey: data.relay_key ?? null,
     cpu: data.cpu ?? 0,
     memory: data.memory ?? 0,
@@ -2718,7 +2697,6 @@ export class Agent {
   public readonly managed: boolean | null;
   public readonly isLaunchable: boolean;
   public readonly gatewayId: string | null;
-  public readonly runtimeKeyAlias: string | null;
   public readonly relayKey: AgentRelayKey | null;
   public readonly cpu: number;
   public readonly memory: number;
@@ -2759,7 +2737,6 @@ export class Agent {
     this.managed = fields.managed ?? null;
     this.isLaunchable = fields.isLaunchable ?? true;
     this.gatewayId = fields.gatewayId ?? null;
-    this.runtimeKeyAlias = fields.runtimeKeyAlias ?? null;
     this.relayKey = fields.relayKey ? structuredClone(fields.relayKey) : null;
     this.cpu = fields.cpu;
     this.memory = fields.memory;
@@ -5167,58 +5144,6 @@ export class Deployments {
       }
       return this.resolveAgent(raw, requestOptions);
     }
-  }
-
-  async createExternalAgent(options: CreateExternalAgentOptions): Promise<Agent> {
-    const body: Record<string, any> = {
-      name: options.name,
-      runtime: options.runtime ?? 'openclaw',
-      status: options.status ?? 'active',
-    };
-    if (options.displayName !== undefined) body.display_name = options.displayName;
-    if (options.handle !== undefined) body.handle = options.handle;
-    if (options.meta !== undefined) body.meta = options.meta;
-    const data = await this.agentHttp.post<AgentHydrationData>('/external-agents', body);
-    return this.hydrateAgent(data);
-  }
-
-  async updateExternalAgent(externalAgentId: string, options: UpdateExternalAgentOptions): Promise<Agent> {
-    const body: Record<string, any> = {};
-    if (options.name !== undefined) body.name = options.name;
-    if (options.displayName !== undefined) body.display_name = options.displayName;
-    if (options.handle !== undefined) body.handle = options.handle;
-    if (options.runtime !== undefined) body.runtime = options.runtime;
-    if (options.status !== undefined) body.status = options.status;
-    if (options.meta !== undefined) body.meta = options.meta;
-    const data = await this.agentHttp.patch<AgentHydrationData>(`/external-agents/${externalAgentId}`, body);
-    return this.hydrateAgent(data);
-  }
-
-  async getExternalAgent(externalAgentId: string): Promise<Agent> {
-    const data = await this.agentHttp.get<AgentHydrationData>(`/external-agents/${externalAgentId}`);
-    return this.hydrateAgent(data);
-  }
-
-  async uploadExternalAgentProfileImage(
-    externalAgentId: string,
-    content: Blob | ArrayBuffer | ArrayBufferView,
-    contentType?: string,
-  ): Promise<AgentProfileImageUploadResult> {
-    const resolvedContentType = contentType || (content instanceof Blob ? content.type : '') || 'image/png';
-    return this.agentHttp.postRaw<AgentProfileImageUploadResult>(
-      `/external-agents/${externalAgentId}/profile-image`,
-      content,
-      resolvedContentType,
-    );
-  }
-
-  async deleteExternalAgentProfileImage(externalAgentId: string): Promise<AgentProfileImageUploadResult> {
-    return this.agentHttp.delete<AgentProfileImageUploadResult>(`/external-agents/${externalAgentId}/profile-image`);
-  }
-
-  async rotateExternalAgentKey(agentIdOrName: string): Promise<Record<string, any>> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.post(`/external-agents/${agentId}/keys/rotate`);
   }
 
   async attachSlackRelayAgent(

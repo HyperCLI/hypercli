@@ -446,12 +446,6 @@ Weak points:
 - Roster loading also waits on selected-Collection association loading even though the visible roster is account-wide.
 - Account and selected-Collection concepts coexist without a visible global Collection picker, increasing scope ambiguity.
 
-Existing external agents:
-
-- Agents with `managed=false` retain an explicit display name rather than using the managed-name derivation.
-- They expose a separate Slack handle and use dedicated external-agent profile/avatar APIs.
-- Claw can display and edit existing external-agent identity, but provides no external-agent creation/import or API-key rotation control even though client-library operations exist.
-
 ### Agent Creation
 
 **Entry points:** roster launch action, Home, empty states, preview CTAs, `open=agent-launcher`, selected plan, and Journey actions<br>
@@ -1347,7 +1341,6 @@ Weak evidence:
 | Landing Hero/Pricing components                | Orphaned              | Components exist without an application route import                                                                                                                 |
 | Self-service account deletion                  | Missing               | No UI, hook, SDK function, or route found; Privacy directs deletion requests to support email                                                                        |
 | Existing grant role edit                       | Missing               | SDK supports update, UI requires revoke/add behavior                                                                                                                 |
-| External-agent import/key rotation             | Missing               | Existing external agents can be displayed/edited, but creation/import and key rotation have no Claw control                                                          |
 | Slack disconnect                               | Missing               | UI explicitly disables it; no SDK operation found                                                                                                                    |
 | Persistent activity audit log                  | Missing               | Home is a current snapshot only                                                                                                                                      |
 | Job execution history/results                  | Missing               | Only configured jobs and projected/reported next runs are available                                                                                                  |

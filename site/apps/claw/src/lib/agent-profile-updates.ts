@@ -1,7 +1,6 @@
 import type {
   Agent as SdkAgent,
   UpdateAgentOptions,
-  UpdateExternalAgentOptions,
 } from "@hypercli.com/sdk/agents";
 
 type AgentProfileIdentity = Pick<SdkAgent, "id" | "managed" | "name">;
@@ -34,7 +33,6 @@ export function managedAgentHandleFromDisplayName(displayName: string): string {
 
 interface AgentProfileUpdateClient<TAgent = SdkAgent> {
   update: (agentId: string, options: UpdateAgentOptions) => Promise<TAgent>;
-  updateExternalAgent: (agentId: string, options: UpdateExternalAgentOptions) => Promise<TAgent>;
 }
 
 export function mergeAgentListAfterMutations<TAgent extends { id: string }>(
@@ -115,9 +113,7 @@ export async function persistAgentCanonicalName<TAgent>(
 ): Promise<TAgent> {
   const nextName = name.trim();
   if (!nextName) throw new Error("Agent name is required.");
-  return agent.managed === false
-    ? client.updateExternalAgent(agent.id, { name: nextName })
-    : client.update(agent.id, { name: nextName });
+  return client.update(agent.id, { name: nextName });
 }
 
 export async function persistAgentDisplayName<TAgent>(
@@ -128,8 +124,5 @@ export async function persistAgentDisplayName<TAgent>(
   const nextDisplayName = displayName.trim();
   if (!nextDisplayName) throw new Error("Display name is required.");
 
-  if (agent.managed === false) {
-    return client.updateExternalAgent(agent.id, { displayName: nextDisplayName.slice(0, 255) });
-  }
   return client.update(agent.id, { handle: managedAgentHandleFromDisplayName(nextDisplayName) });
 }

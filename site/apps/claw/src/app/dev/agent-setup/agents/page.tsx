@@ -2468,17 +2468,6 @@ export default function DevAgentSetupAgentsPage() {
                   if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
                   applyAgentMutationResult(updatedAgent);
                 }}
-                onUpdateExternalAgentProfile={async (agentId, profile) => {
-                  const generation = agentDataGenerationRef.current;
-                  const updatedAgent = await runAgentMutation(agentId, async () => {
-                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                    const token = await getToken();
-                    if (generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return null;
-                    return createAgentClient(token).updateExternalAgent(agentId, profile);
-                  });
-                  if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
-                  applyAgentMutationResult(updatedAgent);
-                }}
                 onUpdateAgentLaunchConfig={async (agentId, launchConfig) => {
                   const generation = agentDataGenerationRef.current;
                   const updatedAgent = await runAgentMutation(agentId, async () => {

@@ -1823,11 +1823,9 @@ describe("AgentSettingsPanel", () => {
 
   it("treats unknown management provenance as managed", async () => {
     const onUpdateAgentProfile = vi.fn(async () => undefined);
-    const onUpdateExternalAgentProfile = vi.fn(async () => undefined);
     renderAgentSettingsPanel({
       agent: { ...agent, managed: null },
       onUpdateAgentProfile,
-      onUpdateExternalAgentProfile,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
@@ -1837,7 +1835,6 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(onUpdateAgentProfile).toHaveBeenCalledWith("agent-1", { handle: "local_alias" });
     });
-    expect(onUpdateExternalAgentProfile).not.toHaveBeenCalled();
   });
 
   it("clears a managed display handle back to its agent name", async () => {
@@ -1898,59 +1895,6 @@ describe("AgentSettingsPanel", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("saves an external display name without changing its agent name", async () => {
-    const onUpdateExternalAgentProfile = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({
-      agent: {
-        ...agent,
-        id: "external-1",
-        name: "research-agent",
-        displayName: "Research Pilot",
-        managed: false,
-      },
-      onUpdateExternalAgentProfile,
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByRole("textbox", { name: "Agent name" })).toHaveValue("research-agent");
-    expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("Research Pilot");
-    expect(screen.getByRole("textbox", { name: "Agent display name" })).not.toHaveAttribute("readonly");
-    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), {
-      target: { value: "Marketing" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => {
-      expect(onUpdateExternalAgentProfile).toHaveBeenCalledWith("external-1", { displayName: "Marketing" });
-    });
-    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
-  });
-
-  it("clears an external display name back to its agent name", async () => {
-    const onUpdateExternalAgentProfile = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({
-      agent: {
-        ...agent,
-        id: "external-1",
-        name: "research-agent",
-        displayName: "Research Pilot",
-        managed: false,
-      },
-      onUpdateExternalAgentProfile,
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Agent display name" }), {
-      target: { value: "   " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => {
-      expect(onUpdateExternalAgentProfile).toHaveBeenCalledWith("external-1", { displayName: null });
-    });
-    expect(screen.getByRole("textbox", { name: "Agent display name" })).toHaveValue("research-agent");
   });
 
   it("saves Docker image and user additional env while preserving managed launch env", async () => {
