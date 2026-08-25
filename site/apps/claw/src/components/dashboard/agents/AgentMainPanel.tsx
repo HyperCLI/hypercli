@@ -492,11 +492,7 @@ export function AgentMainPanel({
               launchLabel="Launch agent"
             />
           ) : currentPanel === "scheduled" ? (
-            <AgentScheduledEmptyState
-              onCreate={onCreate}
-              onLaunchAction={onCreate}
-              launchLabel="Launch agent"
-            />
+            <AgentScheduledEmptyState />
           ) : (
             <AgentEmptyState
               onCreate={onCreate}

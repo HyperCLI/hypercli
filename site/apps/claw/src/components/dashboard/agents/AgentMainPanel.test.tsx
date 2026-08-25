@@ -61,7 +61,11 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     AgentEmptyState: emptyStateButton("Chat empty state", "Create new agent"),
     AgentFilesEmptyState: emptyStateButton("Files empty state", "Launch files agent"),
     AgentIntegrationsEmptyState: emptyStateButton("Integrations empty state", "Launch integrations agent"),
-    AgentScheduledEmptyState: emptyStateButton("Scheduled empty state", "Launch scheduled agent"),
+    AgentScheduledEmptyState: () => (
+      <section aria-label="Scheduled empty state">
+        <button type="button" disabled>Coming soon</button>
+      </section>
+    ),
     AgentSkillsEmptyState: emptyStateButton("Skills empty state", "Launch skills agent"),
     LaunchFirstAgentEmptyState: emptyStateButton("First agent empty state", "Create an agent"),
   };
@@ -352,7 +356,6 @@ describe("AgentMainPanel", () => {
     ["files", "Files empty state"],
     ["integrations", "Integrations empty state"],
     ["skills", "Skills empty state"],
-    ["scheduled", "Scheduled empty state"],
   ] as const)("shows the requested agentless %s preview", (currentPanel, regionName) => {
     const onCreate = vi.fn();
     renderAgentMainPanel({
@@ -368,6 +371,22 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
     fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
     expect(onCreate).toHaveBeenCalledOnce();
+  });
+
+  it("shows Schedule as a non-interactive coming-soon preview", () => {
+    const onCreate = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent: null,
+      showAgentlessSectionPreviews: true,
+      loadingInitialAgents: true,
+      currentPanel: "scheduled",
+      onCreate,
+    });
+
+    const preview = screen.getByRole("region", { name: "Scheduled empty state" });
+    expect(within(preview).getByRole("button", { name: "Coming soon" })).toBeDisabled();
+    expect(within(preview).queryByRole("button", { name: "Launch agent" })).not.toBeInTheDocument();
+    expect(onCreate).not.toHaveBeenCalled();
   });
 
   it("shows the requested agentless desktop preview", () => {

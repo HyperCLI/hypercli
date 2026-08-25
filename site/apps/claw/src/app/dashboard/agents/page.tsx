@@ -198,7 +198,7 @@ import {
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentDesktopEmptyState, AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, type AgentSettingsSection } from "@/components/dashboard/agents/AgentPanels";
+import { AgentDesktopEmptyState, AgentScheduledEmptyState, AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, type AgentSettingsSection } from "@/components/dashboard/agents/AgentPanels";
 import {
   AgentChatPanel,
   normalizeChatFileDropItems,
@@ -283,6 +283,7 @@ import {
   type DashboardView,
 } from "@/lib/dashboard-route";
 import {
+  SCHEDULED_MANAGER_ENABLED,
   isDashboardReleaseSurfaceAvailable,
   normalizeDashboardReleaseSearchParams,
 } from "@/lib/dashboard-release-boundary";
@@ -312,8 +313,6 @@ type SubscriptionSummaryWithEntitlementItems = HyperAgentSubscriptionSummary & {
 
 const SHOW_AGENT_INSPECTOR = false;
 const AGENT_DASHBOARD_TOUR_ENABLED = false;
-const SCHEDULED_SECTION_ENABLED = true;
-const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
 const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const ANONYMOUS_AGENT_PREVIEW_ROTATION_MS = 10_000;
@@ -5387,12 +5386,6 @@ function AgentsPageContent() {
   const journeyChatSurfaceVisible = journeyIntroVisibleInChat || journeyMissionCardVisibleInChat;
 
   useEffect(() => {
-    if (!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode && mainTab === "scheduled") {
-      setMainTab("chat");
-    }
-  }, [anonymousAgentPreviewMode, mainTab]);
-
-  useEffect(() => {
     if (!selectedAgent && openclawSettingsOpen) {
       setOpenclawSettingsOpen(false);
     }
@@ -5462,12 +5455,6 @@ function AgentsPageContent() {
         if (tab === "settings") {
           setOpenclawSettingsOpen(false);
           selectMainTab("settings");
-          setMobileShowChat(true);
-          return;
-        }
-        if (tab === "scheduled" && !SCHEDULED_SECTION_ENABLED) {
-          setOpenclawSettingsOpen(false);
-          selectMainTab("chat");
           setMobileShowChat(true);
           return;
         }
@@ -5812,7 +5799,6 @@ function AgentsPageContent() {
     window.setTimeout(() => mobileSettingsMenuRef.current?.focus(), 0);
   };
   const openScheduledTab = (draftCommand?: unknown) => {
-    if (!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode) return;
     setAnonymousDesktopPreviewOpen(false);
     openAgentSurfaceRoute("scheduled");
     const command = typeof draftCommand === "string" ? draftCommand.trim() : "";
@@ -5826,7 +5812,7 @@ function AgentsPageContent() {
     selectMainTab("scheduled");
     setMobileShowChat(true);
     closeMobileNavigation();
-    if (chat.connected) void chat.refreshCron().catch(() => undefined);
+    if (SCHEDULED_MANAGER_ENABLED && chat.connected) void chat.refreshCron().catch(() => undefined);
   };
   const openDesktopPreview = () => {
     if (!anonymousAgentPreviewMode) return;
@@ -6136,8 +6122,6 @@ function AgentsPageContent() {
           disabledReason={workspaceSidebarDisabledReason}
           allowAgentlessFeaturePreviews={anonymousAgentPreviewMode}
           desktopPreviewActive={anonymousDesktopPreviewMode}
-          scheduledDisabled={!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode}
-          scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
           isDesktopViewport={false}
           renderMobile
           collapsed={!mobileRosterCollapsed}
@@ -6781,8 +6765,6 @@ function AgentsPageContent() {
             disabledReason={workspaceSidebarDisabledReason}
             allowAgentlessFeaturePreviews={anonymousAgentPreviewMode}
             desktopPreviewActive={anonymousDesktopPreviewMode}
-            scheduledDisabled={!SCHEDULED_SECTION_ENABLED && !anonymousAgentPreviewMode}
-            scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
             isDesktopViewport={isDesktopViewport}
             collapsed={!effectiveSidebarCollapsed}
             onCollapsedChange={(collapsed) => setEffectiveSidebarCollapsed(!collapsed)}
@@ -7207,44 +7189,48 @@ function AgentsPageContent() {
               <MembersSection agents={accountAgents} agentsLoading={agentsLoading} />
             </div>
           ) : mainTab === "scheduled" ? (
-            <AgentScheduledPanel
-              key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
-              agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
-              sessionKey={selectedSessionKey}
-              sessionOptions={scheduledSessionOptions}
-              jobs={agentCronJobsForView ?? []}
-              connected={chat.connected}
-              connecting={chat.connecting}
-              hydrating={chat.hydrating}
-              error={chat.error}
-              isSelectedRunning={Boolean(isSelectedRunning)}
-              onRefresh={async () => {
-                await chat.refreshCron();
-              }}
-              onCreate={async (job) => {
-                await chat.addCron(job);
-              }}
-              onUpdate={async (jobId, job) => {
-                await chat.updateCron(jobId, job);
-              }}
-              onRun={async (jobId) => {
-                await chat.runCron(jobId);
-                await chat.refreshCron();
-              }}
-              onDelete={async (jobId) => {
-                await chat.removeCron(jobId);
-              }}
-              onLaunchAgent={selectedAgent
-                && selectedAgentLaunchLifecycleAction
-                && startingId !== selectedAgent.id
-                && restoringId !== selectedAgent.id
-                ? async () => {
-                    await handleLaunchLifecycleAction(selectedAgent.id);
-                  }
-                : undefined}
-              launchActionLabel={selectedAgentLaunchLifecycleAction === "restore" ? "Restore agent" : "Start agent"}
-              initialCommand={scheduledInitialCommand?.command ?? null}
-            />
+            SCHEDULED_MANAGER_ENABLED ? (
+              <AgentScheduledPanel
+                key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
+                agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
+                sessionKey={selectedSessionKey}
+                sessionOptions={scheduledSessionOptions}
+                jobs={agentCronJobsForView ?? []}
+                connected={chat.connected}
+                connecting={chat.connecting}
+                hydrating={chat.hydrating}
+                error={chat.error}
+                isSelectedRunning={Boolean(isSelectedRunning)}
+                onRefresh={async () => {
+                  await chat.refreshCron();
+                }}
+                onCreate={async (job) => {
+                  await chat.addCron(job);
+                }}
+                onUpdate={async (jobId, job) => {
+                  await chat.updateCron(jobId, job);
+                }}
+                onRun={async (jobId) => {
+                  await chat.runCron(jobId);
+                  await chat.refreshCron();
+                }}
+                onDelete={async (jobId) => {
+                  await chat.removeCron(jobId);
+                }}
+                onLaunchAgent={selectedAgent
+                  && selectedAgentLaunchLifecycleAction
+                  && startingId !== selectedAgent.id
+                  && restoringId !== selectedAgent.id
+                  ? async () => {
+                      await handleLaunchLifecycleAction(selectedAgent.id);
+                    }
+                  : undefined}
+                launchActionLabel={selectedAgentLaunchLifecycleAction === "restore" ? "Restore agent" : "Start agent"}
+                initialCommand={scheduledInitialCommand?.command ?? null}
+              />
+            ) : (
+              <AgentScheduledEmptyState />
+            )
           ) : mainTab === "settings" ? (
             dashboardView ? null : renderAgentSettingsPanel(agentSettingsSection, true, setAgentSettingsSection)
           ) : mainTab === "logs" ? (

@@ -33,6 +33,7 @@ import {
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { getConnectCommandSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+import { SCHEDULED_MANAGER_ENABLED } from "@/lib/dashboard-release-boundary";
 import { buildOpenClawDefaultModelPatch, normalizeOpenClawModelOptions } from "@/lib/openclaw-models";
 
 type ChatSession = AgentGatewaySession;
@@ -793,6 +794,13 @@ function buildSlashCommands(): SlashCommand[] {
           setStatus("Scheduled work is unavailable here.");
           return;
         }
+        if (!SCHEDULED_MANAGER_ENABLED) {
+          showFeedback("Scheduled work is coming soon.");
+          actions.onOpenScheduled();
+          chat.setInput("");
+          close();
+          return;
+        }
         const draft = args.trim();
         showFeedback(draft ? "Scheduled draft opened." : "Scheduled opened.");
         actions.onOpenScheduled(draft || undefined);
@@ -809,7 +817,9 @@ function buildSlashCommands(): SlashCommand[] {
       mode: "confirm",
       Icon: Play,
       requiresRunningAgent: true,
-      isEnabled: ({ chat }) => chat.connected ? true : "Connect the gateway before running scheduled jobs.",
+      isEnabled: ({ chat }) => !SCHEDULED_MANAGER_ENABLED
+        ? "Scheduled work is coming soon."
+        : chat.connected ? true : "Connect the gateway before running scheduled jobs.",
       confirm: ({ args }) => {
         const jobId = args.trim();
         return jobId ? {
@@ -841,7 +851,9 @@ function buildSlashCommands(): SlashCommand[] {
       Icon: Trash2,
       danger: true,
       requiresRunningAgent: true,
-      isEnabled: ({ chat }) => chat.connected ? true : "Connect the gateway before removing scheduled jobs.",
+      isEnabled: ({ chat }) => !SCHEDULED_MANAGER_ENABLED
+        ? "Scheduled work is coming soon."
+        : chat.connected ? true : "Connect the gateway before removing scheduled jobs.",
       confirm: ({ args }) => {
         const jobId = args.trim();
         return jobId ? {

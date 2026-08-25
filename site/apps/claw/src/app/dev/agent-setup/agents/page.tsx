@@ -86,6 +86,7 @@ import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSumma
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
 import { isAgentDeletable, isAgentStartable, isAgentStoppable, isAgentTransitionalState, resolveAgentLaunchLifecycleAction } from "@/app/dashboard/agents/types";
 import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS } from "@/lib/dashboard-route";
+import { SCHEDULED_MANAGER_ENABLED } from "@/lib/dashboard-release-boundary";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -109,7 +110,7 @@ import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
 import { displayOpenClawSessionName, isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
 import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
+import { AgentScheduledEmptyState, AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import type { AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import {
   AgentChatPanel,
@@ -2347,8 +2348,9 @@ export default function DevAgentSetupAgentsPage() {
                     setMobileShowChat(true);
                   },
                   onOpenScheduled: () => {
-                    setInspectorTab("cron");
-                    setInspectorSheetOpen(true);
+                    setInspectorSheetOpen(false);
+                    setMainTab("scheduled");
+                    setMobileShowChat(true);
                   },
                   onOpenActivity: () => {
                     setInspectorTab("activity");
@@ -2433,6 +2435,8 @@ export default function DevAgentSetupAgentsPage() {
                 onGenerateSkill={chat.ready ? chat.runEphemeralPrompt : undefined}
                 onTestSkill={testSkillInNewSession}
               />
+            ) : mainTab === "scheduled" ? (
+              <AgentScheduledEmptyState />
             ) : mainTab === "settings" || mainTab === "openclaw" ? (
               <AgentSettingsPanel
                 key={selectedAgent?.id ?? "no-agent"}
@@ -2527,7 +2531,7 @@ export default function DevAgentSetupAgentsPage() {
             viewProps={{
               ...agentViewVariants,
               showActiveSessions: true,
-              showCronManager: true,
+              showCronManager: SCHEDULED_MANAGER_ENABLED,
               showRecentToolCalls: true,
               tabBarStyle: "v1",
               agentConfig: agentConfigForView,
@@ -2535,10 +2539,12 @@ export default function DevAgentSetupAgentsPage() {
               agentSessions: agentSessionsForView,
               activityEntries: activityEntriesForView,
               recentToolCalls: recentToolCallsForView,
-              agentCronJobs: agentCronJobsForView,
+              agentCronJobs: SCHEDULED_MANAGER_ENABLED ? agentCronJobsForView : [],
               agentWorkspaceFiles: agentWorkspaceFilesForView,
               onPromptClick: (prompt) => chat.setInput(prompt),
-              onCronRemove: (jobId) => { void chat.removeCron(jobId); },
+              onCronRemove: SCHEDULED_MANAGER_ENABLED
+                ? (jobId) => { void chat.removeCron(jobId); }
+                : undefined,
               onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryDetailOrigin(null); setMainTab("integrations"); },
               onAgentStart: () => { if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id); },
               onAgentRestore: () => { if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id); },
