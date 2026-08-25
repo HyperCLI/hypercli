@@ -38,6 +38,31 @@ describe("DesktopLoginPage", () => {
     expect(container.innerHTML).not.toContain("destructive");
   });
 
+  it("hands the token to the app only after the user clicks", async () => {
+    mocks.auth.getToken.mockResolvedValue("jwt-123");
+    const realLocation = window.location;
+    const replaceSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      writable: true,
+      value: { search: "", replace: replaceSpy },
+    });
+    try {
+      render(<DesktopLoginPage />);
+      const openButton = await screen.findByRole("button", { name: "Open Backseat Driver" });
+      expect(replaceSpy).not.toHaveBeenCalled();
+      fireEvent.click(openButton);
+      expect(replaceSpy).toHaveBeenCalledTimes(1);
+      expect(replaceSpy).toHaveBeenCalledWith("backseatdriver://auth#token=jwt-123");
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        writable: true,
+        value: realLocation,
+      });
+    }
+  });
+
   it("offers a retry without exposing the session endpoint error", async () => {
     render(<DesktopLoginPage />);
 

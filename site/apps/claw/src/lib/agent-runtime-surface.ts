@@ -1,4 +1,7 @@
-const SHELL_PRIMARY_RUNTIMES = new Set([
+// Buzz coding runtimes expose the hyper-acp introspection stream as their
+// primary surface; the activity timeline is the natural landing view. Shell
+// remains available as a separate tab for these runtimes.
+const ACTIVITY_PRIMARY_RUNTIMES = new Set([
   "opencode",
   "codex",
   "claude-code",
@@ -6,9 +9,9 @@ const SHELL_PRIMARY_RUNTIMES = new Set([
   "kimi-code",
 ]);
 
-export type AgentPrimarySurface = "chat" | "shell";
+export type AgentPrimarySurface = "chat" | "shell" | "activity";
 
 export function agentPrimarySurface(runtime: string | null | undefined): AgentPrimarySurface {
   const normalized = runtime?.trim().toLowerCase() ?? "";
-  return SHELL_PRIMARY_RUNTIMES.has(normalized) ? "shell" : "chat";
+  return ACTIVITY_PRIMARY_RUNTIMES.has(normalized) ? "activity" : "chat";
 }
