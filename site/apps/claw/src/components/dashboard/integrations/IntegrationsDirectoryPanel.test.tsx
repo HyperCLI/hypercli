@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { AgentChannelSummary, AgentChannelsProvider, AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { ComponentProps } from "react";
@@ -205,9 +205,9 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.getByText("Connect the tools your agent works with.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Channels" })).not.toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Search integrations" })).toHaveAttribute("placeholder", "Search integrations...");
-    expect(screen.getByRole("button", { name: "Set up custom integration" })).toBeInTheDocument();
-    expect(screen.getByText("Custom integration")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect a custom service" })).toHaveTextContent("Setup runs here and pauses only when your approval is required.");
+    expect(screen.getByRole("textbox", { name: "Search integrations" })).toHaveClass("!pl-11");
+    expect(screen.getAllByRole("button", { name: "Connect any tool" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Connect any tool", description: /guide the setup and ask before making changes/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "true");
     expect(await screen.findByText("Telegram")).toBeInTheDocument();
     expect(screen.queryByText(/grammY/i)).not.toBeInTheDocument();
@@ -228,16 +228,16 @@ describe("IntegrationsDirectoryPanel", () => {
     const onSaveConfig = vi.fn(async () => undefined);
     renderPanel({ initialCategory: null, initialPluginId: null, onSaveConfig });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Set up custom integration" }));
-    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
+    fireEvent.click(within(await screen.findByRole("banner")).getByRole("button", { name: "Connect any tool" }));
+    expect(screen.getByRole("heading", { name: "Connect any tool" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "What do you want to connect?" }), { target: { value: "Linear" } });
     expect(screen.getByRole("textbox", { name: "What do you want to connect?" })).toHaveValue("Linear");
 
     fireEvent.click(screen.getByRole("button", { name: /back to integrations/i }));
     expect(screen.getByRole("heading", { name: "Integrations" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Connect a custom service" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect any tool", description: /guide the setup and ask before making changes/i }));
 
-    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect any tool" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "What do you want to connect?" })).toHaveValue("");
     expect(screen.queryByRole("button", { name: /connect|enable|save|test connection/i })).not.toBeInTheDocument();
     expect(onSaveConfig).not.toHaveBeenCalled();
@@ -248,14 +248,14 @@ describe("IntegrationsDirectoryPanel", () => {
   it("clears a confirmed custom integration when the selected agent changes", async () => {
     const { rerenderPanel } = renderPanel({ initialCategory: null, initialPluginId: null });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Set up custom integration" }));
+    fireEvent.click(within(await screen.findByRole("banner")).getByRole("button", { name: "Connect any tool" }));
     fireEvent.change(screen.getByRole("textbox", { name: "What do you want to connect?" }), { target: { value: "Notion" } });
     fireEvent.click(screen.getByRole("button", { name: "Review integration" }));
     expect(screen.getByRole("heading", { name: "Is this the right integration?" })).toBeInTheDocument();
 
     rerenderPanel({ agentId: "agent-2" });
 
-    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect any tool" })).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "What do you want to connect?" })).toHaveValue("");
   });
 
@@ -265,7 +265,7 @@ describe("IntegrationsDirectoryPanel", () => {
     fireEvent.change(await screen.findByRole("textbox", { name: "Search integrations" }), { target: { value: "not-listed" } });
 
     expect(screen.getByText("No integrations match this search.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect a custom service" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect any tool", description: /guide the setup and ask before making changes/i })).toBeInTheDocument();
   });
 
   it("keeps supported setup channels visible when the runtime reports only one channel", async () => {

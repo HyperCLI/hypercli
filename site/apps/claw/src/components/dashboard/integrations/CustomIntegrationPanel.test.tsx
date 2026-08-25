@@ -23,8 +23,8 @@ describe("CustomIntegrationPanel", () => {
     const runner = vi.fn(async (_prompt: string, _options?: GatewayEphemeralChatOptions) => response());
     const { container } = render(<CustomIntegrationPanel connected runEphemeralPrompt={runner} />);
 
-    expect(screen.getByRole("heading", { name: "Connect any service" })).toBeInTheDocument();
-    const card = screen.getByRole("region", { name: "Connect any service" });
+    expect(screen.getByRole("heading", { name: "Connect any tool" })).toBeInTheDocument();
+    const card = screen.getByRole("region", { name: "Connect any tool" });
     expect(card).toHaveClass("rounded-[1.75rem]", "border-selection-accent/35", "bg-background", "shadow-2xl");
     expect(card).not.toHaveClass("border-warning/40");
     expect(screen.getByText(/review the service, source, and intended use before the agent installs or configures anything/i)).toBeInTheDocument();
@@ -42,7 +42,7 @@ describe("CustomIntegrationPanel", () => {
     await user.click(screen.getByRole("button", { name: "Review integration" }));
 
     expect(screen.getByRole("heading", { name: "Is this the right integration?" })).toBeInTheDocument();
-    expect(screen.getByText(/Reconnect the agent before starting/i)).toBeInTheDocument();
+    expect(screen.getByText("Reconnect the agent before connecting a tool.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Yes, start setup" })).toBeDisabled();
   });
 

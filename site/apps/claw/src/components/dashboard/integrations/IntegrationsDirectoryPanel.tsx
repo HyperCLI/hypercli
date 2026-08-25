@@ -349,9 +349,9 @@ function CustomIntegrationCallout({ onOpen }: { onOpen: () => void }) {
         <Cable className="h-5 w-5" />
       </div>
       <div className="min-w-0 flex-1">
-        <h3 id={titleId} className="text-[15px] font-semibold leading-tight text-foreground">Connect a custom service</h3>
+        <h3 id={titleId} className="text-[15px] font-semibold leading-tight text-foreground">Connect any tool</h3>
         <p id={descriptionId} className="mt-1 text-[13px] leading-snug text-foreground/70">
-          Describe any API, webhook, or service. Setup runs here and pauses only when your approval is required.
+          Choose a tool that isn&apos;t listed. Your agent will guide the setup and ask before making changes.
         </p>
       </div>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-selection-accent text-selection-accent-foreground transition-transform group-hover:translate-x-0.5">
@@ -966,8 +966,8 @@ export function IntegrationsDirectoryPanel({
             <Button type="button" variant="outline" size="icon" onClick={() => void refreshIntegrations()} disabled={refreshing} aria-label="Refresh integrations" className="h-10 w-10 rounded-xl border-border bg-transparent text-text-secondary hover:bg-surface-high hover:text-foreground dark:bg-transparent dark:hover:bg-surface-high">
               <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
             </Button>
-            <Button type="button" onClick={() => selectChannel(CUSTOM_INTEGRATION_ID)} aria-label="Set up custom integration" className="h-10 rounded-xl px-4">
-              Custom integration
+            <Button type="button" onClick={() => selectChannel(CUSTOM_INTEGRATION_ID)} aria-label="Connect any tool" className="h-10 rounded-xl px-4">
+              Connect any tool
               <Plus className="h-4 w-4" aria-hidden="true" />
             </Button>
           </>
