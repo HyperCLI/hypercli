@@ -14,7 +14,7 @@ export function agentTokenUsageMap(usage: AgentUsageInput | null | undefined): R
   if (!Array.isArray(usage?.agents)) return null;
   return Object.fromEntries(usage.agents.flatMap((entry) => {
     const agentId = typeof entry.agentId === "string" ? entry.agentId.trim() : "";
-    return agentId ? [[agentId, finiteNumber(entry.totalTokens)]] : [];
+    return agentId ? [[agentId, Math.max(finiteNumber(entry.totalTokens), 0)]] : [];
   }));
 }
 

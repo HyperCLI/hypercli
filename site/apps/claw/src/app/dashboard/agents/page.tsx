@@ -1241,6 +1241,7 @@ function AgentsPageContent() {
   const [hasBillingHistory, setHasBillingHistory] = useState<boolean | null>(null);
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
+  const [tokenUsageByAgent, setTokenUsageByAgent] = useState<Record<string, number> | null>(null);
   const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
@@ -1446,7 +1447,9 @@ function AgentsPageContent() {
   const dailyTokenLimit = subscriptionSummary
     ? Math.max(subscriptionSummary.entitlements?.pooledTpd ?? subscriptionSummary.pooledTpd ?? 0, 0)
     : null;
-  const tokenUsage = dailyTokenUsage;
+  const tokenUsage = selectedAgentId && tokenUsageByAgent
+    ? tokenUsageByAgent[selectedAgentId] ?? 0
+    : null;
   const tokenLimit = dailyTokenLimit;
   const tokenUsageLoading = isAuthenticated && billingDataPrincipalId !== user?.id && !billingDataError;
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
@@ -1723,6 +1726,7 @@ function AgentsPageContent() {
     setHasBillingHistory(null);
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
+    setTokenUsageByAgent(null);
     setDailyTokenUsage(null);
     setDeployments(null);
     setAgentsLoadError(null);
@@ -1945,6 +1949,7 @@ function AgentsPageContent() {
   }, [syncPendingSlotReleaseCounts]);
 
   const applyTokenUsageSnapshot = useCallback((snapshot: TokenUsageSnapshot) => {
+    setTokenUsageByAgent(snapshot.byAgent);
     setDailyTokenUsage(snapshot.dailyTotal);
   }, []);
 
@@ -1969,7 +1974,9 @@ function AgentsPageContent() {
     return tokenUsageSnapshot(usage);
   }, [getToken, isAuthenticated]);
 
+  const tokenUsagePrincipalId = isAuthenticated ? user?.id ?? null : null;
   useEffect(() => {
+    if (!tokenUsagePrincipalId) return;
     const scheduler = createTokenUsageRefreshScheduler(
       fetchTokenUsageSnapshot,
       applyTokenUsageSnapshot,
@@ -1982,7 +1989,7 @@ function AgentsPageContent() {
         tokenUsageRefreshSchedulerRef.current = null;
       }
     };
-  }, [applyTokenUsageSnapshot, fetchTokenUsageSnapshot]);
+  }, [applyTokenUsageSnapshot, fetchTokenUsageSnapshot, tokenUsagePrincipalId]);
 
   const refreshAgentEnrichment = useCallback((options?: {
     force?: boolean;
@@ -2359,6 +2366,7 @@ function AgentsPageContent() {
       setSubscriptionSummary(null);
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
+      setTokenUsageByAgent(null);
       setDailyTokenUsage(null);
       deploymentsRef.current = null;
       setDeployments(null);

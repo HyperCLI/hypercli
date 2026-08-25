@@ -59,7 +59,7 @@ describe("tokenUsageSnapshot", () => {
       ],
       unattributed: null,
     })).toEqual({
-      byAgent: { "agent-1": 0, "agent-2": -100 },
+      byAgent: { "agent-1": 0, "agent-2": 0 },
       dailyTotal: 5,
     });
   });
