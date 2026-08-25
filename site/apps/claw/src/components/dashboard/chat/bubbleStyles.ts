@@ -29,20 +29,15 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
 
 export function getToolCallClass(theme: ThemeVariant, status: ToolCallViewStatus): string {
   const baseClass = "mb-1.5 w-full min-w-0 max-w-full overflow-hidden text-xs";
-  const doneClass = "border-border bg-surface-low/35";
-  const failedClass = "border-warning/35 bg-surface-low/35";
+  const completedClass = "border-border bg-surface-low/35";
   const runningClass = "border-success/35 bg-success/8";
   const neutralClass = "border-border bg-surface-low/35";
-  const stateClass = status === "failed" ? failedClass : status === "done" ? doneClass : status === "running" ? runningClass : neutralClass;
+  const stateClass = status === "failed" || status === "done" ? completedClass : status === "running" ? runningClass : neutralClass;
 
   if (theme === "v2") {
-    const leftBorder = status === "failed"
-      ? "border-l-warning/70"
-      : status === "running"
+    const leftBorder = status === "running"
       ? "border-l-success/70"
-      : status === "done"
-        ? "border-l-border"
-        : "border-l-border";
+      : "border-l-border";
     return `${baseClass} rounded-lg border border-l ${leftBorder} ${stateClass}`;
   }
 
@@ -54,11 +49,7 @@ export function getToolCallStatusClass(status: ToolCallViewStatus): string {
     return "border-success/35 bg-success/10 text-success";
   }
 
-  if (status === "failed") {
-    return "border-warning/40 bg-warning/10 text-warning";
-  }
-
-  if (status === "done") {
+  if (status === "failed" || status === "done") {
     return "border-border/70 bg-background/25 text-text-secondary";
   }
 

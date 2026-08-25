@@ -7,7 +7,7 @@ import type { ToolCallView, ToolCallViewSection, ToolCallViewStatus } from "./he
 import { TooltipHint } from "@/components/ClawTooltip";
 
 export function ToolCallStatusFrame({ status, label }: { status: ToolCallViewStatus; label?: string }) {
-  const visibleLabel = label ?? (status === "running" ? "Running" : status === "failed" ? "Needs review" : status === "done" ? "Done" : "Called");
+  const visibleLabel = label ?? (status === "running" ? "Running" : status === "failed" ? "Note available" : status === "done" ? "Done" : "Called");
 
   return (
     <span className={`shrink-0 rounded-[4px] border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] ${getToolCallStatusClass(status)}`}>

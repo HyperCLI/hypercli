@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { RecoveryDetails } from "@hypercli/shared-ui";
 import { getToolCallClass } from "./bubbleStyles";
-import { buildToolCallView, extractImagePath, TOOL_CALL_REVIEW_MESSAGE } from "./helpers";
+import { buildToolCallView, extractImagePath, TOOL_CALL_NOTE_MESSAGE } from "./helpers";
 import { ToolCallDisclosureButton, ToolCallSectionList } from "./ToolCallPresentation";
 import { AuthImage } from "./AuthImage";
 import { DirectoryVisualization, parseDirectoryVisualization } from "./DirectoryVisualization";
@@ -42,7 +42,7 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
       {isOpen && (
         <div id={detailId} className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
           {view.isFailed && (
-            <p className="leading-relaxed text-text-secondary">{TOOL_CALL_REVIEW_MESSAGE}</p>
+            <p className="leading-relaxed text-text-secondary">{TOOL_CALL_NOTE_MESSAGE}</p>
           )}
           <ToolCallSectionList sections={[view.argsSection]} />
           {directoryListing && !view.isFailed && (
@@ -56,7 +56,7 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
           {view.isFailed ? (
             view.resultSection && (
               <RecoveryDetails
-                label="Technical details"
+                label="More details"
                 technicalDetails={view.resultSection.text}
                 className="rounded-lg border border-border bg-background/25"
               />

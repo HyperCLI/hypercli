@@ -35,7 +35,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
 
   const rawPending = toolCalls.some((tc) => tc.result === undefined) && isStreaming;
   const stackView = buildToolCallStackView(toolCalls, { isStreaming, pendingTimedOut });
-  const presentationStatus = stackView.allReturned && stackView.failedCount > 0 ? "failed" : stackView.status;
+  const presentationStatus = stackView.allReturned ? "done" : stackView.status;
 
   useEffect(() => {
     if (!rawPending) return;

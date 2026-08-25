@@ -1711,7 +1711,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(rawArgs)).not.toBeInTheDocument();
   });
 
-  it("shows failed tool recovery copy before closed technical details", () => {
+  it("shows warm tool note copy before closed details", () => {
     const rawProviderError = "provider request failed: statusCode=503 requestId=req-private";
     const result = `Error: ${JSON.stringify({ error: rawProviderError })}`;
     const { container } = render(
@@ -1728,22 +1728,23 @@ describe("ChatMessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("Needs review")).toBeInTheDocument();
-    expect(screen.getByText("Review before retrying")).toBeInTheDocument();
+    expect(screen.getByText("Note available")).toBeInTheDocument();
+    expect(screen.getByText("More details available")).toBeInTheDocument();
     expect(screen.queryByText(/provider request failed/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Web Search/i }));
 
-    expect(screen.getByText("This action did not finish. Review any completed changes before retrying the request.")).toBeInTheDocument();
+    expect(screen.getByText("This step may need another try. The rest of the response is still available, and you can check the details if useful.")).toBeInTheDocument();
     expect(screen.getByText("Query")).toBeInTheDocument();
     expect(screen.queryByText(/provider request failed/)).not.toBeInTheDocument();
 
-    const technicalDetails = screen.getByRole("button", { name: "Technical details" });
-    expect(technicalDetails).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(technicalDetails);
+    const moreDetails = screen.getByRole("button", { name: "More details" });
+    expect(moreDetails).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(moreDetails);
 
-    expect(technicalDetails).toHaveAttribute("aria-expanded", "true");
+    expect(moreDetails).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(`Error: ${rawProviderError}`)).toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("warning");
     expect(container.innerHTML).not.toContain("destructive");
   });
 
@@ -1768,6 +1769,7 @@ describe("ChatMessageBubble", () => {
     expect(stackButton).toHaveTextContent("Completed with notes");
     expect(stackButton).toHaveTextContent("1 of 4 has a note");
     expect(stackButton).not.toHaveTextContent("Failed");
+    expect(container.innerHTML).not.toContain("warning");
     expect(container.innerHTML).not.toContain("destructive");
   });
 

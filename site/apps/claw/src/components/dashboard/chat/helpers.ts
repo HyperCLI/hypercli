@@ -113,7 +113,7 @@ export function extractReadableSummary(raw: string, maxLen: number): string {
           return msg.length > maxLen ? `${msg.slice(0, maxLen)}…` : msg;
         }
         if (parsed.ok === true) return "Success";
-        if (parsed.ok === false) return "Needs review";
+        if (parsed.ok === false) return "Note available";
       }
     } catch { /* fall through to raw slice */ }
   }
@@ -125,7 +125,7 @@ const TOOL_PATH_KEYS = new Set(["path", "file_path", "filePath", "fullPath"]);
 
 export type ToolCallViewStatus = "running" | "done" | "failed" | "called";
 
-export const TOOL_CALL_REVIEW_MESSAGE = "This action did not finish. Review any completed changes before retrying the request.";
+export const TOOL_CALL_NOTE_MESSAGE = "This step may need another try. The rest of the response is still available, and you can check the details if useful.";
 
 export interface SystemMessagePresentation {
   text: string;
@@ -409,7 +409,7 @@ function summarizeStructuredResult(raw: string, maxLen: number): string {
     if (!record) return "";
     if (typeof record.error === "string" && record.error.trim()) return clipSummary(`Error: ${record.error}`, maxLen);
     if (record.ok === true) return "Success";
-    if (record.ok === false) return "Needs review";
+    if (record.ok === false) return "Note available";
     return "";
   } catch {
     return "";
@@ -529,7 +529,7 @@ export function deriveToolCallStackStatus(
 function toolCallStatusLabel(status: ToolCallViewStatus): string {
   if (status === "running") return "Running";
   if (status === "done") return "Done";
-  if (status === "failed") return "Needs review";
+  if (status === "failed") return "Note available";
   return "Called";
 }
 
@@ -561,7 +561,7 @@ export function buildToolCallView(
     hasResult,
     isRunning,
     isFailed,
-    summary: isFailed ? "Review before retrying" : toolCallSummary(tc),
+    summary: isFailed ? "More details available" : toolCallSummary(tc),
     argsSection,
     resultSection,
     sections,

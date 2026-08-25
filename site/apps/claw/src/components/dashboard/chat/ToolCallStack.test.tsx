@@ -86,13 +86,14 @@ describe("ToolCallStack", () => {
     expect(stackButton).toHaveTextContent("1 of 4 has a note");
   });
 
-  it("uses no destructive classes for completed stacks that need review", () => {
+  it("uses neutral completed classes for stacks with notes", () => {
     const failedToolCalls = toolCalls.map((toolCall, index) => (
       index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
     ));
 
     const { container } = render(<ToolCallStack toolCalls={failedToolCalls} themeVariant="v2" />);
 
+    expect(container.innerHTML).not.toContain("warning");
     expect(container.innerHTML).not.toContain("destructive");
   });
 

@@ -9,14 +9,13 @@ describe("semantic chat styles", () => {
     expect(getBubbleClasses("off", "v3", false)).toContain("bg-surface-low");
   });
 
-  it("keeps failed tool calls on neutral surfaces with amber attention accents", () => {
+  it("uses completed styling for tool results that include a note", () => {
     const toolCallClass = getToolCallClass("v2", "failed");
     const statusClass = getToolCallStatusClass("failed");
 
-    expect(toolCallClass).toContain("border-l-warning/70");
-    expect(toolCallClass).toContain("bg-surface-low/35");
-    expect(statusClass).toContain("text-warning");
-    expect(statusClass).toContain("bg-warning/10");
+    expect(toolCallClass).toBe(getToolCallClass("v2", "done"));
+    expect(statusClass).toBe(getToolCallStatusClass("done"));
+    expect(`${toolCallClass} ${statusClass}`).not.toContain("warning");
     expect(`${toolCallClass} ${statusClass}`).not.toContain("destructive");
   });
 

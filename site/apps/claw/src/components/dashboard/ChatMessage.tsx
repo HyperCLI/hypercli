@@ -39,7 +39,7 @@ import {
   buildToolCallStackView,
   buildToolCallView,
   presentSystemMessage,
-  TOOL_CALL_REVIEW_MESSAGE,
+  TOOL_CALL_NOTE_MESSAGE,
 } from "@/components/dashboard/chat/helpers";
 import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { ToolCallDisclosureButton, ToolCallSectionList, ToolCallStatusFrame } from "@/components/dashboard/chat/ToolCallPresentation";
@@ -979,7 +979,7 @@ function ToolCallDisclosure({
       {isOpen && (
         <div id={detailId} className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
           {view.isFailed && (
-            <p className="leading-relaxed text-text-secondary">{TOOL_CALL_REVIEW_MESSAGE}</p>
+            <p className="leading-relaxed text-text-secondary">{TOOL_CALL_NOTE_MESSAGE}</p>
           )}
           <ToolCallSectionList sections={[view.argsSection]} />
           {directoryListing && !view.isFailed && (
@@ -993,7 +993,7 @@ function ToolCallDisclosure({
           {view.isFailed ? (
             view.resultSection && (
               <RecoveryDetails
-                label="Technical details"
+                label="More details"
                 technicalDetails={view.resultSection.text}
                 className="rounded-lg border border-border bg-background/25"
               />
@@ -1023,7 +1023,7 @@ function ToolCallStackDisclosure({
 
   const rawPending = toolCalls.some((tc) => tc.result === undefined) && isStreaming;
   const stackView = buildToolCallStackView(toolCalls, { isStreaming, pendingTimedOut });
-  const presentationStatus = stackView.allReturned && stackView.failedCount > 0 ? "failed" : stackView.status;
+  const presentationStatus = stackView.allReturned ? "done" : stackView.status;
 
   useEffect(() => {
     if (!rawPending) return;

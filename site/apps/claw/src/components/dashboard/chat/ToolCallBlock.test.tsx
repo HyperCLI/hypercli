@@ -68,7 +68,7 @@ describe("ToolCallBlock", () => {
     expect(screen.queryByText(/"query"/)).not.toBeInTheDocument();
   });
 
-  it("puts failed tool details behind a second closed disclosure", () => {
+  it("presents an unsuccessful tool result as a neutral note with closed details", () => {
     const error = "Brave Search API error (404): 404 page not found";
     const result = `Error: ${JSON.stringify({
       content: [
@@ -92,20 +92,21 @@ describe("ToolCallBlock", () => {
       />,
     );
 
-    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    expect(screen.getByText("Note available")).toBeInTheDocument();
     expect(screen.queryByText("Failed")).not.toBeInTheDocument();
-    expect(screen.getByText("This action did not finish. Review any completed changes before retrying the request.")).toBeInTheDocument();
+    expect(screen.getByText("This step may need another try. The rest of the response is still available, and you can check the details if useful.")).toBeInTheDocument();
     expect(screen.getByText("Query")).toBeInTheDocument();
 
-    const technicalDetails = screen.getByRole("button", { name: "Technical details" });
-    expect(technicalDetails).toHaveAttribute("aria-expanded", "false");
+    const moreDetails = screen.getByRole("button", { name: "More details" });
+    expect(moreDetails).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(`Error: ${error}`)).not.toBeInTheDocument();
 
-    fireEvent.click(technicalDetails);
+    fireEvent.click(moreDetails);
 
-    expect(technicalDetails).toHaveAttribute("aria-expanded", "true");
+    expect(moreDetails).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(`Error: ${error}`)).toBeInTheDocument();
     expect(screen.queryByText(/"content"/)).not.toBeInTheDocument();
+    expect(container.innerHTML).not.toContain("warning");
     expect(container.innerHTML).not.toContain("destructive");
   });
 
