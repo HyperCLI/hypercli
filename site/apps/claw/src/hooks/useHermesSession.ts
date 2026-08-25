@@ -36,6 +36,7 @@ const HERMES_INERT_SESSION_MEMBERS = {
   activeSessionReadOnlyReason: null,
   temporaryChatAvailable: false,
   temporaryChatActive: false,
+  temporaryChatUsed: false,
   temporaryChatState: "inactive" as const,
   temporaryChatError: null,
   startTemporaryChat: asyncNoop,

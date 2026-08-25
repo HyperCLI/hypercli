@@ -746,7 +746,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps a multi-turn private chat in memory and restores the normal draft on end", async () => {
+  it("keeps a multi-turn private chat in memory and restores the empty normal composer on end", async () => {
     const gateway = buildGateway();
     gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
     gateway.chatSend.mockImplementation(async function* (message: string): AsyncGenerator<ChatEvent, void, unknown> {
@@ -764,7 +764,6 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
     await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
 
-    act(() => result.current.setInput("normal draft"));
     await act(async () => result.current.startTemporaryChat());
 
     const ephemeralSession = gateway.ephemeralSessions[0];
@@ -799,7 +798,7 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.temporaryChatActive).toBe(false));
     expect(result.current.activeSessionKey).toBe("main");
-    expect(result.current.input).toBe("normal draft");
+    expect(result.current.input).toBe("");
     expect(result.current.messages).toEqual([]);
     expect(ephemeralSession.close).toHaveBeenCalledTimes(1);
     expect(gateway.sessionsReset).toHaveBeenLastCalledWith(ephemeralSession.sessionKey, "reset");
@@ -939,6 +938,407 @@ describe("useOpenClawSession", () => {
 
     expect(result.current.temporaryChatActive).toBe(false);
     expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
+  it("creates exactly one ephemeral lease under rapid repeated start toggles", async () => {
+    const gateway = buildGateway();
+    const createGate = deferred<void>();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    gateway.createEphemeralChatSession.mockImplementationOnce(async () => {
+      await createGate.promise;
+      const sessionKey = "session-hypercli-ephemeral-019789ab-cdef-4abc-8def-000000000001";
+      let closed = false;
+      await gateway.sessionsReset(sessionKey, "new");
+      const session = {
+        sessionKey,
+        get closed() {
+          return closed;
+        },
+        chatSend: vi.fn((message: string, attachments?: unknown[]) => (
+          gateway.chatSend(message, sessionKey, attachments, { strictCorrelation: true })
+        )),
+        chatHistory: vi.fn((limit = 50) => gateway.chatHistory(sessionKey, limit)),
+        chatAbort: vi.fn(() => gateway.chatAbort(sessionKey)),
+        close: vi.fn(async () => {
+          if (closed) return;
+          closed = true;
+          await gateway.sessionsReset(sessionKey, "reset");
+        }),
+      };
+      gateway.ephemeralSessions.push(session);
+      return session;
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let firstStart!: Promise<void>;
+    let secondStart!: Promise<void>;
+    let thirdStart!: Promise<void>;
+    act(() => {
+      firstStart = result.current.startTemporaryChat();
+      secondStart = result.current.startTemporaryChat();
+      thirdStart = result.current.startTemporaryChat();
+    });
+    expect(gateway.createEphemeralChatSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      createGate.resolve();
+      await Promise.all([firstStart, secondStart, thirdStart]);
+    });
+
+    expect(gateway.createEphemeralChatSession).toHaveBeenCalledTimes(1);
+    expect(gateway.ephemeralSessions).toHaveLength(1);
+    expect(result.current.temporaryChatActive).toBe(true);
+
+    let firstEnd!: Promise<void>;
+    let secondEnd!: Promise<void>;
+    await act(async () => {
+      firstEnd = result.current.endTemporaryChat();
+      secondEnd = result.current.endTemporaryChat();
+      await Promise.all([firstEnd, secondEnd]);
+    });
+
+    expect(gateway.ephemeralSessions[0]?.close).toHaveBeenCalledTimes(1);
+    expect(result.current.temporaryChatActive).toBe(false);
+    unmount();
+  });
+
+  it("refuses to start a private chat while the ordinary session has a composer draft", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    act(() => result.current.setInput("unsent draft"));
+
+    let startError: unknown;
+    await act(async () => {
+      startError = await result.current.startTemporaryChat().then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    });
+    expect(startError).toBeInstanceOf(Error);
+    expect((startError as Error).message).toMatch(/draft|clear/i);
+    expect(gateway.createEphemeralChatSession).not.toHaveBeenCalled();
+    expect(result.current.temporaryChatState).toBe("inactive");
+    unmount();
+  });
+
+  it("refuses to start a private chat while a message is queued for the ordinary session", async () => {
+    const gateway = buildGateway();
+    const firstReply = deferred<void>();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    gateway.chatSend.mockImplementation((async function* () {
+      await firstReply.promise;
+      yield { type: "done" as const };
+    }) as any);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let firstSend!: Promise<void>;
+    act(() => {
+      firstSend = result.current.sendMessage("first");
+    });
+    await waitFor(() => expect(result.current.sending).toBe(true));
+    act(() => {
+      result.current.addPendingMessage("queued follow-up");
+    });
+    await waitFor(() => expect(result.current.pendingInput).toEqual(["queued follow-up"]));
+
+    let startError: unknown;
+    await act(async () => {
+      startError = await result.current.startTemporaryChat().then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    });
+    expect(startError).toBeInstanceOf(Error);
+    expect((startError as Error).message).toMatch(/queued|pending|wait/i);
+    expect(gateway.createEphemeralChatSession).not.toHaveBeenCalled();
+
+    await act(async () => {
+      firstReply.resolve();
+      await firstSend;
+    });
+    unmount();
+  });
+
+  it("refuses to restart a private chat that already has content after it ends", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    gateway.chatSend.mockImplementation(async function* (message: string): AsyncGenerator<ChatEvent, void, unknown> {
+      yield { type: "content", text: `${message} reply` };
+      yield { type: "done" };
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    await act(async () => result.current.startTemporaryChat());
+    expect(gateway.createEphemeralChatSession).toHaveBeenCalledTimes(1);
+    await act(async () => result.current.sendMessage("one-use secret"));
+    await act(async () => result.current.endTemporaryChat());
+    await waitFor(() => expect(result.current.temporaryChatActive).toBe(false));
+    expect(result.current.temporaryChatUsed).toBe(true);
+
+    let restartError: unknown;
+    await act(async () => {
+      restartError = await result.current.startTemporaryChat().then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    });
+    expect(restartError).toBeInstanceOf(Error);
+    expect((restartError as Error).message).toMatch(/one-use|already|again|content/i);
+    expect(gateway.createEphemeralChatSession).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions.some((session) => (
+      session.key === gateway.ephemeralSessions[0]?.sessionKey
+    ))).toBe(false);
+    unmount();
+  });
+
+  it("allows an unused empty private chat to be toggled back on after it ends", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    await act(async () => result.current.startTemporaryChat());
+    expect(result.current.temporaryChatActive).toBe(true);
+    await act(async () => result.current.endTemporaryChat());
+    await waitFor(() => expect(result.current.temporaryChatActive).toBe(false));
+
+    await act(async () => result.current.startTemporaryChat());
+    expect(gateway.createEphemeralChatSession).toHaveBeenCalledTimes(2);
+    expect(result.current.temporaryChatActive).toBe(true);
+    unmount();
+  });
+
+  it("does not resurrect a used private session when the gateway list is refreshed", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    gateway.chatSend.mockImplementation(async function* (message: string): AsyncGenerator<ChatEvent, void, unknown> {
+      yield { type: "content", text: `${message} reply` };
+      yield { type: "done" };
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    await act(async () => result.current.startTemporaryChat());
+    const ephemeralSession = gateway.ephemeralSessions[0];
+    await act(async () => result.current.sendMessage("private turn"));
+    await act(async () => result.current.endTemporaryChat());
+    await waitFor(() => expect(result.current.temporaryChatActive).toBe(false));
+    expect(result.current.sessions.some((session) => session.key === ephemeralSession.sessionKey)).toBe(false);
+
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main Session", updatedAt: 2 },
+      { key: ephemeralSession.sessionKey, title: "Private chat", messageCount: 2, updatedAt: 3 },
+    ]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    expect(result.current.sessions.some((session) => session.key === ephemeralSession.sessionKey)).toBe(false);
+    expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]);
+    unmount();
+  });
+
+  it("does not hydrate a private session from the gateway list after a remount", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const first = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(first.result.current.ready).toBe(true));
+    await waitFor(() => expect(first.result.current.sessionsFetched).toBe(true));
+    await act(async () => first.result.current.startTemporaryChat());
+    const ephemeralSession = gateway.ephemeralSessions[0];
+    expect(first.result.current.temporaryChatActive).toBe(true);
+    first.unmount();
+    expect(ephemeralSession.close).toHaveBeenCalled();
+
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main Session", updatedAt: 2 },
+      { key: ephemeralSession.sessionKey, title: "Private chat", messageCount: 0, updatedAt: 3 },
+    ]);
+    const second = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(second.result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(second.result.current.sessions.map((session) => session.key)).toEqual(["main"]));
+
+    expect(second.result.current.sessions.some((session) => session.key === ephemeralSession.sessionKey)).toBe(false);
+    expect(second.result.current.temporaryChatActive).toBe(false);
+    expect(window.localStorage.getItem("openclaw.sessions.v1:agent-1") ?? "").not.toContain(ephemeralSession.sessionKey);
+    expect(window.localStorage.getItem("openclaw.sessionTitles.v1:agent-1") ?? "").not.toContain(ephemeralSession.sessionKey);
+    second.unmount();
+  });
+
+  it("keeps the destination transcript and draft intact when a private chat ends on session switch", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha", updatedAt: 2 },
+      { key: "session-beta", title: "Beta", updatedAt: 1 },
+    ]);
+    gateway.chatHistory.mockImplementation(async (sessionKey: string): Promise<unknown[]> => (
+      sessionKey === "session-beta" ? [{ role: "user", content: "beta history", timestamp: 5 }] : []
+    ));
+    gateway.chatSend.mockImplementation(async function* (message: string): AsyncGenerator<ChatEvent, void, unknown> {
+      yield { type: "content", text: `${message} reply` };
+      yield { type: "done" };
+    });
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    rerender({ sessionKey: "session-beta" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    await waitFor(() => expect(result.current.messages.some((message) => message.content === "beta history")).toBe(true));
+    act(() => result.current.setInput("beta draft"));
+
+    rerender({ sessionKey: "session-alpha" });
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-alpha"));
+    await act(async () => result.current.startTemporaryChat());
+    const ephemeralSession = gateway.ephemeralSessions[0];
+    await act(async () => result.current.sendMessage("private while beta has a draft"));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(ephemeralSession.close).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.temporaryChatActive).toBe(false));
+    expect(result.current.activeSessionKey).toBe("session-beta");
+    await waitFor(() => expect(result.current.messages.some((message) => message.content === "beta history")).toBe(true));
+    expect(result.current.messages.some((message) => message.content.includes("private while beta has a draft"))).toBe(false);
+    expect(result.current.input).toBe("beta draft");
+    unmount();
+  });
+
+  it("closes and consumes a used ephemeral lease when the gateway connection drops", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await act(async () => result.current.startTemporaryChat());
+    const ephemeralSession = gateway.ephemeralSessions[0];
+    expect(result.current.temporaryChatActive).toBe(true);
+    await act(async () => result.current.sendMessage("private content"));
+
+    act(() => gateway.emitConnectionState("disconnected"));
+
+    await waitFor(() => expect(result.current.temporaryChatActive).toBe(false));
+    expect(result.current.temporaryChatUsed).toBe(true);
+    expect(ephemeralSession.close).toHaveBeenCalledTimes(1);
+    expect(result.current.sessions.some((session) => session.key === ephemeralSession.sessionKey)).toBe(false);
+    unmount();
+  });
+
+  it("leaves no ghost row and allows a fresh retry when private start fails", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main Session", updatedAt: 1 }]);
+    gateway.createEphemeralChatSession.mockRejectedValueOnce(new Error("gateway rejected ephemeral session"));
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+
+    let startError: unknown;
+    await act(async () => {
+      startError = await result.current.startTemporaryChat().then(
+        () => null,
+        (cause: unknown) => cause,
+      );
+    });
+    expect(startError).toBeInstanceOf(Error);
+    expect((startError as Error).message).toContain("gateway rejected ephemeral session");
+    expect(result.current.temporaryChatState).toBe("inactive");
+    expect(result.current.temporaryChatActive).toBe(false);
+    expect(result.current.temporaryChatError).toBeTruthy();
+    expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]);
+
+    await act(async () => result.current.startTemporaryChat());
+    expect(gateway.createEphemeralChatSession).toHaveBeenCalledTimes(2);
+    expect(result.current.temporaryChatActive).toBe(true);
+    expect(result.current.activeSessionKey).toBe(gateway.ephemeralSessions[0]?.sessionKey);
+    expect(result.current.sessions.every((session) => !session.key.includes("ephemeral") || (
+      session.key === gateway.ephemeralSessions[0]?.sessionKey
+    ))).toBe(true);
     unmount();
   });
 

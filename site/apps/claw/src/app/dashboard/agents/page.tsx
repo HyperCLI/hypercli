@@ -5930,7 +5930,7 @@ function AgentsPageContent() {
     selectedAgent &&
     isSelectedRunning &&
     mainTab === "chat" &&
-    (chat.temporaryChatActive || chat.messages.length === 0),
+    (chat.temporaryChatActive || (!chat.temporaryChatUsed && chat.messages.length === 0)),
   );
   const privateChatDisabledReason = chat.temporaryChatActive
     ? undefined
