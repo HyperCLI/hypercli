@@ -698,6 +698,13 @@ h6 {
   color: var(--foreground);
 }
 
+/* Chromium can retain its autofill text paint when login values are pasted. */
+#privy-modal-content input {
+  color: var(--privy-color-foreground);
+  -webkit-text-fill-color: var(--privy-color-foreground) !important;
+  caret-color: var(--privy-color-foreground);
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

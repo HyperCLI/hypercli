@@ -174,6 +174,14 @@ describe("shared theme CSS", () => {
     expect(themeCss).toContain('.bg-foreground.text-background:hover');
   });
 
+  it("keeps pasted Privy login values readable", () => {
+    const privyInputBlock = themeBlockFor("#privy-modal-content input");
+
+    expect(privyInputBlock).toContain("color: var(--privy-color-foreground);");
+    expect(privyInputBlock).toContain("-webkit-text-fill-color: var(--privy-color-foreground) !important;");
+    expect(privyInputBlock).toContain("caret-color: var(--privy-color-foreground);");
+  });
+
   it("uses semantic cursors for activation, disabled, drag, and resize controls", () => {
     expect(clawGlobalsCss).toContain('button:not(:disabled):not([aria-disabled="true"]):not([role="option"]):not([role^="menuitem"])');
     expect(clawGlobalsCss).toContain('label:has(input:is([type="checkbox"], [type="radio"]):not(:disabled))');
