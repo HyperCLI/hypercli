@@ -713,6 +713,85 @@ describe("IntegrationsDirectoryPanel", () => {
     }));
   });
 
+  describe("GitHub tile status and chat-card divergence (gap 5)", () => {
+    function githubProvider(connector: AgentConnectorDescriptor) {
+      return {
+        ...connectorsProvider,
+        list: vi.fn(async (options): Promise<AgentConnectorDescriptor[]> => (
+          !options?.connectorId || options.connectorId === "github" ? [connector] : []
+        )),
+      } satisfies AgentConnectorsProvider;
+    }
+
+    it("reflects a usable GitHub connector as Online in the directory tile", async () => {
+      const provider = githubProvider({
+        connectorId: "github",
+        configured: true,
+        authenticated: true,
+        usable: true,
+        setupModes: ["managed-auth"],
+      });
+      renderPanel({
+        initialCategory: null,
+        initialPluginId: null,
+        gatewaySession: gatewaySession({ connectorsProvider: provider }),
+      });
+
+      const tile = await screen.findByRole("button", { name: /GitHub/i });
+      expect(tile).toHaveTextContent("Online");
+      expect(tile).not.toHaveTextContent("Setup required");
+    });
+
+    it("reflects an unusable GitHub connector as Setup required in the directory tile", async () => {
+      const provider = githubProvider({
+        connectorId: "github",
+        configured: false,
+        authenticated: false,
+        usable: false,
+        setupModes: ["managed-auth"],
+      });
+      renderPanel({
+        initialCategory: null,
+        initialPluginId: null,
+        gatewaySession: gatewaySession({ connectorsProvider: provider }),
+      });
+
+      const tile = await screen.findByRole("button", { name: /GitHub/i });
+      expect(tile).not.toHaveTextContent("Online");
+      // The unconfigured tile exposes the "Set up" affordance, not a status pill.
+      expect(tile.querySelector('[aria-label="Set up"]')).not.toBeNull();
+    });
+
+    it("probes GitHub connector status when the directory refresh runs", async () => {
+      // RELIABILITY CONTRACT (gap 5): the directory owns an independent GitHub
+      // status read from the chat card. The manual refresh is the invalidation
+      // path that brings a stale tile back in line with the gateway, so it must
+      // re-probe the connector rather than trusting cached state.
+      const provider = githubProvider({
+        connectorId: "github",
+        configured: true,
+        authenticated: true,
+        usable: true,
+        setupModes: ["managed-auth"],
+      });
+      renderPanel({
+        initialCategory: null,
+        initialPluginId: null,
+        gatewaySession: gatewaySession({ connectorsProvider: provider }),
+      });
+      await screen.findByRole("button", { name: /GitHub/i });
+      const callsBeforeRefresh = (provider.list as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      fireEvent.click(screen.getByRole("button", { name: /refresh integrations/i }));
+
+      await waitFor(() => {
+        const calls = (provider.list as ReturnType<typeof vi.fn>).mock.calls;
+        expect(calls.length).toBeGreaterThan(callsBeforeRefresh);
+        expect(calls.some(([options]) => options?.connectorId === "github" && options?.probe === true)).toBe(true);
+      });
+    });
+  });
+
   it.each(["discord"] as const)("opens %s with the shared runtime connector card", async (integrationId) => {
     renderPanel({ initialPluginId: integrationId, gatewaySession: gatewaySession() });
 

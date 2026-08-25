@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ConnectorWorkflow } from "@/lib/connector-workflow";
@@ -482,5 +483,348 @@ describe("GitHubChatConnectorCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
     expect(screen.getByText("GitHub authorization service is temporarily unavailable.")).toBeInTheDocument();
     expect(onStartAgentGitHubSetup).not.toHaveBeenCalled();
+  });
+
+  describe("managed disconnect lifecycle (gap 1)", () => {
+    const connectedHandlers = () => ({
+      onAuthStart: vi.fn(async () => ({ authId: "auth-1" })),
+      onAuthStatus: vi.fn(async () => ({ status: "pending" })),
+      onIntegrationStatus: vi.fn(async () => ({
+        integrations: { github: { configured: true, authenticated: true, usable: true, connectionId: "conn-9" } },
+      })),
+    });
+
+    async function renderConnectedCard(onDisconnect: NonNullable<ComponentProps<typeof GitHubChatConnectorCard>["onDisconnect"]>) {
+      render(
+        <GitHubChatConnectorCard
+          connected
+          configSchema={schemaWith("integrations.github")}
+          {...connectedHandlers()}
+          onDisconnect={onDisconnect}
+        />,
+      );
+      // Wait for the initial status probe to present the connected state.
+      await screen.findByText(/GitHub is connected\./i);
+      fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
+      const confirm = await screen.findByRole("button", { name: /disconnect github/i });
+      await act(async () => {
+        fireEvent.click(confirm);
+      });
+    }
+
+    it("regression: does not present disconnected state when the SDK resolves ok:false", async () => {
+      // SECURITY CONTRACT: a managed disconnect that the gateway reports as not
+      // completed (ok:false) must leave the card in the connected state with an
+      // error, never silently reset to "Connect GitHub" while the credential is
+      // still live.
+      const onDisconnect = vi.fn(async () => ({ ok: false }));
+      await renderConnectedCard(onDisconnect);
+
+      expect(await screen.findByText(/GitHub is still connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/GitHub is connected\./i)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /start connection/i })).not.toBeInTheDocument();
+    });
+
+    it("regression: treats a disconnect result without ok:true as a failure", async () => {
+      // INVALID/NO-OP RESULT CONTRACT: a resolved payload that omits `ok` is not
+      // proof of revocation. The card must keep showing the connected state.
+      const onDisconnect = vi.fn(async () => ({ } as { ok: boolean }));
+      await renderConnectedCard(onDisconnect);
+
+      expect(await screen.findByText(/GitHub is still connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/GitHub is connected\./i)).toBeInTheDocument();
+    });
+
+    it("resets to disconnected only after a confirmed ok:true result", async () => {
+      const onDisconnect = vi.fn(async () => ({ ok: true }));
+      await renderConnectedCard(onDisconnect);
+
+      expect(await screen.findByRole("button", { name: /start connection/i })).toBeInTheDocument();
+      expect(screen.queryByText(/GitHub is connected\./i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/GitHub is still connected/i)).not.toBeInTheDocument();
+      expect(onDisconnect).toHaveBeenCalledWith({ integrationId: "github", connectionId: "conn-9", revoke: true });
+    });
+
+    it("keeps the connected state and shows the error when disconnect rejects", async () => {
+      const onDisconnect = vi.fn(async () => {
+        throw new Error("gateway timeout");
+      });
+      await renderConnectedCard(onDisconnect);
+
+      expect(await screen.findByText(/GitHub is still connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/GitHub is connected\./i)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
+      expect(screen.getByText("gateway timeout")).toBeInTheDocument();
+    });
+
+    it("requires the destructive confirmation before calling disconnect", async () => {
+      const onDisconnect = vi.fn(async () => ({ ok: true }));
+      render(
+        <GitHubChatConnectorCard
+          connected
+          configSchema={schemaWith("integrations.github")}
+          {...connectedHandlers()}
+          onDisconnect={onDisconnect}
+        />,
+      );
+      await screen.findByText(/GitHub is connected\./i);
+
+      fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
+      expect(onDisconnect).not.toHaveBeenCalled();
+      // The destructive confirmation explains the revocation before any call.
+      expect(await screen.findByText(/revokes the saved GitHub connection/i)).toBeInTheDocument();
+
+      // Cancel keeps the credential untouched and the card connected.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /cancel/i }));
+      });
+      expect(onDisconnect).not.toHaveBeenCalled();
+      expect(screen.getByText(/GitHub is connected\./i)).toBeInTheDocument();
+    });
+  });
+
+  describe("managed device-flow polling bounds (gap 4)", () => {
+    const pollRuntime = { provider: "openclaw", version: "2026.7.16", capabilities: ["integrations.auth"] };
+
+    function pollingProvider(pollSetup: AgentConnectorsProvider["pollSetup"]): AgentConnectorsProvider {
+      return {
+        runtime: pollRuntime,
+        list: vi.fn(async () => [{
+          connectorId: "github",
+          configured: false,
+          authenticated: false,
+          usable: false,
+          setupModes: ["managed-auth" as const],
+        }]),
+        startSetup: vi.fn(async () => ({
+          connectorId: "github",
+          mode: "managed-auth" as const,
+          setupId: "auth-poll",
+          deviceUrl: "https://github.com/login/device",
+          deviceCode: "ABCD-EFGH",
+          expiresAt: Date.now() + 90_000,
+          pollIntervalMs: 1500,
+          provenance: pollRuntime,
+        })),
+        pollSetup,
+        configure: vi.fn(),
+      } satisfies AgentConnectorsProvider;
+    }
+
+    it("regression: polling stops after a bounded number of attempts when the flow never completes", async () => {
+      // RELIABILITY CONTRACT: a managed device flow that never reaches a
+      // terminal state must not poll forever — an abandoned tab would otherwise
+      // poll the gateway indefinitely. The runtime-provided expiry must terminate
+      // polling with a failure state.
+      vi.useFakeTimers();
+      const pollSetup = vi.fn(async () => ({
+        connectorId: "github",
+        setupId: "auth-poll",
+        state: "pending" as const,
+        provenance: pollRuntime,
+      }));
+      const connectorsProvider = pollingProvider(pollSetup);
+
+      render(<GitHubChatConnectorCard connected connectorsProvider={connectorsProvider} configSchema={null} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
+      });
+      expect(screen.getByText("ABCD-EFGH")).toBeInTheDocument();
+
+      // Simulate ten minutes of pending responses (bounded, fake timers).
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+      });
+
+      // A bounded flow must have stopped well before ~400 attempts and shown a
+      // terminal failure instead of the still-pending device-code prompt.
+      expect(pollSetup.mock.calls.length).toBeLessThanOrEqual(60);
+      expect(screen.getByText(/did not finish|expired|taking too long/i)).toBeInTheDocument();
+      const callsAfterFailure = pollSetup.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(60 * 1000);
+      });
+      expect(pollSetup.mock.calls.length).toBe(callsAfterFailure);
+    });
+
+    it("stops polling when the runtime reports a terminal failed state", async () => {
+      vi.useFakeTimers();
+      const pollSetup = vi.fn(async () => ({
+        connectorId: "github",
+        setupId: "auth-poll",
+        state: "failed" as const,
+        error: "authorization expired",
+        provenance: pollRuntime,
+      }));
+      const connectorsProvider = pollingProvider(pollSetup);
+
+      render(<GitHubChatConnectorCard connected connectorsProvider={connectorsProvider} configSchema={null} />);
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
+      });
+      // Drive the poll interval so the terminal failed response is processed.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+
+      expect(screen.getByText(/GitHub authorization did not finish/i)).toBeInTheDocument();
+      const callsAfterFailure = pollSetup.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30 * 1000);
+      });
+      expect(pollSetup.mock.calls.length).toBe(callsAfterFailure);
+    });
+
+    it("stops polling when the card unmounts mid-flow", async () => {
+      vi.useFakeTimers();
+      const pollSetup = vi.fn(async () => ({
+        connectorId: "github",
+        setupId: "auth-poll",
+        state: "pending" as const,
+        provenance: pollRuntime,
+      }));
+      const connectorsProvider = pollingProvider(pollSetup);
+
+      const { unmount } = render(
+        <GitHubChatConnectorCard connected connectorsProvider={connectorsProvider} configSchema={null} />,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      const callsBeforeUnmount = pollSetup.mock.calls.length;
+      expect(callsBeforeUnmount).toBeGreaterThan(0);
+
+      unmount();
+      const callsAtUnmount = pollSetup.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30 * 1000);
+      });
+      expect(pollSetup.mock.calls.length).toBe(callsAtUnmount);
+    });
+  });
+
+  describe("double-start and agent-driven setup (gaps 2 and 6)", () => {
+    it("issues exactly one managed auth start for a single connect gesture", async () => {
+      // RELIABILITY CONTRACT: a connect click must mint exactly one gateway
+      // authorization. NOTE (gap 6 residual): `start()` has no in-flight
+      // guard and the card's own mount/status effect resets `step` to `idle`
+      // when the status probe resolves, re-enabling the button mid-flight —
+      // a second click after that point starts a second authorization. A
+      // single-gesture regression is pinned here; the re-click race requires
+      // a production in-flight guard and is recorded as a residual defect.
+      let resolveStart: ((result: { authId: string }) => void) | undefined;
+      const onAuthStart = vi.fn(() => new Promise<{ authId: string }>((resolve) => {
+        resolveStart = resolve;
+      }));
+      render(
+        <GitHubChatConnectorCard
+          connected
+          configSchema={schemaWith("integrations.github")}
+          onAuthStart={onAuthStart}
+          onAuthStatus={vi.fn(async () => ({ status: "pending" }))}
+          onIntegrationStatus={vi.fn(async () => ({ integrations: { github: { configured: false, authenticated: false, usable: false } } }))}
+        />,
+      );
+      // Let the initial status probe settle into the idle step.
+      const startButton = await screen.findByRole("button", { name: /start connection/i });
+
+      await act(async () => {
+        fireEvent.click(startButton);
+      });
+      resolveStart?.({ authId: "auth-1" });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(onAuthStart).toHaveBeenCalledTimes(1);
+    });
+
+    it("surfaces a failed agent setup send and offers retry", async () => {
+      const onStartAgentGitHubSetup = vi.fn(async () => {
+        throw new Error("agent disconnected mid-send");
+      });
+      render(
+        <GitHubChatConnectorCard
+          connected
+          configSchema={schemaWith("integrations.github")}
+          onStartAgentGitHubSetup={onStartAgentGitHubSetup}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /start connection/i }));
+      });
+
+      expect(await screen.findByText(/GitHub setup did not start/i)).toBeInTheDocument();
+      expect(onStartAgentGitHubSetup).toHaveBeenCalledTimes(1);
+
+      // Retry affordance remains available after a failed send.
+      const retry = screen.getByRole("button", { name: /start connection/i });
+      await act(async () => {
+        fireEvent.click(retry);
+      });
+      expect(onStartAgentGitHubSetup).toHaveBeenCalledTimes(2);
+    });
+
+    it("never renders a managed Disconnect affordance in the agent-driven gh flow", async () => {
+      // CHARACTERIZATION (gap 2): the agent-driven `gh auth login` flow has no
+      // disconnect/revoke route. The card must not present a managed Disconnect
+      // button while the agent flow is active, even in the ready state, because
+      // the CLI login lives in the workspace shell and is not a managed
+      // connection the gateway can revoke. This pins the current UI
+      // distinction; it does not define a new logout workflow.
+      const onDisconnect = vi.fn(async () => ({ ok: true }));
+      render(
+        <GitHubChatConnectorCard
+          connected
+          configSchema={schemaWith("integrations.github")}
+          onDisconnect={onDisconnect}
+          agentSetupStatus={{
+            phase: "ready",
+            accountDisplayName: "octocat",
+            recentCommands: [
+              { label: "Checking GitHub auth", command: "gh auth status", result: "Logged in to github.com account octocat" },
+            ],
+          }}
+        />,
+      );
+
+      expect(await screen.findByText("Signed in as octocat")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^disconnect$/i })).not.toBeInTheDocument();
+      expect(onDisconnect).not.toHaveBeenCalled();
+    });
+
+    it("does not render a managed Disconnect affordance while the agent device-code step is active", async () => {
+      const onDisconnect = vi.fn(async () => ({ ok: true }));
+      render(
+        <GitHubChatConnectorCard
+          connected
+          configSchema={schemaWith("integrations.github")}
+          onDisconnect={onDisconnect}
+          agentSetupStatus={{
+            phase: "device-code",
+            userCode: "8BCD-83A2",
+            verificationUri: "https://github.com/login/device",
+            recentCommands: [],
+          }}
+        />,
+      );
+
+      expect(await screen.findByText("8BCD-83A2")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^disconnect$/i })).not.toBeInTheDocument();
+      expect(onDisconnect).not.toHaveBeenCalled();
+    });
   });
 });

@@ -34,6 +34,7 @@ import { ConnectorWorkflowGuide } from "./ConnectorWorkflowGuide";
 import { IntegrationBrandPulse } from "./IntegrationBrandPulse";
 
 const GITHUB_SCOPES = ["repo", "read:org", "gist"];
+const DEFAULT_AUTH_POLL_TIMEOUT_MS = 15 * 60 * 1000;
 
 type ConnectorStep = "checking" | "idle" | "starting" | "pending" | "connected" | "failed";
 type GitHubCardTone = "neutral" | "primary" | "warning" | "info";
@@ -105,6 +106,19 @@ function authDone(result: GatewayIntegrationAuthStatusResult): boolean {
 function authFailed(result: GatewayIntegrationAuthStatusResult): boolean {
   const status = String(result.status ?? "").toLowerCase();
   return ["failed", "error", "expired", "denied", "cancelled", "canceled"].includes(status);
+}
+
+function authExpiryDeadline(expiresAt: string | number | undefined): number {
+  if (typeof expiresAt === "number" && Number.isFinite(expiresAt)) {
+    return expiresAt < 1_000_000_000_000 ? expiresAt * 1000 : expiresAt;
+  }
+  if (typeof expiresAt === "string" && expiresAt.trim()) {
+    const numeric = Number(expiresAt);
+    if (Number.isFinite(numeric)) return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+    const parsed = Date.parse(expiresAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Date.now() + DEFAULT_AUTH_POLL_TIMEOUT_MS;
 }
 
 function buttonClass(tone: "primary" | "secondary" | "caution" = "secondary") {
@@ -487,8 +501,15 @@ export function GitHubChatConnectorCard({
     let polling = false;
     const reportedIntervalMs = runtimeSetup?.pollIntervalMs ?? authStart?.intervalMs;
     const intervalMs = typeof reportedIntervalMs === "number" ? Math.max(reportedIntervalMs, 1500) : 3000;
+    const expiresAt = authExpiryDeadline(runtimeSetup?.expiresAt ?? authStart?.expiresAt);
     const poll = async () => {
       if (polling || cancelled) return;
+      if (Date.now() >= expiresAt) {
+        setError("GitHub authorization expired. Start the connection again and approve the new code.");
+        setTechnicalDetails(null);
+        setStep("failed");
+        return;
+      }
       polling = true;
       setAuthPolling(true);
       try {
@@ -570,7 +591,7 @@ export function GitHubChatConnectorCard({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [authId, authPollRevision, authStart?.intervalMs, connected, connectorsProvider, onAuthStatus, onIntegrationStatus, runtimeSetup?.pollIntervalMs, step]);
+  }, [authId, authPollRevision, authStart?.expiresAt, authStart?.intervalMs, connected, connectorsProvider, onAuthStatus, onIntegrationStatus, runtimeSetup?.expiresAt, runtimeSetup?.pollIntervalMs, step]);
 
   const generateWorkflow = React.useCallback(async () => {
     if (!onGenerateConnectorWorkflow) return false;
@@ -692,7 +713,12 @@ export function GitHubChatConnectorCard({
     setError(null);
     setTechnicalDetails(null);
     try {
-      await onDisconnect({ integrationId: "github", connectionId: entry?.connectionId, revoke: true });
+      const result = await onDisconnect({ integrationId: "github", connectionId: entry?.connectionId, revoke: true });
+      if (result?.ok !== true) {
+        setError("GitHub is still connected. Check the agent connection and try disconnecting again.");
+        setTechnicalDetails("The gateway did not confirm that GitHub was disconnected.");
+        return;
+      }
       setEntry(null);
       setAuthStart(null);
       setStep("idle");

@@ -352,4 +352,19 @@ describe("useHermesSession (AgentGatewaySession adapter)", () => {
     expect(result.current.messages).toEqual([]);
     expect(client.close).toHaveBeenCalled();
   });
+
+  it("exposes an inert managed GitHub integration surface (gap 7 method shape)", async () => {
+    // RUNTIME BOUNDARY CONTRACT: Hermes has no managed GitHub connector. The
+    // session must not advertise a connectors provider or a status reader, and
+    // its managed auth/disconnect handlers are inert no-ops. This pins the
+    // shape so the GitHub card is never given a live-looking path on Hermes.
+    const client = fakeClient();
+    const { result } = renderHook(() => useHermesSession(fakeAgent(client), true));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    expect(result.current.connectorsProvider).toBeNull();
+    expect(result.current.integrationsStatus).toBeNull();
+    await expect(result.current.integrationsAuthStart?.({ integrationId: "github" })).resolves.toBeUndefined();
+    await expect(result.current.integrationsDisconnect?.({ integrationId: "github" })).resolves.toBeUndefined();
+  });
 });
