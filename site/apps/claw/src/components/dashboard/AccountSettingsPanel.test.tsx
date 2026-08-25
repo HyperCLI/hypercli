@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import type { HyperAgentSubscriptionTrial } from "@hypercli.com/sdk/agent";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
@@ -37,9 +37,11 @@ const billingMocks = vi.hoisted(() => {
     billingProfile: vi.fn(),
     subscriptionSummary: vi.fn(),
     usageHistory: vi.fn(),
+    plans: vi.fn(),
     redeemGrantCode: vi.fn(),
     updateBillingProfile: vi.fn(),
     cancelSubscription: vi.fn(),
+    updateSubscription: vi.fn(),
   };
   return {
     agentClient,
@@ -347,6 +349,38 @@ function setupBillingMocks() {
     history: [{ date: "2026-04-20", totalTokens: 12_500, promptTokens: 10_000, completionTokens: 2_500, requests: 8 }],
     days: 1,
   });
+  billingMocks.hyperAgent.plans.mockResolvedValue([
+    {
+      id: "solo",
+      name: "Solo",
+      price: 39,
+      priceUsd: 39,
+      agents: 1,
+      slotGrants: { small: 1 },
+      features: [],
+      limits: { tpd: 25_000_000, tpm: 25_000, burstTpm: 50_000, rpm: 250 },
+    },
+    {
+      id: "team",
+      name: "Team",
+      price: 99,
+      priceUsd: 99,
+      agents: 3,
+      slotGrants: { medium: 3 },
+      features: [],
+      limits: { tpd: 100_000_000, tpm: 100_000, burstTpm: 200_000, rpm: 1_000 },
+    },
+    {
+      id: "pro",
+      name: "Pro",
+      price: 249,
+      priceUsd: 249,
+      agents: 5,
+      slotGrants: { large: 5 },
+      features: [],
+      limits: { tpd: 250_000_000, tpm: 250_000, burstTpm: 500_000, rpm: 2_500 },
+    },
+  ]);
   billingMocks.hyperAgent.redeemGrantCode.mockResolvedValue({
     grant: { id: "grant-1", code: "promo-123" },
     entitlement: {
@@ -357,6 +391,7 @@ function setupBillingMocks() {
     },
   });
   billingMocks.hyperAgent.cancelSubscription.mockResolvedValue({ ok: true, message: "Cancellation scheduled" });
+  billingMocks.hyperAgent.updateSubscription.mockResolvedValue({ ok: true, message: "Subscription updated" });
 }
 
 describe("AccountSettingsPanel", () => {
@@ -456,7 +491,7 @@ describe("AccountSettingsPanel", () => {
     await user.click(screen.getByRole("tab", { name: "Overview" }));
     await user.click(screen.getByRole("button", { name: "Manage" }));
     expect(screen.getAllByText(/Pro Plan/).length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: "Adjust plan" })).toHaveAttribute("href", "/adjust-plan");
+    expect(screen.getByRole("button", { name: "Adjust Pro Plan bundle plan" })).toBeInTheDocument();
     expect(screen.getByText("Keeps access until May 21, 2026.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /manage card/i }));
@@ -471,6 +506,148 @@ describe("AccountSettingsPanel", () => {
     expect(screen.getByText("Cancellation scheduled")).toBeInTheDocument();
 
     confirmSpy.mockRestore();
+  });
+
+  it("adjusts one recurring bundle through a reviewed upgrade or downgrade", async () => {
+    const user = userEvent.setup();
+    const summary = buildSubscriptionSummary();
+    summary.effectivePlanId = "team";
+    summary.activeSubscriptionCount = 2;
+    summary.activeSubscriptions = [
+      {
+        ...summary.activeSubscriptions[0],
+        planId: "team",
+        planName: "Team",
+        quantity: 2,
+      },
+      {
+        ...summary.activeSubscriptions[0],
+        id: "sub_pro_456",
+        planId: "pro",
+        planName: "Pro",
+        isCurrent: false,
+      },
+    ];
+    billingMocks.hyperAgent.subscriptionSummary.mockResolvedValue(summary);
+
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    await screen.findByRole("heading", { name: "Active Bundles" });
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    expect(screen.getByRole("button", { name: "Adjust Team bundle plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Adjust Pro bundle plan" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Adjust Team bundle plan" }));
+
+    expect(await screen.findByRole("heading", { name: "Adjust Team bundle" })).toBeInTheDocument();
+    expect(screen.getByText("Bundle sub_123")).toBeInTheDocument();
+    expect(screen.getByText("Current tier")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Back to billing" }));
+    const teamAdjustButton = await screen.findByRole("button", { name: "Adjust Team bundle plan" });
+    await waitFor(() => expect(teamAdjustButton).toHaveFocus());
+    await user.click(teamAdjustButton);
+
+    const soloOption = await screen.findByTestId("plan-change-option-solo");
+    const proOption = screen.getByTestId("plan-change-option-pro");
+    expect(within(soloOption).getByText("Downgrade")).toBeInTheDocument();
+    expect(within(proOption).getByText("Upgrade")).toBeInTheDocument();
+
+    await user.click(soloOption);
+    expect(screen.getByText(/Other bundles stay unchanged/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Review downgrade" }));
+
+    const reviewHeading = screen.getByRole("heading", { name: "Confirm downgrade" });
+    expect(reviewHeading).toBeInTheDocument();
+    await waitFor(() => expect(reviewHeading).toHaveFocus());
+    expect(screen.getByText(/Its quantity stays at 2/i)).toBeInTheDocument();
+    expect(billingMocks.hyperAgent.updateSubscription).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Back to options" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Choose a higher or lower tier" })).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: "Review downgrade" }));
+
+    await user.click(screen.getByTestId("plan-change-confirm"));
+
+    await waitFor(() => {
+      expect(billingMocks.hyperAgent.updateSubscription).toHaveBeenCalledWith("sub_123", {
+        planId: "solo",
+        quantity: 2,
+      });
+    });
+    const successNotice = (await screen.findByText("Solo is now active for this bundle.")).closest('[role="alert"]');
+    expect(successNotice).toBeInTheDocument();
+    await waitFor(() => expect(successNotice).toHaveFocus());
+  });
+
+  it("keeps an ambiguous plan change in context without exposing request details", async () => {
+    const user = userEvent.setup();
+    const refreshedSummary = buildSubscriptionSummary();
+    refreshedSummary.effectivePlanId = "team";
+    refreshedSummary.activeSubscriptions[0] = {
+      ...refreshedSummary.activeSubscriptions[0],
+      planId: "team",
+      planName: "Team",
+    };
+    billingMocks.hyperAgent.subscriptionSummary
+      .mockReset()
+      .mockResolvedValueOnce(buildSubscriptionSummary())
+      .mockResolvedValue(refreshedSummary);
+    billingMocks.hyperAgent.updateSubscription.mockRejectedValueOnce(
+      new Error("POST /subscriptions/sub_123/update token=private returned 504"),
+    );
+
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    await screen.findByRole("heading", { name: "Active Bundles" });
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(screen.getByRole("button", { name: "Adjust Pro Plan bundle plan" }));
+    await user.click(await screen.findByTestId("plan-change-option-team"));
+    await user.click(screen.getByRole("button", { name: "Review downgrade" }));
+    await user.click(screen.getByTestId("plan-change-confirm"));
+
+    expect(await screen.findByRole("heading", { name: "Check billing before retrying the plan change" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Confirm downgrade" })).toBeVisible();
+    expect(screen.queryByText(/POST \/subscriptions/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/private/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId("plan-change-confirm")).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Refresh billing" }));
+
+    expect(await screen.findByRole("heading", { name: "Adjust Team bundle" })).toBeVisible();
+    expect(billingMocks.hyperAgent.updateSubscription).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes a confirmed plan change without posting it twice", async () => {
+    const user = userEvent.setup();
+    const refreshedSummary = buildSubscriptionSummary();
+    refreshedSummary.effectivePlanId = "team";
+    refreshedSummary.activeSubscriptions[0] = {
+      ...refreshedSummary.activeSubscriptions[0],
+      planId: "team",
+      planName: "Team",
+    };
+    billingMocks.hyperAgent.subscriptionSummary
+      .mockReset()
+      .mockResolvedValueOnce(buildSubscriptionSummary())
+      .mockRejectedValueOnce(new Error("Billing refresh timed out"))
+      .mockResolvedValue(refreshedSummary);
+
+    render(<ProfileBillingSection getToken={authMocks.getToken} />);
+
+    await screen.findByRole("heading", { name: "Active Bundles" });
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(screen.getByRole("button", { name: "Adjust Pro Plan bundle plan" }));
+    await user.click(await screen.findByTestId("plan-change-option-team"));
+    await user.click(screen.getByRole("button", { name: "Review downgrade" }));
+    await user.click(screen.getByTestId("plan-change-confirm"));
+
+    expect(await screen.findByRole("heading", { name: "Refresh to confirm the new tier" })).toBeVisible();
+    expect(screen.getByTestId("plan-change-confirm")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Refresh billing" }));
+
+    expect(await screen.findByText("Team is now active for this bundle.")).toBeVisible();
+    expect(billingMocks.hyperAgent.updateSubscription).toHaveBeenCalledTimes(1);
   });
 
   it("does not show card management for non-Stripe billing", async () => {
@@ -489,6 +666,7 @@ describe("AccountSettingsPanel", () => {
     expect((await screen.findAllByText("USDC wallet payments")).length).toBeGreaterThan(0);
     expect(screen.getByText("No card settings")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /manage card/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /adjust pro plan bundle plan/i })).not.toBeInTheDocument();
   });
 
   it("shows authoritative Team trial timing in billing", async () => {

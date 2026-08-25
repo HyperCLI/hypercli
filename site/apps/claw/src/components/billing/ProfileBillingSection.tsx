@@ -5,10 +5,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import {
+  ArrowLeft,
+  ArrowRight,
   BriefcaseBusiness,
+  Check,
   ChevronDown,
   CircleDot,
   CreditCard,
@@ -48,12 +52,14 @@ import {
 } from "@hypercli/shared-ui";
 import type {
   HyperAgentEntitlement,
+  HyperAgentPlan,
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
 
 import { ActivateCodeModal } from "@/components/ActivateCodeModal";
 import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
+import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { getLaunchSlotInventoryFromSummary } from "@/lib/agent-launch-state";
 import {
   getAgentPayments,
@@ -110,6 +116,12 @@ interface BillingRecovery {
   description: string;
 }
 
+interface PlanMutationRecovery extends BillingRecovery {
+  action: "review-options" | "refresh-billing" | "finish-confirmed-change";
+}
+
+type PlanChangeDirection = "upgrade" | "downgrade" | "change";
+
 const BILLING_TIER_ORDER = ["free", "small", "medium", "large"];
 
 function formatAgentsAmount(receipt: ReceiptRecord): string {
@@ -126,6 +138,70 @@ function humanizePlanId(planId: string | null | undefined): string {
   const words = (planId || "").split(/[-_]/).filter(Boolean);
   if (words.length === 0) return "Current plan";
   return words.map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`).join(" ");
+}
+
+function finitePlanNumber(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function planMonthlyPrice(plan: HyperAgentPlan): number {
+  return finitePlanNumber(plan.priceUsd ?? plan.price);
+}
+
+function formatPlanMonthlyPrice(plan: HyperAgentPlan, quantity = 1): string {
+  const price = planMonthlyPrice(plan) * Math.max(quantity, 1);
+  if (price <= 0) return "Included";
+  return `${new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: Number.isInteger(price) ? 0 : 2,
+  }).format(price)}/month`;
+}
+
+function planCapacityLabel(plan: HyperAgentPlan): string {
+  const grants = Object.entries(plan.slotGrants ?? {})
+    .filter(([, count]) => finitePlanNumber(count) > 0)
+    .map(([tier, count]) => {
+      const amount = finitePlanNumber(count);
+      return `${amount} ${tierLabel(tier)} slot${amount === 1 ? "" : "s"}`;
+    });
+  if (grants.length > 0) return grants.join(", ");
+  if (plan.agents > 0) return `${plan.agents} agent slot${plan.agents === 1 ? "" : "s"}`;
+  return "Capacity details unavailable";
+}
+
+function planDailyTokensLabel(plan: HyperAgentPlan): string {
+  const dailyTokens = finitePlanNumber(plan.limits?.tpd);
+  return dailyTokens > 0 ? `${formatTokens(dailyTokens)} tokens/day` : "Daily token limit unavailable";
+}
+
+function getPlanChangeDirection(
+  currentPlan: HyperAgentPlan | null,
+  targetPlan: HyperAgentPlan,
+): PlanChangeDirection {
+  if (!currentPlan) return "change";
+  const comparisons = [
+    planMonthlyPrice(targetPlan) - planMonthlyPrice(currentPlan),
+    finitePlanNumber(targetPlan.agents) - finitePlanNumber(currentPlan.agents),
+    finitePlanNumber(targetPlan.limits?.tpd) - finitePlanNumber(currentPlan.limits?.tpd),
+  ];
+  const difference = comparisons.find((value) => value !== 0);
+  if (!difference) return "change";
+  return difference > 0 ? "upgrade" : "downgrade";
+}
+
+function planChangeLabel(direction: PlanChangeDirection): string {
+  if (direction === "upgrade") return "Upgrade";
+  if (direction === "downgrade") return "Downgrade";
+  return "Change";
+}
+
+function canAdjustSubscription(subscription: HyperAgentSubscription): boolean {
+  const status = subscription.status.toLowerCase();
+  return subscription.provider.toLowerCase() === "stripe"
+    && !subscription.cancelAtPeriodEnd
+    && (status === "active" || status === "trialing");
 }
 
 function formatProvider(provider: string | null | undefined): string {
@@ -577,6 +653,431 @@ function InvoiceTable({ rows }: { rows: BillingInvoiceRow[] }) {
   );
 }
 
+function SubscriptionPlanAdjustment({
+  subscription,
+  getToken,
+  onBack,
+  onChanged,
+  onRefreshBilling,
+}: {
+  subscription: HyperAgentSubscription;
+  getToken: () => Promise<string>;
+  onBack: () => void;
+  onChanged: (targetPlan: HyperAgentPlan) => Promise<void>;
+  onRefreshBilling: () => Promise<void>;
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const optionsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const reviewHeadingRef = useRef<HTMLHeadingElement>(null);
+  const [plans, setPlans] = useState<HyperAgentPlan[]>([]);
+  const [plansLoading, setPlansLoading] = useState(true);
+  const [plansError, setPlansError] = useState<BillingRecovery | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [mutationError, setMutationError] = useState<PlanMutationRecovery | null>(null);
+
+  const loadPlans = useCallback(async () => {
+    setPlansLoading(true);
+    setPlansError(null);
+    try {
+      const hyperAgent = createHyperAgentClient(await getToken());
+      const catalog = await hyperAgent.plans();
+      setPlans(
+        catalog
+          .filter(isVisibleCurrentAgentPlan)
+          .sort((left, right) => {
+            const priceDifference = planMonthlyPrice(left) - planMonthlyPrice(right);
+            return priceDifference || left.name.localeCompare(right.name);
+          }),
+      );
+    } catch {
+      setPlans([]);
+      setPlansError({
+        title: "Retry to load plan options",
+        description: "Plan options are temporarily unavailable. This bundle has not been changed.",
+      });
+    } finally {
+      setPlansLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+    const timeout = window.setTimeout(() => { void loadPlans(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadPlans]);
+
+  useEffect(() => {
+    if (reviewing) reviewHeadingRef.current?.focus();
+  }, [reviewing]);
+
+  const currentPlan = plans.find((plan) => plan.id === subscription.planId) ?? null;
+  const availablePlans = plans.filter((plan) => plan.id !== subscription.planId);
+  const selectedPlan = availablePlans.find((plan) => plan.id === selectedPlanId) ?? null;
+  const direction = selectedPlan ? getPlanChangeDirection(currentPlan, selectedPlan) : null;
+  const quantity = Number.isInteger(subscription.quantity) && subscription.quantity > 0
+    ? subscription.quantity
+    : 1;
+  const currentPlanName = subscription.planName || humanizePlanId(subscription.planId);
+  const renewalLabel = describeSubscriptionDate(subscription);
+
+  const selectPlan = (planId: string) => {
+    setSelectedPlanId(planId);
+    setReviewing(false);
+    setMutationError(null);
+  };
+
+  const confirmChange = async () => {
+    if (!selectedPlan || !direction) return;
+    setUpdating(true);
+    setMutationError(null);
+    let updateConfirmed = false;
+    try {
+      const hyperAgent = createHyperAgentClient(await getToken());
+      const result = await hyperAgent.updateSubscription(subscription.id, {
+        planId: selectedPlan.id,
+        quantity,
+      });
+      if (!result.ok) {
+        setMutationError({
+          title: "Plan change was not applied",
+          description: "No change was confirmed. Review the selected tier and try again.",
+          action: "review-options",
+        });
+        return;
+      }
+      updateConfirmed = true;
+      await onChanged(selectedPlan);
+    } catch {
+      setMutationError(updateConfirmed ? {
+        title: "Refresh to confirm the new tier",
+        description: "The plan changed, but the latest billing details did not load. Refresh Billing before making another change.",
+        action: "finish-confirmed-change",
+      } : {
+        title: "Check billing before retrying the plan change",
+        description: "Refresh Billing before sending this request again. We could not confirm whether the change was applied.",
+        action: "refresh-billing",
+      });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const backToOptions = () => {
+    setMutationError(null);
+    setReviewing(false);
+    window.setTimeout(() => optionsHeadingRef.current?.focus(), 0);
+  };
+
+  const recoverFromMutationError = async () => {
+    if (!mutationError) return;
+    if (mutationError.action === "review-options") {
+      backToOptions();
+      return;
+    }
+
+    setUpdating(true);
+    try {
+      if (mutationError.action === "finish-confirmed-change" && selectedPlan) {
+        await onChanged(selectedPlan);
+        return;
+      }
+      await onRefreshBilling();
+      setSelectedPlanId(null);
+      setMutationError(null);
+      setReviewing(false);
+      window.setTimeout(() => optionsHeadingRef.current?.focus(), 0);
+    } catch {
+      setMutationError({
+        title: "Retry to refresh billing",
+        description: "The latest bundle details are still unavailable. Retry before making another plan change.",
+        action: mutationError.action,
+      });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const impactRows = selectedPlan ? [
+    {
+      label: "Monthly catalog price",
+      current: currentPlan ? formatPlanMonthlyPrice(currentPlan, quantity) : "Current amount unavailable",
+      target: formatPlanMonthlyPrice(selectedPlan, quantity),
+    },
+    {
+      label: "Included capacity",
+      current: currentPlan ? planCapacityLabel(currentPlan) : "Current capacity unavailable",
+      target: planCapacityLabel(selectedPlan),
+    },
+    {
+      label: "Daily tokens",
+      current: currentPlan ? planDailyTokensLabel(currentPlan) : "Current limit unavailable",
+      target: planDailyTokensLabel(selectedPlan),
+    },
+  ] : [];
+
+  return (
+    <div data-testid="subscription-plan-adjustment" className="min-w-0 text-left">
+      <div className="border-b border-border pb-6">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          className="-ml-2 h-8 rounded-lg px-2 text-xs text-text-secondary hover:bg-surface-low hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Back to billing
+        </Button>
+        <div className="mt-5">
+          <div className="min-w-0">
+            <h2
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-xl font-semibold tracking-tight text-foreground focus:outline-none"
+            >
+              Adjust {currentPlanName} bundle
+            </h2>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-text-secondary">
+              Choose a different tier for this recurring bundle. Other active bundles stay unchanged.
+            </p>
+          </div>
+          <Badge variant="secondary" className="mt-3 w-fit rounded-full px-2.5 py-1 text-[0.625rem] leading-4">
+            Bundle {compactId(subscription.id)}
+          </Badge>
+        </div>
+      </div>
+
+      {mutationError ? (
+        <RecoveryState
+          presentation="compact"
+          title={mutationError.title}
+          description={mutationError.description}
+          primaryAction={{
+            label: mutationError.action === "review-options" ? "Review options" : "Refresh billing",
+            onAction: () => { void recoverFromMutationError(); },
+          }}
+          onDismiss={mutationError.action === "review-options" ? backToOptions : undefined}
+          className="mt-5"
+        />
+      ) : null}
+
+      {plansLoading ? (
+        <div role="status" aria-label="Loading plan options" className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)]">
+          <div className="space-y-4 rounded-2xl border border-border p-5">
+            <Skeleton className="h-3 w-20 bg-surface-high" />
+            <Skeleton className="h-7 w-32 bg-surface-high" />
+            <Skeleton className="h-4 w-24 bg-surface-high" />
+          </div>
+          <div className="space-y-3">
+            <Skeleton className="h-5 w-44 bg-surface-high" />
+            {Array.from({ length: 2 }).map((_, index) => (
+              <Skeleton key={index} className="h-24 w-full rounded-2xl bg-surface-high" />
+            ))}
+          </div>
+        </div>
+      ) : plansError ? (
+        <RecoveryState
+          presentation="compact"
+          title={plansError.title}
+          description={plansError.description}
+          primaryAction={{ label: "Retry", onAction: () => { void loadPlans(); } }}
+          className="mt-6"
+        />
+      ) : reviewing && selectedPlan && direction ? (
+        <section aria-labelledby="plan-change-review-heading" className="mt-6">
+          <p className="text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-text-muted">Final review</p>
+          <h3
+            ref={reviewHeadingRef}
+            id="plan-change-review-heading"
+            tabIndex={-1}
+            className="mt-2 text-lg font-semibold tracking-tight text-foreground focus:outline-none"
+          >
+            Confirm {direction}
+          </h3>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-text-secondary">
+            This changes only bundle {compactId(subscription.id)}. Its quantity stays at {quantity}.
+          </p>
+
+          <div className="mt-6 grid items-center gap-3 rounded-2xl border border-border bg-surface-low/40 p-5 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+            <div className="min-w-0">
+              <p className="text-[0.625rem] font-medium text-text-muted">Current tier</p>
+              <p className="mt-1 truncate text-base font-semibold text-foreground">{currentPlanName}</p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-text-muted max-sm:rotate-90" aria-hidden="true" />
+            <div className="min-w-0 sm:text-right">
+              <p className="text-[0.625rem] font-medium text-text-muted">New tier</p>
+              <p className="mt-1 truncate text-base font-semibold text-foreground">{selectedPlan.name}</p>
+            </div>
+          </div>
+
+          <dl className="mt-5 divide-y divide-border rounded-2xl border border-border">
+            {impactRows.map((row) => (
+              <div key={row.label} className="grid gap-2 px-4 py-4 sm:grid-cols-[minmax(0,0.8fr)_minmax(0,2fr)] sm:items-center">
+                <dt className="text-xs font-medium text-text-secondary">{row.label}</dt>
+                <dd className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:justify-end">
+                  <span className="text-text-secondary">{row.current}</span>
+                  <ArrowRight className="h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden="true" />
+                  <span className="font-semibold text-foreground">{row.target}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+
+          <Alert className="mt-5 px-4 py-3 text-xs leading-5 text-text-secondary">
+            <span className="col-start-2">
+              {direction === "downgrade"
+                ? "This tier reduces the bundle's included capacity. If that capacity is already in use, the change may need attention before it can be applied. "
+                : "The new capacity becomes part of this bundle after the change is applied. "}
+              Any charge or credit is calculated when the change is applied.
+            </span>
+          </Alert>
+
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              onClick={backToOptions}
+              disabled={updating || Boolean(mutationError && mutationError.action !== "review-options")}
+              className="rounded-xl"
+            >
+              Back to options
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              onClick={() => { void confirmChange(); }}
+              disabled={updating || Boolean(mutationError)}
+              data-testid="plan-change-confirm"
+              className="rounded-xl"
+            >
+              {updating ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
+              {updating ? "Applying change..." : `Confirm ${direction}`}
+            </Button>
+          </div>
+        </section>
+      ) : (
+        <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.72fr)_minmax(0,1.28fr)] lg:items-start">
+          <section aria-labelledby="current-bundle-tier-heading" className="rounded-2xl border border-[var(--plan-accent-border)] bg-[var(--plan-accent-soft)] p-5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[0.625rem] font-semibold uppercase tracking-[0.16em] text-[var(--plan-accent)]">Current tier</p>
+              <Badge variant="secondary" className="rounded-full px-2 py-0.5 text-[0.5625rem]">Active</Badge>
+            </div>
+            <h3 id="current-bundle-tier-heading" className="mt-4 text-2xl font-semibold tracking-tight text-foreground">
+              {currentPlanName}
+            </h3>
+            <p className="mt-1 text-sm font-medium text-foreground">
+              {currentPlan ? formatPlanMonthlyPrice(currentPlan, quantity) : "Current price unavailable"}
+            </p>
+            <dl className="mt-6 space-y-4 border-t border-[var(--plan-accent-border)] pt-4">
+              <div>
+                <dt className="text-[0.625rem] text-text-muted">Included capacity</dt>
+                <dd className="mt-1 text-xs font-medium text-foreground">
+                  {currentPlan ? planCapacityLabel(currentPlan) : "Current capacity unavailable"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-[0.625rem] text-text-muted">Billing schedule</dt>
+                <dd className="mt-1 text-xs font-medium text-foreground">{renewalLabel}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section aria-labelledby="new-bundle-tier-heading" className="min-w-0">
+            <h3
+              ref={optionsHeadingRef}
+              id="new-bundle-tier-heading"
+              tabIndex={-1}
+              className="text-base font-semibold tracking-tight text-foreground focus:outline-none"
+            >
+              Choose a higher or lower tier
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-text-secondary">Select one option to review its impact before confirming.</p>
+
+            {availablePlans.length > 0 ? (
+              <fieldset className="mt-4 space-y-3">
+                <legend className="sr-only">New tier for {currentPlanName} bundle</legend>
+                {availablePlans.map((plan) => {
+                  const optionDirection = getPlanChangeDirection(currentPlan, plan);
+                  const selected = selectedPlanId === plan.id;
+                  return (
+                    <label
+                      key={plan.id}
+                      data-testid={`plan-change-option-${plan.id}`}
+                      className={`group flex cursor-pointer items-center gap-4 rounded-2xl border px-4 py-4 transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring ${
+                        selected
+                          ? "border-[var(--plan-accent-border)] bg-[var(--plan-accent-soft)]"
+                          : "border-border bg-background hover:border-border-strong hover:bg-surface-low"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="bundle-plan-tier"
+                        value={plan.id}
+                        checked={selected}
+                        onChange={() => selectPlan(plan.id)}
+                        className="sr-only"
+                      />
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                          selected ? "border-[var(--plan-accent)] bg-[var(--plan-accent)] text-primary-foreground" : "border-border-strong bg-background"
+                        }`}
+                      >
+                        {selected ? <Check className="h-3 w-3" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{plan.name}</span>
+                          <Badge variant="secondary" className="rounded-full px-2 py-0.5 text-[0.5625rem]">
+                            {planChangeLabel(optionDirection)}
+                          </Badge>
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-text-secondary">
+                          {planCapacityLabel(plan)} · {planDailyTokensLabel(plan)}
+                        </span>
+                      </span>
+                      <span className="shrink-0 text-right text-xs font-semibold text-foreground">
+                        {formatPlanMonthlyPrice(plan, quantity)}
+                      </span>
+                    </label>
+                  );
+                })}
+              </fieldset>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-border px-5 py-8 text-center">
+                <p className="text-sm font-semibold text-foreground">No alternative tiers are available.</p>
+                <p className="mt-1 text-xs text-text-secondary">This bundle has not been changed.</p>
+              </div>
+            )}
+
+            {selectedPlan && direction ? (
+              <div aria-live="polite" className="mt-5 rounded-2xl border border-border bg-surface-low/40 p-4">
+                <p className="text-xs font-semibold text-foreground">{planChangeLabel(direction)} to {selectedPlan.name}</p>
+                <p className="mt-1 text-xs leading-5 text-text-secondary">
+                  {formatPlanMonthlyPrice(selectedPlan, quantity)}, {planCapacityLabel(selectedPlan)}, and {planDailyTokensLabel(selectedPlan)}.
+                  Other bundles stay unchanged.
+                </p>
+                <Button
+                  type="button"
+                  size="lg"
+                  onClick={() => setReviewing(true)}
+                  className="mt-4 w-full rounded-xl sm:w-auto"
+                >
+                  Review {direction}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BillingLoadingState({ activeTab }: { activeTab: BillingTab }) {
   if (activeTab === "invoices") {
     return (
@@ -638,6 +1139,8 @@ function BillingLoadingState({ activeTab }: { activeTab: BillingTab }) {
 }
 
 export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) {
+  const adjustmentButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const subscriptionNoticeRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<BillingTab>("overview");
   const [payments, setPayments] = useState<AgentPayment[]>([]);
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
@@ -652,6 +1155,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   const [redeemingCode, setRedeemingCode] = useState(false);
   const [paymentMethodOpening, setPaymentMethodOpening] = useState(false);
   const [mutatingSubscriptionId, setMutatingSubscriptionId] = useState<string | null>(null);
+  const [adjustingSubscriptionId, setAdjustingSubscriptionId] = useState<string | null>(null);
   const [error, setError] = useState<BillingRecovery | null>(null);
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<BillingRecovery | null>(null);
@@ -721,6 +1225,9 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   );
   const subscriptions = useMemo(() => getBillingSubscriptions(summary), [summary]);
   const currentSubscription = useMemo(() => getCurrentBillingSubscription(summary), [summary]);
+  const adjustingSubscription = adjustingSubscriptionId
+    ? subscriptions.find((subscription) => subscription.id === adjustingSubscriptionId) ?? null
+    : null;
   const capacityRows = useMemo(() => buildAgentCapacityRows(summary), [summary]);
   const activeTrial = useMemo(
     () => getActiveAgentTrial(summary, trialClock, loadedAt || trialClock),
@@ -852,6 +1359,23 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
     }
   };
 
+  const handleSubscriptionPlanChanged = useCallback(async (targetPlan: HyperAgentPlan) => {
+    await refreshBilling();
+    notifyBillingPlanChanged();
+    setSubscriptionNotice(`${targetPlan.name} is now active for this bundle.`);
+    setAdjustingSubscriptionId(null);
+    setManagementOpen(true);
+    window.setTimeout(() => subscriptionNoticeRef.current?.focus(), 0);
+  }, [refreshBilling]);
+
+  const closeSubscriptionPlanAdjustment = useCallback(() => {
+    const subscriptionId = adjustingSubscriptionId;
+    setAdjustingSubscriptionId(null);
+    if (subscriptionId) {
+      window.setTimeout(() => adjustmentButtonRefs.current.get(subscriptionId)?.focus(), 0);
+    }
+  }, [adjustingSubscriptionId]);
+
   const hasNotice = Boolean(error || subscriptionNotice || subscriptionError);
   const billingUnavailable = Boolean(error && loadedAt === 0 && !loading);
   const notices = (
@@ -866,8 +1390,12 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
         />
       ) : null}
       {subscriptionNotice ? (
-        <Alert className="border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] px-3 py-2 text-[0.65625rem] leading-4 text-[var(--selection-accent)]">
-          {subscriptionNotice}
+        <Alert
+          ref={subscriptionNoticeRef}
+          tabIndex={-1}
+          className="border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] px-3 py-2 text-[0.65625rem] leading-4 text-[var(--selection-accent)] focus:outline-none"
+        >
+          <span className="col-start-2">{subscriptionNotice}</span>
         </Alert>
       ) : null}
       {subscriptionError ? (
@@ -882,6 +1410,18 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
       ) : null}
     </div>
   );
+
+  if (adjustingSubscription) {
+    return (
+      <SubscriptionPlanAdjustment
+        subscription={adjustingSubscription}
+        getToken={getToken}
+        onBack={closeSubscriptionPlanAdjustment}
+        onChanged={handleSubscriptionPlanChanged}
+        onRefreshBilling={refreshBilling}
+      />
+    );
+  }
 
   return (
     <Tabs
@@ -1014,9 +1554,6 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                             <p className="mt-1 text-[0.65625rem] leading-4 text-text-secondary">{paymentMethodSummary}</p>
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <Button asChild variant="outline" size="lg" className="rounded-xl px-3 text-[0.65625rem] leading-4">
-                              <Link href="/adjust-plan">Adjust plan</Link>
-                            </Button>
                             {showManageCardAction ? (
                               <Button
                                 type="button"
@@ -1047,30 +1584,55 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
                         <div className="mt-4 divide-y divide-border border-t border-border">
                           {subscriptions.length > 0 ? subscriptions.map((subscription) => {
                             const canCancel = subscription.canCancel && !subscription.cancelAtPeriodEnd;
+                            const canAdjust = canAdjustSubscription(subscription);
                             const status = subscription.cancelAtPeriodEnd ? "Pending cancellation" : subscription.status;
+                            const planName = subscription.planName || humanizePlanId(subscription.planId);
                             return (
                               <div key={subscription.id} className="flex flex-col gap-3 py-4 text-left lg:flex-row lg:items-start lg:justify-between">
                                 <div className="min-w-0">
-                                  <p className="text-[0.65625rem] font-medium leading-4 text-foreground">{subscription.planName || humanizePlanId(subscription.planId)}</p>
+                                  <p className="text-[0.65625rem] font-medium leading-4 text-foreground">{planName}</p>
                                   <p className="mt-1 text-[0.5625rem] leading-3 text-text-muted">{describeCancellationDetail(subscription)}</p>
                                 </div>
-                                {canCancel ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="lg"
-                                    onClick={() => { void handleCancelSubscription(subscription); }}
-                                    disabled={Boolean(mutatingSubscriptionId)}
-                                    aria-label={`Cancel ${subscription.planName || humanizePlanId(subscription.planId)} at period end`}
-                                    className="rounded-xl px-3 text-[0.65625rem] leading-4"
-                                  >
-                                    {mutatingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at period end"}
-                                  </Button>
-                                ) : (
-                                  <Badge variant={subscriptionStatusVariant(status)} className="min-h-6 rounded-full px-2 text-[0.5625rem] leading-3">
-                                    {formatStatus(status)}
-                                  </Badge>
-                                )}
+                                <div className="flex flex-wrap gap-2 lg:justify-end">
+                                  {canAdjust ? (
+                                    <Button
+                                      ref={(node) => {
+                                        if (node) adjustmentButtonRefs.current.set(subscription.id, node);
+                                        else adjustmentButtonRefs.current.delete(subscription.id);
+                                      }}
+                                      type="button"
+                                      variant="outline"
+                                      size="lg"
+                                      onClick={() => {
+                                        setSubscriptionNotice(null);
+                                        setSubscriptionError(null);
+                                        setAdjustingSubscriptionId(subscription.id);
+                                      }}
+                                      aria-label={`Adjust ${planName} bundle plan`}
+                                      className="rounded-xl px-3 text-[0.65625rem] leading-4"
+                                    >
+                                      Adjust plan
+                                    </Button>
+                                  ) : null}
+                                  {canCancel ? (
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="lg"
+                                      onClick={() => { void handleCancelSubscription(subscription); }}
+                                      disabled={Boolean(mutatingSubscriptionId)}
+                                      aria-label={`Cancel ${planName} at period end`}
+                                      className="rounded-xl px-3 text-[0.65625rem] leading-4"
+                                    >
+                                      {mutatingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at period end"}
+                                    </Button>
+                                  ) : null}
+                                  {!canAdjust && !canCancel ? (
+                                    <Badge variant={subscriptionStatusVariant(status)} className="min-h-6 rounded-full px-2 text-[0.5625rem] leading-3">
+                                      {formatStatus(status)}
+                                    </Badge>
+                                  ) : null}
+                                </div>
                               </div>
                             );
                           }) : (
