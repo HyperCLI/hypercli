@@ -15,15 +15,23 @@ describe("AgentsPageLoadingShell", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Loading agent workspace");
     expect(screen.getByTestId("agents-page-loading-shell")).toHaveClass("bg-background");
     expect(screen.getByText("Agents")).toBeInTheDocument();
-    expect(screen.getByText("Loading agents")).toBeInTheDocument();
     expect(screen.getByText("Launch agent")).toBeInTheDocument();
     expect(screen.getByText("Usage")).toBeInTheDocument();
     expect(container.querySelector(".agents-page-loading-desktop")).toHaveAttribute("aria-hidden", "true");
     expect(container.querySelector(".agents-page-loading-mobile")).toHaveAttribute("aria-hidden", "true");
+    expect(container.querySelector('[data-slot="loading-navigation"]')).toHaveClass("w-64", "pt-14");
+    expect(container.querySelector('[data-slot="loading-navigation-header"]')).toHaveClass("h-14", "pl-4", "pr-3");
+    expect(container.querySelector('[data-slot="loading-roster"]')).toHaveClass("w-52");
+    expect(container.querySelector('[data-slot="loading-workspace"]')).toHaveClass("w-12");
+    expect(container.querySelectorAll('[data-slot="loading-agent-row"]')).toHaveLength(2);
+    expect(container.querySelectorAll('[data-slot="loading-workspace-control"]')).toHaveLength(7);
+    expect(container.querySelector('[data-slot="loading-account"]')).toHaveClass("px-3", "py-2");
     expect(container.querySelector(".agents-page-loading-mobile header")).toHaveClass(
       "h-[calc(3.5rem+env(safe-area-inset-top))]",
       "pt-[env(safe-area-inset-top)]",
     );
+    expect(container.querySelector('[data-slot="loading-mobile-logo"]')).toHaveClass("h-10", "w-8");
+    expect(container.querySelector('[data-slot="loading-mobile-menu"]')).toHaveClass("h-11", "w-11");
     expect(document.querySelector(".animate-shimmer, .animate-spin")).not.toBeInTheDocument();
   });
 
