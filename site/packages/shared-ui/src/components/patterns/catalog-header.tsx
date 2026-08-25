@@ -49,7 +49,7 @@ export function CatalogHeader({
               value={searchValue}
               onChange={(event) => onSearchValueChange(event.target.value)}
               placeholder={searchPlaceholder}
-              className="h-10 rounded-xl border-border bg-input-background pl-10 pr-4 text-sm text-foreground placeholder:text-text-muted dark:bg-input-background"
+              className="h-10 rounded-xl border-border bg-input-background !pl-11 pr-4 text-sm text-foreground placeholder:text-text-muted dark:bg-input-background"
             />
           </label>
         </div>

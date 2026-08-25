@@ -75,8 +75,8 @@ function heroCopy(
   if (result?.status === "blocked") return { title: "Setup paused", subtitle: result.summary };
   if (match) return { title: "Is this the right integration?", subtitle: "Confirm the exact service and intended use before setup begins." };
   return {
-    title: "Connect any service",
-    subtitle: "Tell your agent what to connect. It will inspect, install, configure, and verify as much as it safely can behind the scenes.",
+    title: "Connect any tool",
+    subtitle: "Tell your agent which tool you use and what you want it to do. You'll review everything before setup begins.",
   };
 }
 
@@ -273,7 +273,7 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
 
         {(!connected || !runEphemeralPrompt) && !running ? (
           <p role="status" className="flex items-start gap-2 rounded-2xl border border-border bg-background/65 px-3 py-3 text-text-secondary">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" /> Reconnect the agent before starting custom integration setup.
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" /> Reconnect the agent before connecting a tool.
           </p>
         ) : null}
 
