@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildSdkAgent } from "@/test/factories";
@@ -67,11 +67,11 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
   };
 });
 
-function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMainPanel>> = {}) {
+function buildAgentMainPanelProps(overrides: Partial<ComponentProps<typeof AgentMainPanel>> = {}) {
   const selectedAgent = "selectedAgent" in overrides
     ? overrides.selectedAgent ?? null
     : toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
-  const props: ComponentProps<typeof AgentMainPanel> = {
+  return {
     isDesktopViewport: true,
     mobileShowChat: true,
     selectedAgent,
@@ -94,9 +94,11 @@ function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMain
     onStart: vi.fn(),
     onReconnect: vi.fn(),
     ...overrides,
-  };
+  } satisfies ComponentProps<typeof AgentMainPanel>;
+}
 
-  return renderWithClient(<AgentMainPanel {...props} />);
+function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMainPanel>> = {}) {
+  return renderWithClient(<AgentMainPanel {...buildAgentMainPanelProps(overrides)} />);
 }
 
 describe("AgentMainPanel", () => {
@@ -182,15 +184,91 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("textbox", { name: "Agent display name" })).not.toBeInTheDocument();
   });
 
-  it("waits for the first agent load before showing the empty state", () => {
-    renderAgentMainPanel({
+  it("delays the initial loading state so brief agent restoration does not flash", () => {
+    vi.useFakeTimers();
+    const view = renderAgentMainPanel({
       selectedAgent: null,
       loadingInitialAgents: true,
     });
 
-    expect(screen.getByText("Loading agents")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
+    try {
+      expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(749));
+      expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByText("Loading agents")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("goes directly to restored content when selection resolves before the loading delay", () => {
+    vi.useFakeTimers();
+    const view = renderAgentMainPanel({
+      selectedAgent: null,
+      loadingInitialAgents: true,
+    });
+
+    try {
+      expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
+
+      const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+      view.rerender(
+        <AgentMainPanel
+          {...buildAgentMainPanelProps({
+            selectedAgent,
+            isSelectedRunning: true,
+            loadingInitialAgents: false,
+            panelContent: <div>Restored conversation</div>,
+          })}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(750));
+
+      expect(screen.getByText("Restored conversation")).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the original delay when roster loading finishes before agent selection", () => {
+    vi.useFakeTimers();
+    const view = renderAgentMainPanel({
+      selectedAgent: null,
+      loadingInitialAgents: true,
+    });
+
+    try {
+      act(() => vi.advanceTimersByTime(400));
+      view.rerender(
+        <AgentMainPanel
+          {...buildAgentMainPanelProps({
+            selectedAgent: null,
+            hasAgents: true,
+            loadingInitialAgents: false,
+          })}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(349));
+
+      expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+      expect(screen.queryByText("Selecting agent")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
+      expect(screen.getByText("Selecting agent")).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it("shows the first-agent empty state before an agent exists", () => {
@@ -315,14 +393,24 @@ describe("AgentMainPanel", () => {
   });
 
   it("does not show the first-agent empty state while another agent is available", () => {
-    renderAgentMainPanel({
+    vi.useFakeTimers();
+    const view = renderAgentMainPanel({
       selectedAgent: null,
       hasAgents: true,
     });
 
-    expect(screen.getByText("Selecting agent")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+    try {
+      expect(screen.queryByText("Selecting agent")).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(750));
+      expect(screen.getByText("Selecting agent")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Rejoining your teammate" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 
   it("shows the first-agent empty state when files is selected before an agent exists", () => {

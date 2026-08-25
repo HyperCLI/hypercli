@@ -26,6 +26,34 @@ export type DashboardSurfaceHeader = {
   metrics?: Array<{ label: string; value: string; tone?: "default" | "warning" | "danger" }>;
 };
 
+const INITIAL_AGENT_LOADING_DELAY_MS = 750;
+
+function DeferredAgentSelectionLoadingState({ loadingInitialAgents }: { loadingInitialAgents: boolean }) {
+  const [visible, setVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    const timeout = window.setTimeout(() => setVisible(true), INITIAL_AGENT_LOADING_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  if (!visible) return <div className="min-h-0 flex-1" />;
+
+  return (
+    <div className="min-h-0 flex-1">
+      <AgentLoadingState
+        heading="Rejoining your teammate"
+        note="Restoring your dashboard and recent conversation."
+        title={loadingInitialAgents ? "Loading agents" : "Selecting agent"}
+        detail={loadingInitialAgents
+          ? "Checking who is available before opening your teammate."
+          : "Opening the next available agent."}
+        tone="loading"
+        stage="complete"
+      />
+    </div>
+  );
+}
+
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
@@ -482,28 +510,8 @@ export function AgentMainPanel({
           {desktopSurfaceHeader}
           <div className="flex-1 min-h-0">{panelContent}</div>
         </>
-      ) : loadingInitialAgents && !selectedAgent ? (
-        <div className="flex-1 min-h-0">
-          <AgentLoadingState
-            heading="Rejoining your teammate"
-            note="Restoring your dashboard and recent conversation."
-            title="Loading agents"
-            detail="Checking who is available before opening your teammate."
-            tone="loading"
-            stage="complete"
-          />
-        </div>
-      ) : !selectedAgent && hasAgents ? (
-        <div className="flex-1 min-h-0">
-          <AgentLoadingState
-            heading="Rejoining your teammate"
-            note="Restoring your dashboard and recent conversation."
-            title="Selecting agent"
-            detail="Opening the next available agent."
-            tone="loading"
-            stage="complete"
-          />
-        </div>
+      ) : !selectedAgent && (loadingInitialAgents || hasAgents) ? (
+        <DeferredAgentSelectionLoadingState loadingInitialAgents={loadingInitialAgents} />
       ) : !selectedAgent ? (
         <LaunchFirstAgentEmptyState
           onCreate={onCreate}
