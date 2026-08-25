@@ -881,6 +881,27 @@ describe("AgentChatPanel", () => {
     expect(screen.getByPlaceholderText("Verifying conversation...")).toBeInTheDocument();
   });
 
+  it("keeps existing messages visible instead of showing the history loader while refresh is pending", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        historyPhase: "loading",
+        historyPending: true,
+        messages: [{ role: "assistant", content: "Saved answer", renderId: "saved-answer" }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(chatMessageBubbleMock.mock.calls.some(([props]) => (
+      props as { message?: { content?: string } } | undefined
+    )?.message?.content === "Saved answer")).toBe(true);
+    expect(screen.queryByRole("heading", { name: "Rejoining your teammate" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading conversation")).not.toBeInTheDocument();
+  });
+
   it("keeps existing messages visible and exposes retry when history refresh fails", () => {
     const retry = vi.fn();
     renderAgentChatPanel({

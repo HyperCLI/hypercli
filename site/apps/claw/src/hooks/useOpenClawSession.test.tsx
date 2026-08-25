@@ -3151,6 +3151,696 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("keeps cached history when an existing dashboard route is temporarily unindexed", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const history = deferred<unknown[]>();
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockImplementation(async () => history.promise);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+
+    await act(async () => {
+      history.resolve([{ role: "assistant", content: "Saved transcript" }]);
+      await history.promise;
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    unmount();
+  });
+
+  it("keeps live in-memory history when an existing dashboard route is temporarily unindexed", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([
+      { key: sessionKey, displayName: "Live route", messageCount: 1, updatedAt: 30 },
+      {
+        key: "agent:default:main",
+        origin: { provider: "webchat", surface: "webchat" },
+        deliveryContext: { channel: "webchat" },
+        updatedAt: 20,
+      },
+    ]);
+    gateway.chatSend.mockImplementation(async function* (_message: string): AsyncGenerator<ChatEvent, void, unknown> {
+      yield { type: "content", text: "live reply" };
+      yield { type: "done" };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    await act(async () => {
+      await result.current.sendMessage("live question");
+    });
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: "live question" }),
+    ])));
+    // No localStorage cache survives for this route in this scenario: the
+    // in-memory live conversation is the only local transcript.
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([]);
+
+    // The route disappears from the indexed list (indexing lag) and the
+    // canonical history fetch stalls; the live transcript must survive.
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    const stalledHistory = deferred<unknown[]>();
+    gateway.chatHistory.mockImplementation(async () => stalledHistory.promise);
+
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    expect(result.current.activeSessionKey).toBe(sessionKey);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: "live question" }),
+    ]));
+    unmount();
+  });
+
+  it("keeps cached history when canonical history resolves empty for a temporarily unindexed dashboard route", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    // Canonical history resolves empty while the route is unindexed. The
+    // gateway has not confirmed the cached tail, so transcript stability
+    // requires keeping the cached transcript rather than treating the
+    // temporarily unindexed route as a fresh empty session.
+    gateway.chatHistory.mockResolvedValue([]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.historyPhase).toBe("error");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    unmount();
+  });
+
+  it("keeps cached history when a passive history refresh resolves empty for a temporarily unindexed dashboard route", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:11111111-2222-4333-8444-555555555555";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    // The initial (connected-effect) canonical history stays pending so the
+    // cache-restored transcript is still unconfirmed when the passive refresh
+    // runs. The passive refresh then resolves empty while the route is still
+    // absent from the fetched index.
+    const initialHistory = deferred<unknown[]>();
+    gateway.chatHistory.mockImplementation(async () => initialHistory.promise);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    const historyCallsBeforePassive = gateway.chatHistory.mock.calls.length;
+
+    // A terminal run event queues a passive history refresh; switch the
+    // canonical history to resolve empty before the debounce fires.
+    gateway.chatHistory.mockResolvedValue([]);
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey } });
+    });
+
+    // The passive completion refresh is debounced (100ms) before it issues
+    // the canonical history request; wait for that request rather than
+    // sleeping on the transcript assertion.
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforePassive));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    // The passive refresh path must honor the same cache-restored,
+    // still-unindexed protection as the connected-effect path: the cached
+    // transcript and its localStorage backup survive, the phase does not
+    // report a ready empty transcript, and no create/reset occurs.
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(result.current.historyPhase).not.toBe("ready");
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("keeps cached history when sequence-gap recovery resolves empty for a temporarily unindexed dashboard route", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:66666666-7777-4888-8999-000000000000";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    // Initial canonical history stays pending so the cache-restored
+    // transcript is unconfirmed when gap recovery runs.
+    const initialHistory = deferred<unknown[]>();
+    gateway.chatHistory.mockImplementation(async () => initialHistory.promise);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    let gatewayOptions: {
+      onGap?: (info: { expected: number; received: number }) => void;
+    } | undefined;
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn((options?: typeof gatewayOptions) => {
+        gatewayOptions = options;
+        return gateway;
+      }),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+
+    // Gap recovery fetches a fresh session list that still omits the route,
+    // then rehydrates with an empty canonical history.
+    const gapSessions = deferred<unknown[]>();
+    gateway.sessionsList.mockImplementation(async () => gapSessions.promise);
+    gateway.chatHistory.mockResolvedValue([]);
+    expect(gatewayOptions?.onGap).toEqual(expect.any(Function));
+    act(() => {
+      gatewayOptions?.onGap?.({ expected: 4, received: 6 });
+    });
+
+    await act(async () => {
+      gapSessions.resolve([{
+        key: "agent:default:main",
+        origin: { provider: "webchat", surface: "webchat" },
+        deliveryContext: { channel: "webchat" },
+        updatedAt: 20,
+      }]);
+      await gapSessions.promise;
+    });
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    // Gap recovery must honor the cache-restored, still-unindexed protection:
+    // the cached transcript and its localStorage backup survive and no
+    // create/reset occurs.
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("keeps cached history when canonical history fails for a temporarily unindexed dashboard route", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockRejectedValue(new Error("history unavailable"));
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.historyPhase).toBe("error");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    unmount();
+  });
+
+  it("does not materialize an unindexed dashboard route whose cache payload is not a valid conversation", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    const cacheKey = openClawChatHistoryCacheKey("deploy-123", sessionKey);
+    expect(cacheKey).toBeTruthy();
+    window.localStorage.setItem(cacheKey!, "not-json");
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: sessionKey }));
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(sessionKey, "new");
+    unmount();
+  });
+
+  it.each([
+    {
+      name: "a wrong cache payload version",
+      write: (cacheKey: string) => {
+        window.localStorage.setItem(cacheKey, JSON.stringify({
+          version: 999,
+          updatedAt: Date.now(),
+          messages: [{ role: "assistant", content: "stale transcript" }],
+        }));
+      },
+    },
+    {
+      name: "cache entries without valid conversation messages",
+      write: (cacheKey: string) => {
+        window.localStorage.setItem(cacheKey, JSON.stringify({
+          version: 1,
+          updatedAt: Date.now(),
+          messages: [
+            { role: "tool", content: "tool frames are not a conversation" },
+            { role: "assistant", content: 42 },
+          ],
+        }));
+      },
+    },
+  ])("does not treat $name as a conversation for an unindexed dashboard route", async ({ write }) => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    const cacheKey = openClawChatHistoryCacheKey("deploy-123", sessionKey);
+    expect(cacheKey).toBeTruthy();
+    write(cacheKey!);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: sessionKey }));
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(sessionKey, "new");
+    expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
+  it("does not create or reset when a temporarily unindexed dashboard route is indexed after a delayed refresh", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockResolvedValue([{ role: "assistant", content: "Saved transcript" }]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+
+    // The delayed index update now includes the route: still no
+    // create/reset, and the transcript is unchanged.
+    gateway.sessionsList.mockResolvedValue([
+      { key: sessionKey, displayName: "Indexed route", messageCount: 1, updatedAt: 30 },
+      {
+        key: "agent:default:main",
+        origin: { provider: "webchat", surface: "webchat" },
+        deliveryContext: { channel: "webchat" },
+        updatedAt: 20,
+      },
+    ]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    await waitFor(() => expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: sessionKey }),
+    ])));
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.historyPhase).toBe("ready");
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    unmount();
+  });
+
+  it("accepts authoritative empty history after a cache-restored dashboard route becomes indexed", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:22222222-3333-4444-8555-666666666666";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.historyPhase).toBe("error"));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    const historyCallsBeforeIndexing = gateway.chatHistory.mock.calls.length;
+
+    gateway.sessionsList.mockResolvedValue([
+      { key: gatewaySessionKey, displayName: "Indexed route", messageCount: 0, updatedAt: 30 },
+      {
+        key: "agent:default:main",
+        origin: { provider: "webchat", surface: "webchat" },
+        deliveryContext: { channel: "webchat" },
+        updatedAt: 20,
+      },
+    ]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeIndexing));
+    expect(gateway.chatHistory).toHaveBeenCalledWith(gatewaySessionKey, 200);
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: gatewaySessionKey }),
+    ]));
+    expect(result.current.messages).toEqual([]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not let cached history from another agent suppress materializing the same new route", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    writeCachedOpenClawChatHistory("deploy-other", [
+      { role: "assistant", content: "Another agent transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: sessionKey }));
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(sessionKey, "new");
+    expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
+  it("does not let cached history from another session suppress materializing a genuinely new route", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const otherSessionKey = "dashboard:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Sibling session transcript" },
+    ], otherSessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(gateway.sessionsCreate).toHaveBeenCalledWith({ key: sessionKey }));
+    expect(gateway.sessionsCreate).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsReset).toHaveBeenCalledWith(sessionKey, "new");
+    expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
+  it("keeps the restored transcript stable across rerenders while canonical history is pending", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const history = deferred<unknown[]>();
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      updatedAt: 20,
+    }]);
+    gateway.chatHistory.mockImplementation(async () => history.promise);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ requestedKey }: { requestedKey: string }) => useOpenClawSession(agent as any, true, requestedKey),
+      { initialProps: { requestedKey: sessionKey } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+
+    // Rerender with an equivalent requested-key prop identity while the
+    // canonical history fetch is still pending.
+    rerender({ requestedKey: ` ${sessionKey} ` });
+    rerender({ requestedKey: sessionKey });
+
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+
+    await act(async () => {
+      history.resolve([{ role: "assistant", content: "Saved transcript" }]);
+      await history.promise;
+    });
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    unmount();
+  });
+
+  it("does not materialize the internal main session when its route is unindexed without local history", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, "main")
+    ));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(result.current.activeSessionKey).toBe("main");
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("restores the active initial row when the indexed record is temporarily omitted", async () => {
     const gateway = buildGateway();
     const agent = {
