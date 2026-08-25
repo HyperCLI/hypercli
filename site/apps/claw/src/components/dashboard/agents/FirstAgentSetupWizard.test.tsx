@@ -9,6 +9,22 @@ import type {
   OpenClawBootstrapFileName,
 } from "@/lib/openclaw-bootstrap-pack";
 
+const releaseBoundaryMock = vi.hoisted(() => ({
+  knowledgeHubAvailable: false,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) => (
+      surface === "knowledge-hub"
+        ? releaseBoundaryMock.knowledgeHubAvailable
+        : original.isDashboardReleaseSurfaceAvailable(surface as never)
+    ),
+  };
+});
+
 import {
   FirstAgentSetupWizard,
   updateFirstAgentSetupDraftPlan,
@@ -101,6 +117,107 @@ function goToPlanStep() {
 describe("FirstAgentSetupWizard", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    releaseBoundaryMock.knowledgeHubAvailable = false;
+  });
+
+  it("does not surface Collections when Knowledge Hub is unavailable", () => {
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+        knowledgeCollections={[{ id: "collection-1", name: "Product", role: "admin" }]}
+        knowledgeCollectionsLoading
+      />,
+    );
+
+    expect(screen.queryByLabelText("Initial Collection")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Agent URL preview")).toBeInTheDocument();
+  });
+
+  it("drops a stale saved Collection before launching while Knowledge Hub is unavailable", async () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      setupId: "setup-stale-collection",
+      name: "restored-agent",
+      iconIndex: 0,
+      category: "General",
+      plan: "team-launch",
+      knowledgeCollectionId: "collection-stale",
+      starterFiles: [],
+    }));
+    const onCreateAgent = vi.fn(async () => "agent-1");
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-team",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+    fireEvent.click(getPlanFooterAction("Launch agent"));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
+      knowledgeCollectionId: null,
+    })));
+  });
+
+  it("preserves Collection selection inside the dormant enabled workflow", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+    const onCreateAgent = vi.fn(async () => "agent-1");
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-team",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+        knowledgeCollections={[
+          { id: "collection-1", name: "Product", role: "admin" },
+          { id: "collection-readonly", name: "Archive", role: "viewer" },
+        ]}
+      />,
+    );
+
+    const selector = screen.getByLabelText("Initial Collection");
+    expect(selector).toBeInTheDocument();
+    expect(within(selector).getByRole("option", { name: "Archive (admin access required)" })).toBeDisabled();
+    fireEvent.change(selector, { target: { value: "collection-1" } });
+    goToPlanStep();
+    fireEvent.click(getPlanFooterAction("Launch agent"));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
+      knowledgeCollectionId: "collection-1",
+    })));
   });
 
   it("uses the wide launcher presentation while preserving compact default bounds", () => {

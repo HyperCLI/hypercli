@@ -1027,6 +1027,7 @@ function AgentGeneralSettingsContent({
   showSessionActions?: boolean;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [uuidCopyResult, setUuidCopyResult] = React.useState<{ userId: string; copied: boolean } | null>(null);
   const email = user?.email || "";
   const uuidCopyStatus = uuidCopyResult?.userId === profileUserId
@@ -1081,7 +1082,12 @@ function AgentGeneralSettingsContent({
             />
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="User UUID" description="Share this ID when someone adds you directly to a Collection.">
+          <AgentProfileSettingsRow
+            label="User UUID"
+            description={knowledgeHubAvailable
+              ? "Share this ID when someone adds you directly to a Collection."
+              : "Your account identifier for support and account administration."}
+          >
             <div className="flex min-w-0 gap-2">
               <Input
                 aria-label="User UUID"
@@ -1269,6 +1275,7 @@ function AgentSectionSettingsContent({
   agentStartBlockedReason?: string | null;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [savedHyperEnvReveal, setSavedHyperEnvReveal] = React.useState({ agentId: agent.id, visible: false });
   const showSavedHyperEnv = savedHyperEnvReveal.agentId === agent.id && savedHyperEnvReveal.visible;
   const externalAgent = agent.managed === false;
@@ -1527,7 +1534,7 @@ function AgentSectionSettingsContent({
             </div>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Shared knowledge" description="Sync shared knowledge Markdown before OpenClaw starts.">
+          {knowledgeHubAvailable ? <AgentProfileSettingsRow label="Shared knowledge" description="Sync shared knowledge Markdown before OpenClaw starts.">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex h-9 items-center gap-2">
@@ -1562,7 +1569,7 @@ function AgentSectionSettingsContent({
                 />
               </div>
             </div>
-          </AgentProfileSettingsRow>
+          </AgentProfileSettingsRow> : null}
           </>
           ) : null}
 
@@ -1628,7 +1635,7 @@ function AgentSectionSettingsContent({
           </AgentProfileSettingsRow>
           ) : null}
 
-          <AgentProfileSettingsRow label="Visibility" description="Who can access this agent.">
+          {knowledgeHubAvailable ? <AgentProfileSettingsRow label="Visibility" description="Who can access this agent.">
             <select
               aria-label="Visibility"
               value=""
@@ -1637,7 +1644,7 @@ function AgentSectionSettingsContent({
             >
               <option value="">Collection members</option>
             </select>
-          </AgentProfileSettingsRow>
+          </AgentProfileSettingsRow> : null}
 
           <AgentProfileSettingsRow label="Auto-archive idle projects" description="Archive inactive projects automatically.">
             <select
@@ -2950,6 +2957,7 @@ export function AgentList({
   embeddedInNavigation = false,
   showChannels = false,
 }: AgentListProps) {
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
   const effectiveCreationDisabledReason = rosterLoading
     ? "Agent roster is still loading."
@@ -3046,7 +3054,7 @@ export function AgentList({
         try {
           await fetchAgents();
         } catch {}
-        if (associateCreatedAgent && knowledgeCollectionId) {
+        if (knowledgeHubAvailable && associateCreatedAgent && knowledgeCollectionId) {
           try {
             await associateCreatedAgent(createdId, knowledgeCollectionId);
           } catch (associationError) {
@@ -3093,7 +3101,7 @@ export function AgentList({
       setError(err instanceof Error ? err.message : "Failed to create agent");
       return null;
     }
-  }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, setError, setMobileShowChat, setSelectedAgentId]);
+  }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, knowledgeHubAvailable, setError, setMobileShowChat, setSelectedAgentId]);
 
   const createAgentAndCloseLauncher = React.useCallback(async (params: AgentCreationSetupCreateParams) => {
     const createdId = await (onCreateAgent ?? createAgentFromLauncher)(params);
@@ -3188,7 +3196,7 @@ export function AgentList({
               {rosterLoading ? (
                 <div role="status" aria-live="polite" className="flex h-8 w-8 items-center justify-center text-text-muted">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span className="sr-only">Loading Collection agents</span>
+                  <span className="sr-only">Loading agents</span>
                 </div>
               ) : (
                 visibleAgents.map((a) => {
@@ -3411,8 +3419,9 @@ export function LaunchFirstAgentEmptyState({
   onCreateWorkspace,
   onOpenMembers,
 }: AgentEmptyStateProps) {
-  const workspaceScoped = Boolean(workspaceName);
-  const workspaceSetupRequired = !workspaceScoped && Boolean(onCreateWorkspace);
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
+  const workspaceScoped = knowledgeHubAvailable && Boolean(workspaceName);
+  const workspaceSetupRequired = knowledgeHubAvailable && !workspaceScoped && Boolean(onCreateWorkspace);
   const firstAgentOnboarding = !hasAccountAgents;
 
   return (
@@ -3431,7 +3440,7 @@ export function LaunchFirstAgentEmptyState({
             ? "whitespace-nowrap text-[clamp(1.75rem,7vw,3.625rem)]"
             : "text-[40px] sm:text-[52px]"
         }`}>
-          {firstAgentOnboarding ? "Launch your first agent" : `Welcome to ${workspaceName}`}
+          {firstAgentOnboarding ? "Launch your first agent" : workspaceScoped ? `Welcome to ${workspaceName}` : "Launch another agent"}
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
           {workspaceScoped && hasAccountAgents

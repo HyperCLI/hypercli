@@ -2019,7 +2019,7 @@ function HandoffThreadView({
   onOpenAgentLauncher,
   agentCreationDisabledReason,
   rosterLoading = false,
-  rosterLoadingLabel = "Loading Collection agents",
+  rosterLoadingLabel = "Loading agents",
   onOpenHome,
   homeActive = false,
   homeHref = DASHBOARD_VIEW_HREFS.overview,

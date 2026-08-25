@@ -414,7 +414,28 @@ describe("LaunchFirstAgentEmptyState", () => {
     expect(screen.queryByText("private-draft")).not.toBeInTheDocument();
   });
 
+  it("ignores stale Collection-scoped empty-state props while Knowledge Hub is unavailable", () => {
+    const onCreate = vi.fn();
+    const onCreateWorkspace = vi.fn();
+
+    render(
+      <LaunchFirstAgentEmptyState
+        onCreate={onCreate}
+        workspaceName="Stale Collection"
+        hasAccountAgents
+        onCreateWorkspace={onCreateWorkspace}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Launch another agent" })).toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Create an agent/ }));
+    expect(onCreate).toHaveBeenCalledOnce();
+    expect(onCreateWorkspace).not.toHaveBeenCalled();
+  });
+
   it("replaces the blocked agent action with a friendly Collection setup CTA", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const onCreate = vi.fn();
     const onCreateWorkspace = vi.fn();
 
@@ -437,6 +458,7 @@ describe("LaunchFirstAgentEmptyState", () => {
   });
 
   it("keeps the selection guard when Collections exist but none is selected", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
@@ -449,6 +471,7 @@ describe("LaunchFirstAgentEmptyState", () => {
   });
 
   it("keeps first-agent onboarding copy for the account General Collection", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
@@ -461,6 +484,7 @@ describe("LaunchFirstAgentEmptyState", () => {
   });
 
   it("welcomes established users to an empty Collection by name", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     render(
       <LaunchFirstAgentEmptyState
         onCreate={vi.fn()}
@@ -558,6 +582,21 @@ describe("AgentList", () => {
     expect(props.setSelectedAgentId).toHaveBeenCalledWith("agent-2");
     expect(props.setMobileShowChat).toHaveBeenCalledWith(true);
     expect(props.setSidebarCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("renders every account agent independently of hidden Collection state", () => {
+    const supportAgent = { ...agent, id: "agent-2", name: "Support Agent" };
+    const agents = [agent, supportAgent, stoppedAgent];
+    renderAgentList({
+      sidebarCollapsed: false,
+      agents,
+      syntheticThreads: agents.map(agentThread),
+    });
+
+    expect(screen.getAllByText("Test Agent").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Support Agent").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Stopped Agent").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
   });
 
   it("renders the agent profile image in the collapsed roster", () => {
@@ -777,6 +816,7 @@ describe("AgentList", () => {
   });
 
   it("associates a created agent before selecting it", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const operations: string[] = [];
     const createOpenClawAgent = vi.fn(async () => {
       operations.push("create");
@@ -809,6 +849,7 @@ describe("AgentList", () => {
   });
 
   it("does not select an agent when Collection association fails", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const setSelectedAgentId = vi.fn();
     const setError = vi.fn();
     renderAgentList({
@@ -828,6 +869,7 @@ describe("AgentList", () => {
   });
 
   it("does not select an associated agent when the account roster cannot refresh", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const setSelectedAgentId = vi.fn();
     const setError = vi.fn();
     const associateCreatedAgent = vi.fn(async () => undefined);
@@ -850,6 +892,7 @@ describe("AgentList", () => {
   });
 
   it("blocks launch entry points without Collection admin access", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const props = renderAgentList({
       sidebarCollapsed: false,
       sidebarCreatorSignal: 1,
@@ -863,11 +906,30 @@ describe("AgentList", () => {
     expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument();
   });
 
-  it("shows a loading status instead of stale Collection agents", () => {
+  it("ignores a stale Collection assignment from the launcher while Knowledge Hub is unavailable", async () => {
+    const associateCreatedAgent = vi.fn(async () => undefined);
+    const setSelectedAgentId = vi.fn();
+    renderAgentList({
+      sidebarCollapsed: false,
+      associateCreatedAgent,
+      setSelectedAgentId,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup" }));
+
+    await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
+    expect(associateCreatedAgent).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+  });
+
+  it("shows an Agents-only loading status instead of stale roster agents", () => {
     renderAgentList({ rosterLoading: true });
 
     expect(document.querySelector(".agents-roster-shell")).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("status")).toHaveTextContent("Loading Collection agents");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading agents");
+    // Collection-scoped announcements must never surface while Knowledge Hub is hidden.
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Select Test Agent" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeDisabled();
   });
@@ -1340,6 +1402,8 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByDisplayValue("test@example.com")).toBeDisabled();
     expect(screen.getByText("User UUID")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "User UUID" })).toHaveValue("user-1234567890abcdef");
+    expect(screen.getByText("Your account identifier for support and account administration.")).toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
     expect(screen.getByText("Avatar")).toBeInTheDocument();
     expect(screen.getByText("Upload Image")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
@@ -1363,7 +1427,9 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText(/spaces become dashes.*slack/i)).toBeInTheDocument();
     expect(screen.queryByText("Slack handle")).not.toBeInTheDocument();
     expect(screen.getByText("Default model")).toBeInTheDocument();
-    expect(screen.getByText("Visibility")).toBeInTheDocument();
+    expect(screen.queryByText("Shared knowledge")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Shared knowledge sync selection" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Visibility")).not.toBeInTheDocument();
     expect(screen.getByText("Auto-archive idle projects")).toBeInTheDocument();
     expect(screen.getByText("Agent runtime")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
@@ -1386,9 +1452,10 @@ describe("AgentSettingsPanel", () => {
     expect(usageCard).not.toHaveClass("border-foreground");
 
     fireEvent.click(screen.getByRole("button", { name: "Team" }));
-    const teamGroup = screen.getByText("Collection members").closest("section");
+    const teamGroup = screen.getByText("Shared channels").closest("section");
     expect(teamGroup).toHaveClass("divide-border", "border-border", "bg-surface-low/30");
     expect(teamGroup).not.toHaveClass("divide-foreground", "border-foreground");
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
   });
 
   it("offers cleanup instead of restart for a failed runtime", () => {
@@ -1484,6 +1551,21 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Team" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Team" })).toHaveClass("bg-surface-high");
     expect(screen.getByRole("heading", { name: "Team" })).toBeInTheDocument();
+    expect(screen.getByText("Shared channels")).toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+  });
+
+  it("preserves Collection-specific agent settings inside the dormant enabled workflow", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+    renderAgentSettingsPanel();
+
+    expect(screen.getByText("Share this ID when someone adds you directly to a Collection.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByText("Shared knowledge")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Shared knowledge sync selection" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Visibility" })).toHaveValue("");
+    expect(screen.getByText("Collection members")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
     expect(screen.getByText("Collection members")).toBeInTheDocument();
   });
 
@@ -2199,6 +2281,7 @@ describe("AgentSettingsPanel", () => {
   });
 
   it("saves desktop and workspace launch settings as managed config", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
 

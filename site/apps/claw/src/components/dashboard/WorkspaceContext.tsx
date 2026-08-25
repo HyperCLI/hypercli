@@ -19,6 +19,7 @@ import type {
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createWorkspacesClient } from "@/lib/agent-client";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 import {
   collectionDisplayName,
 } from "@/lib/account-collection";
@@ -193,9 +194,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   });
   const listRequestRef = useRef(0);
   const agentRosterRequestRef = useRef(0);
-  const connectionIsCurrent = connection.principalId === principalId && connection.tokenGetter === getToken;
-  const workspacesClient = !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.client : null;
-  const connectionError = !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.error : null;
+  // Collections (Knowledge Hub) are hidden for this release. While the surface
+  // is unavailable, no reachable UI consumes Workspace state, so the provider
+  // must not acquire a token, build a Workspaces client, list the catalog, or
+  // load selected-Collection associations. The dormant implementation below is
+  // preserved for re-enable; hidden mode short-circuits before any transport.
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
+  const connectionIsCurrent = knowledgeHubAvailable && connection.principalId === principalId && connection.tokenGetter === getToken;
+  const workspacesClient = knowledgeHubAvailable && !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.client : null;
+  const connectionError = knowledgeHubAvailable && !authLoading && isAuthenticated && principalId && connectionIsCurrent ? connection.error : null;
   const catalogIsCurrent = Boolean(workspacesClient && catalog.client === workspacesClient);
   const workspaces = catalogIsCurrent ? catalog.workspaces : EMPTY_WORKSPACES;
   const selectedWorkspaceId = selection.principalId === principalId
@@ -231,7 +238,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    if (authLoading || !isAuthenticated || !principalId) return () => { cancelled = true; };
+    if (!knowledgeHubAvailable || authLoading || !isAuthenticated || !principalId) return () => { cancelled = true; };
 
     const timeout = window.setTimeout(() => {
       setConnection({ principalId, tokenGetter: getToken, client: null, error: null });
@@ -261,7 +268,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [authLoading, getToken, isAuthenticated, principalId]);
+  }, [authLoading, getToken, isAuthenticated, knowledgeHubAvailable, principalId]);
 
   const refreshWorkspaces = useCallback(async (preferredWorkspaceId?: string | null) => {
     if (
@@ -405,6 +412,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [principalId, refreshSelectedWorkspaceAgents, selectedWorkspaceId, workspacesClient]);
 
   const selectWorkspace = useCallback((workspaceId: string, discoveredWorkspace?: Workspace) => {
+    if (!knowledgeHubAvailable) return;
     if (
       activeConnectionRef.current.client !== workspacesClient
       || activeConnectionRef.current.principalId !== principalId
@@ -421,10 +429,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     }
     writeStoredSelection(principalId, workspaceId);
     setSelection({ principalId, workspaceId });
-  }, [principalId, workspaces, workspacesClient]);
+  }, [knowledgeHubAvailable, principalId, workspaces, workspacesClient]);
 
   const createWorkspace = useCallback(async (input: WorkspaceCreateInput) => {
-    if (!workspacesClient) throw new Error("Collection access is unavailable right now.");
+    if (!workspacesClient) throw new Error("Collections are not available in this release.");
     const created = await workspacesClient.create(input);
     if (
       activeConnectionRef.current.client !== workspacesClient
@@ -444,6 +452,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [principalId, refreshWorkspaces, workspacesClient]);
 
   const assignAgentToCollection = useCallback(async (agentId: string, collectionId: string) => {
+    if (!knowledgeHubAvailable) throw new Error("Collections are not available in this release.");
     const capturedPrincipalId = principalId;
     const client = workspacesClient;
     const workspace = workspaces.find((candidate) => candidate.id === collectionId);
@@ -453,7 +462,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       || !workspace
       || activeConnectionRef.current.principalId !== capturedPrincipalId
       || activeConnectionRef.current.client !== client
-    ) throw new Error("Collection access is unavailable right now.");
+    ) throw new Error("Collections are not available in this release.");
     if (workspace.role !== "admin") {
       throw new Error("Collection admin access is required to assign agents.");
     }
@@ -475,15 +484,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         throw new Error("The agent was assigned to the Collection, but its agent list could not be refreshed.");
       }
     }
-  }, [principalId, refreshSelectedWorkspaceAgents, selectedWorkspaceId, workspaces, workspacesClient]);
+  }, [knowledgeHubAvailable, principalId, refreshSelectedWorkspaceAgents, selectedWorkspaceId, workspaces, workspacesClient]);
 
   const associateAgentWithSelectedWorkspace = useCallback(async (agentId: string) => {
-    if (!selectedWorkspaceId) throw new Error("Collection access is unavailable right now.");
+    if (!selectedWorkspaceId) throw new Error("Collections are not available in this release.");
     await assignAgentToCollection(agentId, selectedWorkspaceId);
   }, [assignAgentToCollection, selectedWorkspaceId]);
 
   const isLoading = authLoading || Boolean(
-    isAuthenticated && (
+    isAuthenticated && knowledgeHubAvailable && (
       !connectionIsCurrent
       || (!workspacesClient && !connectionError)
       || (workspacesClient && (!catalogIsCurrent || catalog.loading))

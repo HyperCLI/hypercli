@@ -14,6 +14,7 @@ import {
   useWorkspace,
   workspaceDisplayName,
 } from "@/components/dashboard/WorkspaceContext";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 
 export function SettingsCollectionSelector() {
   const {
@@ -25,6 +26,11 @@ export function SettingsCollectionSelector() {
     selectWorkspace,
     refreshWorkspaces,
   } = useWorkspace();
+
+  // The Collection selector only belongs to enabled Collection workflows.
+  // While Knowledge Hub is hidden it must not announce Collection
+  // loading/error/empty states.
+  if (!isDashboardReleaseSurfaceAvailable("knowledge-hub")) return null;
 
   const selector = workspaces.length > 0 ? (
     <div className="w-full sm:w-72">

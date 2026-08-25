@@ -52,6 +52,21 @@ vi.mock("@/components/dashboard/WorkspaceContext", () => ({
   ),
 }));
 
+const releaseBoundaryMock = vi.hoisted(() => ({
+  knowledgeHubAvailable: false,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) =>
+      surface === "knowledge-hub"
+        ? releaseBoundaryMock.knowledgeHubAvailable
+        : original.isDashboardReleaseSurfaceAvailable(surface as never),
+  };
+});
+
 import { SettingsCollectionSelector } from "./SettingsCollectionSelector";
 
 describe("SettingsCollectionSelector", () => {
@@ -62,9 +77,31 @@ describe("SettingsCollectionSelector", () => {
     mocks.context.selectedWorkspaceId = mocks.gtm.id;
     mocks.context.isLoading = false;
     mocks.context.error = null;
+    // Shipped release policy: Knowledge Hub (Collections) is hidden. The
+    // enabled-surface tests below opt in by setting this to true.
+    releaseBoundaryMock.knowledgeHubAvailable = false;
   });
 
-  it("shows and changes the Collection being managed", async () => {
+  it("renders nothing and touches no Workspace state while Knowledge Hub is hidden", () => {
+    // Release-disabled Collections must produce no reachable Collection copy,
+    // loading, error, or empty state. The selector is the managing surface for
+    // a hidden workflow, so it must not announce anything.
+    const view = render(<SettingsCollectionSelector />);
+
+    expect(view.container).toBeEmptyDOMElement();
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Refresh Collections/i })).not.toBeInTheDocument();
+    // Even though the hidden selector subscribes to the Workspace context, it
+    // must not trigger a refresh or selection change.
+    expect(mocks.refreshWorkspaces).not.toHaveBeenCalled();
+    expect(mocks.selectWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("shows and changes the Collection being managed when Knowledge Hub is available", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const user = userEvent.setup();
     render(<SettingsCollectionSelector />);
 
@@ -79,7 +116,8 @@ describe("SettingsCollectionSelector", () => {
     expect(mocks.selectWorkspace).toHaveBeenCalledWith("workspace-2");
   });
 
-  it("keeps the current scope visible when only one Collection is available", () => {
+  it("keeps the current scope visible when only one Collection is available and Knowledge Hub is available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     mocks.context.workspaces = [mocks.gtm];
     render(<SettingsCollectionSelector />);
 
@@ -87,7 +125,8 @@ describe("SettingsCollectionSelector", () => {
     expect(screen.getByText("Only one Collection is available.")).toBeInTheDocument();
   });
 
-  it("offers a retry when Collections cannot be loaded", async () => {
+  it("offers a retry when Collections cannot be loaded and Knowledge Hub is available", async () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const user = userEvent.setup();
     mocks.context.workspaces = [];
     mocks.context.selectedWorkspaceId = null;
@@ -99,7 +138,8 @@ describe("SettingsCollectionSelector", () => {
     expect(mocks.refreshWorkspaces).toHaveBeenCalledOnce();
   });
 
-  it("shows loading and empty catalog states", () => {
+  it("shows loading and empty catalog states when Knowledge Hub is available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     mocks.context.workspaces = [];
     mocks.context.selectedWorkspaceId = null;
     mocks.context.isLoading = true;
@@ -112,7 +152,8 @@ describe("SettingsCollectionSelector", () => {
     expect(screen.getByRole("status")).toHaveTextContent("No Collections are available");
   });
 
-  it("explains how to recover when the Collection service is unavailable", () => {
+  it("explains how to recover when the Collection service is unavailable and Knowledge Hub is available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     mocks.context.workspaces = [];
     mocks.context.selectedWorkspaceId = null;
     mocks.context.workspacesClient = null;

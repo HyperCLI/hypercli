@@ -12,6 +12,21 @@ vi.mock("@/hooks/useAccountOperationsOverview", () => ({
   useAccountOperationsOverview: mockUseAccountOperationsOverview,
 }));
 
+const releaseBoundaryMock = vi.hoisted(() => ({
+  knowledgeHubAvailable: false,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) =>
+      surface === "knowledge-hub"
+        ? releaseBoundaryMock.knowledgeHubAvailable
+        : original.isDashboardReleaseSurfaceAvailable(surface as never),
+  };
+});
+
 import { AccountOperationsHome } from "./AccountOperationsHome";
 
 const workspace: Workspace = {
@@ -76,10 +91,15 @@ function setOverview(overrides: Record<string, unknown> = {}) {
 describe("AccountOperationsHome", () => {
   beforeEach(() => {
     mockUseAccountOperationsOverview.mockReset();
+    // Shipped release policy: Knowledge Hub (Collections) is hidden. Tests that
+    // exercise the dormant enabled surface opt in by setting this to true.
+    releaseBoundaryMock.knowledgeHubAvailable = false;
     setOverview();
   });
 
-  it("joins recent conversations, Collection access, and upcoming scheduled work", () => {
+  it("joins recent conversations and upcoming scheduled work while Knowledge Hub is hidden", () => {
+    // Shipped policy: knowledge-hub is disabled, so no Collection copy or
+    // controls render even though the overview grants known Collection access.
     const onOpenConversation = vi.fn();
     const onOpenScheduled = vi.fn();
     const onOpenCollection = vi.fn();
@@ -100,14 +120,24 @@ describe("AccountOperationsHome", () => {
     expect(screen.getByRole("heading", { name: /Good (morning|afternoon|evening), Franc\./, level: 1 })).toBeInTheDocument();
     expect(screen.queryByText(/Franc Reyes/)).not.toBeInTheDocument();
     expect(screen.getByText(/Pick up where you left off/i)).toBeInTheDocument();
-    expect(screen.queryByText("Manage Collections")).not.toBeInTheDocument();
     expect(screen.getAllByText("Market research").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Known Collection access for Market research")).toHaveTextContent("Main Space");
     expect(screen.getByText("via slack")).toBeInTheDocument();
     expect(screen.getByText("openai/gpt-5")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "1 scheduled" })).toBeInTheDocument();
     expect(screen.getAllByText("Daily brief").length).toBeGreaterThan(0);
     expect(screen.getByText(/at 9:00 am utc/i)).toBeInTheDocument();
+
+    // Zero Collection grant/association transport: the component must hand the
+    // overview hook an empty Workspace list and a null space-access client so
+    // no Collection access is ever collected while the surface is hidden.
+    expect(mockUseAccountOperationsOverview).toHaveBeenCalledWith([sdkAgent], [], null);
+
+    // No Collection copy, region, chip, or accessible label is reachable.
+    expect(screen.queryByLabelText("Known Collection access for Market research")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Space" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Knowledge in reach" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Knowledge in reach" })).not.toBeInTheDocument();
+    expect(onOpenCollection).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Resume Market research with Research Agent" }));
     expect(onOpenConversation).toHaveBeenCalledWith("agent-1", "research");
@@ -118,7 +148,35 @@ describe("AccountOperationsHome", () => {
     expect(screen.getByText("Give tomorrow one less thing to remember.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Add another scheduled task" }));
     expect(onOpenScheduled).toHaveBeenLastCalledWith("agent-1");
+  });
 
+  it("joins recent conversations, Collection access, and scheduled work when Knowledge Hub is available", () => {
+    // Dormant enabled surface: when knowledge-hub is re-enabled the Collection
+    // join becomes reachable again. Guard the preserved implementation.
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+    const onOpenConversation = vi.fn();
+    const onOpenScheduled = vi.fn();
+    const onOpenCollection = vi.fn();
+
+    renderWithClient(
+      <AccountOperationsHome
+        sdkAgents={[sdkAgent]}
+        agents={[agent]}
+        workspaces={[workspace]}
+        spaceAccessClient={null}
+        displayName="Franc Reyes"
+        onOpenConversation={onOpenConversation}
+        onOpenScheduled={onOpenScheduled}
+        onOpenCollection={onOpenCollection}
+      />,
+    );
+
+    expect(screen.getByLabelText("Known Collection access for Market research")).toHaveTextContent("Main Space");
+
+    fireEvent.click(screen.getByRole("button", { name: "Resume Market research with Research Agent" }));
+    expect(onOpenConversation).toHaveBeenCalledWith("agent-1", "research");
+    fireEvent.click(screen.getByRole("button", { name: /Open Daily brief for Research Agent/i }));
+    expect(onOpenScheduled).toHaveBeenCalledWith("agent-1");
     fireEvent.click(screen.getByRole("button", { name: "Main Space" }));
     expect(onOpenCollection).toHaveBeenCalledWith("space-1");
   });
@@ -152,7 +210,8 @@ describe("AccountOperationsHome", () => {
     expect(onOpenUsage).toHaveBeenCalledTimes(1);
   });
 
-  it("surfaces Collection access gaps without claiming observed usage", () => {
+  it("surfaces Collection access gaps without claiming observed usage when Knowledge Hub is available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     const onOpenKnowledge = vi.fn();
     setOverview({
       spaces: [{ workspace, visibility: "known", agentIds: [] }],
@@ -174,6 +233,79 @@ describe("AccountOperationsHome", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Connect a Collection" }));
     expect(onOpenKnowledge).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders no Collection copy, region, or overview CTA while Knowledge Hub is hidden", () => {
+    // Even with a Workspace and Knowledge callbacks passed in, the
+    // release-hidden surface must produce zero Collection/Knowledge Hub copy,
+    // regions, or calls-to-action on the overview. The resolved overview
+    // carries no Collection spaces because the hook is fed an empty catalog.
+    setOverview({ spaces: [{ workspace, visibility: "known", agentIds: ["agent-1"] }] });
+
+    renderWithClient(
+      <AccountOperationsHome
+        sdkAgents={[sdkAgent]}
+        agents={[agent]}
+        workspaces={[workspace]}
+        spaceAccessClient={null}
+        workspacesError="Collection service unavailable"
+        onOpenKnowledge={vi.fn()}
+        onOpenCollection={vi.fn()}
+      />,
+    );
+
+    expect(mockUseAccountOperationsOverview).toHaveBeenCalledWith([sdkAgent], [], null);
+    expect(screen.queryByRole("region", { name: "Knowledge in reach" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Knowledge in reach" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Collection|Knowledge Hub/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Known Collection access/)).not.toBeInTheDocument();
+    // The rest of the overview (sessions, agenda) stays reachable.
+    expect(screen.getByText(/Pick up where you left off/i)).toBeInTheDocument();
+  });
+
+  it("withholds the Collection chip and Knowledge region entirely while Knowledge Hub is hidden", () => {
+    // While the Knowledge Hub surface is release-gated off, the component feeds
+    // the overview hook an empty Workspace catalog, so the resolved overview
+    // carries no Collection spaces and no Collection chip or Knowledge region
+    // renders — there are no inert/disabled Knowledge controls to reach.
+    setOverview({ spaces: [{ workspace, visibility: "known", agentIds: ["agent-1"] }] });
+    renderWithClient(
+      <AccountOperationsHome
+        sdkAgents={[sdkAgent]}
+        agents={[agent]}
+        workspaces={[workspace]}
+        spaceAccessClient={null}
+      />,
+    );
+
+    expect(mockUseAccountOperationsOverview).toHaveBeenCalledWith([sdkAgent], [], null);
+    expect(screen.queryByRole("button", { name: "Main Space" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Knowledge in reach" })).not.toBeInTheDocument();
+  });
+
+  it("disables Knowledge Hub entry points when the page withholds the callbacks and the surface is available", () => {
+    // Dormant enabled surface: when knowledge-hub is available but the page
+    // withholds onOpenCollection/onOpenKnowledge, the controls render disabled
+    // instead of silently doing nothing.
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+    renderWithClient(
+      <AccountOperationsHome
+        sdkAgents={[sdkAgent]}
+        agents={[agent]}
+        workspaces={[workspace]}
+        spaceAccessClient={null}
+      />,
+    );
+
+    // Base overview grants the agent known access to "Main Space".
+    expect(screen.getByRole("button", { name: "Main Space" })).toBeDisabled();
+
+    // Without an onOpenKnowledge callback the knowledge action is inert too.
+    const knowledgeRegion = screen.getByRole("region", { name: "Knowledge in reach" });
+    const knowledgeButtons = within(knowledgeRegion).getAllByRole("button");
+    expect(knowledgeButtons.length).toBeGreaterThan(0);
+    knowledgeButtons.forEach((button) => expect(button).toBeDisabled());
   });
 
   it("keeps partial gateway coverage visible without hiding available activity", () => {
@@ -398,7 +530,8 @@ describe("AccountOperationsHome", () => {
     expect(onOpenScheduled).toHaveBeenCalledWith("agent-1");
   });
 
-  it("does not turn unavailable Collection access into a no-access claim", () => {
+  it("does not turn unavailable Collection access into a no-access claim when Knowledge Hub is available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     setOverview({
       spaces: [{ workspace, visibility: "unavailable", agentIds: null }],
     });

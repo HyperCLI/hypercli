@@ -1154,7 +1154,7 @@ function AgentsPageContent() {
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
   const knowledgeHubSectionActive = isAuthenticated && knowledgeHubAvailable && requestedSection === "knowledge-hub";
-  const knowledgeSectionActive = isAuthenticated && requestedSection === "knowledge";
+  const knowledgeSectionActive = isAuthenticated && knowledgeHubAvailable && requestedSection === "knowledge";
   const membersSectionActive = isAuthenticated && membersAvailable && requestedSection === "members";
   const administrationSectionTab: Extract<MainTab, "knowledge-hub" | "knowledge" | "members"> | null = knowledgeHubSectionActive
     ? "knowledge-hub"
@@ -1544,7 +1544,7 @@ function AgentsPageContent() {
   const agentLauncherOpen = agentOnboardingOverlay === "launcher";
   const anonymousDesktopPreviewMode = anonymousAgentPreviewMode && anonymousDesktopPreviewOpen;
   const agentRosterTruthPending = authLoading || Boolean(
-    isAuthenticated && (agentsLoading || workspacesLoading || isAgentRosterLoading),
+    isAuthenticated && (agentsLoading || (knowledgeHubAvailable && (workspacesLoading || isAgentRosterLoading))),
   );
   const agentLauncherReturnHrefRef = useRef<string | null>(null);
   const setAgentTourOpen = useCallback((open: boolean) => {
@@ -1766,8 +1766,8 @@ function AgentsPageContent() {
   useEffect(() => {
     if (!pendingAuthIntent || authLoading || !isAuthenticated) return;
     if (pendingAuthIntent.kind === "trial") return;
-    if (pendingAuthIntent.kind === "launch" && (workspacesLoading || isAgentRosterLoading)) return;
-    if (pendingAuthIntent.kind === "workspace" && workspacesLoading) return;
+    if (pendingAuthIntent.kind === "launch" && knowledgeHubAvailable && (workspacesLoading || isAgentRosterLoading)) return;
+    if (pendingAuthIntent.kind === "workspace" && (!knowledgeHubAvailable || workspacesLoading)) return;
     if (
       pendingAuthIntent.kind === "checkout" &&
       (!user?.id || billingDataPrincipalId !== user.id)
@@ -1814,6 +1814,7 @@ function AgentsPageContent() {
     billingDataPrincipalId,
     isAgentRosterLoading,
     isAuthenticated,
+    knowledgeHubAvailable,
     pendingAuthIntent,
     router,
     shouldOfferWorkspaceCreation,
@@ -2414,7 +2415,7 @@ function AgentsPageContent() {
     }
     if (appliedOpenQueryRef.current === requestedOpen) return;
     if (authLoading) return;
-    if (isAuthenticated && (workspacesLoading || isAgentRosterLoading)) return;
+    if (isAuthenticated && knowledgeHubAvailable && (workspacesLoading || isAgentRosterLoading)) return;
 
     const timeout = window.setTimeout(() => {
       if (appliedOpenQueryRef.current === requestedOpen) return;
@@ -2620,12 +2621,19 @@ function AgentsPageContent() {
     () => new Set(selectedWorkspaceAgentIds),
     [selectedWorkspaceAgentIds],
   );
+  // Selected-Collection subsets only exist for the enabled Collection workflow.
+  // While Knowledge Hub is hidden, no reachable roster may wait on or be
+  // filtered by Collection associations; the account Agents result is the
+  // single roster authority.
   const workspaceAgents = useMemo(
-    () => isAgentRosterLoading || agentRosterError
-      ? []
-      : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
-    [accountAgents, agentRosterError, isAgentRosterLoading, selectedWorkspaceAgentIdSet],
+    () => !knowledgeHubAvailable
+      ? accountAgents
+      : isAgentRosterLoading || agentRosterError
+        ? []
+        : accountAgents.filter((agent) => selectedWorkspaceAgentIdSet.has(agent.id)),
+    [accountAgents, agentRosterError, isAgentRosterLoading, knowledgeHubAvailable, selectedWorkspaceAgentIdSet],
   );
+  const workspaceAgentsLoading = knowledgeHubAvailable && isAgentRosterLoading;
   const agents = accountAgents;
   const updateAgentCanonicalName = useCallback(async (agentId: string, name: string) => {
     const generation = agentDataGenerationRef.current;
@@ -2654,7 +2662,8 @@ function AgentsPageContent() {
     applyAgentMutationResult(updatedAgent);
   }, [applyAgentMutationResult, getToken, runAgentMutation, sdkAgents]);
   const agentRosterIds = useMemo(() => agents.map((agent) => agent.id), [agents]);
-  const { orderedAgentIds } = useAgentRosterOrder(agentRosterIds, selectedWorkspaceId);
+  const agentRosterOrderScope = knowledgeHubAvailable ? selectedWorkspaceId : user?.id ?? null;
+  const { orderedAgentIds } = useAgentRosterOrder(agentRosterIds, agentRosterOrderScope);
   const orderedRosterAgents = useMemo(() => {
     const agentById = new Map(agents.map((agent) => [agent.id, agent]));
     return orderedAgentIds.map((agentId) => agentById.get(agentId)).filter((agent): agent is Agent => Boolean(agent));
@@ -2852,9 +2861,12 @@ function AgentsPageContent() {
     const principalId = user?.id ?? null;
     const draftMatchesPrincipal = !firstAgentSetupDraft?.principalId
       || firstAgentSetupDraft.principalId === principalId;
-    const draftMatchesWorkspace = !firstAgentSetupDraft?.workspaceId
+    const draftMatchesWorkspace = !knowledgeHubAvailable
+      || !firstAgentSetupDraft?.workspaceId
       || firstAgentSetupDraft.workspaceId === selectedWorkspaceId;
-    const setupWorkspaceId = firstAgentSetupDraft?.workspaceId ?? selectedWorkspaceId;
+    const setupWorkspaceId = knowledgeHubAvailable
+      ? firstAgentSetupDraft?.workspaceId ?? selectedWorkspaceId
+      : null;
     const firstAgentSetup: FirstAgentTrialCheckoutContext | undefined = agentSize
       && firstAgentSetupDraft
       && draftMatchesPrincipal
@@ -2862,23 +2874,23 @@ function AgentsPageContent() {
       ? {
           setupId: firstAgentSetupDraft.setupId,
           ...(setupWorkspaceId ? { workspaceId: setupWorkspaceId } : {}),
-          knowledgeCollectionId: firstAgentSetupDraft.knowledgeCollectionId,
+          knowledgeCollectionId: knowledgeHubAvailable ? firstAgentSetupDraft.knowledgeCollectionId : null,
           agentSize,
         }
       : undefined;
     beginTeamTrial(firstAgentSetup);
-  }, [beginTeamTrial, firstAgentSetupDraft, selectedWorkspaceId, user?.id]);
+  }, [beginTeamTrial, firstAgentSetupDraft, knowledgeHubAvailable, selectedWorkspaceId, user?.id]);
 
   const embeddedFirstAgentSetup = (() => {
     if (!embeddedCheckoutPlan || !firstAgentSetupDraft || !user?.id) return undefined;
     const size = primaryLaunchTier(normalizeBundle(embeddedCheckoutPlan.bundle));
     if (!size) return undefined;
     if (firstAgentSetupDraft.principalId && firstAgentSetupDraft.principalId !== user.id) return undefined;
-    if (firstAgentSetupDraft.workspaceId && firstAgentSetupDraft.workspaceId !== selectedWorkspaceId) return undefined;
+    if (knowledgeHubAvailable && firstAgentSetupDraft.workspaceId && firstAgentSetupDraft.workspaceId !== selectedWorkspaceId) return undefined;
     return {
       setupId: firstAgentSetupDraft.setupId,
-      workspaceId: firstAgentSetupDraft.workspaceId ?? selectedWorkspaceId,
-      knowledgeCollectionId: firstAgentSetupDraft.knowledgeCollectionId,
+      workspaceId: knowledgeHubAvailable ? firstAgentSetupDraft.workspaceId ?? selectedWorkspaceId : null,
+      knowledgeCollectionId: knowledgeHubAvailable ? firstAgentSetupDraft.knowledgeCollectionId : null,
       size,
     };
   })();
@@ -2969,7 +2981,7 @@ function AgentsPageContent() {
     return launchConfigSyncRoot(selectedSdkAgent?.launchConfig);
   }, [selectedSdkAgent]);
   useEffect(() => {
-    if (workspacesLoading || agentsLoading) return;
+    if ((knowledgeHubAvailable && workspacesLoading) || agentsLoading) return;
 
     const availableAgentIds = agents.map((agent) => agent.id);
     const availableAgentIdSet = new Set(availableAgentIds);
@@ -3046,6 +3058,7 @@ function AgentsPageContent() {
     agentsLoadError,
     agentsLoading,
     isAgentRosterLoading,
+    knowledgeHubAvailable,
     requestedAgentId,
     requestedLegacyMainSession,
     requestedSessionKey,
@@ -4175,10 +4188,11 @@ function AgentsPageContent() {
     const generation = agentDataGenerationRef.current;
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
-      const knowledgeCollection = knowledgeCollectionId
-        ? workspaces.find((workspace) => workspace.id === knowledgeCollectionId) ?? null
+      const effectiveKnowledgeCollectionId = knowledgeHubAvailable ? knowledgeCollectionId : null;
+      const knowledgeCollection = effectiveKnowledgeCollectionId
+        ? workspaces.find((workspace) => workspace.id === effectiveKnowledgeCollectionId) ?? null
         : null;
-      if (knowledgeCollectionId && !knowledgeCollection) {
+      if (effectiveKnowledgeCollectionId && !knowledgeCollection) {
         throw new Error("The selected Collection is no longer available.");
       }
       if (knowledgeCollection && knowledgeCollection.role !== "admin") {
@@ -4304,6 +4318,7 @@ function AgentsPageContent() {
     getToken,
     invalidateAgentCapacity,
     isAuthenticated,
+    knowledgeHubAvailable,
     requestAuthentication,
     selectAgent,
     shouldOfferWorkspaceCreation,
@@ -4325,7 +4340,7 @@ function AgentsPageContent() {
         return;
       }
 
-      if (pending.workspaceId && selectedWorkspaceId !== pending.workspaceId) {
+      if (knowledgeHubAvailable && pending.workspaceId && selectedWorkspaceId !== pending.workspaceId) {
         const checkoutWorkspace = workspaces.find((workspace) => workspace.id === pending.workspaceId);
         if (checkoutWorkspace) {
           selectWorkspace(checkoutWorkspace.id, checkoutWorkspace);
@@ -4342,7 +4357,7 @@ function AgentsPageContent() {
       if (
         authLoading ||
         agentsLoading ||
-        workspacesLoading ||
+        (knowledgeHubAvailable && workspacesLoading) ||
         billingDataPrincipalId !== principalId ||
         agentCreationBlockedReason
       ) return;
@@ -4379,7 +4394,7 @@ function AgentsPageContent() {
         enableDesktop: draft.enableDesktop,
         enableMemoryIndex: draft.enableMemoryIndex,
         customImage: draft.enableCustomImage ? draft.customImage || null : null,
-        knowledgeCollectionId: draft.knowledgeCollectionId,
+        knowledgeCollectionId: knowledgeHubAvailable ? draft.knowledgeCollectionId : null,
         creationId: pending.setupId,
       }).then((createdId) => {
         if (privatePrincipalRef.current !== principalId) return;
@@ -4413,6 +4428,7 @@ function AgentsPageContent() {
     budget?.slots,
     firstAgentSetupDraft,
     handleCreateFirstAgent,
+    knowledgeHubAvailable,
     paidFirstAgentCheckout,
     selectAgent,
     selectedWorkspaceId,
@@ -5998,8 +6014,8 @@ function AgentsPageContent() {
           renderMobileNavigation
           mobileShowChat={false}
           agents={agents}
-          rosterLoading={agentsLoading || isAgentRosterLoading}
-          rosterOrderScope={selectedWorkspaceId}
+          rosterLoading={agentsLoading || workspaceAgentsLoading}
+          rosterOrderScope={agentRosterOrderScope}
           selectedAgentId={selectedAgentId}
           setSelectedAgentId={(agentId) => {
             selectAgentFromRoster(agentId);
@@ -6012,7 +6028,7 @@ function AgentsPageContent() {
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
           onCreateAgent={handleCreateFirstAgent}
-          associateCreatedAgent={assignAgentToCollection}
+          associateCreatedAgent={knowledgeHubAvailable ? assignAgentToCollection : undefined}
           agentCreationDisabledReason={agentCreationDisabledReason}
           fetchAgents={refreshAgentsForChildren}
           setError={setError}
@@ -6335,12 +6351,12 @@ function AgentsPageContent() {
   const showMobileSettingsMenu = !searchParams.has("settings");
   const settingsSectionContent = accountSettingsSection === "preferences" ? (
     <AccountSettingsPanel />
-  ) : accountSettingsSection === "workspace" ? (
+  ) : accountSettingsSection === "workspace" && knowledgeHubAvailable ? (
     <WorkspaceOverviewPanel
       accountAgents={accountAgents}
       workspaceAgents={workspaceAgents}
       agentsLoading={agentsLoading}
-      workspaceAgentsLoading={agentsLoading || isAgentRosterLoading}
+      workspaceAgentsLoading={agentsLoading || workspaceAgentsLoading}
       agentCreationDisabledReason={agentCreationBlockedReason}
       agentsHref={selectedAgentHref}
       knowledgeHref={knowledgeSectionHref}
@@ -6391,7 +6407,7 @@ function AgentsPageContent() {
           ? openSettingsAgentList
           : undefined}
       />
-      {accountSettingsSection === "workspace" || accountSettingsSection === "members" ? (
+      {(accountSettingsSection === "workspace" && knowledgeHubAvailable) || accountSettingsSection === "members" ? (
         <SettingsCollectionSelector />
       ) : null}
       <div className="min-h-0 flex-1 overflow-hidden">{settingsSectionContent}</div>
@@ -6615,10 +6631,10 @@ function AgentsPageContent() {
           console.log("Create channel:", channel);
         }}
       />
-      <CollectionCreationDialog
+      {knowledgeHubAvailable ? <CollectionCreationDialog
         open={workspaceCreationOpen}
         onOpenChange={setWorkspaceCreationOpen}
-      />
+      /> : null}
       <ConfirmDialog
         open={Boolean(pendingAgentDelete)}
         title="Delete Agent"
@@ -6671,8 +6687,8 @@ function AgentsPageContent() {
             isDesktopViewport={isDesktopViewport}
             mobileShowChat={mobileMainPanelVisible}
             agents={agents}
-            rosterLoading={agentsLoading || isAgentRosterLoading}
-            rosterOrderScope={selectedWorkspaceId}
+            rosterLoading={agentsLoading || workspaceAgentsLoading}
+            rosterOrderScope={agentRosterOrderScope}
             selectedAgentId={selectedAgentId}
             setSelectedAgentId={selectAgentFromRoster}
             setMobileShowChat={setMobileShowChat}
@@ -6682,7 +6698,7 @@ function AgentsPageContent() {
             getToken={getToken}
             createOpenClawAgent={createOpenClawAgent}
             onCreateAgent={handleCreateFirstAgent}
-            associateCreatedAgent={assignAgentToCollection}
+            associateCreatedAgent={knowledgeHubAvailable ? assignAgentToCollection : undefined}
             agentLauncherSuspended={agentLauncherSuspended}
             agentCreationDisabledReason={agentCreationDisabledReason}
             fetchAgents={refreshAgentsForChildren}
@@ -6897,13 +6913,15 @@ function AgentsPageContent() {
                 onGenerateBootstrap={generateOpenClawBootstrap}
                 onCreateAgent={createAgentFromLauncher}
                 draftPrincipalId={user?.id ?? null}
-                draftWorkspaceId={selectedWorkspaceId}
-                knowledgeCollections={workspaces.map((workspace) => ({
-                  id: workspace.id,
-                  name: workspaceDisplayName(workspace),
-                  role: workspace.role,
-                }))}
-                knowledgeCollectionsLoading={workspacesLoading}
+                draftWorkspaceId={knowledgeHubAvailable ? selectedWorkspaceId : null}
+                knowledgeCollections={knowledgeHubAvailable
+                  ? workspaces.map((workspace) => ({
+                    id: workspace.id,
+                    name: workspaceDisplayName(workspace),
+                    role: workspace.role,
+                  }))
+                  : []}
+                knowledgeCollectionsLoading={knowledgeHubAvailable && workspacesLoading}
               />
             </div>
           ) : checkoutReturnRecoveryActive ? (
@@ -7217,10 +7235,10 @@ function AgentsPageContent() {
           preferredPlanId={launcherPreferredPlanId}
           pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={openUpgradeCatalog}
-          workspaceName={selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : null}
+          workspaceName={knowledgeHubAvailable && selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : null}
           hasAccountAgents={accountAgents.length > 0}
           creationDisabledReason={agentCreationBlockedReason}
-          onCreateWorkspace={shouldOfferWorkspaceCreation ? openWorkspaceCreationFlow : undefined}
+          onCreateWorkspace={knowledgeHubAvailable && shouldOfferWorkspaceCreation ? openWorkspaceCreationFlow : undefined}
           onOpenMembers={membersAvailable ? openMembersTab : undefined}
           onShowList={() => setMobileShowChat(false)}
           showMobileListButton={false}
@@ -7292,13 +7310,13 @@ function AgentsPageContent() {
               <AccountOperationsHome
                 sdkAgents={accountSdkAgents}
                 agents={accountAgents}
-                workspaces={workspaces}
-                spaceAccessClient={workspacesClient}
+                workspaces={knowledgeHubAvailable ? workspaces : []}
+                spaceAccessClient={knowledgeHubAvailable ? workspacesClient : null}
                 displayName={suggestedJourneyUserName}
                 agentsLoading={agentsLoading}
                 agentsError={agentsLoadError}
-                workspacesLoading={workspacesLoading}
-                workspacesError={workspacesError}
+                workspacesLoading={knowledgeHubAvailable && workspacesLoading}
+                workspacesError={knowledgeHubAvailable ? workspacesError : null}
                 dailyTokenUsage={dailyTokenUsage}
                 dailyTokenLimit={dailyTokenLimit}
                 tokenUsageLoading={tokenUsageLoading}
@@ -7317,7 +7335,7 @@ function AgentsPageContent() {
               <WorkspaceUsagePanel
                 accountAgentCount={accountAgents.length}
                 workspaceAgents={workspaceAgents}
-                rosterError={agentRosterError}
+                rosterError={knowledgeHubAvailable ? agentRosterError : null}
               />
             ) : isDesktopViewport ? (
               settingsContent

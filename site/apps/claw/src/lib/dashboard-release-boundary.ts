@@ -22,10 +22,19 @@ export function normalizeDashboardReleaseSearchParams(
   const params = new URLSearchParams(searchParams.toString());
   let changed = false;
 
-  if (!availability["knowledge-hub"] && params.get("section")?.trim() === "knowledge-hub") {
+  const requestedSection = params.get("section")?.trim();
+  if (
+    !availability["knowledge-hub"]
+    && (requestedSection === "knowledge-hub" || requestedSection === "knowledge")
+  ) {
     params.delete("section");
     params.delete("collectionId");
     params.delete("domainId");
+    changed = true;
+  }
+
+  if (!availability["knowledge-hub"] && params.get("settings")?.trim() === "workspace") {
+    params.delete("settings");
     changed = true;
   }
 

@@ -36,6 +36,7 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { useAccountOperationsOverview } from "@/hooks/useAccountOperationsOverview";
 import { collectionDisplayName } from "@/lib/account-collection";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 import { agentProfileImageUrl } from "@/lib/avatar";
 import { formatTokens } from "@/lib/format";
 import {
@@ -225,10 +226,14 @@ export function AccountOperationsHome({
     return () => window.clearInterval(interval);
   }, []);
 
+  // Collection coverage is part of the gated Knowledge Hub surface. While it
+  // is unavailable the overview skips grant fallback calls entirely and no
+  // Collection presentation renders.
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const { overview, loading, refreshing, refresh } = useAccountOperationsOverview(
     sdkAgents,
-    workspaces,
-    spaceAccessClient,
+    knowledgeHubAvailable ? workspaces : [],
+    knowledgeHubAvailable ? spaceAccessClient : null,
   );
   const agentById = new Map(agents.map((agent) => [agent.id, agent]));
   const knownSpacesByAgent = new Map<string, Workspace[]>();
@@ -316,9 +321,11 @@ export function AccountOperationsHome({
   const cronSourcesRead = activitySnapshots.filter((snapshot) => snapshot.cronJobs !== null).length;
   const cronSourcesUnknown = activitySnapshots.length - cronSourcesRead;
   const dataLoading = agentsLoading || loading;
-  const spaceAccessLoading = workspacesLoading
+  const spaceAccessLoading = knowledgeHubAvailable && (
+    workspacesLoading
     || overview.spaces.length < workspaces.length
-    || overview.spaces.some((space) => space.visibility === "loading");
+    || overview.spaces.some((space) => space.visibility === "loading")
+  );
   const spaceAccessUnknown = spaceAccessLoading || restrictedSpaceCount > 0 || unavailableSpaceCount > 0;
   const knowledgeHeadline = workspaces.length === 0
     ? "A blank shelf, ready for the first thing worth remembering."
@@ -346,7 +353,7 @@ export function AccountOperationsHome({
 
   const coverageNotice = agentsError
     ? "The roster is unavailable, so this brief may be incomplete."
-    : workspacesError || (!spaceAccessLoading && unavailableSpaceCount > 0)
+    : knowledgeHubAvailable && (workspacesError || (!spaceAccessLoading && unavailableSpaceCount > 0))
       ? "Some Collection access details are unavailable. Unknown access remains clearly marked below."
       : unavailableGatewayCount > 0 || partialGatewayCount > 0
         ? `${unavailableGatewayCount + partialGatewayCount} ${unavailableGatewayCount + partialGatewayCount === 1 ? "agent has" : "agents have"} incomplete activity data. Everything we could reach is still shown.`
@@ -504,15 +511,17 @@ export function AccountOperationsHome({
                   const previousGroup = index > 0 ? sessionGroupLabel(visibleSessions[index - 1]!.timestamp, now) : null;
                   const sessionAction = session.readOnly ? "View" : "Resume";
                   const sessionMetaId = `account-home-session-meta-${index}`;
-                  const spaceDetail = spaces.length > 0
+                  const spaceDetail = !knowledgeHubAvailable
                     ? null
-                    : spaceAccessLoading
-                      ? "Checking Collection access"
-                      : unavailableSpaceCount > 0
-                        ? "Collection access unavailable"
-                        : restrictedSpaceCount > 0
-                          ? "Some Collection access is restricted"
-                          : "No known direct Collection access";
+                    : spaces.length > 0
+                      ? null
+                      : spaceAccessLoading
+                        ? "Checking Collection access"
+                        : unavailableSpaceCount > 0
+                          ? "Collection access unavailable"
+                          : restrictedSpaceCount > 0
+                            ? "Some Collection access is restricted"
+                            : "No known direct Collection access";
                   return (
                     <div key={`${agent.id}:${session.key}`}>
                       {group !== previousGroup ? <p className={cn("border-t border-border bg-background/20 px-4 py-1.5 text-[9px] font-semibold text-text-muted sm:px-5", index === 0 && "border-t-0")}>{group}</p> : null}
@@ -545,8 +554,8 @@ export function AccountOperationsHome({
                             <span className="shrink-0">{session.messageCount} {session.messageCount === 1 ? "message" : "messages"}</span>
                           </span>
                         </button>
-                        <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:col-start-3 lg:row-start-1 lg:justify-end" aria-label={`Known Collection access for ${title}`}>
-                          {spaces.length > 0 ? spaces.slice(0, 1).map((space) => (
+                        <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-1.5 lg:col-start-3 lg:row-start-1 lg:justify-end" {...(knowledgeHubAvailable ? { "aria-label": `Known Collection access for ${title}` } : {})}>
+                          {knowledgeHubAvailable && spaces.length > 0 ? spaces.slice(0, 1).map((space) => (
                             <button
                               key={space.id}
                               type="button"
@@ -557,9 +566,9 @@ export function AccountOperationsHome({
                             >
                               {collectionDisplayName(space)}
                             </button>
-                          )) : <span className="truncate text-[9px] text-text-muted">{spaceDetail === "No known direct Collection access" ? "No Collection access yet" : spaceDetail}</span>}
-                          {spaces.length > 1 ? <span className="text-[9px] text-text-muted">+{spaces.length - 1}</span> : null}
-                          {spaces.length > 0 && spaceAccessUnknown ? (
+                          )) : knowledgeHubAvailable && spaceDetail ? <span className="truncate text-[9px] text-text-muted">{spaceDetail === "No known direct Collection access" ? "No Collection access yet" : spaceDetail}</span> : null}
+                          {knowledgeHubAvailable && spaces.length > 1 ? <span className="text-[9px] text-text-muted">+{spaces.length - 1}</span> : null}
+                          {knowledgeHubAvailable && spaces.length > 0 && spaceAccessUnknown ? (
                             <span className="inline-flex text-text-muted" title="Collection access details are incomplete">
                               <CircleAlert className="h-3 w-3" />
                               <span className="sr-only">Collection access details are incomplete</span>
@@ -845,7 +854,7 @@ export function AccountOperationsHome({
             </div>
           )}
         </section>
-          <section className="overflow-hidden rounded-2xl border border-border bg-surface-low/25" aria-labelledby="account-home-knowledge-heading">
+          {knowledgeHubAvailable ? <section className="overflow-hidden rounded-2xl border border-border bg-surface-low/25" aria-labelledby="account-home-knowledge-heading">
             <div className="flex h-full flex-col px-4 py-4 sm:px-5">
               <div className="min-w-0">
                 <h2 id="account-home-knowledge-heading" className="text-[15px] font-semibold tracking-[-0.015em] text-foreground">Knowledge in reach</h2>
@@ -886,7 +895,7 @@ export function AccountOperationsHome({
                 {knowledgeActionLabel} <ArrowRight />
               </Button>
             </div>
-          </section>
+          </section> : null}
         </div>
       </div>
     </section>

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const teamWorkspace = {
   id: "workspace-team",
@@ -70,6 +70,21 @@ vi.mock("@/hooks/useAgentAuth", () => ({
 vi.mock("@/lib/agent-client", () => ({
   createWorkspacesClient: mocks.createWorkspacesClient,
 }));
+
+const releaseBoundaryMock = vi.hoisted(() => ({
+  knowledgeHubAvailable: true,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) =>
+      surface === "knowledge-hub"
+        ? releaseBoundaryMock.knowledgeHubAvailable
+        : original.isDashboardReleaseSurfaceAvailable(surface as never),
+  };
+});
 
 import {
   WorkspaceProvider,
@@ -150,6 +165,8 @@ describe("WorkspaceProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    // Existing coverage exercises the enabled Collection workflow.
+    releaseBoundaryMock.knowledgeHubAvailable = true;
     mocks.auth.getToken.mockResolvedValue("session-token");
     mocks.auth.isAuthenticated = true;
     mocks.auth.isLoading = false;
@@ -477,5 +494,244 @@ describe("WorkspaceProvider", () => {
     await waitFor(() => expect(screen.getByTestId("workspace-state")).toHaveTextContent("Second Account"));
     expect(secondClient.list).toHaveBeenCalledOnce();
     expect(mocks.client.list).toHaveBeenCalledOnce();
+  });
+});
+
+describe("WorkspaceProvider while Knowledge Hub (Collections) is release-disabled", () => {
+  // Adversarial runtime contract: with the shipped policy (knowledge-hub
+  // unavailable), the provider must not acquire a token, build a Workspaces
+  // client, list the catalog, load selected-Collection associations, or issue
+  // grants — no matter what stale state, slow/rejected mocks, or principal
+  // changes occur. The dormant implementation is preserved; hidden mode
+  // short-circuits before any transport.
+
+  function HiddenConsumer() {
+    const [outcomes, setOutcomes] = useState<string[]>([]);
+    const {
+      workspaces,
+      selectedWorkspace,
+      selectedWorkspaceId,
+      selectedWorkspaceAgentIds,
+      isAgentRosterLoading,
+      agentRosterError,
+      isLoading,
+      error,
+      selectWorkspace,
+      createWorkspace,
+      refreshWorkspaces,
+      refreshSelectedWorkspaceAgents,
+      assignAgentToCollection,
+      associateAgentWithSelectedWorkspace,
+    } = useWorkspace();
+
+    const record = (label: string, promise: Promise<unknown>) => {
+      void promise.then(
+        () => setOutcomes((current) => [...current, `${label}:resolved`]),
+        (cause: unknown) => setOutcomes((current) => [...current, `${label}:${cause instanceof Error ? cause.message : "failed"}`]),
+      );
+    };
+
+    return (
+      <div>
+        <span data-testid="hidden-workspaces">{JSON.stringify(workspaces)}</span>
+        <span data-testid="hidden-selected">{selectedWorkspace?.id ?? selectedWorkspaceId ?? "none"}</span>
+        <span data-testid="hidden-roster-ids">{JSON.stringify(selectedWorkspaceAgentIds)}</span>
+        <span data-testid="hidden-roster-loading">{String(isAgentRosterLoading)}</span>
+        <span data-testid="hidden-roster-error">{agentRosterError ?? "none"}</span>
+        <span data-testid="hidden-loading">{String(isLoading)}</span>
+        <span data-testid="hidden-error">{error ?? "none"}</span>
+        <span data-testid="hidden-outcomes">{outcomes.join("|") || "none"}</span>
+        <button type="button" onClick={() => selectWorkspace("workspace-team")}>Select team</button>
+        <button type="button" onClick={() => selectWorkspace(discoveredWorkspace.id, discoveredWorkspace)}>Select discovered</button>
+        <button type="button" onClick={() => record("create", createWorkspace({ name: "New" }))}>Create</button>
+        <button type="button" onClick={() => record("refresh", refreshWorkspaces())}>Refresh</button>
+        <button type="button" onClick={() => record("roster", refreshSelectedWorkspaceAgents())}>Refresh roster</button>
+        <button type="button" onClick={() => record("assign", assignAgentToCollection("agent-1", "workspace-team"))}>Assign</button>
+        <button type="button" onClick={() => record("associate", associateAgentWithSelectedWorkspace("agent-1"))}>Associate</button>
+      </div>
+    );
+  }
+
+  function renderHidden() {
+    return render(
+      <WorkspaceProvider>
+        <HiddenConsumer />
+      </WorkspaceProvider>,
+    );
+  }
+
+  function expectZeroWorkspaceTransport() {
+    expect(mocks.auth.getToken).not.toHaveBeenCalled();
+    expect(mocks.createWorkspacesClient).not.toHaveBeenCalled();
+    expect(mocks.client.list).not.toHaveBeenCalled();
+    expect(mocks.client.get).not.toHaveBeenCalled();
+    expect(mocks.client.listAgentAssociations).not.toHaveBeenCalled();
+    expect(mocks.client.listGrants).not.toHaveBeenCalled();
+    expect(mocks.client.create).not.toHaveBeenCalled();
+    expect(mocks.client.grant).not.toHaveBeenCalled();
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    releaseBoundaryMock.knowledgeHubAvailable = false;
+    mocks.auth.getToken.mockResolvedValue("session-token");
+    mocks.auth.isAuthenticated = true;
+    mocks.auth.isLoading = false;
+    mocks.auth.user = { id: "user-1" };
+    mocks.createWorkspacesClient.mockReturnValue(mocks.client);
+    mocks.client.list.mockResolvedValue([teamWorkspace, productWorkspace, generalWorkspace]);
+    mocks.client.get.mockResolvedValue(generalWorkspace);
+    mocks.client.listAgentAssociations.mockResolvedValue([workspaceAgent("agent-1")]);
+    mocks.client.listGrants.mockResolvedValue([]);
+    mocks.client.create.mockResolvedValue(generalWorkspace);
+    mocks.client.grant.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+  });
+
+  it("acquires no token, client, catalog, or roster for an authenticated user", async () => {
+    renderHidden();
+    // Allow any microtask/timeout-scheduled effects to fire.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-workspaces")).toHaveTextContent("[]");
+    expect(screen.getByTestId("hidden-selected")).toHaveTextContent("none");
+    expect(screen.getByTestId("hidden-roster-ids")).toHaveTextContent("[]");
+    expect(screen.getByTestId("hidden-roster-loading")).toHaveTextContent("false");
+    expect(screen.getByTestId("hidden-roster-error")).toHaveTextContent("none");
+    expect(screen.getByTestId("hidden-loading")).toHaveTextContent("false");
+    expect(screen.getByTestId("hidden-error")).toHaveTextContent("none");
+  });
+
+  it("ignores a stale selected-Collection id in localStorage without fetching", async () => {
+    // A user who previously selected a Collection must not see that stale id
+    // resurrect a catalog list or roster fetch while the surface is hidden.
+    window.localStorage.setItem("claw.selectedWorkspace.v1:user-1", "workspace-team");
+
+    renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-selected")).toHaveTextContent("none");
+    expect(screen.getByTestId("hidden-roster-ids")).toHaveTextContent("[]");
+  });
+
+  it("makes no calls even when Workspace mocks would resolve slowly", async () => {
+    // A latent fetch that only resolves later must never be initiated.
+    let resolveSlowList: ((workspaces: typeof teamWorkspace[]) => void) | undefined;
+    mocks.client.list.mockReturnValue(new Promise((resolve) => { resolveSlowList = resolve; }));
+
+    renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    // Resolving the (never-called) mock must not change hidden state.
+    await act(async () => { resolveSlowList?.([teamWorkspace]); });
+    expect(screen.getByTestId("hidden-workspaces")).toHaveTextContent("[]");
+  });
+
+  it("makes no calls even when the token and list mocks reject", async () => {
+    // Rejection paths must be unreachable; no error should surface.
+    mocks.auth.getToken.mockRejectedValue(new Error("Session expired"));
+    mocks.client.list.mockRejectedValue(new Error("Catalog unavailable"));
+    mocks.client.listAgentAssociations.mockRejectedValue(new Error("Roster unavailable"));
+
+    renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-error")).toHaveTextContent("none");
+    expect(screen.getByTestId("hidden-roster-error")).toHaveTextContent("none");
+  });
+
+  it("rejects Collection mutations without transport", async () => {
+    renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    fireEvent.click(screen.getByRole("button", { name: "Associate" }));
+    await waitFor(() => expect(screen.getByTestId("hidden-outcomes")).toHaveTextContent("Collections are not available in this release."));
+
+    expectZeroWorkspaceTransport();
+    const outcomes = screen.getByTestId("hidden-outcomes").textContent ?? "";
+    expect(outcomes).toContain("create:Collections are not available in this release.");
+    expect(outcomes).toContain("assign:Collections are not available in this release.");
+    expect(outcomes).toContain("associate:Collections are not available in this release.");
+  });
+
+  it("treats refresh and selection as inert no-ops without transport", async () => {
+    renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh roster" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select team" }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-selected")).toHaveTextContent("none");
+    expect(screen.getByTestId("hidden-roster-ids")).toHaveTextContent("[]");
+  });
+
+  it("keeps a discovered-Collection selection from surfacing any Collection state while hidden", async () => {
+    // Dormant callers may pass a freshly created or recovered Collection object
+    // to selectWorkspace. While the surface is hidden, that write must not
+    // surface a catalog entry, a selected Collection, or any roster state — and
+    // above all must not start Workspace transport.
+    renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    fireEvent.click(screen.getByRole("button", { name: "Select discovered" }));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-workspaces")).toHaveTextContent("[]");
+    expect(screen.getByTestId("hidden-selected")).toHaveTextContent("none");
+    expect(screen.getByTestId("hidden-roster-ids")).toHaveTextContent("[]");
+    expect(screen.getByTestId("hidden-roster-loading")).toHaveTextContent("false");
+    expect(window.localStorage.getItem("claw.selectedWorkspace.v1:user-1")).toBeNull();
+  });
+
+  it("does not start Workspace transport when the principal changes", async () => {
+    mocks.auth.getToken.mockImplementation(async () => mocks.auth.user?.id === "user-2" ? "token-2" : "token-1");
+
+    const view = renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    expectZeroWorkspaceTransport();
+
+    // Switch the signed-in account; hidden mode must remain transport-free.
+    mocks.auth.user = { id: "user-2" };
+    view.rerender(
+      <WorkspaceProvider>
+        <HiddenConsumer />
+      </WorkspaceProvider>,
+    );
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-workspaces")).toHaveTextContent("[]");
+    expect(screen.getByTestId("hidden-roster-ids")).toHaveTextContent("[]");
+  });
+
+  it("does not start Workspace transport on logout", async () => {
+    const view = renderHidden();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    mocks.auth.isAuthenticated = false;
+    mocks.auth.user = null;
+    view.rerender(
+      <WorkspaceProvider>
+        <HiddenConsumer />
+      </WorkspaceProvider>,
+    );
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+
+    expectZeroWorkspaceTransport();
+    expect(screen.getByTestId("hidden-loading")).toHaveTextContent("false");
   });
 });

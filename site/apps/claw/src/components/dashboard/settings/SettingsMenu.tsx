@@ -57,6 +57,8 @@ const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
 export function resolveSettingsSectionId(value: string | null | undefined): SettingsSectionId | null {
   const normalized = value?.trim() as SettingsSectionId | undefined;
   if (normalized === "members" && !isDashboardReleaseSurfaceAvailable("members")) return null;
+  // The Collections overview is part of the gated Knowledge Hub surface.
+  if (normalized === "workspace" && !isDashboardReleaseSurfaceAvailable("knowledge-hub")) return null;
   return normalized && SETTINGS_SECTION_IDS.has(normalized) ? normalized : null;
 }
 
@@ -78,7 +80,9 @@ const SETTINGS_GROUPS: Array<{ label: string; items: SettingsMenuItem[] }> = [
   {
     label: "Administration",
     items: [
-      { id: "workspace", label: SETTINGS_SECTION_LABELS.workspace, icon: LibraryBig },
+      ...(isDashboardReleaseSurfaceAvailable("knowledge-hub")
+        ? [{ id: "workspace", label: SETTINGS_SECTION_LABELS.workspace, icon: LibraryBig } as const]
+        : []),
       ...(isDashboardReleaseSurfaceAvailable("members")
         ? [{ id: "members", label: SETTINGS_SECTION_LABELS.members, icon: UsersRound } as const]
         : []),

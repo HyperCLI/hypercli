@@ -52,7 +52,6 @@ describe("normalizeDashboardReleaseSearchParams", () => {
   it("returns null when nothing needs to change", () => {
     expect(normalizeDashboardReleaseSearchParams(new URLSearchParams(""))).toBeNull();
     expect(normalizeDashboardReleaseSearchParams(new URLSearchParams("view=overview"))).toBeNull();
-    expect(normalizeDashboardReleaseSearchParams(new URLSearchParams("section=knowledge"))).toBeNull();
     expect(normalizeDashboardReleaseSearchParams(new URLSearchParams("settings=profile"))).toBeNull();
   });
 
@@ -82,6 +81,38 @@ describe("normalizeDashboardReleaseSearchParams", () => {
     expect(normalized?.get("agentId")).toBe("agent-1");
   });
 
+  it("strips the Collections settings section while Knowledge Hub is disabled", () => {
+    const normalized = normalizeDashboardReleaseSearchParams(
+      new URLSearchParams("view=settings&settings=workspace&agentId=agent-1"),
+    );
+    expect(normalized?.get("settings")).toBeNull();
+    expect(normalized?.get("view")).toBe("settings");
+    expect(normalized?.get("agentId")).toBe("agent-1");
+  });
+
+  it("strips the Collections-backed shared knowledge section while Knowledge Hub is disabled", () => {
+    // section=knowledge routes to SharedKnowledgeSection, whose content is
+    // entirely Collection-scoped. While Knowledge Hub is hidden the Workspace
+    // provider performs no transport, so the section can only render permanent
+    // Collection copy and a misleading "not connected" error. The URL
+    // normalizer must strip it exactly like section=knowledge-hub.
+    const normalized = normalizeDashboardReleaseSearchParams(
+      new URLSearchParams("section=knowledge&agentId=agent-1&collectionId=col-1&domainId=legacy-1"),
+    );
+    expect(normalized?.get("section")).toBeNull();
+    expect(normalized?.get("agentId")).toBe("agent-1");
+    expect(normalized?.get("collectionId")).toBeNull();
+    expect(normalized?.get("domainId")).toBeNull();
+
+    // The dormant section must remain routable when the surface is re-enabled.
+    expect(
+      normalizeDashboardReleaseSearchParams(
+        new URLSearchParams("section=knowledge&agentId=agent-1"),
+        ALL_AVAILABLE,
+      ),
+    ).toBeNull();
+  });
+
   it("tolerates surrounding whitespace in disabled surface values", () => {
     const withWhitespace = normalizeDashboardReleaseSearchParams(
       new URLSearchParams("section=%20members%20"),
@@ -101,9 +132,9 @@ describe("normalizeDashboardReleaseSearchParams", () => {
     expect(settingsWhitespace?.get("view")).toBe("settings");
   });
 
-  it("keeps collectionId and domainId when the requested section is not knowledge-hub", () => {
+  it("keeps collectionId and domainId when the requested section is unrelated to Knowledge Hub", () => {
     expect(
-      normalizeDashboardReleaseSearchParams(new URLSearchParams("section=knowledge&collectionId=col-1")),
+      normalizeDashboardReleaseSearchParams(new URLSearchParams("section=activity&collectionId=col-1")),
     ).toBeNull();
     expect(
       normalizeDashboardReleaseSearchParams(new URLSearchParams("collectionId=col-1&domainId=d-1")),
@@ -129,7 +160,7 @@ describe("normalizeDashboardReleaseSearchParams", () => {
   it("does not rewrite URLs when every surface is available", () => {
     expect(
       normalizeDashboardReleaseSearchParams(
-        new URLSearchParams("section=knowledge-hub&collectionId=col-1"),
+        new URLSearchParams("section=knowledge-hub&collectionId=col-1&settings=workspace"),
         ALL_AVAILABLE,
       ),
     ).toBeNull();

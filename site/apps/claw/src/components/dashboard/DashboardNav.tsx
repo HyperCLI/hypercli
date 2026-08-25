@@ -39,7 +39,7 @@ type DropdownNavItem = {
 
 const dropdownNavItems = ([
   { label: "Knowledge Hub", href: KNOWLEDGE_HUB_HREF, icon: LibraryBig, badge: "Preview", surface: "knowledge-hub" },
-  { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
+  { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive, surface: "knowledge-hub" },
   { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound, surface: "members" },
   { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
   { label: "Plans", href: ACCOUNT_PAGE_HREFS.plans, icon: CreditCard },

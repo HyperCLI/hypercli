@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { AGENT_DOMAIN } from "@/lib/api";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
 import { agentAvatar, randomAgentAvatarIconIndex } from "@/lib/avatar";
@@ -849,6 +850,7 @@ export function FirstAgentSetupWizard({
   knowledgeCollectionsLoading = false,
   size = "default",
 }: FirstAgentSetupWizardProps) {
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [restoredDraft] = React.useState(() => {
     const draft = readFirstAgentSetupDraft();
     if (!draft) return null;
@@ -874,7 +876,10 @@ export function FirstAgentSetupWizard({
   const [enableCustomImage, setEnableCustomImage] = React.useState(restoredDraft?.enableCustomImage ?? false);
   const [customImage, setCustomImage] = React.useState(restoredDraft?.customImage ?? "");
   const [customImageEdited, setCustomImageEdited] = React.useState(Boolean(restoredDraft?.customImage));
-  const [knowledgeCollectionId, setKnowledgeCollectionId] = React.useState<string | null>(restoredDraft?.knowledgeCollectionId ?? null);
+  const [knowledgeCollectionId, setKnowledgeCollectionId] = React.useState<string | null>(() => (
+    knowledgeHubAvailable ? restoredDraft?.knowledgeCollectionId ?? null : null
+  ));
+  const effectiveKnowledgeCollectionId = knowledgeHubAvailable ? knowledgeCollectionId : null;
   const [advancedOpen, setAdvancedOpen] = React.useState(false);
   const [workspaceStage, setWorkspaceStage] = React.useState<OpenClawBootstrapStage>(() => restoredDraft ? "personality" : "objective");
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
@@ -1057,7 +1062,7 @@ export function FirstAgentSetupWizard({
       customImage: enableCustomImage ? effectiveCustomImage.trim() : "",
       principalId: draftPrincipalId,
       workspaceId: draftWorkspaceId,
-      knowledgeCollectionId,
+      knowledgeCollectionId: effectiveKnowledgeCollectionId,
       bootstrapDraft,
     });
   }, [
@@ -1072,7 +1077,7 @@ export function FirstAgentSetupWizard({
     enableDesktop,
     enableMemoryIndex,
     initialPlanId,
-    knowledgeCollectionId,
+    effectiveKnowledgeCollectionId,
     restoredDraft?.plan,
     restoredDraft?.size,
     selectedCatalogPlanId,
@@ -1242,7 +1247,7 @@ export function FirstAgentSetupWizard({
         enableDesktop,
         enableMemoryIndex,
         customImage: selectedCustomImage,
-        knowledgeCollectionId,
+        knowledgeCollectionId: effectiveKnowledgeCollectionId,
       });
       if (createdId && typeof window !== "undefined") {
         clearFirstAgentSetupDraft();
@@ -1589,7 +1594,7 @@ export function FirstAgentSetupWizard({
                   </div>
                 </div>
 
-                <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
+                {knowledgeHubAvailable ? <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
                   <label htmlFor="first-agent-knowledge-collection" className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Initial Collection</label>
                   <div className={cx("relative", largePresentation ? "mt-3" : "mt-2")}>
                     <select
@@ -1615,7 +1620,7 @@ export function FirstAgentSetupWizard({
                     )} />
                   </div>
                   <p className={cx("text-text-muted", largePresentation ? "mt-2 text-[13px] leading-5" : "mt-1.5 text-[11px] leading-4")}>Assign only the business knowledge this agent needs. You can change Collection access later.</p>
-                </div>
+                </div> : null}
 
                 {(enableCustomImageOption || agentType === "openclaw") ? (
                 <details
