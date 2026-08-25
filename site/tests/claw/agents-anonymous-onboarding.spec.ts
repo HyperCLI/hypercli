@@ -1,4 +1,18 @@
+import path from "node:path";
+import { config as loadEnv } from "dotenv";
 import { expect, test } from "@playwright/test";
+
+loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
+
+const FEAT_APP_BASE_URL = "https://agents.feat.hypercli.com";
+{
+  const configured = (process.env.TEST_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (configured !== FEAT_APP_BASE_URL) {
+    throw new Error(
+      `Anonymous agent onboarding coverage is feat-only; TEST_BASE_URL must be ${FEAT_APP_BASE_URL}, got ${configured || "<missing>"}.`,
+    );
+  }
+}
 
 const planResponse = {
   plans: [{
@@ -101,7 +115,12 @@ test("opens login directly when the agent launcher is requested", async ({ page 
 
   await page.goto("/dashboard/agents?open=agent-launcher&plan=pro");
 
-  await expect(page).toHaveURL(/\/dashboard\/agents/);
+  await expect(page).toHaveURL((url) => (
+    url.origin === FEAT_APP_BASE_URL
+    && url.pathname.replace(/\/+$/, "") === "/dashboard/agents"
+    && url.searchParams.get("plan") === "pro"
+    && !url.searchParams.has("open")
+  ));
   await expect(page.locator("#privy-modal-content")).toBeVisible();
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Create agent" })).toHaveCount(0);

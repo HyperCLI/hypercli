@@ -1849,7 +1849,10 @@ function AgentsPageContent() {
     clearRoutedPanel = false,
     pushRoute = false,
   ) => {
-    const params = new URLSearchParams(searchParams.toString());
+    if (typeof window === "undefined") return;
+    // Checkout cleanup can finish before async agent selection. Read the live
+    // URL so a stale render snapshot cannot restore consumed callback params.
+    const params = new URLSearchParams(window.location.search);
     if (agentId) {
       params.set("agentId", agentId);
     } else {
@@ -1871,7 +1874,7 @@ function AgentsPageContent() {
       params.delete("view");
     }
     syncDashboardSearchParams(params, pushRoute);
-  }, [searchParams]);
+  }, []);
 
   // Logs
   const logsControllerRef = useRef<AgentLogsControllerHandle | null>(null);
@@ -2452,8 +2455,7 @@ function AgentsPageContent() {
       appliedAgentTourEntryRef.current = true;
       const params = new URLSearchParams(searchParams.toString());
       params.delete("open");
-      const query = params.toString();
-      router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+      syncDashboardSearchParams(params);
       if (isAuthenticated) openAgentCreationFlow();
       else openAgentTourFlow();
     }, 0);
@@ -2465,7 +2467,6 @@ function AgentsPageContent() {
     openAgentCreationFlow,
     openAgentTourFlow,
     requestedOpen,
-    router,
     searchParams,
     shouldOpenAgentLauncherFromQuery,
     workspacesLoading,

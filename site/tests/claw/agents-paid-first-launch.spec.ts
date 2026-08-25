@@ -4,6 +4,16 @@ import { expect, test } from "@playwright/test";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
+const FEAT_APP_BASE_URL = "https://agents.feat.hypercli.com";
+{
+  const configured = (process.env.TEST_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (configured !== FEAT_APP_BASE_URL) {
+    throw new Error(
+      `Paid first-agent launch coverage is feat-only; TEST_BASE_URL must be ${FEAT_APP_BASE_URL}, got ${configured || "<missing>"}.`,
+    );
+  }
+}
+
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_PRINCIPAL_ID = "stored-session";
 const TEST_WORKSPACE_ID = "workspace-paid-first-agent";
@@ -12,6 +22,7 @@ const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURICompon
 
 test("creates the saved first agent after Stripe payment is reflected", async ({ page }) => {
   let createCount = 0;
+  let startCount = 0;
   let createBody: Record<string, unknown> | null = null;
   let createdAgent: Record<string, unknown> | null = null;
   let purchasedSlotAvailable = false;
@@ -148,6 +159,11 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
     const pathName = new URL(route.request().url()).pathname;
     const method = route.request().method();
 
+    if (!pathName.startsWith("/agents/")) {
+      await route.fallback();
+      return;
+    }
+
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent ? [createdAgent] : []) });
       return;
@@ -166,8 +182,49 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
         hostname: "paid-setup-agent.hypercli.app",
         created_at: "2026-07-30T00:00:00Z",
         updated_at: "2026-07-30T00:00:00Z",
+        // The explicit START replays this stored launch contract verbatim; the
+        // complete owner-visible shape (with the gateway secret) is what the
+        // page hands back. Mirrors agent-client.test.ts's fixture.
+        launch_config: {
+          config: {},
+          image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+          env: {},
+          secrets: { OPENCLAW_GATEWAY_TOKEN: "gw-token-paid-first" },
+          routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
+          command: [],
+          entrypoint: [],
+          restart: false,
+          sync_root: "/home/node",
+          sync_uid: null,
+          sync_gid: null,
+          registry_url: null,
+          registry_auth: {},
+          runtime_scopes: ["models:*"],
+        },
       };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
+    // Current lifecycle contract: create parks the deployment at STOPPED after
+    // a short provisioning beat; the page observes that and issues one explicit
+    // POST /start alongside bootstrap staging. The item GET models the poll.
+    if (createdAgent && method === "GET" && pathName.endsWith(`/agents/deployments/${createdAgent.id}`)) {
+      if (createdAgent.state === "STARTING") createdAgent = { ...createdAgent, state: "STOPPED" };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
+    // Starter file writes go through Reef: mint a token, then PUT the bytes to
+    // the returned agent-hostname URL (mocked below by the reef route).
+    if (method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent?.id ?? "?"}/files/token`)) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          token: "reef-token-paid-first",
+          url: "https://reef.test/_reef",
+          expires_at: "2026-12-31T00:00:00Z",
+        }),
+      });
       return;
     }
     if (method === "POST" && pathName.includes("/files/")) {
@@ -232,10 +289,22 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       }) });
       return;
     }
-    if (createdAgent && pathName.includes("/agents/deployments/agent-paid-first/start")) {
+    if (createdAgent && method === "POST" && pathName.endsWith("/agents/deployments/agent-paid-first/start")) {
+      startCount += 1;
       createdAgent = { ...createdAgent, state: "RUNNING" };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
+    }
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+
+  // Reef answers starter-file writes on the agent hostname edge.
+  await page.route(/^https:\/\/reef\.test\//, async (route) => {
+    if (route.request().method() === "PUT") {
+      const pathName = new URL(route.request().url()).pathname;
+      const fileName = ["AGENTS.md", "SOUL.md", "USER.md"].find((name) => pathName.includes(name));
+      const content = route.request().postDataBuffer()?.toString("utf8") ?? "";
+      if (fileName) writtenFiles[fileName] = content;
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
@@ -249,13 +318,18 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
   expect(await page.evaluate(() => (window as Window & { __sawPaidWorkspaceWelcome?: boolean }).__sawPaidWorkspaceWelcome)).toBe(false);
   purchasedSlotAvailable = true;
   await expect.poll(() => createCount, { timeout: 30_000 }).toBe(1);
-  expect(createBody).toMatchObject({ name: "paid-setup-agent", handle: "paid-setup-agent", size: "large", start: false });
+  expect(createBody).toMatchObject({ name: "paid-setup-agent", handle: "paid-setup-agent", size: "large" });
+  // Lifecycle contract: create delivers a stopped Agent and the page issues one
+  // explicit start afterwards; the SDK create payload carries no `start` flag.
+  expect(createBody && "start" in createBody).toBe(false);
   expect(createBody?.meta).toMatchObject({ ui: { avatar: { icon_index: 11 } } });
   expect(createBody?.env).toMatchObject({ OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1" });
   await expect.poll(() => writtenFiles["AGENTS.md"] ?? "").toContain("Preserve this saved file.");
+  await expect.poll(() => startCount).toBe(1);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
   await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toBeNull();
   expect(await page.evaluate(() => (window as Window & { __sawPaidWorkspaceWelcome?: boolean }).__sawPaidWorkspaceWelcome)).toBe(false);
   await page.waitForTimeout(500);
   expect(createCount).toBe(1);
+  expect(startCount).toBe(1);
 });

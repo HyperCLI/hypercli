@@ -228,6 +228,11 @@ describe("shared theme CSS", () => {
     expect(clawLayout).toContain('data-plan-tier="solo"');
   });
 
+  it("loads Claw typography only through the self-hosted Next font", () => {
+    expect(clawLayout).toContain('import { Figtree } from "next/font/google";');
+    expect(clawGlobalsCss).not.toContain("fonts.googleapis.com");
+  });
+
   it("selects the full logo from the color mode applied before first paint", () => {
     expect(themeCss).toContain('--hypercli-logo-full-image: url("/logos/hypercli-full-blue.svg");');
     expect(themeCss).toContain('--hypercli-logo-full-image: url("/logos/hypercli-full-blue-light.svg");');
