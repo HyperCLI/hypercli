@@ -192,6 +192,7 @@ import {
 } from "@/lib/agent-file-path";
 import {
   AgentLoadingState,
+  getAgentWorkspaceStatus,
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
@@ -3651,6 +3652,15 @@ function AgentsPageContent() {
     }
 
     const panelLabel = mainTab === "logs" ? "logs" : mainTab === "shell" ? "shell" : "workspace";
+    if (panelLabel === "workspace" && mainTab !== "files" && activeConnectionStatus) {
+      return getAgentWorkspaceStatus({
+        connected: chat.connected,
+        connecting: chat.connecting,
+        gatewayConnected: chat.gatewayConnected,
+        hydrating: chat.hydrating,
+        conversation: mainTab === "chat",
+      });
+    }
     if (activeConnectionStatus === "connecting" || activeConnectionStatus === "reconnecting") {
       return {
         label: activeConnectionStatus === "reconnecting" ? "Reconnecting" : "Connecting",
@@ -3673,7 +3683,7 @@ function AgentsPageContent() {
       detail: panelLabel === "logs" ? "Runtime log stream connected." : panelLabel === "workspace" ? "Chat is available." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
       tone: "ready",
     };
-  }, [activeConnectionStatus, isSelectedRunning, mainTab, selectedAgent]);
+  }, [activeConnectionStatus, chat.connected, chat.connecting, chat.gatewayConnected, chat.hydrating, isSelectedRunning, mainTab, selectedAgent]);
 
   // ── Agent inspector data wiring ──
 
@@ -7325,6 +7335,7 @@ function AgentsPageContent() {
         configSchema={chat.configSchema}
         connected={chat.connected}
         connecting={chat.connecting}
+        hydrating={chat.hydrating}
         onSaveConfig={async (patch) => {
           await chat.saveConfig(patch);
           completeJourneyForEvent("rules-confirmed");

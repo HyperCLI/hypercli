@@ -59,6 +59,7 @@ import { AgentFeatureEmptyState } from "./AgentFeatureEmptyState";
 interface SessionLike {
   connected: boolean;
   connecting: boolean;
+  hydrating?: boolean;
   config: Record<string, unknown> | null;
   configSchema: OpenClawConfigSchemaResponse | null;
   models: unknown[];
@@ -109,6 +110,7 @@ export function OpenClawConfigPanel({
   const configBootStatus = getAgentGatewayPanelBootStatus({
     connected: chat.connected,
     connecting: chat.connecting,
+    loading: chat.hydrating === true,
     loadingTitle: "Loading settings",
     loadingDetail: "Reading OpenClaw settings.",
     connectingDetail: "Opening the settings workspace.",
@@ -268,7 +270,7 @@ export function OpenClawSettingsPanel({
   const settingsBootStatus = getAgentGatewayPanelBootStatus({
     connected: chat.connected,
     connecting: chat.connecting,
-    loading: chat.connected && !openclawSchemaBundle,
+    loading: chat.hydrating === true || (chat.connected && !openclawSchemaBundle),
     loadingTitle: "Loading settings",
     loadingDetail: "Reading OpenClaw settings.",
     connectingDetail: "Opening the settings workspace.",

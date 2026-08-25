@@ -33,6 +33,7 @@ interface OpenClawSettingsDrawerProps {
   configSchema: OpenClawConfigSchemaResponse | null;
   connected: boolean;
   connecting: boolean;
+  hydrating: boolean;
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
   isDesktopViewport?: boolean;
 }
@@ -118,6 +119,7 @@ function OpenClawSectionEditor({
   draft,
   connected,
   connecting,
+  hydrating,
   saving,
   error,
   success,
@@ -146,6 +148,7 @@ function OpenClawSectionEditor({
   draft: JsonObject | null;
   connected: boolean;
   connecting: boolean;
+  hydrating: boolean;
   saving: boolean;
   error: string | null;
   success: string | null;
@@ -171,7 +174,7 @@ function OpenClawSectionEditor({
   const settingsBootStatus = getAgentGatewayPanelBootStatus({
     connected,
     connecting,
-    loading: connected && !schemaBundle,
+    loading: hydrating || (connected && !schemaBundle),
     loadingTitle: "Loading settings",
     loadingDetail: "Reading OpenClaw settings.",
     connectingDetail: "Opening the settings workspace.",
@@ -240,7 +243,7 @@ function OpenClawSectionEditor({
                 {settingsBootStatus.detail}
               </div>
             )}
-            {settingsBootStatus && connecting && !connected && (
+            {settingsBootStatus && (connecting || connected) && (
               <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {settingsBootStatus.title}
@@ -359,6 +362,7 @@ function OpenClawSettingsDrawerContent({
   configSchema,
   connected,
   connecting,
+  hydrating,
   onSaveConfig,
   isDesktopViewport = true,
 }: OpenClawSettingsDrawerContentProps) {
@@ -540,6 +544,7 @@ function OpenClawSettingsDrawerContent({
                     draft={draft}
                     connected={connected}
                     connecting={connecting}
+                    hydrating={hydrating}
                     saving={saving}
                     error={visibleStatusMessage.error}
                     success={visibleStatusMessage.success}

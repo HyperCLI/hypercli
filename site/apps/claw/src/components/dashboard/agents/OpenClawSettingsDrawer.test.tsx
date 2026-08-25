@@ -62,6 +62,7 @@ function renderDrawer(overrides: Partial<React.ComponentProps<typeof OpenClawSet
     },
     connected: true,
     connecting: false,
+    hydrating: false,
     onSaveConfig,
     isDesktopViewport: true,
     ...overrides,
@@ -75,6 +76,40 @@ function renderDrawer(overrides: Partial<React.ComponentProps<typeof OpenClawSet
 }
 
 describe("OpenClawSettingsDrawer", () => {
+  it("shows settings hydration instead of a gateway reconnect", () => {
+    renderDrawer({
+      configSchema: null,
+      connected: false,
+      connecting: true,
+      hydrating: true,
+    });
+
+    expect(screen.getByText("Loading settings")).toBeInTheDocument();
+    expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
+  });
+
+  it("keeps loading visible while the connected gateway fetches its schema", () => {
+    renderDrawer({
+      configSchema: null,
+      connected: true,
+      connecting: false,
+      hydrating: false,
+    });
+
+    expect(screen.getByText("Loading settings")).toBeInTheDocument();
+  });
+
+  it("reserves gateway connection copy for a real cold connection", () => {
+    renderDrawer({
+      configSchema: null,
+      connected: false,
+      connecting: true,
+      hydrating: false,
+    });
+
+    expect(screen.getByText("Connecting gateway")).toBeInTheDocument();
+  });
+
   it("renders only the selected OpenClaw section", () => {
     renderDrawer();
 

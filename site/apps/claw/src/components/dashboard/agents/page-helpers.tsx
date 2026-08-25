@@ -59,6 +59,9 @@ export interface AgentStatusChipModel {
     | "Booting"
     | "Stopping"
     | "Archiving"
+    | "Preparing"
+    | "Verifying"
+    | "Loading"
     | "Connecting"
     | "Reconnecting"
     | "Disconnected"
@@ -68,6 +71,52 @@ export interface AgentStatusChipModel {
   detail: string;
   tone: AgentStatusTone;
   loading?: boolean;
+}
+
+export function getAgentWorkspaceStatus({
+  connected,
+  connecting,
+  gatewayConnected,
+  hydrating,
+  conversation,
+}: {
+  connected: boolean;
+  connecting: boolean;
+  gatewayConnected: boolean;
+  hydrating: boolean;
+  conversation: boolean;
+}): AgentStatusChipModel {
+  if (hydrating || connecting) {
+    if (!gatewayConnected) {
+      return {
+        label: "Preparing",
+        detail: conversation ? "Preparing the selected conversation." : "Preparing the selected workspace.",
+        tone: "connecting",
+        loading: true,
+      };
+    }
+
+    return {
+      label: conversation ? "Verifying" : "Loading",
+      detail: conversation ? "Verifying the selected conversation." : "Loading the selected workspace.",
+      tone: "connecting",
+      loading: true,
+    };
+  }
+
+  if (connected) {
+    return {
+      label: "Ready",
+      detail: conversation ? "Chat is available." : "Workspace is ready.",
+      tone: "ready",
+    };
+  }
+
+  return {
+    label: "Disconnected",
+    detail: "Gateway disconnected.",
+    tone: "disconnected",
+  };
 }
 
 const AGENT_STATUS_CHIP_STYLES: Record<AgentStatusTone, { shell: string; dot: string; text: string }> = {

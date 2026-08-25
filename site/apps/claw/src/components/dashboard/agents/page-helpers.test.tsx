@@ -2,7 +2,74 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
-import { AgentLaunchPrompt, AgentLoadingState } from "./page-helpers";
+import { AgentLaunchPrompt, AgentLoadingState, getAgentWorkspaceStatus } from "./page-helpers";
+
+describe("getAgentWorkspaceStatus", () => {
+  it("distinguishes gateway acquisition from conversation verification", () => {
+    expect(getAgentWorkspaceStatus({
+      connected: false,
+      connecting: true,
+      gatewayConnected: false,
+      hydrating: false,
+      conversation: true,
+    })).toMatchObject({
+      label: "Preparing",
+      detail: "Preparing the selected conversation.",
+      loading: true,
+    });
+
+    expect(getAgentWorkspaceStatus({
+      connected: false,
+      connecting: true,
+      gatewayConnected: true,
+      hydrating: true,
+      conversation: true,
+    })).toMatchObject({
+      label: "Verifying",
+      detail: "Verifying the selected conversation.",
+      loading: true,
+    });
+  });
+
+  it("keeps non-chat workspace hydration and readiness explicit", () => {
+    expect(getAgentWorkspaceStatus({
+      connected: false,
+      connecting: true,
+      gatewayConnected: true,
+      hydrating: true,
+      conversation: false,
+    })).toMatchObject({
+      label: "Loading",
+      detail: "Loading the selected workspace.",
+      loading: true,
+    });
+
+    expect(getAgentWorkspaceStatus({
+      connected: true,
+      connecting: false,
+      gatewayConnected: true,
+      hydrating: false,
+      conversation: false,
+    })).toMatchObject({
+      label: "Ready",
+      detail: "Workspace is ready.",
+    });
+  });
+
+  it("does not report Hermes ready while its retained session is hydrating", () => {
+    expect(getAgentWorkspaceStatus({
+      connected: true,
+      connecting: false,
+      gatewayConnected: true,
+      hydrating: true,
+      conversation: true,
+    })).toMatchObject({
+      label: "Verifying",
+      detail: "Verifying the selected conversation.",
+      loading: true,
+    });
+  });
+});
 
 describe("AgentLaunchPrompt", () => {
   beforeEach(() => {
