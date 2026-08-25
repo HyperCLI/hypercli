@@ -359,6 +359,31 @@ describe("openclaw chat history state", () => {
     expect(messages.filter((message) => message.role === "system")).toHaveLength(1);
   });
 
+  it("keeps a fuller live reply with exact boundaries when refreshed history is trimmed shorter", () => {
+    const live = "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.";
+    const current: ChatMessage[] = [
+      { role: "user", content: "Revisa los logos", renderId: "user-live" },
+      { role: "assistant", content: live, runId: "run-1", renderId: "assistant-live" },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Revisa los logos", renderId: "user-history" },
+        { role: "assistant", content: "Déjame revisar.", runId: "run-1", renderId: "assistant-history" },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Revisa los logos" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.",
+        renderId: "assistant-live",
+      }),
+    ]);
+  });
+
   it("assigns distinct render ids without globally deduping equal message content", () => {
     const messages = reduceChatHistoryMessages([], {
       type: "restore-cache",

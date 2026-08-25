@@ -366,6 +366,35 @@ describe("openclaw session keys", () => {
     ]);
   });
 
+  it("preserves the exact sentence boundary when an active run tail resumes a persisted segment", async () => {
+    const gateway = {
+      sessionsList: vi.fn(async () => [{ key: "session-alpha" }]),
+      chatHistory: vi.fn(async () => []),
+      chatHistoryResult: vi.fn(async () => ({
+        messages: [
+          { role: "user", content: "Revisa los logos" },
+          { role: "assistant", content: "Déjame revisar. ", runId: "run-reload" },
+        ],
+        sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+        inFlightRun: {
+          runId: "run-reload",
+          text: "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.",
+        },
+      })),
+    };
+
+    const hydrated = await hydrateOpenClawHistory(gateway as any, "deploy-123", "session-alpha");
+
+    expect(hydrated.messages.map((message) => message.content)).toEqual([
+      "Revisa los logos",
+      "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.",
+    ]);
+    expect(hydrated.messages[1]).toEqual(expect.objectContaining({
+      role: "assistant",
+      runId: "run-reload",
+    }));
+  });
+
   it("keeps the final output_text answer from refreshed tool-rich history", async () => {
     const gateway = {
       configGet: vi.fn(async () => ({})),
@@ -1007,6 +1036,89 @@ describe("openclaw session keys", () => {
     const serialized = JSON.stringify(hydrated.messages);
     expect(serialized).not.toContain("ChatCompletionStreamResponse");
     expect(serialized).not.toContain("Received Model Group");
+  });
+
+  it("preserves exact sentence boundaries across gateway chat.content deltas", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const context = {
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+    };
+
+    handleOpenClawSessionEvent({
+      gatewayEvent: {
+        event: "chat.content",
+        payload: {
+          runId: "run-1",
+          sessionKey: "main",
+          message: { role: "assistant", content: "Déjame revisar. " },
+        },
+      } as any,
+      ...context,
+    });
+    handleOpenClawSessionEvent({
+      gatewayEvent: {
+        event: "chat.content",
+        payload: {
+          runId: "run-1",
+          sessionKey: "main",
+          message: { role: "assistant", content: "Tenemos dos logos 1080×1080 con transparencia." },
+        },
+      } as any,
+      ...context,
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.",
+      }),
+    ]);
+  });
+
+  it("keeps gateway chat.content deltas exact for mid-word splits and standalone whitespace", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const context = {
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+    };
+    const sendDelta = (content: string) => handleOpenClawSessionEvent({
+      gatewayEvent: {
+        event: "chat.content",
+        payload: {
+          runId: "run-1",
+          sessionKey: "main",
+          message: { role: "assistant", content },
+        },
+      } as any,
+      ...context,
+    });
+
+    sendDelta("Déjame revis");
+    sendDelta("ar.");
+    sendDelta(" ");
+    sendDelta("Tenemos dos logos.");
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "Déjame revisar. Tenemos dos logos.",
+      }),
+    ]);
   });
 
   it("ignores live chat content that is only raw workspace path output", () => {

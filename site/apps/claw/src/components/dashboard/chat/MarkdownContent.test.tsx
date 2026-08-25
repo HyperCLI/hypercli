@@ -143,6 +143,20 @@ describe("MarkdownContent", () => {
     expect(container.querySelectorAll("p br")).toHaveLength(2);
   });
 
+  it("preserves exact sentence-boundary whitespace while streaming and after settlement", () => {
+    const content = "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.";
+    const { container, rerender } = render(<MarkdownContent content={content} isStreaming />);
+
+    expect(container.textContent).toBe(content);
+
+    rerender(<MarkdownContent content={content} />);
+    const paragraph = container.querySelector("p");
+    expect(paragraph).not.toBeNull();
+    expect(paragraph?.textContent).toBe(content);
+    expect(container.textContent).toContain("revisar. Tenemos");
+    expect(container.textContent).not.toContain("revisar.Tenemos");
+  });
+
   it("renders interactive task lists without clipped list markers", () => {
     const content = [
       "Tasks:",

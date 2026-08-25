@@ -322,7 +322,10 @@ export function handleOpenClawSessionEvent({
     );
     if ((payload as Record<string, unknown>).state === "final") setSending(false);
   } else if (event === "chat.content") {
-    const normalized = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
+    const normalized = normalizeHistoryMessage(
+      payloadRecord.message ?? payloadRecord,
+      { preserveBoundaryWhitespace: true },
+    );
     if (normalized) {
       appendLiveChatMessage(
         setMessages,

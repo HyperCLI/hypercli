@@ -950,7 +950,10 @@ function historyMessageRenderId(
   return createChatRenderId("history");
 }
 
-function normalizeHistoryMessage(message: unknown): ChatMessage | null {
+function normalizeHistoryMessage(
+  message: unknown,
+  options: { preserveBoundaryWhitespace?: boolean } = {},
+): ChatMessage | null {
   if (isDeliveryMirrorHistoryMessage(message) && !isDisplayableDeliveryMirrorHistoryMessage(message)) return null;
   if (isInternalToolHistoryRole(rawHistoryRole(message))) return null;
   const normalized = normalizeGatewayChatMessage(message);
@@ -962,9 +965,10 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const userContent = role === "user"
     ? extractUserVisibleContentAndFiles(rawContent)
     : { content: rawContent, files: [] as ChatPendingFile[] };
-  const rawSanitizedContent = sanitizeChatDisplayText(
-    userContent.content,
-  ).trim();
+  const sanitizedContent = sanitizeChatDisplayText(userContent.content);
+  const rawSanitizedContent = options.preserveBoundaryWhitespace
+    ? sanitizedContent
+    : sanitizedContent.trim();
   if (role === "user" && isCronUserControlMessage(rawSanitizedContent)) {
     return null;
   }
@@ -1013,7 +1017,12 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   if (role === "assistant" && (isLikelyInternalToolOutputText(content) || isInternalExecutionStatusText(content))) {
     return null;
   }
-  if (!content.trim() && mediaUrls.length === 0 && userContent.files.length === 0) {
+  if (
+    !content.trim()
+    && (!options.preserveBoundaryWhitespace || content.length === 0)
+    && mediaUrls.length === 0
+    && userContent.files.length === 0
+  ) {
     return null;
   }
   return {

@@ -1621,4 +1621,39 @@ describe("openclaw chat normalization", () => {
     expect(byRun[0]).toMatchObject({ content: "First updated by run", renderId: "render-1" });
     expect(byRun[1]?.content).toBe("Second");
   });
+
+  it("preserves the exact sentence boundary when appending a live delta after trimmed history", () => {
+    const persisted = normalizeHistoryMessage({
+      role: "assistant",
+      content: "Déjame revisar. ",
+      runId: "run-1",
+    });
+    expect(persisted?.content).toBe("Déjame revisar.");
+
+    const resumed = upsertAssistantMessage([persisted!], {
+      role: "assistant",
+      content: " Tenemos dos logos 1080×1080 con transparencia.",
+      runId: "run-1",
+    }, { appendContent: true });
+
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]?.content).toBe("Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.");
+  });
+
+  it("appends mid-word and already-spaced live deltas exactly without inventing whitespace", () => {
+    const persisted = normalizeHistoryMessage({
+      role: "assistant",
+      content: "Déjame revis",
+      runId: "run-1",
+    });
+    expect(persisted?.content).toBe("Déjame revis");
+
+    const resumed = upsertAssistantMessage([persisted!], {
+      role: "assistant",
+      content: "ar. Tenemos dos logos.",
+      runId: "run-1",
+    }, { appendContent: true });
+
+    expect(resumed[0]?.content).toBe("Déjame revisar. Tenemos dos logos.");
+  });
 });

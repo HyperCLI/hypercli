@@ -215,6 +215,31 @@ describe("ChatMessageBubble", () => {
     expect(container).not.toHaveTextContent("**");
   });
 
+  it("keeps exact sentence-boundary whitespace from streaming through completed rendering", () => {
+    const content = "Déjame revisar. Tenemos dos logos 1080×1080 con transparencia.";
+    const { container, rerender } = render(
+      <ChatMessageBubble
+        message={{ role: "assistant", content }}
+        isStreaming
+      />,
+    );
+
+    const streamingText = container.querySelector("[data-chat-streaming-text='true']");
+    expect(streamingText).not.toBeNull();
+    expect(streamingText?.textContent).toBe(content);
+
+    rerender(
+      <ChatMessageBubble message={{ role: "assistant", content }} />,
+    );
+
+    expect(container.querySelector("[data-chat-streaming-text='true']")).not.toBeInTheDocument();
+    const completed = screen.getByText((_, element) => (
+      element?.tagName === "P" && element.textContent === content
+    ));
+    expect(completed).toBeInTheDocument();
+    expect(completed.textContent).toBe(content);
+  });
+
   it("keeps a 10,000-character in-flight response on the lightweight render path", () => {
     const content = "[]".repeat(5_000);
     const { container } = render(
