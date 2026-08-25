@@ -6,6 +6,7 @@ describe("agent workspace routes", () => {
   it("accepts supported workspace tabs and rejects unrelated sections", () => {
     expect(resolveAgentRouteTab(" files ")).toBe("files");
     expect(resolveAgentRouteTab("desktop")).toBe("desktop");
+    expect(resolveAgentRouteTab("activity")).toBe("activity");
     expect(resolveAgentRouteTab("settings")).toBe("settings");
     expect(resolveAgentRouteTab("members")).toBeNull();
     expect(resolveAgentRouteTab("openclaw")).toBe("openclaw");
@@ -19,5 +20,9 @@ describe("agent workspace routes", () => {
     expect(buildAgentWorkspaceTabHref("agent-1", "chat")).toBe(
       "/dashboard/agents?agentId=agent-1",
     );
+    expect(buildAgentWorkspaceTabHref("agent-1", "activity")).toBe(
+      "/dashboard/agents?agentId=agent-1&tab=activity",
+    );
+    expect(resolveAgentRouteTab("activity")).toBe("activity");
   });
 });

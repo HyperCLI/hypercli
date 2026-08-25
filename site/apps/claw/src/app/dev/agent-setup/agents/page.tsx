@@ -700,6 +700,7 @@ export default function DevAgentSetupAgentsPage() {
     logs: "Logs",
     settings: "Settings",
     shell: "Shell",
+    activity: "Activity",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
     { key: "chat", label: "Chat", icon: MessageSquare },

@@ -18,7 +18,7 @@ import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config"
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationItem, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationItem, type ConversationThread, type ThreadSurfaceActionsFor } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -2792,6 +2792,7 @@ interface AgentListProps {
   setMobileShowChat: (value: boolean) => void;
   setSidebarCollapsed: (value: boolean) => void;
   syntheticThreads: ConversationThread[];
+  threadSurfaceActions?: ThreadSurfaceActionsFor;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   getToken: () => Promise<string>;
   createOpenClawAgent: (apiKey: string, options?: Record<string, unknown>) => Promise<{ id?: string | null }>;
@@ -2869,6 +2870,7 @@ export function AgentList({
   setMobileShowChat,
   setSidebarCollapsed,
   syntheticThreads,
+  threadSurfaceActions,
   agentCardDataById,
   getToken,
   createOpenClawAgent,
@@ -3242,6 +3244,7 @@ export function AgentList({
               mobileMode={renderMobileNavigation}
               threads={visibleSyntheticThreads}
               selectedThreadId={selectedAgentId}
+              threadSurfaceActions={threadSurfaceActions}
               showChannels={showChannels}
               availableAgents={orderedAgents.map((a) => ({
                 id: a.id,

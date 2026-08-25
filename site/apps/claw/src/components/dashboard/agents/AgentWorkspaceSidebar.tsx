@@ -25,6 +25,7 @@ import {
   TerminalSquare,
   Trash2,
   X,
+  Activity,
 } from "lucide-react";
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
@@ -73,6 +74,7 @@ import {
 } from "@/lib/openclaw-session-sdk-surface";
 import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
 import type { ActiveAgentTrial } from "@/lib/agent-trial";
+import { isBuzzAgentRuntime } from "@/lib/agent-runtime";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -102,6 +104,7 @@ interface AgentWorkspaceSidebarProps {
   onOpenDesktopPreview?: () => void;
   onOpenLogs: () => void;
   onOpenShell: () => void;
+  onOpenActivity?: () => void;
   onShellIntent?: () => void;
   onShellIntentEnd?: () => void;
   onOpenOpenClaw: () => void;
@@ -1048,6 +1051,7 @@ export function AgentWorkspaceSidebar({
   onOpenDesktopPreview,
   onOpenLogs,
   onOpenShell,
+  onOpenActivity,
   onShellIntent,
   onShellIntentEnd,
   onOpenOpenClaw,
@@ -1298,9 +1302,13 @@ export function AgentWorkspaceSidebar({
   const openClawRuntimeSelected = !selectedAgent?.runtime
     || selectedAgent.runtime === "openclaw"
     || selectedAgent.runtime === "openclaw-pro";
+  const buzzRuntimeSelected = isBuzzAgentRuntime(selectedAgent?.runtime);
   const advancedItems: WorkspaceItem[] = [
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
+    ...(buzzRuntimeSelected && onOpenActivity
+      ? [{ id: "activity", label: "Activity", icon: Activity, active: activeTab === "activity", onClick: onOpenActivity, ...advancedDisabled }]
+      : []),
     ...(openClawRuntimeSelected
       ? [{ id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) }]
       : []),

@@ -78,6 +78,22 @@ export interface ConversationThread {
   isActive: boolean;
 }
 
+// Hover-revealed shortcuts into an agent's workspace surfaces. The sidebar
+// stays generic: the page decides which threads get actions and where they go.
+export interface ThreadSurfaceAction {
+  id: "shell" | "logs" | "activity";
+  href: string;
+  onSelect?: () => void;
+}
+
+export type ThreadSurfaceActionsFor = (thread: ConversationThread) => ThreadSurfaceAction[] | undefined;
+
+const THREAD_SURFACE_ACTION_LABELS: Record<ThreadSurfaceAction["id"], string> = {
+  shell: "Shell",
+  logs: "Logs",
+  activity: "Activity",
+};
+
 function participantAgentMeta(
   participant: Participant,
   agentCardDataById?: Record<string, AgentCardTooltipData>,
@@ -136,6 +152,8 @@ export interface AgentsChannelsSidebarProps {
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onDeleteThread?: (threadId: string) => void;
   onRenameThread?: (threadId: string, title: string) => void;
+  /** Per-thread workspace surface shortcuts (Shell/Logs/Activity), decided by the caller. */
+  threadSurfaceActions?: ThreadSurfaceActionsFor;
   /** Show/hide the Channels section and "New Channel" chooser option. Default: true. */
   showChannels?: boolean;
   /** When provided, renders a collapse button in the header that calls this. */
@@ -466,6 +484,7 @@ function ThreadRow({
   onSelect,
   onDelete,
   onRename,
+  surfaceActions,
   compact = false,
   mobileMode = false,
   agentCardDataById,
@@ -476,6 +495,7 @@ function ThreadRow({
   onSelect: () => void;
   onDelete?: () => void;
   onRename?: (title: string) => void;
+  surfaceActions?: ThreadSurfaceAction[];
   compact?: boolean;
   mobileMode?: boolean;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
@@ -570,6 +590,22 @@ function ThreadRow({
                     </button>
                   </RosterTooltip>
                 )}
+                {surfaceActions?.map((action) => (
+                  <Link
+                    key={action.id}
+                    href={action.href}
+                    aria-label={`Open ${THREAD_SURFACE_ACTION_LABELS[action.id]}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      action.onSelect?.();
+                    }}
+                    className={`flex-shrink-0 items-center rounded px-1 text-[0.625rem] font-medium leading-4 text-text-muted transition-colors hover:bg-surface-low hover:text-foreground ${
+                      mobileMode ? "flex h-8" : "hidden h-4 group-hover/row:flex"
+                    }`}
+                  >
+                    {THREAD_SURFACE_ACTION_LABELS[action.id]}
+                  </Link>
+                ))}
               </>
             )}
           </div>
@@ -634,6 +670,7 @@ function SortableThreadRow({
   onDelete,
   onRename,
   onMove,
+  surfaceActions,
   mobileMode,
   agentCardDataById,
 }: {
@@ -643,6 +680,7 @@ function SortableThreadRow({
   onDelete?: () => void;
   onRename?: (title: string) => void;
   onMove: (direction: -1 | 1) => void;
+  surfaceActions?: ThreadSurfaceAction[];
   mobileMode: boolean;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
 }) {
@@ -686,6 +724,7 @@ function SortableThreadRow({
         onSelect={onSelect}
         onDelete={onDelete}
         onRename={onRename}
+        surfaceActions={surfaceActions}
         mobileMode={mobileMode}
         agentCardDataById={agentCardDataById}
         reorderHandle={reorderHandle}
@@ -982,12 +1021,14 @@ function FlatThreadList({
   selectedThreadId,
   onSelectThread,
   onDeleteThread,
+  threadSurfaceActions,
   agentCardDataById,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
   onSelectThread: (id: string) => void;
   onDeleteThread?: (id: string) => void;
+  threadSurfaceActions?: ThreadSurfaceActionsFor;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
 }) {
   const [filter, setFilter] = useState<"all" | "active" | "unread">("all");
@@ -1056,6 +1097,7 @@ function FlatThreadList({
                       selected={selectedThreadId === thread.id}
                       onSelect={() => onSelectThread(thread.id)}
                       onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
+                      surfaceActions={threadSurfaceActions?.(thread)}
                       agentCardDataById={agentCardDataById}
                     />
                   ))}
@@ -1106,12 +1148,14 @@ function GroupedByAgent({
   selectedThreadId,
   onSelectThread,
   onDeleteThread,
+  threadSurfaceActions,
   agentCardDataById,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
   onSelectThread: (id: string) => void;
   onDeleteThread?: (id: string) => void;
+  threadSurfaceActions?: ThreadSurfaceActionsFor;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -1233,6 +1277,7 @@ function GroupedByAgent({
                           onSelect={() => onSelectThread(thread.id)}
                           onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
                           compact
+                          surfaceActions={threadSurfaceActions?.(thread)}
                           agentCardDataById={agentCardDataById}
                         />
                       ))}
@@ -2038,6 +2083,7 @@ function HandoffThreadView({
   showOfflineAgents = true,
   onShowOfflineAgentsChange,
   onReorderAgents,
+  threadSurfaceActions,
   agentCardDataById,
   openAgentCreatorSignal,
   showSearch,
@@ -2078,6 +2124,7 @@ function HandoffThreadView({
   showOfflineAgents?: boolean;
   onShowOfflineAgentsChange?: (show: boolean) => void;
   onReorderAgents?: (agentIds: readonly string[]) => void;
+  threadSurfaceActions?: ThreadSurfaceActionsFor;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   openAgentCreatorSignal?: number;
   showSearch: boolean;
@@ -2331,6 +2378,7 @@ function HandoffThreadView({
                     onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
                     onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
                     onMove={(direction) => moveAgent(thread.id, direction)}
+                    surfaceActions={threadSurfaceActions?.(thread)}
                     mobileMode={mobileMode}
                     agentCardDataById={agentCardDataById}
                   />
@@ -2344,6 +2392,7 @@ function HandoffThreadView({
                 onSelect={() => onSelectThread(thread.id)}
                 onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
                 onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+                surfaceActions={threadSurfaceActions?.(thread)}
                 mobileMode={mobileMode}
                 agentCardDataById={agentCardDataById}
               />
@@ -2464,6 +2513,7 @@ export function AgentsChannelsSidebar({
   onCreateChannel,
   onDeleteThread,
   onRenameThread,
+  threadSurfaceActions,
   showChannels = true,
   onCollapse,
   showDivider = true,
@@ -2538,6 +2588,7 @@ export function AgentsChannelsSidebar({
           selectedThreadId={selectedThreadId}
           onSelectThread={onSelectThread}
           onDeleteThread={onDeleteThread}
+          threadSurfaceActions={threadSurfaceActions}
           agentCardDataById={agentCardDataById}
         />
       )}
@@ -2547,6 +2598,7 @@ export function AgentsChannelsSidebar({
           selectedThreadId={selectedThreadId}
           onSelectThread={onSelectThread}
           onDeleteThread={onDeleteThread}
+          threadSurfaceActions={threadSurfaceActions}
           agentCardDataById={agentCardDataById}
         />
       )}
@@ -2582,6 +2634,7 @@ export function AgentsChannelsSidebar({
           showOfflineAgents={showOfflineAgents}
           onShowOfflineAgentsChange={onShowOfflineAgentsChange}
           onReorderAgents={onReorderAgents}
+          threadSurfaceActions={threadSurfaceActions}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
           showSearch={showSearch}
@@ -2628,6 +2681,7 @@ export function AgentsChannelsSidebar({
           showOfflineAgents={showOfflineAgents}
           onShowOfflineAgentsChange={onShowOfflineAgentsChange}
           onReorderAgents={onReorderAgents}
+          threadSurfaceActions={threadSurfaceActions}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
           showSearch={showSearch}

@@ -1,6 +1,6 @@
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
-export type AgentRouteTab = Extract<AgentMainTab, "chat" | "files" | "desktop" | "integrations" | "skills" | "scheduled" | "logs" | "shell" | "openclaw" | "settings">;
+export type AgentRouteTab = Extract<AgentMainTab, "chat" | "files" | "desktop" | "integrations" | "skills" | "scheduled" | "logs" | "shell" | "activity" | "openclaw" | "settings">;
 
 const AGENT_ROUTE_TABS = new Set<AgentRouteTab>([
   "chat",
@@ -11,6 +11,7 @@ const AGENT_ROUTE_TABS = new Set<AgentRouteTab>([
   "scheduled",
   "logs",
   "shell",
+  "activity",
   "openclaw",
   "settings",
 ]);

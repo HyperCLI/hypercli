@@ -57,6 +57,7 @@ import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { useOpenClawSession, type OpenClawHydrationMode } from "@/hooks/useOpenClawSession";
 import type { ShellStatus } from "@/hooks/useAgentShell";
+import type { ActivityStatus } from "@/hooks/useAgentActivity";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
 import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
 import { clearOpenClawSessionPins, useOpenClawSessionPins } from "@/hooks/useOpenClawSessionPins";
@@ -78,7 +79,7 @@ import {
 } from "@/components/dashboard/skills";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
-import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { MOCK_PARTICIPANTS, type ConversationThread, type ThreadSurfaceAction, type ThreadSurfaceActionsFor } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
@@ -132,7 +133,7 @@ import {
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { buildHermesLaunchOptions } from "@/lib/hermes-launch";
-import { isHermesAgentRuntime } from "@/lib/agent-runtime";
+import { isBuzzAgentRuntime, isHermesAgentRuntime } from "@/lib/agent-runtime";
 import { useHermesSession } from "@/hooks/useHermesSession";
 import {
   buildOpenClawBootstrapFileGenerationMessages,
@@ -217,6 +218,8 @@ import {
   type AgentFilePreviewReadOptions,
 } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsController, type AgentLogsControllerHandle } from "@/components/dashboard/agents/AgentLogsController";
+import { AgentActivityController, type AgentActivityControllerHandle } from "@/components/dashboard/agents/AgentActivityController";
+import { AgentActivityFloatingPanel } from "@/components/dashboard/agents/AgentActivityFloatingPanel";
 import { AgentShellController, type AgentShellControllerHandle } from "@/components/dashboard/agents/AgentShellController";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel, type DashboardSurfaceHeader } from "@/components/dashboard/agents/AgentMainPanel";
@@ -1864,6 +1867,14 @@ function AgentsPageContent() {
   const logsControllerRef = useRef<AgentLogsControllerHandle | null>(null);
   const [logsStatus, setLogsStatus] = useState<ShellStatus>("disconnected");
 
+  // Activity
+  const activityControllerRef = useRef<AgentActivityControllerHandle | null>(null);
+  const [activityStatus, setActivityStatus] = useState<ActivityStatus>("disconnected");
+  const [activityPoppedOut, setActivityPoppedOut] = useState(false);
+  useEffect(() => {
+    setActivityPoppedOut(false);
+  }, [selectedAgentId]);
+
   // Shell
   const shellControllerRef = useRef<AgentShellControllerHandle | null>(null);
   const [shellStatus, setShellStatus] = useState<ShellStatus>("disconnected");
@@ -3133,6 +3144,7 @@ function AgentsPageContent() {
     logs: "Logs",
     settings: "Settings",
     shell: "Shell",
+    activity: "Activity",
   };
   // Sync settings fields when selected agent changes
   useEffect(() => {
@@ -3390,13 +3402,14 @@ function AgentsPageContent() {
     if (!isSelectedRunning) return null;
     if (mainTab === "logs") return logsStatus;
     if (mainTab === "shell") return shellStatus;
+    if (mainTab === "activity") return activityStatus === "error" ? "disconnected" : activityStatus;
     if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "skills" || mainTab === "scheduled" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
     }
     return null;
-  }, [chat.connected, chat.connecting, isSelectedRunning, logsStatus, mainTab, selectedAgentId, shellStatus]);
+  }, [activityStatus, chat.connected, chat.connecting, isSelectedRunning, logsStatus, mainTab, selectedAgentId, shellStatus]);
 
   const listAgentFiles = useCallback(async (path?: string) => {
     if (!selectedAgentId) return [];
@@ -3790,6 +3803,17 @@ function AgentsPageContent() {
       };
     });
   }, [chat.messages.length, orderedRosterAgents, selectedAgentId, sessionKeyForAgent]);
+  // Roster hover shortcuts into an agent's workspace surfaces. Only buzz-backed
+  // agents expose the activity stream, so the actions stay limited to them.
+  const rosterThreadSurfaceActions = useCallback<ThreadSurfaceActionsFor>((thread) => {
+    if (thread.kind !== "user-agent") return undefined;
+    const agent = orderedRosterAgents.find((candidate) => candidate.id === thread.id);
+    if (!agent || !isBuzzAgentRuntime(agent.runtime)) return undefined;
+    return (["shell", "logs", "activity"] as const).map((tab): ThreadSurfaceAction => ({
+      id: tab,
+      href: buildAgentWorkspaceTabHref(agent.id, tab),
+    }));
+  }, [orderedRosterAgents]);
   // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
   // Newest last (matches the Activity tab order).
   const recentToolCallsForView = useMemo(() => {
@@ -5301,6 +5325,7 @@ function AgentsPageContent() {
     mainTab === "scheduled" ||
     mainTab === "logs" ||
     mainTab === "shell" ||
+    mainTab === "activity" ||
     mainTab === "settings"
       ? mainTab
       : "chat";
@@ -5825,6 +5850,13 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     closeMobileNavigation();
   };
+  const openActivityTab = () => {
+    openAgentSurfaceRoute("activity");
+    setOpenclawSettingsOpen(false);
+    selectMainTab("activity");
+    setMobileShowChat(true);
+    closeMobileNavigation();
+  };
   const openShellTab = () => {
     prepareShell();
     openAgentSurfaceRoute("shell");
@@ -6025,6 +6057,7 @@ function AgentsPageContent() {
           setMobileShowChat={setMobileShowChat}
           setSidebarCollapsed={setMobileRosterCollapsed}
           syntheticThreads={syntheticThreads}
+          threadSurfaceActions={rosterThreadSurfaceActions}
           agentCardDataById={agentCardDataById}
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
@@ -6118,6 +6151,7 @@ function AgentsPageContent() {
           onOpenDesktopPreview={openDesktopPreviewFromNavigation}
           onOpenLogs={openLogsTab}
           onOpenShell={openShellTab}
+          onOpenActivity={openActivityTab}
           onShellIntent={prepareShell}
           onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
@@ -6675,6 +6709,7 @@ function AgentsPageContent() {
             setMobileShowChat={setMobileShowChat}
             setSidebarCollapsed={setEffectiveSidebarCollapsed}
             syntheticThreads={syntheticThreads}
+            threadSurfaceActions={rosterThreadSurfaceActions}
             agentCardDataById={agentCardDataById}
             getToken={getToken}
             createOpenClawAgent={createOpenClawAgent}
@@ -6757,6 +6792,7 @@ function AgentsPageContent() {
             onOpenDesktopPreview={openDesktopPreviewFromNavigation}
             onOpenLogs={openLogsTab}
             onOpenShell={openShellTab}
+            onOpenActivity={openActivityTab}
             onShellIntent={prepareShell}
             onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
@@ -7203,6 +7239,29 @@ function AgentsPageContent() {
               agentId={selectedAgentId}
               onStatusChange={setLogsStatus}
             />
+          ) : mainTab === "activity" ? (
+            activityPoppedOut ? (
+              <div className="flex h-full flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+                <p className="text-sm font-medium text-foreground">Activity popped out</p>
+                <p className="text-xs text-text-muted">The activity timeline is open in a floating panel.</p>
+                <button
+                  type="button"
+                  onClick={() => setActivityPoppedOut(false)}
+                  className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-surface-low"
+                >
+                  Return to tab
+                </button>
+              </div>
+            ) : (
+              <AgentActivityController
+                ref={activityControllerRef}
+                deployments={deployments}
+                agentId={selectedAgentId}
+                visible={mainTab === "activity"}
+                onStatusChange={setActivityStatus}
+                onPopOut={() => setActivityPoppedOut(true)}
+              />
+            )
           ) : mainTab === "shell" ? (
             null
           ) : null}
@@ -7365,6 +7424,14 @@ function AgentsPageContent() {
           onRunCapabilityPrompt={runJourneyCapabilityPrompt}
           onOpenCapability={openJourneyCapability}
           capabilityContext={journeyCapabilityContext}
+        />
+      ) : null}
+
+      {activityPoppedOut && selectedAgentId ? (
+        <AgentActivityFloatingPanel
+          deployments={deployments}
+          agentId={selectedAgentId}
+          onClose={() => setActivityPoppedOut(false)}
         />
       ) : null}
 

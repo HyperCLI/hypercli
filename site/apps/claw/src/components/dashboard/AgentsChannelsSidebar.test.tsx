@@ -376,4 +376,77 @@ describe("AgentsChannelsSidebar", () => {
     expect(status?.nextElementSibling).toHaveClass("leading-3", "group-hover/row:opacity-0");
     expect(status?.nextElementSibling).not.toHaveClass("group-hover/row:hidden");
   });
+
+  function surfaceActionThread(id: string, name: string) {
+    return {
+      id,
+      sessionKey: "main",
+      participants: [{ id, name, type: "agent" as const }],
+      kind: "user-agent" as const,
+      lastMessage: "Connected",
+      lastMessageBy: id,
+      lastMessageAt: Date.now(),
+      messageCount: 0,
+      unreadCount: 0,
+      isActive: true,
+    };
+  }
+
+  it("renders hover surface actions on rows the caller marks as buzz-backed", () => {
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[surfaceActionThread("agent-1", "Buzz Agent"), surfaceActionThread("agent-2", "Plain Agent")]}
+        selectedThreadId={null}
+        onSelectThread={vi.fn()}
+        showChannels={false}
+        threadSurfaceActions={(thread) =>
+          thread.id === "agent-1"
+            ? (["shell", "logs", "activity"] as const).map((tab) => ({
+                id: tab,
+                href: `/dashboard/agents?agentId=${thread.id}&tab=${tab}`,
+              }))
+            : undefined
+        }
+      />,
+    );
+
+    const buzzRow = screen.getByRole("button", { name: "Select Buzz Agent" });
+    expect(buzzRow.querySelector("a[aria-label='Open Shell']")).toBeInTheDocument();
+    expect(buzzRow.querySelector("a[aria-label='Open Logs']")).toBeInTheDocument();
+    expect(buzzRow.querySelector("a[aria-label='Open Activity']")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Shell" })).toHaveTextContent("Shell");
+    expect(screen.getByRole("link", { name: "Open Logs" })).toHaveTextContent("Logs");
+    expect(screen.getByRole("link", { name: "Open Activity" })).toHaveTextContent("Activity");
+
+    const plainRow = screen.getByRole("button", { name: "Select Plain Agent" });
+    expect(plainRow.querySelector("a[aria-label='Open Activity']")).not.toBeInTheDocument();
+    expect(plainRow.querySelector("a[aria-label='Open Shell']")).not.toBeInTheDocument();
+  });
+
+  it("routes surface actions to their workspace hrefs without triggering row select", () => {
+    const onSelectThread = vi.fn();
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[surfaceActionThread("agent-1", "Buzz Agent")]}
+        selectedThreadId={null}
+        onSelectThread={onSelectThread}
+        showChannels={false}
+        threadSurfaceActions={(thread) => [
+          { id: "shell", href: `/dashboard/agents?agentId=${thread.id}&tab=shell` },
+          { id: "logs", href: `/dashboard/agents?agentId=${thread.id}&tab=logs` },
+          { id: "activity", href: `/dashboard/agents?agentId=${thread.id}&tab=activity` },
+        ]}
+      />,
+    );
+
+    const activity = screen.getByRole("link", { name: "Open Activity" });
+    expect(activity).toHaveAttribute("href", "/dashboard/agents?agentId=agent-1&tab=activity");
+    fireEvent.click(activity);
+    expect(onSelectThread).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select Buzz Agent" }));
+    expect(onSelectThread).toHaveBeenCalledWith("agent-1");
+  });
 });
