@@ -78,7 +78,7 @@ test("rotates agent sections and requires sign in before creation", async ({ pag
   await page.getByRole("button", { name: "Skills", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your expertise, reusable" })).toBeVisible();
   await page.getByRole("button", { name: "Scheduled", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Work that keeps moving" })).toBeVisible();
+  await expect(page.getByTestId("agent-scheduled-empty-state")).toBeVisible();
   await page.getByRole("button", { name: "Desktop", exact: true }).click();
   const desktopPreview = page.getByTestId("agent-desktop-empty-state");
   await expect(desktopPreview).toBeVisible();
