@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button, cn } from "@hypercli/shared-ui";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 
 export type SettingsSectionId =
   | "profile"
@@ -55,6 +56,7 @@ const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
 
 export function resolveSettingsSectionId(value: string | null | undefined): SettingsSectionId | null {
   const normalized = value?.trim() as SettingsSectionId | undefined;
+  if (normalized === "members" && !isDashboardReleaseSurfaceAvailable("members")) return null;
   return normalized && SETTINGS_SECTION_IDS.has(normalized) ? normalized : null;
 }
 
@@ -77,7 +79,9 @@ const SETTINGS_GROUPS: Array<{ label: string; items: SettingsMenuItem[] }> = [
     label: "Administration",
     items: [
       { id: "workspace", label: SETTINGS_SECTION_LABELS.workspace, icon: LibraryBig },
-      { id: "members", label: SETTINGS_SECTION_LABELS.members, icon: UsersRound },
+      ...(isDashboardReleaseSurfaceAvailable("members")
+        ? [{ id: "members", label: SETTINGS_SECTION_LABELS.members, icon: UsersRound } as const]
+        : []),
       { id: "api-keys", label: SETTINGS_SECTION_LABELS["api-keys"], icon: KeyRound },
       { id: "billing", label: SETTINGS_SECTION_LABELS.billing, icon: CreditCard },
       { id: "plans", label: SETTINGS_SECTION_LABELS.plans, icon: CircleDollarSign },

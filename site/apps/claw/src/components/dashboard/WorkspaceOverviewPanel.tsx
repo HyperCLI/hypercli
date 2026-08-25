@@ -28,6 +28,7 @@ import { createHyperAgentClient, createWorkspacesClient } from "@/lib/agent-clie
 import { integrationDisplayName } from "@/lib/integration-display-name";
 import { relativeTime } from "@/components/dashboard/agentViewUtils";
 import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 
 type WorkspaceOverviewPanelProps = {
   accountAgents: Agent[];
@@ -38,7 +39,7 @@ type WorkspaceOverviewPanelProps = {
   agentsHref: string;
   knowledgeHref: string;
   membersHref: string;
-  onOpenMembers: () => void;
+  onOpenMembers?: () => void;
   onOpenAgentLauncher: () => void;
 };
 
@@ -88,6 +89,7 @@ export function WorkspaceOverviewPanel({
 }: WorkspaceOverviewPanelProps) {
   const { getToken, isLoading: authLoading, user } = useAgentAuth();
   const { selectedWorkspace } = useWorkspace();
+  const membersAvailable = isDashboardReleaseSurfaceAvailable("members");
   const [range, setRange] = useState<DashboardTimeRange>("7d");
   const [history, setHistory] = useState<DashboardDayData[]>([]);
   const [integrations, setIntegrations] = useState<DashboardIntegrationUsage[]>([]);
@@ -160,15 +162,17 @@ export function WorkspaceOverviewPanel({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onOpenMembers}
-              className="min-h-9 hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"
-            >
-              <UsersRound className="h-3.5 w-3.5" /> Members
-            </Button>
+            {membersAvailable && onOpenMembers ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onOpenMembers}
+                className="min-h-9 hover:bg-surface-high hover:text-foreground dark:hover:bg-surface-high"
+              >
+                <UsersRound className="h-3.5 w-3.5" /> Members
+              </Button>
+            ) : null}
             <TooltipHint label={agentCreationDisabledReason ?? "New agent"} disabled={Boolean(agentCreationDisabledReason)}>
               <Button
                 type="button"
@@ -184,14 +188,16 @@ export function WorkspaceOverviewPanel({
         </header>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <DashboardMetricCard
-            title="Members"
-            value={memberCount == null ? "---" : memberCount.toLocaleString()}
-            periodLabel="Visible account access"
-            icon={UsersRound}
-            href={membersHref}
-            compact
-          />
+          {membersAvailable ? (
+            <DashboardMetricCard
+              title="Members"
+              value={memberCount == null ? "---" : memberCount.toLocaleString()}
+              periodLabel="Visible account access"
+              icon={UsersRound}
+              href={membersHref}
+              compact
+            />
+          ) : null}
           <DashboardMetricCard
             title="Agents"
             value={workspaceAgentsLoading ? "---" : workspaceAgents.length.toLocaleString()}
@@ -224,7 +230,7 @@ export function WorkspaceOverviewPanel({
 
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <TokenUsagePanel history={overviewLoading ? [] : history} periodLabel={periodLabel} />
-          <MembersSection compact agents={accountAgents} agentsLoading={agentsLoading} />
+          {membersAvailable ? <MembersSection compact agents={accountAgents} agentsLoading={agentsLoading} /> : null}
         </div>
 
         <div className="mt-4">

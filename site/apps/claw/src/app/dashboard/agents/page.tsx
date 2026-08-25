@@ -275,6 +275,10 @@ import {
   syncDashboardSearchParams,
   type DashboardView,
 } from "@/lib/dashboard-route";
+import {
+  isDashboardReleaseSurfaceAvailable,
+  normalizeDashboardReleaseSearchParams,
+} from "@/lib/dashboard-release-boundary";
 import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
@@ -1137,6 +1141,8 @@ function AgentsPageContent() {
   const requestedKnowledgeCollectionId = resolveKnowledgeCollectionId(searchParams);
   const requestedTab = searchParams.get("tab")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
+  const membersAvailable = isDashboardReleaseSurfaceAvailable("members");
   const dashboardView = isAuthenticated ? resolveDashboardView(requestedView) : null;
   const accountSettingsSection = resolveSettingsSectionId(searchParams.get("settings")) ?? "profile";
   const settingsAgentConfigurationActive = dashboardView === "settings" && (
@@ -1144,9 +1150,9 @@ function AgentsPageContent() {
   );
   const requestedAgentTab = resolveAgentRouteTab(requestedTab);
   const requestedCenterTab: MainTab | null = requestedAgentTab === "openclaw" ? "chat" : requestedAgentTab;
-  const knowledgeHubSectionActive = isAuthenticated && requestedSection === "knowledge-hub";
+  const knowledgeHubSectionActive = isAuthenticated && knowledgeHubAvailable && requestedSection === "knowledge-hub";
   const knowledgeSectionActive = isAuthenticated && requestedSection === "knowledge";
-  const membersSectionActive = isAuthenticated && requestedSection === "members";
+  const membersSectionActive = isAuthenticated && membersAvailable && requestedSection === "members";
   const administrationSectionTab: Extract<MainTab, "knowledge-hub" | "knowledge" | "members"> | null = knowledgeHubSectionActive
     ? "knowledge-hub"
     : knowledgeSectionActive
@@ -1184,6 +1190,13 @@ function AgentsPageContent() {
   }, [dashboardView, settingsAgentConfigurationActive]);
 
   useEffect(() => {
+    const normalizedParams = normalizeDashboardReleaseSearchParams(searchParams);
+    if (!normalizedParams) return;
+    const query = normalizedParams.toString();
+    router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
+  useEffect(() => {
     if (!requestedView || dashboardView) return;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("view");
@@ -1199,6 +1212,8 @@ function AgentsPageContent() {
       "session",
       "integration",
       "section",
+      "collectionId",
+      "domainId",
       "settings",
       "tab",
       "view",
@@ -5608,6 +5623,7 @@ function AgentsPageContent() {
     })();
   };
   const openKnowledgeHubSurface = (collectionId: string | null) => {
+    if (!knowledgeHubAvailable) return;
     const targetHref = buildKnowledgeHubHref({
       collectionId,
       agentId: selectedAgentId,
@@ -5644,6 +5660,7 @@ function AgentsPageContent() {
     leaveAgentsPage(buildAgentWorkspaceTabHref(agentId, "scheduled"));
   };
   const openMembersTab = () => {
+    if (!membersAvailable) return;
     if (!isAuthenticated) {
       requestAuthentication({ kind: "navigate", href: membersSectionHref });
       return;
@@ -6001,10 +6018,10 @@ function AgentsPageContent() {
           onOpenHome={openDashboardHome}
           homeActive={dashboardView === "overview"}
           homeHref={dashboardViewHrefs.overview}
-          onOpenKnowledgeHub={openKnowledgeHub}
+          onOpenKnowledgeHub={knowledgeHubAvailable ? openKnowledgeHub : undefined}
           knowledgeHubActive={knowledgeHubSectionActive}
           knowledgeHubHref={knowledgeHubSectionHref}
-          onOpenMembers={openMembersTab}
+          onOpenMembers={membersAvailable ? openMembersTab : undefined}
           membersActive={membersSectionActive}
           membersHref={membersSectionHref}
           onOpenUsage={openDashboardUsage}
@@ -6302,7 +6319,7 @@ function AgentsPageContent() {
       agentsHref={selectedAgentHref}
       knowledgeHref={knowledgeSectionHref}
       membersHref={settingsMembersHref}
-      onOpenMembers={() => selectAccountSettingsSection("members")}
+      onOpenMembers={membersAvailable ? () => selectAccountSettingsSection("members") : undefined}
       onOpenAgentLauncher={() => {
         openAgentLauncherFromCurrentSection();
       }}
@@ -6664,10 +6681,10 @@ function AgentsPageContent() {
             onOpenHome={openDashboardHome}
             homeActive={dashboardView === "overview"}
             homeHref={dashboardViewHrefs.overview}
-            onOpenKnowledgeHub={openKnowledgeHub}
+            onOpenKnowledgeHub={knowledgeHubAvailable ? openKnowledgeHub : undefined}
             knowledgeHubActive={knowledgeHubSectionActive}
             knowledgeHubHref={knowledgeHubSectionHref}
-            onOpenMembers={openMembersTab}
+            onOpenMembers={membersAvailable ? openMembersTab : undefined}
             membersActive={membersSectionActive}
             membersHref={membersSectionHref}
             onOpenUsage={openDashboardUsage}
@@ -7168,7 +7185,7 @@ function AgentsPageContent() {
           hasAccountAgents={accountAgents.length > 0}
           creationDisabledReason={agentCreationBlockedReason}
           onCreateWorkspace={shouldOfferWorkspaceCreation ? openWorkspaceCreationFlow : undefined}
-          onOpenMembers={openMembersTab}
+          onOpenMembers={membersAvailable ? openMembersTab : undefined}
           onShowList={() => setMobileShowChat(false)}
           showMobileListButton={false}
           onShowInspector={() => setInspectorSheetOpen(true)}
@@ -7253,8 +7270,8 @@ function AgentsPageContent() {
                 onOpenAgent={selectAgentFromRoster}
                 onOpenConversation={openActivityConversation}
                 onOpenScheduled={openActivityScheduled}
-                onOpenCollection={openActivityCollection}
-                onOpenKnowledge={openKnowledgeHub}
+                onOpenCollection={knowledgeHubAvailable ? openActivityCollection : undefined}
+                onOpenKnowledge={knowledgeHubAvailable ? openKnowledgeHub : undefined}
                 onOpenUsage={() => openDashboardView("usage")}
                 onOpenAgentLauncher={() => {
                   openAgentLauncherFromCurrentSection();

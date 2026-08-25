@@ -2,6 +2,23 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { DASHBOARD_RELEASE_AVAILABILITY } from "@/lib/dashboard-release-boundary";
+
+const releaseBoundaryMock = vi.hoisted(() => ({
+  membersAvailable: false,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) =>
+      surface === "members"
+        ? releaseBoundaryMock.membersAvailable
+        : original.isDashboardReleaseSurfaceAvailable(surface as never),
+  };
+});
+
 import {
   SettingsMenu,
   SettingsSectionHeader,
@@ -23,10 +40,27 @@ function SettingsMenuHarness() {
 
 describe("SettingsMenu", () => {
   it("resolves URL-backed settings sections", () => {
-    expect(resolveSettingsSectionId("members")).toBe("members");
     expect(resolveSettingsSectionId("api-keys")).toBe("api-keys");
     expect(resolveSettingsSectionId(" memory-index ")).toBe("memory-index");
     expect(resolveSettingsSectionId("unknown")).toBeNull();
+  });
+
+  it("resolves members when the release surface is available and rejects it while disabled", () => {
+    // Shipped policy: members is hidden for this release. If this expectation
+    // fails after an intentional re-enable, update the disabled expectations.
+    expect(DASHBOARD_RELEASE_AVAILABILITY.members).toBe(false);
+    expect(resolveSettingsSectionId("members")).toBeNull();
+    expect(resolveSettingsSectionId(" members ")).toBeNull();
+  });
+
+  it("resolves members as a valid settings section when the surface is available", () => {
+    releaseBoundaryMock.membersAvailable = true;
+    try {
+      expect(resolveSettingsSectionId("members")).toBe("members");
+      expect(resolveSettingsSectionId(" members ")).toBe("members");
+    } finally {
+      releaseBoundaryMock.membersAvailable = false;
+    }
   });
 
   it("renders the unified settings groups and returns to the app", () => {
@@ -43,12 +77,13 @@ describe("SettingsMenu", () => {
       "Preferences",
       "Agents",
       "Collections",
-      "Members",
       "API Keys",
       "Billing",
       "Plans",
       "Memory index",
     ]);
+    // The release-gated Members section stays hidden while unavailable.
+    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Profile" })).toHaveAttribute("aria-current", "page");
   });
 
@@ -71,13 +106,12 @@ describe("SettingsMenu", () => {
       />,
     );
 
-    ["Collections", "Members", "API Keys", "Billing", "Plans", "Memory index"].forEach((label) => {
+    ["Collections", "API Keys", "Billing", "Plans", "Memory index"].forEach((label) => {
       fireEvent.click(screen.getByRole("button", { name: label }));
     });
 
     expect(onSectionChange.mock.calls.map(([section]) => section)).toEqual([
       "workspace",
-      "members",
       "api-keys",
       "billing",
       "plans",

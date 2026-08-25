@@ -51,6 +51,7 @@ import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 import { agentDisplayLabel } from "./agentViewModel";
 import { AgentChatComposerShell } from "./AgentChatComposerShell";
 import { AgentFeatureEmptyState } from "./AgentFeatureEmptyState";
@@ -3153,14 +3154,16 @@ export function AgentList({
                   onOpen={onOpenHome}
                   icon={House}
                 />
-                <RosterNavigationItem
-                  compact
-                  label="Knowledge Hub"
-                  href={knowledgeHubHref}
-                  active={knowledgeHubActive}
-                  onOpen={onOpenKnowledgeHub}
-                  icon={LibraryBig}
-                />
+                {isDashboardReleaseSurfaceAvailable("knowledge-hub") ? (
+                  <RosterNavigationItem
+                    compact
+                    label="Knowledge Hub"
+                    href={knowledgeHubHref}
+                    active={knowledgeHubActive}
+                    onOpen={onOpenKnowledgeHub}
+                    icon={LibraryBig}
+                  />
+                ) : null}
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
               <div className="agents-roster-rail-agents min-h-0 w-full shrink overflow-y-auto py-1">
@@ -3228,14 +3231,16 @@ export function AgentList({
               </div>
               <div aria-hidden="true" className="agents-roster-rail-divider my-2 h-px w-8 shrink-0 bg-border/70" />
               <div className="agents-roster-rail-administration flex shrink-0 flex-col items-center gap-2">
-                <RosterNavigationItem
-                  compact
-                  label="Members"
-                  href={membersHref}
-                  active={membersActive}
-                  onOpen={onOpenMembers}
-                  icon={UsersRound}
-                />
+                {isDashboardReleaseSurfaceAvailable("members") ? (
+                  <RosterNavigationItem
+                    compact
+                    label="Members"
+                    href={membersHref}
+                    active={membersActive}
+                    onOpen={onOpenMembers}
+                    icon={UsersRound}
+                  />
+                ) : null}
                 <RosterNavigationItem
                   compact
                   label="Usage"

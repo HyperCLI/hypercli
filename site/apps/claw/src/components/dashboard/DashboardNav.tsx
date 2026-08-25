@@ -27,15 +27,24 @@ import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/das
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { ThemeSelector } from "@hypercli/shared-ui";
 import { ACCOUNT_PAGE_HREFS, DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
+import { isDashboardReleaseSurfaceAvailable, type DashboardReleaseSurface } from "@/lib/dashboard-release-boundary";
 
-const dropdownNavItems = [
-  { label: "Knowledge Hub", href: KNOWLEDGE_HUB_HREF, icon: LibraryBig, badge: "Preview" },
+type DropdownNavItem = {
+  label: string;
+  href: string;
+  icon: ComponentType<{ className?: string }>;
+  badge?: string;
+  surface?: DashboardReleaseSurface;
+};
+
+const dropdownNavItems = ([
+  { label: "Knowledge Hub", href: KNOWLEDGE_HUB_HREF, icon: LibraryBig, badge: "Preview", surface: "knowledge-hub" },
   { label: "Shared knowledge", href: "/dashboard/agents?section=knowledge", icon: HardDrive },
-  { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound },
+  { label: "Members", href: "/dashboard/agents?section=members", icon: UsersRound, surface: "members" },
   { label: "API Keys", href: ACCOUNT_PAGE_HREFS.apiKeys, icon: Key },
   { label: "Plans", href: ACCOUNT_PAGE_HREFS.plans, icon: CreditCard },
   { label: "Billing", href: ACCOUNT_PAGE_HREFS.billing, icon: CreditCard },
-];
+] as DropdownNavItem[]).filter((item) => !item.surface || isDashboardReleaseSurfaceAvailable(item.surface));
 
 export function DashboardNav() {
   const pathname = usePathname();

@@ -14,7 +14,8 @@ test("logs into Claw with Privy email OTP and stores a valid app JWT", async ({ 
   await expect(page.getByRole("button", { name: /^sign in$/i })).toHaveCount(0);
   await expect(page).toHaveURL(/\/dashboard\/agents(?:[/?#]|$)/);
   await expect(page.getByRole("button", { name: /^home$/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^knowledge hub$/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^knowledge hub$/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^members$/i })).toHaveCount(0);
 
   await captureStep(page, "06-post-login-assertions");
 });

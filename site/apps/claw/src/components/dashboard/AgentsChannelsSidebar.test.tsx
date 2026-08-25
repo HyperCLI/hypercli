@@ -55,7 +55,76 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+const releaseBoundaryMock = vi.hoisted(() => ({
+  knowledgeHubAvailable: false,
+  membersAvailable: false,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) => {
+      if (surface === "knowledge-hub") return releaseBoundaryMock.knowledgeHubAvailable;
+      if (surface === "members") return releaseBoundaryMock.membersAvailable;
+      return original.isDashboardReleaseSurfaceAvailable(surface as never);
+    },
+  };
+});
+
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks } from "./AgentsChannelsSidebar";
+import { beforeEach } from "vitest";
+
+beforeEach(() => {
+  releaseBoundaryMock.knowledgeHubAvailable = false;
+  releaseBoundaryMock.membersAvailable = false;
+});
+
+describe("AgentsChannelsSidebar release-gated surfaces", () => {
+  it("shows Knowledge Hub and Members navigation items when the surfaces are available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+    releaseBoundaryMock.membersAvailable = true;
+    const onOpenKnowledgeHub = vi.fn();
+    const onOpenMembers = vi.fn();
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[]}
+        selectedThreadId={null}
+        onSelectThread={vi.fn()}
+        showChannels={false}
+        onOpenKnowledgeHub={onOpenKnowledgeHub}
+        onOpenMembers={onOpenMembers}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Knowledge Hub" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Knowledge Hub" }));
+    fireEvent.click(screen.getByRole("button", { name: "Members" }));
+    expect(onOpenKnowledgeHub).toHaveBeenCalledOnce();
+    expect(onOpenMembers).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Knowledge Hub and Members hidden when only one surface is available", () => {
+    releaseBoundaryMock.knowledgeHubAvailable = true;
+    releaseBoundaryMock.membersAvailable = false;
+    render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[]}
+        selectedThreadId={null}
+        onSelectThread={vi.fn()}
+        showChannels={false}
+      />,
+    );
+
+    // Without an onOpen callback the item renders as a link.
+    expect(screen.getByRole("link", { name: "Knowledge Hub" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Members" })).not.toBeInTheDocument();
+  });
+});
 
 describe("AgentsSidebarDashboardLinks", () => {
   it("uses the persisted profile avatar instead of the account initial", () => {
@@ -139,15 +208,17 @@ describe("AgentsSidebarDashboardLinks", () => {
     const administration = screen.getByRole("region", { name: "Administration" });
     expect(administration).toHaveTextContent("Administration");
     expect(screen.queryByText("Shared")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
+    // Release-gated surfaces stay hidden while unavailable.
+    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /knowledge hub/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
     const homeButton = screen.getByRole("button", { name: "Home" });
     expect(homeButton).toHaveClass("gap-1", "pl-1", "pr-2");
     expect(homeButton).not.toHaveClass("border-l-2", "border-l-transparent");
     expect(homeButton.firstElementChild).toHaveClass("w-5");
     expect(screen.queryByRole("button", { name: /Alt Home/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /knowledge hub/i })).toHaveAttribute("href", "/dashboard/agents?section=knowledge-hub");
-    expect(document.querySelector(".agents-roster-home")).toHaveTextContent("HomeKnowledge Hub");
+    expect(document.querySelector(".agents-roster-home")).toHaveTextContent("Home");
+    expect(document.querySelector(".agents-roster-home")).not.toHaveTextContent("Knowledge Hub");
     expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(rosterActions?.nextElementSibling).toBe(home);
     expect(home?.nextElementSibling).toBe(sectionHeader);
@@ -159,10 +230,9 @@ describe("AgentsSidebarDashboardLinks", () => {
     expect(onOpenAccountSettings).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "Usage" }));
     expect(onOpenHome).toHaveBeenCalledOnce();
-    expect(onOpenMembers).toHaveBeenCalledOnce();
+    expect(onOpenMembers).not.toHaveBeenCalled();
     expect(onOpenUsage).toHaveBeenCalledOnce();
 
     fireEvent.click(screen.getByRole("button", { name: "Account links" }));

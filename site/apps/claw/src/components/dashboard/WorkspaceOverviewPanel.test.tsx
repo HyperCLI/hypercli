@@ -61,6 +61,19 @@ vi.mock("@/components/dashboard/members/MembersSection", () => ({
   ),
 }));
 
+const releaseBoundaryMock = vi.hoisted(() => ({
+  available: false,
+}));
+
+vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/dashboard-release-boundary")>();
+  return {
+    ...original,
+    isDashboardReleaseSurfaceAvailable: (surface: string) =>
+      surface === "members" ? releaseBoundaryMock.available : original.isDashboardReleaseSurfaceAvailable(surface as never),
+  };
+});
+
 import { WorkspaceOverviewPanel } from "./WorkspaceOverviewPanel";
 
 describe("WorkspaceOverviewPanel", () => {
@@ -72,6 +85,7 @@ describe("WorkspaceOverviewPanel", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    releaseBoundaryMock.available = false;
     mocks.getToken.mockResolvedValue("session-token");
     mocks.usageHistory.mockResolvedValue({
       history: [{ date: "2026-07-20", totalTokens: 3000, promptTokens: 1200, completionTokens: 1800, requests: 12 }],
@@ -110,10 +124,60 @@ describe("WorkspaceOverviewPanel", () => {
     await waitFor(() => expect(screen.getAllByText("3.0k").length).toBeGreaterThan(0));
     expect(screen.getAllByText("Research Pilot").length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Members" }));
     fireEvent.click(screen.getByRole("button", { name: "New agent" }));
-    expect(onOpenMembers).toHaveBeenCalledOnce();
     expect(onOpenAgentLauncher).toHaveBeenCalledOnce();
     await waitFor(() => expect(mocks.listWorkspaceFiles).toHaveBeenCalledWith("research-hub"));
+  });
+
+  it("hides Members entry points while the surface is unavailable", async () => {
+    const onOpenMembers = vi.fn();
+    render(
+      <WorkspaceOverviewPanel
+        accountAgents={[accountAgent]}
+        workspaceAgents={[accountAgent]}
+        agentsLoading={false}
+        workspaceAgentsLoading={false}
+        agentCreationDisabledReason={null}
+        agentsHref="/dashboard/agents?agentId=agent-1"
+        knowledgeHref="/dashboard/agents?section=knowledge&agentId=agent-1"
+        membersHref="/dashboard/agents?section=members&agentId=agent-1"
+        onOpenMembers={onOpenMembers}
+        onOpenAgentLauncher={vi.fn()}
+      />,
+    );
+
+    // Header action, metric card, and embedded directory are all gated.
+    expect(screen.queryByRole("button", { name: "Members" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Members/i })).not.toBeInTheDocument();
+    await waitFor(() => expect(mocks.listWorkspaceFiles).toHaveBeenCalledWith("research-hub"));
+    expect(screen.queryByText("Visible account access")).not.toBeInTheDocument();
+    expect(onOpenMembers).not.toHaveBeenCalled();
+  });
+
+  it("renders Members entry points when the release surface is available", async () => {
+    releaseBoundaryMock.available = true;
+    const onOpenMembers = vi.fn();
+    render(
+      <WorkspaceOverviewPanel
+        accountAgents={[accountAgent]}
+        workspaceAgents={[accountAgent]}
+        agentsLoading={false}
+        workspaceAgentsLoading={false}
+        agentCreationDisabledReason={null}
+        agentsHref="/dashboard/agents?agentId=agent-1"
+        knowledgeHref="/dashboard/agents?section=knowledge&agentId=agent-1"
+        membersHref="/dashboard/agents?section=members&agentId=agent-1"
+        onOpenMembers={onOpenMembers}
+        onOpenAgentLauncher={vi.fn()}
+      />,
+    );
+
+    // Header action, metric card, and embedded directory all render.
+    expect(screen.getByRole("button", { name: "Members" })).toBeInTheDocument();
+    expect(screen.getByText("Visible account access")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Research Pilot")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Members" }));
+    expect(onOpenMembers).toHaveBeenCalledOnce();
   });
 });

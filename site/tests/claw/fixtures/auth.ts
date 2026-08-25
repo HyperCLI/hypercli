@@ -765,15 +765,6 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   const pollTimeoutSec = Math.max(5, Math.ceil(OTP_TIMEOUT_MS / 1000));
   const submittedAfterEpoch = Math.floor(submittedAt.getTime() / 1000);
 
-  try {
-    execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
-      env: privyImapEnv(),
-      stdio: "ignore",
-    });
-  } catch {
-    console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP poll");
-  }
-
   await sleep(OTP_INITIAL_DELAY_MS);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -806,6 +797,18 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   }
 
   throw new Error("Timed out waiting for a Privy OTP email");
+}
+
+function clearPrivyOtpMailbox(): void {
+  const fetchOtpScript = path.resolve(__dirname, "..", "..", "..", "e2e", "flows", "fetch-otp.py");
+  try {
+    execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
+      env: privyImapEnv(),
+      stdio: "ignore",
+    });
+  } catch {
+    console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP request");
+  }
 }
 
 export async function fillOtp(page: Page, otp: string): Promise<void> {
@@ -1053,9 +1056,10 @@ export async function loginWithPrivy(
     .getByRole("button", { name: /submit|continue with email|send code|email me|send login code/i })
     .first();
   await expect(continueButton).toBeVisible({ timeout: 10_000 });
+  clearPrivyOtpMailbox();
+  const otpSubmittedAt = new Date();
   await continueButton.click();
 
-  const otpSubmittedAt = new Date();
   const otp = await pollForPrivyOtp(otpSubmittedAt);
   await fillOtp(page, otp);
   await submitPrivyOtp(page);
@@ -1172,9 +1176,10 @@ export async function loginToConsoleWithPrivy(
     .getByRole("button", { name: /submit|continue with email|send code|email me|send login code/i })
     .first();
   await expect(continueButton).toBeVisible({ timeout: 10_000 });
+  clearPrivyOtpMailbox();
+  const otpSubmittedAt = new Date();
   await continueButton.click();
 
-  const otpSubmittedAt = new Date();
   const otp = await pollForPrivyOtp(otpSubmittedAt);
   await fillOtp(page, otp);
   await submitPrivyOtp(page);

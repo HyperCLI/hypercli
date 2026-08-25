@@ -102,6 +102,7 @@ def main():
     # Clear old Privy emails first
     if "--clear" in sys.argv:
         mark_all_privy_seen()
+        return
 
     start = time.time()
     print(f"Polling {IMAP_HOST} as {IMAP_USER} for Privy OTP (timeout: {TIMEOUT}s)...", file=sys.stderr)

@@ -203,7 +203,7 @@ test("keeps a saved draft private until authentication", async ({ page }) => {
   expect(await page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toContain("night-ops-pilot");
 });
 
-test("routes Knowledge Hub Collection access through authentication", async ({ page }) => {
+test("hides unavailable administration surfaces and clears direct routes", async ({ page }) => {
   await page.route("**/*", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -214,13 +214,12 @@ test("routes Knowledge Hub Collection access through authentication", async ({ p
     await route.continue();
   });
 
-  await page.goto("/dashboard/agents");
+  await page.goto("/dashboard/agents?section=knowledge-hub&collectionId=collection-1");
   const navigation = page.locator(".agent-desktop-navigation");
-  const knowledgeHub = navigation.getByRole("button", { name: "Knowledge Hub", exact: true });
-  await expect(knowledgeHub).toBeEnabled();
-  await knowledgeHub.click();
-
-  await expect(page.locator("#privy-modal-content")).toBeVisible();
+  await expect(navigation.getByRole("button", { name: "Knowledge Hub", exact: true })).toHaveCount(0);
+  await expect(navigation.getByRole("button", { name: "Members", exact: true })).toHaveCount(0);
+  await expect(page).not.toHaveURL(/(?:section=knowledge-hub|collectionId=collection-1)/);
+  await expect(page.locator("#privy-modal-content")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Collections" })).toHaveCount(0);
   await expect(page.getByRole("dialog", { name: "New Collection" })).toHaveCount(0);
 });

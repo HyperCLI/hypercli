@@ -35,6 +35,7 @@ import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
 import type { AgentCreationSetupCreateParams } from "./agents/AgentCreationSetupWizard";
 import { DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 
 function RosterTooltip({
   label,
@@ -2184,14 +2185,16 @@ function HandoffThreadView({
           icon={House}
           mobileMode={mobileMode}
         />
-        <RosterNavigationItem
-          label="Knowledge Hub"
-          href={knowledgeHubHref}
-          active={knowledgeHubActive}
-          onOpen={onOpenKnowledgeHub}
-          icon={LibraryBig}
-          mobileMode={mobileMode}
-        />
+        {isDashboardReleaseSurfaceAvailable("knowledge-hub") ? (
+          <RosterNavigationItem
+            label="Knowledge Hub"
+            href={knowledgeHubHref}
+            active={knowledgeHubActive}
+            onOpen={onOpenKnowledgeHub}
+            icon={LibraryBig}
+            mobileMode={mobileMode}
+          />
+        ) : null}
       </div>
 
       {!embeddedInNavigation ? <div className={`agents-roster-section-header flex shrink-0 items-center gap-1 pb-1.5 pt-0.5 transition-colors hover:bg-surface-low/40 ${sectionHeadingInsetClass}`}>
@@ -2354,14 +2357,16 @@ function HandoffThreadView({
         <div className={`py-1.5 ${mobileMode ? "pl-4 pr-4 text-sm" : "pl-1.5 pr-2 text-[13px]"}`}>
           <span className="font-medium text-text-secondary">Administration</span>
         </div>
-        <RosterNavigationItem
-          label="Members"
-          href={membersHref}
-          active={membersActive}
-          onOpen={onOpenMembers}
-          icon={UsersRound}
-          mobileMode={mobileMode}
-        />
+        {isDashboardReleaseSurfaceAvailable("members") ? (
+          <RosterNavigationItem
+            label="Members"
+            href={membersHref}
+            active={membersActive}
+            onOpen={onOpenMembers}
+            icon={UsersRound}
+            mobileMode={mobileMode}
+          />
+        ) : null}
         <RosterNavigationItem
           label="Usage"
           href={usageHref}
