@@ -97,7 +97,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-whatsapp.test.ts tests/hermes.test.ts tests/session.test.ts tests/claw.test.ts tests/user-profile-image.test.ts",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/buzz-activity.test.ts tests/buzz-activity-route.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-whatsapp.test.ts tests/hermes.test.ts tests/session.test.ts tests/claw.test.ts tests/user-profile-image.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
   },
@@ -111,7 +111,11 @@
   "author": "Compute3 AI",
   "license": "MIT",
   "dependencies": {
+    "@noble/ciphers": "^1.3.0",
+    "@noble/curves": "^1.9.7",
     "@noble/ed25519": "^3.0.0",
+    "@noble/hashes": "^1.8.0",
+    "@scure/base": "^1.2.6",
     "ws": "^8.16.0"
   },
   "peerDependencies": {
@@ -131,14 +135,14 @@
     }
   },
   "devDependencies": {
-    "@x402/axios": "^2.0.0",
-    "@x402/evm": "^2.0.0",
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.55.0",
     "@typescript-eslint/parser": "^8.55.0",
-    "axios": "^1.7.0",
     "@vitest/ui": "^4.0.18",
+    "@x402/axios": "^2.0.0",
+    "@x402/evm": "^2.0.0",
+    "axios": "^1.7.0",
     "eslint": "^9.39.2",
     "typescript": "^5.3.3",
     "vitest": "^4.0.18"

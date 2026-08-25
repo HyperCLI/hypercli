@@ -343,6 +343,30 @@ export {
   parseAgentLogFrame,
 } from './agents.js';
 
+// Buzz activity transport
+export {
+  subscribeBuzzActivity,
+  subscribeBuzzActivityRoute,
+  resolveBuzzActivityRouteTarget,
+  resolveBuzzOwnerFromEnv,
+  buzzConversationKey,
+  buzzPublicKeyHex,
+  decodeBuzzSecret,
+  decryptBuzzPayload,
+  BuzzActivityGapError,
+  BuzzActivityRouteUnavailableError,
+  BUZZ_OBSERVER_EVENT_KIND,
+  HYPER_ACP_ROUTE_NAME,
+  type BuzzObserverFrame,
+  type BuzzActivitySubscription,
+  type BuzzActivityHandlers,
+  type BuzzActivityRouteHandlers,
+  type BuzzActivityRouteTarget,
+  type BuzzEnvConfig,
+  type BuzzDeploymentsClient,
+  type BuzzRouteDeploymentsClient,
+} from './buzz-activity.js';
+
 export * from './hermes/gateway.js';
 export * from './session.js';
 
