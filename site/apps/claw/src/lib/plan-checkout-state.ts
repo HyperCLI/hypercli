@@ -1,10 +1,12 @@
-import type {
-  HyperAgentCurrentPlan,
-  HyperAgentEntitlement,
-  HyperAgentPlan,
-  HyperAgentSubscription,
-  HyperAgentSubscriptionSummary,
+import {
+  hasActivePlan,
+  type HyperAgentCurrentPlan,
+  type HyperAgentEntitlement,
+  type HyperAgentPlan,
+  type HyperAgentSubscription,
+  type HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
+import { getActiveAgentTrial } from "@/lib/agent-trial";
 import {
   getEffectivePlanIdFromSummary,
   getLaunchSlotInventoryFromSummary,
@@ -686,6 +688,24 @@ export function getTeamTrialEligibility(
 ): TeamTrialEligibility {
   if (!principalId || billingDataPrincipalId !== principalId) return "loading";
   return summaryCanStartTeamTrial(summary) ? "eligible" : "ineligible";
+}
+
+export interface TeamTrialStartState {
+  principalId: string | null | undefined;
+  billingDataPrincipalId: string | null | undefined;
+  summary: HyperAgentSubscriptionSummary | null | undefined;
+  hasBillingHistory: boolean | null | undefined;
+  now?: number;
+  observedAt?: number;
+}
+
+export function canStartTeamTrialForPrincipal(state: TeamTrialStartState): boolean {
+  return (
+    !getActiveAgentTrial(state.summary, state.now, state.observedAt)
+    && getTeamTrialEligibility(state.principalId, state.billingDataPrincipalId, state.summary) === "eligible"
+    && !(state.summary ? hasActivePlan(state.summary) : false)
+    && state.hasBillingHistory === false
+  );
 }
 
 export function checkoutReflectedInSummary(

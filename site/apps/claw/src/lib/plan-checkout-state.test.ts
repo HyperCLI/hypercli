@@ -593,20 +593,68 @@ describe("plan checkout state", () => {
     expect(summaryCanStartTeamTrial(null)).toBe(false);
   });
 
-  it("waits for billing data from the authenticated principal before confirming trial eligibility", () => {
+  it("resolves Team trial eligibility across the eligibility categories", () => {
     const eligibleSummary = {
       subscriptions: [],
       activeSubscriptions: [],
       activeSubscriptionCount: 0,
     } as any;
+    // An ended or converted trial remains in subscription history even though it
+    // is no longer active, so the history check must reject a restart.
+    const priorTrialSummary = {
+      subscriptions: [{
+        id: "sub-team-trial",
+        planId: "team",
+        isCurrent: false,
+        trial: {
+          active: false,
+          days: 7,
+          startsAt: new Date("2026-07-01T12:00:00Z"),
+          endsAt: new Date("2026-07-08T12:00:00Z"),
+          secondsRemaining: 0,
+        },
+      }],
+      activeSubscriptions: [],
+      activeSubscriptionCount: 0,
+    } as any;
+    const paidSummary = {
+      subscriptions: [],
+      activeSubscriptions: [{ id: "sub-pro", planId: "pro", isCurrent: true }],
+      activeSubscriptionCount: 1,
+    } as any;
+    const grantBackedSummary = {
+      // Activation-code grants carry no subscription or payment history.
+      subscriptions: [],
+      activeSubscriptions: [],
+      activeSubscriptionCount: 0,
+      activeEntitlementCount: 1,
+    } as any;
 
-    expect(getTeamTrialEligibility("user-1", null, eligibleSummary)).toBe("loading");
-    expect(getTeamTrialEligibility("user-1", "user-2", eligibleSummary)).toBe("loading");
-    expect(getTeamTrialEligibility("user-1", "user-1", eligibleSummary)).toBe("eligible");
-    expect(getTeamTrialEligibility("user-1", "user-1", {
-      ...eligibleSummary,
-      subscriptions: [{ id: "sub-previous" }],
-    } as any)).toBe("ineligible");
+    const cases: Array<[
+      string,
+      string | null | undefined,
+      string | null | undefined,
+      any,
+      "loading" | "eligible" | "ineligible",
+    ]> = [
+      ["clean summary for the current principal", "user-1", "user-1", eligibleSummary, "eligible"],
+      ["summary still loading (principal marker unset)", "user-1", null, null, "loading"],
+      ["billing error reset the principal marker", "user-1", null, eligibleSummary, "loading"],
+      ["billing data belongs to another principal", "user-1", "user-2", eligibleSummary, "loading"],
+      ["missing principal", null, null, eligibleSummary, "loading"],
+      ["undefined principal", undefined, undefined, eligibleSummary, "loading"],
+      ["prior, expired, or converted trial history", "user-1", "user-1", priorTrialSummary, "ineligible"],
+      ["active paid subscription", "user-1", "user-1", paidSummary, "ineligible"],
+      ["subscription history in the non-active view", "user-1", "user-1", {
+        ...eligibleSummary,
+        subscriptions: [{ id: "sub-previous" }],
+      }, "ineligible"],
+      ["grant-backed access (history check alone would pass)", "user-1", "user-1", grantBackedSummary, "eligible"],
+    ];
+
+    for (const [label, principalId, billingDataPrincipalId, summary, expected] of cases) {
+      expect(getTeamTrialEligibility(principalId, billingDataPrincipalId, summary), label).toBe(expected);
+    }
   });
 
   it("uses equivalent bundles for both checkout baseline and reflection", () => {

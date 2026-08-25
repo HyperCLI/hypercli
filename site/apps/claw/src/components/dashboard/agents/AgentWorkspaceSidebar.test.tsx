@@ -1683,4 +1683,128 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Manage trial" }));
     expect(onManageTrial).toHaveBeenCalledOnce();
   });
+
+  it("disables the action and blocks repeat invocation while trial checkout is pending", () => {
+    const onStartTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: true,
+      trialCheckoutPending: true,
+      onStartTrial,
+    });
+
+    const pendingAction = screen.getByRole("button", { name: /starting trial/i });
+    expect(pendingAction).toBeDisabled();
+    fireEvent.click(pendingAction);
+    fireEvent.click(pendingAction);
+    expect(onStartTrial).not.toHaveBeenCalled();
+  });
+
+  it("routes an authenticated ineligible account to upgrade, never to start trial", () => {
+    const onStartTrial = vi.fn();
+    const props = renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: false,
+      onStartTrial,
+    });
+
+    expect(screen.queryByRole("button", { name: "Start free trial" })).not.toBeInTheDocument();
+    const upgrade = screen.getByRole("button", { name: /upgrade/i });
+    fireEvent.click(upgrade);
+    expect(props.onUpgrade).toHaveBeenCalledTimes(1);
+    expect(onStartTrial).not.toHaveBeenCalled();
+  });
+
+  it("lets an active trial win over generic eligibility so Start and Manage never coexist", () => {
+    const onStartTrial = vi.fn();
+    const onManageTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: true,
+      activeTrial: {
+        subscriptionId: "sub-team",
+        planId: "team",
+        planName: "Team",
+        endsAt: new Date("2026-08-12T12:00:00Z"),
+        totalDays: 7,
+        secondsRemaining: 6 * 86_400,
+        timeRemainingLabel: "6 days left",
+      },
+      onStartTrial,
+      onManageTrial,
+    });
+
+    expect(screen.queryByRole("button", { name: "Start free trial" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Manage trial" }));
+    expect(onManageTrial).toHaveBeenCalledOnce();
+    expect(onStartTrial).not.toHaveBeenCalled();
+  });
+
+  it("exposes the eligible start action in the collapsed desktop rail", () => {
+    const onStartTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: true,
+      collapsed: true,
+      onStartTrial,
+    });
+
+    const action = screen.getByRole("button", { name: "Start free trial" });
+    fireEvent.click(action);
+    expect(onStartTrial).toHaveBeenCalledOnce();
+  });
+
+  it("exposes the active trial countdown and manage action in the collapsed desktop rail", () => {
+    const onManageTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      collapsed: true,
+      activeTrial: {
+        subscriptionId: "sub-team",
+        planId: "team",
+        planName: "Team",
+        endsAt: new Date("2026-08-12T12:00:00Z"),
+        totalDays: 7,
+        secondsRemaining: 6 * 86_400,
+        timeRemainingLabel: "6 days left",
+      },
+      onManageTrial,
+    });
+
+    // The collapsed rail exposes the countdown through the plan-supplied label.
+    const action = screen.getByRole("button", { name: /trial: 6 days left/ });
+    fireEvent.click(action);
+    expect(onManageTrial).toHaveBeenCalledOnce();
+  });
+
+  it("disables the collapsed rail action while trial checkout is pending", () => {
+    const onStartTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: true,
+      trialCheckoutPending: true,
+      collapsed: true,
+      onStartTrial,
+    });
+
+    const action = screen.getByRole("button", { name: "Starting free trial" });
+    expect(action).toBeDisabled();
+    fireEvent.click(action);
+    expect(onStartTrial).not.toHaveBeenCalled();
+  });
+
+  it("keeps the eligible start action and callback consistent in the mobile layout", () => {
+    const onStartTrial = vi.fn();
+    renderAgentWorkspaceSidebar({
+      isAuthenticated: true,
+      canStartTrial: true,
+      renderMobile: true,
+      isDesktopViewport: false,
+      onStartTrial,
+    });
+
+    const action = screen.getByRole("button", { name: "Start free trial" });
+    fireEvent.click(action);
+    expect(onStartTrial).toHaveBeenCalledOnce();
+  });
 });

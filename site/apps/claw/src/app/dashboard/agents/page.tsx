@@ -146,6 +146,7 @@ import {
   clearStripeCheckoutReturnState,
   clearPendingPlanCheckout,
   buildStripeCheckoutReturnUrl,
+  canStartTeamTrialForPrincipal,
   catalogPlanOffersTeamTrial,
   createPlanCheckoutAttemptId,
   createTeamTrialCheckoutState,
@@ -2684,7 +2685,14 @@ function AgentsPageContent() {
     () => getActiveAgentTrial(subscriptionSummary, trialClock, trialSummaryObservedAt),
     [subscriptionSummary, trialClock, trialSummaryObservedAt],
   );
-  const canStartTeamTrial = !activeTrial;
+  const canStartTeamTrial = canStartTeamTrialForPrincipal({
+    principalId: user?.id,
+    billingDataPrincipalId,
+    summary: subscriptionSummary,
+    hasBillingHistory,
+    now: trialClock,
+    observedAt: trialSummaryObservedAt,
+  });
   // Activation-code grant entitlements carry no subscription or payment history,
   // so the billing-history check alone would wrongly offer a trial to grant holders.
   const hasActivePlanAccess = subscriptionSummary ? hasActivePlan(subscriptionSummary) : false;
