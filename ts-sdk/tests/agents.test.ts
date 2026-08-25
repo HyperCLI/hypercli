@@ -26,6 +26,7 @@ import {
 import { HyperCLI } from '../src/client.js';
 import { APIError } from '../src/errors.js';
 import { HTTPClient } from '../src/http.js';
+import type { GatewayClient, GatewayOptions } from '../src/openclaw/gateway.js';
 
 describe('Agents SDK', () => {
   const installReadySubscription = (deployments: Deployments) => {
@@ -2847,6 +2848,216 @@ describe('Agents SDK', () => {
     expect(proAgent.gatewayToken).toBeNull();
   });
 
+  it('provides canonical gateway Secret refresh for managed reconnects', async () => {
+    const agentId = '11111111-1111-4111-8111-111111111111';
+    let storedGatewayToken = 'gw-token-1';
+    const get = vi.fn(async (path: string) => {
+      if (path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')) {
+        return {
+          agent_id: agentId,
+          key: 'OPENCLAW_GATEWAY_TOKEN',
+          value: storedGatewayToken,
+          launch_epoch: 3,
+        };
+      }
+      if (path.endsWith('/routes')) {
+        return {
+          agent_id: agentId,
+          routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+          route_statuses: {
+            openclaw: {
+              hostname: 'openclaw-test.hypercli.com',
+              url: 'https://openclaw-test.hypercli.com',
+              dns_state: 'active',
+            },
+          },
+        };
+      }
+      return {
+        id: agentId,
+        user_id: 'user-456',
+        state: 'RUNNING',
+        runtime: 'openclaw',
+        hostname: 'openclaw-test.hypercli.com',
+        launch_epoch: 3,
+      };
+    });
+    const capturedGatewayOptions: GatewayOptions[] = [];
+    const deployments = new Deployments(
+      { get } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+      undefined,
+      undefined,
+      {
+        clientFactory: (options) => {
+          capturedGatewayOptions.push(options);
+          return { close: vi.fn(), setGatewayToken: vi.fn() } as unknown as GatewayClient;
+        },
+      },
+    );
+    const agent = OpenClawAgent.fromDict({
+      id: agentId,
+      user_id: 'user-456',
+      state: 'running',
+      runtime: 'openclaw',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    agent._deployments = deployments;
+
+    const lease = await agent.acquireGateway();
+    const gatewayOptions = capturedGatewayOptions[0];
+    if (!gatewayOptions?.refreshGatewayToken) throw new Error('Missing gateway token refresh provider');
+
+    expect(gatewayOptions.gatewayToken).toBe('gw-token-1');
+    storedGatewayToken = 'gw-token-2';
+    expect(await gatewayOptions.refreshGatewayToken(new AbortController().signal)).toBe('gw-token-2');
+    expect(agent.gatewayToken).toBe('gw-token-2');
+    expect(get.mock.calls.filter(([path]) => path.endsWith('/secrets/OPENCLAW_GATEWAY_TOKEN')))
+      .toHaveLength(2);
+
+    lease.release();
+    deployments.dispose();
+  });
+
+  it('invalidates a managed gateway when its reconnect context changes', async () => {
+    const capturedGatewayOptions: GatewayOptions[] = [];
+    const close = vi.fn();
+    const deployments = new Deployments(
+      {} as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+      undefined,
+      undefined,
+      {
+        clientFactory: (options) => {
+          capturedGatewayOptions.push(options);
+          return { close, setGatewayToken: vi.fn() } as unknown as GatewayClient;
+        },
+      },
+    );
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      state: 'running',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    agent._deployments = deployments;
+    const resolveContext = vi.spyOn(deployments, 'resolveOpenClawGatewayContext')
+      .mockResolvedValueOnce({
+        agent_id: agent.id,
+        gateway_url: 'wss://openclaw-test.hypercli.com',
+        gateway_token: 'gw-token-1',
+        launch_epoch: 3,
+      })
+      .mockResolvedValueOnce({
+        agent_id: agent.id,
+        gateway_url: 'wss://openclaw-relaunched.hypercli.com',
+        gateway_token: 'gw-token-2',
+        launch_epoch: 4,
+      });
+
+    const lease = await agent.acquireGateway();
+    const gatewayOptions = capturedGatewayOptions[0];
+    if (!gatewayOptions?.refreshGatewayToken) throw new Error('Missing gateway token refresh provider');
+
+    await expect(gatewayOptions.refreshGatewayToken(new AbortController().signal))
+      .rejects.toThrow(/context changed while reconnecting/i);
+    expect(resolveContext).toHaveBeenLastCalledWith(agent, {
+      forceGatewayTokenRefresh: true,
+      signal: expect.any(Object),
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(deployments.openClawGateways.size).toBe(0);
+
+    lease.release();
+    deployments.dispose();
+  });
+
+  it('keeps retained-token and forced-refresh context flights separate', async () => {
+    const deployments = new Deployments(
+      {} as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      state: 'running',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    agent._deployments = deployments;
+    const retainedContext = {
+      agent_id: agent.id,
+      gateway_url: 'wss://openclaw-test.hypercli.com',
+      gateway_token: 'gw-token-retained',
+      launch_epoch: 3,
+    };
+    const refreshedContext = {
+      ...retainedContext,
+      gateway_token: 'gw-token-refreshed',
+    };
+    let resolveRetained: ((context: typeof retainedContext) => void) | null = null;
+    let resolveRefreshed: ((context: typeof refreshedContext) => void) | null = null;
+    const waitForContext = vi.spyOn(agent, 'waitForGatewayContext').mockImplementation((options = {}) => (
+      new Promise((resolve) => {
+        if (options.forceGatewayTokenRefresh) resolveRefreshed = resolve;
+        else resolveRetained = resolve;
+      })
+    ));
+
+    const retained = deployments.resolveOpenClawGatewayContext(agent);
+    const refreshed = deployments.resolveOpenClawGatewayContext(agent, {
+      forceGatewayTokenRefresh: true,
+    });
+
+    expect(waitForContext).toHaveBeenCalledTimes(2);
+    resolveRetained?.(retainedContext);
+    resolveRefreshed?.(refreshedContext);
+    await expect(retained).resolves.toEqual(retainedContext);
+    await expect(refreshed).resolves.toEqual(refreshedContext);
+
+    deployments.dispose();
+  });
+
+  it('cancels a forced-refresh context flight when its waiter aborts', async () => {
+    const deployments = new Deployments(
+      {} as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      state: 'running',
+      hostname: 'openclaw-test.hypercli.com',
+      launch_epoch: 3,
+    });
+    agent._deployments = deployments;
+    let flightSignal: AbortSignal | undefined;
+    vi.spyOn(agent, 'waitForGatewayContext').mockImplementation((options = {}) => {
+      flightSignal = options.signal;
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true });
+      });
+    });
+    const controller = new AbortController();
+
+    const waiting = deployments.resolveOpenClawGatewayContext(agent, {
+      forceGatewayTokenRefresh: true,
+      signal: controller.signal,
+    });
+    const rejected = expect(waiting).rejects.toThrow('reconnect cancelled');
+    controller.abort(new Error('reconnect cancelled'));
+
+    await rejected;
+    expect(flightSignal?.aborted).toBe(true);
+    deployments.dispose();
+  });
+
   it('moves pooled lifecycle callbacks to the current gateway lease', () => {
     const close = vi.fn();
     const setGatewayToken = vi.fn();
@@ -2883,6 +3094,36 @@ describe('Agents SDK', () => {
     expect(secondGap).toHaveBeenCalledTimes(1);
 
     secondLease?.release();
+    manager.dispose();
+  });
+
+  it('reuses each retained gateway while switching between agents', () => {
+    const clients: Array<{ close: ReturnType<typeof vi.fn>; setGatewayToken: ReturnType<typeof vi.fn> }> = [];
+    const manager = new OpenClawGatewayConnectionManager({
+      clientFactory: () => {
+        const client = { close: vi.fn(), setGatewayToken: vi.fn() };
+        clients.push(client);
+        return client as any;
+      },
+    });
+    const request = (deploymentId: string) => ({
+      deploymentId,
+      launchEpoch: 1,
+      generation: manager.generation(deploymentId),
+      options: { url: `wss://${deploymentId}.example.test` },
+    });
+
+    const firstAgentLease = manager.acquire(request('agent-a'));
+    firstAgentLease.release();
+    const secondAgentLease = manager.acquire(request('agent-b'));
+    secondAgentLease.release();
+    const returningAgentLease = manager.acquireExisting(request('agent-a'));
+
+    expect(returningAgentLease?.client).toBe(firstAgentLease.client);
+    expect(clients).toHaveLength(2);
+    expect(clients.every((client) => client.close.mock.calls.length === 0)).toBe(true);
+
+    returningAgentLease?.release();
     manager.dispose();
   });
 

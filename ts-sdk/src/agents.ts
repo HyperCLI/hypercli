@@ -368,6 +368,8 @@ export interface GatewayContextWaitOptions {
   timeoutMs?: number;
   retryIntervalMs?: number;
   signal?: AbortSignal;
+  /** Re-read the stored gateway Secret instead of reusing the retained token. */
+  forceGatewayTokenRefresh?: boolean;
 }
 
 interface OpenClawGatewayContextFlight {
@@ -3734,10 +3736,9 @@ export class OpenClawAgent extends Agent {
           continue;
         }
 
-        // Prefer the caller-retained token; otherwise rehydrate the redacted
-        // Secret through the explicit per-secret retrieval endpoint so a fresh
-        // page (or fresh Agent hydration) can still reconnect.
-        let gatewayToken = this.gatewayToken;
+        // Prefer the caller-retained token unless reconnect authentication
+        // explicitly requires the latest value from Secret storage.
+        let gatewayToken = options.forceGatewayTokenRefresh ? null : this.gatewayToken;
         if (!gatewayToken) {
           try {
             const secretData = await runWithAbort(
@@ -3867,11 +3868,25 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'>,
   ): GatewayOptions {
     const deployments = this.requireDeployments();
+    const launchEpoch = this.gatewayLaunchEpoch ?? this.launchEpoch;
     return {
       ...options,
       url: gatewayUrl,
       token: undefined,
       gatewayToken: options.gatewayToken ?? gatewayToken ?? undefined,
+      refreshGatewayToken: options.refreshGatewayToken ?? (options.gatewayToken === undefined
+        ? async (signal) => {
+            const context = await deployments.resolveOpenClawGatewayContext(this, {
+              forceGatewayTokenRefresh: true,
+              signal,
+            });
+            if (context.launch_epoch !== launchEpoch || context.gateway_url !== gatewayUrl) {
+              deployments.invalidateOpenClawGateway(this.id);
+              throw new Error('OpenClaw gateway context changed while reconnecting');
+            }
+            return context.gateway_token;
+          }
+        : undefined),
       deploymentId: options.deploymentId ?? this.id,
       apiKey: options.apiKey ?? deployments.agentApiKey,
       apiBase: options.apiBase ?? deployments.agentApiBase,
@@ -4488,7 +4503,8 @@ export class Deployments {
       throw error;
     }
     const generation = this.openClawGateways.generation(agent.id);
-    const key = `${agent.id}:${generation}:${agent.launchEpoch}`;
+    const tokenMode = options.forceGatewayTokenRefresh ? 'refresh' : 'retain';
+    const key = `${agent.id}:${generation}:${agent.launchEpoch}:${tokenMode}`;
     let flight = this.openClawGatewayContextFlights.get(key);
     if (!flight) {
       const controller = new AbortController();
@@ -4499,6 +4515,7 @@ export class Deployments {
           timeoutMs: OPENCLAW_GATEWAY_CONTEXT_FLIGHT_TIMEOUT_MS,
           retryIntervalMs: OPENCLAW_GATEWAY_CONTEXT_FLIGHT_RETRY_INTERVAL_MS,
           signal: controller.signal,
+          ...(options.forceGatewayTokenRefresh ? { forceGatewayTokenRefresh: true } : {}),
         }),
         waiters: 0,
         settled: false,

@@ -140,6 +140,47 @@ describe("dashboard agents page release boundary", () => {
   });
 });
 
+describe("dashboard agents SDK lifetime boundary", () => {
+  it("disposes the page-owned deployments client during unmount cleanup", () => {
+    const cleanupStart = pageSource.indexOf("pageActiveRef.current = false;");
+    const cleanupEnd = pageSource.indexOf("const markAgentCleanupCooldown", cleanupStart);
+    const cleanup = pageSource.slice(cleanupStart, cleanupEnd);
+    const invalidateRequests = cleanup.indexOf("agentDataGenerationRef.current += 1;");
+    const disposeCurrent = cleanup.indexOf("currentDeployments?.dispose();");
+
+    expect(cleanupStart).toBeGreaterThan(-1);
+    expect(cleanup).toContain("deploymentsRef.current = null;");
+    expect(invalidateRequests).toBeGreaterThan(-1);
+    expect(disposeCurrent).toBeGreaterThan(invalidateRequests);
+  });
+
+  it("disposes the previous client only after detecting a principal change", () => {
+    const principalStart = pageSource.indexOf("const nextPrincipal = isAuthenticated");
+    const principalEnd = pageSource.indexOf("}, [clearAgentAvatarOverrides", principalStart);
+    const principalEffect = pageSource.slice(principalStart, principalEnd);
+    const samePrincipalGuard = principalEffect.indexOf(
+      "if (privatePrincipalRef.current === nextPrincipal) return;",
+    );
+    const disposePrevious = principalEffect.indexOf("previousDeployments?.dispose();");
+
+    expect(samePrincipalGuard).toBeGreaterThan(-1);
+    expect(disposePrevious).toBeGreaterThan(samePrincipalGuard);
+  });
+
+  it("disposes a failed subscription client before scheduling replacement", () => {
+    const subscriptionStart = pageSource.indexOf("void deployments.subscribe");
+    const subscriptionEnd = pageSource.indexOf("return () => {", subscriptionStart);
+    const subscription = pageSource.slice(subscriptionStart, subscriptionEnd);
+
+    expect(subscription).toContain("deploymentsRef.current !== deployments");
+    expect(subscription).toContain("deploymentsRef.current = null;");
+    expect(subscription).toContain("deployments.dispose();");
+    expect(subscription.indexOf("deployments.dispose();")).toBeLessThan(
+      subscription.indexOf("retryAfterFailure"),
+    );
+  });
+});
+
 describe("dev agents page release boundary", () => {
   it("does not construct or render Collection-backed Workspace surfaces", () => {
     expect(devAgentSetupPageSource).not.toContain("createWorkspacesClient");

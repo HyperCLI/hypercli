@@ -1419,6 +1419,14 @@ function AgentsPageContent() {
     pageActiveRef.current = true;
     return () => {
       pageActiveRef.current = false;
+      agentDataGenerationRef.current += 1;
+      fetchAgentsRequestRef.current += 1;
+      fetchBillingRequestRef.current += 1;
+      fetchAgentsInFlightRef.current = null;
+      fetchBillingInFlightRef.current = null;
+      const currentDeployments = deploymentsRef.current;
+      deploymentsRef.current = null;
+      currentDeployments?.dispose();
       stoppedTimersRef.current.forEach((t) => clearTimeout(t));
       tokenUsageRefreshSchedulerRef.current?.dispose();
       tokenUsageRefreshSchedulerRef.current = null;
@@ -1711,12 +1719,14 @@ function AgentsPageContent() {
     agentMutationVersionsRef.current.clear();
     deletingAgentIdsRef.current.clear();
     cancelledStartAgentIdsRef.current.clear();
-    deploymentsRef.current = null;
     const nextPrincipal = isAuthenticated ? user?.id ?? null : null;
     deploymentSubscriptionRecoveryRef.current.reset();
     if (privatePrincipalRef.current === nextPrincipal) return;
     const previousPrincipal = privatePrincipalRef.current;
     privatePrincipalRef.current = nextPrincipal;
+    const previousDeployments = deploymentsRef.current;
+    deploymentsRef.current = null;
+    previousDeployments?.dispose();
     tokenUsageRefreshSchedulerRef.current?.dispose();
     tokenUsageRefreshSchedulerRef.current = null;
     setAnonymousDesktopPreviewOpen(false);
@@ -2015,7 +2025,9 @@ function AgentsPageContent() {
     }
     const requestId = ++fetchBillingRequestRef.current;
     const isCurrentRequest = () => (
-      generation === agentDataGenerationRef.current && requestId === fetchBillingRequestRef.current
+      pageActiveRef.current &&
+      generation === agentDataGenerationRef.current &&
+      requestId === fetchBillingRequestRef.current
     );
     const promise = (async () => {
       try {
@@ -2106,7 +2118,9 @@ function AgentsPageContent() {
     }
     const requestId = ++fetchAgentsRequestRef.current;
     const isCurrentRequest = () => (
-      generation === agentDataGenerationRef.current && requestId === fetchAgentsRequestRef.current
+      pageActiveRef.current &&
+      generation === agentDataGenerationRef.current &&
+      requestId === fetchAgentsRequestRef.current
     );
     const promise = (async () => {
       try {
@@ -2230,6 +2244,7 @@ function AgentsPageContent() {
     }).catch(() => {
       if (controller.signal.aborted || deploymentsRef.current !== deployments) return;
       deploymentsRef.current = null;
+      deployments.dispose();
       setDeployments(null);
       deploymentSubscriptionRecoveryRef.current.retryAfterFailure(() => {
         void fetchAgents({ force: true });
@@ -2378,7 +2393,9 @@ function AgentsPageContent() {
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
       setDailyTokenUsage(null);
+      const currentDeployments = deploymentsRef.current;
       deploymentsRef.current = null;
+      currentDeployments?.dispose();
       setDeployments(null);
       setAgentsLoadError(null);
       setSelectedAgentId(null);

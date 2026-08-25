@@ -899,6 +899,191 @@ describe("GatewayClient", () => {
     expect(secondRequest.params.auth.token).toBe("gw-token-2");
   });
 
+  it("awaits the gateway token provider before authenticating a reconnect", async () => {
+    let resolveGatewayToken: ((token: string) => void) | null = null;
+    const refreshedGatewayToken = new Promise<string>((resolve) => {
+      resolveGatewayToken = resolve;
+    });
+    const refreshGatewayToken = vi.fn(() => refreshedGatewayToken);
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token-1",
+      refreshGatewayToken,
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing websocket instance");
+    firstSocket.emitChallenge("nonce-initial");
+    const firstRequest = await parseFirstRequest(firstSocket);
+    expect(firstRequest.params.auth.token).toBe("gw-token-1");
+    expect(refreshGatewayToken).not.toHaveBeenCalled();
+    firstSocket.emitHello(firstRequest.id);
+    await connectPromise;
+
+    firstSocket.close(1012, "restart");
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await flushMicrotasks();
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) throw new Error("Missing reconnect websocket instance");
+    secondSocket.emitChallenge("nonce-reconnect");
+    await flushMicrotasks();
+
+    expect(refreshGatewayToken).toHaveBeenCalledTimes(1);
+    expect(secondSocket.sent).toHaveLength(0);
+
+    resolveGatewayToken?.("gw-token-2");
+    queueMicrotask(() => client.setGatewayToken("gw-token-stale"));
+    await waitForSentFrame(secondSocket);
+    const secondRequest = await parseFirstRequest(secondSocket);
+    expect(secondRequest.params.auth.token).toBe("gw-token-2");
+
+    secondSocket.emitConnectError(secondRequest.id, "AUTH_TOKEN_MISMATCH", "token mismatch", {
+      code: "AUTH_TOKEN_MISMATCH",
+      canRetryWithDeviceToken: true,
+      recommendedNextStep: "retry_with_device_token",
+    });
+    for (let attempt = 0; attempt < 20 && secondSocket.sent.length < 2; attempt += 1) {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(refreshGatewayToken).toHaveBeenCalledTimes(1);
+    const fallbackRequest = JSON.parse(secondSocket.sent[1] ?? "{}");
+    expect(fallbackRequest.params.auth.token).toBe("gw-token-2");
+    expect(fallbackRequest.params.auth.deviceToken).toBe("device-token-1");
+    secondSocket.emitHello(fallbackRequest.id, "device-token-2");
+  });
+
+  it("does not authenticate after stopping during gateway token refresh", async () => {
+    let resolveGatewayToken: ((token: string) => void) | null = null;
+    let refreshSignal: AbortSignal | null = null;
+    const refreshedGatewayToken = new Promise<string>((resolve) => {
+      resolveGatewayToken = resolve;
+    });
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token-1",
+      refreshGatewayToken: (signal) => {
+        refreshSignal = signal;
+        return refreshedGatewayToken;
+      },
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing websocket instance");
+    firstSocket.emitChallenge("nonce-initial");
+    const firstRequest = await parseFirstRequest(firstSocket);
+    firstSocket.emitHello(firstRequest.id);
+    await connectPromise;
+
+    firstSocket.close(1012, "restart");
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await flushMicrotasks();
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) throw new Error("Missing reconnect websocket instance");
+    secondSocket.emitChallenge("nonce-reconnect");
+    await flushMicrotasks();
+
+    client.stop();
+    resolveGatewayToken?.("gw-token-2");
+    await flushMicrotasks();
+
+    expect(secondSocket.sent).toHaveLength(0);
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(client.state).toBe("disconnected");
+  });
+
+  it("stops automatic reconnect after the gateway token provider fails", async () => {
+    const refreshGatewayToken = vi.fn().mockRejectedValue(new Error("gateway Secret unavailable"));
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token-1",
+      refreshGatewayToken,
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing websocket instance");
+    firstSocket.emitChallenge("nonce-initial");
+    const firstRequest = await parseFirstRequest(firstSocket);
+    firstSocket.emitHello(firstRequest.id);
+    await connectPromise;
+
+    vi.useFakeTimers();
+    firstSocket.close(1012, "restart");
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(800);
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) throw new Error("Missing reconnect websocket instance");
+    secondSocket.emitChallenge("nonce-reconnect");
+    await flushMicrotasks();
+
+    expect(refreshGatewayToken).toHaveBeenCalledTimes(1);
+    expect(secondSocket.sent).toHaveLength(0);
+    expect(secondSocket.closedWith?.reason).toBe("connect failed");
+    expect(client.state).toBe("disconnected");
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(MockWebSocket.instances).toHaveLength(2);
+
+    vi.useRealTimers();
+    refreshGatewayToken.mockResolvedValueOnce("gw-token-2");
+    const retryPromise = client.connect();
+    await flushMicrotasks();
+    const retrySocket = MockWebSocket.instances.at(-1);
+    if (!retrySocket || retrySocket === secondSocket) throw new Error("Missing explicit retry websocket instance");
+    retrySocket.emitChallenge("nonce-explicit-retry");
+    const retryRequest = await parseFirstRequest(retrySocket);
+    expect(retryRequest.params.auth.token).toBe("gw-token-2");
+    retrySocket.emitHello(retryRequest.id);
+    await retryPromise;
+  });
+
+  it("bounds a stalled gateway token provider and aborts its work", async () => {
+    let refreshSignal: AbortSignal | null = null;
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token-1",
+      timeout: 25,
+      refreshGatewayToken: (signal) => {
+        refreshSignal = signal;
+        return new Promise<string>(() => undefined);
+      },
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing websocket instance");
+    firstSocket.emitChallenge("nonce-initial");
+    const firstRequest = await parseFirstRequest(firstSocket);
+    firstSocket.emitHello(firstRequest.id);
+    await connectPromise;
+
+    vi.useFakeTimers();
+    firstSocket.close(1012, "restart");
+    await flushMicrotasks();
+    await vi.advanceTimersByTimeAsync(800);
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) throw new Error("Missing reconnect websocket instance");
+    secondSocket.emitChallenge("nonce-reconnect");
+    await flushMicrotasks();
+
+    expect(refreshSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(25);
+    await flushMicrotasks();
+
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(secondSocket.sent).toHaveLength(0);
+    expect(secondSocket.closedWith?.reason).toBe("connect failed");
+    expect(client.state).toBe("disconnected");
+  });
+
   it("retries with the cached device token when connect fails with a shared-token mismatch", async () => {
     await connectClient();
 

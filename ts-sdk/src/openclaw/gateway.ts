@@ -142,8 +142,10 @@ export interface GatewayOptions {
   maxProtocol?: number;
   /** Origin header (default: omitted for non-browser SDK clients) */
   origin?: string;
-  /** Default RPC timeout in ms (default: 30000) */
+  /** Default RPC and reconnect credential timeout in ms (default: 30000). */
   timeout?: number;
+  /** Resolve the shared gateway token before authenticating a reconnect. */
+  refreshGatewayToken?: (signal: AbortSignal) => Promise<string>;
   /** Called after a successful hello-ok response */
   onHello?: (hello: GatewayHelloSnapshot) => void;
   /** Called after the socket closes */
@@ -3086,6 +3088,7 @@ export class GatewayClient {
   private maxProtocol: number;
   private origin?: string;
   private defaultTimeout: number;
+  private readonly refreshGatewayToken?: (signal: AbortSignal) => Promise<string>;
   private ws: GatewaySocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Set<GatewayEventHandler>();
@@ -3108,6 +3111,9 @@ export class GatewayClient {
   private backoffMs = INITIAL_BACKOFF_MS;
   private connectNonce: string | null = null;
   private connectSent = false;
+  private gatewayTokenRefreshSocket: GatewaySocket | null = null;
+  private gatewayTokenRefreshToken: string | null = null;
+  private gatewayTokenRefreshController: AbortController | null = null;
   private pendingConnectError: GatewayErrorShape | null = null;
   private pendingConnectTerminal = false;
   private pairingApprovalInFlight = false;
@@ -3171,6 +3177,7 @@ export class GatewayClient {
       ? options.origin.trim()
       : undefined;
     this.defaultTimeout = options.timeout ?? DEFAULT_CONNECTION_TIMEOUT;
+    this.refreshGatewayToken = options.refreshGatewayToken;
     this.onHello = options.onHello;
     this.onClose = options.onClose;
     this.onGap = options.onGap;
@@ -3492,6 +3499,10 @@ export class GatewayClient {
     this.setConnectionState("disconnected");
     this.connectSent = false;
     this.connectNonce = null;
+    this.gatewayTokenRefreshSocket = null;
+    this.gatewayTokenRefreshToken = null;
+    this.gatewayTokenRefreshController?.abort(new Error("gateway client stopped"));
+    this.gatewayTokenRefreshController = null;
     this.pendingConnectError = null;
     this.pendingConnectTerminal = false;
     this.pairingApprovalInFlight = false;
@@ -3863,6 +3874,12 @@ export class GatewayClient {
     this.connected = false;
     this.connectSent = false;
     this.connectNonce = null;
+    if (this.gatewayTokenRefreshSocket === ws) {
+      this.gatewayTokenRefreshSocket = null;
+      this.gatewayTokenRefreshToken = null;
+    }
+    this.gatewayTokenRefreshController?.abort(new Error("gateway socket closed during token refresh"));
+    this.gatewayTokenRefreshController = null;
     if (this.connectTimer) {
       clearTimeout(this.connectTimer);
       this.connectTimer = null;
@@ -3932,7 +3949,51 @@ export class GatewayClient {
 
     let identity: DeviceIdentityRecord | null = null;
     let storedDeviceToken: string | null = null;
+    let gatewayTokenRefreshFailed = false;
     try {
+      if (
+        this._hello &&
+        this.refreshGatewayToken &&
+        this.gatewayTokenRefreshSocket !== socket
+      ) {
+        const controller = new AbortController();
+        this.gatewayTokenRefreshController = controller;
+        const timeout = setTimeout(() => {
+          controller.abort(new Error("gateway token refresh timed out"));
+        }, this.defaultTimeout);
+        let rejectForAbort: (() => void) | null = null;
+        const abort = new Promise<never>((_resolve, reject) => {
+          rejectForAbort = () => reject(
+            controller.signal.reason instanceof Error
+              ? controller.signal.reason
+              : new Error("gateway token refresh cancelled"),
+          );
+          if (controller.signal.aborted) {
+            rejectForAbort();
+            return;
+          }
+          controller.signal.addEventListener("abort", rejectForAbort, { once: true });
+        });
+        try {
+          const refreshedGatewayToken = (
+            await Promise.race([this.refreshGatewayToken(controller.signal), abort])
+          ).trim();
+          if (!refreshedGatewayToken) throw new Error("gateway token refresh returned an empty token");
+          if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
+          this.gatewayToken = refreshedGatewayToken;
+          this.gatewayTokenRefreshSocket = socket;
+          this.gatewayTokenRefreshToken = refreshedGatewayToken;
+        } catch (error) {
+          gatewayTokenRefreshFailed = true;
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+          if (rejectForAbort) controller.signal.removeEventListener("abort", rejectForAbort);
+          if (this.gatewayTokenRefreshController === controller) {
+            this.gatewayTokenRefreshController = null;
+          }
+        }
+      }
       identity = await loadOrCreateDeviceIdentity();
       if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
       storedDeviceToken = loadStoredDeviceToken(
@@ -3941,9 +4002,12 @@ export class GatewayClient {
         this.role,
       )?.token ?? null;
       const resolvedDeviceToken = this.deviceToken ?? storedDeviceToken ?? undefined;
-      const authToken = this.gatewayToken ?? resolvedDeviceToken;
+      const socketGatewayToken = this.gatewayTokenRefreshSocket === socket
+        ? this.gatewayTokenRefreshToken ?? undefined
+        : undefined;
+      const authToken = socketGatewayToken ?? this.gatewayToken ?? resolvedDeviceToken;
       const authBootstrapToken =
-        !this.gatewayToken && !resolvedDeviceToken && !this.password
+        !authToken && !this.password
           ? this.bootstrapToken
           : undefined;
       const authDeviceToken =
@@ -4044,7 +4108,7 @@ export class GatewayClient {
     } catch (error) {
       if (this.closed || lifecycleGeneration !== this.lifecycleGeneration || this.ws !== socket) return;
       this.pendingConnectError = toCloseError(error);
-      this.pendingConnectTerminal = false;
+      this.pendingConnectTerminal = gatewayTokenRefreshFailed;
       const detailCode = readConnectErrorCode(error);
       const requestId = readConnectPairingRequestId(error);
 
@@ -4067,7 +4131,7 @@ export class GatewayClient {
         detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH &&
         !this.authTokenMismatchRetried &&
         storedDeviceToken &&
-        this.gatewayToken &&
+        (this.gatewayTokenRefreshSocket === socket ? this.gatewayTokenRefreshToken : this.gatewayToken) &&
         canRetryWithDeviceToken(error)
       ) {
         this.authTokenMismatchRetried = true;
