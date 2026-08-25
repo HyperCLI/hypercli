@@ -59,7 +59,7 @@ Home is the account-level operating brief. It joins deployment state with recent
 - TypeScript Workspace client: `../../../ts-sdk/src/workspaces.ts`
 - Current knowledge operations: `src/components/dashboard/knowledge/SharedKnowledgePanel.tsx`
 - Current navigation: `src/components/dashboard/AgentsChannelsSidebar.tsx`
-- Backend implementation: sibling repository `hyperclaw-backend/workspaces`
+- Backend implementation: the hosted workspaces service
 - No production connector, central semantic index, project hierarchy, or knowledge-usage telemetry is available and none may be fabricated.
 
 ## Product Principles

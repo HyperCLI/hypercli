@@ -60,18 +60,15 @@ contract. Deep restore/finalize/eviction validation remains active work:
   defaults for all six coding runtimes.
 - Rust launch types expose the same wire fields, preserve explicit empty
   includes, and apply the runtime defaults to typed Buzz launches.
-- Backend persists and normalizes the flat policy, preserving omission,
-  explicit null, and explicit empty lists as distinct operations:
-  `hyperclaw-backend/backend/agents/launch_contract.py`.
-- Lagoon passes the normalized policy to Reef, annotates retained namespaces,
-  and replaces an immutable retained Reef watcher when that policy changes:
-  `hyperclaw-backend/lagoon/main.py`.
-- Reef implements mutually exclusive include and exclude modes, including
-  scoped directory mirrors and exact-file synchronization:
-  `hyperclaw-backend/reef-sync/reef_policy.py` and
-  `hyperclaw-backend/reef-sync/supervisor.py`.
-- The consolidated `pulumi-provision-k8s/lagoon.py` currently does not wire the
-  exclude settings that existed in the removed Pulumi stack. Do not assume the
+- The backend launch path persists and normalizes the flat policy, preserving
+  omission, explicit null, and explicit empty lists as distinct operations.
+- The agent-supervision layer passes the normalized policy to the workspace
+  file-sync component, annotates retained namespaces, and replaces an
+  immutable retained sync watcher when that policy changes.
+- The file-sync component implements mutually exclusive include and exclude
+  modes, including scoped directory mirrors and exact-file synchronization.
+- The consolidated Pulumi provisioning currently does not wire the exclude
+  settings that existed in the removed Pulumi stack. Do not assume the
   recently added exclude configuration is deployed end to end.
 
 ## Recommended launch contract

@@ -2,8 +2,8 @@
 
 How HyperCLI's hosted buzz agent images are built, launched, and verified in
 CI. Companion to `BUZZ.md` (relay protocol + desktop2 integration). Audited
-from `~/dev/hyperclaw-backend` (+ `hypercli-agent-images` submodule @ 0051442)
-and `~/dev/hypercli` (buzz-acp, buzz-backend-provider, desktop e2e).
+against the hosted platform contract and `~/dev/hypercli` (buzz-acp,
+buzz-backend-provider, desktop e2e).
 
 ---
 
@@ -66,14 +66,12 @@ Per-runtime entrypoint extras:
    object; kimi status is O_NOFOLLOW/mode-checked and never prints content.
 
 `HYPER_AGENTS_API_KEY` is **injected by Lagoon at pod-spec time**, never by the
-provider/launcher, and is stripped if a client submits it
-(`launch_contract.py:96-97`).
+provider/launcher, and is stripped if a client submits it.
 
 ## 3. Launch contract (what desktop2 must supply)
 
-Backend is buzz-agnostic: runtime is just an enum value
-(`backend/agents/launch_contract.py:38-49`); image/command/env/secrets are
-client-supplied. Rules that ARE server-side:
+Backend is buzz-agnostic: runtime is just an enum value; image/command/env/
+secrets are client-supplied. Rules that ARE server-side:
 - launch config keys limited to `image, env, secrets, routes, command,
   entrypoint, restart, sync_root, sync_include|sync_exclude, sync_uid/gid,
   registry_url, registry_auth, runtime_scopes`; unknown keys rejected.
@@ -145,7 +143,7 @@ Presence is kind **20001** (ephemeral, WS-only) with relay-synthesized kind
 
 ## 6. CI contract (two suites exercise the live dev relay)
 
-### A. hyperclaw-backend `buzz-e2e` job (`.github/workflows/build.yml:2236-2434`)
+### A. Platform agent-image CI `buzz-e2e` job
 Matrix over all 6 runtimes; runs `tests/smoke/test_buzz_provider_hypercli_e2e.py`
 in the smoke image with host-built `buzz-backend-hypercli` + image-extracted
 `buzz`/`buzz-acp` binaries bind-mounted in. Recipe:
