@@ -67,10 +67,25 @@ export interface MockGatewayOptions {
    * reconnect path must recover and re-answer from live state.
    */
   restartOnce?: boolean;
+  /** Initial parsed config returned by `config.get`. Defaults to `{}`. */
+  config?: Record<string, unknown>;
+  /**
+   * When true, `config.patch`/`config.apply`/`config.set` are recorded and
+   * then answered with an error instead of mutating state, mirroring a
+   * gateway that refuses the write.
+   */
+  failConfigPatch?: boolean;
+  /**
+   * Persist the applied config in the page's sessionStorage so a full reload
+   * rehydrates from the last written config, mirroring gateway-side
+   * durability. State is per browser context, so specs stay isolated.
+   */
+  persistConfig?: boolean;
 }
 
 const DEFAULT_METHODS = [
   "config.get",
+  "config.patch",
   "config.schema",
   "chat.history",
   "agents.list",
@@ -133,6 +148,9 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       staleApplyOnceFor: string | null;
       failMutations: boolean;
       restartOnce: boolean;
+      config: Record<string, unknown>;
+      failConfigPatch: boolean;
+      persistConfig: boolean;
     };
 
     const parsed = JSON.parse(rawOptions) as Partial<Options>;
@@ -148,6 +166,33 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       staleApplyOnceFor: parsed.staleApplyOnceFor ?? null,
       failMutations: parsed.failMutations === true,
       restartOnce: parsed.restartOnce === true,
+      config: parsed.config ?? {},
+      failConfigPatch: parsed.failConfigPatch === true,
+      persistConfig: parsed.persistConfig === true,
+    };
+
+    const CONFIG_STORAGE_KEY = "__mockGatewayConfig";
+    const persistedConfig = options.persistConfig ? window.sessionStorage.getItem(CONFIG_STORAGE_KEY) : null;
+
+    const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+      Boolean(value) && typeof value === "object" && !Array.isArray(value);
+    // Same merge contract as the gateway's config.patch: nested objects merge
+    // key-by-key and an explicit null deletes the key.
+    const mergeConfig = (current: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> => {
+      const next: Record<string, unknown> = { ...current };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null) {
+          delete next[key];
+          continue;
+        }
+        const existing = next[key];
+        if (isPlainObject(value) && isPlainObject(existing)) {
+          next[key] = mergeConfig(existing, value);
+          continue;
+        }
+        next[key] = value;
+      }
+      return next;
     };
 
     const state = {
@@ -172,6 +217,9 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       rejectCalls: [] as Array<{ proposalId: string; expectedRevisionHash: string | null }>,
       staleApplyConsumed: false,
       restartConsumed: false,
+      config: persistedConfig ? (JSON.parse(persistedConfig) as Record<string, unknown>) : options.config,
+      configHash: "hash-1",
+      configWrites: [] as Array<{ method: string; raw: string; baseHash: string }>,
     };
     (window as unknown as { __mockGateway: typeof state }).__mockGateway = state;
 
@@ -245,6 +293,14 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
     // is told apart from an app-local one without knowing the app's origin.
     const NativeWebSocket = window.WebSocket;
 
+    // The Deployments events stream is a second, protocol-distinct socket the
+    // dashboard parks on: auth frame in, one `ready` frame out, then silence.
+    // Its ws_url is test-controlled (`wss://deployment-events.example.test/…`)
+    // so the same in-page seam can hold it open without any network traffic.
+    type MockSocketMode = "gateway" | "deployment-events";
+    const socketModeFor = (target: string): MockSocketMode =>
+      target.includes("deployment-events") ? "deployment-events" : "gateway";
+
     // Class fields are deliberately avoided: the test runner's esbuild
     // transform drops field initializers when it also emits a static name
     // block for the class, which would leave a constructed mock socket with
@@ -262,20 +318,28 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       public onclose: ((event: { code?: number; reason?: string }) => void) | null;
 
       private readonly socketNumber: number;
+      private readonly mode: MockSocketMode;
+      private readonly listeners: Record<"open" | "message" | "error" | "close", Array<(event?: unknown) => void>>;
 
-      constructor(url: string) {
+      constructor(url: string, mode: MockSocketMode = "gateway") {
         this.url = url;
+        this.mode = mode;
         this.readyState = MockGatewayWebSocket.CONNECTING;
         this.onopen = null;
         this.onmessage = null;
         this.onerror = null;
         this.onclose = null;
+        this.listeners = { open: [], message: [], error: [], close: [] };
         state.socketCount += 1;
         this.socketNumber = state.socketCount;
         window.setTimeout(() => {
           if (this.readyState !== MockGatewayWebSocket.CONNECTING) return;
           this.readyState = MockGatewayWebSocket.OPEN;
           this.onopen?.();
+          for (const listener of this.listeners.open) listener();
+          // The deployment-events protocol has no connect challenge; the
+          // client authenticates first and the server answers `ready`.
+          if (this.mode !== "gateway") return;
           this.emit({
             type: "event",
             event: "connect.challenge",
@@ -284,11 +348,28 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
         }, 0);
       }
 
+      // The SDK's Deployments events subscriber attaches DOM-style listeners,
+      // so the mock supports both handler properties and addEventListener.
+      addEventListener(type: "open" | "message" | "error" | "close", listener: (event?: unknown) => void) {
+        this.listeners[type]?.push(listener);
+      }
+
+      removeEventListener(type: "open" | "message" | "error" | "close", listener: (event?: unknown) => void) {
+        const list = this.listeners[type];
+        if (!list) return;
+        const index = list.indexOf(listener);
+        if (index >= 0) list.splice(index, 1);
+      }
+
       send(data: string) {
-        let message: { id?: string; method?: string; params?: Record<string, unknown> };
+        let message: { id?: string; method?: string; type?: string; params?: Record<string, unknown> };
         try {
           message = JSON.parse(data);
         } catch {
+          return;
+        }
+        if (this.mode === "deployment-events") {
+          if (message.type === "auth") this.emit({ type: "ready" });
           return;
         }
         const id = message.id;
@@ -496,7 +577,38 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
         }
 
         if (method === "config.get") {
-          this.emit({ type: "res", id, ok: true, payload: { parsed: {}, hash: "hash-1" } });
+          this.emit({ type: "res", id, ok: true, payload: { parsed: state.config, hash: state.configHash } });
+          return;
+        }
+        if (method === "config.patch" || method === "config.apply" || method === "config.set") {
+          const raw = typeof params.raw === "string" ? params.raw : "";
+          const baseHash = typeof params.baseHash === "string" ? params.baseHash : "";
+          // Record the write attempt before the failure decision so the spec
+          // can prove a failed save is never silently replayed.
+          state.configWrites.push({ method, raw, baseHash });
+          if (options.failConfigPatch) {
+            this.emit({
+              type: "res",
+              id,
+              ok: false,
+              error: { code: "UNAVAILABLE", message: "config write failed", details: { code: "UNAVAILABLE" } },
+            });
+            return;
+          }
+          try {
+            const parsedPatch: unknown = raw ? JSON.parse(raw) : {};
+            if (isPlainObject(parsedPatch)) {
+              state.config = method === "config.patch" ? mergeConfig(state.config, parsedPatch) : parsedPatch;
+            }
+          } catch {
+            // Malformed raw payloads are answered ok here; the dashboard never
+            // sends them, and this mock only needs the well-formed contract.
+          }
+          state.configHash = `hash-${state.configWrites.length + 1}`;
+          if (options.persistConfig) {
+            window.sessionStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(state.config));
+          }
+          this.emit({ type: "res", id, ok: true, payload: { parsed: state.config, hash: state.configHash } });
           return;
         }
         if (method === "config.schema") {
@@ -543,13 +655,19 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       close(code?: number, reason?: string) {
         if (this.readyState === MockGatewayWebSocket.CLOSED) return;
         this.readyState = MockGatewayWebSocket.CLOSED;
-        window.setTimeout(() => this.onclose?.({ code, reason }), 0);
+        window.setTimeout(() => {
+          const event = { code, reason };
+          this.onclose?.(event);
+          for (const listener of this.listeners.close) listener(event);
+        }, 0);
       }
 
       private emit(message: unknown) {
         window.setTimeout(() => {
           if (this.readyState !== MockGatewayWebSocket.OPEN) return;
-          this.onmessage?.({ data: JSON.stringify(message) });
+          const event = { data: JSON.stringify(message) };
+          this.onmessage?.(event);
+          for (const listener of this.listeners.message) listener(event);
         }, 0);
       }
     }
@@ -562,7 +680,7 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       constructor(url: string | URL, protocols?: string | string[]) {
         const target = String(url);
         if (target.includes(".example.test")) {
-          return new MockGatewayWebSocket(target);
+          return new MockGatewayWebSocket(target, socketModeFor(target));
         }
         return new NativeWebSocket(target, protocols);
       }
@@ -584,6 +702,9 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
     staleApplyOnceFor: options.staleApplyOnceFor ?? null,
     failMutations: options.failMutations === true,
     restartOnce: options.restartOnce === true,
+    config: options.config ?? {},
+    failConfigPatch: options.failConfigPatch === true,
+    persistConfig: options.persistConfig === true,
   }));
 }
 
@@ -592,12 +713,20 @@ export interface MockGatewayCall {
   expectedRevisionHash: string | null;
 }
 
+export interface MockGatewayConfigWrite {
+  method: string;
+  raw: string;
+  baseHash: string;
+}
+
 export interface MockGatewayInspection {
   socketCount: number;
   applyCalls: MockGatewayCall[];
   rejectCalls: MockGatewayCall[];
   pendingIds: string[];
   installedKeys: string[];
+  configWrites: MockGatewayConfigWrite[];
+  config: Record<string, unknown>;
 }
 
 /** Read the mock's recorded wire traffic back out of the page. */
@@ -610,6 +739,8 @@ export async function inspectMockGateway(page: import("@playwright/test").Page):
         installedSkills: Array<{ skillKey: string }>;
         applyCalls: Array<{ proposalId: string; expectedRevisionHash: string | null }>;
         rejectCalls: Array<{ proposalId: string; expectedRevisionHash: string | null }>;
+        configWrites: Array<{ method: string; raw: string; baseHash: string }>;
+        config: Record<string, unknown>;
       };
     }).__mockGateway;
     return {
@@ -618,6 +749,8 @@ export async function inspectMockGateway(page: import("@playwright/test").Page):
       rejectCalls: state.rejectCalls.map((call) => ({ ...call })),
       pendingIds: state.proposals.filter((proposal) => proposal.status === "pending").map((proposal) => proposal.id),
       installedKeys: state.installedSkills.map((skill) => skill.skillKey),
+      configWrites: state.configWrites.map((write) => ({ ...write })),
+      config: JSON.parse(JSON.stringify(state.config)) as Record<string, unknown>,
     };
   });
 }
