@@ -37,13 +37,7 @@ fn info_fixture_is_a_one_shot_json_exchange() {
     assert_eq!(response, expected);
     assert_eq!(
         response["config_schema"]["properties"],
-        serde_json::json!({
-            "api_base": {
-                "type": "string",
-                "title": "HyperCLI API base URL",
-                "description": "Advanced: leave empty to use your installed HyperCLI configuration. Set this only for a trusted dev or self-hosted control plane; your HyperCLI credential is sent to this URL."
-            }
-        })
+        serde_json::json!({})
     );
 }
 
@@ -565,6 +559,98 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         assert!(!trace.contains("fixture-model-credential"));
         create.assert();
     }
+}
+
+#[test]
+fn dry_run_with_buzz_activity_adds_pinned_introspection_route_and_env() {
+    let mut server = Server::new();
+    let capacity = server
+        .mock("GET", "/agents/deployments")
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"items":[],"slots":{"large":{"available":1}}}"#)
+        .create();
+    let create = server
+        .mock("POST", "/agents/deployments")
+        .match_body(Matcher::AllOf(vec![
+            // Exact wire shape for the deterministic fields: the edge route no
+            // longer authenticates (auth:false, prefix omitted on the wire),
+            // and the harness now listens on all interfaces.
+            Matcher::PartialJson(serde_json::json!({
+                "routes": {
+                    "hyper-acp": { "port": 7799, "auth": false }
+                },
+                "env": {
+                    "HYPER_ACP_WS_LISTEN": "0.0.0.0:7799",
+                    "HYPER_ACP_LOG": "/home/node/.coding-agent/hyper-acp.db"
+                },
+                "secrets": {
+                    "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
+                    "NOSTR_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl"
+                },
+                "dry_run": true
+            })),
+            // The introspection token is random per launch: assert presence
+            // and the `hyper_acp_<64 lowercase hex>` secret shape, not a
+            // fixed value.
+            Matcher::Regex(r#""HYPER_ACP_WS_TOKEN"\s*:\s*"hyper_acp_[0-9a-f]{64}""#.to_owned()),
+        ]))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(
+            serde_json::json!({
+                "id": "dry-run-opencode",
+                "runtime": "opencode",
+                "state": "creating"
+            })
+            .to_string(),
+        )
+        .create();
+
+    let request = serde_json::json!({
+        "op": "deploy",
+        "agent": {
+            "name": "Fizz",
+            "relay_url": "wss://buzz.example.com",
+            "private_key_nsec":
+                "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
+            "auth_tag": "[\"auth\",\"fixture\"]",
+            "launch": {
+                "command": "opencode",
+                "args": ["acp"],
+                "env": {},
+                "policy_env": {},
+                "owner_pubkey":
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+        },
+        "provider_config": {
+            "buzz_activity": true,
+            "api_base": server.url()
+        }
+    });
+
+    let output = Command::cargo_bin("buzz-backend-hypercli")
+        .unwrap()
+        .arg("--dry-run")
+        .env("HYPER_AGENTS_API_KEY", "fixture-hypercli-credential")
+        .env_remove("HYPER_ACP_CORS_ORIGIN")
+        .write_stdin(request.to_string())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "deploy: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let response = assert_stock_stdout(output);
+    assert_eq!(
+        response["agent_id"].as_str(),
+        Some("dry-run-opencode"),
+        "response: {response}"
+    );
+    capacity.assert();
+    create.assert();
 }
 
 #[test]

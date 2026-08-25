@@ -7,12 +7,6 @@
   "config_schema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {
-      "api_base": {
-        "type": "string",
-        "title": "HyperCLI API base URL",
-        "description": "Advanced: leave empty to use your installed HyperCLI configuration. Set this only for a trusted dev or self-hosted control plane; your HyperCLI credential is sent to this URL."
-      }
-    }
+    "properties": {}
   }
 }

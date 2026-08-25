@@ -8,12 +8,14 @@ use std::{
     collections::VecDeque,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
 };
 
 use serde::Serialize;
 use tokio::sync::broadcast;
+
+use crate::hyper_acp;
 
 const OBSERVER_BUFFER_CAP: usize = 1_000;
 
@@ -40,6 +42,9 @@ struct ObserverInner {
     tx: broadcast::Sender<ObserverEvent>,
     buffer: Mutex<VecDeque<ObserverEvent>>,
     seq: AtomicU64,
+    hyper_acp: OnceLock<Arc<hyper_acp::Tap>>,
+    activity_log: OnceLock<hyper_acp::LogHandle>,
+    redactor: OnceLock<Arc<hyper_acp::Redactor>>,
 }
 
 fn new_observer_handle() -> ObserverHandle {
@@ -49,6 +54,9 @@ fn new_observer_handle() -> ObserverHandle {
             tx,
             buffer: Mutex::new(VecDeque::with_capacity(OBSERVER_BUFFER_CAP)),
             seq: AtomicU64::new(1),
+            hyper_acp: OnceLock::new(),
+            activity_log: OnceLock::new(),
+            redactor: OnceLock::new(),
         }),
     }
 }
@@ -87,6 +95,28 @@ impl ObserverHandle {
     /// Subscribe to live observer events.
     pub fn subscribe(&self) -> broadcast::Receiver<ObserverEvent> {
         self.inner.tx.subscribe()
+    }
+
+    /// Attach the hyper-acp tap. Called once at startup before the emit
+    /// paths run; a second attach keeps the first and returns `false`.
+    pub fn attach_hyper_acp(&self, tap: Arc<hyper_acp::Tap>) -> bool {
+        self.inner.hyper_acp.set(tap).is_ok()
+    }
+
+    /// Attach the boot-scoped activity log. Called once at startup before the
+    /// emit paths run; a second attach keeps the first and returns `false`.
+    /// Recording is non-blocking (internal channel, drop-on-full) and works
+    /// with or without the hyper-acp WS listener.
+    pub fn attach_activity_log(&self, log: hyper_acp::LogHandle) -> bool {
+        self.inner.activity_log.set(log).is_ok()
+    }
+
+    /// Attach the protocol-crypto redactor for the hyper-acp side-channel.
+    /// Called once at startup before the emit paths run; a second attach
+    /// keeps the first and returns `false`. When unset, emit performs no
+    /// redaction work at all (single `OnceLock::get` check).
+    pub fn attach_redactor(&self, redactor: Arc<hyper_acp::Redactor>) -> bool {
+        self.inner.redactor.set(redactor).is_ok()
     }
 
     /// Return the current replay buffer.
@@ -129,6 +159,32 @@ impl ObserverHandle {
             }
             Err(error) => {
                 tracing::warn!(target: "observer", "observer replay buffer lock poisoned: {error}");
+            }
+        }
+
+        // Hyper-ACP side-channel: one serialization feeds the activity
+        // log (boot-scoped durable record) and the live tap (unpaced local
+        // WS). Both consumers are absent in the default configuration, so
+        // the common path pays nothing here — relay pacing, chunk
+        // coalescing, and size elision all happen downstream in lib.rs.
+        let tap = self.inner.hyper_acp.get();
+        let log = self.inner.activity_log.get();
+        if tap.is_some() || log.is_some() {
+            if let Ok(mut line) = serde_json::to_string(&event) {
+                // Redact protocol-crypto material from the one serialized
+                // line feeding both hyper-acp sinks; the relay broadcast
+                // below keeps the original ObserverEvent.
+                if let Some(redactor) = self.inner.redactor.get() {
+                    redactor.redact(&mut line);
+                }
+                // Record first: durable capture takes priority over the
+                // best-effort live broadcast.
+                if let Some(log) = log {
+                    log.record(line.clone());
+                }
+                if let Some(tap) = tap {
+                    tap.publish(line);
+                }
             }
         }
 

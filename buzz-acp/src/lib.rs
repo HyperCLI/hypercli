@@ -4,6 +4,7 @@ mod acp;
 mod config;
 mod engram_fetch;
 mod filter;
+mod hyper_acp;
 mod observer;
 mod pool;
 mod pool_lifecycle;
@@ -141,6 +142,40 @@ fn resolve_agent_owner(config: &Config) -> Option<String> {
 
     // Fall back to --agent-owner config.
     config.agent_owner.clone()
+}
+
+/// Collect the exact-substring denylist for hyper-acp redaction: the
+/// agent's nostr secret key in both encodings (hex + nsec bech32), the
+/// hyper-acp WS token when set, and the `BUZZ_AUTH_TAG` env value when set
+/// and non-empty (read here at startup, the same source `resolve_agent_owner`
+/// and the relay-connect path use). Empty/<12-char entries are dropped
+/// defensively by `Redactor::new`. Built once; the redactor must never be
+/// logged and carries no `Debug`.
+fn hyper_acp_redact_denylist(
+    keys: &nostr::Keys,
+    ws_token: Option<&str>,
+    auth_tag: Option<String>,
+) -> Vec<String> {
+    use nostr::ToBech32 as _;
+
+    let mut denylist = vec![keys.secret_key().to_secret_hex()];
+    // Bech32 encoding of a valid secp256k1 secret cannot fail (the error
+    // type is Infallible — same `expect` the auth-tag command test uses for
+    // its owner-nsec derivation).
+    denylist.push(
+        keys.secret_key()
+            .to_bech32()
+            .expect("nsec bech32 encoding of a valid secret key"),
+    );
+    if let Some(token) = ws_token {
+        denylist.push(token.to_string());
+    }
+    if let Some(tag) = auth_tag {
+        if !tag.is_empty() {
+            denylist.push(tag);
+        }
+    }
+    denylist
 }
 
 /// Cache for the agent's owner pubkey.
@@ -1359,9 +1394,73 @@ async fn tokio_main() -> Result<()> {
 
     tracing::info!("buzz-acp starting: {}", config.summary());
 
-    let observer = config
-        .relay_observer
-        .then(observer::ObserverHandle::in_process);
+    // The observer bus feeds the encrypted relay publisher, the boot-scoped
+    // activity log, and the local hyper-acp WS stream; it exists when any
+    // consumer is enabled.
+    let observer = (config.relay_observer
+        || config.hyper_acp_listen.is_some()
+        || config.hyper_acp_log.is_some())
+    .then(observer::ObserverHandle::in_process);
+
+    // Protocol-crypto redaction for the hyper-acp side-channel: the tap and
+    // the activity log share one serialized line per event, redacted at the
+    // emit boundary. The encrypted relay path is untouched — it consumes the
+    // original ObserverEvent. Collected once; attached before the
+    // harness_started emit below so that very first event is covered.
+    if let Some(handle) = &observer {
+        handle.attach_redactor(Arc::new(hyper_acp::Redactor::new(
+            hyper_acp_redact_denylist(
+                &config.keys,
+                config.hyper_acp_ws_token.as_deref(),
+                std::env::var("BUZZ_AUTH_TAG")
+                    .ok()
+                    .filter(|t| !t.is_empty()),
+            ),
+        )));
+    }
+
+    // Boot-scoped activity log (HYPER_ACP_LOG). Attach BEFORE
+    // the harness_started emit so that event is recorded too; the WS replay
+    // source below reads the same boot session.
+    let mut activity_log: Option<hyper_acp::ActivityLog> = None;
+    let mut replay_source = None;
+    if let (Some(handle), Some(path)) = (&observer, config.hyper_acp_log.as_ref()) {
+        match hyper_acp::ActivityLog::open(path) {
+            Ok(log) => {
+                handle.attach_activity_log(log.handle());
+                replay_source = Some(log.replay_source());
+                activity_log = Some(log);
+            }
+            Err(error) => {
+                tracing::warn!(%error, path = %path.display(),
+                    "activity log disabled: open failed");
+            }
+        }
+    }
+
+    // Hyper-ACP WS listener (HYPER_ACP_WS_LISTEN) with app-level
+    // connect auth: HYPER_ACP_WS_TOKEN gates clients (bearer header or
+    // first-frame {"type":"auth"}), HYPER_ACP_CORS_ORIGIN optionally
+    // allowlists browser origins. The tap attaches before the
+    // harness_started emit so that event reaches live clients too.
+    let mut hyper_acp_task = None;
+    if let (Some(handle), Some(addr)) = (&observer, config.hyper_acp_listen) {
+        let tap = Arc::new(hyper_acp::Tap::new(hyper_acp::HYPER_ACP_BROADCAST_CAP));
+        handle.attach_hyper_acp(tap.clone());
+        let auth = hyper_acp::AuthPolicy {
+            token: config.hyper_acp_ws_token.clone(),
+            cors_origins: config.hyper_acp_cors_origins.clone(),
+        };
+        hyper_acp_task =
+            match hyper_acp::bind_and_spawn(addr, tap, auth, replay_source.clone()).await {
+                Ok((_bound, task)) => Some(task),
+                Err(error) => {
+                    tracing::warn!(%error, %addr, "hyper-acp listener disabled: bind failed");
+                    None
+                }
+            };
+    }
+
     if let Some(handle) = &observer {
         handle.emit(
             "harness_started",
@@ -2833,6 +2932,13 @@ async fn tokio_main() -> Result<()> {
 
     if let Some(handle) = relay_observer_publisher_task.take() {
         handle.abort();
+    }
+    if let Some(handle) = hyper_acp_task.take() {
+        handle.abort();
+    }
+    // Flush the activity log's final batch (bounded; aborts on timeout).
+    if let Some(log) = activity_log.take() {
+        log.shutdown().await;
     }
 
     // Graceful relay shutdown — sends WebSocket close frame and waits up to 5s
@@ -5269,6 +5375,10 @@ mod build_mcp_servers_tests {
             persona_env_vars: vec![],
             has_generated_codex_config: false,
             relay_observer: false,
+            hyper_acp_listen: None,
+            hyper_acp_log: None,
+            hyper_acp_ws_token: None,
+            hyper_acp_cors_origins: vec![],
             exit_after_inactivity_secs: 0,
             lazy_pool: false,
             agent_owner: None,
@@ -5493,6 +5603,10 @@ mod error_outcome_emission_tests {
             persona_env_vars: vec![],
             has_generated_codex_config: false,
             relay_observer: false,
+            hyper_acp_listen: None,
+            hyper_acp_log: None,
+            hyper_acp_ws_token: None,
+            hyper_acp_cors_origins: vec![],
             exit_after_inactivity_secs: 0,
             lazy_pool: false,
             agent_owner: None,

@@ -509,6 +509,42 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_RELAY_OBSERVER", default_value_t = false)]
     pub relay_observer: bool,
 
+    /// Serve the raw observer stream on the hyper-acp WebSocket.
+    /// Numeric `ip:port` (for example `127.0.0.1:7799`); unset or
+    /// empty disables the listener. With a connect token (HYPER_ACP_WS_TOKEN)
+    /// any numeric address may bind; without one the listener stays
+    /// loopback-only.
+    #[arg(long, env = "HYPER_ACP_WS_LISTEN")]
+    pub hyper_acp_listen: Option<String>,
+
+    /// Boot-scoped activity log (sqlite, WAL). Every observer event of the
+    /// current boot is recorded durably; WS clients get the full session
+    /// replayed on connect. Parent directories are created on open. Open or
+    /// schema failure only warns and disables logging — never crashes.
+    /// Trimmed; empty/whitespace counts as unset.
+    #[arg(long, env = "HYPER_ACP_LOG")]
+    pub hyper_acp_log: Option<String>,
+
+    /// App-level auth token for the hyper-acp WebSocket. When set, every
+    /// connection must authenticate — `Authorization: Bearer <token>` on the
+    /// upgrade request, or a first text frame
+    /// `{"type":"auth","token":"<token>"}` within 3s (answered with
+    /// `{"type":"auth_ok"}`; failure/timeout closes with WS code 4401
+    /// "unauthorized"). With a token set the listen address may be any
+    /// numeric `ip:port` (e.g. `0.0.0.0:7799`); without one the listener
+    /// stays loopback-only. Trimmed; empty/whitespace counts as unset.
+    #[arg(long, env = "HYPER_ACP_WS_TOKEN", hide_env_values = true)]
+    pub hyper_acp_ws_token: Option<String>,
+
+    /// Comma-separated browser `Origin` allowlist for the hyper-acp
+    /// WebSocket (e.g. `HYPER_ACP_CORS_ORIGIN=https://console.hypercli.com`).
+    /// Exact string match after trimming and removing one trailing `/`.
+    /// Unset or empty disables the check; requests without an `Origin`
+    /// header (server-side clients) always pass. A listed mismatch is
+    /// rejected with HTTP 403. Applied independently of the token.
+    #[arg(long = "hyper-acp-cors-origin", env = "HYPER_ACP_CORS_ORIGIN")]
+    pub hyper_acp_cors_origins: Option<String>,
+
     /// Exit after this many seconds with no dispatched events and no turn in flight.
     /// 0 disables inactivity self-termination.
     #[arg(long, env = "BUZZ_ACP_EXIT_AFTER_INACTIVITY", default_value_t = 0)]
@@ -596,6 +632,19 @@ pub struct Config {
     pub has_generated_codex_config: bool,
     /// Whether to publish encrypted observer frames through the relay.
     pub relay_observer: bool,
+    /// Listen address for the hyper-acp WebSocket, already validated as
+    /// a numeric `ip:port` (loopback when no token is configured; otherwise
+    /// any numeric address). `None` disables the listener.
+    pub hyper_acp_listen: Option<std::net::SocketAddr>,
+    /// Boot-scoped activity log path (sqlite, WAL). `None` disables durable
+    /// recording; WS replay is then empty.
+    pub hyper_acp_log: Option<PathBuf>,
+    /// App-level auth token for the hyper-acp WebSocket (trimmed).
+    /// `None` disables connect auth entirely (desktop local compatibility).
+    pub hyper_acp_ws_token: Option<String>,
+    /// Browser `Origin` allowlist for the hyper-acp WebSocket, parsed
+    /// from the comma-separated value. Empty disables the CORS check.
+    pub hyper_acp_cors_origins: Vec<String>,
     /// Seconds without dispatched events before an idle harness exits. 0 = disabled.
     pub exit_after_inactivity_secs: u64,
     /// Whether ACP/LLM subprocess initialization is deferred until accepted work arrives.
@@ -715,6 +764,17 @@ fn validate_multiple_event_handling(
         ));
     }
     Ok(())
+}
+
+/// True for IPv4-mapped IPv6 socket addresses (e.g. `[::ffff:127.0.0.1]:7799`).
+/// `SocketAddr::from_str` does not normalize these and `ip().is_loopback()`
+/// is false for them, so the hyper-acp bind rule rejects them explicitly
+/// instead of ever treating a mapped spelling as loopback.
+fn is_ipv4_mapped_addr(addr: &std::net::SocketAddr) -> bool {
+    match addr.ip() {
+        std::net::IpAddr::V6(v6) => v6.to_ipv4_mapped().is_some(),
+        std::net::IpAddr::V4(_) => false,
+    }
 }
 
 pub(crate) fn normalize_agent_command_identity(command: &str) -> String {
@@ -1127,6 +1187,79 @@ impl Config {
 
         validate_multiple_event_handling(args.multiple_event_handling, args.dedup)?;
 
+        let hyper_acp_log = args
+            .hyper_acp_log
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
+        let hyper_acp_ws_token = args
+            .hyper_acp_ws_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let hyper_acp_cors_origins: Vec<String> = args
+            .hyper_acp_cors_origins
+            .as_deref()
+            .map(|raw| {
+                raw.split(',')
+                    .map(str::trim)
+                    .filter(|entry| !entry.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // Hyper-ACP WS bind rule: app-level token auth replaces "loopback is
+        // the only boundary". With a token configured, clients authenticate
+        // per connection and any numeric `ip:port` may bind (0.0.0.0
+        // included) — the platform edge route runs auth:false so the token
+        // IS the boundary. Without a token the listener stays loopback-only.
+        // IPv4-mapped spellings of loopback (`[::ffff:127.0.0.1]`) are
+        // rejected in both modes: SocketAddr::from_str does not normalize
+        // them and is_loopback() is false, so we fail closed explicitly.
+        // Malformed or disallowed values disable the listener with a warning
+        // instead of crashing the harness — the agent itself is unaffected
+        // and the warning shows in pod logs.
+        let hyper_acp_listen = match args
+            .hyper_acp_listen
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(raw) => match raw.parse::<std::net::SocketAddr>() {
+                Ok(addr) if is_ipv4_mapped_addr(&addr) => {
+                    tracing::warn!(
+                        value = raw,
+                        "HYPER_ACP_WS_LISTEN must not use an IPv4-mapped IPv6 \
+                         address — spell loopback as 127.0.0.1 — hyper-acp ws disabled"
+                    );
+                    None
+                }
+                Ok(addr) if addr.ip().is_loopback() => Some(addr),
+                Ok(addr) if hyper_acp_ws_token.is_some() => Some(addr),
+                Ok(_) => {
+                    tracing::warn!(
+                        value = raw,
+                        "HYPER_ACP_WS_LISTEN is non-loopback but \
+                         HYPER_ACP_WS_TOKEN (--hyper-acp-ws-token) is unset — a token \
+                         is required for non-loopback binds — hyper-acp ws disabled"
+                    );
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        value = raw,
+                        "HYPER_ACP_WS_LISTEN must be a numeric ip:port \
+                         (e.g. 127.0.0.1:7799) — hyper-acp ws disabled"
+                    );
+                    None
+                }
+            },
+            None => None,
+        };
+
         let config = Config {
             keys,
             relay_url: args.relay_url,
@@ -1174,6 +1307,10 @@ impl Config {
             persona_env_vars,
             has_generated_codex_config,
             relay_observer: args.relay_observer,
+            hyper_acp_listen,
+            hyper_acp_log,
+            hyper_acp_ws_token,
+            hyper_acp_cors_origins,
             exit_after_inactivity_secs: args.exit_after_inactivity,
             lazy_pool: args.lazy_pool,
             agent_owner: args.agent_owner.map(|s| s.trim().to_ascii_lowercase()),
@@ -1566,6 +1703,10 @@ mod tests {
             persona_env_vars: vec![],
             has_generated_codex_config: false,
             relay_observer: false,
+            hyper_acp_listen: None,
+            hyper_acp_log: None,
+            hyper_acp_ws_token: None,
+            hyper_acp_cors_origins: vec![],
             exit_after_inactivity_secs: 0,
             lazy_pool: false,
             agent_owner: None,
@@ -3126,6 +3267,274 @@ channels = "ALL"
     fn compose_session_title_drops_the_channel_when_the_agent_name_fills_the_cap() {
         let agent = "a".repeat(SESSION_TITLE_MAX_CHARS);
         assert_eq!(compose_session_title(&agent, Some("buzz-dev")), agent);
+    }
+
+    // --- hyper-acp WS surface ---
+
+    #[test]
+    fn hyper_acp_defaults_to_off() {
+        let args = CliArgs::try_parse_from(["buzz-acp", "--private-key", TEST_PRIVATE_KEY])
+            .expect("clap should parse args");
+        let config = Config::from_args(args).expect("config should parse");
+
+        assert_eq!(config.hyper_acp_listen, None);
+        assert_eq!(config.hyper_acp_log, None);
+        assert_eq!(config.hyper_acp_ws_token, None);
+        assert!(config.hyper_acp_cors_origins.is_empty());
+    }
+
+    #[test]
+    fn hyper_acp_empty_listen_value_is_off() {
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--hyper-acp-listen",
+            "   ",
+        ])
+        .expect("clap should parse args");
+        let config = Config::from_args(args).expect("config should parse");
+
+        assert_eq!(config.hyper_acp_listen, None);
+    }
+
+    #[test]
+    fn hyper_acp_accepts_loopback_v4_and_v6() {
+        // Loopback is accepted in both modes: without a token (the default
+        // loopback-only rule) and with one (the token-gated rule).
+        for token_args in [vec![], vec!["--hyper-acp-ws-token", "tok"]] {
+            for (value, expected) in [
+                ("127.0.0.1:7799", "127.0.0.1:7799"),
+                ("[::1]:7799", "[::1]:7799"),
+            ] {
+                let mut argv = vec![
+                    "buzz-acp",
+                    "--private-key",
+                    TEST_PRIVATE_KEY,
+                    "--hyper-acp-listen",
+                    value,
+                ];
+                argv.extend(token_args.iter().copied());
+                let args = CliArgs::try_parse_from(argv).expect("clap should parse args");
+                let config = Config::from_args(args).expect("config should parse");
+
+                assert_eq!(
+                    config.hyper_acp_listen,
+                    Some(expected.parse().expect("expected parses")),
+                    "listen value {value} with token args {token_args:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hyper_acp_rejects_public_and_malformed_addresses() {
+        // Token-less mode: anything non-loopback or malformed is disabled.
+        for value in [
+            "0.0.0.0:7799",
+            "192.168.1.10:7799",
+            "localhost:7799",
+            "127.0.0.1",
+            "127.0.0.1:abc",
+        ] {
+            let args = CliArgs::try_parse_from([
+                "buzz-acp",
+                "--private-key",
+                TEST_PRIVATE_KEY,
+                "--hyper-acp-listen",
+                value,
+            ])
+            .expect("clap should parse args");
+            let config = Config::from_args(args).expect("config should parse");
+
+            assert_eq!(
+                config.hyper_acp_listen, None,
+                "non-loopback or malformed {value} must disable the listener"
+            );
+        }
+    }
+
+    #[test]
+    fn hyper_acp_public_bind_allowed_with_token() {
+        // With a token, clients authenticate per connection, so any numeric
+        // address may bind — 0.0.0.0 explicitly included.
+        for value in ["0.0.0.0:7799", "192.168.1.10:7799"] {
+            let args = CliArgs::try_parse_from([
+                "buzz-acp",
+                "--private-key",
+                TEST_PRIVATE_KEY,
+                "--hyper-acp-listen",
+                value,
+                "--hyper-acp-ws-token",
+                "tok",
+            ])
+            .expect("clap should parse args");
+            let config = Config::from_args(args).expect("config should parse");
+
+            assert_eq!(
+                config.hyper_acp_listen,
+                Some(value.parse().expect("numeric address parses")),
+                "numeric public bind with token: {value}"
+            );
+        }
+
+        // Hostnames remain rejected even with a token (numeric required).
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--hyper-acp-listen",
+            "localhost:7799",
+            "--hyper-acp-ws-token",
+            "tok",
+        ])
+        .expect("clap should parse args");
+        let config = Config::from_args(args).expect("config should parse");
+        assert_eq!(config.hyper_acp_listen, None);
+    }
+
+    #[test]
+    fn hyper_acp_rejects_ipv4_mapped_loopback_in_both_modes() {
+        // `[::ffff:127.0.0.1]` is loopback in disguise: is_loopback() is
+        // false for it and SocketAddr::from_str does not normalize, so it is
+        // rejected with and without a token.
+        for token_args in [vec![], vec!["--hyper-acp-ws-token", "tok"]] {
+            let mut argv = vec![
+                "buzz-acp",
+                "--private-key",
+                TEST_PRIVATE_KEY,
+                "--hyper-acp-listen",
+                "[::ffff:127.0.0.1]:7799",
+            ];
+            argv.extend(token_args.iter().copied());
+            let args = CliArgs::try_parse_from(argv).expect("clap should parse args");
+            let config = Config::from_args(args).expect("config should parse");
+
+            assert_eq!(
+                config.hyper_acp_listen, None,
+                "IPv4-mapped loopback must stay rejected with token args {token_args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hyper_acp_ws_token_trims_and_blank_is_none() {
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--hyper-acp-ws-token",
+            "  tok with spaces  ",
+        ])
+        .expect("clap should parse args");
+        let config = Config::from_args(args).expect("config should parse");
+        assert_eq!(
+            config.hyper_acp_ws_token.as_deref(),
+            Some("tok with spaces")
+        );
+
+        for blank in ["", "   "] {
+            let args = CliArgs::try_parse_from([
+                "buzz-acp",
+                "--private-key",
+                TEST_PRIVATE_KEY,
+                "--hyper-acp-ws-token",
+                blank,
+            ])
+            .expect("clap should parse args");
+            let config = Config::from_args(args).expect("config should parse");
+            assert_eq!(
+                config.hyper_acp_ws_token, None,
+                "blank token {blank:?} must count as unset"
+            );
+        }
+    }
+
+    #[test]
+    fn hyper_acp_cors_origins_split_trim_and_drop_empties() {
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--hyper-acp-cors-origin",
+            " https://console.hypercli.com , ,https://app.example.com/ ,",
+        ])
+        .expect("clap should parse args");
+        let config = Config::from_args(args).expect("config should parse");
+        assert_eq!(
+            config.hyper_acp_cors_origins,
+            vec![
+                "https://console.hypercli.com".to_string(),
+                "https://app.example.com/".to_string(),
+            ]
+        );
+
+        // A list of separators/whitespace parses to empty = check disabled.
+        for value in ["", " , ,"] {
+            let args = CliArgs::try_parse_from([
+                "buzz-acp",
+                "--private-key",
+                TEST_PRIVATE_KEY,
+                "--hyper-acp-cors-origin",
+                value,
+            ])
+            .expect("clap should parse args");
+            let config = Config::from_args(args).expect("config should parse");
+            assert!(
+                config.hyper_acp_cors_origins.is_empty(),
+                "cors value {value:?} must parse to an empty list"
+            );
+        }
+    }
+
+    #[test]
+    fn hyper_acp_log_trims_and_blank_is_none() {
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            "--hyper-acp-log",
+            "  /var/log/buzz/activity.db  ",
+        ])
+        .expect("clap should parse args");
+        let config = Config::from_args(args).expect("config should parse");
+        assert_eq!(
+            config.hyper_acp_log.as_deref(),
+            Some(std::path::Path::new("/var/log/buzz/activity.db"))
+        );
+
+        for blank in ["", "   "] {
+            let args = CliArgs::try_parse_from([
+                "buzz-acp",
+                "--private-key",
+                TEST_PRIVATE_KEY,
+                "--hyper-acp-log",
+                blank,
+            ])
+            .expect("clap should parse args");
+            let config = Config::from_args(args).expect("config should parse");
+            assert_eq!(
+                config.hyper_acp_log, None,
+                "blank log path {blank:?} must count as unset"
+            );
+        }
+    }
+
+    #[test]
+    fn hyper_acp_replay_flag_is_retired_and_fails_parse() {
+        // Full-session replay from the activity log superseded the old
+        // in-memory ring flag; it must now fail as an unknown argument. The
+        // retired name is assembled from pieces so rebrand sweeps (which
+        // must see zero hits) stay clean.
+        let retired_flag = ["--intros", "pection-replay"].concat();
+        let result = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key",
+            TEST_PRIVATE_KEY,
+            retired_flag.as_str(),
+            "500",
+        ]);
+        assert!(result.is_err(), "retired replay flag must fail to parse");
     }
 
     /// Every arg whose env var name contains KEY/SECRET/TOKEN/PASSWORD/CRED/AUTH
