@@ -1722,7 +1722,7 @@ describe("ChatMessageBubble", () => {
     expect(container.innerHTML).not.toContain("destructive");
   });
 
-  it("labels completed tool groups with failures as completed with issues", () => {
+  it("labels completed tool groups with failures as completed with notes", () => {
     const { container } = render(
       <ChatMessageBubble
         message={{
@@ -1740,8 +1740,8 @@ describe("ChatMessageBubble", () => {
     );
 
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
-    expect(stackButton).toHaveTextContent("Completed with issues");
-    expect(stackButton).toHaveTextContent("1 of 4 needs review");
+    expect(stackButton).toHaveTextContent("Completed with notes");
+    expect(stackButton).toHaveTextContent("1 of 4 has a note");
     expect(stackButton).not.toHaveTextContent("Failed");
     expect(container.innerHTML).not.toContain("destructive");
   });

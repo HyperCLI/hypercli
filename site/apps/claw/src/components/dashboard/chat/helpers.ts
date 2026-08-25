@@ -585,10 +585,10 @@ export function buildToolCallStackView(
   const stackStatus = deriveToolCallStackStatus(toolCalls, options);
   const allReturned = returnedCount === toolCalls.length;
   const progressText = allReturned
-    ? (failedCount > 0 ? `${failedCount} of ${toolCalls.length} ${failedCount === 1 ? "needs" : "need"} review` : "")
+    ? (failedCount > 0 ? `${failedCount} of ${toolCalls.length} ${failedCount === 1 ? "has a note" : "have notes"}` : "")
     : `${returnedCount}/${toolCalls.length} returned`;
   const statusLabel = allReturned && failedCount > 0
-    ? "Completed with issues"
+    ? "Completed with notes"
     : toolCallStatusLabel(stackStatus.status);
 
   return {

@@ -61,7 +61,7 @@ describe("ToolCallStack", () => {
     expect(screen.queryByText(/0\/4 returned/)).not.toBeInTheDocument();
   });
 
-  it("marks a completed stack with a failed tool as completed with issues", () => {
+  it("marks a completed stack with a failed tool as completed with notes", () => {
     const failedToolCalls = toolCalls.map((toolCall, index) => (
       index === toolCalls.length - 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
     ));
@@ -69,12 +69,12 @@ describe("ToolCallStack", () => {
     render(<ToolCallStack toolCalls={failedToolCalls} themeVariant="off" />);
 
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
-    expect(stackButton).toHaveTextContent("Completed with issues");
-    expect(stackButton).toHaveTextContent("1 of 4 needs review");
+    expect(stackButton).toHaveTextContent("Completed with notes");
+    expect(stackButton).toHaveTextContent("1 of 4 has a note");
     expect(stackButton).not.toHaveTextContent("Failed");
   });
 
-  it("keeps completed-with-issues copy when a successful tool follows a failure", () => {
+  it("keeps completed-with-notes copy when a successful tool follows a failure", () => {
     const recoveredToolCalls = toolCalls.map((toolCall, index) => (
       index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
     ));
@@ -82,8 +82,8 @@ describe("ToolCallStack", () => {
     render(<ToolCallStack toolCalls={recoveredToolCalls} themeVariant="off" />);
 
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
-    expect(stackButton).toHaveTextContent("Completed with issues");
-    expect(stackButton).toHaveTextContent("1 of 4 needs review");
+    expect(stackButton).toHaveTextContent("Completed with notes");
+    expect(stackButton).toHaveTextContent("1 of 4 has a note");
   });
 
   it("uses no destructive classes for completed stacks that need review", () => {
