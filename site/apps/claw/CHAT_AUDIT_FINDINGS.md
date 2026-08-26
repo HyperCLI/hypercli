@@ -199,19 +199,29 @@ Primary source references:
 
 ### P2-3 Crowded mobile composer
 
-Status: `OPEN`
+Status: `DONE` (2026-08-26)
 
-- [ ] Increase important mobile composer controls toward the 44 CSS pixel
+- [x] Increase important mobile composer controls toward the 44 CSS pixel
       platform recommendation.
-- [ ] Keep every line of a long draft reachable and unobscured by the action
+- [x] Keep every line of a long draft reachable and unobscured by the action
       row.
-- [ ] Add narrow mobile, multiline, sending, and 200 percent text snapshots.
+- [x] Add narrow mobile, multiline, sending, and 200 percent text snapshots.
+
+Resolution: Mobile composer controls now have a 44-by-44 CSS pixel minimum and
+participate in layout below the textarea instead of covering draft text. Drafts
+still grow to 160 pixels, then switch to vertical scrolling so every line stays
+reachable. Component regressions cover idle, sending, and externally updated
+long drafts; deterministic Chromium and WebKit snapshots cover narrow mobile,
+the final lines of a multiline draft, active sending, and 200 percent text.
 
 Primary source references:
 
 - `site/apps/claw/src/components/dashboard/agents/AgentChatPanel.tsx:482`
 - `site/apps/claw/src/components/dashboard/agents/AgentChatPanel.tsx:1133`
-- `site/apps/claw/src/components/dashboard/agents/AgentChatComposerShell.tsx:23`
+- `site/apps/claw/src/components/dashboard/agents/AgentChatComposerShell.tsx:5`
+- `site/apps/claw/src/components/dashboard/agents/AgentChatPanel.test.tsx:1401`
+- `site/tests/claw/agent-chat-composer.mobile.spec.ts:25`
+- `site/tests/claw/agent-chat-composer.mobile.spec.ts-snapshots`
 
 ## P3 - Follow-up
 

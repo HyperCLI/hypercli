@@ -1395,7 +1395,7 @@ describe("AgentChatPanel", () => {
     const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" });
     expect(compactTrigger.parentElement).not.toHaveClass("hidden", "sm:hidden");
     expect(within(compactTrigger).getByText("Medium")).not.toHaveClass("hidden");
-    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("max-sm:pb-18", "max-sm:pr-5", "sm:pr-76");
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toHaveClass("pr-5", "sm:pr-76");
   });
 
   it("keeps mobile model and attachment controls directly available", () => {
@@ -1421,6 +1421,15 @@ describe("AgentChatPanel", () => {
     expect(compactTrigger.parentElement).not.toHaveClass("hidden", "sm:hidden");
     const voiceTrigger = screen.getByRole("button", { name: "Record voice message" });
     const attachmentTrigger = screen.getByRole("button", { name: "Attach file" });
+    const sendTrigger = screen.getByRole("button", { name: "Send message" });
+    const mobileControlRow = screen.getByTestId("agent-chat-composer-region");
+    expect(mobileControlRow).toHaveClass(
+      "max-sm:[&_button]:min-h-[44px]",
+      "max-sm:[&_button]:min-w-[44px]",
+    );
+    for (const trigger of [attachmentTrigger, voiceTrigger, sendTrigger]) {
+      expect(mobileControlRow).toContainElement(trigger);
+    }
     expect(attachmentTrigger.parentElement).toBe(voiceTrigger.parentElement);
     expect(compactTrigger.parentElement?.parentElement).toBe(attachmentTrigger.parentElement?.parentElement);
     fireEvent.click(attachmentTrigger);
@@ -1428,6 +1437,35 @@ describe("AgentChatPanel", () => {
     expect(fileInputClick).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Open message tools" })).not.toBeInTheDocument();
     fileInputClick.mockRestore();
+  });
+
+  it("keeps mobile composer controls usable while a reply is sending", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        backend: "openclaw",
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        input: "Continue with the responsive review",
+        activeSessionThinkingLevels: [{ id: "medium", label: "Medium" }],
+        activeSessionThinkingDefault: "medium",
+      }),
+      isSelectedRunning: true,
+    });
+
+    const stopTrigger = screen.getByRole("button", { name: "Stop reply" });
+    const mobileControlRow = screen.getByTestId("agent-chat-composer-region");
+    expect(mobileControlRow).toHaveClass(
+      "max-sm:[&_button]:min-h-[44px]",
+      "max-sm:[&_button]:min-w-[44px]",
+    );
+    expect(mobileControlRow).toContainElement(stopTrigger);
+    expect(mobileControlRow).toContainElement(screen.getByRole("button", { name: "Attach file" }));
+    expect(mobileControlRow).toContainElement(screen.getByRole("button", { name: "Send message" }));
+    expect(screen.getByRole("textbox", { name: /message agent/i })).not.toHaveClass("max-sm:min-h-28");
   });
 
   it("reserves a mobile composer footer for model and send controls", () => {
@@ -1446,13 +1484,15 @@ describe("AgentChatPanel", () => {
     });
 
     const composer = screen.getByRole("textbox", { name: /message agent/i });
-    expect(composer).toHaveClass("max-sm:pb-18", "max-sm:pr-5", "sm:pr-76", "max-sm:min-h-24");
+    expect(composer).toHaveClass("pr-5", "sm:pr-76");
+    expect(composer).not.toHaveClass("max-sm:pb-18", "max-sm:min-h-24");
 
     const compactTrigger = screen.getByRole("button", { name: "Variant: Medium, model: Choose model" });
     const sendTrigger = screen.getByRole("button", { name: "Send message" });
     const actionRail = compactTrigger.parentElement?.parentElement;
     expect(sendTrigger.parentElement?.parentElement).toBe(actionRail);
-    expect(actionRail).toHaveClass("bottom-4", "left-3", "right-3", "justify-between", "sm:top-[calc(50%-3px)]");
+    expect(actionRail).toHaveClass("justify-between", "px-3", "pb-3", "pt-1", "sm:absolute", "sm:top-[calc(50%-3px)]");
+    expect(actionRail).not.toHaveClass("absolute", "bottom-4", "left-3", "right-3");
     expect(actionRail).not.toHaveClass("flex-col");
 
     const voiceTrigger = screen.getByLabelText("Clear text to record voice");
@@ -2139,6 +2179,7 @@ describe("AgentChatPanel", () => {
     Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
       configurable: true,
       get() {
+        if (this.value.includes("line twelve")) return 240;
         return this.value.includes("\n") ? 124 : 40;
       },
     });
@@ -2178,13 +2219,25 @@ describe("AgentChatPanel", () => {
 
       expect(textbox).toHaveValue("line one\nline two\nline three");
       expect(textbox).toHaveStyle({ height: "124px" });
+      expect(textbox).toHaveStyle({ overflowY: "hidden" });
+
+      const longDraft = [
+        ...Array.from({ length: 11 }, (_, index) => `line ${index + 1}`),
+        "line twelve",
+      ].join("\n");
+      await act(async () => {
+        setExternalInput?.(longDraft);
+      });
+
+      expect(textbox).toHaveValue(longDraft);
+      expect(textbox).toHaveStyle({ height: "160px", overflowY: "auto" });
 
       await act(async () => {
         setExternalInput?.("");
       });
 
       expect(textbox).toHaveValue("");
-      expect(textbox).toHaveStyle({ height: "40px" });
+      expect(textbox).toHaveStyle({ height: "40px", overflowY: "hidden" });
     } finally {
       if (originalScrollHeight) {
         Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", originalScrollHeight);

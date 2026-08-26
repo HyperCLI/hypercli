@@ -482,6 +482,7 @@ function ChatHistoryErrorState({ onRetry }: { onRetry: () => void }) {
 function resizeComposer(textarea: HTMLTextAreaElement): void {
   textarea.style.height = "auto";
   textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > 160 ? "auto" : "hidden";
 }
 
 function caretIsOnFirstLogicalLine(textarea: HTMLTextAreaElement): boolean {
@@ -1130,23 +1131,13 @@ export function AgentChatPanel({
   // rather than silently dropping user files. Unspecced sessions (legacy test
   // doubles) keep the openclaw behavior.
   const attachmentsAvailable = chat.backend !== "hermes";
-  const mobileComposerRightPadding = composerHasText ? "pr-12" : activeSessionSending ? "pr-40" : "pr-32";
   const desktopComposerRightPadding = modelMenuAvailable
     ? activeSessionSending ? "sm:pr-84" : "sm:pr-76"
     : activeSessionSending ? "sm:pr-40" : "sm:pr-32";
-  const composerRightPadding = modelMenuAvailable
-    ? `max-sm:pb-18 max-sm:pr-5 ${desktopComposerRightPadding}`
-    : `${mobileComposerRightPadding} ${desktopComposerRightPadding}`;
-  const composerMinHeight = modelMenuAvailable
-    ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-24"
-    : composerHasText
-      ? activeSessionSending ? "max-sm:min-h-28" : "max-sm:min-h-20"
-      : "";
+  const composerRightPadding = `pr-5 ${desktopComposerRightPadding}`;
   const composerActionsLayout = modelMenuAvailable
-    ? "bottom-4 left-3 right-3 justify-between sm:bottom-auto sm:left-auto sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
-    : composerHasText
-      ? "right-2 top-[calc(50%-3px)] -translate-y-1/2 max-sm:top-1/2 max-sm:flex-col"
-      : "right-2 top-[calc(50%-3px)] -translate-y-1/2";
+    ? "justify-between sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2"
+    : "justify-end sm:right-2 sm:top-[calc(50%-3px)] sm:-translate-y-1/2";
   const attachFileTooltip = chat.activeSessionReadOnly ? readOnlyComposerReason : "Attach file";
   const recordVoiceTooltip = chat.activeSessionReadOnly
     ? readOnlyComposerReason
@@ -1704,7 +1695,10 @@ export function AgentChatPanel({
                 })}
               </div>
             )}
-            <div className="flex gap-2 items-center">
+            <div
+              data-testid="agent-chat-composer-region"
+              className="flex items-center gap-2 max-sm:[&_button]:min-h-[44px] max-sm:[&_button]:min-w-[44px]"
+            >
               {recording ? (
                 <>
                   <div className="flex-1 flex items-center gap-3 bg-surface-low border border-destructive/30 rounded-lg px-3 py-2">
@@ -1762,6 +1756,7 @@ export function AgentChatPanel({
               ) : (
                 <AgentChatComposerShell
                     footer={emptyStateAppSuggestionsFooter}
+                    integratedControls
                     inputRef={textareaRef}
                     aria-label="Message agent"
                     data-testid="agent-chat-composer"
@@ -1917,7 +1912,7 @@ export function AgentChatPanel({
                     rows={1}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
-                    inputClassName={`disabled:opacity-50 ${composerRightPadding} ${composerMinHeight}`}
+                    inputClassName={`disabled:opacity-50 ${composerRightPadding}`}
                   >
                   {slashMenuOpen ? (
                     <AgentSlashCommandMenu
@@ -1978,7 +1973,7 @@ export function AgentChatPanel({
                       </div>
                     </div>
                   ) : null}
-                  <div className={`absolute flex items-center gap-1 ${composerActionsLayout}`}>
+                  <div className={`flex items-center gap-1 px-3 pb-3 pt-1 sm:absolute sm:p-0 ${composerActionsLayout}`}>
                     {modelMenuAvailable ? (
                       <div className="shrink-0">
                         <OpenClawModelMenu
