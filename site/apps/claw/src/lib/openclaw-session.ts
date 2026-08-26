@@ -258,12 +258,12 @@ export function handleOpenClawChatStreamEvent({
   const identity = streamChatMessageIdentity(chatEvent);
 
   if (chatEvent.type === "content") {
-    const cumulativeMessage = normalizeHistoryMessage(payload.message, { preserveBoundaryWhitespace: true });
-    const cumulativeText = cumulativeMessage?.role === "assistant"
-      ? cumulativeMessage.progress?.text ?? cumulativeMessage.content
-      : null;
-    const text = sanitizeChatDisplayText(cumulativeText || chatEvent.text || "");
-    const replaceContent = Boolean(cumulativeText) || chatEvent.replace === true;
+    const snapshotMessage = normalizeHistoryMessage(payload.message, { preserveBoundaryWhitespace: true });
+    const contentSnapshot = snapshotMessage?.role === "assistant"
+      ? snapshotMessage.progress?.text ?? snapshotMessage.content
+      : undefined;
+    const text = sanitizeChatDisplayText(chatEvent.text ?? "");
+    const replaceContent = chatEvent.replace === true;
     if (text || replaceContent) {
       setMessages((prev) => upsertAssistantMessage(
         prev,
@@ -271,6 +271,7 @@ export function handleOpenClawChatStreamEvent({
         {
           replaceContent,
           appendContent: !replaceContent,
+          ...(contentSnapshot !== undefined ? { contentSnapshot } : {}),
           startNewRound: true,
         },
       ));

@@ -1652,6 +1652,67 @@ describe("openclaw commentary session wiring", () => {
     });
   });
 
+  it("does not reseed completed tool rounds from cumulative chat snapshots", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { turnId: "turn-1", runId: "run-1", sessionKey: "main" };
+    const commentary = "Checking the requested files.\n";
+    const segments = ["The first file is valid.\n", "All checks passed."];
+    let cumulative = commentary;
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: commentary, replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: commentary,
+        ...identity,
+        data: { message: { role: "assistant", content: cumulative } },
+      } as any,
+    });
+
+    segments.forEach((segment, index) => {
+      const toolCallId = `tool-${index + 1}`;
+      handleOpenClawChatStreamEvent({
+        ...context,
+        chatEvent: {
+          type: "tool_call",
+          ...identity,
+          data: { toolCallId, name: "read", args: { path: `file-${index + 1}` } },
+        } as any,
+      });
+      handleOpenClawChatStreamEvent({
+        ...context,
+        chatEvent: {
+          type: "tool_result",
+          ...identity,
+          data: { toolCallId, name: "read", result: "ok" },
+        } as any,
+      });
+      cumulative += segment;
+      handleOpenClawChatStreamEvent({
+        ...context,
+        chatEvent: {
+          type: "content",
+          text: segment,
+          ...identity,
+          data: { message: { role: "assistant", content: cumulative } },
+        } as any,
+      });
+    });
+
+    const transcript = messages()
+      .map((message) => `${message.progress?.text ?? ""}${message.content}`)
+      .join("");
+    expect(messages()).toHaveLength(3);
+    expect(messages().map((message) => message.content)).toEqual(["", ...segments]);
+    expect(transcript).toBe(`${commentary}${segments.join("")}`);
+    expect(transcript.length).toBe(commentary.length + segments.reduce((length, segment) => length + segment.length, 0));
+    expect(messages().at(-1)?.content).not.toContain(commentary);
+  });
+
   it("keeps interrupted provider reasoning visible as incomplete", () => {
     const { context, messages } = createStreamContext();
     const identity = { messageId: "round-1", runId: "run-1", sessionKey: "main" };

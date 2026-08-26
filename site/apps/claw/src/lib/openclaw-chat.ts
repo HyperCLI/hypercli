@@ -1139,6 +1139,7 @@ function mergeToolCalls(
 interface AssistantUpsertOptions {
   replaceContent?: boolean;
   appendContent?: boolean;
+  contentSnapshot?: string;
   updateProgress?: "replace" | "append";
   updateReasoning?: "replace" | "append";
   startNewRound?: boolean;
@@ -1459,6 +1460,7 @@ function upsertAssistantMessage(
   if (options.startNewRound && sanitizedIncoming.content) {
     const correlationFields = ["messageId", "turnId", "runId", "clientTurnId", "renderId"] as const;
     const suppliedCorrelations = correlationFields.filter((field) => Boolean(sanitizedIncoming[field]));
+    let correlatedProgress: ChatMessage["progress"];
     let completedToolProgress: ChatMessage["progress"];
     for (let index = prev.length - 1; index >= 0; index -= 1) {
       const candidate = prev[index];
@@ -1468,12 +1470,21 @@ function upsertAssistantMessage(
       if (
         candidate?.role === "assistant" &&
         candidate.progress &&
-        candidate.toolCalls?.some((toolCall) => toolCall.result !== undefined) &&
         isCorrelated
       ) {
-        completedToolProgress = candidate.progress;
-        break;
+        correlatedProgress ??= candidate.progress;
+        if (candidate.toolCalls?.some((toolCall) => toolCall.result !== undefined)) {
+          completedToolProgress = candidate.progress;
+          break;
+        }
       }
+    }
+    if (
+      options.contentSnapshot &&
+      correlatedProgress &&
+      !stripAssistantProgressContent(options.contentSnapshot, correlatedProgress)
+    ) {
+      sanitizedIncoming = { ...sanitizedIncoming, content: "" };
     }
     if (completedToolProgress) {
       sanitizedIncoming = {

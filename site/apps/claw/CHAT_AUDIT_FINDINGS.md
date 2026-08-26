@@ -93,23 +93,30 @@ Primary source references:
 
 ### P1-1 Cumulative stream content duplicates across tool rounds
 
-Status: `OPEN`
+Status: `DONE`
 
-- [ ] Consume canonical normalized stream text instead of reseeding each round
+- [x] Consume canonical normalized stream text instead of reseeding each round
       from the full cumulative raw `payload.message`.
-- [ ] Preserve explicit round boundaries without reinserting prior content.
-- [ ] Add a multi-tool regression fixture with cumulative mirrored chat text.
-- [ ] Assert transcript growth is linear and the final answer contains no
+- [x] Preserve explicit round boundaries without reinserting prior content.
+- [x] Add a multi-tool regression fixture with cumulative mirrored chat text.
+- [x] Assert transcript growth is linear and the final answer contains no
       duplicated commentary prefix.
 
 Evidence: The probe produced 27 current progress rows, and the trailing 8,000
 transcript characters contained 186 copies of the same marker.
 
+Resolution: The session adapter now renders the SDK's normalized `text` and
+`replace` contract. Raw cumulative snapshots are comparison-only input for
+suppressing mirrored progress, so completed tool rounds receive only their
+canonical delta. The regression completes two tool calls against cumulative
+snapshots and proves each visible segment contributes to the transcript once.
+
 Primary source references:
 
 - `site/apps/claw/src/lib/openclaw-session.ts:260`
-- `site/apps/claw/src/lib/openclaw-chat.ts:1459`
-- `ts-sdk/src/openclaw/gateway.ts:5779`
+- `site/apps/claw/src/lib/openclaw-chat.ts:1460`
+- `site/apps/claw/src/lib/openclaw-session.test.ts:1655`
+- `ts-sdk/src/openclaw/gateway.ts:5978`
 
 ### P1-2 Multiple active live status regions
 
