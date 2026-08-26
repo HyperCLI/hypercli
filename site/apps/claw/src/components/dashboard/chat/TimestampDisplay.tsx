@@ -16,7 +16,7 @@ export function TimestampDisplay({ timestamp, variant, placement, isUser }: Time
   // v2: inside bubble after content
   if (variant === "v2" && placement === "inside") {
     return (
-      <div className={`text-[10px] text-text-muted/50 mt-2 pt-1.5 border-t border-border/20 ${isUser ? "text-right" : "text-left"}`}>
+      <div className={`mt-2 border-t border-border/20 pt-1.5 text-[10px] text-text-secondary ${isUser ? "text-right" : "text-left"}`}>
         {formatTime(timestamp)}
       </div>
     );

@@ -169,20 +169,33 @@ Primary source reference:
 
 ### P2-2 Light and dark theme contrast failures
 
-Status: `OPEN`
+Status: `DONE`
 
-- [ ] Raise message timestamp contrast from the observed `1.97:1` in light
+- [x] Raise message timestamp contrast from the observed `1.97:1` in light
       mode to at least `4.5:1`.
-- [ ] Raise roster status and time metadata contrast to at least `4.5:1`.
-- [ ] Raise the model label and Ready status contrast to at least `4.5:1`.
-- [ ] Add light and dark axe and visual coverage for the affected states.
+- [x] Raise roster status and time metadata contrast to at least `4.5:1`.
+- [x] Raise the model label and Ready status contrast to at least `4.5:1`.
+- [x] Add light and dark axe and visual coverage for the affected states.
+
+Evidence: Current token and surface calculations reproduced `1.96:1` for the
+light assistant timestamp, `2.88:1` for light roster time, `4.23:1` for the
+light compact model label, and `4.27:1` for the light Ready status. The
+translucent dark timestamp and roster time treatments also fell below `4.5:1`.
+
+Resolution: Claw now uses a stronger light secondary-text token and opaque
+secondary text for the affected metadata. A deterministic light/dark surface
+matrix enforces `4.5:1` across assistant and user timestamps, normal and
+selected roster rows, the compact model trigger, and the Ready chip. Component
+tests pair those checks with axe scans in both color modes.
 
 Primary source references:
 
+- `site/apps/claw/src/app/globals.css:67`
 - `site/apps/claw/src/components/dashboard/chat/TimestampDisplay.tsx:19`
-- `site/apps/claw/src/components/dashboard/AgentsChannelsSidebar.tsx:632`
-- `site/apps/claw/src/components/dashboard/agents/OpenClawModelMenu.tsx:217`
-- `site/apps/claw/src/components/dashboard/agents/page-helpers.tsx:149`
+- `site/apps/claw/src/components/dashboard/AgentsChannelsSidebar.tsx:630`
+- `site/apps/claw/src/components/dashboard/agents/OpenClawModelMenu.tsx:219`
+- `site/apps/claw/src/components/dashboard/agents/page-helpers.tsx:115`
+- `site/apps/claw/src/components/dashboard/metadata-contrast.test.ts:58`
 
 ### P2-3 Crowded mobile composer
 

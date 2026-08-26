@@ -627,7 +627,7 @@ function ThreadRow({
           )}
         </div>
         <div className="flex min-w-0 items-center gap-2">
-          <p className="agents-roster-agent-status min-w-0 flex-1 truncate text-[10px] font-normal leading-3 text-text-muted">
+          <p className="agents-roster-agent-status min-w-0 flex-1 truncate text-[10px] font-normal leading-3 text-text-secondary">
             {thread.lastMessage ? (
               <>
                 {showLastMessageSender ? <><span className="text-text-secondary">{lastMessageSender}:</span>{" "}</> : null}
@@ -638,7 +638,7 @@ function ThreadRow({
             )}
           </p>
           {!editing ? (
-            <span className={`ml-auto shrink-0 tabular-nums text-[10px] leading-3 text-text-muted/75 ${mobileMode && deleteAction ? "hidden" : "transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0"}`}>
+            <span className={`agents-roster-agent-time ml-auto shrink-0 tabular-nums text-[10px] leading-3 text-text-secondary ${mobileMode && deleteAction ? "hidden" : "transition-opacity group-hover/row:opacity-0 group-focus-within/row:opacity-0"}`}>
               {relativeTime(thread.lastMessageAt)}
             </span>
           ) : null}

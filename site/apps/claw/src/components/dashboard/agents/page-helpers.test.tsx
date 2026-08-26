@@ -1,8 +1,13 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
-import { AgentLaunchPrompt, AgentLoadingState, getAgentWorkspaceStatus } from "./page-helpers";
+import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, getAgentWorkspaceStatus } from "./page-helpers";
+
+afterEach(() => {
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-color-mode");
+});
 
 describe("getAgentWorkspaceStatus", () => {
   it("distinguishes cold gateway acquisition from a retained conversation", () => {
@@ -82,6 +87,22 @@ describe("getAgentWorkspaceStatus", () => {
       detail: "Gateway disconnected.",
       tone: "disconnected",
     });
+  });
+});
+
+describe("AgentStatusChip", () => {
+  it.each([
+    ["aurora-light", "light"],
+    ["aurora-dark", "dark"],
+  ] as const)("uses accessible Ready text in the %s theme", async (theme, mode) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.setAttribute("data-color-mode", mode);
+    const { container } = renderWithClient(
+      <AgentStatusChip status={{ label: "Ready", detail: "Agent is online.", tone: "ready" }} />,
+    );
+
+    expect(screen.getByLabelText("Ready: Agent is online.")).toHaveClass("text-text-secondary");
+    await expectNoA11yViolations(container);
   });
 });
 

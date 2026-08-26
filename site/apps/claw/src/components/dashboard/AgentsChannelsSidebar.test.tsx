@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { axe } from "jest-axe";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/dashboard/agents",
@@ -74,11 +74,15 @@ vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
 });
 
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks } from "./AgentsChannelsSidebar";
-import { beforeEach } from "vitest";
 
 beforeEach(() => {
   releaseBoundaryMock.knowledgeHubAvailable = false;
   releaseBoundaryMock.membersAvailable = false;
+});
+
+afterEach(() => {
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-color-mode");
 });
 
 describe("AgentsChannelsSidebar release-gated surfaces", () => {
@@ -368,17 +372,25 @@ describe("AgentsChannelsSidebar", () => {
     );
     const name = primaryRow?.querySelector(".agents-roster-agent-name");
     const status = primaryRow?.querySelector(".agents-roster-agent-status");
+    const time = primaryRow?.querySelector(".agents-roster-agent-time");
     const activity = primaryRow?.querySelector(".agents-roster-agent-activity");
     expect(name).toHaveClass("font-semibold");
     expect(status).toHaveTextContent("Connected");
-    expect(status).toHaveClass("text-[10px]", "font-normal", "text-text-muted");
+    expect(status).toHaveClass("text-[10px]", "font-normal", "text-text-secondary");
+    expect(time).toHaveClass("text-text-secondary");
+    expect(time).not.toHaveClass("text-text-muted/75");
     expect(activity).toHaveClass("h-2", "w-2");
     expect(activity?.previousElementSibling).toContainElement(name);
     expect(status?.nextElementSibling).toHaveClass("leading-3", "group-hover/row:opacity-0");
     expect(status?.nextElementSibling).not.toHaveClass("group-hover/row:hidden");
   });
 
-  it("keeps row actions and editing controls outside the selection button", async () => {
+  it.each([
+    ["aurora-light", "light"],
+    ["aurora-dark", "dark"],
+  ] as const)("keeps row actions and editing controls accessible in the %s theme", async (theme, mode) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.setAttribute("data-color-mode", mode);
     const onSelectThread = vi.fn();
     const { container } = render(
       <AgentsChannelsSidebar

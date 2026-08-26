@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { renderWithClient } from "@/test/utils";
+import { expectNoA11yViolations, renderWithClient } from "@/test/utils";
 import { OpenClawModelMenu } from "./OpenClawModelMenu";
 
 const originalScrollIntoView = Element.prototype.scrollIntoView;
@@ -18,6 +18,8 @@ afterEach(() => {
     configurable: true,
     value: originalScrollIntoView,
   });
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.removeAttribute("data-color-mode");
 });
 
 function buildChat(overrides: Partial<Parameters<typeof OpenClawModelMenu>[0]["chat"]> = {}) {
@@ -124,6 +126,23 @@ describe("OpenClawModelMenu", () => {
 
     await waitFor(() => expect(chat.setActiveSessionThinkingLevel).toHaveBeenCalledWith("off"));
     expect(chat.setActiveSessionModel).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["aurora-light", "light"],
+    ["aurora-dark", "dark"],
+  ] as const)("keeps the compact model label accessible in the %s theme", async (theme, mode) => {
+    document.documentElement.setAttribute("data-theme", theme);
+    document.documentElement.setAttribute("data-color-mode", mode);
+    const chat = buildChat({
+      activeSessionModel: "openai/gpt-5-mini",
+      activeSessionThinkingLevel: "medium",
+    });
+    const { container } = renderWithClient(<OpenClawModelMenu chat={chat} compactTrigger />);
+
+    const trigger = screen.getByRole("button", { name: "Variant: Medium, model: GPT-5 Mini" });
+    expect(within(trigger).getByText("Medium")).toHaveClass("text-text-secondary");
+    await expectNoA11yViolations(container);
   });
 
   it("lists and selects a model for the active conversation without search", async () => {

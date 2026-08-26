@@ -112,7 +112,7 @@ const AGENT_STATUS_CHIP_STYLES: Record<AgentStatusTone, { shell: string; dot: st
   ready: {
     shell: "border-selection-accent/25 bg-selection-accent/10",
     dot: "bg-selection-accent",
-    text: "text-selection-accent",
+    text: "text-text-secondary",
   },
   starting: {
     shell: "border-warning/25 bg-warning/10",
