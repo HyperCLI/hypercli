@@ -1854,19 +1854,23 @@ export function ChatThinkingIndicator({
   description,
   ariaLabel,
   descriptionOnHover = false,
+  appearance = "pill",
 }: {
   variant?: FeatureVariant;
   label?: string;
   description?: string;
   ariaLabel?: string;
   descriptionOnHover?: boolean;
+  appearance?: "pill" | "inline";
 } = {}) {
   void variant; // accepted for future style options
+  const inline = appearance === "inline";
   return (
     <motion.div
       role="status"
       aria-label={ariaLabel ?? label}
       aria-live="polite"
+      data-appearance={appearance}
       className="group relative flex w-fit max-w-full justify-start"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1883,18 +1887,23 @@ export function ChatThinkingIndicator({
       ) : null}
       <div
         tabIndex={description && descriptionOnHover ? 0 : undefined}
-        className="relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-primary/20 bg-surface-low/60 px-4 py-2.5 backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className={inline
+          ? "relative flex min-h-8 max-w-full items-center gap-2 rounded-sm py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          : "relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-primary/20 bg-surface-low/60 px-4 py-2.5 backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"}
       >
-        {/* Subtle shimmer background */}
-        <motion.div
-          aria-hidden
-          className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-primary/8 to-transparent"
-          animate={{ x: ["-100%", "100%"] }}
-          transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
-          style={{ width: "60%" }}
-        />
+        {inline ? (
+          <span aria-hidden="true" className="h-px w-4 shrink-0 bg-primary/60" />
+        ) : (
+          <motion.div
+            aria-hidden
+            className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-primary/8 to-transparent"
+            animate={{ x: ["-100%", "100%"] }}
+            transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
+            style={{ width: "60%" }}
+          />
+        )}
         <span className="min-w-0">
-          <span className="block text-xs font-medium text-text-secondary">{label}</span>
+          <span className={`block font-medium text-text-secondary ${inline ? "text-[13px]" : "text-xs"}`}>{label}</span>
           {description && !descriptionOnHover ? (
             <span
               aria-hidden="true"

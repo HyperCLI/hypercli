@@ -102,6 +102,7 @@ interface ActiveResponseStatusPresentation {
   label: string;
   description: string;
   ariaLabel: string;
+  appearance?: "pill" | "inline";
 }
 
 function formatResponseElapsed(elapsedMs: number): string {
@@ -162,9 +163,10 @@ function activeResponseStatusPresentation(
 
   if (completedTools > 0) {
     return {
-      label: "Waiting for final response",
+      label: "Preparing answer",
       description,
-      ariaLabel: "Waiting for the final response. Tool work is complete.",
+      ariaLabel: "Preparing answer. Tool work is complete and the response is still active.",
+      appearance: "inline",
     };
   }
 
@@ -207,14 +209,21 @@ function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
   }, []);
 
   const status = activeResponseStatusPresentation(messages, now, fallbackStartedAt);
-  return (
+  const indicator = (
     <MemoizedChatThinkingIndicator
       variant="v2"
       label={status.label}
       description={status.description}
       ariaLabel={status.ariaLabel}
       descriptionOnHover
+      appearance={status.appearance}
     />
+  );
+  if (status.appearance !== "inline") return indicator;
+  return (
+    <div data-testid="agent-chat-response-handoff" className="-mt-2 pl-9">
+      {indicator}
+    </div>
   );
 }
 

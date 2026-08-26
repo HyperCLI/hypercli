@@ -45,15 +45,22 @@ vi.mock("@/components/dashboard/ChatMessage", () => ({
     description,
     ariaLabel,
     descriptionOnHover,
+    appearance = "pill",
   }: {
     label?: string;
     description?: string;
     ariaLabel?: string;
     descriptionOnHover?: boolean;
+    appearance?: "pill" | "inline";
   }) => {
-    chatThinkingIndicatorMock({ label, description, ariaLabel, descriptionOnHover });
+    chatThinkingIndicatorMock({ label, description, ariaLabel, descriptionOnHover, appearance });
     return (
-      <div role="status" aria-label={ariaLabel ?? label} data-description-on-hover={descriptionOnHover || undefined}>
+      <div
+        role="status"
+        aria-label={ariaLabel ?? label}
+        data-appearance={appearance}
+        data-description-on-hover={descriptionOnHover || undefined}
+      >
         <span>{label}</span>
         {description ? <span>{description}</span> : null}
       </div>
@@ -3425,7 +3432,7 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.queryByRole("status", {
-      name: /starting response|still working|working through|using tools|receiving response|waiting for final response/i,
+      name: /starting response|still working|working through|using tools|receiving response|preparing answer/i,
     })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /stop reply/i })).not.toBeInTheDocument();
   });
@@ -3493,6 +3500,42 @@ describe("AgentChatPanel", () => {
     });
 
     expect(screen.getByRole("status", { name: /using tools/i })).toHaveTextContent("Still with you, working with care");
+  });
+
+  it("connects completed tool work to active answer preparation", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Research the latest options" },
+          {
+            role: "assistant",
+            content: "",
+            toolCalls: [{ name: "web_search", args: "{}", result: "Search complete" }],
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    const status = screen.getByRole("status", {
+      name: "Preparing answer. Tool work is complete and the response is still active.",
+    });
+    const handoff = screen.getByTestId("agent-chat-response-handoff");
+    expect(handoff).toContainElement(status);
+    expect(handoff).toHaveClass("-mt-2", "pl-9");
+    expect(status).toHaveTextContent("Preparing answer");
+    expect(status).toHaveAttribute("data-appearance", "inline");
+    expect(screen.queryByText("Waiting for final response")).not.toBeInTheDocument();
+    expect(chatThinkingIndicatorMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      label: "Preparing answer",
+      appearance: "inline",
+    }));
   });
 
   it("reports reasoning activity without exposing its contents", () => {

@@ -70,6 +70,25 @@ describe("ChatMessageBubble", () => {
     expect(status).not.toHaveAccessibleName(/25s/);
   });
 
+  it("renders an inline response handoff without detached pill chrome", () => {
+    render(
+      <ChatThinkingIndicator
+        label="Preparing answer"
+        description="Still with you, working with care"
+        ariaLabel="Preparing answer. The response is still active."
+        descriptionOnHover
+        appearance="inline"
+      />,
+    );
+
+    const status = screen.getByRole("status", { name: "Preparing answer. The response is still active." });
+    const surface = status.querySelector("[tabindex='0']");
+    expect(status).toHaveAttribute("data-appearance", "inline");
+    expect(surface).toHaveClass("min-h-8", "py-1");
+    expect(surface).not.toHaveClass("rounded-2xl", "border", "bg-surface-low/60", "backdrop-blur-sm");
+    expect(surface?.querySelector(".h-px")).toBeInTheDocument();
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     vi.mocked(getStoredToken).mockReturnValue(null);
