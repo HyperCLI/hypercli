@@ -365,6 +365,7 @@ function buildSlashCommands(): SlashCommand[] {
       category: "Chat",
       mode: "ui",
       Icon: Square,
+      isEnabled: ({ chat }) => chat.activeSessionSending ? true : "No reply is currently running.",
       run: async ({ chat, setStatus, close, showFeedback }) => {
         if (!chat.activeSessionSending) {
           setStatus("No reply is currently running.");

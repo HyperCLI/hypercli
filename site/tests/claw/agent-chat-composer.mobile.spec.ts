@@ -22,6 +22,48 @@ async function expectMobileTouchTargets(composerRegion: Locator): Promise<void> 
   }
 }
 
+test("keeps model popover ARIA controls valid across open and close", async ({ page }) => {
+  await installMockGateway(page, {
+    config: {
+      agents: { defaults: { model: { primary: "openai/gpt-5-mini" } } },
+      models: {
+        providers: {
+          openai: {
+            name: "OpenAI",
+            models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }],
+          },
+        },
+      },
+    },
+  });
+  await installAgentChatAuth(page);
+  await interceptAgentChatBackend(page, {
+    agentId: AGENT_ID,
+    hostname: AGENT_HOSTNAME,
+  });
+  await openAgentChatTab(page, AGENT_ID);
+
+  const trigger = page
+    .getByTestId("agent-chat-composer-region")
+    .getByRole("button", { name: /model: GPT-5 Mini$/ });
+  await expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  expect(await trigger.getAttribute("aria-controls")).toBeNull();
+
+  await trigger.click();
+  const menu = page.getByRole("dialog", { name: "Choose conversation model" });
+  await expect(menu).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const menuId = await trigger.getAttribute("aria-controls");
+  expect(menuId).toBeTruthy();
+  await expect(menu).toHaveAttribute("id", menuId ?? "");
+
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(() => trigger.getAttribute("aria-controls")).toBeNull();
+});
+
 test("keeps the mobile composer usable across crowded states", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await installMockGateway(page, {

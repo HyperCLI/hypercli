@@ -77,6 +77,7 @@ function thinkingLevelLabel(option: { id: string; label: string } | undefined, f
 }
 
 export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = false, onOpenSettings, onSelectionComplete, onRequestProductUse }: OpenClawModelMenuProps) {
+  const menuContentId = React.useId();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [addDialogOpen, setAddDialogOpen] = React.useState(false);
   const [providerValue, setProviderValue] = React.useState("");
@@ -211,6 +212,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
             type="button"
             disabled={disabled}
             aria-label={triggerAriaLabel}
+            aria-controls={menuOpen ? menuContentId : undefined}
             title={compactTrigger
               ? triggerVariant ? `${triggerVariant} variant, ${triggerLabel}` : `Choose variant for ${triggerLabel}`
               : triggerLabel}
@@ -223,6 +225,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
           </button>
         </PopoverTrigger>
         <PopoverContent
+          id={menuContentId}
           side="top"
           align="start"
           sideOffset={8}

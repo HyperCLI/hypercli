@@ -906,6 +906,7 @@ describe("AgentChatPanel", () => {
   });
 
   it("uses neutral composer copy while a retained gateway prepares the conversation", () => {
+    const sendMessage = vi.fn(async () => undefined);
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -915,15 +916,20 @@ describe("AgentChatPanel", () => {
         connecting: true,
         historyPhase: "loading",
         historyPending: true,
-        activeSessionCanSend: false,
+        activeSessionCanSend: true,
+        input: "Saved draft",
+        sendMessage,
         messages: [{ role: "assistant", content: "Saved answer", renderId: "saved-answer" }],
       }),
       isSelectedRunning: true,
     });
 
     expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
     expect(screen.getByPlaceholderText("Loading conversation...")).toBeInTheDocument();
     expect(screen.queryByPlaceholderText("Preparing chat...")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("keeps preparation copy while a cold gateway connection is opening", () => {
@@ -3355,7 +3361,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("status", { name: /stop requested/i })).toBeInTheDocument();
   });
 
-  it("does not let /stop abort a reply running in another session", async () => {
+  it("disables /stop when the active session has no reply to stop", async () => {
     const abortMessage = vi.fn(async () => undefined);
     renderAgentChatPanel({
       chat: buildChat({
@@ -3371,12 +3377,16 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
+    const stopCommand = screen.getByRole("option", { name: /\/stop/i });
+    expect(stopCommand).toHaveAttribute("aria-disabled", "true");
+    expect(stopCommand).toHaveTextContent("No reply is currently running.");
+
     await act(async () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
     });
 
     expect(abortMessage).not.toHaveBeenCalled();
-    expect(screen.getByText("No reply is currently running.")).toBeInTheDocument();
+    expect(screen.getAllByText("No reply is currently running.")).toHaveLength(2);
   });
 
   it("stops the current reply when Escape is pressed in the composer", () => {

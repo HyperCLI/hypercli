@@ -198,6 +198,7 @@ import {
 import {
   AgentLoadingState,
   getAgentWorkspaceStatus,
+  useRetainedAgentReadyExpiry,
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
@@ -3615,6 +3616,12 @@ function AgentsPageContent() {
     await refreshChatFileReferences().catch(() => undefined);
   }, [getAgentClient, refreshChatFileReferences, selectedAgentId]);
 
+  const retainedAgentReadyExpired = useRetainedAgentReadyExpiry({
+    scopeKey: isSelectedRunning ? selectedAgent?.id ?? null : null,
+    connected: chat.connected,
+    gatewayConnected: chat.gatewayConnected,
+  });
+
   const agentStatus = useMemo<AgentStatusChipModel | null>(() => {
     if (!selectedAgent) return null;
 
@@ -3703,6 +3710,7 @@ function AgentsPageContent() {
         gatewayConnected: chat.gatewayConnected,
         hydrating: chat.hydrating,
         conversation: mainTab === "chat",
+        retainedReadyExpired: retainedAgentReadyExpired,
       });
     }
     if (activeConnectionStatus === "connecting" || activeConnectionStatus === "reconnecting") {
@@ -3727,7 +3735,7 @@ function AgentsPageContent() {
       detail: panelLabel === "logs" ? "Runtime log stream connected." : panelLabel === "workspace" ? "Chat is available." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
       tone: "ready",
     };
-  }, [activeConnectionStatus, chat.connected, chat.connecting, chat.gatewayConnected, chat.hydrating, isSelectedRunning, mainTab, selectedAgent]);
+  }, [activeConnectionStatus, chat.connected, chat.connecting, chat.gatewayConnected, chat.hydrating, isSelectedRunning, mainTab, retainedAgentReadyExpired, selectedAgent]);
 
   // ── Agent inspector data wiring ──
 

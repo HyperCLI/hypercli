@@ -71,20 +71,52 @@ export interface AgentStatusChipModel {
   loading?: boolean;
 }
 
+export const RETAINED_AGENT_READY_GRACE_MS = 5_000;
+
+export function useRetainedAgentReadyExpiry({
+  scopeKey,
+  connected,
+  gatewayConnected,
+}: {
+  scopeKey: string | null;
+  connected: boolean;
+  gatewayConnected: boolean;
+}): boolean {
+  const retainingReady = scopeKey !== null && gatewayConnected && !connected;
+  const [expiredScopeKey, setExpiredScopeKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!retainingReady || scopeKey === null) {
+      const reset = window.setTimeout(() => setExpiredScopeKey(null), 0);
+      return () => window.clearTimeout(reset);
+    }
+
+    const timeout = window.setTimeout(
+      () => setExpiredScopeKey(scopeKey),
+      RETAINED_AGENT_READY_GRACE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [retainingReady, scopeKey]);
+
+  return retainingReady && expiredScopeKey === scopeKey;
+}
+
 export function getAgentWorkspaceStatus({
   connected,
   connecting,
   gatewayConnected,
   hydrating,
   conversation,
+  retainedReadyExpired,
 }: {
   connected: boolean;
   connecting: boolean;
   gatewayConnected: boolean;
   hydrating: boolean;
   conversation: boolean;
+  retainedReadyExpired: boolean;
 }): AgentStatusChipModel {
-  if (gatewayConnected || connected) {
+  if (connected || (gatewayConnected && !retainedReadyExpired)) {
     return {
       label: "Ready",
       detail: "Agent is online.",
@@ -93,9 +125,12 @@ export function getAgentWorkspaceStatus({
   }
 
   if (hydrating || connecting) {
+    const reconnecting = gatewayConnected && retainedReadyExpired;
     return {
-      label: "Preparing",
-      detail: conversation ? "Preparing the selected conversation." : "Preparing the selected workspace.",
+      label: reconnecting ? "Reconnecting" : "Preparing",
+      detail: reconnecting
+        ? conversation ? "Restoring the selected conversation." : "Restoring the selected workspace."
+        : conversation ? "Preparing the selected conversation." : "Preparing the selected workspace.",
       tone: "connecting",
       loading: true,
     };
@@ -103,7 +138,9 @@ export function getAgentWorkspaceStatus({
 
   return {
     label: "Disconnected",
-    detail: "Gateway disconnected.",
+    detail: gatewayConnected
+      ? conversation ? "Agent session is unavailable." : "Workspace connection is unavailable."
+      : "Gateway disconnected.",
     tone: "disconnected",
   };
 }
@@ -154,7 +191,6 @@ export function AgentStatusChip({ status }: { status: AgentStatusChipModel | nul
       <span
         className={`inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${styles.shell} ${styles.text}`}
         aria-label={`${status.label}: ${status.detail}`}
-        tabIndex={0}
       >
         {status.loading ? (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin" />

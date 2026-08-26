@@ -53,6 +53,27 @@ function buildChat(overrides: Partial<Parameters<typeof OpenClawModelMenu>[0]["c
 }
 
 describe("OpenClawModelMenu", () => {
+  it("only references the model menu while its content is mounted", async () => {
+    const chat = buildChat();
+    renderWithClient(<OpenClawModelMenu chat={chat} compactTrigger />);
+
+    const trigger = screen.getByRole("button", { name: "Variant: Off, model: GPT-5 Mini" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).not.toHaveAttribute("aria-controls");
+
+    fireEvent.click(trigger);
+    const menu = screen.getByRole("dialog", { name: "Choose conversation model" });
+    const menuId = trigger.getAttribute("aria-controls");
+    expect(menuId).toBeTruthy();
+    expect(menu).toHaveAttribute("id", menuId);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+      expect(trigger).not.toHaveAttribute("aria-controls");
+    });
+  });
+
   it("lists gateway variants and changes them independently from the model", async () => {
     const chat = buildChat({
       config: {

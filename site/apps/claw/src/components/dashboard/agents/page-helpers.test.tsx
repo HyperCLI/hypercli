@@ -1,10 +1,18 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, renderHook, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
-import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, getAgentWorkspaceStatus } from "./page-helpers";
+import {
+  AgentLaunchPrompt,
+  AgentLoadingState,
+  AgentStatusChip,
+  RETAINED_AGENT_READY_GRACE_MS,
+  getAgentWorkspaceStatus,
+  useRetainedAgentReadyExpiry,
+} from "./page-helpers";
 
 afterEach(() => {
+  vi.useRealTimers();
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.removeAttribute("data-color-mode");
 });
@@ -17,6 +25,7 @@ describe("getAgentWorkspaceStatus", () => {
       gatewayConnected: false,
       hydrating: false,
       conversation: true,
+      retainedReadyExpired: false,
     })).toMatchObject({
       label: "Preparing",
       detail: "Preparing the selected conversation.",
@@ -29,6 +38,7 @@ describe("getAgentWorkspaceStatus", () => {
       gatewayConnected: true,
       hydrating: true,
       conversation: true,
+      retainedReadyExpired: false,
     })).toMatchObject({
       label: "Ready",
       detail: "Agent is online.",
@@ -43,6 +53,7 @@ describe("getAgentWorkspaceStatus", () => {
       gatewayConnected: true,
       hydrating: true,
       conversation: false,
+      retainedReadyExpired: false,
     })).toMatchObject({
       label: "Ready",
       detail: "Agent is online.",
@@ -55,6 +66,7 @@ describe("getAgentWorkspaceStatus", () => {
       gatewayConnected: true,
       hydrating: false,
       conversation: false,
+      retainedReadyExpired: false,
     })).toMatchObject({
       label: "Ready",
       detail: "Agent is online.",
@@ -68,6 +80,7 @@ describe("getAgentWorkspaceStatus", () => {
       gatewayConnected: true,
       hydrating: true,
       conversation: true,
+      retainedReadyExpired: false,
     })).toMatchObject({
       label: "Ready",
       detail: "Agent is online.",
@@ -82,11 +95,88 @@ describe("getAgentWorkspaceStatus", () => {
       gatewayConnected: false,
       hydrating: false,
       conversation: true,
+      retainedReadyExpired: false,
     })).toEqual({
       label: "Disconnected",
       detail: "Gateway disconnected.",
       tone: "disconnected",
     });
+  });
+
+  it("bounds retained Ready and resets the grace period after recovery", () => {
+    vi.useFakeTimers();
+    const view = renderHook(({
+      connected,
+      connecting,
+      gatewayConnected,
+      hydrating,
+    }: {
+      connected: boolean;
+      connecting: boolean;
+      gatewayConnected: boolean;
+      hydrating: boolean;
+    }) => {
+      const retainedReadyExpired = useRetainedAgentReadyExpiry({
+        scopeKey: "agent-1",
+        connected,
+        gatewayConnected,
+      });
+      return getAgentWorkspaceStatus({
+        connected,
+        connecting,
+        gatewayConnected,
+        hydrating,
+        conversation: true,
+        retainedReadyExpired,
+      });
+    }, {
+      initialProps: {
+        connected: false,
+        connecting: true,
+        gatewayConnected: true,
+        hydrating: true,
+      },
+    });
+
+    try {
+      expect(view.result.current.label).toBe("Ready");
+
+      act(() => vi.advanceTimersByTime(RETAINED_AGENT_READY_GRACE_MS - 1));
+      expect(view.result.current.label).toBe("Ready");
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(view.result.current).toMatchObject({
+        label: "Reconnecting",
+        tone: "connecting",
+        loading: true,
+      });
+
+      view.rerender({
+        connected: true,
+        connecting: false,
+        gatewayConnected: true,
+        hydrating: false,
+      });
+      act(() => vi.advanceTimersByTime(0));
+      expect(view.result.current.label).toBe("Ready");
+
+      view.rerender({
+        connected: false,
+        connecting: false,
+        gatewayConnected: true,
+        hydrating: false,
+      });
+      expect(view.result.current.label).toBe("Ready");
+
+      act(() => vi.advanceTimersByTime(RETAINED_AGENT_READY_GRACE_MS));
+      expect(view.result.current).toMatchObject({
+        label: "Disconnected",
+        tone: "disconnected",
+      });
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -103,6 +193,20 @@ describe("AgentStatusChip", () => {
 
     expect(screen.getByLabelText("Ready: Agent is online.")).toHaveClass("text-text-secondary");
     await expectNoA11yViolations(container);
+  });
+
+  it("keeps static status text out of the keyboard tab order", async () => {
+    const user = userEvent.setup();
+    renderWithClient(
+      <>
+        <AgentStatusChip status={{ label: "Ready", detail: "Agent is online.", tone: "ready" }} />
+        <button type="button">Next action</button>
+      </>,
+    );
+
+    expect(screen.getByLabelText("Ready: Agent is online.")).not.toHaveAttribute("tabindex");
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Next action" })).toHaveFocus();
   });
 });
 
