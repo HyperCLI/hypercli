@@ -223,7 +223,7 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(thought).toHaveAttribute("open", "");
     await expect(thought).toHaveAttribute("aria-busy", "true");
     await expect(thought).toContainText(PROVIDER_THOUGHT);
-    await expect(page.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName("Thinking");
+    await expect(page.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName("Thoughts, active");
     await expect(page.getByRole("status", { name: /starting response|working through your request/i })).toHaveCount(0);
     await expect(page.locator(PROGRESS)).toHaveCount(0);
 
@@ -261,7 +261,7 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(thought).toHaveCount(1);
     await expect(thought).not.toHaveAttribute("open", "");
     const toggle = page.getByTestId("agent-assistant-reasoning-toggle");
-    await expect(toggle).toHaveAccessibleName("Thoughts");
+    await expect(toggle).toHaveAccessibleName("Thoughts, complete");
     await toggle.click();
     await expect(thought).toHaveAttribute("open", "");
     await expect(thought).toContainText(PROVIDER_THOUGHT);

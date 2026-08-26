@@ -2070,7 +2070,7 @@ describe("ChatMessageBubble", () => {
   });
 
   describe("assistant provider reasoning", () => {
-    it("keeps active thoughts open and live without using the commentary surface", () => {
+    it("opens active thoughts with a user-controlled disclosure", () => {
       render(
         <ChatMessageBubble
           message={{
@@ -2091,7 +2091,8 @@ describe("ChatMessageBubble", () => {
       expect(thought).toHaveAttribute("aria-busy", "true");
       expect(thought).toHaveAttribute("data-reasoning-state", "active");
       const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
-      expect(toggle).toHaveAccessibleName("Thinking");
+      expect(toggle).toHaveAccessibleName("Thoughts, active");
+      expect(toggle).not.toHaveAttribute("aria-disabled");
       expect(toggle.querySelector(".lucide-brain")).not.toBeInTheDocument();
       expect(screen.queryByTestId("agent-assistant-reasoning-logo")).not.toBeInTheDocument();
       expect(screen.getByTestId("agent-assistant-reasoning-label"))
@@ -2104,6 +2105,9 @@ describe("ChatMessageBubble", () => {
       expect(screen.getByText("Reasoning in progress")).toHaveClass("sr-only");
       expect(screen.queryByTestId("agent-assistant-progress")).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
+
+      fireEvent.click(toggle);
+      expect(thought).not.toHaveAttribute("open");
     });
 
     it("collapses settled thoughts and lets the user reopen the full text", () => {
@@ -2125,7 +2129,7 @@ describe("ChatMessageBubble", () => {
       const thought = screen.getByTestId("agent-assistant-reasoning");
       const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
       expect(thought).not.toHaveAttribute("open");
-      expect(toggle).toHaveAccessibleName("Thought for 3s");
+      expect(toggle).toHaveAccessibleName("Thoughts, completed in 3 seconds");
       expect(toggle).not.toHaveAttribute("aria-disabled");
       expect(screen.queryByTestId("agent-assistant-reasoning-logo")).not.toBeInTheDocument();
       expect(screen.getByTestId("agent-assistant-reasoning-label"))
@@ -2167,6 +2171,114 @@ describe("ChatMessageBubble", () => {
       expect(screen.getByText("Deployment is healthy.")).toBeInTheDocument();
     });
 
+    it("preserves the user's disclosure choice through streaming and completion", () => {
+      const { rerender } = render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "Checking the deployment", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      const thought = screen.getByTestId("agent-assistant-reasoning");
+      const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
+
+      fireEvent.click(toggle);
+      expect(thought).not.toHaveAttribute("open");
+      rerender(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "Checking the deployment and routes", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      expect(thought).not.toHaveAttribute("open");
+
+      fireEvent.click(toggle);
+      expect(thought).toHaveAttribute("open");
+      rerender(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "Deployment is healthy.",
+            reasoning: {
+              text: "Checking the deployment and routes",
+              state: "settled",
+              startedAt: 1,
+              completedAt: 2_001,
+            },
+          }}
+        />,
+      );
+      expect(thought).toHaveAttribute("open");
+    });
+
+    it("follows streaming thoughts only while the reader remains near the bottom", () => {
+      const { rerender } = render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "First thought", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      const content = screen.getByTestId("agent-assistant-reasoning-content");
+      Object.defineProperties(content, {
+        scrollHeight: { configurable: true, value: 300 },
+        clientHeight: { configurable: true, value: 100 },
+      });
+
+      content.scrollTop = 200;
+      fireEvent.scroll(content);
+      rerender(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "First thought\nSecond thought", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      expect(content.scrollTop).toBe(300);
+
+      content.scrollTop = 80;
+      fireEvent.scroll(content);
+      rerender(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "First thought\nSecond thought\nThird thought", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      expect(content.scrollTop).toBe(80);
+
+      content.scrollTop = 185;
+      fireEvent.scroll(content);
+      rerender(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "First thought\nSecond thought\nThird thought\nFourth thought", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      expect(content.scrollTop).toBe(300);
+      expect(content).toHaveClass("overscroll-contain");
+    });
+
     it("keeps interrupted thoughts expanded and marks them incomplete", () => {
       render(
         <ChatMessageBubble
@@ -2186,8 +2298,11 @@ describe("ChatMessageBubble", () => {
       const thought = screen.getByTestId("agent-assistant-reasoning");
       expect(thought).toHaveAttribute("open");
       expect(thought).toHaveAttribute("data-reasoning-state", "incomplete");
-      expect(screen.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName("Thoughts incomplete");
+      const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
+      expect(toggle).toHaveAccessibleName("Thoughts, incomplete");
       expect(screen.getByText("Comparing provider settings")).toBeVisible();
+      fireEvent.click(toggle);
+      expect(thought).not.toHaveAttribute("open");
     });
 
     it("renders tool-round content as commentary directly above its tool card", () => {

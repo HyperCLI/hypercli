@@ -1165,31 +1165,30 @@ function AssistantProgressNote({ progress }: { progress: NonNullable<ChatMessage
 }
 
 function reasoningLabel(reasoning: NonNullable<ChatMessageType["reasoning"]>): string {
-  if (reasoning.state === "active") return "Thinking";
-  if (reasoning.state === "incomplete") return "Thoughts incomplete";
+  if (reasoning.state === "active") return "Thoughts, active";
+  if (reasoning.state === "incomplete") return "Thoughts, incomplete";
   const durationMs = reasoning.completedAt === undefined ? 0 : reasoning.completedAt - reasoning.startedAt;
-  return durationMs >= 1_000 ? `Thought for ${Math.max(1, Math.round(durationMs / 1_000))}s` : "Thoughts";
+  if (durationMs < 1_000) return "Thoughts, complete";
+  const durationSeconds = Math.max(1, Math.round(durationMs / 1_000));
+  return `Thoughts, completed in ${durationSeconds} ${durationSeconds === 1 ? "second" : "seconds"}`;
 }
 
 function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<ChatMessageType["reasoning"]> }) {
   const contentRef = useRef<HTMLDivElement>(null);
-  const [userExpanded, setUserExpanded] = useState(false);
-  const forcedOpen = reasoning.state !== "settled";
-  const open = forcedOpen || userExpanded;
+  const autoFollowRef = useRef(true);
+  const [userOpen, setUserOpen] = useState<boolean | null>(null);
+  const open = userOpen ?? reasoning.state !== "settled";
   const label = reasoningLabel(reasoning);
 
   useEffect(() => {
-    if (reasoning.state !== "active" || !contentRef.current) return;
+    if (reasoning.state !== "active" || !open || !autoFollowRef.current || !contentRef.current) return;
     contentRef.current.scrollTop = contentRef.current.scrollHeight;
-  }, [reasoning.state, reasoning.text]);
+  }, [open, reasoning.state, reasoning.text]);
 
   return (
     <>
       <details
         open={open}
-        onToggle={(event) => {
-          if (!forcedOpen) setUserExpanded(event.currentTarget.open);
-        }}
         data-testid="agent-assistant-reasoning"
         data-reasoning-state={reasoning.state}
         aria-busy={reasoning.state === "active" || undefined}
@@ -1198,11 +1197,11 @@ function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<Ch
         <summary
           data-testid="agent-assistant-reasoning-toggle"
           aria-label={label}
-          aria-disabled={forcedOpen || undefined}
           onClick={(event) => {
-            if (forcedOpen) event.preventDefault();
+            event.preventDefault();
+            setUserOpen((current) => !(current ?? reasoning.state !== "settled"));
           }}
-          className={`flex min-h-8 w-fit max-w-full list-none items-center gap-1.5 rounded-sm font-medium outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden ${forcedOpen ? "cursor-default" : "cursor-pointer transition-colors hover:text-foreground"}`}
+          className="flex min-h-8 w-fit max-w-full cursor-pointer list-none items-center gap-1.5 rounded-sm font-medium outline-none transition-colors marker:hidden hover:text-foreground focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden"
         >
           <span
             data-testid="agent-assistant-reasoning-label"
@@ -1217,7 +1216,12 @@ function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<Ch
         </summary>
         <div
           ref={contentRef}
-          className="max-h-48 overflow-y-auto border-l border-border py-1.5 pl-4 pr-2"
+          data-testid="agent-assistant-reasoning-content"
+          onScroll={(event) => {
+            const content = event.currentTarget;
+            autoFollowRef.current = content.scrollHeight - content.scrollTop - content.clientHeight <= 24;
+          }}
+          className="max-h-48 overscroll-contain overflow-y-auto border-l border-border py-1.5 pl-4 pr-2"
         >
           <p className="max-w-full whitespace-pre-wrap break-words leading-5 [overflow-wrap:anywhere]">
             {reasoning.text}
@@ -1484,7 +1488,9 @@ export function ChatMessageBubble({
           );
         })()}
 
-        {!isUser && message.reasoning?.text && <AssistantReasoningDisclosure reasoning={message.reasoning} />}
+        {!isUser && message.reasoning?.text && (
+          <AssistantReasoningDisclosure key={message.reasoning.startedAt} reasoning={message.reasoning} />
+        )}
 
         {!isUser && message.progress?.text && <AssistantProgressNote progress={message.progress} />}
 
