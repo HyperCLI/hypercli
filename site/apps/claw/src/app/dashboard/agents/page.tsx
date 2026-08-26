@@ -7380,8 +7380,8 @@ function AgentsPageContent() {
               />
             ) : dashboardView === "usage" ? (
               <WorkspaceUsagePanel
-                accountAgentCount={accountAgents.length}
-                workspaceAgents={workspaceAgents}
+                key={user?.id ?? "anonymous"}
+                accountAgents={accountAgents}
                 rosterError={knowledgeHubAvailable ? agentRosterError : null}
               />
             ) : isDesktopViewport ? (

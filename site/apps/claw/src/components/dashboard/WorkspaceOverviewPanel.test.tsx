@@ -8,7 +8,7 @@ import { buildSdkAgent } from "@/test/factories";
 const mocks = vi.hoisted(() => ({
   getToken: vi.fn(),
   usageHistory: vi.fn(),
-  keyUsage: vi.fn(),
+  agentUsage: vi.fn(),
   listWorkspaces: vi.fn(),
   listWorkspaceFiles: vi.fn(),
   selectedWorkspace: {
@@ -40,7 +40,7 @@ vi.mock("@/components/dashboard/WorkspaceContext", () => ({
 vi.mock("@/lib/agent-client", () => ({
   createHyperAgentClient: () => ({
     usageHistory: mocks.usageHistory,
-    keyUsage: mocks.keyUsage,
+    agentUsage: mocks.agentUsage,
   }),
   createWorkspacesClient: () => ({
     list: mocks.listWorkspaces,
@@ -88,10 +88,30 @@ describe("WorkspaceOverviewPanel", () => {
     releaseBoundaryMock.available = false;
     mocks.getToken.mockResolvedValue("session-token");
     mocks.usageHistory.mockResolvedValue({
-      history: [{ date: "2026-07-20", totalTokens: 3000, promptTokens: 1200, completionTokens: 1800, requests: 12 }],
+      days: 7,
+      history: [
+        { date: "2026-07-14", totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+        { date: "2026-07-15", totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+        { date: "2026-07-16", totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+        { date: "2026-07-17", totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+        { date: "2026-07-18", totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+        { date: "2026-07-19", totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+        { date: "2026-07-20", totalTokens: 3000, promptTokens: 1200, completionTokens: 1800, requests: 12 },
+      ],
     });
-    mocks.keyUsage.mockResolvedValue({
-      keys: [{ keyHash: "key-1", name: "Slack", totalTokens: 3000, requests: 12 }],
+    mocks.agentUsage.mockResolvedValue({
+      agents: [{
+        agentId: "agent-1",
+        name: "Research Pilot",
+        managed: true,
+        avatarUrl: null,
+        totalTokens: 3000,
+        promptTokens: 1200,
+        completionTokens: 1800,
+        requests: 12,
+      }],
+      unattributed: { totalTokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+      days: 7,
     });
     mocks.listWorkspaces.mockResolvedValue([mocks.selectedWorkspace]);
     mocks.listWorkspaceFiles.mockResolvedValue([{ id: "file-1" }, { id: "file-2" }]);
@@ -179,5 +199,57 @@ describe("WorkspaceOverviewPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Members" }));
     expect(onOpenMembers).toHaveBeenCalledOnce();
+  });
+
+  it("marks malformed account history unavailable instead of rendering it", async () => {
+    mocks.usageHistory.mockResolvedValue({
+      days: 7,
+      history: [{ date: "2026-07-20", totalTokens: 3000, promptTokens: 1200, completionTokens: 1800, requests: 12 }],
+    });
+
+    render(
+      <WorkspaceOverviewPanel
+        accountAgents={[accountAgent]}
+        workspaceAgents={[accountAgent]}
+        agentsLoading={false}
+        workspaceAgentsLoading={false}
+        agentCreationDisabledReason={null}
+        agentsHref="/dashboard/agents?agentId=agent-1"
+        knowledgeHref="/dashboard/agents?section=knowledge&agentId=agent-1"
+        membersHref="/dashboard/agents?section=members&agentId=agent-1"
+        onOpenAgentLauncher={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Usage unavailable")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Account tokens" }).closest("section")).toHaveTextContent("Unavailable");
+  });
+
+  it("shows knowledge failures explicitly and retries all overview sources", async () => {
+    mocks.listWorkspaces.mockRejectedValueOnce(new Error("knowledge unavailable"));
+
+    render(
+      <WorkspaceOverviewPanel
+        accountAgents={[accountAgent]}
+        workspaceAgents={[accountAgent]}
+        agentsLoading={false}
+        workspaceAgentsLoading={false}
+        agentCreationDisabledReason={null}
+        agentsHref="/dashboard/agents?agentId=agent-1"
+        knowledgeHref="/dashboard/agents?section=knowledge&agentId=agent-1"
+        membersHref="/dashboard/agents?section=members&agentId=agent-1"
+        onOpenAgentLauncher={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Some overview data could not be loaded. Available sections are shown.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Knowledge files/i })).toHaveTextContent("Unavailable");
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.queryByText("Some overview data could not be loaded. Available sections are shown.")).not.toBeInTheDocument());
+    expect(screen.getByRole("link", { name: /Knowledge files/i })).toHaveTextContent("2");
+    expect(mocks.usageHistory).toHaveBeenCalledTimes(2);
+    expect(mocks.agentUsage).toHaveBeenCalledTimes(2);
   });
 });

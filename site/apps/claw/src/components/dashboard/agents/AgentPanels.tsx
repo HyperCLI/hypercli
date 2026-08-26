@@ -1828,7 +1828,7 @@ function AgentUsageSettingsContent() {
               </div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold leading-5 text-foreground">Usage dashboard</p>
-                <p className="mt-1 text-xs font-medium leading-5 text-text-muted">View token usage, requests, and current limits.</p>
+                <p className="mt-1 text-xs font-medium leading-5 text-text-muted">View token and request activity by day, API key, and agent.</p>
               </div>
             </Link>
             <Link
@@ -1846,8 +1846,8 @@ function AgentUsageSettingsContent() {
           </div>
           <div className="flex min-h-[76px] items-center justify-between gap-4 rounded-xl border border-border bg-surface-low/40 px-4 py-3">
             <div className="min-w-0">
-              <p className="text-sm font-semibold leading-5 text-foreground">Current plan limits</p>
-              <p className="mt-1 text-sm leading-5 text-text-muted">Open the usage dashboard for live plan limits.</p>
+              <p className="text-sm font-semibold leading-5 text-foreground">Account activity</p>
+              <p className="mt-1 text-sm leading-5 text-text-muted">Open the usage dashboard for recent account activity.</p>
             </div>
             <AgentSettingsLinkButton href={DASHBOARD_VIEW_HREFS.usage}>Open usage</AgentSettingsLinkButton>
           </div>

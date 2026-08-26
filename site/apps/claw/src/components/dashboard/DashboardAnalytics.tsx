@@ -39,22 +39,26 @@ export interface DashboardIntegrationUsage {
   name: string;
   totalTokens: number;
   requests: number;
+  reference?: string | null;
 }
+
+export type DashboardDataStatus = "loading" | "ready" | "unavailable";
 
 export interface DashboardAgentUsageRow {
   id: string;
   name: string;
-  status: string;
-  integrations: number | null;
-  requests: number | null;
-  tokens: number | null;
-  lastActivity: string | null;
+  status: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+  tokens: number;
+  kind?: "agent" | "unattributed";
 }
 
 export const dashboardRangeOptions: Array<{ value: DashboardTimeRange; label: string; days: number; periodLabel: string }> = [
-  { value: "24h", label: "Last 24h", days: 1, periodLabel: "Last 24h" },
-  { value: "7d", label: "Last 7 days", days: 7, periodLabel: "Last 7 days" },
-  { value: "30d", label: "Last 30 days", days: 30, periodLabel: "Last 30 days" },
+  { value: "24h", label: "Today", days: 1, periodLabel: "Today (UTC)" },
+  { value: "7d", label: "7 days", days: 7, periodLabel: "Last 7 days (UTC)" },
+  { value: "30d", label: "30 days", days: 30, periodLabel: "Last 30 days (UTC)" },
 ];
 
 export function rangeDays(range: DashboardTimeRange) {
@@ -62,30 +66,25 @@ export function rangeDays(range: DashboardTimeRange) {
 }
 
 export function rangePeriodLabel(range: DashboardTimeRange) {
-  return dashboardRangeOptions.find((option) => option.value === range)?.periodLabel ?? "Last 7 days";
+  return dashboardRangeOptions.find((option) => option.value === range)?.periodLabel ?? "Last 7 days (UTC)";
 }
 
 export function formatDashboardTokens(value: number | null | undefined) {
-  if (value == null) return "---";
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value == null || !Number.isFinite(value) || value < 0) return "---";
+  if (value >= 999_500_000_000) return `${(value / 1_000_000_000_000).toFixed(value >= 10_000_000_000_000 ? 0 : 1)}T`;
+  if (value >= 999_500_000) return `${(value / 1_000_000_000).toFixed(value >= 10_000_000_000 ? 0 : 1)}B`;
+  if (value >= 999_500) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
   return value.toLocaleString();
 }
 
-export function hasCollectedData(history: DashboardDayData[], integrations: DashboardIntegrationUsage[]) {
-  return (
-    history.some((day) => day.totalTokens > 0 || day.requests > 0) ||
-    integrations.some((integration) => integration.totalTokens > 0 || integration.requests > 0)
-  );
-}
-
 function formatNumber(value: number | null | undefined) {
-  if (value == null) return "---";
+  if (value == null || !Number.isFinite(value) || value < 0) return "---";
   return value.toLocaleString();
 }
 
-function formatDateLabel(value: string, todayIndex: number, currentIndex: number, useRelativeToday = true) {
-  if (useRelativeToday && currentIndex === todayIndex) return "Today";
+function formatDateLabel(value: string, useRelativeToday = true) {
+  if (useRelativeToday && dateOnly(value) === new Date().toISOString().slice(0, 10)) return "Today";
   const date = parseDashboardDate(value);
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 }
@@ -103,45 +102,6 @@ function dateOnly(value: string) {
   return value.split("T")[0] || value;
 }
 
-function hourlySlotDate(baseDate: string, hour: number) {
-  return `${dateOnly(baseDate)}T${String(hour).padStart(2, "0")}:00:00Z`;
-}
-
-function normalizeHourlyHistory(history: DashboardDayData[]): DashboardDayData[] {
-  if (history.length === 24 && history.every((entry) => entry.date.includes("T"))) {
-    return history;
-  }
-
-  const baseDate = history.find((entry) => entry.date)?.date ?? new Date().toISOString().slice(0, 10);
-  const slots = Array.from({ length: 24 }, (_, hour): DashboardDayData => ({
-    date: hourlySlotDate(baseDate, hour),
-    totalTokens: 0,
-    promptTokens: 0,
-    completionTokens: 0,
-    requests: 0,
-  }));
-
-  if (history.length === 1 && !history[0].date.includes("T")) {
-    slots[23] = { ...history[0], date: slots[23].date };
-    return slots;
-  }
-
-  for (const entry of history) {
-    const parsed = parseDashboardDate(entry.date);
-    const hour = Number.isFinite(parsed.getTime()) && entry.date.includes("T") ? parsed.getUTCHours() : 23;
-    const current = slots[hour];
-    slots[hour] = {
-      date: current.date,
-      totalTokens: current.totalTokens + entry.totalTokens,
-      promptTokens: current.promptTokens + entry.promptTokens,
-      completionTokens: current.completionTokens + entry.completionTokens,
-      requests: current.requests + entry.requests,
-    };
-  }
-
-  return slots;
-}
-
 function dateTickIndexes(entryCount: number) {
   if (entryCount <= 10) {
     return new Set(Array.from({ length: entryCount }, (_, index) => index));
@@ -156,32 +116,13 @@ function dateTickIndexes(entryCount: number) {
   return indexes;
 }
 
-function hourlyTickIndexes(entryCount: number) {
-  if (entryCount <= 0) return new Set<number>();
-  return new Set([
-    0,
-    Math.floor(entryCount * 0.25),
-    Math.floor(entryCount * 0.5),
-    Math.floor(entryCount * 0.75),
-    entryCount - 1,
-  ].filter((index) => index >= 0 && index < entryCount));
-}
-
-function formatHourlyTickLabel(index: number, total: number) {
-  if (index === total - 1) return "Now";
-  const hour = Math.round((index * 24) / Math.max(total, 1)) % 24;
-  if (hour === 0) return "12 AM";
-  if (hour === 12) return "12 PM";
-  return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
-}
-
 function tooltipAlign(index: number, total: number): "start" | "center" | "end" {
   if (index <= 1) return "start";
   if (index >= total - 2) return "end";
   return "center";
 }
 
-function statusClassName(status: string) {
+function statusClassName(status: string | null) {
   switch (status) {
     case "RUNNING":
       return "bg-success/15 text-success";
@@ -218,6 +159,7 @@ export function DashboardTimeRangeControl({
           key={option.value}
           type="button"
           onClick={() => onChange(option.value)}
+          aria-pressed={value === option.value}
           className={`h-8 px-3 text-xs font-medium transition-colors ${
             value === option.value
               ? "bg-surface-high text-foreground"
@@ -282,13 +224,29 @@ export function DashboardMetricCard({
   );
 }
 
-function EmptyPanelState() {
+function PanelState({
+  status,
+  emptyMessage,
+}: {
+  status: DashboardDataStatus;
+  emptyMessage: string;
+}) {
+  const message = status === "loading"
+    ? "Loading usage..."
+    : status === "unavailable"
+      ? "Usage unavailable"
+      : emptyMessage;
+
   return (
-    <div className="flex min-h-[236px] flex-col items-center justify-center text-center">
+    <div
+      className="flex min-h-[236px] flex-col items-center justify-center text-center"
+      role={status === "unavailable" ? "alert" : undefined}
+      aria-live={status === "loading" ? "polite" : undefined}
+    >
       <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-high text-text-secondary">
         <BarChart3 className="h-4 w-4" />
       </div>
-      <p className="text-sm text-text-muted">No data has been collected</p>
+      <p className="text-sm text-text-muted">{message}</p>
     </div>
   );
 }
@@ -296,21 +254,21 @@ function EmptyPanelState() {
 export function TokenUsagePanel({
   history,
   periodLabel,
+  status = "ready",
+  title = "Token usage",
 }: {
   history: DashboardDayData[];
   periodLabel: string;
+  status?: DashboardDataStatus;
+  title?: string;
 }) {
-  const hourlyRange = periodLabel === "Last 24h";
-  const chartHistory = hourlyRange ? normalizeHourlyHistory(history) : history;
+  const chartHistory = history;
   const hasData = chartHistory.some((day) => day.totalTokens > 0);
   const maxTokens = Math.max(...chartHistory.map((day) => day.totalTokens), 1);
-  const todayIndex = chartHistory.length - 1;
-  const denseRange = !hourlyRange && chartHistory.length > 14;
-  const tickIndexes = hourlyRange ? hourlyTickIndexes(chartHistory.length) : dateTickIndexes(chartHistory.length);
-  const barGapClass = hourlyRange ? "gap-2.5" : denseRange ? "gap-1.5" : "gap-4";
-  const barShapeClass = hourlyRange
-    ? "max-w-[14px] rounded-[7px]"
-    : denseRange
+  const denseRange = chartHistory.length > 14;
+  const tickIndexes = dateTickIndexes(chartHistory.length);
+  const barGapClass = denseRange ? "gap-1.5" : "gap-4";
+  const barShapeClass = denseRange
     ? "max-w-[12px] rounded-[5px]"
     : "max-w-[50px] rounded-md";
   const chartColumns = chartHistory.length > 0
@@ -321,13 +279,13 @@ export function TokenUsagePanel({
     <Card className="gap-0 rounded-lg bg-surface-low">
       <div className="flex min-h-[70px] items-center border-b border-border px-6 text-left">
         <div className="min-w-0">
-          <h2 className="text-base font-semibold text-foreground">Token usage</h2>
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
           <p className="mt-0.5 truncate text-[11px] text-text-muted">{periodLabel}</p>
         </div>
       </div>
 
-      {!hasData ? (
-        <EmptyPanelState />
+      {status !== "ready" || !hasData ? (
+        <PanelState status={status} emptyMessage="No token usage in this period" />
       ) : (
         <div className="px-6 pb-6 pt-5">
           <div className="relative h-[190px]">
@@ -348,7 +306,7 @@ export function TokenUsagePanel({
                       <TooltipTrigger asChild>
                         <button
                           type="button"
-                          aria-label={`${formatTooltipDate(day.date)} token usage`}
+                          aria-label={`${formatTooltipDate(day.date)}: ${formatNumber(day.totalTokens)} total tokens, ${formatNumber(day.promptTokens)} prompt, ${formatNumber(day.completionTokens)} completion, ${formatNumber(day.requests)} requests`}
                           className={`flex h-[160px] w-full flex-col justify-end overflow-hidden outline-none transition-[filter] data-[state=delayed-open]:brightness-110 focus-visible:ring-2 focus-visible:ring-primary/70 ${barShapeClass}`}
                         >
                           {day.promptTokens > 0 && (
@@ -413,7 +371,7 @@ export function TokenUsagePanel({
                         : "justify-self-center"
                     }`}
                   >
-                    {hourlyRange ? formatHourlyTickLabel(index, chartHistory.length) : formatDateLabel(day.date, todayIndex, index, !denseRange)}
+                    {formatDateLabel(day.date, !denseRange)}
                   </span>
                 ) : (
                   <span key={`${day.date}-${index}`} aria-hidden />
@@ -440,9 +398,11 @@ export function TokenUsagePanel({
 export function IntegrationUsagePanel({
   integrations,
   periodLabel,
+  status = "ready",
 }: {
   integrations: DashboardIntegrationUsage[];
   periodLabel: string;
+  status?: DashboardDataStatus;
 }) {
   const visibleIntegrations = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0);
   const maxTokens = Math.max(...visibleIntegrations.map((integration) => integration.totalTokens), 1);
@@ -450,12 +410,12 @@ export function IntegrationUsagePanel({
   return (
     <Card className="gap-0 rounded-lg bg-surface-low">
       <div className="flex h-[70px] items-center justify-between border-b border-border px-6">
-        <h2 className="text-base font-semibold text-foreground">Usage by Integration</h2>
+        <h2 className="text-base font-semibold text-foreground">Usage by API key</h2>
         <span className="text-sm text-text-muted">{periodLabel}</span>
       </div>
 
-      {visibleIntegrations.length === 0 ? (
-        <EmptyPanelState />
+      {status !== "ready" || visibleIntegrations.length === 0 ? (
+        <PanelState status={status} emptyMessage="No API key usage in this period" />
       ) : (
         <div className="relative min-h-[286px] px-6 py-6">
           <div aria-hidden className="absolute bottom-6 left-[38%] top-6 border-l border-border" />
@@ -476,9 +436,17 @@ export function IntegrationUsagePanel({
                     <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: iconSpec.bg }}>
                       <Icon className="h-4 w-4" style={{ color: iconSpec.color }} />
                     </span>
-                    <span className="truncate text-sm font-medium">{integration.name}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium">{integration.name}</span>
+                      {integration.reference ? (
+                        <span className="block truncate text-[10px] opacity-75">Key {integration.reference}</span>
+                      ) : null}
+                    </span>
                   </div>
-                  <span className="whitespace-nowrap text-sm text-foreground">{formatDashboardTokens(integration.totalTokens)} tokens</span>
+                  <span className="shrink-0 whitespace-nowrap text-right text-sm text-foreground">
+                    <span className="block">{formatDashboardTokens(integration.totalTokens)} tokens</span>
+                    <span className="block text-[10px] text-text-muted">{formatNumber(integration.requests)} requests</span>
+                  </span>
                 </div>
               );
             })}
@@ -491,42 +459,55 @@ export function IntegrationUsagePanel({
 
 export function AgentUsageTable({
   rows,
+  status = "ready",
+  title = "Usage by agent",
 }: {
   rows: DashboardAgentUsageRow[];
+  status?: DashboardDataStatus;
+  title?: string;
 }) {
   const hasRows = rows.length > 0;
 
   return (
     <Card className="gap-0 rounded-lg bg-surface-low p-4 text-left">
-      <h2 className="mb-5 text-base font-semibold text-foreground">Agent usage table</h2>
-      {!hasRows ? (
-        <EmptyPanelState />
+      <h2 className="mb-5 text-base font-semibold text-foreground">{title}</h2>
+      {status !== "ready" || !hasRows ? (
+        <PanelState status={status} emptyMessage="No agent usage in this period" />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <Table className="min-w-[760px] border-collapse text-left text-sm">
+        <div
+          className="overflow-x-auto rounded-lg border border-border"
+          role="region"
+          aria-label={`${title} table`}
+          tabIndex={0}
+        >
+          <Table className="min-w-[720px] border-collapse text-left text-sm">
             <TableHeader>
               <TableRow className="text-foreground hover:bg-transparent">
                 <TableHead className="h-auto px-3 py-3 font-semibold">Agent</TableHead>
                 <TableHead className="h-auto px-3 py-3 font-semibold">Status</TableHead>
-                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Integrations</TableHead>
+                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Prompt</TableHead>
+                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Completion</TableHead>
                 <TableHead className="h-auto px-3 py-3 text-right font-semibold">Requests</TableHead>
-                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Tokens</TableHead>
-                <TableHead className="h-auto px-3 py-3 font-semibold">Last activity</TableHead>
+                <TableHead className="h-auto px-3 py-3 text-right font-semibold">Total tokens</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id} className="text-foreground">
+                <TableRow key={`${row.kind ?? "agent"}:${row.id}`} className="text-foreground">
                   <TableCell className="px-3 py-4">{row.name}</TableCell>
                   <TableCell className="px-3 py-4">
-                    <Badge variant="secondary" className={`rounded-full px-2 py-0.5 text-xs ${statusClassName(row.status)}`}>
-                      {row.status === "RUNNING" ? "Active" : row.status}
-                    </Badge>
+                    {row.kind === "unattributed" ? (
+                      <span className="text-text-muted">Not an agent</span>
+                    ) : (
+                      <Badge variant="secondary" className={`rounded-full px-2 py-0.5 text-xs ${statusClassName(row.status)}`}>
+                        {row.status === "RUNNING" ? "Active" : row.status ?? "Unknown"}
+                      </Badge>
+                    )}
                   </TableCell>
-                  <TableCell className="px-3 py-4 text-right tabular-nums">{formatNumber(row.integrations)}</TableCell>
+                  <TableCell className="px-3 py-4 text-right tabular-nums">{formatDashboardTokens(row.promptTokens)}</TableCell>
+                  <TableCell className="px-3 py-4 text-right tabular-nums">{formatDashboardTokens(row.completionTokens)}</TableCell>
                   <TableCell className="px-3 py-4 text-right tabular-nums">{formatNumber(row.requests)}</TableCell>
                   <TableCell className="px-3 py-4 text-right tabular-nums">{formatDashboardTokens(row.tokens)}</TableCell>
-                  <TableCell className="px-3 py-4">{row.lastActivity ?? "---"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, HardDrive, Plus, UsersRound, Zap } from "lucide-react";
 import { Button } from "@hypercli/shared-ui";
-import type { HyperAgentKeyUsage, HyperAgentUsageHistory } from "@hypercli.com/sdk/agent";
+import type { HyperAgentAgentUsage } from "@hypercli.com/sdk/agent";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -13,22 +13,24 @@ import {
   DashboardTimeRangeControl,
   TokenUsagePanel,
   formatDashboardTokens,
-  hasCollectedData,
   rangeDays,
   rangePeriodLabel,
   type DashboardAgentUsageRow,
+  type DashboardDataStatus,
   type DashboardDayData,
-  type DashboardIntegrationUsage,
   type DashboardTimeRange,
 } from "@/components/dashboard/DashboardAnalytics";
 import { MembersSection } from "@/components/dashboard/members/MembersSection";
 import { useWorkspace, workspaceDisplayName } from "@/components/dashboard/WorkspaceContext";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient, createWorkspacesClient } from "@/lib/agent-client";
-import { integrationDisplayName } from "@/lib/integration-display-name";
-import { relativeTime } from "@/components/dashboard/agentViewUtils";
-import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
 import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
+import {
+  dashboardAgentUsageRows,
+  normalizeDashboardUsageHistory,
+  sumDashboardUsageHistory,
+  validateDashboardAgentUsage,
+} from "@/components/dashboard/dashboard-usage";
 
 type WorkspaceOverviewPanelProps = {
   accountAgents: Agent[];
@@ -42,31 +44,6 @@ type WorkspaceOverviewPanelProps = {
   onOpenMembers?: () => void;
   onOpenAgentLauncher: () => void;
 };
-
-function timestampFromIso(value: string | null): number {
-  if (!value) return 0;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function normalizeHistory(history: HyperAgentUsageHistory): DashboardDayData[] {
-  return history.history.map((entry) => ({
-    date: entry.date,
-    totalTokens: entry.totalTokens,
-    promptTokens: entry.promptTokens,
-    completionTokens: entry.completionTokens,
-    requests: entry.requests,
-  }));
-}
-
-function normalizeKeyUsage(keyUsage: HyperAgentKeyUsage): DashboardIntegrationUsage[] {
-  return keyUsage.keys.map((entry) => ({
-    id: entry.keyHash,
-    name: integrationDisplayName(entry.name, entry.keyHash),
-    totalTokens: entry.totalTokens,
-    requests: entry.requests,
-  }));
-}
 
 async function countSharedKnowledgeFiles(token: string): Promise<number> {
   const workspaces = createWorkspacesClient(token);
@@ -92,62 +69,75 @@ export function WorkspaceOverviewPanel({
   const membersAvailable = isDashboardReleaseSurfaceAvailable("members");
   const [range, setRange] = useState<DashboardTimeRange>("7d");
   const [history, setHistory] = useState<DashboardDayData[]>([]);
-  const [integrations, setIntegrations] = useState<DashboardIntegrationUsage[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<DashboardDataStatus>("loading");
+  const [agentUsage, setAgentUsage] = useState<HyperAgentAgentUsage | null>(null);
+  const [agentUsageStatus, setAgentUsageStatus] = useState<DashboardDataStatus>("loading");
   const [knowledgeFileCount, setKnowledgeFileCount] = useState<number | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [knowledgeStatus, setKnowledgeStatus] = useState<DashboardDataStatus>("loading");
+  const requestGenerationRef = useRef(0);
+  const principalId = user?.id ?? null;
 
   const fetchOverview = useCallback(async () => {
-    setOverviewLoading(true);
+    const generation = ++requestGenerationRef.current;
+    setHistoryStatus("loading");
+    setAgentUsageStatus("loading");
+    setKnowledgeStatus("loading");
+    if (!principalId) {
+      setHistory([]);
+      setHistoryStatus("unavailable");
+      setAgentUsage(null);
+      setAgentUsageStatus("unavailable");
+      setKnowledgeFileCount(null);
+      setKnowledgeStatus("unavailable");
+      return;
+    }
     try {
       const token = await getToken();
       const hyperAgent = createHyperAgentClient(token);
-      const [historyResult, integrationsResult, knowledgeResult] = await Promise.allSettled([
-        hyperAgent.usageHistory(rangeDays(range)),
-        hyperAgent.keyUsage(rangeDays(range)),
+      const days = rangeDays(range);
+      const [historyResult, agentUsageResult, knowledgeResult] = await Promise.allSettled([
+        hyperAgent.usageHistory(days).then((value) => normalizeDashboardUsageHistory(value, days)),
+        hyperAgent.agentUsage(days).then((value) => validateDashboardAgentUsage(value, days)),
         countSharedKnowledgeFiles(token),
       ]);
-      setHistory(historyResult.status === "fulfilled" ? normalizeHistory(historyResult.value) : []);
-      setIntegrations(integrationsResult.status === "fulfilled" ? normalizeKeyUsage(integrationsResult.value) : []);
+      if (generation !== requestGenerationRef.current) return;
+      setHistory(historyResult.status === "fulfilled" ? historyResult.value : []);
+      setHistoryStatus(historyResult.status === "fulfilled" ? "ready" : "unavailable");
+      setAgentUsage(agentUsageResult.status === "fulfilled" ? agentUsageResult.value : null);
+      setAgentUsageStatus(agentUsageResult.status === "fulfilled" ? "ready" : "unavailable");
       setKnowledgeFileCount(knowledgeResult.status === "fulfilled" ? knowledgeResult.value : null);
+      setKnowledgeStatus(knowledgeResult.status === "fulfilled" ? "ready" : "unavailable");
     } catch {
+      if (generation !== requestGenerationRef.current) return;
       setHistory([]);
-      setIntegrations([]);
+      setHistoryStatus("unavailable");
+      setAgentUsage(null);
+      setAgentUsageStatus("unavailable");
       setKnowledgeFileCount(null);
-    } finally {
-      setOverviewLoading(false);
+      setKnowledgeStatus("unavailable");
     }
-  }, [getToken, range]);
+  }, [getToken, principalId, range]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void fetchOverview(); }, 0);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchOverview]);
 
   const workspaceName = selectedWorkspace ? workspaceDisplayName(selectedWorkspace) : "Knowledge Hub";
   const workspaceInitial = workspaceName.trim()[0] ?? "?";
   const memberCount = authLoading ? null : user ? 1 : 0;
   const periodLabel = rangePeriodLabel(range);
-  const totals = useMemo(() => history.reduce((current, day) => ({
-    tokens: current.tokens + day.totalTokens,
-    requests: current.requests + day.requests,
-  }), { tokens: 0, requests: 0 }), [history]);
-  const hasUsageData = hasCollectedData(history, integrations);
-  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
-  const agentRows = useMemo<DashboardAgentUsageRow[]>(() => {
-    const canAttributeUsage = accountAgents.length === 1 && hasUsageData;
-    return workspaceAgents.map((agent) => {
-      const updatedAt = timestampFromIso(agent.updated_at ?? agent.started_at);
-      return {
-        id: agent.id,
-        name: agentDisplayLabel(agent),
-        status: agent.state,
-        integrations: canAttributeUsage ? activeIntegrationCount : null,
-        requests: canAttributeUsage ? totals.requests : null,
-        tokens: canAttributeUsage ? totals.tokens : null,
-        lastActivity: updatedAt > 0 ? relativeTime(updatedAt) : null,
-      };
-    });
-  }, [accountAgents.length, activeIntegrationCount, hasUsageData, totals.requests, totals.tokens, workspaceAgents]);
+  const totals = useMemo(() => sumDashboardUsageHistory(history), [history]);
+  const agentRows = useMemo<DashboardAgentUsageRow[]>(
+    () => dashboardAgentUsageRows(agentUsage, accountAgents),
+    [accountAgents, agentUsage],
+  );
+  const overviewUnavailable = historyStatus === "unavailable"
+    || agentUsageStatus === "unavailable"
+    || knowledgeStatus === "unavailable";
 
   return (
     <div className="h-full overflow-y-auto bg-background px-4 py-7 text-left text-foreground sm:px-6 lg:px-8">
@@ -187,6 +177,13 @@ export function WorkspaceOverviewPanel({
           </div>
         </header>
 
+        {overviewUnavailable ? (
+          <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <span>Some overview data could not be loaded. Available sections are shown.</span>
+            <button type="button" className="rounded px-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void fetchOverview()}>Retry</button>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {membersAvailable ? (
             <DashboardMetricCard
@@ -208,16 +205,16 @@ export function WorkspaceOverviewPanel({
           />
           <DashboardMetricCard
             title="Knowledge files"
-            value={overviewLoading || knowledgeFileCount == null ? "---" : knowledgeFileCount.toLocaleString()}
+            value={knowledgeStatus === "loading" ? "Loading" : knowledgeStatus === "unavailable" || knowledgeFileCount == null ? "Unavailable" : knowledgeFileCount.toLocaleString()}
             periodLabel="Across Knowledge Hub"
             icon={HardDrive}
             href={knowledgeHref}
             compact
           />
           <DashboardMetricCard
-            title="Tokens"
-            value={overviewLoading || totals.tokens === 0 ? "---" : formatDashboardTokens(totals.tokens)}
-            periodLabel={periodLabel}
+            title="Account tokens"
+            value={historyStatus === "loading" ? "Loading" : historyStatus === "unavailable" ? "Unavailable" : formatDashboardTokens(totals.tokens)}
+            periodLabel={`${periodLabel}, across account`}
             icon={Zap}
             compact
             accent
@@ -229,12 +226,12 @@ export function WorkspaceOverviewPanel({
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <TokenUsagePanel history={overviewLoading ? [] : history} periodLabel={periodLabel} />
+          <TokenUsagePanel history={history} periodLabel={periodLabel} status={historyStatus} title="Account token usage" />
           {membersAvailable ? <MembersSection compact agents={accountAgents} agentsLoading={agentsLoading} /> : null}
         </div>
 
         <div className="mt-4">
-          <AgentUsageTable rows={workspaceAgents.length === 0 ? [] : agentRows} />
+          <AgentUsageTable rows={agentRows} status={agentUsageStatus} title="Account usage by agent" />
         </div>
       </div>
     </div>

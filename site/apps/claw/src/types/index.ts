@@ -21,28 +21,6 @@ export type {
   HyperAgentModel,
 } from "@hypercli.com/sdk/agent";
 
-// ── Usage types ──
-
-export interface UsageInfo {
-  tpd_limit: number;
-  tpd_used: number;
-  total_tokens: number;
-}
-
-export interface DayData {
-  date: string;
-  input_tokens: number;
-  output_tokens: number;
-}
-
-export interface KeyUsageEntry {
-  key_ref: string;
-  key_name: string;
-  total_tokens: number;
-  input_tokens: number;
-  output_tokens: number;
-}
-
 // ── Agent type catalog (SDK-backed) ──
 
 export interface AgentTypePreset {

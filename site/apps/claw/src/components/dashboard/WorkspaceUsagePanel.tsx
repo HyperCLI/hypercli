@@ -1,10 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  HyperAgentKeyUsage,
-  HyperAgentUsageHistory,
-  HyperAgentUsageSummary,
+  HyperAgentAgentUsage,
 } from "@hypercli.com/sdk/agent";
 
 import type { Agent } from "@/app/dashboard/agents/types";
@@ -16,10 +14,10 @@ import {
   TokenUsagePanel,
   dashboardMetricIcons,
   formatDashboardTokens,
-  hasCollectedData,
   rangeDays,
   rangePeriodLabel,
   type DashboardAgentUsageRow,
+  type DashboardDataStatus,
   type DashboardDayData,
   type DashboardIntegrationUsage,
   type DashboardTimeRange,
@@ -27,209 +25,165 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import {
-  displayNameForDashboard,
-  greetingForDate,
-  resolveBrowserTimeZone,
-} from "@/lib/dashboard-greeting";
-import { integrationDisplayName } from "@/lib/integration-display-name";
-import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel";
+  dashboardAgentUsageRows,
+  normalizeDashboardKeyUsage,
+  normalizeDashboardUsageHistory,
+  sumDashboardUsageHistory,
+  validateDashboardAgentUsage,
+} from "@/components/dashboard/dashboard-usage";
 
 type WorkspaceUsagePanelProps = {
-  accountAgentCount: number;
-  workspaceAgents: Agent[];
+  accountAgents: Agent[];
   rosterError?: string | null;
 };
 
-type UsageInfo = {
-  totalTokens: number;
-  promptTokens: number;
-  completionTokens: number;
-  requestCount: number;
-  activeKeys: number;
+type UsageState = {
+  history: DashboardDayData[];
+  historyStatus: DashboardDataStatus;
+  keys: DashboardIntegrationUsage[];
+  keysStatus: DashboardDataStatus;
+  agents: HyperAgentAgentUsage | null;
+  agentsStatus: DashboardDataStatus;
 };
 
-function normalizeUsage(usage: HyperAgentUsageSummary): UsageInfo {
+function loadingUsageState(): UsageState {
   return {
-    totalTokens: usage.totalTokens,
-    promptTokens: usage.promptTokens,
-    completionTokens: usage.completionTokens,
-    requestCount: usage.requestCount,
-    activeKeys: usage.activeKeys,
+    history: [],
+    historyStatus: "loading",
+    keys: [],
+    keysStatus: "loading",
+    agents: null,
+    agentsStatus: "loading",
   };
 }
 
-function normalizeHistory(history: HyperAgentUsageHistory): DashboardDayData[] {
-  return history.history.map((entry) => ({
-    date: entry.date,
-    totalTokens: entry.totalTokens,
-    promptTokens: entry.promptTokens,
-    completionTokens: entry.completionTokens,
-    requests: entry.requests,
-  }));
-}
-
-function normalizeKeyUsage(keyUsage: HyperAgentKeyUsage): DashboardIntegrationUsage[] {
-  return keyUsage.keys.map((entry) => ({
-    id: entry.keyHash,
-    name: integrationDisplayName(entry.name, entry.keyHash),
-    totalTokens: entry.totalTokens,
-    requests: entry.requests,
-  }));
-}
-
-function timestampFromIso(value: string | null): number {
-  if (!value) return 0;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
-function relativeTime(value: string | null) {
-  const timestamp = timestampFromIso(value);
-  if (!timestamp) return null;
-  const diffMs = Date.now() - timestamp;
-  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
-  const minutes = Math.max(1, Math.floor(diffMs / 60_000));
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hr ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-function sumHistory(history: DashboardDayData[]) {
-  return history.reduce(
-    (totals, day) => ({
-      tokens: totals.tokens + day.totalTokens,
-      promptTokens: totals.promptTokens + day.promptTokens,
-      completionTokens: totals.completionTokens + day.completionTokens,
-      requests: totals.requests + day.requests,
-    }),
-    { tokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
-  );
-}
-
 export default function WorkspaceUsagePanel({
-  accountAgentCount,
-  workspaceAgents,
+  accountAgents,
   rosterError = null,
 }: WorkspaceUsagePanelProps) {
   const { getToken, user } = useAgentAuth();
   const [range, setRange] = useState<DashboardTimeRange>("7d");
-  const [usage, setUsage] = useState<UsageInfo | null>(null);
-  const [history, setHistory] = useState<DashboardDayData[]>([]);
-  const [integrations, setIntegrations] = useState<DashboardIntegrationUsage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [localizedGreeting, setLocalizedGreeting] = useState(() => greetingForDate(new Date()));
+  const [usageState, setUsageState] = useState<UsageState>(loadingUsageState);
+  const requestGenerationRef = useRef(0);
+  const principalId = user?.id ?? null;
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+    const generation = ++requestGenerationRef.current;
+    setUsageState(loadingUsageState());
+
+    if (!principalId) {
+      setUsageState({
+        history: [],
+        historyStatus: "unavailable",
+        keys: [],
+        keysStatus: "unavailable",
+        agents: null,
+        agentsStatus: "unavailable",
+      });
+      return;
+    }
+
     try {
       const token = await getToken();
       const hyperAgent = createHyperAgentClient(token);
       const days = rangeDays(range);
-      const [usageData, historyData, integrationData] = await Promise.allSettled([
-        hyperAgent.usageSummary(),
-        hyperAgent.usageHistory(days),
-        hyperAgent.keyUsage(days),
+      const [historyResult, keysResult, agentsResult] = await Promise.allSettled([
+        hyperAgent.usageHistory(days).then((value) => normalizeDashboardUsageHistory(value, days)),
+        hyperAgent.keyUsage(days).then((value) => normalizeDashboardKeyUsage(value, days)),
+        hyperAgent.agentUsage(days).then((value) => validateDashboardAgentUsage(value, days)),
       ]);
 
-      setUsage(usageData.status === "fulfilled" ? normalizeUsage(usageData.value) : null);
-      setHistory(historyData.status === "fulfilled" ? normalizeHistory(historyData.value) : []);
-      setIntegrations(integrationData.status === "fulfilled" ? normalizeKeyUsage(integrationData.value) : []);
-      if ([usageData, historyData, integrationData].every((result) => result.status === "rejected")) {
-        setError("Usage data could not be loaded.");
-      }
-    } catch (cause) {
-      setUsage(null);
-      setHistory([]);
-      setIntegrations([]);
-      setError(cause instanceof Error ? cause.message : "Usage data could not be loaded.");
-    } finally {
-      setLoading(false);
+      if (generation !== requestGenerationRef.current) return;
+      setUsageState({
+        history: historyResult.status === "fulfilled" ? historyResult.value : [],
+        historyStatus: historyResult.status === "fulfilled" ? "ready" : "unavailable",
+        keys: keysResult.status === "fulfilled" ? keysResult.value : [],
+        keysStatus: keysResult.status === "fulfilled" ? "ready" : "unavailable",
+        agents: agentsResult.status === "fulfilled" ? agentsResult.value : null,
+        agentsStatus: agentsResult.status === "fulfilled" ? "ready" : "unavailable",
+      });
+    } catch {
+      if (generation !== requestGenerationRef.current) return;
+      setUsageState({
+        history: [],
+        historyStatus: "unavailable",
+        keys: [],
+        keysStatus: "unavailable",
+        agents: null,
+        agentsStatus: "unavailable",
+      });
     }
-  }, [getToken, range]);
+  }, [getToken, principalId, range]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { void fetchData(); }, 0);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(timeout);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchData]);
 
-  useEffect(() => {
-    const updateGreeting = () => {
-      setLocalizedGreeting(greetingForDate(new Date(), resolveBrowserTimeZone()));
-    };
-    updateGreeting();
-    const intervalId = window.setInterval(updateGreeting, 60_000);
-    return () => window.clearInterval(intervalId);
-  }, []);
-
   const periodLabel = rangePeriodLabel(range);
-  const totals = useMemo(() => sumHistory(history), [history]);
-  const hasData = hasCollectedData(history, integrations);
-  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
-  const integrationMetric = activeIntegrationCount || usage?.activeKeys || 0;
-  const agentRows = useMemo<DashboardAgentUsageRow[]>(() => {
-    if (!hasData) return [];
-    const canAttributeUsage = accountAgentCount === 1;
-    return workspaceAgents.map((agent) => ({
-      id: agent.id,
-      name: agentDisplayLabel(agent),
-      status: agent.state,
-      integrations: canAttributeUsage ? activeIntegrationCount : null,
-      requests: canAttributeUsage ? totals.requests : null,
-      tokens: canAttributeUsage ? totals.tokens : null,
-      lastActivity: relativeTime(agent.updated_at ?? agent.started_at),
-    }));
-  }, [accountAgentCount, activeIntegrationCount, hasData, totals.requests, totals.tokens, workspaceAgents]);
-  const displayName = displayNameForDashboard(user);
-  const pageError = rosterError || error;
+  const totals = useMemo(() => sumDashboardUsageHistory(usageState.history), [usageState.history]);
+  const activeKeyCount = usageState.keys.filter((key) => key.totalTokens > 0 || key.requests > 0).length;
+  const agentRows = useMemo<DashboardAgentUsageRow[]>(
+    () => dashboardAgentUsageRows(usageState.agents, accountAgents),
+    [accountAgents, usageState.agents],
+  );
+  const usageUnavailable = usageState.historyStatus === "unavailable"
+    || usageState.keysStatus === "unavailable"
+    || usageState.agentsStatus === "unavailable";
 
   return (
     <div className="h-full overflow-y-auto bg-background text-foreground">
       <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
-        {pageError ? (
+        {rosterError ? (
           <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            <span>{pageError}</span>
-            {!rosterError ? <button type="button" className="font-medium text-foreground" onClick={() => setError(null)}>Dismiss</button> : null}
+            <span>{rosterError}</span>
+          </div>
+        ) : null}
+        {usageUnavailable ? (
+          <div role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <span>Some usage data could not be loaded. Available sections are shown.</span>
+            <button type="button" className="rounded px-1 font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void fetchData()}>Retry</button>
           </div>
         ) : null}
         <div className="dashboard-overview-toolbar mb-6 border-b border-border pb-4">
-          <p className="text-base font-medium text-foreground">
-            {localizedGreeting}, {displayName} <span aria-hidden>👋</span>
-          </p>
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">Account usage</h1>
+            <p className="mt-1 text-sm text-text-muted">Token activity across this account, grouped by UTC day.</p>
+          </div>
           <DashboardTimeRangeControl value={range} onChange={setRange} />
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">
           <DashboardMetricCard
             title="Tokens"
-            value={loading || totals.tokens === 0 ? "---" : formatDashboardTokens(totals.tokens)}
+            value={usageState.historyStatus === "loading" ? "Loading" : usageState.historyStatus === "unavailable" ? "Unavailable" : formatDashboardTokens(totals.tokens)}
             periodLabel={periodLabel}
             icon={dashboardMetricIcons.tokens}
           />
           <DashboardMetricCard
             title="Requests"
-            value={loading || totals.requests === 0 ? "---" : totals.requests.toLocaleString()}
+            value={usageState.historyStatus === "loading" ? "Loading" : usageState.historyStatus === "unavailable" ? "Unavailable" : totals.requests.toLocaleString()}
             periodLabel={periodLabel}
             icon={dashboardMetricIcons.requests}
           />
           <DashboardMetricCard
-            title="Integrations"
-            value={loading || integrationMetric === 0 ? "---" : integrationMetric.toLocaleString()}
+            title="API keys used"
+            value={usageState.keysStatus === "loading" ? "Loading" : usageState.keysStatus === "unavailable" ? "Unavailable" : activeKeyCount.toLocaleString()}
             periodLabel={periodLabel}
             icon={dashboardMetricIcons.integrations}
           />
         </div>
 
         <div className="mt-6 grid gap-6 lg:grid-cols-2">
-          <TokenUsagePanel history={loading ? [] : history} periodLabel={periodLabel} />
-          <IntegrationUsagePanel integrations={loading ? [] : integrations} periodLabel={periodLabel} />
+          <TokenUsagePanel history={usageState.history} periodLabel={periodLabel} status={usageState.historyStatus} />
+          <IntegrationUsagePanel integrations={usageState.keys} periodLabel={periodLabel} status={usageState.keysStatus} />
         </div>
 
         <div className="mt-6">
-          <AgentUsageTable rows={loading ? [] : agentRows} />
+          <AgentUsageTable rows={agentRows} status={usageState.agentsStatus} />
         </div>
       </div>
     </div>

@@ -10,7 +10,6 @@ import {
   TokenUsagePanel,
   dashboardMetricIcons,
   formatDashboardTokens,
-  hasCollectedData,
   type DashboardDayData,
   type DashboardIntegrationUsage,
 } from "./DashboardAnalytics";
@@ -45,39 +44,26 @@ function buildThirtyDayHistory(): DashboardDayData[] {
   });
 }
 
-function buildHourlyHistory(): DashboardDayData[] {
-  return Array.from({ length: 24 }, (_, index) => {
-    const promptTokens = 10_000 + index * 500;
-    const completionTokens = 20_000 + index * 750;
-    return {
-      date: `2026-05-22T${String(index).padStart(2, "0")}:00:00Z`,
-      promptTokens,
-      completionTokens,
-      totalTokens: promptTokens + completionTokens,
-      requests: 3 + index,
-    };
-  });
-}
-
 describe("DashboardAnalytics", () => {
   it("formats compact token totals", () => {
     expect(formatDashboardTokens(320_000)).toBe("320k");
+    expect(formatDashboardTokens(999_499)).toBe("999k");
+    expect(formatDashboardTokens(999_999)).toBe("1.0M");
     expect(formatDashboardTokens(8_200_000)).toBe("8.2M");
+    expect(formatDashboardTokens(999_999_999)).toBe("1.0B");
+    expect(formatDashboardTokens(999_999_999_999)).toBe("1.0T");
+    expect(formatDashboardTokens(0)).toBe("0");
+    expect(formatDashboardTokens(Number.NaN)).toBe("---");
     expect(formatDashboardTokens(null)).toBe("---");
-  });
-
-  it("detects collected data from history or integration usage", () => {
-    expect(hasCollectedData([], [])).toBe(false);
-    expect(hasCollectedData([{ ...history[0], totalTokens: 0, requests: 0 }], [])).toBe(false);
-    expect(hasCollectedData(history, [])).toBe(true);
-    expect(hasCollectedData([], integrations)).toBe(true);
   });
 
   it("changes the selected time range", () => {
     const onChange = vi.fn();
     render(<DashboardTimeRangeControl value="7d" onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Last 30 days" }));
+    expect(screen.getByRole("button", { name: "7 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "30 days" }));
 
     expect(onChange).toHaveBeenCalledWith("30d");
   });
@@ -86,18 +72,18 @@ describe("DashboardAnalytics", () => {
     render(
       <>
         <DashboardMetricCard title="Tokens" value="320k" periodLabel="Last 7 days" icon={dashboardMetricIcons.tokens} />
-        <TokenUsagePanel history={history} periodLabel="Last 7 days" />
-        <IntegrationUsagePanel integrations={integrations} periodLabel="Last 7 days" />
+        <TokenUsagePanel history={history} periodLabel="Last 7 days (UTC)" />
+        <IntegrationUsagePanel integrations={integrations} periodLabel="Last 7 days (UTC)" />
         <AgentUsageTable
           rows={[
             {
               id: "agent-1",
               name: "Dev Agent",
               status: "RUNNING",
-              integrations: 2,
+              promptTokens: 120_000,
+              completionTokens: 200_000,
               requests: 186,
               tokens: 320_000,
-              lastActivity: "2 min ago",
             },
           ]}
         />
@@ -106,7 +92,7 @@ describe("DashboardAnalytics", () => {
 
     expect(screen.getAllByText("320k").length).toBeGreaterThan(0);
     expect(screen.getByText("Token usage")).toBeInTheDocument();
-    expect(screen.getByText("Usage by Integration")).toBeInTheDocument();
+    expect(screen.getByText("Usage by API key")).toBeInTheDocument();
     expect(screen.getByText("Slack")).toBeInTheDocument();
     expect(screen.getByText("CLI")).toBeInTheDocument();
     expect(screen.getByText("Dev Agent")).toBeInTheDocument();
@@ -132,7 +118,7 @@ describe("DashboardAnalytics", () => {
   it("renders integration display names supplied by the normalizer", () => {
     render(
       <IntegrationUsagePanel
-        periodLabel="Last 7 days"
+        periodLabel="Last 7 days (UTC)"
         integrations={[
           { id: "msteams", name: "Microsoft Teams", totalTokens: 80_000, requests: 20 },
         ]}
@@ -143,11 +129,29 @@ describe("DashboardAnalytics", () => {
     expect(screen.queryByText("msteams")).not.toBeInTheDocument();
   });
 
+  it("distinguishes duplicate API-key names with references and request totals", () => {
+    render(
+      <IntegrationUsagePanel
+        periodLabel="Last 7 days (UTC)"
+        integrations={[
+          { id: "key-1", name: "CLI key", reference: "abcdef...7890", totalTokens: 80_000, requests: 20 },
+          { id: "key-2", name: "CLI key", reference: "123456...7890", totalTokens: 40_000, requests: 8 },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("CLI key")).toHaveLength(2);
+    expect(screen.getByText("Key abcdef...7890")).toBeInTheDocument();
+    expect(screen.getByText("Key 123456...7890")).toBeInTheDocument();
+    expect(screen.getByText("20 requests")).toBeInTheDocument();
+    expect(screen.getByText("8 requests")).toBeInTheDocument();
+  });
+
   it("shows a token breakdown tooltip when hovering a bar", () => {
     vi.useFakeTimers();
-    render(<TokenUsagePanel history={history} periodLabel="Last 7 days" />);
+    render(<TokenUsagePanel history={history} periodLabel="Last 7 days (UTC)" />);
 
-    fireEvent.pointerMove(screen.getByRole("button", { name: "May 13 token usage" }), { pointerType: "mouse" });
+    fireEvent.pointerMove(screen.getByRole("button", { name: "May 13: 100,000 total tokens, 40,000 prompt, 60,000 completion, 40 requests" }), { pointerType: "mouse" });
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(CLAW_TOOLTIP_DELAY_MS));
 
@@ -159,42 +163,25 @@ describe("DashboardAnalytics", () => {
     expect(within(tooltip).getByText("40")).toBeInTheDocument();
   });
 
-  it("uses hourly ticks for the 24 hour token chart", () => {
-    render(<TokenUsagePanel history={buildHourlyHistory()} periodLabel="Last 24h" />);
-
-    expect(screen.getByText("12 AM")).toBeInTheDocument();
-    expect(screen.getByText("6 AM")).toBeInTheDocument();
-    expect(screen.getByText("12 PM")).toBeInTheDocument();
-    expect(screen.getByText("6 PM")).toBeInTheDocument();
-    expect(screen.getByText("Now")).toBeInTheDocument();
-    expect(screen.queryByText("May 22")).not.toBeInTheDocument();
-  });
-
-  it("keeps the 24 hour chart axis when the API returns one daily bucket", () => {
+  it("renders the actual UTC daily bucket for today's usage", () => {
     render(
       <TokenUsagePanel
         history={[
           { date: "2026-05-22", promptTokens: 106_000, completionTokens: 1_000, totalTokens: 107_000, requests: 5 },
         ]}
-        periodLabel="Last 24h"
+        periodLabel="Today (UTC)"
       />,
     );
 
-    expect(screen.getAllByRole("button", { name: "May 22 token usage" })).toHaveLength(24);
-    expect(screen.getByText("12 AM")).toBeInTheDocument();
-    expect(screen.getByText("6 AM")).toBeInTheDocument();
-    expect(screen.getByText("12 PM")).toBeInTheDocument();
-    expect(screen.getByText("6 PM")).toBeInTheDocument();
-    expect(screen.getByText("Now")).toBeInTheDocument();
-
-    const nowBucket = screen.getAllByRole("button", { name: "May 22 token usage" }).at(-1);
-    if (!nowBucket) throw new Error("Expected now bucket");
-    fireEvent.focus(nowBucket);
+    const dailyBucket = screen.getByRole("button", { name: "May 22: 107,000 total tokens, 106,000 prompt, 1,000 completion, 5 requests" });
+    expect(screen.getByText("May 22")).toBeInTheDocument();
+    expect(screen.queryByText("Now")).not.toBeInTheDocument();
+    fireEvent.focus(dailyBucket);
     expect(within(screen.getByRole("tooltip")).getByText("107k")).toBeInTheDocument();
   });
 
   it("uses weekly ticks for the 30 day token chart", () => {
-    render(<TokenUsagePanel history={buildThirtyDayHistory()} periodLabel="Last 30 days" />);
+    render(<TokenUsagePanel history={buildThirtyDayHistory()} periodLabel="Last 30 days (UTC)" />);
 
     expect(screen.getByText("Apr 22")).toBeInTheDocument();
     expect(screen.getByText("Apr 29")).toBeInTheDocument();
@@ -208,12 +195,27 @@ describe("DashboardAnalytics", () => {
   it("renders empty collection states", () => {
     render(
       <>
-        <TokenUsagePanel history={[]} periodLabel="Last 7 days" />
-        <IntegrationUsagePanel integrations={[]} periodLabel="Last 7 days" />
+        <TokenUsagePanel history={[]} periodLabel="Last 7 days (UTC)" />
+        <IntegrationUsagePanel integrations={[]} periodLabel="Last 7 days (UTC)" />
         <AgentUsageTable rows={[]} />
       </>,
     );
 
-    expect(screen.getAllByText("No data has been collected")).toHaveLength(3);
+    expect(screen.getByText("No token usage in this period")).toBeInTheDocument();
+    expect(screen.getByText("No API key usage in this period")).toBeInTheDocument();
+    expect(screen.getByText("No agent usage in this period")).toBeInTheDocument();
+  });
+
+  it("distinguishes unavailable and loading panels from empty usage", () => {
+    render(
+      <>
+        <TokenUsagePanel history={[]} periodLabel="Last 7 days (UTC)" status="unavailable" />
+        <IntegrationUsagePanel integrations={[]} periodLabel="Last 7 days (UTC)" status="loading" />
+      </>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Usage unavailable");
+    expect(screen.getByText("Loading usage...")).toBeInTheDocument();
+    expect(screen.queryByText("No token usage in this period")).not.toBeInTheDocument();
   });
 });
