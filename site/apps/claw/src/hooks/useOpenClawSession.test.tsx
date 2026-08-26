@@ -286,6 +286,29 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("preserves outer whitespace in non-empty chat messages", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+    const message = "    def validate():\n        return True\n";
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    act(() => result.current.setInput(message));
+    await act(async () => result.current.sendMessage());
+
+    expect(gateway.chatSend).toHaveBeenCalledWith(message, "main", undefined);
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "user", content: message }),
+    ]));
+    unmount();
+  });
+
   it("refreshes active history and sessions after a gateway sequence gap", async () => {
     const gateway = buildGateway();
     const agent = {

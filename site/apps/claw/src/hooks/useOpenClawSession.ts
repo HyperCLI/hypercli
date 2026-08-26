@@ -3264,8 +3264,9 @@ export function useOpenClawSession(
       return;
     }
 
-    const msg = (options.displayContent ?? nextInput).trim();
-    const agentInput = nextInput.trim();
+    const rawDisplayContent = options.displayContent ?? nextInput;
+    const msg = rawDisplayContent.trim() ? rawDisplayContent : "";
+    const agentInput = nextInput.trim() ? nextInput : "";
     const attachments = [...nextAttachments];
     const files = [...nextFiles];
     if (targetIsTemporary && temporaryLease) temporaryLease.used = true;

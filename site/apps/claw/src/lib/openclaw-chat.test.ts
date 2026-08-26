@@ -874,6 +874,12 @@ describe("openclaw chat normalization", () => {
     ]);
   });
 
+  it("preserves boundary whitespace in refreshed user text", () => {
+    const content = "    Keep this indentation.\nAnd this trailing newline.\n";
+
+    expect(normalizeHistoryMessage({ role: "user", content })?.content).toBe(content);
+  });
+
   it("hydrates file and omitted image user messages with reusable file references", () => {
     const spreadsheet = normalizeHistoryMessage({
       role: "user",

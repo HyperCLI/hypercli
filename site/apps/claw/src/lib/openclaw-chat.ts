@@ -816,10 +816,11 @@ function extractUserVisibleContentAndFiles(content: string): { content: string; 
     cursor += 1;
   }
   if (cursor > 0 && lines[cursor]?.trim() === "") cursor += 1;
-  const visibleLines = (cursor > 0 ? lines.slice(cursor) : lines)
-    .filter((line) => !isMediaAttachmentSentinel(line));
+  const candidateLines = cursor > 0 ? lines.slice(cursor) : lines;
+  const visibleLines = candidateLines.filter((line) => !isMediaAttachmentSentinel(line));
+  const strippedProtocolContent = cursor > 0 || visibleLines.length !== candidateLines.length;
   return {
-    content: visibleLines.join("\n").trim(),
+    content: strippedProtocolContent ? visibleLines.join("\n") : content,
     files,
   };
 }
@@ -998,7 +999,7 @@ function normalizeHistoryMessage(
     ? extractUserVisibleContentAndFiles(rawContent)
     : { content: rawContent, files: [] as ChatPendingFile[] };
   const sanitizedContent = sanitizeChatDisplayText(userContent.content);
-  const rawSanitizedContent = options.preserveBoundaryWhitespace
+  const rawSanitizedContent = role === "user" || options.preserveBoundaryWhitespace
     ? sanitizedContent
     : sanitizedContent.trim();
   if (role === "user" && isCronUserControlMessage(rawSanitizedContent)) {
