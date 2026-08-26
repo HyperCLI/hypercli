@@ -1998,6 +1998,52 @@ describe("openclaw commentary progress reconciliation", () => {
     expect(messages[1]?.progress?.text).toBe("Run two working note");
   });
 
+  it("settles the prior progress row when a correlated commentary round begins", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, {
+      ...commentary("Inspecting the workspace"),
+      messageId: "round-1",
+    }, { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      ...commentary("Checking the deployment"),
+      messageId: "round-2",
+    }, { updateProgress: "replace" });
+
+    expect(messages).toHaveLength(2);
+    expect(messages.map((message) => message.progress?.state)).toEqual(["settled", "active"]);
+    expect(messages.map((message) => message.progress?.text)).toEqual([
+      "Inspecting the workspace",
+      "Checking the deployment",
+    ]);
+  });
+
+  it("settles active progress when correlated tool activity begins", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, {
+      ...commentary("Inspecting the workspace"),
+      messageId: "round-1",
+    }, { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "",
+      progress: undefined,
+      toolCalls: [{ id: "tool-1", name: "read", args: "config.json" }],
+      messageId: "round-1",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.progress).toMatchObject({
+      text: "Inspecting the workspace",
+      state: "settled",
+    });
+    expect(messages[0]?.toolCalls).toEqual([
+      expect.objectContaining({ id: "tool-1", name: "read" }),
+    ]);
+  });
+
   it("settles progress without losing the note or the final answer", () => {
     let messages: ChatMessage[] = [];
     messages = upsertAssistantMessage(messages, commentary("Checking credentials"), { updateProgress: "replace" });

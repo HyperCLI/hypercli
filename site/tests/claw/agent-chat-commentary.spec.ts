@@ -92,6 +92,39 @@ async function promoteMockThinkingToStructuredReasoning(page: import("@playwrigh
   `);
 }
 
+async function assignDistinctCommentaryMessageIds(page: import("@playwright/test").Page): Promise<void> {
+  await page.addInitScript(`
+    (() => {
+      const nativeStringify = JSON.stringify.bind(JSON);
+      let round = 0;
+      let messageId = "";
+      JSON.stringify = function(value, replacer, space) {
+        if (value && typeof value === "object" && value.type === "event") {
+          const payload = value.payload;
+          if (
+            value.event === "agent" &&
+            payload?.stream === "assistant" &&
+            payload.data?.phase === "commentary"
+          ) {
+            messageId = "commentary-round-" + (++round);
+            return nativeStringify({
+              ...value,
+              payload: { ...payload, messageId },
+            }, replacer, space);
+          }
+          if (value.event === "chat" && payload?.state === "delta" && messageId) {
+            return nativeStringify({
+              ...value,
+              payload: { ...payload, messageId },
+            }, replacer, space);
+          }
+        }
+        return nativeStringify(value, replacer, space);
+      };
+    })();
+  `);
+}
+
 const commentaryScript = (overrides: Partial<MockGatewayChatScript> = {}): MockGatewayChatScript => ({
   // Dashboard chat runs on a generated `dashboard:<uuid>` session key, so the
   // send-side scripts use the mock's catch-all queue.
@@ -140,6 +173,20 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     // Once complete, the reply contains the answer exactly once and no notes.
     await expect(transcript.locator(".prose-chat").getByText(/Reading the config file/)).toHaveCount(0);
     await expect(page.getByText(THINKING_SENTINEL)).toHaveCount(0);
+  });
+
+  test("keeps only the latest correlated commentary round live", async ({ page }) => {
+    await assignDistinctCommentaryMessageIds(page);
+    await installMockGateway(page, { chatScripts: [commentaryScript()] });
+    await installAuth(page);
+    await interceptBackend(page);
+    await openChatTab(page);
+    await sendChat(page, "Check the config in two rounds");
+
+    await expect(page.locator(`${PROGRESS}[data-progress-state="active"]`)).toHaveCount(1);
+    await expect(page.locator(`${PROGRESS}[data-progress-state="settled"]`)).toHaveCount(1);
+    await expect(page.getByRole("status", { name: "Working" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Working notes" })).toHaveCount(1);
   });
 
   test("renders no working-note surface at all for a model that only sends ordinary content", async ({ page }) => {

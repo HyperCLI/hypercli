@@ -120,19 +120,28 @@ Primary source references:
 
 ### P1-2 Multiple active live status regions
 
-Status: `OPEN`
+Status: `DONE`
 
-- [ ] Settle the prior progress round when a new tool or assistant round begins.
-- [ ] Expose at most one active `role="status"` per run.
-- [ ] Keep historical working notes available without keeping them live.
-- [ ] Add component and browser assertions for one active status region.
+- [x] Settle the prior progress round when a new tool or assistant round begins.
+- [x] Expose at most one active `role="status"` per run.
+- [x] Keep historical working notes available without keeping them live.
+- [x] Add component and browser assertions for one active status region.
 
 Evidence: A successful control turn accumulated three simultaneous `Working`
 statuses; the runaway probe accumulated 27 current progress rows.
 
-Primary source reference:
+Resolution: Correlated progress rows now settle when another commentary round,
+tool activity, or assistant round begins. Settled notes remain available through
+the collapsed `Working notes` disclosure, while only the latest active note is
+exposed as a live status. Unit, component, and intercepted-gateway browser tests
+cover the transition.
 
-- `site/apps/claw/src/components/dashboard/ChatMessage.tsx:1125`
+Primary source references:
+
+- `site/apps/claw/src/lib/openclaw-chat.ts:1503`
+- `site/apps/claw/src/components/dashboard/ChatMessage.tsx:1122`
+- `site/apps/claw/src/components/dashboard/ChatMessage.test.tsx:1949`
+- `site/tests/claw/agent-chat-commentary.spec.ts:178`
 
 ## P2 - Medium
 

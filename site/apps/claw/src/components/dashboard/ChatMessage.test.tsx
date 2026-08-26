@@ -1946,6 +1946,32 @@ describe("ChatMessageBubble", () => {
       expect(screen.getByText("Credentials verified.")).toBeInTheDocument();
     });
 
+    it("keeps prior commentary visible without exposing it as another live status", () => {
+      render(
+        <>
+          <ChatMessageBubble
+            message={{
+              role: "assistant",
+              content: "",
+              progress: { text: "Inspecting the workspace", state: "settled", revisions: [] },
+            }}
+          />
+          <ChatMessageBubble
+            message={{
+              role: "assistant",
+              content: "",
+              progress: { text: "Checking the deployment", state: "active", revisions: [] },
+            }}
+            isStreaming
+          />
+        </>,
+      );
+
+      expect(screen.getAllByTestId("agent-assistant-progress")).toHaveLength(2);
+      expect(screen.getAllByRole("status", { name: "Working" })).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Working notes" })).toBeInTheDocument();
+    });
+
     it("keeps settled progress from cached messages collapsed by default", () => {
       render(
         <ChatMessageBubble

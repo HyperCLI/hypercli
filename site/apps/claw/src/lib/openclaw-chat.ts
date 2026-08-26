@@ -1500,6 +1500,14 @@ function upsertAssistantMessage(
   ) {
     assistantIndex = -1;
   }
+  const startsProgressRound = sanitizedIncoming.progress?.state === "active";
+  const startsToolActivity = (sanitizedIncoming.toolCalls?.length ?? 0) > 0;
+  const startsAssistantRound = options.startNewRound && assistantIndex < 0 && Boolean(
+    sanitizedIncoming.content || sanitizedIncoming.reasoning,
+  );
+  const baseMessages = startsProgressRound || startsToolActivity || startsAssistantRound
+    ? settleAssistantProgress(prev, sanitizedIncoming)
+    : prev;
   if (!hasDisplayableMessageContent(sanitizedIncoming)) {
     const canUpdateExisting = assistantIndex >= 0 && (
       options.replaceContent === true ||
@@ -1510,15 +1518,15 @@ function upsertAssistantMessage(
   }
   let next: ChatMessage[];
   if (assistantIndex >= 0) {
-    next = prev.map((message, index) => (
+    next = baseMessages.map((message, index) => (
       index === assistantIndex ? mergeAssistantMessage(message, sanitizedIncoming, options) : message
     ));
   } else {
     const renderIdAlreadyUsed = Boolean(
-      sanitizedIncoming.renderId && prev.some((message) => message.renderId === sanitizedIncoming.renderId),
+      sanitizedIncoming.renderId && baseMessages.some((message) => message.renderId === sanitizedIncoming.renderId),
     );
     next = [
-      ...prev,
+      ...baseMessages,
       renderIdAlreadyUsed
         ? { ...sanitizedIncoming, renderId: createChatRenderId("assistant-round") }
         : sanitizedIncoming,
