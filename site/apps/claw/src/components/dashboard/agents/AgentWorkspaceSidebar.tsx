@@ -19,7 +19,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Sparkles,
   Settings,
   SlidersHorizontal,
   TerminalSquare,
@@ -59,7 +58,7 @@ import {
 } from "@hypercli/shared-ui";
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
-import { formatTokens } from "@/lib/format";
+import { AgentTokenUsage } from "@/components/dashboard/agents/AgentTokenUsage";
 import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
@@ -111,6 +110,7 @@ interface AgentWorkspaceSidebarProps {
   onOpenSettings: () => void;
   settingsActive?: boolean;
   onUpgrade: () => void;
+  capacityActionLabel?: string;
   onStartTrial?: () => void;
   onManageTrial?: () => void;
   renderMobile?: boolean;
@@ -1058,6 +1058,7 @@ export function AgentWorkspaceSidebar({
   onOpenSettings,
   settingsActive = false,
   onUpgrade,
+  capacityActionLabel = "Upgrade",
   onStartTrial,
   onManageTrial,
   renderMobile = false,
@@ -1104,33 +1105,6 @@ export function AgentWorkspaceSidebar({
     onCollapsedChange?.(nextCollapsed);
   };
   const toggleCollapsed = () => changeCollapsed(!collapsed);
-  const tokensUsed = typeof tokenUsed === "number" && Number.isFinite(tokenUsed) ? Math.max(0, tokenUsed) : null;
-  const tokenTotal = tokenLimit && tokenLimit > 0 ? tokenLimit : null;
-  const tokenProgress = tokenTotal && tokensUsed != null ? Math.min(100, Math.round((tokensUsed / tokenTotal) * 100)) : 0;
-  const emptyUsageLabel = isAuthenticated ? "--" : "0";
-  const tokenUsageLabel = tokenTotal
-    ? `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
-    : `${tokensUsed == null ? emptyUsageLabel : formatTokens(tokensUsed)} / --`;
-  const trialOfferVisible = !isAuthenticated || canStartTrial;
-  const onUsageAction = activeTrial
-    ? onManageTrial ?? onUpgrade
-    : trialOfferVisible
-      ? onStartTrial ?? onUpgrade
-      : onUpgrade;
-  const usageActionLabel = trialCheckoutPending
-    ? "Starting trial..."
-    : activeTrial
-      ? "Manage trial"
-      : trialOfferVisible
-        ? "Start free trial"
-        : "Upgrade";
-  const collapsedUsageLabel = trialCheckoutPending
-    ? "Starting free trial"
-    : activeTrial
-      ? `${activeTrial.planName} trial: ${activeTrial.timeRemainingLabel}`
-      : trialOfferVisible
-        ? "Start free trial"
-        : `Tokens today: ${tokenUsageLabel}`;
   const hasSelectedAgent = Boolean(selectedAgent);
   const agentState: AgentState | undefined = selectedAgent?.state;
   const noSelectedAgent = !selectedAgent;
@@ -1652,68 +1626,20 @@ export function AgentWorkspaceSidebar({
       </div>
 
       <div className={`agent-workspace-usage ${isCollapsed ? "p-1.5" : "p-3"}`}>
-        {isCollapsed ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={onUsageAction}
-                aria-label={collapsedUsageLabel}
-                disabled={trialCheckoutPending}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-wait disabled:opacity-70"
-              >
-                {trialCheckoutPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : activeTrial ? (
-                  <CalendarClock className="h-4 w-4" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{collapsedUsageLabel}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <div className="space-y-2">
-            {activeTrial ? (
-              <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
-                <CalendarClock className="h-3 w-3 shrink-0" />
-                <span className="whitespace-nowrap">{activeTrial.planName} trial · {activeTrial.timeRemainingLabel}</span>
-              </div>
-            ) : trialOfferVisible ? (
-              <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
-                <Sparkles className="h-3 w-3 shrink-0" />
-                <span className="whitespace-nowrap">7-day free trial on Team</span>
-              </div>
-            ) : null}
-            <div className="flex items-center justify-between gap-1.5 text-[11px] leading-none">
-              <span className="shrink-0 whitespace-nowrap text-text-muted">Tokens today</span>
-              <span data-testid="agent-token-usage" className="shrink-0 whitespace-nowrap font-medium tabular-nums text-foreground">{tokenUsageLabel}</span>
-            </div>
-            {isAuthenticated ? (
-              <div className="h-1 rounded-full bg-surface-low">
-                <div className="h-full rounded-full bg-foreground/45" style={{ width: `${tokenProgress}%` }} />
-              </div>
-            ) : null}
-            <button
-              type="button"
-              onClick={onUsageAction}
-              disabled={trialCheckoutPending}
-              className={`flex w-full items-center justify-center gap-2 border border-border bg-background font-medium text-foreground transition-colors hover:bg-surface-low disabled:cursor-wait disabled:opacity-70 ${
-                renderMobile ? "h-10 rounded-[10px] text-sm" : isAuthenticated ? "h-8 rounded-full text-xs" : "h-9 rounded-[9px] text-xs"
-              }`}
-            >
-              {trialCheckoutPending ? (
-                <Loader2 className={`${renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} animate-spin`} />
-              ) : activeTrial ? (
-                <CalendarClock className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
-              ) : (
-                <Sparkles className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
-              )}
-              {usageActionLabel}
-            </button>
-          </div>
-        )}
+        <AgentTokenUsage
+          tokenUsed={tokenUsed}
+          tokenLimit={tokenLimit}
+          isAuthenticated={isAuthenticated}
+          activeTrial={activeTrial}
+          canStartTrial={canStartTrial}
+          trialCheckoutPending={trialCheckoutPending}
+          capacityActionLabel={capacityActionLabel}
+          onUpgrade={onUpgrade}
+          onStartTrial={onStartTrial}
+          onManageTrial={onManageTrial}
+          collapsed={isCollapsed}
+          renderMobile={renderMobile}
+        />
       </div>
     </motion.aside>
   );

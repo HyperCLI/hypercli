@@ -601,6 +601,8 @@ interface AgentChatPanelProps {
   sendingAudio: boolean;
   startRecording: () => void;
   handleSendChat: () => void;
+  tokenLimitReached?: boolean;
+  onTokenLimitBlocked?: () => void;
   formatDuration: (seconds: number) => string;
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
   slashCommandActions?: AgentSlashCommandActions;
@@ -649,6 +651,8 @@ export function AgentChatPanel({
   sendingAudio,
   startRecording,
   handleSendChat,
+  tokenLimitReached = false,
+  onTokenLimitBlocked,
   formatDuration,
   onConnectionCta,
   slashCommandActions,
@@ -725,6 +729,11 @@ export function AgentChatPanel({
   const draftBeforeHistoryRef = React.useRef("");
   const pendingHistoryInputRef = React.useRef<string | null>(null);
   const setChatInput = chat.setInput;
+  const blockForTokenLimit = React.useCallback(() => {
+    if (!tokenLimitReached) return false;
+    onTokenLimitBlocked?.();
+    return true;
+  }, [onTokenLimitBlocked, tokenLimitReached]);
   const [transcriptScrollElement, setTranscriptScrollElement] = React.useState<HTMLDivElement | null>(null);
   const [transcriptContentElement, setTranscriptContentElement] = React.useState<HTMLDivElement | null>(null);
   const bindTranscriptScrollElement = React.useCallback((element: HTMLDivElement | null) => {
@@ -845,6 +854,7 @@ export function AgentChatPanel({
   }, [handleChatFileDrop]);
   const commandActions = React.useMemo<AgentSlashCommandActions>(() => ({
     ...slashCommandActions,
+    onBeforeChatSend: () => !blockForTokenLimit(),
     onStartAgent: isAgentStartable(selectedAgent) ? slashCommandActions?.onStartAgent : undefined,
     onStopAgent: isAgentStoppable(selectedAgent) ? slashCommandActions?.onStopAgent : undefined,
     onTriggerFilePicker: slashCommandActions?.onTriggerFilePicker ?? triggerFilePicker,
@@ -858,7 +868,7 @@ export function AgentChatPanel({
     onOpenIntegrationChatCard: (integrationId) => {
       openIntegrationChatCard(integrationId);
     },
-  }), [onConnectionCta, openIntegrationChatCard, selectedAgent, slashCommandActions, triggerFilePicker]);
+  }), [blockForTokenLimit, onConnectionCta, openIntegrationChatCard, selectedAgent, slashCommandActions, triggerFilePicker]);
   const slashInputActive = !recording && !audioUrl && chat.input.trimStart().startsWith("/") && !chat.input.trimStart().startsWith("//");
   const slashMenuDismissed = dismissedSlashInput === chat.input;
   const slashMenuOpen = slashInputActive && !slashMenuDismissed;
@@ -960,12 +970,14 @@ export function AgentChatPanel({
   );
   const startAgentGitHubSetup = React.useCallback(async () => {
     if (!chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
+    if (blockForTokenLimit()) return;
     await chat.sendMessage(GITHUB_AGENT_SETUP_PROMPT, { displayContent: "Set up GitHub in this workspace." });
-  }, [chat]);
+  }, [blockForTokenLimit, chat]);
   const verifyAgentGitHubSetup = React.useCallback(async () => {
     if (!chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
+    if (blockForTokenLimit()) return;
     await chat.sendMessage(GITHUB_AGENT_VERIFY_PROMPT, { displayContent: "Check GitHub connection in this workspace." });
-  }, [chat]);
+  }, [blockForTokenLimit, chat]);
 
   const handleConnectionSuggestionClick = React.useCallback((suggestion: ChatConnectionSuggestion) => {
     if (suggestion.connectorId) {
@@ -1074,8 +1086,9 @@ export function AgentChatPanel({
     (composerHasText || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
   const submitCurrentChat = React.useCallback(() => {
     if (!canSendChatDraft) return;
+    if (blockForTokenLimit()) return;
     handleSendChat();
-  }, [canSendChatDraft, handleSendChat]);
+  }, [blockForTokenLimit, canSendChatDraft, handleSendChat]);
   const composerHasDraft =
     recording ||
     preparingAudioPreview ||
@@ -1097,6 +1110,7 @@ export function AgentChatPanel({
     if (!chat.connected || !chat.activeSessionCanSend || chat.activeSessionReadOnly || activeSessionSending || temporaryChatTransitioning) return;
     const retryContent = source.retryContent ?? source.content;
     if (!retryContent.trim() && !(source.attachments?.length || source.files?.length)) return;
+    if (blockForTokenLimit()) return;
     setRetryingFailedReplyKey(rowKey);
     try {
       await chat.sendMessage(retryContent, {
@@ -1107,7 +1121,7 @@ export function AgentChatPanel({
     } finally {
       setRetryingFailedReplyKey((current) => current === rowKey ? null : current);
     }
-  }, [activeSessionSending, chat, temporaryChatTransitioning]);
+  }, [activeSessionSending, blockForTokenLimit, chat, temporaryChatTransitioning]);
   const modelMenuAvailable = chat.backend === "openclaw";
   // Hermes chatSend does not forward attachments yet; hide the attach action
   // rather than silently dropping user files. Unspecced sessions (legacy test
@@ -1735,7 +1749,7 @@ export function AgentChatPanel({
                     </button>
                   </TooltipHint>
                   <TooltipHint label="Send voice message" disabled={composerDisabled || activeSessionSending || sendingAudio}>
-                    <button aria-label="Send voice message" onClick={sendAudio} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                    <button aria-label="Send voice message" onClick={() => { if (!blockForTokenLimit()) sendAudio(); }} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
                       {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     </button>
                   </TooltipHint>

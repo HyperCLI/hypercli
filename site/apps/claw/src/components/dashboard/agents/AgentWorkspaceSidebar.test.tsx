@@ -1570,7 +1570,7 @@ describe("AgentWorkspaceSidebar", () => {
       tokenLimit: 5_000,
     });
 
-    const usageLabel = screen.getByText("Tokens today");
+    const usageLabel = screen.getByText("Daily tokens");
     const usageValue = screen.getByText("1.2K / 5K");
     expect(usageLabel).toHaveClass("shrink-0", "whitespace-nowrap");
     expect(usageValue).toHaveClass("shrink-0", "whitespace-nowrap", "tabular-nums");
@@ -1586,7 +1586,7 @@ describe("AgentWorkspaceSidebar", () => {
       tokenLimit: 100_000_000,
     });
 
-    expect(screen.getByText("Tokens today")).toBeInTheDocument();
+    expect(screen.getByText("Daily tokens")).toBeInTheDocument();
     expect(screen.getByText("12.5K / 100M")).toBeInTheDocument();
   });
 
@@ -1617,7 +1617,7 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     expect(screen.getByText("250M / 100M")).toBeInTheDocument();
-    const usageLabel = screen.getByText("Tokens today");
+    const usageLabel = screen.getByText("Daily tokens");
     const progressTrack = usageLabel.parentElement?.nextElementSibling;
     const progressBar = progressTrack?.firstElementChild;
     expect(progressBar).toHaveStyle({ width: "100%" });
@@ -1642,8 +1642,8 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     expect(screen.getByText("7-day free trial on Team")).toBeInTheDocument();
-    expect(screen.getByText("Tokens today")).toBeInTheDocument();
-    expect(screen.getByText("0 / --")).toBeInTheDocument();
+    expect(screen.getByText("Daily tokens")).toBeInTheDocument();
+    expect(screen.getByText("-- / --")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));

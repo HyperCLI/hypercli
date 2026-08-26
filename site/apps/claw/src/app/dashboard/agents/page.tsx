@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
   Check,
@@ -228,6 +227,7 @@ import { AgentsPageLoadingShell } from "@/components/dashboard/agents/AgentsPage
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, CollectionCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
+import { DailyTokenLimitDialog, resolveAgentTokenUsage } from "@/components/dashboard/agents/AgentTokenUsage";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import {
   SettingsMenu,
@@ -260,7 +260,7 @@ import {
   type TokenUsageRefreshScheduler,
   type TokenUsageSnapshot,
 } from "@/components/dashboard/agents/tokenUsageRefreshScheduler";
-import { tokenUsageSnapshot } from "@/components/dashboard/agents/agentTokenUsage";
+import { millisecondsUntilNextUtcTokenReset, tokenUsageSnapshot } from "@/components/dashboard/agents/agentTokenUsage";
 import {
   countPendingSlotReleasesByTier,
   markPendingSlotReleaseComplete,
@@ -928,28 +928,16 @@ function UpgradePlanCatalogModal({
 }) {
   const [comparisonOpen, setComparisonOpen] = useState(false);
 
-  if (!open) return null;
-
   return (
-    <motion.div
-      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.16 }}
-      onClick={onClose}
-    >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="add-capacity-dialog-title"
-        aria-describedby="add-capacity-dialog-description"
-        className="relative flex max-h-[calc(100dvh-2rem)] w-full max-w-[1040px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
-        initial={{ opacity: 0, y: 10, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 10, scale: 0.98 }}
-        transition={{ type: "spring", stiffness: 420, damping: 34 }}
-        onClick={(event) => event.stopPropagation()}
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (nextOpen) return;
+      setComparisonOpen(false);
+      onClose();
+    }}>
+      <DialogContent
+        closeLabel="Close capacity dialog"
+        overlayClassName="z-[9998] bg-black/60 backdrop-blur-sm"
+        className="z-[9999] flex max-h-[calc(100dvh-2rem)] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[1040px]"
       >
         <div className="flex flex-col gap-3 border-b border-border px-5 py-4 pr-12 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -957,8 +945,8 @@ function UpgradePlanCatalogModal({
               <Sparkles className="h-4 w-4" aria-hidden="true" />
             </span>
             <div className="min-w-0 pt-0.5">
-              <h2 id="add-capacity-dialog-title" className="text-base font-semibold leading-5 text-foreground">Add capacity</h2>
-              <p id="add-capacity-dialog-description" className="mt-1 text-xs leading-4 text-text-muted">Choose a plan to add agent capacity.</p>
+              <DialogTitle id="add-capacity-dialog-title" className="text-base font-semibold leading-5 text-foreground">Add capacity</DialogTitle>
+              <DialogDescription id="add-capacity-dialog-description" className="mt-1 text-xs leading-4 text-text-muted">Choose a plan to add agent capacity.</DialogDescription>
             </div>
           </div>
           <button
@@ -967,14 +955,6 @@ function UpgradePlanCatalogModal({
             className="ml-[52px] inline-flex h-8 w-fit shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high sm:ml-0 sm:mt-1"
           >
             Compare plans
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-4 top-4 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label="Close capacity dialog"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -994,8 +974,8 @@ function UpgradePlanCatalogModal({
           onClose={() => setComparisonOpen(false)}
           catalogPlans={catalogPlans}
         />
-      </motion.div>
-    </motion.div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1249,6 +1229,8 @@ function AgentsPageContent() {
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
   const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
+  const [tokenLimitDialogOpen, setTokenLimitDialogOpen] = useState(false);
+  const tokenLimitReachedRef = useRef(false);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
@@ -1463,7 +1445,11 @@ function AgentsPageContent() {
     : null;
   const tokenUsage = dailyTokenUsage;
   const tokenLimit = dailyTokenLimit;
+  const tokenLimitReached = resolveAgentTokenUsage(tokenUsage, tokenLimit).state === "reached";
   const tokenUsageLoading = isAuthenticated && billingDataPrincipalId !== user?.id && !billingDataError;
+  useLayoutEffect(() => {
+    tokenLimitReachedRef.current = tokenLimitReached;
+  }, [tokenLimitReached]);
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId && requestedSessionKey
       ? { [requestedAgentId]: requestedSessionKey }
@@ -1741,6 +1727,8 @@ function AgentsPageContent() {
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
     setDailyTokenUsage(null);
+    setTokenLimitDialogOpen(false);
+    tokenLimitReachedRef.current = false;
     setDeployments(null);
     setAgentsLoadError(null);
     setSelectedAgentId(null);
@@ -1975,7 +1963,10 @@ function AgentsPageContent() {
 
   const applyTokenUsageSnapshot = useCallback((snapshot: TokenUsageSnapshot) => {
     setDailyTokenUsage(snapshot.dailyTotal);
-  }, []);
+    const limitReached = Boolean(dailyTokenLimit && snapshot.dailyTotal >= dailyTokenLimit);
+    tokenLimitReachedRef.current = limitReached;
+    if (!limitReached) setTokenLimitDialogOpen(false);
+  }, [dailyTokenLimit]);
 
   const publishTokenUsage = useCallback((usage: Parameters<typeof tokenUsageSnapshot>[0] | null) => {
     if (!usage) return;
@@ -1999,6 +1990,16 @@ function AgentsPageContent() {
   }, [getToken, isAuthenticated]);
 
   const tokenUsagePrincipalId = isAuthenticated ? user?.id ?? null : null;
+  useEffect(() => {
+    if (!tokenUsagePrincipalId) return;
+    const timeout = window.setTimeout(() => {
+      tokenLimitReachedRef.current = false;
+      setDailyTokenUsage(null);
+      setTokenLimitDialogOpen(false);
+      tokenUsageRefreshSchedulerRef.current?.refresh();
+    }, millisecondsUntilNextUtcTokenReset(Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [tokenUsagePrincipalId]);
   useEffect(() => {
     if (!tokenUsagePrincipalId) return;
     const scheduler = createTokenUsageRefreshScheduler(
@@ -2396,6 +2397,8 @@ function AgentsPageContent() {
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
       setDailyTokenUsage(null);
+      setTokenLimitDialogOpen(false);
+      tokenLimitReachedRef.current = false;
       const currentDeployments = deploymentsRef.current;
       deploymentsRef.current = null;
       currentDeployments?.dispose();
@@ -2737,6 +2740,11 @@ function AgentsPageContent() {
   // Activation-code grant entitlements carry no subscription or payment history,
   // so the billing-history check alone would wrongly offer a trial to grant holders.
   const hasActivePlanAccess = subscriptionSummary ? hasActivePlan(subscriptionSummary) : false;
+  const tokenCapacityActionLabel = canStartTeamTrial
+    ? "Start free trial"
+    : hasActivePlanAccess
+      ? "Add capacity"
+      : "Upgrade";
 
   useEffect(() => {
     if (
@@ -5089,6 +5097,10 @@ function AgentsPageContent() {
     let uploadInFlight = true;
     try {
       const token = await getToken();
+      if (tokenLimitReachedRef.current) {
+        setTokenLimitDialogOpen(true);
+        return;
+      }
       const timestamp = Date.now();
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${filename}`;
@@ -5103,6 +5115,11 @@ function AgentsPageContent() {
       await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, content);
       if (!targetIsCurrent()) {
         await agentClient.fileDelete(selectedAgent.id, uploadPath).catch(() => undefined);
+        return;
+      }
+      if (tokenLimitReachedRef.current) {
+        await agentClient.fileDelete(selectedAgent.id, uploadPath).catch(() => undefined);
+        if (targetIsCurrent()) setTokenLimitDialogOpen(true);
         return;
       }
       finishChatUpload(uploadGeneration);
@@ -5305,6 +5322,10 @@ function AgentsPageContent() {
   const handleSendChat = () => {
     if (chat.activeSessionReadOnly || uploadingChatFiles > 0) return;
     if (chat.pendingFiles.some((file) => pendingFileRemovalStatesRef.current[file.path])) return;
+    if (tokenLimitReached) {
+      setTokenLimitDialogOpen(true);
+      return;
+    }
     const draftInput = chat.input;
     const hasChatWork = draftInput.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
     const pendingJourneyCompletion = journeyChatCompletionRef.current;
@@ -6165,6 +6186,7 @@ function AgentsPageContent() {
             closeMobileNavigation();
             void openUpgradeCatalog();
           }}
+          capacityActionLabel={tokenCapacityActionLabel}
           onStartTrial={() => {
             closeMobileNavigation();
             beginTeamTrial();
@@ -6542,29 +6564,38 @@ function AgentsPageContent() {
         </div>
       )}
 
-      <AnimatePresence>
-        {upgradeCatalogOpen && (
-          <UpgradePlanCatalogModal
-            open={upgradeCatalogOpen}
-            products={upgradeProducts}
-            catalogPlans={catalogPlans}
-            ownedCounts={upgradeOwnedCounts}
-            loading={upgradeCatalogLoading}
-            error={upgradeCatalogError}
-            onClose={() => {
-              setUpgradeCatalogOpen(false);
-            }}
-            onOpenPlans={() => {
-              if (isAuthenticated) leaveAgentsPage("/plans");
-              else requestAuthentication({ kind: "navigate", href: "/plans" });
-            }}
-            onSelectPlan={selectUpgradeProduct}
-            onStartTrial={() => beginTeamTrial()}
-            trialAvailable={canStartTeamTrial}
-            trialCheckoutPending={trialCheckoutPending}
-          />
-        )}
-      </AnimatePresence>
+      <UpgradePlanCatalogModal
+        open={upgradeCatalogOpen}
+        products={upgradeProducts}
+        catalogPlans={catalogPlans}
+        ownedCounts={upgradeOwnedCounts}
+        loading={upgradeCatalogLoading}
+        error={upgradeCatalogError}
+        onClose={() => {
+          setUpgradeCatalogOpen(false);
+        }}
+        onOpenPlans={() => {
+          if (isAuthenticated) leaveAgentsPage("/plans");
+          else requestAuthentication({ kind: "navigate", href: "/plans" });
+        }}
+        onSelectPlan={selectUpgradeProduct}
+        onStartTrial={() => beginTeamTrial()}
+        trialAvailable={canStartTeamTrial}
+        trialCheckoutPending={trialCheckoutPending}
+      />
+
+      <DailyTokenLimitDialog
+        open={tokenLimitDialogOpen && tokenLimitReached}
+        actionLabel={tokenCapacityActionLabel}
+        onOpenChange={setTokenLimitDialogOpen}
+        onAction={() => {
+          if (canStartTeamTrial) {
+            beginTeamTrial();
+          } else {
+            void openUpgradeCatalog();
+          }
+        }}
+      />
 
       {upgradeCheckoutPlan && (
         <PlanCheckoutModal
@@ -6801,6 +6832,7 @@ function AgentsPageContent() {
             onOpenSettings={openAgentAccountSettings}
             settingsActive={false}
             onUpgrade={() => { void openUpgradeCatalog(); }}
+            capacityActionLabel={tokenCapacityActionLabel}
             onStartTrial={beginTeamTrial}
             onManageTrial={() => { selectAccountSettingsSection("billing"); }}
           />
@@ -6998,6 +7030,8 @@ function AgentsPageContent() {
               sendingAudio={sendingAudio}
               startRecording={startRecording}
               handleSendChat={handleSendChat}
+              tokenLimitReached={tokenLimitReached}
+              onTokenLimitBlocked={() => setTokenLimitDialogOpen(true)}
               formatDuration={formatDuration}
               onConnectionCta={openConnectionSuggestion}
               fileSyncRoot={chatFilesSyncRoot}

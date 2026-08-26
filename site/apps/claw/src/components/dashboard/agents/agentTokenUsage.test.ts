@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { tokenUsageSnapshot } from "./agentTokenUsage";
+import { millisecondsUntilNextUtcTokenReset, tokenUsageSnapshot } from "./agentTokenUsage";
 
 describe("tokenUsageSnapshot", () => {
   it("keeps attributed usage in both the agent map and daily total", () => {
@@ -62,5 +62,12 @@ describe("tokenUsageSnapshot", () => {
       byAgent: { "agent-1": 0, "agent-2": 0 },
       dailyTotal: 5,
     });
+  });
+});
+
+describe("millisecondsUntilNextUtcTokenReset", () => {
+  it("targets the next 00:00 UTC boundary", () => {
+    expect(millisecondsUntilNextUtcTokenReset(Date.parse("2026-08-26T18:30:00Z"))).toBe(5.5 * 60 * 60 * 1_000);
+    expect(millisecondsUntilNextUtcTokenReset(Date.parse("2026-08-27T00:00:00Z"))).toBe(24 * 60 * 60 * 1_000);
   });
 });
