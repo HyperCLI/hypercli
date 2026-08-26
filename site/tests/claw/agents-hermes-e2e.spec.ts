@@ -22,8 +22,8 @@ test.use({ trace: "off", video: "off" });
  * chat round-trip runs over the Hermes HTTP/SSE API through the standard
  * chat UI.
  *
- *   bootstrap identity -> mint its JWT -> claim the Team trial on /trial via
- *   Stripe hosted checkout (sandbox card) -> pick Hermes in the launcher ->
+ *   bootstrap identity -> mint its JWT -> open the Team trial from the sidebar
+ *   and complete Stripe hosted checkout (sandbox card) -> pick Hermes in the launcher ->
  *   it starts on its own -> Ready -> one chat round-trip -> stop from
  *   settings -> delete from the Danger Zone.
  */
@@ -86,8 +86,9 @@ async function loginAs(page: Page, email: string): Promise<void> {
 /**
  * Claim the Team trial through Stripe hosted checkout.
  *
- * The trial is a paid checkout now, not a cardless grant: /trial's
- * #claim-trial-button asks POST /agents/stripe/trial for a session and
+ * The trial is a paid checkout now, not a cardless grant: the dashboard
+ * sidebar CTA opens the activation dialog, whose confirmation asks
+ * POST /agents/stripe/trial for a session and
  * navigates to checkout.stripe.com, the sandbox card pays there, and Stripe
  * redirects back to /dashboard/agents where the checkout-return recovery
  * consumes the query params and waits for the entitlement to reflect. This
@@ -101,14 +102,28 @@ async function loginAs(page: Page, email: string): Promise<void> {
  * late or under different field names.
  */
 async function claimTeamTrialThroughStripeCheckout(page: Page): Promise<void> {
-  await page.goto(`${appBase()}/trial`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${appBase()}/dashboard/agents`, { waitUntil: "domcontentloaded" });
 
-  // completeSession is async, so the planted session needs to settle before
-  // the claim button will hand off to Stripe at all.
-  const claimButton = page.locator("#claim-trial-button");
-  await expect(claimButton, "expected the trial claim control on /trial").toBeEnabled({ timeout: 90_000 });
-  await claimButton.click();
-  await page.waitForURL(/checkout\.stripe\.com/, { timeout: 120_000 });
+  await expect(page.getByTestId("team-trial-activation-dialog")).toHaveCount(0);
+  const sidebarTrialCta = page.getByRole("button", { name: "Start free trial" });
+  await expect(sidebarTrialCta, "expected the trial CTA in the dashboard sidebar").toBeEnabled({ timeout: 90_000 });
+  await sidebarTrialCta.click();
+  await expect(page.getByTestId("team-trial-activation-dialog")).toBeVisible();
+  const checkoutResponsePromise = page.waitForResponse(
+    (response) => response.request().method() === "POST"
+      && new URL(response.url()).pathname.endsWith("/agents/stripe/trial"),
+    { timeout: 120_000 },
+  );
+  await page.getByTestId("team-trial-activation-confirm").click({ noWaitAfter: true });
+  const checkoutResponse = await checkoutResponsePromise;
+  expect(
+    checkoutResponse.ok(),
+    `expected trial checkout creation to succeed, got ${checkoutResponse.status()}`,
+  ).toBe(true);
+  await page.waitForURL(/^https:\/\/checkout\.stripe\.com\//, {
+    timeout: 120_000,
+    waitUntil: "commit",
+  });
 
   // Currency is geo-dependent and completeStripeCheckout does not touch it:
   // pick USD when Stripe offers the choice, and carry on without complaining
