@@ -3368,6 +3368,67 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("keeps cached history when a passive empty refresh contradicts a populated session index", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:22222222-3333-4444-8555-666666666666";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    const indexedSession = {
+      key: gatewaySessionKey,
+      displayName: "Indexed populated route",
+      messageCount: 1,
+      updatedAt: 30,
+    };
+    gateway.sessionsList.mockResolvedValue([indexedSession]);
+    const initialHistory = deferred<unknown[]>();
+    gateway.chatHistory.mockImplementation(async () => initialHistory.promise);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved indexed transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved indexed transcript" }),
+    ]);
+    const historyCallsBeforePassive = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockResolvedValue([]);
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: gatewaySessionKey } });
+    });
+
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforePassive));
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved indexed transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved indexed transcript" }),
+    ]);
+
+    gateway.sessionsList.mockResolvedValue([{ ...indexedSession, messageCount: 0 }]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+    const historyCallsBeforeConfirmedEmpty = gateway.chatHistory.mock.calls.length;
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: gatewaySessionKey } });
+    });
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeConfirmedEmpty));
+    await waitFor(() => expect(result.current.messages).toEqual([]));
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([]);
+    unmount();
+  });
+
   it("keeps cached history when sequence-gap recovery resolves empty for a temporarily unindexed dashboard route", async () => {
     const gateway = buildGateway();
     const sessionKey = "dashboard:66666666-7777-4888-8999-000000000000";
@@ -3441,6 +3502,61 @@ describe("useOpenClawSession", () => {
     ]);
     expect(gateway.sessionsCreate).not.toHaveBeenCalled();
     expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("keeps cached history when gap recovery sees empty history for a populated indexed session", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:77777777-8888-4999-8aaa-bbbbbbbbbbbb";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    const indexedSession = {
+      key: gatewaySessionKey,
+      displayName: "Indexed populated route",
+      messageCount: 1,
+      updatedAt: 30,
+    };
+    gateway.sessionsList.mockResolvedValue([indexedSession]);
+    const initialHistory = deferred<unknown[]>();
+    gateway.chatHistory.mockImplementation(async () => initialHistory.promise);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved indexed transcript" },
+    ], sessionKey);
+    let gatewayOptions: {
+      onGap?: (info: { expected: number; received: number }) => void;
+    } | undefined;
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn((options?: typeof gatewayOptions) => {
+        gatewayOptions = options;
+        return gateway;
+      }),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved indexed transcript" }),
+    ]);
+    gateway.sessionsList.mockResolvedValue([indexedSession]);
+    gateway.chatHistory.mockResolvedValue([]);
+    expect(gatewayOptions?.onGap).toEqual(expect.any(Function));
+    act(() => {
+      gatewayOptions?.onGap?.({ expected: 4, received: 6 });
+    });
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved indexed transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Saved indexed transcript" }),
+    ]);
     unmount();
   });
 
@@ -3692,6 +3808,47 @@ describe("useOpenClawSession", () => {
     expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([]);
     expect(gateway.sessionsCreate).not.toHaveBeenCalled();
     expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("keeps cache-restored history when an indexed populated session briefly returns empty", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:33333333-4444-4555-8666-777777777777";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    gateway.sessionsList.mockResolvedValue([{
+      key: gatewaySessionKey,
+      displayName: "Indexed populated route",
+      messageCount: 2,
+      updatedAt: 30,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "user", content: "Saved question" },
+      { role: "assistant", content: "Saved transcript" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(gateway.chatHistory).toHaveBeenCalledWith(gatewaySessionKey, 200);
+    expect(result.current.activeSessionCanSend).toBe(true);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Saved question" }),
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "user", content: "Saved question" }),
+      expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
+    ]);
     unmount();
   });
 
