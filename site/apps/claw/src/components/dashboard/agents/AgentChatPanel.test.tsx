@@ -3771,6 +3771,7 @@ describe("AgentChatPanel", () => {
     const renderedMessages = chatMessageBubbleMock.mock.calls.map(([props]) => props);
     const progressRow = renderedMessages.find((props: any) => props.message?.progress?.text === "Checking the deployment target");
     expect(progressRow).toBeDefined();
+    expect(screen.queryByRole("status", { name: /starting response/i })).not.toBeInTheDocument();
   });
 
   it("keeps commentary-bearing rows on a single stable render key across progress updates", () => {

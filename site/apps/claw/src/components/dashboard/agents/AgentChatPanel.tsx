@@ -186,6 +186,15 @@ function activeResponseStatusPresentation(
   };
 }
 
+function currentTurnHasWorkingCommentary(messages: ChatMessage[]): boolean {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user") return false;
+    if (message?.role === "assistant" && message.progress?.text.trim()) return true;
+  }
+  return false;
+}
+
 function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
   const [fallbackStartedAt] = React.useState(() => Date.now());
   const [now, setNow] = React.useState(() => Date.now());
@@ -1496,6 +1505,7 @@ export function AgentChatPanel({
             if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
+            if (currentTurnHasWorkingCommentary(chat.messages)) return null;
             return <ActiveResponseStatus messages={chat.messages} />;
           })()}
 

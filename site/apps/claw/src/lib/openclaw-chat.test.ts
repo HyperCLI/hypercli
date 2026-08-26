@@ -1722,6 +1722,37 @@ describe("openclaw commentary progress reconciliation", () => {
     expect(messages[0]?.content).toBe("\nCredentials verified. Two keys are valid.");
   });
 
+  it("strips a near-complete commentary mirror when the final answer replaces its last word", () => {
+    const note = "I love that you asked me this. Financial freedom is challenging in the current economy, but possible with the right strategy. Let me research the current options.";
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary(note), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "I love that you asked me this. Financial freedom is challenging in the current economy, but possible with the right strategy. Let me research the current optPerfect. I now have the information I need.",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+
+    expect(messages[0]?.content).toBe("Perfect. I now have the information I need.");
+    expect(messages[0]?.progress?.text).toBe(note);
+  });
+
+  it("keeps an independent answer that only shares a short opening with commentary", () => {
+    const note = "I love that you asked me this. Let me research all of the available options before answering.";
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary(note), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "I love that you asked me this, so here is the direct answer.",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+
+    expect(messages[0]?.content).toBe("I love that you asked me this, so here is the direct answer.");
+  });
+
   it("reclassifies a mirrored chat prefix when the commentary marker arrives late", () => {
     let messages: ChatMessage[] = [];
     // Ordinary mirrored content first, marker late.

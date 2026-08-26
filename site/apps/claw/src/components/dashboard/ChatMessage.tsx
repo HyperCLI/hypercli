@@ -1129,10 +1129,10 @@ function AssistantProgressNote({ progress }: { progress: NonNullable<ChatMessage
         aria-label="Working"
         data-testid="agent-assistant-progress"
         data-progress-state="active"
-        className="mb-2 flex w-fit max-w-full min-w-0 items-start gap-2 rounded-lg border border-primary/20 bg-primary/8 px-3 py-2 text-xs text-text-muted"
+        className="mb-3 flex w-fit max-w-full min-w-0 items-start gap-2.5 text-[13px] leading-5 text-text-muted"
       >
-        <Loader2 aria-hidden="true" className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
-        <p className="min-w-0 max-w-full whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">
+        <span aria-hidden="true" className="mt-2.5 h-px w-4 shrink-0 bg-primary/60" />
+        <p className="min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
           {progress.text}
         </p>
       </div>
@@ -1143,7 +1143,7 @@ function AssistantProgressNote({ progress }: { progress: NonNullable<ChatMessage
     <div
       data-testid="agent-assistant-progress"
       data-progress-state="settled"
-      className="mb-2 w-fit max-w-full min-w-0 rounded-lg border border-border bg-surface-low/70 text-xs text-text-muted"
+      className="mb-2 w-fit max-w-full min-w-0 text-xs text-text-muted"
     >
       <button
         type="button"
@@ -1151,13 +1151,14 @@ function AssistantProgressNote({ progress }: { progress: NonNullable<ChatMessage
         aria-expanded={open}
         aria-label="Working notes"
         onClick={() => setOpen((value) => !value)}
-        className="flex max-w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)]"
+        className="group flex min-h-8 max-w-full items-center gap-2 text-left font-medium transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
-        <ChevronRight aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`} />
+        <span aria-hidden="true" className="h-px w-4 shrink-0 bg-border-strong transition-colors group-hover:bg-primary/70" />
         <span>Working notes</span>
+        <ChevronRight aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`} />
       </button>
-      <div id={detailId} hidden={!open} aria-hidden={!open} className="border-t border-border px-3 py-2">
-        <p className="max-w-full whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{progress.text}</p>
+      <div id={detailId} hidden={!open} aria-hidden={!open} className="ml-2 border-l border-border py-1.5 pl-4">
+        <p className="max-w-full whitespace-pre-wrap break-words text-[13px] leading-5 [overflow-wrap:anywhere]">{progress.text}</p>
       </div>
     </div>
   );
@@ -1245,7 +1246,7 @@ export function ChatMessageBubble({
   const showV1Name = nameVariant === "v1";
   const showV2Name = nameVariant === "v2";
   const effectiveName = isUser ? (senderName ?? "You") : (agentName ?? "Agent");
-  const showStreamingDot = isStreaming && !isUser;
+  const showStreamingDot = isStreaming && !isUser && !message.progress?.text;
   const rawEffectiveContent = isDuplicateToolResultJson(message)
     ? ""
     : isIncompleteReply

@@ -1116,6 +1116,9 @@ interface AssistantUpsertOptions {
 }
 
 const ASSISTANT_PROGRESS_REVISION_LIMIT = 16;
+const ASSISTANT_PROGRESS_NEAR_PREFIX_MIN_LENGTH = 48;
+const ASSISTANT_PROGRESS_NEAR_PREFIX_MAX_REMAINDER = 24;
+const ASSISTANT_PROGRESS_NEAR_PREFIX_MIN_COVERAGE = 0.9;
 
 function normalizeAssistantProgress(progress: ChatMessageProgress | undefined): ChatMessageProgress | undefined {
   if (!progress) return undefined;
@@ -1173,13 +1176,36 @@ export function stripAssistantProgressContent(
     }
   }
 
-  let matchedPrefix = "";
+  let matchedPrefixLength = 0;
   for (const candidate of candidates) {
     for (const prefix of [candidate, `\n${candidate}`, `\r\n${candidate}`]) {
-      if (prefix.length > matchedPrefix.length && content.startsWith(prefix)) matchedPrefix = prefix;
+      if (prefix.length > matchedPrefixLength && content.startsWith(prefix)) matchedPrefixLength = prefix.length;
     }
   }
-  return matchedPrefix ? content.slice(matchedPrefix.length) : content;
+  if (matchedPrefixLength > 0) return content.slice(matchedPrefixLength);
+
+  // Some cumulative gateway frames switch to the answer before finishing the
+  // commentary's last word. Only accept a near-prefix when the overlap is long
+  // and nearly exhausts a known commentary revision.
+  for (const candidate of candidates) {
+    for (const leadingBreak of ["", "\n", "\r\n"]) {
+      if (leadingBreak && !content.startsWith(leadingBreak)) continue;
+      const value = content.slice(leadingBreak.length);
+      const limit = Math.min(value.length, candidate.length);
+      let overlap = 0;
+      while (overlap < limit && value[overlap] === candidate[overlap]) overlap += 1;
+      const remainder = candidate.length - overlap;
+      const coverage = candidate.length > 0 ? overlap / candidate.length : 0;
+      if (
+        overlap >= ASSISTANT_PROGRESS_NEAR_PREFIX_MIN_LENGTH &&
+        remainder <= ASSISTANT_PROGRESS_NEAR_PREFIX_MAX_REMAINDER &&
+        coverage >= ASSISTANT_PROGRESS_NEAR_PREFIX_MIN_COVERAGE
+      ) {
+        matchedPrefixLength = Math.max(matchedPrefixLength, leadingBreak.length + overlap);
+      }
+    }
+  }
+  return matchedPrefixLength > 0 ? content.slice(matchedPrefixLength) : content;
 }
 
 function chatMessageProtocolIdentity(

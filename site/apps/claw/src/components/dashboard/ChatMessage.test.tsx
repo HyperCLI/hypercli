@@ -1907,7 +1907,11 @@ describe("ChatMessageBubble", () => {
       expect(progress).toHaveAttribute("data-progress-state", "active");
       expect(progress).toHaveTextContent("Checking the deployment target");
       expect(screen.getByRole("status", { name: /working/i })).toBeInTheDocument();
-      expect(progress.querySelector("svg")).toHaveClass("motion-reduce:animate-none");
+      expect(progress.querySelector("svg")).toBeNull();
+      expect(progress.className).not.toMatch(/\brounded/);
+      expect(progress.className).not.toMatch(/\bborder/);
+      expect(progress.className).not.toMatch(/\bbg-/);
+      expect(screen.queryByLabelText("streaming")).not.toBeInTheDocument();
       expect(screen.queryByText(/chain of thought/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/\bsdk\b/i)).not.toBeInTheDocument();
     });

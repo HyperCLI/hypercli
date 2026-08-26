@@ -1648,6 +1648,37 @@ describe("openclaw commentary session wiring", () => {
     });
   });
 
+  it("removes a near-complete cumulative commentary mirror before the final answer", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { runId: "r1", sessionKey: "main" };
+    const note = "I love that you asked me this. Financial freedom is challenging in the current economy, but possible with the right strategy. Let me research the current options.";
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: note, replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: "Perfect. I now have the information I need.",
+        ...identity,
+        data: {
+          message: {
+            role: "assistant",
+            content: "I love that you asked me this. Financial freedom is challenging in the current economy, but possible with the right strategy. Let me research the current optPerfect. I now have the information I need.",
+          },
+        },
+      } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]).toMatchObject({
+      content: "Perfect. I now have the information I need.",
+      progress: { text: note, state: "active" },
+    });
+  });
+
   it("never renders raw thinking as progress, even when both stream kinds arrive", () => {
     const { context, messages } = createStreamContext();
     const identity = { messageId: "m1", turnId: "t1", runId: "r1", sessionKey: "raw" };

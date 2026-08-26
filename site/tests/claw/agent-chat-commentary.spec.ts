@@ -84,6 +84,8 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(progress).toContainText("Reading the config file and validating entries");
     await expect(progress).not.toContainText("validating entries and");
     await expect(page.getByRole("status", { name: "Working" })).toHaveCount(1);
+    await expect(page.getByRole("status", { name: /starting response/i })).toHaveCount(0);
+    await expect(page.getByLabel("Streaming")).toHaveCount(0);
     await expect(page.getByText(THINKING_SENTINEL)).toHaveCount(0);
     // The mirrored ordinary chat text must not appear as a reply paragraph.
     const transcript = page.getByTestId("agent-chat-transcript");
@@ -173,6 +175,37 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await disclosure.focus();
     await page.keyboard.press("Enter");
     await expect(settled.getByText("Reading the config file and validating entries", { exact: true })).toBeVisible();
+  });
+
+  test("removes a near-complete persisted commentary mirror before rendering the final answer", async ({ page }) => {
+    const note = "I love that you asked me this. Financial freedom is challenging in the current economy, but possible with the right strategy. Let me research the current options.";
+    await installMockGateway(page, {
+      chatHistories: {
+        research: [
+          { role: "user", timestamp: 1, content: [{ type: "text", text: "Build a financial plan" }] },
+          { role: "assistant", stopReason: "toolUse", timestamp: 2, content: [{ type: "text", text: note }] },
+          {
+            role: "assistant",
+            stopReason: "stop",
+            timestamp: 3,
+            content: [{
+              type: "text",
+              text: "I love that you asked me this. Financial freedom is challenging in the current economy, but possible with the right strategy. Let me research the current optPerfect. I now have the information I need.",
+            }],
+          },
+        ],
+      },
+      sessions: [{ key: "research", label: "Financial plan" }],
+    });
+    await installAuth(page);
+    await interceptBackend(page);
+    await openAgentChatTab(page, AGENT_ID);
+
+    await selectGatewaySession(page, "research");
+    const transcript = page.getByTestId("agent-chat-transcript");
+    await expect(transcript.locator(".prose-chat").getByText("Perfect. I now have the information I need.", { exact: true })).toBeVisible();
+    await expect(transcript.locator(".prose-chat").getByText(/I love that you asked me this/)).toHaveCount(0);
+    await expect(page.locator(`${PROGRESS}[data-progress-state="settled"]`)).toHaveCount(1);
   });
 
   test("does not leak working notes across sessions", async ({ page }) => {
