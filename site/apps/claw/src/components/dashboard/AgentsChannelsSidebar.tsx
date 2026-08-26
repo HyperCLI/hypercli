@@ -522,20 +522,9 @@ function ThreadRow({
     setEditing(false);
   }, [editValue, onRename]);
 
-  const handleRowKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onSelect();
-  }, [onSelect]);
-
   return (
     <motion.div
-      role="button"
-      tabIndex={0}
-      aria-label={`Select ${resolvedTitle}`}
       data-roster-id={thread.id}
-      aria-current={selected ? "page" : undefined}
       className={`agents-roster-agent-row group/row relative flex w-full cursor-pointer items-center text-left transition-[background-color] duration-200 ease-out ${
         mobileMode ? "gap-2 px-3 py-2.5" : "gap-1 border-r border-border py-2 pl-1 pr-2"
       } ${
@@ -547,16 +536,25 @@ function ThreadRow({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0, overflow: "hidden" }}
       transition={{ duration: 0.15 }}
-      onClick={onSelect}
-      onKeyDown={handleRowKeyDown}
     >
+      <button
+        type="button"
+        aria-label={`Select ${resolvedTitle}`}
+        aria-current={selected ? "page" : undefined}
+        onClick={onSelect}
+        className={`absolute inset-0 z-0 flex w-full cursor-pointer items-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--selection-accent)] ${
+          mobileMode ? "gap-2 px-3 py-2.5" : "gap-1 border-r border-border py-2 pl-1 pr-2"
+        }`}
+      />
       {reorderHandle}
       {!compact && (
-        <ParticipantAvatars
-          participants={thread.kind === "user-agent" ? thread.participants.filter((p) => p.type === "agent") : thread.participants}
-          size={mobileMode ? 28 : 20}
-          agentCardDataById={agentCardDataById}
-        />
+        <div className="relative z-[1]" onClick={onSelect}>
+          <ParticipantAvatars
+            participants={thread.kind === "user-agent" ? thread.participants.filter((p) => p.type === "agent") : thread.participants}
+            size={mobileMode ? 28 : 20}
+            agentCardDataById={agentCardDataById}
+          />
+        </div>
       )}
 
       <div className="min-w-0 flex-1">
@@ -571,7 +569,7 @@ function ThreadRow({
                 onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); }}
                 onBlur={commitEdit}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full min-w-0 border-b border-[var(--selection-accent)] bg-transparent text-sm font-semibold text-foreground focus:outline-none"
+                className="relative z-10 w-full min-w-0 border-b border-[var(--selection-accent)] bg-transparent text-sm font-semibold text-foreground focus:outline-none"
               />
             ) : (
               <>
@@ -582,7 +580,7 @@ function ThreadRow({
                       type="button"
                       aria-label="Rename agent"
                       onClick={startEdit}
-                      className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:text-foreground ${
+                      className={`relative z-10 flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:text-foreground ${
                         mobileMode ? "flex h-8 w-8 rounded-lg hover:bg-surface-low" : "hidden h-4 w-4 rounded group-hover/row:flex"
                       }`}
                     >
@@ -599,7 +597,7 @@ function ThreadRow({
                       event.stopPropagation();
                       action.onSelect?.();
                     }}
-                    className={`flex-shrink-0 items-center rounded px-1 text-[0.625rem] font-medium leading-4 text-text-muted transition-colors hover:bg-surface-low hover:text-foreground ${
+                    className={`relative z-10 flex-shrink-0 items-center rounded px-1 text-[0.625rem] font-medium leading-4 text-text-muted transition-colors hover:bg-surface-low hover:text-foreground ${
                       mobileMode ? "flex h-8" : "hidden h-4 group-hover/row:flex"
                     }`}
                   >
@@ -619,7 +617,7 @@ function ThreadRow({
                 type="button"
                 aria-label={deleteLabel}
                 onClick={(e) => { e.stopPropagation(); deleteAction(); }}
-                className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive ${
+                className={`relative z-10 flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive ${
                   mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
                 }`}
               >

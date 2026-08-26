@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { axe } from "jest-axe";
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -349,25 +350,25 @@ describe("AgentsChannelsSidebar", () => {
     );
 
     const secondary = screen.getByRole("button", { name: "Select Secondary Agent" });
+    expect(secondary.tagName).toBe("BUTTON");
     fireEvent.click(secondary);
     expect(onSelectThread).toHaveBeenCalledWith("agent-2");
-    fireEvent.keyDown(secondary, { key: "Enter" });
-    expect(onSelectThread).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("button", { name: "Delete agent" })).not.toBeInTheDocument();
     expect(onDeleteThread).not.toHaveBeenCalled();
-    expect(onSelectThread).toHaveBeenCalledTimes(2);
+    expect(onSelectThread).toHaveBeenCalledOnce();
     const primary = screen.getByRole("button", { name: "Select Primary Agent" });
+    const primaryRow = primary.closest("[data-roster-id]");
     expect(primary).toHaveAttribute("aria-current", "page");
-    expect(primary).toHaveClass("items-center", "gap-1", "pl-1", "pr-2", "py-2");
-    expect(primary).toHaveClass(
+    expect(primaryRow).toHaveClass("items-center", "gap-1", "pl-1", "pr-2", "py-2");
+    expect(primaryRow).toHaveClass(
       "transition-[background-color]",
       "duration-200",
       "ease-out",
       "bg-[rgb(var(--selection-accent-rgb)_/_0.1)]",
     );
-    const name = primary.querySelector(".agents-roster-agent-name");
-    const status = primary.querySelector(".agents-roster-agent-status");
-    const activity = primary.querySelector(".agents-roster-agent-activity");
+    const name = primaryRow?.querySelector(".agents-roster-agent-name");
+    const status = primaryRow?.querySelector(".agents-roster-agent-status");
+    const activity = primaryRow?.querySelector(".agents-roster-agent-activity");
     expect(name).toHaveClass("font-semibold");
     expect(status).toHaveTextContent("Connected");
     expect(status).toHaveClass("text-[10px]", "font-normal", "text-text-muted");
@@ -375,6 +376,52 @@ describe("AgentsChannelsSidebar", () => {
     expect(activity?.previousElementSibling).toContainElement(name);
     expect(status?.nextElementSibling).toHaveClass("leading-3", "group-hover/row:opacity-0");
     expect(status?.nextElementSibling).not.toHaveClass("group-hover/row:hidden");
+  });
+
+  it("keeps row actions and editing controls outside the selection button", async () => {
+    const onSelectThread = vi.fn();
+    const { container } = render(
+      <AgentsChannelsSidebar
+        variant="v3"
+        threads={[surfaceActionThread("agent-1", "Buzz Agent")]}
+        selectedThreadId={null}
+        onSelectThread={onSelectThread}
+        onRenameThread={vi.fn()}
+        showChannels={false}
+        threadSurfaceActions={(thread) => [{
+          id: "shell",
+          href: `/dashboard/agents?agentId=${thread.id}&tab=shell`,
+        }]}
+      />,
+    );
+
+    const select = screen.getByRole("button", { name: "Select Buzz Agent" });
+    const row = select.closest("[data-roster-id]");
+    const rename = screen.getByRole("button", { name: "Rename agent" });
+    const shell = screen.getByRole("link", { name: "Open Shell" });
+
+    expect(row).toContainElement(select);
+    expect(row).toContainElement(rename);
+    expect(row).toContainElement(shell);
+    expect(select).not.toContainElement(rename);
+    expect(select).not.toContainElement(shell);
+    expect(select.querySelector("button, a, input, [role='button']")).toBeNull();
+
+    fireEvent.click(rename);
+
+    const editor = screen.getByRole("textbox");
+    expect(row).toContainElement(editor);
+    expect(select).not.toContainElement(editor);
+    expect(onSelectThread).not.toHaveBeenCalled();
+
+    let violations: Awaited<ReturnType<typeof axe>>["violations"] = [];
+    await act(async () => {
+      const results = await axe(container, {
+        runOnly: { type: "rule", values: ["nested-interactive"] },
+      });
+      violations = results.violations;
+    });
+    expect(violations).toEqual([]);
   });
 
   function surfaceActionThread(id: string, name: string) {
@@ -411,17 +458,17 @@ describe("AgentsChannelsSidebar", () => {
       />,
     );
 
-    const buzzRow = screen.getByRole("button", { name: "Select Buzz Agent" });
-    expect(buzzRow.querySelector("a[aria-label='Open Shell']")).toBeInTheDocument();
-    expect(buzzRow.querySelector("a[aria-label='Open Logs']")).toBeInTheDocument();
-    expect(buzzRow.querySelector("a[aria-label='Open Activity']")).toBeInTheDocument();
+    const buzzRow = screen.getByRole("button", { name: "Select Buzz Agent" }).closest("[data-roster-id]");
+    expect(buzzRow?.querySelector("a[aria-label='Open Shell']")).toBeInTheDocument();
+    expect(buzzRow?.querySelector("a[aria-label='Open Logs']")).toBeInTheDocument();
+    expect(buzzRow?.querySelector("a[aria-label='Open Activity']")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Shell" })).toHaveTextContent("Shell");
     expect(screen.getByRole("link", { name: "Open Logs" })).toHaveTextContent("Logs");
     expect(screen.getByRole("link", { name: "Open Activity" })).toHaveTextContent("Activity");
 
-    const plainRow = screen.getByRole("button", { name: "Select Plain Agent" });
-    expect(plainRow.querySelector("a[aria-label='Open Activity']")).not.toBeInTheDocument();
-    expect(plainRow.querySelector("a[aria-label='Open Shell']")).not.toBeInTheDocument();
+    const plainRow = screen.getByRole("button", { name: "Select Plain Agent" }).closest("[data-roster-id]");
+    expect(plainRow?.querySelector("a[aria-label='Open Activity']")).not.toBeInTheDocument();
+    expect(plainRow?.querySelector("a[aria-label='Open Shell']")).not.toBeInTheDocument();
   });
 
   it("routes surface actions to their workspace hrefs without triggering row select", () => {

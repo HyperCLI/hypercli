@@ -147,15 +147,25 @@ Primary source references:
 
 ### P2-1 Nested interactive controls in the agent roster
 
-Status: `OPEN`
+Status: `DONE`
 
-- [ ] Replace the interactive row wrapper with a noninteractive list item.
-- [ ] Use one primary selection button and sibling action controls.
-- [ ] Clear the axe `nested-interactive` violations for populated rosters.
+- [x] Replace the interactive row wrapper with a noninteractive list item.
+- [x] Use one primary selection button and sibling action controls.
+- [x] Clear the axe `nested-interactive` violations for populated rosters.
+
+Evidence: Populated rows placed rename buttons, workspace links, and the inline
+name editor inside the focusable selection wrapper, which axe reports as
+`nested-interactive`.
+
+Resolution: Roster rows now use a noninteractive container with one native
+selection button and independently layered sibling controls. Component coverage
+asserts the DOM relationship, independent action behavior, and a clean targeted
+axe scan for populated rows.
 
 Primary source reference:
 
-- `site/apps/claw/src/components/dashboard/AgentsChannelsSidebar.tsx:532`
+- `site/apps/claw/src/components/dashboard/AgentsChannelsSidebar.tsx:525`
+- `site/apps/claw/src/components/dashboard/AgentsChannelsSidebar.test.tsx:378`
 
 ### P2-2 Light and dark theme contrast failures
 
