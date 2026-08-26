@@ -40,20 +40,31 @@ test("keeps dashboard agents within the viewport across common breakpoints", asy
 
 test("shows mobile agent navigation without horizontal overflow", async ({ page }) => {
   await page.setViewportSize({ width: 430, height: 932 });
-  await loginWithPrivy(page);
 
   await page.goto("/dashboard/agents", { waitUntil: "networkidle" });
-  await expect(page).toHaveURL(/\/dashboard\/agents$/);
+  await expect(page).toHaveURL(/\/dashboard\/agents\/?$/);
 
   const navMenuButton = page.getByRole("button", { name: "Open navigation" });
   await expect(navMenuButton).toBeVisible();
+  const openNavButtonBox = await navMenuButton.boundingBox();
+  expect(openNavButtonBox).not.toBeNull();
   await navMenuButton.click();
 
   await expect(page.getByRole("dialog", { name: "Agent navigation" })).toBeVisible();
+  const closeNavButton = page.getByTestId("agent-mobile-navigation-close-toggle");
+  await expect(closeNavButton).toBeVisible();
+  const closeNavButtonBox = await closeNavButton.boundingBox();
+  expect(closeNavButtonBox).not.toBeNull();
+  expect(Math.abs(closeNavButtonBox!.x - openNavButtonBox!.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(closeNavButtonBox!.y - openNavButtonBox!.y)).toBeLessThanOrEqual(1);
   await expect(page.getByRole("button", { name: "Expand agents sidebar" })).toBeVisible();
   await expect(page.getByRole("button", { name: /launch agent/i })).toBeVisible();
   await expect(page.getByText(/^available agents$/i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 
   await captureStep(page, "agents-mobile-menu-layout");
+
+  await closeNavButton.click();
+  await expect(page.getByRole("dialog", { name: "Agent navigation" })).toBeHidden();
+  await expect(navMenuButton).toBeFocused();
 });

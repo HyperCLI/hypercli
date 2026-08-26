@@ -94,6 +94,7 @@ import {
   DialogHeader,
   DialogTitle,
   Sheet,
+  SheetClose,
   SheetContent,
   SheetTitle,
   SheetTrigger,
@@ -6117,8 +6118,6 @@ function AgentsPageContent() {
           onCollapsedChange={(collapsed) => setMobileRosterCollapsed(!collapsed)}
           embeddedInNavigation
           footerAction={renderPrivateChatControl()}
-          closeButtonRef={mobileNavigationCloseRef}
-          onClose={closeMobileNavigation}
           sessions={userVisibleChatSessions}
           activeUnindexedInitialSession={chat.activeUnindexedInitialSession}
           sessionsFetched={chat.sessionsFetched}
@@ -6479,10 +6478,21 @@ function AgentsPageContent() {
               event.preventDefault();
               mobileNavigationCloseRef.current?.focus();
             }}
-            className="agent-mobile-navigation z-[70] h-dvh w-64 max-w-[calc(100vw-3.5rem)] gap-0 overflow-hidden border-r border-border bg-[var(--agent-panel-background)] p-0 pt-[env(safe-area-inset-top)] shadow-2xl sm:max-w-none motion-reduce:duration-0"
+            className="agent-mobile-navigation z-[70] h-dvh w-64 max-w-[calc(100vw-3.5rem)] gap-0 overflow-visible border-r border-border bg-[var(--agent-panel-background)] p-0 pt-[env(safe-area-inset-top)] shadow-2xl sm:max-w-none motion-reduce:duration-0"
           >
             <SheetTitle className="sr-only">Agent navigation</SheetTitle>
             {mobileNavigation}
+            <SheetClose asChild>
+              <button
+                ref={mobileNavigationCloseRef}
+                type="button"
+                data-testid="agent-mobile-navigation-close-toggle"
+                aria-label="Close navigation"
+                className="fixed left-[calc(100vw-3.5rem)] top-[calc(env(safe-area-inset-top)+0.375rem)] z-[71] flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background/95 text-foreground shadow-lg backdrop-blur-sm transition-colors hover:bg-surface-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </SheetClose>
           </SheetContent>
         </Sheet>
       )}
