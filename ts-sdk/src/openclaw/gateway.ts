@@ -5287,6 +5287,7 @@ export class GatewayClient {
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
     let acknowledgementPending = false;
+    let terminalAcknowledgementEvent: GatewayEvent | null = null;
     let historyBaseline: HistoryAssistantBaseline | null | undefined;
     let streamCloseError: Error | null = null;
     let resolveStreamClose: ((error: Error) => void) | null = null;
@@ -5409,6 +5410,32 @@ export class GatewayClient {
       if (acknowledgementPending) {
         acknowledgementPending = false;
         this.finishEphemeralChatAcknowledgement(Boolean(serverRunId));
+      }
+      const acknowledgementStatus = typeof ack?.status === "string" ? ack.status.trim().toLowerCase() : "";
+      if (["ok", "timeout", "error"].includes(acknowledgementStatus)) {
+        const acknowledgementError = asRecord(ack?.error);
+        const acknowledgementMessage = [ack?.message, ack?.errorMessage, acknowledgementError?.message]
+          .find((value) => typeof value === "string" && value.trim());
+        terminalAcknowledgementEvent = {
+          type: "event",
+          event: acknowledgementStatus === "ok" ? "chat.done" : "chat.error",
+          payload: {
+            ...asRecord(ack),
+            runId: serverRunId || idempotencyKey,
+            sessionKey,
+            ...(acknowledgementStatus === "ok"
+              ? {}
+              : {
+                  message: typeof acknowledgementMessage === "string"
+                    ? acknowledgementMessage.trim()
+                    : acknowledgementStatus === "timeout"
+                      ? "The run ended before the message was accepted."
+                      : "Chat failed before the run started; try again.",
+                }),
+          },
+        };
+        queuedEvents.push(terminalAcknowledgementEvent);
+        streamState.terminalEvent = terminalAcknowledgementEvent;
       }
 
       const readLatestHistoryText = async (): Promise<string> => {
@@ -5686,11 +5713,13 @@ export class GatewayClient {
         if (evt.event === "chat.done") {
           const hasNonTextActivity =
             Boolean(lastThinkingText || emittedReasoningText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
-          const historyText = emittedDisplayText && hasNonTextActivity
-            ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
-            : (!emittedDisplayText && !hasNonTextActivity) || fallbackReplacementAfterSeq !== undefined
-              ? await waitForHistoryText()
-              : "";
+          const historyText = evt === terminalAcknowledgementEvent
+            ? await readLatestHistoryText()
+            : emittedDisplayText && hasNonTextActivity
+              ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
+              : (!emittedDisplayText && !hasNonTextActivity) || fallbackReplacementAfterSeq !== undefined
+                ? await waitForHistoryText()
+                : "";
           if (historyText) {
             const update = replacesFailedAttempt || fallbackReplacementAfterSeq !== undefined
               ? reconcileStreamContent(emittedDisplayText, historyText, true)

@@ -2181,6 +2181,84 @@ describe("GatewayClient", () => {
     expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("SMOKE_OK");
   });
 
+  it("settles chatSend from a terminal ok acknowledgement without waiting for stream events", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      (client as any).connected = true;
+      (client as any).ws = { readyState: MockWebSocket.OPEN };
+      vi.spyOn(client as any, "rpc").mockResolvedValue({
+        runId: "terminal-run",
+        status: "ok",
+      });
+      const chatHistory = vi.spyOn(client, "chatHistory").mockResolvedValue([{
+        role: "assistant",
+        runId: "terminal-run",
+        content: [{ type: "text", text: "Already finished" }],
+      }]);
+
+      const completion = (async () => {
+        const events = [];
+        for await (const event of client.chatSend("Finish immediately", "main")) events.push(event);
+        return events;
+      })();
+
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(900_000);
+
+      await expect(completion).resolves.toEqual([
+        expect.objectContaining({ type: "content", text: "Already finished", runId: "terminal-run" }),
+        expect.objectContaining({ type: "done", runId: "terminal-run" }),
+      ]);
+      expect(chatHistory).toHaveBeenCalledWith("main", 20);
+      expect((client as any).internalEventHandlers.size).toBe(0);
+      expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("surfaces a terminal timeout acknowledgement without tracking a non-running stream", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      (client as any).connected = true;
+      (client as any).ws = { readyState: MockWebSocket.OPEN };
+      vi.spyOn(client as any, "rpc").mockResolvedValue({
+        runId: "timed-out-run",
+        status: "timeout",
+      });
+
+      const completion = (async () => {
+        const events = [];
+        for await (const event of client.chatSend("Do not keep waiting", "main")) events.push(event);
+        return events;
+      })();
+
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(900_000);
+
+      await expect(completion).resolves.toEqual([
+        expect.objectContaining({
+          type: "error",
+          text: "The run ended before the message was accepted.",
+          runId: "timed-out-run",
+        }),
+      ]);
+      expect((client as any).activeNormalChatStreams.size).toBe(0);
+      expect((client as any).internalEventHandlers.size).toBe(0);
+      expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("routes three concurrent normal chat streams by session and accepted run", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
