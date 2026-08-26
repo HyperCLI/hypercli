@@ -1164,6 +1164,69 @@ function AssistantProgressNote({ progress }: { progress: NonNullable<ChatMessage
   );
 }
 
+function reasoningLabel(reasoning: NonNullable<ChatMessageType["reasoning"]>): string {
+  if (reasoning.state === "active") return "Thinking";
+  if (reasoning.state === "incomplete") return "Thoughts incomplete";
+  const durationMs = reasoning.completedAt === undefined ? 0 : reasoning.completedAt - reasoning.startedAt;
+  return durationMs >= 1_000 ? `Thought for ${Math.max(1, Math.round(durationMs / 1_000))}s` : "Thoughts";
+}
+
+function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<ChatMessageType["reasoning"]> }) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [userExpanded, setUserExpanded] = useState(false);
+  const forcedOpen = reasoning.state !== "settled";
+  const open = forcedOpen || userExpanded;
+  const label = reasoningLabel(reasoning);
+
+  useEffect(() => {
+    if (reasoning.state !== "active" || !contentRef.current) return;
+    contentRef.current.scrollTop = contentRef.current.scrollHeight;
+  }, [reasoning.state, reasoning.text]);
+
+  return (
+    <>
+      <details
+        open={open}
+        onToggle={(event) => {
+          if (!forcedOpen) setUserExpanded(event.currentTarget.open);
+        }}
+        data-testid="agent-assistant-reasoning"
+        data-reasoning-state={reasoning.state}
+        aria-busy={reasoning.state === "active" || undefined}
+        className="group/reasoning mb-3 w-full max-w-[72ch] text-[13px] text-text-muted"
+      >
+        <summary
+          data-testid="agent-assistant-reasoning-toggle"
+          aria-label={label}
+          aria-disabled={forcedOpen || undefined}
+          onClick={(event) => {
+            if (forcedOpen) event.preventDefault();
+          }}
+          className={`flex min-h-8 w-fit max-w-full list-none items-center gap-2 rounded-sm font-medium outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden ${forcedOpen ? "cursor-default" : "cursor-pointer transition-colors hover:text-foreground"}`}
+        >
+          <Brain aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 ${reasoning.state === "active" ? "text-primary" : "text-text-muted"}`} />
+          <span className="truncate">{label}</span>
+          <ChevronRight
+            aria-hidden="true"
+            className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+          />
+        </summary>
+        <div
+          ref={contentRef}
+          className="ml-[0.4375rem] max-h-48 overflow-y-auto border-l border-border py-1.5 pl-[1.375rem] pr-2"
+        >
+          <p className="max-w-full whitespace-pre-wrap break-words leading-5 [overflow-wrap:anywhere]">
+            {reasoning.text}
+          </p>
+        </div>
+      </details>
+      <span className="sr-only" aria-live="polite">
+        {reasoning.state === "active" ? "Reasoning in progress" : reasoning.state === "incomplete" ? "Reasoning stopped before completion" : "Reasoning complete"}
+      </span>
+    </>
+  );
+}
+
 export function ChatMessageBubble({
   message,
   inlineAudioFile = null,
@@ -1246,7 +1309,7 @@ export function ChatMessageBubble({
   const showV1Name = nameVariant === "v1";
   const showV2Name = nameVariant === "v2";
   const effectiveName = isUser ? (senderName ?? "You") : (agentName ?? "Agent");
-  const showStreamingDot = isStreaming && !isUser && !message.progress?.text;
+  const showStreamingDot = isStreaming && !isUser && !message.progress?.text && !message.reasoning?.text;
   const rawEffectiveContent = isDuplicateToolResultJson(message)
     ? ""
     : isIncompleteReply
@@ -1331,6 +1394,33 @@ export function ChatMessageBubble({
   const contentDirectoryListing = !showStreamingDot && !isUser && displayContent
     ? parseDirectoryVisualization(displayContent)
     : null;
+  const hasToolCalls = (message.toolCalls?.length ?? 0) > 0;
+  const toolCallTranscript = stackToolCalls ? (
+    <ToolCallStackDisclosure
+      toolCalls={message.toolCalls ?? []}
+      themeVariant={themeVariant}
+      isStreaming={isStreaming}
+    />
+  ) : (
+    message.toolCalls?.map((tc, j) => {
+      const defaultToolOpen = false;
+      const isToolOpen = toolsOpen[j] ?? defaultToolOpen;
+      return (
+        <ToolCallDisclosure
+          key={j}
+          tc={tc}
+          index={j}
+          isOpen={isToolOpen}
+          defaultOpen={defaultToolOpen}
+          onToggle={(index, fallbackOpen) => {
+            setToolsOpen((prev) => ({ ...prev, [index]: !(prev[index] ?? fallbackOpen) }));
+          }}
+          themeVariant={themeVariant}
+          isStreaming={isStreaming}
+        />
+      );
+    })
+  );
   const messageColumnClass = isUser
     ? "w-fit max-w-[75%] items-end"
     : "flex-1 items-start";
@@ -1390,43 +1480,12 @@ export function ChatMessageBubble({
           );
         })()}
 
+        {!isUser && message.reasoning?.text && <AssistantReasoningDisclosure reasoning={message.reasoning} />}
+
         {!isUser && message.progress?.text && <AssistantProgressNote progress={message.progress} />}
 
-        {/* Raw reasoning remains private; only its presence is acknowledged. */}
-        {message.thinking && !isUser && (
-          <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/20 bg-primary/8 px-2.5 py-1 text-xs text-text-muted">
-            <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="truncate">Internal reasoning hidden</span>
-          </div>
-        )}
-
         {/* Tool calls */}
-        {stackToolCalls ? (
-          <ToolCallStackDisclosure
-            toolCalls={message.toolCalls ?? []}
-            themeVariant={themeVariant}
-            isStreaming={isStreaming}
-          />
-        ) : (
-          message.toolCalls?.map((tc, j) => {
-            const defaultToolOpen = false;
-            const isToolOpen = toolsOpen[j] ?? defaultToolOpen;
-            return (
-              <ToolCallDisclosure
-                key={j}
-                tc={tc}
-                index={j}
-                isOpen={isToolOpen}
-                defaultOpen={defaultToolOpen}
-                onToggle={(index, fallbackOpen) => {
-                  setToolsOpen((prev) => ({ ...prev, [index]: !(prev[index] ?? fallbackOpen) }));
-                }}
-                themeVariant={themeVariant}
-                isStreaming={isStreaming}
-              />
-            );
-          })
-        )}
+        {!displayContent && toolCallTranscript}
 
         {/* User-sent image attachments */}
         {message.attachments && message.attachments.length > 0 && (
@@ -1717,21 +1776,26 @@ export function ChatMessageBubble({
             ) : showStreamingDot && displayContent ? (
               <div
                 data-chat-streaming-text="true"
-                className="prose-chat whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]"
+                data-testid={hasToolCalls ? "agent-assistant-commentary" : undefined}
+                className={`prose-chat whitespace-pre-wrap break-words [overflow-wrap:anywhere] ${hasToolCalls ? "mb-2 max-w-[70ch] text-[13px] leading-5 text-text-secondary" : "leading-relaxed"}`}
               >
                 {displayContent}
               </div>
             ) : displayContent && (
-              <MarkdownContent
-                content={displayContent}
-                typewriter={false}
-                className="relative"
-                onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
-              />
+              <div data-testid={hasToolCalls ? "agent-assistant-commentary" : undefined}>
+                <MarkdownContent
+                  content={displayContent}
+                  typewriter={false}
+                  className={hasToolCalls ? "relative mb-2 max-w-[70ch] text-[13px] leading-5 text-text-secondary" : "relative"}
+                  onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
+                />
+              </div>
             )}
             <StreamingStatusAnchor active={showStreamingDot} />
           </div>
         )}
+
+        {displayContent && toolCallTranscript}
 
         {onRetryFailedReply && !isUser ? (
           <FailedReplyRetryButton

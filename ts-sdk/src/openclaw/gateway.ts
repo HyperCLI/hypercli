@@ -195,9 +195,9 @@ export interface GatewayEvent {
 }
 
 export interface ChatEvent {
-  type: "content" | "commentary" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
+  type: "content" | "commentary" | "reasoning" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
   text?: string;
-  /** For content or commentary events, `true` replaces the current text; `false` or omission appends. */
+  /** For content, commentary, or reasoning events, `true` replaces the current text; `false` or omission appends. */
   replace?: boolean;
   /** Protocol event identity, when supplied by the gateway payload. */
   eventId?: string;
@@ -263,6 +263,9 @@ export interface GatewayChatToolCall {
 export interface GatewayChatMessageSummary {
   role: string;
   text: string;
+  /** Provider-authored reasoning that may be presented separately from answer content. */
+  reasoning: string;
+  /** Compatibility alias for structured reasoning retained for existing consumers. */
   thinking: string;
   toolCalls: GatewayChatToolCall[];
   mediaUrls: string[];
@@ -1795,15 +1798,51 @@ export function extractGatewayChatThinking(message: unknown): string {
   if (!record) {
     return "";
   }
+  const directReasoning = [record.reasoning_content, record.reasoningContent, record.reasoning]
+    .find((value) => typeof value === "string" && value.trim());
   const parts = asContentItems(record.content)
     .map((item) => {
-      if (item.type !== "thinking" || typeof item.thinking !== "string") {
+      const kind = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+      if (!["thinking", "reasoning", "reasoning_content"].includes(kind)) {
         return null;
       }
-      return item.thinking.trim();
+      const value = [item.thinking, item.reasoning_content, item.reasoningContent, item.reasoning, item.text]
+        .find((candidate) => typeof candidate === "string" && candidate.trim());
+      return typeof value === "string" ? value.trim() : null;
     })
     .filter((value): value is string => Boolean(value));
-  return parts.join("\n");
+  return Array.from(new Set([
+    ...(typeof directReasoning === "string" ? [directReasoning.trim()] : []),
+    ...parts,
+  ])).join("\n");
+}
+
+function extractGatewayReasoningDelta(payload: Record<string, any>): string {
+  const directDelta = [
+    payload.reasoning_content_delta,
+    payload.reasoningContentDelta,
+    payload.reasoning_delta,
+  ].find((value) => typeof value === "string" && value);
+  if (typeof directDelta === "string") return directDelta;
+
+  const message = asRecord(payload.message);
+  const records = [
+    payload,
+    asRecord(payload.delta),
+    asRecord(asRecord(payload.data)?.delta),
+    asRecord(Array.isArray(payload.choices) ? asRecord(payload.choices[0])?.delta : null),
+    asRecord(message?.delta),
+    asRecord(Array.isArray(message?.choices) ? asRecord(message.choices[0])?.delta : null),
+  ].filter((value): value is Record<string, any> => value !== null);
+  for (const record of records) {
+    const kind = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+    const explicitlyReasoning = kind === "thinking_delta" || kind === "reasoning_delta";
+    const value = [record.reasoning_content, record.reasoningContent, record.reasoning, record.thinking]
+      .find((candidate) => typeof candidate === "string" && candidate);
+    if (typeof value === "string") return value;
+    if (explicitlyReasoning && typeof record.text === "string") return record.text;
+  }
+  return "";
 }
 
 export function extractGatewayChatMediaUrls(message: unknown): string[] {
@@ -1970,7 +2009,7 @@ export function normalizeGatewayChatMessage(message: unknown): GatewayChatMessag
     return null;
   }
   const text = extractMessageText(record) ?? "";
-  const thinking = extractGatewayChatThinking(record);
+  const reasoning = extractGatewayChatThinking(record);
   const toolCalls = extractGatewayChatToolCalls(record);
   const mediaUrls = extractGatewayChatMediaUrls(record);
   const timestamp = typeof record.timestamp === "number" ? record.timestamp : undefined;
@@ -1981,14 +2020,15 @@ export function normalizeGatewayChatMessage(message: unknown): GatewayChatMessag
   const sessionKey = chatPayloadSessionKey(record);
   const revision = protocolRevision(record.revision);
 
-  if (!text && !thinking && toolCalls.length === 0 && mediaUrls.length === 0) {
+  if (!text && !reasoning && toolCalls.length === 0 && mediaUrls.length === 0) {
     return null;
   }
 
   return {
     role,
     text,
-    thinking,
+    reasoning,
+    thinking: reasoning,
     toolCalls,
     mediaUrls,
     ...(timestamp !== undefined ? { timestamp } : {}),
@@ -2105,19 +2145,6 @@ function latestHistoryAssistantText(
     }
   }
   return null;
-}
-
-function streamDelta(previousText: string, nextText: string): { delta: string; nextText: string } {
-  if (!nextText) {
-    return { delta: "", nextText: previousText };
-  }
-  if (previousText && nextText.startsWith(previousText)) {
-    return { delta: nextText.slice(previousText.length), nextText };
-  }
-  if (nextText === previousText) {
-    return { delta: "", nextText: previousText };
-  }
-  return { delta: nextText, nextText };
 }
 
 interface StreamContentUpdate {
@@ -5256,6 +5283,7 @@ export class GatewayClient {
       expiresAt: number;
     } | null = null;
     let lastThinkingText = "";
+    let emittedReasoningText = "";
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
     let acknowledgementPending = false;
@@ -5562,7 +5590,7 @@ export class GatewayClient {
             typeof lifecyclePayload.phase === "string" ? lifecyclePayload.phase.toLowerCase() : "";
           if (phase === "end") {
             const hasNonTextActivity =
-              Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
+              Boolean(lastThinkingText || emittedReasoningText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
             const historyText =
               emittedDisplayText && hasNonTextActivity
                 ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
@@ -5612,11 +5640,31 @@ export class GatewayClient {
           continue;
         }
         if (evt.event === "chat.thinking") {
+          const reasoningDelta = extractGatewayReasoningDelta(payload);
+          if (reasoningDelta) {
+            const update = appendStreamContent(emittedReasoningText, reasoningDelta, false);
+            if (update) {
+              emittedReasoningText = update.nextText;
+              yield { type: "reasoning", text: update.text, ...identity, data: payload };
+            }
+            continue;
+          }
           const text = typeof payload.text === "string" ? payload.text : "";
           if (text) {
             lastThinkingText += text;
           }
           yield { type: "thinking", text, ...identity };
+          continue;
+        }
+        if (evt.event === "chat.reasoning" || evt.event === "chat.reasoning.delta" || evt.event === "chat.thinking.delta") {
+          const text = extractGatewayReasoningDelta(payload) || (typeof payload.text === "string" ? payload.text : "");
+          if (text) {
+            const update = appendStreamContent(emittedReasoningText, text, false);
+            if (update) {
+              emittedReasoningText = update.nextText;
+              yield { type: "reasoning", text: update.text, ...identity, data: payload };
+            }
+          }
           continue;
         }
         if (evt.event === "chat.tool_call") {
@@ -5637,7 +5685,7 @@ export class GatewayClient {
         }
         if (evt.event === "chat.done") {
           const hasNonTextActivity =
-            Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
+            Boolean(lastThinkingText || emittedReasoningText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
           const historyText = emittedDisplayText && hasNonTextActivity
             ? await reconcileHistoryAfterToolActivity(emittedDisplayText)
             : (!emittedDisplayText && !hasNonTextActivity) || fallbackReplacementAfterSeq !== undefined
@@ -5684,6 +5732,21 @@ export class GatewayClient {
         const currentDeltaText = typeof payload.deltaText === "string" ? payload.deltaText : "";
         const normalizedMessage = normalizeGatewayChatMessage(payload.message);
         if (state === "delta") {
+          const reasoningSnapshot = normalizedMessage?.reasoning ?? "";
+          const reasoningDelta = reasoningSnapshot ? "" : extractGatewayReasoningDelta(payload);
+          const reasoningUpdate = reasoningSnapshot
+            ? reconcileStreamContent(emittedReasoningText, reasoningSnapshot)
+            : appendStreamContent(emittedReasoningText, reasoningDelta, false);
+          if (reasoningUpdate) {
+            emittedReasoningText = reasoningUpdate.nextText;
+            yield {
+              type: "reasoning",
+              text: reasoningUpdate.text,
+              ...(reasoningUpdate.replace ? { replace: true } : {}),
+              ...identity,
+              data: payload,
+            };
+          }
           const replaceContent = payload.replace === true || replacesFailedAttempt;
           const update = currentText !== null && (currentText || payload.replace === true)
             ? reconcileStreamContent(emittedDisplayText, currentText, replaceContent)
@@ -5702,12 +5765,19 @@ export class GatewayClient {
           continue;
         }
         if (state === "final") {
-          const thinkingDelta = normalizedMessage?.thinking
-            ? streamDelta(lastThinkingText, normalizedMessage.thinking)
-            : { delta: "", nextText: lastThinkingText };
-          lastThinkingText = thinkingDelta.nextText;
-          if (thinkingDelta.delta) {
-            yield { type: "thinking", text: thinkingDelta.delta, ...identity, data: payload };
+          const reasoningSnapshot = normalizedMessage?.reasoning ?? "";
+          const reasoningUpdate = reasoningSnapshot
+            ? reconcileStreamContent(emittedReasoningText, reasoningSnapshot)
+            : null;
+          if (reasoningUpdate) {
+            emittedReasoningText = reasoningUpdate.nextText;
+            yield {
+              type: "reasoning",
+              text: reasoningUpdate.text,
+              ...(reasoningUpdate.replace ? { replace: true } : {}),
+              ...identity,
+              data: payload,
+            };
           }
 
           for (const toolCall of normalizedMessage?.toolCalls ?? []) {
@@ -5764,7 +5834,7 @@ export class GatewayClient {
             yield { type: "done", ...identity, data: payload };
             return;
           }
-          if (normalizedMessage?.thinking || (normalizedMessage?.toolCalls.length ?? 0) > 0) {
+          if (normalizedMessage?.reasoning || (normalizedMessage?.toolCalls.length ?? 0) > 0) {
             yield { type: "done", ...identity, data: payload };
             return;
           }

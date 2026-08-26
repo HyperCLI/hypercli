@@ -8173,7 +8173,12 @@ describe("useOpenClawSession", () => {
     expect(result.current.activeSessionCanSend).toBe(true);
     expect(result.current.messages).toEqual([
       expect.objectContaining({ role: "user", content: "Write a long report" }),
-      expect.objectContaining({ role: "assistant", content: "Partial report", runId: "run-long" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "Partial report",
+        runId: "run-long",
+        status: "interrupted",
+      }),
     ]);
 
     await act(async () => {
@@ -8205,6 +8210,7 @@ describe("useOpenClawSession", () => {
         runId: "run-long",
       }),
     ]));
+    expect(result.current.messages[1]?.status).toBeUndefined();
     expect(result.current.sending).toBe(false);
     unmount();
   });
@@ -8820,7 +8826,7 @@ describe("useOpenClawSession", () => {
         expect.objectContaining({ role: "user", content: "inspect zip" }),
         expect.objectContaining({
           role: "assistant",
-          content: "History summary",
+          content: "",
           toolCalls: [
             expect.objectContaining({
               id: "tool-1",
@@ -8828,6 +8834,10 @@ describe("useOpenClawSession", () => {
               result: "Read complete",
             }),
           ],
+        }),
+        expect.objectContaining({
+          role: "assistant",
+          content: "History summary",
         }),
       ]);
     });

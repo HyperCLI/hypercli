@@ -1121,7 +1121,7 @@ export function useOpenClawSession(
       );
     }
     if (action.type === "append-user-message") optimisticChatHistoryTargetsRef.current.add(targetKey);
-    if (action.type === "apply-update" || action.type === "append-system-message" || action.type === "mark-interrupted") {
+    if (action.type === "append-system-message" || action.type === "mark-interrupted") {
       connectionLiveHistoryTargetsRef.current.add(targetKey);
     }
     if (
@@ -1145,12 +1145,18 @@ export function useOpenClawSession(
     if (!dispatchTargetsActiveHistory || hydrationModeRef.current === "sessions") {
       const currentMessages = liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
       const nextMessages = reduceChatHistoryMessages(currentMessages, action);
+      if (action.type === "apply-update" && nextMessages !== currentMessages) {
+        connectionLiveHistoryTargetsRef.current.add(targetKey);
+      }
       liveChatHistoryByTargetRef.current.set(targetKey, nextMessages);
       if (dispatchTargetsActiveHistory) messagesRef.current = nextMessages;
       return;
     }
     setMessages((currentMessages) => {
       const nextMessages = reduceChatHistoryMessages(currentMessages, action);
+      if (action.type === "apply-update" && nextMessages !== currentMessages) {
+        connectionLiveHistoryTargetsRef.current.add(targetKey);
+      }
       messagesRef.current = nextMessages;
       liveChatHistoryByTargetRef.current.set(targetKey, nextMessages);
       return nextMessages;

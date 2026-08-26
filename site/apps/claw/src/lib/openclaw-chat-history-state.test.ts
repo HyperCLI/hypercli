@@ -104,6 +104,50 @@ describe("openclaw chat history state", () => {
     ]);
   });
 
+  it("keeps an earlier streamed tool round when refreshed history only contains the final answer", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Inspect archive", clientTurnId: "turn-1", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "",
+        clientTurnId: "turn-1",
+        renderId: "turn-1:assistant",
+        toolCalls: [{ id: "tool-1", name: "functions.read", args: "{\"path\":\"archive.zip\"}", result: "Read complete" }],
+        timestamp: 2,
+      },
+      {
+        role: "assistant",
+        content: "Live summary",
+        clientTurnId: "turn-1",
+        renderId: "assistant-round:final",
+        timestamp: 3,
+      },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Inspect archive", timestamp: 4 },
+        { role: "assistant", content: "History summary", timestamp: 5 },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Inspect archive" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "",
+        renderId: "turn-1:assistant",
+        toolCalls: [expect.objectContaining({ id: "tool-1", result: "Read complete" })],
+      }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "History summary",
+        renderId: "assistant-round:final",
+      }),
+    ]);
+  });
+
   it("keeps failed memory-search tool details when refreshed history only has the final answer", () => {
     const current: ChatMessage[] = [
       { role: "user", content: "Find live events and remember that preference", timestamp: 1 },
@@ -570,6 +614,25 @@ describe("openclaw chat history state", () => {
       }),
       expect.objectContaining({ role: "system", content: "Reply stopped" }),
     ]);
+  });
+
+  it("keeps interrupted reasoning expanded as incomplete", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Stop while reasoning", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "",
+        reasoning: { text: "Inspecting the deployment", state: "active", startedAt: 2 },
+        runId: "run-1",
+        timestamp: 2,
+      },
+    ], { type: "mark-interrupted", runId: "run-1" });
+
+    expect(messages[1]).toMatchObject({
+      role: "assistant",
+      status: "interrupted",
+      reasoning: { text: "Inspecting the deployment", state: "incomplete" },
+    });
   });
 
   it("adds one stopped notice when no assistant reply is visible", () => {

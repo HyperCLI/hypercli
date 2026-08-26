@@ -4119,6 +4119,7 @@ describe("GatewayClient", () => {
     expect(normalized).toEqual({
       role: "assistant",
       text: "",
+      reasoning: "Plan A",
       thinking: "Plan A",
       toolCalls: [
         {
@@ -4130,6 +4131,30 @@ describe("GatewayClient", () => {
       ],
       mediaUrls: [],
       timestamp: 123,
+    });
+  });
+
+  it("normalizes payload reasoning_content and Anthropic thinking blocks", () => {
+    expect(normalizeGatewayChatMessage({
+      role: "assistant",
+      reasoning_content: "Inspect the current state first.",
+      content: "Final answer.",
+    })).toMatchObject({
+      text: "Final answer.",
+      reasoning: "Inspect the current state first.",
+      thinking: "Inspect the current state first.",
+    });
+
+    expect(normalizeGatewayChatMessage({
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "Check the deployment.", signature: "provider-signature" },
+        { type: "text", text: "Deployment is healthy." },
+      ],
+    })).toMatchObject({
+      text: "Deployment is healthy.",
+      reasoning: "Check the deployment.",
+      thinking: "Check the deployment.",
     });
   });
 
@@ -4230,6 +4255,7 @@ describe("GatewayClient", () => {
     expect(normalized).toEqual({
       role: "assistant",
       text: "Audio reply",
+      reasoning: "",
       thinking: "",
       toolCalls: [],
       mediaUrls: ["data:audio/mpeg;base64,AAAA"],
@@ -4284,6 +4310,7 @@ describe("GatewayClient", () => {
     expect(normalized).toEqual({
       role: "assistant",
       text: "",
+      reasoning: "",
       thinking: "",
       toolCalls: [],
       mediaUrls: [mediaUrl],
@@ -4313,7 +4340,7 @@ describe("GatewayClient", () => {
     );
   });
 
-  it("chatSend emits thinking and tool events from final structured snapshots", async () => {
+  it("chatSend emits reasoning and tool events from final structured snapshots", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
       gatewayToken: "gw-token",
@@ -4356,7 +4383,7 @@ describe("GatewayClient", () => {
 
     const events = await streamPromise;
     expect(events.map((event) => event.type)).toEqual([
-      "thinking",
+      "reasoning",
       "tool_call",
       "tool_result",
       "done",
@@ -5708,6 +5735,108 @@ describe("GatewayClient OpenClaw commentary chat events", () => {
     // The final answer still arrives as ordinary terminal content.
     const finalContent = events.filter((event) => event.type === "content").at(-1);
     expect(finalContent?.text).toBe("Inspection complete.");
+  });
+
+  it("streams payload reasoning_content separately from answer content", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "delta",
+        choices: [{ delta: { reasoning_content: "Inspecting the workspace" } }],
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", reasoning_content: "Inspecting the workspace configuration" },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text: "Configuration is valid" }] },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", reasoning_content: "This late reasoning remains a separate lane" },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: { role: "assistant", content: [{ type: "text", text: "Configuration is valid." }] },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "reasoning").map((event) => event.text)).toEqual([
+      "Inspecting the workspace",
+      " configuration",
+      "This late reasoning remains a separate lane",
+    ]);
+    expect(events.filter((event) => event.type === "commentary")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("Configuration is valid.");
+  });
+
+  it("streams Anthropic thinking_delta frames through the reasoning channel", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    for (const thinking of ["Checking ", "the deployment"] as const) {
+      emit(client, {
+        type: "event",
+        event: "chat",
+        payload: {
+          runId: "run-commentary",
+          sessionKey: "main",
+          state: "delta",
+          delta: { type: "thinking_delta", thinking },
+        },
+      });
+    }
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: { role: "assistant", content: [{ type: "text", text: "Deployment checked." }] },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "reasoning").map((event) => event.text)).toEqual([
+      "Checking ",
+      "the deployment",
+    ]);
+    expect(events.at(-1)?.type).toBe("done");
   });
 
   it("keeps the mirrored ordinary chat deltas flowing alongside commentary events", async () => {

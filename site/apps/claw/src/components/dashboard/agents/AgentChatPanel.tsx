@@ -168,7 +168,7 @@ function activeResponseStatusPresentation(
     };
   }
 
-  if (assistant?.thinking?.trim()) {
+  if (assistant?.reasoning?.state === "active" || assistant?.thinking?.trim()) {
     return {
       label: now - startedAt >= 15_000 ? "Still working through your request" : "Working through your request",
       description,
@@ -186,11 +186,13 @@ function activeResponseStatusPresentation(
   };
 }
 
-function currentTurnHasWorkingCommentary(messages: ChatMessage[]): boolean {
+function currentTurnHasInlineActivity(messages: ChatMessage[]): boolean {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "user") return false;
-    if (message?.role === "assistant" && message.progress?.text.trim()) return true;
+    if (message?.role === "assistant" && (
+      message.progress?.text.trim() || message.reasoning?.state === "active"
+    )) return true;
   }
   return false;
 }
@@ -396,6 +398,7 @@ function hasRenderableMessagePayload(message: ChatSession["messages"][number]): 
   return Boolean(
     message.content.trim() ||
     message.progress?.text.trim() ||
+    message.reasoning?.text.trim() ||
     (message.toolCalls?.length ?? 0) > 0 ||
     (message.mediaUrls?.length ?? 0) > 0 ||
     (message.attachments?.length ?? 0) > 0 ||
@@ -1505,7 +1508,7 @@ export function AgentChatPanel({
             if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
-            if (currentTurnHasWorkingCommentary(chat.messages)) return null;
+            if (currentTurnHasInlineActivity(chat.messages)) return null;
             return <ActiveResponseStatus messages={chat.messages} />;
           })()}
 

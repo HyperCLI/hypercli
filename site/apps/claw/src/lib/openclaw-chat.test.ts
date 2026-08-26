@@ -8,6 +8,7 @@ import {
   normalizeLiveToolResult,
   OPENCLAW_EMPTY_REPLY_NOTICE,
   settleAssistantProgress,
+  settleAssistantReasoning,
   upsertAssistantMessage,
   type ChatMessage,
 } from "./openclaw-chat";
@@ -220,7 +221,7 @@ describe("openclaw chat normalization", () => {
     expect(normalized).toBeNull();
   });
 
-  it("omits thinking-only history messages", () => {
+  it("keeps provider reasoning-only history messages as settled thoughts", () => {
     const normalized = normalizeHistoryMessage({
       role: "assistant",
       content: [
@@ -231,10 +232,18 @@ describe("openclaw chat normalization", () => {
       ],
     });
 
-    expect(normalized).toBeNull();
+    expect(normalized).toMatchObject({
+      role: "assistant",
+      content: "",
+      reasoning: {
+        text: "I need to inspect the app structure before answering.",
+        state: "settled",
+      },
+    });
+    expect(normalized?.thinking).toBeUndefined();
   });
 
-  it("keeps visible history text without exposing thinking", () => {
+  it("keeps provider reasoning separate from visible history text", () => {
     const normalized = normalizeHistoryMessage({
       role: "assistant",
       content: [
@@ -252,8 +261,31 @@ describe("openclaw chat normalization", () => {
     expect(normalized).toMatchObject({
       role: "assistant",
       content: "The agent is ready.",
+      reasoning: {
+        text: "Long internal reasoning that should not be shown in chat.",
+        state: "settled",
+      },
     });
     expect(normalized?.thinking).toBeUndefined();
+  });
+
+  it("keeps payload reasoning_content separate from the answer", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      reasoning_content: "Inspect the workspace and compare the configuration.",
+      content: "The configuration is valid.",
+    });
+
+    expect(normalized).toMatchObject({
+      role: "assistant",
+      content: "The configuration is valid.",
+      reasoning: {
+        text: "Inspect the workspace and compare the configuration.",
+        state: "settled",
+      },
+    });
+    expect(normalized?.thinking).toBeUndefined();
+    expect(normalized?.progress).toBeUndefined();
   });
 
   it("filters heartbeat file reads from history tool calls", () => {
@@ -324,14 +356,11 @@ describe("openclaw chat normalization", () => {
     expect(normalized?.toolCalls).toBeUndefined();
   });
 
-  it("keeps visible history text without leaking internal thinking or tool sentinels", () => {
+  it("keeps visible history text without leaking raw runtime thinking or tool sentinels", () => {
     const normalized = normalizeHistoryMessage({
       role: "assistant",
+      thinking: `Planning details: ${THINKING_LEAK_SENTINEL}`,
       content: [
-        {
-          type: "thinking",
-          thinking: `Planning details: ${THINKING_LEAK_SENTINEL}`,
-        },
         {
           type: "tool_call",
           name: "read",
@@ -787,7 +816,7 @@ describe("openclaw chat normalization", () => {
     })).toBeNull();
   });
 
-  it("keeps the persisted README answer while dropping toolResult history", () => {
+  it("keeps persisted provider thoughts and the README answer while dropping toolResult history", () => {
     const normalized = README_REFRESH_HISTORY
       .map((message) => normalizeHistoryMessage(message))
       .filter((message): message is ChatMessage => message !== null);
@@ -799,12 +828,24 @@ describe("openclaw chat normalization", () => {
       }),
       expect.objectContaining({
         role: "assistant",
+        content: "",
+        reasoning: expect.objectContaining({
+          text: THINKING_LEAK_SENTINEL,
+          state: "settled",
+        }),
+      }),
+      expect.objectContaining({
+        role: "assistant",
         content: "There is no README file in the workspace. The files present are:\n\n- `AGENTS.md`\n- `BOOTSTRAP.md`\n- `HEARTBEAT.md`\n- `IDENTITY.md`\n- `SOUL.md`\n- `TOOLS.md`\n- `USER.md`",
+        reasoning: expect.objectContaining({
+          text: "No README file exists in the workspace.",
+          state: "settled",
+        }),
       }),
     ]);
     const serialized = JSON.stringify(normalized);
     expect(serialized).not.toContain("Command exited with code");
-    expect(serialized).not.toContain(THINKING_LEAK_SENTINEL);
+    expect(serialized).toContain(THINKING_LEAK_SENTINEL);
   });
 
   it("strips hidden workspace file headers from refreshed user text while preserving file chips", () => {
@@ -1035,7 +1076,7 @@ describe("openclaw chat normalization", () => {
     expect(normalized).toBeNull();
   });
 
-  it("drops history messages that contain only internal thinking and tool sentinels", () => {
+  it("keeps structured provider reasoning while omitting persisted tool UI", () => {
     const normalized = normalizeHistoryMessage({
       role: "assistant",
       content: [
@@ -1056,7 +1097,12 @@ describe("openclaw chat normalization", () => {
       ],
     });
 
-    expect(normalized).toBeNull();
+    expect(normalized).toMatchObject({
+      role: "assistant",
+      content: "",
+      reasoning: { text: THINKING_LEAK_SENTINEL, state: "settled" },
+    });
+    expect(normalized?.toolCalls).toBeUndefined();
   });
 
   it("does not add live thinking-only updates to chat messages", () => {
@@ -1068,6 +1114,125 @@ describe("openclaw chat normalization", () => {
     });
 
     expect(next).toEqual([]);
+  });
+
+  it("streams provider reasoning into one round and settles it when content begins", () => {
+    let messages = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "",
+      reasoning: { text: "Inspecting ", state: "active", startedAt: 1 },
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 1,
+    }, { updateReasoning: "append", startNewRound: true });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "",
+      reasoning: { text: "the workspace", state: "active", startedAt: 2 },
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 2,
+    }, { updateReasoning: "append", startNewRound: true });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "The configuration is valid.",
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 3,
+    }, { appendContent: true, startNewRound: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      content: "The configuration is valid.",
+      reasoning: {
+        text: "Inspecting the workspace",
+        state: "settled",
+        startedAt: 1,
+        completedAt: 3,
+      },
+    });
+  });
+
+  it("starts a new reasoning round after completed tool activity", () => {
+    let messages = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "",
+      reasoning: { text: "Finding the file", state: "active", startedAt: 1 },
+      runId: "run-1",
+      renderId: "assistant-1",
+    }, { updateReasoning: "append", startNewRound: true });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "I will inspect the file.",
+      toolCalls: [{ id: "tool-1", name: "read", args: "config.json", result: "{}" }],
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 2,
+    });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "",
+      reasoning: { text: "Checking the result", state: "active", startedAt: 3 },
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 3,
+    }, { updateReasoning: "append", startNewRound: true });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Everything is configured correctly.",
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 4,
+    }, { appendContent: true, startNewRound: true });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({
+      content: "I will inspect the file.",
+      reasoning: { text: "Finding the file", state: "settled" },
+      toolCalls: [expect.objectContaining({ id: "tool-1", result: "{}" })],
+    });
+    expect(messages[1]).toMatchObject({
+      content: "Everything is configured correctly.",
+      reasoning: { text: "Checking the result", state: "settled" },
+    });
+    expect(messages[1]?.renderId).not.toBe(messages[0]?.renderId);
+  });
+
+  it("keeps distinct provider message ids as distinct rounds within one run", () => {
+    let messages = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "First round",
+      messageId: "message-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      renderId: "assistant-1",
+    });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Final round",
+      messageId: "message-2",
+      turnId: "turn-1",
+      runId: "run-1",
+      renderId: "assistant-1",
+    });
+
+    expect(messages.map((message) => message.content)).toEqual(["First round", "Final round"]);
+    expect(messages[1]?.renderId).not.toBe(messages[0]?.renderId);
+  });
+
+  it("marks active provider reasoning incomplete without discarding it", () => {
+    const messages = settleAssistantReasoning([{
+      role: "assistant",
+      content: "",
+      reasoning: { text: "Halfway through the analysis", state: "active", startedAt: 1 },
+      runId: "run-1",
+    }], { runId: "run-1" }, "incomplete");
+
+    expect(messages[0]?.reasoning).toEqual({
+      text: "Halfway through the analysis",
+      state: "incomplete",
+      startedAt: 1,
+    });
   });
 
   it("preserves leading spaces in live assistant content deltas", () => {
@@ -1718,8 +1883,8 @@ describe("openclaw commentary progress reconciliation", () => {
     }, { replaceContent: true });
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]?.progress?.text).toBe("Checking credentials");
     expect(messages[0]?.content).toBe("\nCredentials verified. Two keys are valid.");
+    expect(messages[0]?.progress?.text).toBe("Checking credentials");
   });
 
   it("strips a near-complete commentary mirror when the final answer replaces its last word", () => {

@@ -3379,6 +3379,38 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByText(hiddenThinking)).not.toBeInTheDocument();
   });
 
+  it("lets the inline provider-reasoning disclosure replace the generic response status", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Compare the options" },
+          {
+            role: "assistant",
+            content: "",
+            reasoning: { text: "Comparing the available options", state: "active", startedAt: 1 },
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.queryByRole("status", { name: /starting response|working through your request/i })).not.toBeInTheDocument();
+    const assistantProps = chatMessageBubbleMock.mock.calls.at(-1)?.[0] as {
+      message: { reasoning?: { text: string; state: string } };
+    };
+    expect(assistantProps.message.reasoning).toEqual({
+      text: "Comparing the available options",
+      state: "active",
+      startedAt: 1,
+    });
+  });
+
   it("shows only a warm elapsed-time detail for a long response", () => {
     const now = new Date("2026-08-04T16:00:00.000Z");
     vi.useFakeTimers();

@@ -29,6 +29,13 @@ export interface ChatMessageProgress {
   revisions: string[];
 }
 
+export interface ChatMessageReasoning {
+  text: string;
+  state: "active" | "settled" | "incomplete";
+  startedAt: number;
+  completedAt?: number;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -45,7 +52,10 @@ export interface ChatMessage {
   sessionKey?: string;
   revision?: number | string;
   status?: "interrupted";
+  /** Legacy runtime-private thinking. Never render this field. */
   thinking?: string;
+  /** Provider-authored reasoning rendered separately from answer content. */
+  reasoning?: ChatMessageReasoning;
   progress?: ChatMessageProgress;
   toolCalls?: Array<{ id?: string; name: string; args: string; result?: string }>;
   mediaUrls?: string[];
@@ -451,6 +461,7 @@ function hasDisplayableMessageContent(message: ChatMessage): boolean {
   if (isInternalAudioReplyCarrierMessage(message)) return false;
   return Boolean(
     message.content.trim() ||
+    message.reasoning?.text.trim() ||
     message.progress?.text.trim() ||
     (message.toolCalls?.length ?? 0) > 0 ||
     (message.mediaUrls?.length ?? 0) > 0 ||
@@ -467,6 +478,7 @@ function isInternalNoReplyMessage(message: ChatMessage): boolean {
   return message.role === "assistant" &&
     isInternalNoReplyText(message.content) &&
     !message.thinking?.trim() &&
+    !message.reasoning?.text.trim() &&
     !message.progress?.text.trim() &&
     (message.toolCalls?.length ?? 0) === 0 &&
     (message.mediaUrls?.length ?? 0) === 0 &&
@@ -999,16 +1011,21 @@ function normalizeHistoryMessage(
     );
   const timestamp = normalized?.timestamp ?? Date.now();
   const renderId = historyMessageRenderId(role, identity, normalized?.timestamp, content);
+  const reasoningText = role === "assistant"
+    ? sanitizeChatDisplayText(normalized?.reasoning ?? "").trim()
+    : "";
   if (isInternalHeartbeatControlPromptText(content)) {
     return null;
   }
   if (isInternalAsyncCommandCompletionText(content)) {
     return null;
   }
-  if (role === "assistant" && !content && isAbortedHistoryMessage(message)) {
+  if (role === "assistant" && !content && !reasoningText && isAbortedHistoryMessage(message)) {
     return null;
   }
-  const historyErrorContent = role === "assistant" && !content ? normalizeHistoryErrorContent(message) : null;
+  const historyErrorContent = role === "assistant" && !content && !reasoningText
+    ? normalizeHistoryErrorContent(message)
+    : null;
   if (historyErrorContent) {
     return {
       role: "system",
@@ -1036,6 +1053,14 @@ function normalizeHistoryMessage(
   const progress = isSettledProgress
     ? normalizeAssistantProgress({ text: content, state: "settled", revisions: [content] })
     : undefined;
+  const reasoning = reasoningText
+    ? normalizeAssistantReasoning({
+        text: reasoningText,
+        state: isAbortedHistoryMessage(message) ? "incomplete" : "settled",
+        startedAt: timestamp,
+        ...(!isAbortedHistoryMessage(message) ? { completedAt: timestamp } : {}),
+      })
+    : undefined;
   const visibleContent = progress ? "" : content;
   if (role === "assistant" && isInternalNoReplyText(content)) {
     return null;
@@ -1053,6 +1078,7 @@ function normalizeHistoryMessage(
     !visibleContent.trim()
     && (!options.preserveBoundaryWhitespace || visibleContent.length === 0)
     && !progress
+    && !reasoning
     && mediaUrls.length === 0
     && userContent.files.length === 0
   ) {
@@ -1063,6 +1089,7 @@ function normalizeHistoryMessage(
     content: visibleContent,
     renderId,
     ...identity,
+    ...(reasoning ? { reasoning } : {}),
     ...(progress ? { progress } : {}),
     ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
     ...(userContent.files.length > 0 ? { files: userContent.files } : {}),
@@ -1113,6 +1140,8 @@ interface AssistantUpsertOptions {
   replaceContent?: boolean;
   appendContent?: boolean;
   updateProgress?: "replace" | "append";
+  updateReasoning?: "replace" | "append";
+  startNewRound?: boolean;
 }
 
 const ASSISTANT_PROGRESS_REVISION_LIMIT = 16;
@@ -1152,6 +1181,39 @@ function mergeAssistantProgress(
     text,
   ])).filter((revision) => revision.trim()).slice(-ASSISTANT_PROGRESS_REVISION_LIMIT);
   return { text, state: normalizedIncoming.state, revisions };
+}
+
+function normalizeAssistantReasoning(reasoning: ChatMessageReasoning | undefined): ChatMessageReasoning | undefined {
+  if (!reasoning) return undefined;
+  const text = sanitizeChatDisplayText(reasoning.text);
+  if (!text.trim()) return undefined;
+  return {
+    text,
+    state: reasoning.state,
+    startedAt: reasoning.startedAt,
+    ...(reasoning.completedAt !== undefined ? { completedAt: reasoning.completedAt } : {}),
+  };
+}
+
+function mergeAssistantReasoning(
+  current: ChatMessageReasoning | undefined,
+  incoming: ChatMessageReasoning | undefined,
+  update: AssistantUpsertOptions["updateReasoning"],
+): ChatMessageReasoning | undefined {
+  const normalizedCurrent = normalizeAssistantReasoning(current);
+  const normalizedIncoming = normalizeAssistantReasoning(incoming);
+  if (!normalizedIncoming) return normalizedCurrent;
+  if (!normalizedCurrent) return normalizedIncoming;
+  return {
+    text: update === "append"
+      ? `${normalizedCurrent.text}${normalizedIncoming.text}`
+      : normalizedIncoming.text,
+    state: normalizedIncoming.state,
+    startedAt: normalizedCurrent.startedAt,
+    ...(normalizedIncoming.completedAt !== undefined
+      ? { completedAt: normalizedIncoming.completedAt }
+      : {}),
+  };
 }
 
 export function stripAssistantProgressContent(
@@ -1236,7 +1298,23 @@ function matchingAssistantIndex(messages: ChatMessage[], incoming: ChatMessage):
     return -1;
   };
 
-  for (const field of ["messageId", "turnId", "runId", "clientTurnId", "renderId"] as const) {
+  if (incoming.messageId) {
+    const messageIndex = findBy("messageId");
+    if (messageIndex >= 0) return messageIndex;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role !== "assistant" || candidate.messageId) continue;
+      if (
+        (incoming.turnId && candidate.turnId === incoming.turnId) ||
+        (incoming.runId && candidate.runId === incoming.runId) ||
+        (incoming.clientTurnId && candidate.clientTurnId === incoming.clientTurnId) ||
+        (incoming.renderId && candidate.renderId === incoming.renderId)
+      ) return index;
+    }
+    return -1;
+  }
+
+  for (const field of ["turnId", "runId", "clientTurnId", "renderId"] as const) {
     const index = findBy(field);
     if (index >= 0) return index;
   }
@@ -1255,6 +1333,7 @@ function mergeAssistantMessage(
 ): ChatMessage {
   const cleanCurrent = sanitizeAssistantMessage(current);
   const mergedProgress = mergeAssistantProgress(cleanCurrent.progress, incoming.progress, options.updateProgress);
+  let mergedReasoning = mergeAssistantReasoning(cleanCurrent.reasoning, incoming.reasoning, options.updateReasoning);
   const currentContent = stripAssistantProgressContent(cleanCurrent.content, mergedProgress);
   const incomingContent = stripAssistantProgressContent(incoming.content, mergedProgress);
   // Cumulative vs delta detection: only treat as cumulative when the incoming
@@ -1284,7 +1363,19 @@ function mergeAssistantMessage(
   const mergedToolCalls = incoming.toolCalls
     ? mergeToolCalls(cleanCurrent.toolCalls ?? [], incoming.toolCalls)
     : cleanCurrent.toolCalls;
-  return {
+  if (mergedReasoning?.state === "active" && (
+    cleanCurrent.content.trim() ||
+    (cleanCurrent.toolCalls?.length ?? 0) > 0 ||
+    incoming.content.trim() ||
+    (incoming.toolCalls?.length ?? 0) > 0
+  )) {
+    mergedReasoning = {
+      ...mergedReasoning,
+      state: "settled",
+      completedAt: incoming.timestamp ?? cleanCurrent.timestamp ?? mergedReasoning.startedAt,
+    };
+  }
+  const next: ChatMessage = {
     ...cleanCurrent,
     ...chatMessageProtocolIdentity(incoming),
     ...((cleanCurrent.clientTurnId ?? incoming.clientTurnId)
@@ -1294,12 +1385,14 @@ function mergeAssistantMessage(
       ? { renderId: cleanCurrent.renderId ?? incoming.renderId }
       : {}),
     content: mergedContent,
+    ...(mergedReasoning ? { reasoning: mergedReasoning } : {}),
     ...(mergedProgress ? { progress: mergedProgress } : {}),
     ...(mergedToolCalls && mergedToolCalls.length > 0 ? { toolCalls: mergedToolCalls } : {}),
     ...(mergedMediaUrls.length > 0 ? { mediaUrls: mergedMediaUrls } : {}),
     status: incoming.status ?? cleanCurrent.status,
     timestamp: incoming.timestamp ?? cleanCurrent.timestamp,
   };
+  return next;
 }
 
 function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
@@ -1318,6 +1411,7 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
     };
   });
   const progress = normalizeAssistantProgress(message.progress);
+  const reasoning = normalizeAssistantReasoning(message.reasoning);
   return {
     role: message.role,
     content: message.role === "assistant" && (
@@ -1330,6 +1424,7 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
     ...chatMessageProtocolIdentity(message),
     ...(message.clientTurnId ? { clientTurnId: message.clientTurnId } : {}),
     ...(message.renderId ? { renderId: message.renderId } : {}),
+    ...(reasoning ? { reasoning } : {}),
     ...(progress ? { progress } : {}),
     ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
     ...(message.mediaUrls && message.mediaUrls.length > 0 ? { mediaUrls: message.mediaUrls } : {}),
@@ -1360,7 +1455,14 @@ function upsertAssistantMessage(
   if (isInternalAudioReplyCarrierMessage(sanitizedIncoming)) {
     return prev;
   }
-  const assistantIndex = matchingAssistantIndex(prev, sanitizedIncoming);
+  let assistantIndex = matchingAssistantIndex(prev, sanitizedIncoming);
+  if (
+    options.startNewRound &&
+    assistantIndex >= 0 &&
+    prev[assistantIndex]?.toolCalls?.some((toolCall) => toolCall.result !== undefined)
+  ) {
+    assistantIndex = -1;
+  }
   if (!hasDisplayableMessageContent(sanitizedIncoming)) {
     const canUpdateExisting = assistantIndex >= 0 && (
       options.replaceContent === true ||
@@ -1375,7 +1477,15 @@ function upsertAssistantMessage(
       index === assistantIndex ? mergeAssistantMessage(message, sanitizedIncoming, options) : message
     ));
   } else {
-    next = [...prev, sanitizedIncoming];
+    const renderIdAlreadyUsed = Boolean(
+      sanitizedIncoming.renderId && prev.some((message) => message.renderId === sanitizedIncoming.renderId),
+    );
+    next = [
+      ...prev,
+      renderIdAlreadyUsed
+        ? { ...sanitizedIncoming, renderId: createChatRenderId("assistant-round") }
+        : sanitizedIncoming,
+    ];
   }
   return next.filter((message) => (
     !isInternalHeartbeatMessage(message) &&
@@ -1413,6 +1523,46 @@ export function settleAssistantProgress(
     if (!matches) return message;
     changed = true;
     return { ...message, progress: { ...message.progress, state: "settled" as const } };
+  });
+  return changed ? next : messages;
+}
+
+export function settleAssistantReasoning(
+  messages: ChatMessage[],
+  identity: Partial<Pick<ChatMessage, "renderId" | "clientTurnId" | "messageId" | "turnId" | "runId" | "sessionKey">> = {},
+  state: "settled" | "incomplete" = "settled",
+): ChatMessage[] {
+  const correlationFields = ["renderId", "clientTurnId", "messageId", "turnId", "runId"] as const;
+  const suppliedCorrelations = correlationFields.filter((field) => Boolean(identity[field]));
+  const hasSessionIdentity = Boolean(identity.sessionKey);
+  let fallbackIndex = -1;
+  if (suppliedCorrelations.length === 0 && !hasSessionIdentity) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === "assistant" && messages[index]?.reasoning?.state === "active") {
+        fallbackIndex = index;
+        break;
+      }
+    }
+  }
+
+  let changed = false;
+  const next = messages.map((message, index) => {
+    if (message.role !== "assistant" || message.reasoning?.state !== "active") return message;
+    const sessionMatches = !hasSessionIdentity || message.sessionKey === identity.sessionKey;
+    const correlationMatches = suppliedCorrelations.length === 0 || suppliedCorrelations.some((field) => (
+      message[field] === identity[field]
+    ));
+    const matches = fallbackIndex >= 0 ? index === fallbackIndex : sessionMatches && correlationMatches;
+    if (!matches) return message;
+    changed = true;
+    return {
+      ...message,
+      reasoning: {
+        ...message.reasoning,
+        state,
+        ...(state === "settled" ? { completedAt: Date.now() } : {}),
+      },
+    };
   });
   return changed ? next : messages;
 }

@@ -76,7 +76,24 @@ function findProtocolMatch(
   role: ChatMessage["role"],
   startIndex = 0,
 ): number {
-  for (const field of ["messageId", "turnId", "runId", "clientTurnId"] as const satisfies readonly CorrelationField[]) {
+  if (target.messageId) {
+    for (let index = messages.length - 1; index >= startIndex; index -= 1) {
+      const candidate = messages[index];
+      if (candidate?.role === role && candidate.messageId === target.messageId) return index;
+    }
+    for (let index = messages.length - 1; index >= startIndex; index -= 1) {
+      const candidate = messages[index];
+      if (!candidate || candidate.role !== role || candidate.messageId) continue;
+      if (
+        (target.turnId && candidate.turnId === target.turnId) ||
+        (target.runId && candidate.runId === target.runId) ||
+        (target.clientTurnId && candidate.clientTurnId === target.clientTurnId)
+      ) return index;
+    }
+    return -1;
+  }
+
+  for (const field of ["turnId", "runId", "clientTurnId"] as const satisfies readonly CorrelationField[]) {
     const value = target[field];
     if (!value) continue;
     for (let index = messages.length - 1; index >= startIndex; index -= 1) {
@@ -196,7 +213,7 @@ function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): Cha
     current.content.length > history.content.length &&
     current.content.startsWith(history.content)
   );
-  return {
+  const merged: ChatMessage = {
     ...history,
     ...identityWithHistoryPriority(history, current),
     renderId: current.renderId ?? history.renderId,
@@ -207,6 +224,7 @@ function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): Cha
     ...(!history.mediaUrls?.length && current.mediaUrls?.length ? { mediaUrls: current.mediaUrls } : {}),
     ...(!history.files?.length && current.files?.length ? { files: current.files } : {}),
     ...(!history.attachments?.length && current.attachments?.length ? { attachments: current.attachments } : {}),
+    ...(!history.reasoning && current.reasoning ? { reasoning: current.reasoning } : {}),
     ...(current.progress
       ? {
           progress: history.progress?.state === "settled"
@@ -216,6 +234,7 @@ function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): Cha
       : {}),
     ...(current.status ? { status: current.status } : {}),
   };
+  return merged;
 }
 
 function reconcileCurrentLastTurn(
@@ -276,6 +295,28 @@ function reconcileCurrentLastTurn(
       historyAssistantIndex = next.length - 1;
     }
 
+    const earlierAssistantRounds = currentTail
+      .filter(assistantMessageHasVisibleReply)
+      .filter((message) => message !== currentAssistant && assistantMessageHasDurableActivity(message));
+    for (const currentRound of earlierAssistantRounds) {
+      const exactMessageIndex = currentRound.messageId
+        ? next.findIndex((message, index) => (
+            index > historyLastUserIndex &&
+            message.role === "assistant" &&
+            message.messageId === currentRound.messageId
+          ))
+        : -1;
+      if (exactMessageIndex >= 0) {
+        const historyRound = next[exactMessageIndex];
+        if (historyRound) next[exactMessageIndex] = mergeAssistantSnapshot(historyRound, currentRound);
+        continue;
+      }
+      if (assistantActivityIsRepresented(next.slice(historyLastUserIndex + 1), currentRound)) continue;
+      const insertionIndex = historyAssistantIndex >= 0 ? historyAssistantIndex : next.length;
+      next.splice(insertionIndex, 0, currentRound);
+      if (historyAssistantIndex >= 0) historyAssistantIndex += 1;
+    }
+
     if (currentAssistant.progress && historyAssistantIndex >= 0) {
       for (let index = historyAssistantIndex - 1; index > historyLastUserIndex; index -= 1) {
         const message = next[index];
@@ -310,6 +351,7 @@ function assistantMessageHasVisibleReply(message: ChatMessage): boolean {
     message.role === "assistant" &&
     (
       message.content.trim().length > 0 ||
+      Boolean(message.reasoning?.text.trim()) ||
       (message.toolCalls?.length ?? 0) > 0 ||
       (message.mediaUrls?.length ?? 0) > 0 ||
       (message.files?.length ?? 0) > 0
@@ -319,6 +361,43 @@ function assistantMessageHasVisibleReply(message: ChatMessage): boolean {
 
 function assistantMessageIsProgressOnly(message: ChatMessage): boolean {
   return message.role === "assistant" && Boolean(message.progress?.text.trim()) && !assistantMessageHasVisibleReply(message);
+}
+
+function assistantMessageHasDurableActivity(message: ChatMessage): boolean {
+  return Boolean(
+    message.reasoning?.text.trim() ||
+    (message.toolCalls?.length ?? 0) > 0 ||
+    (message.mediaUrls?.length ?? 0) > 0 ||
+    (message.files?.length ?? 0) > 0 ||
+    (message.attachments?.length ?? 0) > 0
+  );
+}
+
+function toolCallIdentity(toolCall: NonNullable<ChatMessage["toolCalls"]>[number]): string {
+  return toolCall.id ? `id:${toolCall.id}` : `${toolCall.name}:${toolCall.args}`;
+}
+
+function assistantActivityIsRepresented(historyMessages: ChatMessage[], current: ChatMessage): boolean {
+  const assistantHistory = historyMessages.filter((message) => message.role === "assistant");
+  const historyToolCalls = assistantHistory.flatMap((message) => message.toolCalls ?? []);
+  const toolsRepresented = (current.toolCalls ?? []).every((toolCall) => (
+    historyToolCalls.some((candidate) => toolCallIdentity(candidate) === toolCallIdentity(toolCall))
+  ));
+  const reasoningRepresented = !current.reasoning?.text.trim() || assistantHistory.some((message) => (
+    message.reasoning?.text.trim() === current.reasoning?.text.trim()
+  ));
+  const mediaRepresented = (current.mediaUrls ?? []).every((url) => (
+    assistantHistory.some((message) => message.mediaUrls?.includes(url))
+  ));
+  const filesRepresented = (current.files ?? []).every((file) => (
+    assistantHistory.some((message) => message.files?.some((candidate) => candidate.path === file.path))
+  ));
+  const attachmentsRepresented = (current.attachments ?? []).every((attachment) => (
+    assistantHistory.some((message) => message.attachments?.some((candidate) => (
+      candidate.fileName === attachment.fileName && candidate.mimeType === attachment.mimeType
+    )))
+  ));
+  return toolsRepresented && reasoningRepresented && mediaRepresented && filesRepresented && attachmentsRepresented;
 }
 
 function terminalNoticeKey(content: string): string | null {
@@ -376,6 +455,9 @@ export function reduceChatHistoryMessages(current: ChatMessage[], action: ChatHi
                 ...message,
                 ...(message.progress?.state === "active"
                   ? { progress: { ...message.progress, state: "settled" as const } }
+                  : {}),
+                ...(message.reasoning?.state === "active"
+                  ? { reasoning: { ...message.reasoning, state: "incomplete" as const } }
                   : {}),
                 ...(assistantMessageHasVisibleReply(message) ? { status: "interrupted" as const } : {}),
               }

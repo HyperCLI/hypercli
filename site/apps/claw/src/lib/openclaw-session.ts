@@ -31,6 +31,7 @@ import {
   OPENCLAW_EMPTY_REPLY_NOTICE,
   sanitizeChatDisplayText,
   settleAssistantProgress,
+  settleAssistantReasoning,
   stripAssistantProgressContent,
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
@@ -204,6 +205,47 @@ function commentaryText(payload: Record<string, unknown>): string {
   return cumulativeText.trim() ? cumulativeText : deltaText;
 }
 
+function reasoningText(payload: Record<string, unknown>): string {
+  const message = payload.message && typeof payload.message === "object" && !Array.isArray(payload.message)
+    ? payload.message as Record<string, unknown>
+    : null;
+  const choice = Array.isArray(payload.choices) && payload.choices[0] && typeof payload.choices[0] === "object"
+    ? payload.choices[0] as Record<string, unknown>
+    : null;
+  const records = [
+    payload,
+    payload.delta,
+    payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+      ? (payload.data as Record<string, unknown>).delta
+      : null,
+    choice?.delta,
+    message,
+    message?.delta,
+  ].filter((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value));
+  for (const record of records) {
+    const type = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+    const candidate = [record.reasoning_content, record.reasoningContent, record.reasoning, record.thinking]
+      .find((value) => typeof value === "string" && value);
+    if (typeof candidate === "string") return candidate;
+    if ((type === "thinking_delta" || type === "reasoning_delta") && typeof record.text === "string") {
+      return record.text;
+    }
+  }
+  return "";
+}
+
+function settleAssistantTurn(
+  messages: ChatMessage[],
+  identity: Partial<Pick<ChatMessage, "renderId" | "clientTurnId" | "messageId" | "turnId" | "runId" | "sessionKey">>,
+  reasoningState: "settled" | "incomplete" = "settled",
+): ChatMessage[] {
+  return settleAssistantReasoning(
+    settleAssistantProgress(messages, identity),
+    identity,
+    reasoningState,
+  );
+}
+
 export function handleOpenClawChatStreamEvent({
   chatEvent,
   setMessages,
@@ -229,6 +271,7 @@ export function handleOpenClawChatStreamEvent({
         {
           replaceContent,
           appendContent: !replaceContent,
+          startNewRound: true,
         },
       ));
     }
@@ -244,6 +287,23 @@ export function handleOpenClawChatStreamEvent({
           timestamp: Date.now(),
         }, identity, assistantRenderId, clientTurnId),
         { updateProgress: chatEvent.replace === true ? "replace" : "append" },
+      ));
+    }
+  } else if (chatEvent.type === "reasoning") {
+    const text = sanitizeChatDisplayText(chatEvent.text ?? "");
+    if (text) {
+      setMessages((prev) => upsertAssistantMessage(
+        prev,
+        identifiedAssistantMessage({
+          role: "assistant",
+          content: "",
+          reasoning: { text, state: "active", startedAt: Date.now() },
+          timestamp: Date.now(),
+        }, identity, assistantRenderId, clientTurnId),
+        {
+          updateReasoning: chatEvent.replace === true ? "replace" : "append",
+          startNewRound: true,
+        },
       ));
     }
   } else if (chatEvent.type === "thinking") {
@@ -266,20 +326,28 @@ export function handleOpenClawChatStreamEvent({
     const settleIdentity = { ...identity, ...(assistantRenderId ? { renderId: assistantRenderId } : {}) };
     setMessages((prev) => {
       const next = normalized?.role === "assistant"
-        ? upsertAssistantMessage(prev, identifiedAssistantMessage(normalized, identity, assistantRenderId, clientTurnId))
+        ? upsertAssistantMessage(
+            prev,
+            identifiedAssistantMessage(normalized, identity, assistantRenderId, clientTurnId),
+            { startNewRound: true },
+          )
         : assistantRenderId && Object.keys(identity).length > 0
           ? upsertAssistantMessage(
             prev,
             identifiedAssistantMessage({ role: "assistant", content: "", timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
           )
           : prev;
-      return settleAssistantProgress(next, settleIdentity);
+      return settleAssistantTurn(next, settleIdentity);
     });
     setSending(false);
     appendActivity({ type: "message", action: "Assistant response complete" });
   } else if (chatEvent.type === "error") {
     const message = chatEvent.text || "Unknown error";
-    setMessages((prev) => settleAssistantProgress(prev, { ...identity, ...(assistantRenderId ? { renderId: assistantRenderId } : {}) }));
+    setMessages((prev) => settleAssistantTurn(
+      prev,
+      { ...identity, ...(assistantRenderId ? { renderId: assistantRenderId } : {}) },
+      "incomplete",
+    ));
     if (isAbortedChatPayload(payload, message)) {
       setSending(false);
       appendReplyStoppedActivity(appendActivity);
@@ -294,7 +362,7 @@ export function handleOpenClawChatStreamEvent({
 function appendLiveChatMessage(
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>,
   message: ChatMessage | null,
-  options: { replaceContent?: boolean; appendContent?: boolean } = {},
+  options: { replaceContent?: boolean; appendContent?: boolean; startNewRound?: boolean } = {},
 ): void {
   if (!message) return;
   if (message.role === "assistant") {
@@ -366,33 +434,50 @@ export function handleOpenClawSessionEvent({
     const data = payloadRecord.data as Record<string, unknown> | undefined;
     const phase = String(data?.phase || "").toLowerCase();
     if (phase === "end" || isAbortSignal(phase) || (data && isAbortedChatPayload(data))) {
-      setMessages((prev) => settleAssistantProgress(prev, identity));
+      const interrupted = isAbortSignal(phase) || Boolean(data && isAbortedChatPayload(data));
+      setMessages((prev) => settleAssistantTurn(prev, identity, interrupted ? "incomplete" : "settled"));
     }
   }
 
   if (event === "chat") {
     if (isAbortedChatPayload(payloadRecord)) {
-      setMessages((prev) => settleAssistantProgress(prev, identity));
+      setMessages((prev) => settleAssistantTurn(prev, identity, "incomplete"));
       setSending(false);
       appendReplyStoppedActivity(appendActivity);
       return;
     }
-    const normalized = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
+    const normalizedMessage = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
     const state = String(payloadRecord.state || "").toLowerCase();
     const isTerminal = state === "final" || state === "error";
+    const normalized = normalizedMessage?.role === "assistant" &&
+      state === "delta" &&
+      normalizedMessage.reasoning &&
+      !normalizedMessage.content.trim() &&
+      (normalizedMessage.toolCalls?.length ?? 0) === 0
+      ? {
+          ...normalizedMessage,
+          reasoning: {
+            ...normalizedMessage.reasoning,
+            state: "active" as const,
+            completedAt: undefined,
+          },
+        }
+      : normalizedMessage;
     if (normalized?.role === "assistant") {
       setMessages((prev) => {
         const next = upsertAssistantMessage(
           prev,
           identifiedAssistantMessage(normalized, identity),
-          { replaceContent: payloadRecord.replace === true },
+          { replaceContent: payloadRecord.replace === true, startNewRound: true },
         );
-        return isTerminal ? settleAssistantProgress(next, identity) : next;
+        return isTerminal
+          ? settleAssistantTurn(next, identity, state === "error" ? "incomplete" : "settled")
+          : next;
       });
     } else if (normalized) {
       appendLiveChatMessage(setMessages, identifiedAssistantMessage(normalized, identity));
     } else if (isTerminal) {
-      setMessages((prev) => settleAssistantProgress(prev, identity));
+      setMessages((prev) => settleAssistantTurn(prev, identity, state === "error" ? "incomplete" : "settled"));
     }
     if (isTerminal) setSending(false);
   } else if (event === "chat.content") {
@@ -407,6 +492,7 @@ export function handleOpenClawSessionEvent({
         {
           replaceContent: payloadRecord.replace === true,
           appendContent: payloadRecord.replace !== true,
+          startNewRound: true,
         },
       );
     } else {
@@ -418,13 +504,42 @@ export function handleOpenClawSessionEvent({
           {
             replaceContent: payloadRecord.replace === true,
             appendContent: payloadRecord.replace !== true,
+            startNewRound: true,
           },
         ));
       }
     }
   } else if (event === "chat.thinking") {
-    const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
-    if (text) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", thinking: text, timestamp: Date.now() }, identity)));
+    const structuredReasoning = sanitizeChatDisplayText(reasoningText(payloadRecord));
+    if (structuredReasoning) {
+      setMessages((prev) => upsertAssistantMessage(
+        prev,
+        identifiedAssistantMessage({
+          role: "assistant",
+          content: "",
+          reasoning: { text: structuredReasoning, state: "active", startedAt: Date.now() },
+          timestamp: Date.now(),
+        }, identity),
+        { updateReasoning: payloadRecord.replace === true ? "replace" : "append", startNewRound: true },
+      ));
+    } else {
+      const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
+      if (text) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", thinking: text, timestamp: Date.now() }, identity)));
+    }
+  } else if (event === "chat.reasoning" || event === "chat.reasoning.delta" || event === "chat.thinking.delta") {
+    const text = sanitizeChatDisplayText(reasoningText(payloadRecord) || (typeof payloadRecord.text === "string" ? payloadRecord.text : ""));
+    if (text) {
+      setMessages((prev) => upsertAssistantMessage(
+        prev,
+        identifiedAssistantMessage({
+          role: "assistant",
+          content: "",
+          reasoning: { text, state: "active", startedAt: Date.now() },
+          timestamp: Date.now(),
+        }, identity),
+        { updateReasoning: payloadRecord.replace === true ? "replace" : "append", startNewRound: true },
+      ));
+    }
   } else if (event === "chat.tool_call") {
     const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
     if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }, identity)));
@@ -432,11 +547,11 @@ export function handleOpenClawSessionEvent({
     const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
     if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }, identity)));
   } else if (event === "chat.done") {
-    setMessages((prev) => settleAssistantProgress(prev, identity));
+    setMessages((prev) => settleAssistantTurn(prev, identity));
     setSending(false);
     void refreshSessions();
   } else if (event === "chat.aborted") {
-    setMessages((prev) => settleAssistantProgress(prev, identity));
+    setMessages((prev) => settleAssistantTurn(prev, identity, "incomplete"));
     setSending(false);
     appendReplyStoppedActivity(appendActivity);
   } else if (event === "sessions.changed") {
@@ -446,7 +561,7 @@ export function handleOpenClawSessionEvent({
     if (Array.isArray(list)) setSessions(normalizeOpenClawSessions(list));
   } else if (event === "chat.error") {
     const message = String(payloadRecord.message ?? "Unknown error");
-    setMessages((prev) => settleAssistantProgress(prev, identity));
+    setMessages((prev) => settleAssistantTurn(prev, identity, "incomplete"));
     if (isAbortedChatPayload(payloadRecord, message)) {
       setSending(false);
       appendReplyStoppedActivity(appendActivity);

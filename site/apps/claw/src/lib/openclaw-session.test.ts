@@ -241,7 +241,7 @@ describe("openclaw session keys", () => {
     expect(hydrated.gwAgentId).toBe("main");
   });
 
-  it("hydrates refreshed chat history without thinking or tool-call leakage", async () => {
+  it("hydrates provider reasoning without persisted tool-call leakage", async () => {
     const gateway = {
       configGet: vi.fn(async () => ({})),
       configSchema: vi.fn(async () => null),
@@ -299,9 +299,13 @@ describe("openclaw session keys", () => {
       }),
     ]);
     expect(hydrated.messages[0]?.thinking).toBeUndefined();
+    expect(hydrated.messages[0]?.reasoning).toMatchObject({
+      text: `Internal plan: ${THINKING_LEAK_SENTINEL}`,
+      state: "settled",
+    });
     expect(hydrated.messages[0]?.toolCalls).toBeUndefined();
     const serialized = JSON.stringify(hydrated.messages);
-    expect(serialized).not.toContain(THINKING_LEAK_SENTINEL);
+    expect(serialized).toContain(THINKING_LEAK_SENTINEL);
     expect(serialized).not.toContain(TOOL_ARG_LEAK_SENTINEL);
     expect(serialized).not.toContain(TOOL_RESULT_LEAK_SENTINEL);
   });
@@ -873,7 +877,7 @@ describe("openclaw session keys", () => {
     expect(JSON.stringify(hydrated.messages)).not.toContain("Command exited with code");
   });
 
-  it("hydrates persisted README answers while dropping toolResult records", async () => {
+  it("hydrates persisted README thoughts and answers while dropping toolResult records", async () => {
     const gateway = {
       configGet: vi.fn(async () => ({})),
       configSchema: vi.fn(async () => null),
@@ -894,12 +898,18 @@ describe("openclaw session keys", () => {
       }),
       expect.objectContaining({
         role: "assistant",
+        content: "",
+        reasoning: expect.objectContaining({ text: THINKING_LEAK_SENTINEL, state: "settled" }),
+      }),
+      expect.objectContaining({
+        role: "assistant",
         content: "There is no README file in the workspace. The files present are:\n\n- `AGENTS.md`\n- `BOOTSTRAP.md`\n- `HEARTBEAT.md`\n- `IDENTITY.md`\n- `SOUL.md`\n- `TOOLS.md`\n- `USER.md`",
+        reasoning: expect.objectContaining({ text: "No README file exists in the workspace.", state: "settled" }),
       }),
     ]);
     const serialized = JSON.stringify(hydrated.messages);
     expect(serialized).not.toContain("Command exited with code");
-    expect(serialized).not.toContain(THINKING_LEAK_SENTINEL);
+    expect(serialized).toContain(THINKING_LEAK_SENTINEL);
   });
 
   it("hydrates persisted file and image exchanges with final answers still visible", async () => {
@@ -1531,6 +1541,110 @@ describe("openclaw commentary session wiring", () => {
     expect(messages()[0].thinking).toBeUndefined();
   });
 
+  it("streams typed provider reasoning open, then settles it when content begins", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "round-1", turnId: "turn-1", runId: "run-1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "reasoning", text: "Inspecting ", ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "reasoning", text: "the workspace", ...identity } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]).toMatchObject({
+      content: "",
+      reasoning: { text: "Inspecting the workspace", state: "active" },
+    });
+    expect(messages()[0].progress).toBeUndefined();
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "content", text: "The configuration is valid.", ...identity } as any,
+    });
+
+    expect(messages()[0]).toMatchObject({
+      content: "The configuration is valid.",
+      reasoning: { text: "Inspecting the workspace", state: "settled" },
+    });
+  });
+
+  it("keeps tool-loop reasoning and the final answer in separate assistant rounds", () => {
+    const { context, messages } = createStreamContext();
+    const baseIdentity = { turnId: "turn-1", runId: "run-1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "reasoning", text: "Finding the config", messageId: "round-1", ...baseIdentity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "content", text: "I will inspect the config.", messageId: "round-1", ...baseIdentity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "tool_call",
+        messageId: "round-1",
+        ...baseIdentity,
+        data: { toolCallId: "tool-1", name: "read", args: { path: "config.json" } },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "tool_result",
+        messageId: "round-1",
+        ...baseIdentity,
+        data: { toolCallId: "tool-1", name: "read", result: "{}" },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "reasoning", text: "Checking the result", messageId: "round-2", ...baseIdentity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "content", text: "Everything is configured correctly.", messageId: "round-2", ...baseIdentity } as any,
+    });
+
+    expect(messages()).toHaveLength(2);
+    expect(messages()[0]).toMatchObject({
+      messageId: "round-1",
+      content: "I will inspect the config.",
+      reasoning: { text: "Finding the config", state: "settled" },
+      toolCalls: [expect.objectContaining({ id: "tool-1", result: "{}" })],
+    });
+    expect(messages()[1]).toMatchObject({
+      messageId: "round-2",
+      content: "Everything is configured correctly.",
+      reasoning: { text: "Checking the result", state: "settled" },
+    });
+  });
+
+  it("keeps interrupted provider reasoning visible as incomplete", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "round-1", runId: "run-1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "reasoning", text: "Inspecting the deployment", ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "error", text: "aborted", ...identity, data: { state: "aborted" } } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0].reasoning).toMatchObject({
+      text: "Inspecting the deployment",
+      state: "incomplete",
+    });
+  });
+
   it("turns typed commentary chat events into one progress note, then settles on done", () => {
     const { context, messages } = createStreamContext();
     const identity = { messageId: "m1", turnId: "t1", runId: "r1", sessionKey: "main" };
@@ -1703,6 +1817,8 @@ describe("openclaw commentary session wiring", () => {
     expect(messages()).toHaveLength(1);
     const row = messages()[0]!;
     expect(row.progress?.text).toBe("Public working note");
+    expect(row.progress?.state).toBe("settled");
+    expect(row.content).toBe("Answer");
     expect(serializedNoThinkingLeak(row)).toBe(true);
   });
 
@@ -1939,10 +2055,6 @@ describe("openclaw commentary session wiring", () => {
         state: "settled",
       },
     });
-    expect(assistantRows[0]!.progress?.revisions).toEqual([
-      "Reading config files.",
-      "Reading config files.\nValidating two entries.",
-    ]);
 
     // A second hydration of the same history produces the same stable rows.
     const rehydrated = await hydrateOpenClawSession(gateway as any, "agent-1");
@@ -2000,7 +2112,6 @@ describe("openclaw commentary session wiring", () => {
   function serializedNoThinkingLeak(row: ChatMessage): boolean {
     const serialized = JSON.stringify(row);
     if (serialized.includes(THINKING_LEAK_SENTINEL)) return false;
-    // Progress is serialized independently; private thinking is omitted.
-    return row.progress?.text === "Public working note";
+    return row.thinking === undefined;
   }
 });

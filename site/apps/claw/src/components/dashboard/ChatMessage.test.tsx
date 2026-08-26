@@ -100,7 +100,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByAltText("Profile avatar")).toHaveAttribute("src", profileAvatarUrl);
   });
 
-  it("renders hydrated history text without internal thinking or tool-call sentinels", () => {
+  it("renders hydrated provider thoughts separately without tool-call sentinels", () => {
     const message = normalizeHistoryMessage({
       role: "assistant",
       content: [
@@ -132,9 +132,13 @@ describe("ChatMessageBubble", () => {
     const { container } = render(<ChatMessageBubble message={message!} />);
 
     expect(screen.getByText("Visible answer after internal work.")).toBeInTheDocument();
-    expect(screen.queryByText("Internal reasoning hidden")).not.toBeInTheDocument();
-    expectNoLeakSentinels(container.textContent ?? "");
-    expectNoLeakSentinels(container.innerHTML);
+    const thought = screen.getByTestId("agent-assistant-reasoning");
+    expect(thought).not.toHaveAttribute("open");
+    expect(thought).toHaveTextContent(`Internal planning: ${THINKING_LEAK_SENTINEL}`);
+    expect(container.textContent ?? "").not.toContain(TOOL_ARG_LEAK_SENTINEL);
+    expect(container.textContent ?? "").not.toContain(TOOL_RESULT_LEAK_SENTINEL);
+    expect(container.innerHTML).not.toContain(TOOL_ARG_LEAK_SENTINEL);
+    expect(container.innerHTML).not.toContain(TOOL_RESULT_LEAK_SENTINEL);
   });
 
   it("renders interrupted assistant replies with a stopped badge", () => {
@@ -305,7 +309,7 @@ describe("ChatMessageBubble", () => {
     expect(onRetryFailedReply).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a generic hidden-reasoning badge without exposing raw thinking text", () => {
+  it("keeps raw thinking entirely absent from the rendered message", () => {
     const { container } = render(
       <ChatMessageBubble
         message={{
@@ -317,7 +321,7 @@ describe("ChatMessageBubble", () => {
     );
 
     expect(screen.getByText("Visible answer.")).toBeInTheDocument();
-    expect(screen.getByText("Internal reasoning hidden").parentElement).toHaveClass("text-text-muted");
+    expect(screen.queryByText(/internal reasoning hidden/i)).not.toBeInTheDocument();
     expectNoLeakSentinels(container.textContent ?? "");
     expectNoLeakSentinels(container.innerHTML);
   });
@@ -1916,7 +1920,7 @@ describe("ChatMessageBubble", () => {
       expect(screen.queryByText(/\bsdk\b/i)).not.toBeInTheDocument();
     });
 
-    it("keeps progress text fully out of the ordinary reply content", () => {
+    it("renders settled commentary as a collapsed keyboard-operable disclosure", () => {
       render(
         <ChatMessageBubble
           message={{
@@ -1927,17 +1931,21 @@ describe("ChatMessageBubble", () => {
         />,
       );
 
-      // The progress note renders once, in its own surface; the reply shows it nowhere.
       const progress = screen.getByTestId("agent-assistant-progress");
       expect(progress).toHaveAttribute("data-progress-state", "settled");
+      const toggle = screen.getByRole("button", { name: /working notes/i });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(progress).toHaveTextContent("Checking credentials");
       const markdownRegion = document.querySelectorAll(".prose-chat");
       const regionText = Array.from(markdownRegion).map((node) => node.textContent).join("\n");
       expect(regionText).not.toContain("Checking credentials");
       expect(screen.getByText("Credentials verified.")).toBeInTheDocument();
     });
 
-    it("collapses settled progress into a keyboard-operable disclosure", async () => {
-      const { container } = render(
+    it("keeps settled progress from cached messages collapsed by default", () => {
+      render(
         <ChatMessageBubble
           message={{
             role: "assistant",
@@ -1947,22 +1955,11 @@ describe("ChatMessageBubble", () => {
         />,
       );
 
-      const toggle = screen.getByRole("button", { name: /working notes|progress/i });
-      expect(toggle).toHaveAttribute("aria-expanded", "false");
-      expect(toggle.querySelector("svg")).toHaveClass("motion-reduce:transition-none");
-      const detail = container.querySelector("[id]");
-      // Collapsed by default: the note text is not visible.
-      expect(detail ? detail.getAttribute("aria-hidden") : null).not.toBe("false");
-      const visibleText = Array.from(container.querySelectorAll("div, p, span"))
-        .filter((element) => element.textContent === "Read 4 files and ran the verifier twice.")
-        .filter((element) => element.getClientRects().length > 0);
-      expect(visibleText).toHaveLength(0);
-
-      toggle.focus();
-      fireEvent.keyDown(toggle, { key: "Enter" });
-      fireEvent.click(toggle);
-      await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"));
-      expect(screen.getByText("Read 4 files and ran the verifier twice.")).toBeInTheDocument();
+      const progress = screen.getByTestId("agent-assistant-progress");
+      expect(progress).toHaveAttribute("data-progress-state", "settled");
+      expect(screen.getByRole("button", { name: /working notes/i })).toHaveAttribute("aria-expanded", "false");
+      expect(progress).toHaveTextContent("Read 4 files and ran the verifier twice.");
+      expect(screen.getByText("Done.")).toBeInTheDocument();
     });
 
     it("renders untrusted commentary as plain text without executing markup or loops", () => {
@@ -2008,13 +2005,14 @@ describe("ChatMessageBubble", () => {
         />,
       );
 
-      expect(screen.getByTestId("agent-assistant-progress")).not.toHaveTextContent(THINKING_LEAK_SENTINEL);
+      const progress = screen.getByTestId("agent-assistant-progress");
+      expect(progress).toHaveTextContent("Public working note");
       expect(container.textContent ?? "").not.toContain(THINKING_LEAK_SENTINEL);
-      expect(screen.getByText(/internal reasoning hidden/i)).toBeInTheDocument();
+      expect(screen.queryByText(/internal reasoning hidden/i)).not.toBeInTheDocument();
     });
 
-    it("caps long commentary on a compact, wrap-safe surface", () => {
-      const longNote = `Working note ${"segment ".repeat(200)}`;
+    it("keeps long commentary complete on a wrap-safe surface", () => {
+      const longNote = `Initial workspace inspection. ${"Intermediate detail ".repeat(100)}\nComparing the final deployment settings now.`;
       render(
         <ChatMessageBubble
           message={{
@@ -2028,6 +2026,8 @@ describe("ChatMessageBubble", () => {
 
       const progress = screen.getByTestId("agent-assistant-progress");
       expect(progress.className).toContain("max-w-full");
+      expect(progress).toHaveTextContent("Initial workspace inspection");
+      expect(progress).toHaveTextContent("Comparing the final deployment settings now.");
       expect(progress.querySelector("p,div,span")).not.toBeNull();
       // Wrap-safe containers instead of unbounded horizontal growth.
       const textHolder = Array.from(progress.querySelectorAll("*")).find((el) =>
@@ -2038,6 +2038,140 @@ describe("ChatMessageBubble", () => {
         ),
       );
       expect(textHolder).toBeDefined();
+    });
+  });
+
+  describe("assistant provider reasoning", () => {
+    it("keeps active thoughts open and live without using the commentary surface", () => {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: {
+              text: "Inspecting the workspace configuration",
+              state: "active",
+              startedAt: 1,
+            },
+          }}
+          isStreaming
+        />,
+      );
+
+      const thought = screen.getByTestId("agent-assistant-reasoning");
+      expect(thought).toHaveAttribute("open");
+      expect(thought).toHaveAttribute("aria-busy", "true");
+      expect(thought).toHaveAttribute("data-reasoning-state", "active");
+      expect(screen.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName("Thinking");
+      expect(thought).toHaveTextContent("Inspecting the workspace configuration");
+      expect(screen.getByText("Reasoning in progress")).toHaveClass("sr-only");
+      expect(screen.queryByTestId("agent-assistant-progress")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Streaming")).not.toBeInTheDocument();
+    });
+
+    it("collapses settled thoughts and lets the user reopen the full text", () => {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "The configuration is valid.",
+            reasoning: {
+              text: "Inspecting the workspace configuration",
+              state: "settled",
+              startedAt: 1_000,
+              completedAt: 4_200,
+            },
+          }}
+        />,
+      );
+
+      const thought = screen.getByTestId("agent-assistant-reasoning");
+      const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
+      expect(thought).not.toHaveAttribute("open");
+      expect(toggle).toHaveAccessibleName("Thought for 3s");
+      expect(toggle).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByText("Reasoning complete")).toHaveClass("sr-only");
+
+      fireEvent.click(toggle);
+      expect(thought).toHaveAttribute("open");
+      expect(thought).toHaveTextContent("Inspecting the workspace configuration");
+    });
+
+    it("auto-collapses a thought when the first answer content settles its round", () => {
+      const { rerender } = render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            reasoning: { text: "Checking the deployment", state: "active", startedAt: 1 },
+          }}
+          isStreaming
+        />,
+      );
+      expect(screen.getByTestId("agent-assistant-reasoning")).toHaveAttribute("open");
+
+      rerender(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "Deployment is healthy.",
+            reasoning: { text: "Checking the deployment", state: "settled", startedAt: 1, completedAt: 2 },
+          }}
+          isStreaming
+        />,
+      );
+
+      expect(screen.getByTestId("agent-assistant-reasoning")).not.toHaveAttribute("open");
+      expect(screen.getByText("Deployment is healthy.")).toBeInTheDocument();
+    });
+
+    it("keeps interrupted thoughts expanded and marks them incomplete", () => {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            status: "interrupted",
+            reasoning: {
+              text: "Comparing provider settings",
+              state: "incomplete",
+              startedAt: 1,
+            },
+          }}
+        />,
+      );
+
+      const thought = screen.getByTestId("agent-assistant-reasoning");
+      expect(thought).toHaveAttribute("open");
+      expect(thought).toHaveAttribute("data-reasoning-state", "incomplete");
+      expect(screen.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName("Thoughts incomplete");
+      expect(screen.getByText("Comparing provider settings")).toBeVisible();
+    });
+
+    it("renders tool-round content as commentary directly above its tool card", () => {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "I will inspect the config file.",
+            toolCalls: [{ id: "tool-1", name: "read", args: JSON.stringify({ path: "config.json" }) }],
+          }}
+          isStreaming
+        />,
+      );
+
+      const commentary = screen.getByTestId("agent-assistant-commentary");
+      const tool = screen.getByRole("button", { name: /read/i });
+      expect(commentary).toHaveTextContent("I will inspect the config file.");
+      expect(commentary.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("keeps a no-tool final answer out of the commentary lane", () => {
+      render(<ChatMessageBubble message={{ role: "assistant", content: "This is the final answer." }} />);
+
+      expect(screen.queryByTestId("agent-assistant-reasoning")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("agent-assistant-commentary")).not.toBeInTheDocument();
+      expect(screen.getByText("This is the final answer.")).toBeInTheDocument();
     });
   });
 });
