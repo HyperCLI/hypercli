@@ -56,7 +56,7 @@ Release gates:
 - [ ] A repeated call is stopped before a second side effect is dispatched.
 - [ ] One run produces exactly one terminal outcome.
 - [x] Continuous nonterminal traffic cannot keep a run alive indefinitely.
-- [ ] Stop and guard-triggered aborts leave no active SDK handler or UI sending
+- [x] Stop and guard-triggered aborts leave no active SDK handler or UI sending
       state.
 
 SDK containment policy:

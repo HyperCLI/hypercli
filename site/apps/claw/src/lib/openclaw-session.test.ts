@@ -1351,6 +1351,33 @@ describe("openclaw session keys", () => {
     ]);
   });
 
+  it.each([
+    "CHAT_REPEATED_TOOL_CALL_LIMIT",
+    "CHAT_TOOL_RESULT_CORRELATION_FAILED",
+    "CHAT_RUN_DURATION_LIMIT",
+  ])("clears sending for the %s terminal error", (code) => {
+    const setSending = vi.fn();
+    const appendActivity = vi.fn();
+
+    handleOpenClawChatStreamEvent({
+      chatEvent: {
+        type: "error",
+        text: "Chat stopped for safety.",
+        data: { code, abortRequested: true },
+      },
+      setMessages: vi.fn(),
+      setSending,
+      appendActivity,
+    });
+
+    expect(setSending).toHaveBeenCalledWith(false);
+    expect(appendActivity).toHaveBeenCalledWith({
+      type: "error",
+      action: "Error",
+      detail: "Chat stopped for safety.",
+    });
+  });
+
   it("shows passive agent tool start events with alternate tool field names", () => {
     let messages: ChatMessage[] = [];
     const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
