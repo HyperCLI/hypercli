@@ -1434,6 +1434,8 @@ const DEFAULT_CONNECTION_TIMEOUT = 30_000;
 const WEB_LOGIN_WAIT_TIMEOUT = 120_000;
 const DEFAULT_AGENT_TIMEOUT = 900_000;
 const CHAT_LIFECYCLE_ERROR_FALLBACK_TIMEOUT_MS = 20_000;
+// The third unchanged success stops the run; failures and changed results reset the counter.
+const MAX_IDENTICAL_SUCCESSFUL_TOOL_CYCLES = 3;
 const SKILLS_MUTATION_TIMEOUT = 300_000;
 const PLUGIN_MUTATION_TIMEOUT = 300_000;
 const RECONNECT_CLOSE_CODE = 4008;
@@ -1722,6 +1724,29 @@ function normalizeToolArgs(value: unknown): unknown {
   }
 }
 
+function canonicalizeToolValue(value: unknown): unknown {
+  const normalized = normalizeToolArgs(value);
+  if (Array.isArray(normalized)) {
+    return normalized.map(canonicalizeToolValue);
+  }
+  if (!normalized || typeof normalized !== "object") {
+    return normalized;
+  }
+  return Object.fromEntries(
+    Object.keys(normalized as Record<string, unknown>)
+      .sort()
+      .map((key) => [key, canonicalizeToolValue((normalized as Record<string, unknown>)[key])]),
+  );
+}
+
+function serializeToolValue(value: unknown): string {
+  try {
+    return JSON.stringify(canonicalizeToolValue(value)) ?? "undefined";
+  } catch {
+    return String(value);
+  }
+}
+
 function stringifyToolResult(value: unknown): string | undefined {
   if (value === null || value === undefined) {
     return undefined;
@@ -1754,6 +1779,14 @@ function gatewayToolName(record: Record<string, any>): string | undefined {
   return direct || undefined;
 }
 
+function gatewayToolSignature(record: Record<string, any>): string {
+  return `${gatewayToolName(record) ?? "tool"}:${serializeToolValue(record.args ?? record.arguments ?? null)}`;
+}
+
+function gatewayToolResultValue(record: Record<string, any>): unknown {
+  return record.result ?? record.meta ?? record.content ?? record.text ?? record.partialResult ?? record.output;
+}
+
 function gatewayToolStreamPayload(record: Record<string, any>): Record<string, any> {
   const id = gatewayToolCallId(record);
   const name = gatewayToolName(record);
@@ -1768,18 +1801,18 @@ function mergeGatewayToolResult(
   result: GatewayChatToolCall,
 ): GatewayChatToolCall[] {
   const next = [...toolCalls];
-  let index = -1;
-  for (let cursor = next.length - 1; cursor >= 0; cursor -= 1) {
-    const entry = next[cursor];
-    if (result.id && entry.id && entry.id === result.id) {
-      index = cursor;
-      break;
-    }
-    if (result.name && entry.name === result.name && (entry.result === null || entry.result === undefined)) {
-      index = cursor;
-      break;
-    }
-  }
+  const index = result.id
+    ? next.findIndex((entry) => entry.id === result.id)
+    : (() => {
+        const matches = next
+          .map((entry, cursor) => ({ entry, cursor }))
+          .filter(({ entry }) =>
+            result.name &&
+            entry.name === result.name &&
+            (entry.result === null || entry.result === undefined),
+          );
+        return matches.length === 1 ? matches[0].cursor : -1;
+      })();
   if (index >= 0) {
     const current = next[index];
     next[index] = {
@@ -5286,6 +5319,15 @@ export class GatewayClient {
     let emittedReasoningText = "";
     const seenToolCallIds = new Set<string>();
     const seenToolResultIds = new Set<string>();
+    const outstandingToolCalls = new Map<string, {
+      id?: string;
+      name: string;
+      signature: string;
+    }>();
+    let anonymousToolCallIndex = 0;
+    let lastSuccessfulToolSignature: string | null = null;
+    let lastSuccessfulToolCycle: string | null = null;
+    let identicalSuccessfulToolCycles = 0;
     let acknowledgementPending = false;
     let terminalAcknowledgementEvent: GatewayEvent | null = null;
     let historyBaseline: HistoryAssistantBaseline | null | undefined;
@@ -5317,6 +5359,120 @@ export class GatewayClient {
         promise,
         streamClosed.then((error) => Promise.reject(error)),
       ]);
+    };
+    const registerToolCall = (record: Record<string, any>): { duplicate: boolean } => {
+      const id = gatewayToolCallId(record);
+      if (id && seenToolCallIds.has(id)) {
+        return { duplicate: true };
+      }
+
+      const name = gatewayToolName(record) ?? "tool";
+      const signature = gatewayToolSignature(record);
+      if (lastSuccessfulToolSignature && lastSuccessfulToolSignature !== signature) {
+        lastSuccessfulToolSignature = null;
+        lastSuccessfulToolCycle = null;
+        identicalSuccessfulToolCycles = 0;
+      }
+      seenToolCallIds.add(id ?? signature);
+      outstandingToolCalls.set(id ? `id:${id}` : `anonymous:${++anonymousToolCallIndex}`, {
+        ...(id ? { id } : {}),
+        name,
+        signature,
+      });
+      return { duplicate: false };
+    };
+    const registerToolResult = (record: Record<string, any>): {
+      duplicate: boolean;
+      accepted: boolean;
+      failure: {
+        code: string;
+        text: string;
+        details: Record<string, any>;
+      } | null;
+    } => {
+      const id = gatewayToolCallId(record);
+      if (id && seenToolResultIds.has(id)) {
+        return { duplicate: true, accepted: false, failure: null };
+      }
+
+      const name = gatewayToolName(record);
+      let matchedEntry: [string, { id?: string; name: string; signature: string }] | undefined;
+      if (id) {
+        const exact = outstandingToolCalls.get(`id:${id}`);
+        if (exact) {
+          matchedEntry = [`id:${id}`, exact];
+        } else {
+          const anonymousMatches = [...outstandingToolCalls.entries()].filter(([, call]) =>
+            !call.id && (!name || call.name === name),
+          );
+          if (anonymousMatches.length === 1) matchedEntry = anonymousMatches[0];
+        }
+      } else {
+        const matches = [...outstandingToolCalls.entries()].filter(([, call]) =>
+          !name || call.name === name,
+        );
+        if (matches.length === 1) matchedEntry = matches[0];
+      }
+
+      if (!matchedEntry && outstandingToolCalls.size > 0) {
+        return {
+          duplicate: false,
+          accepted: false,
+          failure: {
+            code: "CHAT_TOOL_RESULT_CORRELATION_FAILED",
+            text: "Chat stopped because a tool result could not be matched to one active tool call.",
+            details: {
+              ...(id ? { toolCallId: id } : {}),
+              ...(name ? { toolName: name } : {}),
+              outstandingToolCalls: outstandingToolCalls.size,
+            },
+          },
+        };
+      }
+
+      if (matchedEntry) {
+        outstandingToolCalls.delete(matchedEntry[0]);
+      }
+      if (id) seenToolResultIds.add(id);
+      if (matchedEntry) {
+        seenToolResultIds.add(matchedEntry[1].id ?? matchedEntry[1].signature);
+      } else if (!id) {
+        seenToolResultIds.add(gatewayToolSignature(record));
+      }
+
+      const isError = record.isError === true || record.is_error === true;
+      if (!matchedEntry || isError) {
+        lastSuccessfulToolSignature = null;
+        lastSuccessfulToolCycle = null;
+        identicalSuccessfulToolCycles = 0;
+        return { duplicate: false, accepted: true, failure: null };
+      }
+
+      const call = matchedEntry[1];
+      const cycle = `${call.signature}:${serializeToolValue(gatewayToolResultValue(record))}`;
+      if (lastSuccessfulToolCycle === cycle) {
+        identicalSuccessfulToolCycles += 1;
+      } else {
+        lastSuccessfulToolSignature = call.signature;
+        lastSuccessfulToolCycle = cycle;
+        identicalSuccessfulToolCycles = 1;
+      }
+      if (identicalSuccessfulToolCycles < MAX_IDENTICAL_SUCCESSFUL_TOOL_CYCLES) {
+        return { duplicate: false, accepted: true, failure: null };
+      }
+      return {
+        duplicate: false,
+        accepted: true,
+        failure: {
+          code: "CHAT_REPEATED_TOOL_CALL_LIMIT",
+          text: "Chat stopped because the same tool call completed repeatedly without making progress.",
+          details: {
+            toolName: call.name,
+            repeatCount: identicalSuccessfulToolCycles,
+            repeatLimit: MAX_IDENTICAL_SUCCESSFUL_TOOL_CYCLES,
+          },
+        },
+      };
     };
 
     const handler: InternalGatewayEventHandler = (evt) => {
@@ -5473,6 +5629,35 @@ export class GatewayClient {
         }
         return historyText;
       };
+      const stopForToolSafety = (
+        failure: { code: string; text: string; details: Record<string, any> },
+        identity: ReturnType<typeof chatEventIdentity>,
+      ): { event: ChatEvent; abort: Promise<void> } => {
+        const runId = identity.runId?.trim() || serverRunId || idempotencyKey;
+        queuedEvents.length = 0;
+        this.internalEventHandlers.delete(handler);
+        this.internalStreamCloseHandlers.delete(closeHandler);
+        if (streamState) {
+          this.activeNormalChatStreams.delete(streamState);
+          this.activeStrictChatStreams.delete(streamState);
+        }
+        const abort = this.chatAbort(sessionKey, runId).catch(() => undefined);
+        return {
+          event: {
+            type: "error",
+            text: failure.text,
+            ...identity,
+            runId,
+            sessionKey: identity.sessionKey ?? sessionKey,
+            data: {
+              code: failure.code,
+              ...failure.details,
+              abortRequested: true,
+            },
+          },
+          abort,
+        };
+      };
 
       let deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
       while (Date.now() < deadline) {
@@ -5584,11 +5769,8 @@ export class GatewayClient {
         if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "tool") {
           const toolPayload = asRecord(payload.data) ?? {};
           const phase = typeof toolPayload.phase === "string" ? toolPayload.phase.toLowerCase() : "";
-          const toolCallId =
-            gatewayToolCallId(toolPayload) ??
-            `${gatewayToolName(toolPayload) ?? "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
           if (phase === "start") {
-            seenToolCallIds.add(toolCallId);
+            if (registerToolCall(toolPayload).duplicate) continue;
             yield {
               type: "tool_call",
               ...identity,
@@ -5598,16 +5780,25 @@ export class GatewayClient {
               },
             };
           } else if (phase === "result") {
-            seenToolResultIds.add(toolCallId);
-            yield {
-              type: "tool_result",
-              ...identity,
-              data: {
-                ...gatewayToolStreamPayload(toolPayload),
-                result: toolPayload.result ?? toolPayload.meta ?? toolPayload.content ?? toolPayload.text ?? toolPayload.partialResult,
-                isError: toolPayload.isError,
-              },
-            };
+            const result = registerToolResult(toolPayload);
+            if (result.duplicate) continue;
+            if (result.accepted) {
+              yield {
+                type: "tool_result",
+                ...identity,
+                data: {
+                  ...gatewayToolStreamPayload(toolPayload),
+                  result: gatewayToolResultValue(toolPayload),
+                  isError: toolPayload.isError,
+                },
+              };
+            }
+            if (result.failure && !streamState.terminalEvent) {
+              const stopped = stopForToolSafety(result.failure, identity);
+              yield stopped.event;
+              await stopped.abort;
+              return;
+            }
           }
           continue;
         }
@@ -5695,19 +5886,22 @@ export class GatewayClient {
           continue;
         }
         if (evt.event === "chat.tool_call") {
-          const toolCallId =
-            gatewayToolCallId(payload) ??
-            `${gatewayToolName(payload) ?? "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
-          seenToolCallIds.add(toolCallId);
+          if (registerToolCall(payload).duplicate) continue;
           yield { type: "tool_call", ...identity, data: payload };
           continue;
         }
         if (evt.event === "chat.tool_result") {
-          const toolCallId =
-            gatewayToolCallId(payload) ??
-            `${gatewayToolName(payload) ?? "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
-          seenToolResultIds.add(toolCallId);
-          yield { type: "tool_result", ...identity, data: payload };
+          const result = registerToolResult(payload);
+          if (result.duplicate) continue;
+          if (result.accepted) {
+            yield { type: "tool_result", ...identity, data: payload };
+          }
+          if (result.failure && !streamState.terminalEvent) {
+            const stopped = stopForToolSafety(result.failure, identity);
+            yield stopped.event;
+            await stopped.abort;
+            return;
+          }
           continue;
         }
         if (evt.event === "chat.done") {
@@ -5812,7 +6006,7 @@ export class GatewayClient {
           for (const toolCall of normalizedMessage?.toolCalls ?? []) {
             const toolCallKey =
               toolCall.id?.trim() ||
-              `${toolCall.name}:${JSON.stringify(toolCall.args ?? null)}`;
+              `${toolCall.name}:${serializeToolValue(toolCall.args ?? null)}`;
             if (toolCall.args !== undefined && !seenToolCallIds.has(toolCallKey)) {
               seenToolCallIds.add(toolCallKey);
               yield {

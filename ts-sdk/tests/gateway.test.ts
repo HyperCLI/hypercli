@@ -4212,6 +4212,38 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("does not merge tool results across mismatched explicit IDs", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "tool-1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "tool_result", id: "tool-2", name: "read", text: "contents" },
+      ],
+    });
+
+    expect(normalized?.toolCalls).toEqual([
+      { id: "tool-1", name: "read", args: { path: "/tmp/a" } },
+      { id: "tool-2", name: "read", result: "contents" },
+    ]);
+  });
+
+  it("does not guess between same-name tool calls for an ID-less result", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      content: [
+        { type: "tool_use", id: "tool-1", name: "read", arguments: { path: "/tmp/a" } },
+        { type: "tool_use", id: "tool-2", name: "read", arguments: { path: "/tmp/b" } },
+        { type: "tool_result", name: "read", text: "ambiguous" },
+      ],
+    });
+
+    expect(normalized?.toolCalls).toEqual([
+      { id: "tool-1", name: "read", args: { path: "/tmp/a" } },
+      { id: "tool-2", name: "read", args: { path: "/tmp/b" } },
+      { name: "read", result: "ambiguous" },
+    ]);
+  });
+
   it("normalizes payload reasoning_content and Anthropic thinking blocks", () => {
     expect(normalizeGatewayChatMessage({
       role: "assistant",
@@ -4604,6 +4636,372 @@ describe("GatewayClient", () => {
       result: { ok: true },
       isError: false,
     });
+  });
+
+  it("chatSend emits each tool-call ID and result ID once", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "duplicate-tool-run" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Read once", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    const start = {
+      runId: "duplicate-tool-run",
+      sessionKey: "main",
+      stream: "tool",
+      data: {
+        phase: "start",
+        toolCallId: "tool-1",
+        name: "read",
+        args: { path: "/tmp/once" },
+      },
+    };
+    const result = {
+      runId: "duplicate-tool-run",
+      sessionKey: "main",
+      stream: "tool",
+      data: {
+        phase: "result",
+        toolCallId: "tool-1",
+        name: "read",
+        result: "contents",
+        isError: false,
+      },
+    };
+    for (const payload of [start, start, result, result]) {
+      (client as any).handleMessage(JSON.stringify({ type: "event", event: "agent", payload }));
+    }
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "duplicate-tool-run", sessionKey: "main" },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["tool_call", "tool_result", "done"]);
+  });
+
+  it("chatSend aborts repeated identical successful tool cycles", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpc = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "repeated-tool-run" };
+      if (method === "chat.abort") return {};
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Inspect once", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    for (let index = 1; index <= 4; index += 1) {
+      const args = index % 2 === 0
+        ? { recursive: false, path: "/workspace" }
+        : { path: "/workspace", recursive: false };
+      const result = index % 2 === 0
+        ? { files: ["a.txt"], ok: true }
+        : { ok: true, files: ["a.txt"] };
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "agent",
+        payload: {
+          runId: "repeated-tool-run",
+          sessionKey: "main",
+          stream: "tool",
+          data: { phase: "start", toolCallId: `tool-${index}`, name: "read", args },
+        },
+      }));
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "agent",
+        payload: {
+          runId: "repeated-tool-run",
+          sessionKey: "main",
+          stream: "tool",
+          data: {
+            phase: "result",
+            toolCallId: `tool-${index}`,
+            name: "read",
+            result,
+            isError: false,
+          },
+        },
+      }));
+    }
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual([
+      "tool_call",
+      "tool_result",
+      "tool_call",
+      "tool_result",
+      "tool_call",
+      "tool_result",
+      "error",
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      runId: "repeated-tool-run",
+      sessionKey: "main",
+      data: {
+        code: "CHAT_REPEATED_TOOL_CALL_LIMIT",
+        toolName: "read",
+        repeatCount: 3,
+        repeatLimit: 3,
+        abortRequested: true,
+      },
+    });
+    expect(rpc).toHaveBeenCalledWith("chat.abort", {
+      sessionKey: "main",
+      runId: "repeated-tool-run",
+    });
+    expect((client as any).activeNormalChatStreams.size).toBe(0);
+    expect((client as any).internalEventHandlers.size).toBe(0);
+    expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+  });
+
+  it("chatSend fails closed on an ambiguous result even when abort fails", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpc = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "mismatched-tool-run" };
+      if (method === "chat.abort") throw new Error("abort unavailable");
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Inspect", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.tool_call",
+      payload: {
+        runId: "mismatched-tool-run",
+        sessionKey: "main",
+        toolCallId: "tool-1",
+        name: "read",
+        args: { path: "/tmp/a" },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.tool_result",
+      payload: {
+        runId: "mismatched-tool-run",
+        sessionKey: "main",
+        toolCallId: "tool-2",
+        name: "read",
+        result: "contents",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events).toMatchObject([
+      { type: "tool_call", data: { toolCallId: "tool-1" } },
+      {
+        type: "error",
+        data: {
+          code: "CHAT_TOOL_RESULT_CORRELATION_FAILED",
+          toolCallId: "tool-2",
+          outstandingToolCalls: 1,
+          abortRequested: true,
+        },
+      },
+    ]);
+    expect(events.filter((event) => event.type === "error")).toHaveLength(1);
+    expect(rpc).toHaveBeenCalledWith("chat.abort", {
+      sessionKey: "main",
+      runId: "mismatched-tool-run",
+    });
+    expect((client as any).activeNormalChatStreams.size).toBe(0);
+    expect((client as any).internalEventHandlers.size).toBe(0);
+    expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+  });
+
+  it("chatSend keeps the guard error terminal when abort races a gateway terminal", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    let resolveAbort: (() => void) | null = null;
+    const abortPending = new Promise<void>((resolve) => {
+      resolveAbort = resolve;
+    });
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") return { runId: "abort-race-run" };
+      if (method === "chat.abort") return await abortPending;
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const stream = client.chatSend("Inspect", "main");
+    const firstEvent = stream.next();
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.tool_call",
+      payload: {
+        runId: "abort-race-run",
+        sessionKey: "main",
+        toolCallId: "tool-1",
+        name: "read",
+        args: { path: "/tmp/a" },
+      },
+    }));
+    await expect(firstEvent).resolves.toMatchObject({
+      done: false,
+      value: { type: "tool_call" },
+    });
+
+    const terminalEvent = stream.next();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.tool_result",
+      payload: {
+        runId: "abort-race-run",
+        sessionKey: "main",
+        toolCallId: "tool-2",
+        name: "read",
+        result: "contents",
+      },
+    }));
+    await expect(terminalEvent).resolves.toMatchObject({
+      done: false,
+      value: {
+        type: "error",
+        data: { code: "CHAT_TOOL_RESULT_CORRELATION_FAILED" },
+      },
+    });
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.aborted",
+      payload: { runId: "abort-race-run", sessionKey: "main" },
+    }));
+    resolveAbort?.();
+
+    await expect(stream.next()).resolves.toMatchObject({ done: true });
+    expect((client as any).activeNormalChatStreams.size).toBe(0);
+    expect((client as any).internalEventHandlers.size).toBe(0);
+    expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+  });
+
+  it("chatSend permits progressing polls without tool-call IDs", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "progressing-poll-run" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Wait for completion", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    for (let progress = 1; progress <= 4; progress += 1) {
+      for (const data of [
+        { phase: "start", name: "status", args: { job: "job-1" } },
+        { phase: "result", name: "status", result: { progress }, isError: false },
+      ]) {
+        (client as any).handleMessage(JSON.stringify({
+          type: "event",
+          event: "agent",
+          payload: {
+            runId: "progressing-poll-run",
+            sessionKey: "main",
+            stream: "tool",
+            data,
+          },
+        }));
+      }
+    }
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "progressing-poll-run", sessionKey: "main" },
+    }));
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "tool_call")).toHaveLength(4);
+    expect(events.filter((event) => event.type === "tool_result")).toHaveLength(4);
+    expect(events.at(-1)?.type).toBe("done");
+    expect(rpc.mock.calls.some(([method]) => method === "chat.abort")).toBe(false);
+  });
+
+  it("chatSend prefers an already-observed natural terminal over the repeat guard", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "terminal-race-run" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Inspect", "main")) events.push(event);
+      return events;
+    })();
+
+    await flushMicrotasks();
+    for (let index = 1; index <= 3; index += 1) {
+      for (const data of [
+        { phase: "start", toolCallId: `tool-${index}`, name: "read", args: { path: "/tmp/a" } },
+        { phase: "result", toolCallId: `tool-${index}`, name: "read", result: "contents", isError: false },
+      ]) {
+        (client as any).handleMessage(JSON.stringify({
+          type: "event",
+          event: "agent",
+          payload: {
+            runId: "terminal-race-run",
+            sessionKey: "main",
+            stream: "tool",
+            data,
+          },
+        }));
+      }
+    }
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "terminal-race-run", sessionKey: "main" },
+    }));
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "tool_call")).toHaveLength(3);
+    expect(events.filter((event) => event.type === "tool_result")).toHaveLength(3);
+    expect(events.filter((event) => event.type === "error")).toHaveLength(0);
+    expect(events.at(-1)?.type).toBe("done");
+    expect(rpc.mock.calls.some(([method]) => method === "chat.abort")).toBe(false);
   });
 
   it("chatSend falls back to lifecycle end when chat final is missing", async () => {
