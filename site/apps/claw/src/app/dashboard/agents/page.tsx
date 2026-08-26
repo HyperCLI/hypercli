@@ -3214,29 +3214,31 @@ function AgentsPageContent() {
   const selectedAgentPrimarySurface = agentPrimarySurface(selectedAgent?.runtime);
 
   useEffect(() => {
-    // Buzz coding runtimes have no chat surface; their primary view is the
-    // activity timeline, so the chat view must hand off to it. The hand-off
-    // must fire only on the chat surface — an empty tab is a valid in-app
-    // state (Files, Integrations, …), and redirecting on it tears down that
-    // view and bounces the URL. `requestedAgentTab === "chat"` covers an
-    // explicit ?tab=chat route; `mainTab === "chat" && !requestedAgentTab`
-    // covers the default no-tab chat landing. Both reach activity once and
-    // stay out of the way of every other tab.
+    // Shell-primary runtimes (opencode, codex, claude-code, goose, kimi-code)
+    // have no chat surface, so the chat view must hand off to the shell. The
+    // hand-off must fire only on the chat surface — an empty tab is a valid
+    // in-app state (Files, Integrations, …), and redirecting on it tears down
+    // that view and bounces the URL between tab=shell and no-tab (the mount/
+    // unmount flicker). `requestedAgentTab === "chat"` covers an explicit
+    // ?tab=chat route; `mainTab === "chat" && !requestedAgentTab` covers the
+    // default no-tab chat landing. Both reach shell once and stay out of the
+    // way of every other tab.
     if (
-      selectedAgentPrimarySurface !== "activity" ||
+      selectedAgentPrimarySurface !== "shell" ||
       !selectedAgentId ||
       !isSelectedRunning ||
       (requestedAgentTab !== "chat" && !(mainTab === "chat" && !requestedAgentTab))
     ) return;
 
     const timeout = window.setTimeout(() => {
+      prepareShell();
       setOpenclawSettingsOpen(false);
-      setMainTab("activity");
+      setMainTab("shell");
       setMobileShowChat(true);
 
       const params = new URLSearchParams(searchParams.toString());
       params.set("agentId", selectedAgentId);
-      params.set("tab", "activity");
+      params.set("tab", "shell");
       params.delete("session");
       router.replace(`/dashboard/agents?${params.toString()}`, { scroll: false });
     }, 0);
@@ -3244,6 +3246,7 @@ function AgentsPageContent() {
   }, [
     isSelectedRunning,
     mainTab,
+    prepareShell,
     requestedAgentTab,
     router,
     searchParams,
