@@ -367,6 +367,33 @@ describe("openclaw chat history state", () => {
     });
   });
 
+  it("clears a reconnect interruption when gateway history matches the assistant run", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Write a report", renderId: "user-live" },
+      {
+        role: "assistant",
+        content: "Partial report",
+        runId: "run-1",
+        status: "interrupted",
+        renderId: "assistant-live",
+      },
+    ], {
+      type: "merge-history-refresh",
+      clearInterruptedOnMatch: true,
+      messages: [
+        { role: "user", content: "Write a report", renderId: "user-history" },
+        { role: "assistant", content: "Complete report", runId: "run-1", renderId: "assistant-history" },
+      ],
+    });
+
+    expect(messages[1]).toMatchObject({
+      content: "Complete report",
+      runId: "run-1",
+      renderId: "assistant-live",
+    });
+    expect(messages[1]?.status).toBeUndefined();
+  });
+
   it("accepts a shorter correction when the history revision is newer", () => {
     const messages = reduceChatHistoryMessages([
       { role: "user", content: "Give the exact total", renderId: "user-live" },
@@ -613,6 +640,31 @@ describe("openclaw chat history state", () => {
         progress: expect.objectContaining({ text: "Checking files", state: "settled" }),
       }),
       expect.objectContaining({ role: "system", content: "Reply stopped" }),
+    ]);
+  });
+
+  it("settles disconnect progress without inventing an empty stopped reply", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Keep working", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "",
+        progress: { text: "Checking files", state: "active", revisions: ["Checking files"] },
+        runId: "run-1",
+        timestamp: 2,
+      },
+    ], {
+      type: "mark-interrupted",
+      runId: "run-1",
+      appendNoticeWhenEmpty: false,
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Keep working" }),
+      expect.objectContaining({
+        role: "assistant",
+        progress: expect.objectContaining({ text: "Checking files", state: "settled" }),
+      }),
     ]);
   });
 

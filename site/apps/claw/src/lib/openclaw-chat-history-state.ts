@@ -16,8 +16,8 @@ export type ChatHistoryAction =
   | { type: "append-system-message"; content: string; timestamp?: number }
   | { type: "append-user-message"; message: ChatMessage }
   | { type: "clear" }
-  | { type: "mark-interrupted"; runId?: string }
-  | { type: "merge-history-refresh"; messages: ChatMessage[] }
+  | { type: "mark-interrupted"; runId?: string; appendNoticeWhenEmpty?: boolean }
+  | { type: "merge-history-refresh"; messages: ChatMessage[]; clearInterruptedOnMatch?: boolean }
   | { type: "replace"; messages: ChatMessage[] }
   | { type: "restore-cache"; messages: ChatMessage[] };
 
@@ -117,6 +117,7 @@ function legacyRenderSignature(message: ChatMessage): string {
 function retainHistoryRenderIds(
   historyMessages: ChatMessage[],
   currentMessages: ChatMessage[],
+  preserveCurrentStatus = true,
 ): ChatMessage[] {
   if (historyMessages.length === 0 || currentMessages.length === 0) return historyMessages;
   const usedCurrentIndexes = new Set<number>();
@@ -150,7 +151,7 @@ function retainHistoryRenderIds(
       renderId: currentMessage?.renderId ?? historyMessage.renderId,
       ...(currentMessage?.clientTurnId ? { clientTurnId: currentMessage.clientTurnId } : {}),
       ...(currentMessage?.retryContent ? { retryContent: currentMessage.retryContent } : {}),
-      ...(currentMessage?.status ? { status: currentMessage.status } : {}),
+      ...(preserveCurrentStatus && currentMessage?.status ? { status: currentMessage.status } : {}),
     };
   });
 }
@@ -201,7 +202,11 @@ function historyRevisionIsAtLeastCurrent(history: ChatMessage, current: ChatMess
     history.revision === current.revision;
 }
 
-function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): ChatMessage {
+function mergeAssistantSnapshot(
+  history: ChatMessage,
+  current: ChatMessage,
+  preserveCurrentStatus = true,
+): ChatMessage {
   const projectedPrefix = history.content.endsWith(OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX)
     ? history.content.slice(0, -OPENCLAW_CHAT_HISTORY_TRUNCATION_SUFFIX.length)
     : null;
@@ -232,7 +237,7 @@ function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): Cha
             : current.progress,
         }
       : {}),
-    ...(current.status ? { status: current.status } : {}),
+    ...(preserveCurrentStatus && current.status ? { status: current.status } : {}),
   };
   return merged;
 }
@@ -240,6 +245,7 @@ function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): Cha
 function reconcileCurrentLastTurn(
   historyMessages: ChatMessage[],
   currentMessages: ChatMessage[],
+  clearInterruptedOnMatch = false,
 ): ChatMessage[] {
   const currentLastUserIndex = lastMessageIndex(currentMessages, "user");
   const currentTail = currentMessages.slice(currentLastUserIndex + 1);
@@ -249,7 +255,9 @@ function reconcileCurrentLastTurn(
     : -1;
   const reconciledHistory = protocolAssistantIndex >= 0 && currentAssistant
     ? historyMessages.map((message, index) => (
-        index === protocolAssistantIndex ? mergeAssistantSnapshot(message, currentAssistant) : message
+        index === protocolAssistantIndex
+          ? mergeAssistantSnapshot(message, currentAssistant, !clearInterruptedOnMatch)
+          : message
       ))
     : historyMessages;
   const historyLastUserIndex = lastMessageIndex(reconciledHistory, "user");
@@ -287,7 +295,13 @@ function reconcileCurrentLastTurn(
 
     if (historyAssistantIndex >= 0) {
       const historyAssistant = next[historyAssistantIndex];
-      if (historyAssistant) next[historyAssistantIndex] = mergeAssistantSnapshot(historyAssistant, currentAssistant);
+      if (historyAssistant) {
+        next[historyAssistantIndex] = mergeAssistantSnapshot(
+          historyAssistant,
+          currentAssistant,
+          !clearInterruptedOnMatch,
+        );
+      }
     } else if (!next.slice(historyLastUserIndex + 1).some((message) => (
       message.role === "assistant" && hasProtocolCorrelation(message)
     ))) {
@@ -308,7 +322,13 @@ function reconcileCurrentLastTurn(
         : -1;
       if (exactMessageIndex >= 0) {
         const historyRound = next[exactMessageIndex];
-        if (historyRound) next[exactMessageIndex] = mergeAssistantSnapshot(historyRound, currentRound);
+        if (historyRound) {
+          next[exactMessageIndex] = mergeAssistantSnapshot(
+            historyRound,
+            currentRound,
+            !clearInterruptedOnMatch,
+          );
+        }
         continue;
       }
       if (assistantActivityIsRepresented(next.slice(historyLastUserIndex + 1), currentRound)) continue;
@@ -467,6 +487,7 @@ export function reduceChatHistoryMessages(current: ChatMessage[], action: ChatHi
     if (lastAssistant && assistantMessageHasVisibleReply(lastAssistant)) {
       return interruptedMessages;
     }
+    if (action.appendNoticeWhenEmpty === false) return interruptedMessages;
     if (currentMessages[currentMessages.length - 1]?.role === "system" && currentMessages[currentMessages.length - 1]?.content === OPENCLAW_REPLY_STOPPED_MESSAGE) {
       return interruptedMessages;
     }
@@ -477,14 +498,18 @@ export function reduceChatHistoryMessages(current: ChatMessage[], action: ChatHi
   }
 
   if (action.type === "merge-history-refresh") {
-    const historyMessages = retainHistoryRenderIds(dedupeChatMessages(action.messages), currentMessages);
+    const historyMessages = retainHistoryRenderIds(
+      dedupeChatMessages(action.messages),
+      currentMessages,
+      !action.clearInterruptedOnMatch,
+    );
     if (historyMessages.length === 0) return currentMessages;
     const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
     const historyUserCount = historyMessages.filter((message) => message.role === "user").length;
     if (currentMessages.length > 0 && historyMessages.length < currentMessages.length && historyUserCount < currentUserCount) {
       return currentMessages;
     }
-    return reconcileCurrentLastTurn(historyMessages, currentMessages);
+    return reconcileCurrentLastTurn(historyMessages, currentMessages, action.clearInterruptedOnMatch);
   }
 
   if (action.type === "replace") {

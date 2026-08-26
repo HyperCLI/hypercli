@@ -1586,11 +1586,18 @@ export function useOpenClawSession(
             return;
           }
           if (appliedConnectionState === "connected" && nextState !== "connected") {
-            for (const targetKey of activeChatSendTargetsRef.current) {
+            flushQueuedChatHistoryUpdatesRef.current();
+            for (const [targetKey, stream] of activeChatStreams) {
               const target = chatHistoryTargetFromKey(targetKey);
-              const stream = activeChatStreams.get(targetKey);
-              if (!target || stream?.abortRequested || isEphemeralOpenClawSessionName(target.sessionKey)) continue;
+              if (!target || stream.abortRequested || isEphemeralOpenClawSessionName(target.sessionKey)) continue;
+              const targetMessages = liveChatHistoryByTargetRef.current.get(targetKey)
+                ?? (sameChatHistoryTarget(chatHistoryTargetRef.current, target) ? messagesRef.current : []);
+              if (!stream.ownsStreamEvents && !targetMessages.some((message) => message.role === "user")) continue;
               reconnectPendingChatTargetsRef.current.add(targetKey);
+              dispatchChatHistory({
+                type: "mark-interrupted",
+                appendNoticeWhenEmpty: false,
+              }, target);
             }
           }
           appliedConnectionState = nextState;
@@ -1662,7 +1669,7 @@ export function useOpenClawSession(
       }
       localGatewayLease?.release();
     };
-  }, [enabled, agentId, retrySignal, cancelAndClearActiveChatStreams, clearGatewayStatusCaches, requestChatStreamCancellation, resetSessionStateForDisconnect]);
+  }, [enabled, agentId, retrySignal, cancelAndClearActiveChatStreams, clearGatewayStatusCaches, dispatchChatHistory, requestChatStreamCancellation, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -2092,7 +2099,11 @@ export function useOpenClawSession(
           return historyMessages;
         }
         if (targetHadSendAuthority) {
-          dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
+          dispatchChatHistory({
+            type: "merge-history-refresh",
+            messages: historyMessages,
+            clearInterruptedOnMatch: reconnectPendingChatTargetsRef.current.has(targetKey),
+          }, refreshTarget);
           setChatHistoryPhase(refreshTarget, "ready");
           return historyMessages;
         }
@@ -2890,7 +2901,11 @@ export function useOpenClawSession(
           hydrated.historyStatus === "fulfilled"
         ) {
           if (preserveLocalSessionHistory || preserveConcurrentLiveHistory) {
-            dispatchChatHistory({ type: "merge-history-refresh", messages: hydrated.messages }, target);
+            dispatchChatHistory({
+              type: "merge-history-refresh",
+              messages: hydrated.messages,
+              clearInterruptedOnMatch: preserveReconnectPendingHistory,
+            }, target);
             historyApplied = preserveReconnectPendingHistory
               ? grantChatSendAuthority(target, gateway, hydrated.gatewaySessionKey)
               : true;

@@ -4822,6 +4822,51 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("marks a buffered adopted response interrupted when the connection drops", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      title: "Alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Long-running request" }],
+      sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+      inFlightRun: { runId: "run-reload", text: "Buffered partial response" },
+    } as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    act(() => {
+      gateway.emitConnectionState("disconnected");
+      gateway.emitConnectionState("connecting");
+    });
+
+    await waitFor(() => expect(result.current.status).toBe("connecting"));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Long-running request" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "Buffered partial response",
+        runId: "run-reload",
+        status: "interrupted",
+      }),
+    ]);
+    unmount();
+  });
+
   it("stops an active response adopted after reload", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -8166,6 +8211,10 @@ describe("useOpenClawSession", () => {
     });
     await waitFor(() => expect(result.current.status).toBe("connecting"));
     expect(stream.returnIterator).toHaveBeenCalled();
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Write a long report" }),
+      expect.objectContaining({ role: "assistant", content: "Partial report", status: "interrupted" }),
+    ]);
 
     act(() => gateway.emitConnectionState("connected"));
     await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeReconnect));
