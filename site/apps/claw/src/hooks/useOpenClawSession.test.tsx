@@ -333,6 +333,43 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("keeps mounted history when gap recovery returns an unconfirmed empty snapshot", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{
+      key: "main",
+      messageCount: 2,
+      updatedAt: 10,
+    }]);
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "Question before sequence gap" },
+      { role: "assistant", content: "Answer before sequence gap" },
+    ]);
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    const initialHistoryCalls = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockResolvedValue([]);
+    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+      onGap?: (info: { expected: number; received: number }) => void;
+    } | undefined;
+    act(() => gatewayOptions?.onGap?.({ expected: 4, received: 6 }));
+
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(initialHistoryCalls));
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Question before sequence gap",
+      "Answer before sequence gap",
+    ]);
+    unmount();
+  });
+
   it("clears an adopted response when gap recovery confirms it ended", async () => {
     const gateway = buildGateway();
     let active = true;
@@ -3849,6 +3886,301 @@ describe("useOpenClawSession", () => {
       expect.objectContaining({ role: "user", content: "Saved question" }),
       expect.objectContaining({ role: "assistant", content: "Saved transcript" }),
     ]);
+
+    const historyCallsBeforeRecovery = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "Canonical question" },
+      { role: "assistant", content: "Canonical transcript" },
+    ]);
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: gatewaySessionKey } });
+    });
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeRecovery));
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Canonical question",
+      "Canonical transcript",
+    ]));
+    unmount();
+  });
+
+  it("keeps cache-restored history when the session index omits message count", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:33333333-4444-4555-8666-888888888888";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    gateway.sessionsList.mockResolvedValue([{
+      key: gatewaySessionKey,
+      displayName: "Indexed route with unknown count",
+      updatedAt: 30,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "assistant", content: "Saved transcript with unknown count" },
+    ], sessionKey);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ content: "Saved transcript with unknown count" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ content: "Saved transcript with unknown count" }),
+    ]);
+    expect(gateway.sessionsCreate).not.toHaveBeenCalled();
+    expect(gateway.sessionsReset).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("accepts empty history for a populated index when there is no cached transcript", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:44444444-5555-4666-8777-888888888888";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    gateway.sessionsList.mockResolvedValue([{
+      key: gatewaySessionKey,
+      displayName: "Indexed route without local history",
+      messageCount: 2,
+      updatedAt: 30,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.activeSessionCanSend).toBe(true);
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([]);
+    unmount();
+  });
+
+  it("restores a legacy scoped alias when populated indexed history briefly resolves empty", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:aaaaaaaa-1111-4222-8333-bbbbbbbbbbbb";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    const legacyCacheKey = [
+      "hypercli:openclaw-chat-history:v1",
+      encodeURIComponent("deploy-123"),
+      "session",
+      encodeURIComponent(gatewaySessionKey),
+    ].join(":");
+    window.localStorage.setItem(legacyCacheKey, JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [{ role: "assistant", content: "Legacy scoped transcript" }],
+    }));
+    gateway.sessionsList.mockResolvedValue([{
+      key: gatewaySessionKey,
+      displayName: "Indexed legacy route",
+      messageCount: 1,
+      updatedAt: 30,
+    }]);
+    gateway.chatHistory.mockResolvedValue([]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Legacy scoped transcript" }),
+    ]);
+    expect(window.localStorage.getItem(legacyCacheKey)).toBeNull();
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Legacy scoped transcript" }),
+    ]);
+    unmount();
+  });
+
+  it("clears mounted history when the session index and gateway confirm a reset", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:55555555-6666-4777-8888-999999999999";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    const indexedSession = {
+      key: gatewaySessionKey,
+      displayName: "Resettable indexed route",
+      updatedAt: 30,
+    };
+    gateway.sessionsList.mockResolvedValue([indexedSession]);
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "Question before reset" },
+      { role: "assistant", content: "Answer before reset" },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Question before reset",
+      "Answer before reset",
+    ]);
+    gateway.sessionsList.mockResolvedValue([{ ...indexedSession, message_count: "0" }]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+    gateway.chatHistory.mockResolvedValue([]);
+    const historyCallsBeforeReset = gateway.chatHistory.mock.calls.length;
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: gatewaySessionKey } });
+    });
+
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeReset));
+    await waitFor(() => expect(result.current.messages).toEqual([]));
+    expect(result.current.historyPhase).toBe("ready");
+    unmount();
+  });
+
+  it("keeps mounted history when an empty refresh has no explicit indexed message count", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:55555555-6666-4777-8888-aaaaaaaaaaaa";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    const indexedSession = {
+      key: gatewaySessionKey,
+      displayName: "Indexed route with optional count",
+      messageCount: 0,
+      updatedAt: 30,
+    };
+    gateway.sessionsList.mockResolvedValue([indexedSession]);
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "Question before uncertain refresh" },
+      { role: "assistant", content: "Answer before uncertain refresh" },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    gateway.sessionsList.mockResolvedValue([{
+      key: gatewaySessionKey,
+      displayName: "Indexed route with optional count",
+      updatedAt: 30,
+    }]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+    const emptyRefresh = deferred<unknown[]>();
+    gateway.chatHistory.mockReturnValue(emptyRefresh.promise);
+    const historyCallsBeforeRefresh = gateway.chatHistory.mock.calls.length;
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: gatewaySessionKey } });
+    });
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeRefresh));
+    await act(async () => {
+      emptyRefresh.resolve([]);
+      await emptyRefresh.promise;
+    });
+
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Question before uncertain refresh",
+      "Answer before uncertain refresh",
+    ]);
+    expect(result.current.historyPhase).toBe("ready");
+    unmount();
+  });
+
+  it("does not clear a live message that arrives during an authoritative-empty refresh", async () => {
+    const gateway = buildGateway();
+    const sessionKey = "dashboard:66666666-7777-4888-8999-aaaaaaaaaaaa";
+    const gatewaySessionKey = `agent:default:${sessionKey}`;
+    const indexedSession = {
+      key: gatewaySessionKey,
+      displayName: "Concurrently updated route",
+      messageCount: 2,
+      updatedAt: 30,
+    };
+    gateway.sessionsList.mockResolvedValue([indexedSession]);
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "Question before refresh" },
+      { role: "assistant", content: "Answer before refresh" },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => (
+      useOpenClawSession(agent as any, true, sessionKey)
+    ));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    gateway.sessionsList.mockResolvedValue([{ ...indexedSession, messageCount: 0, updatedAt: 40 }]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+    const emptyRefresh = deferred<unknown[]>();
+    gateway.chatHistory.mockReturnValue(emptyRefresh.promise);
+    const historyCallsBeforeRefresh = gateway.chatHistory.mock.calls.length;
+    act(() => {
+      gateway.emit({ event: "chat.done", payload: { sessionKey: gatewaySessionKey } });
+    });
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeRefresh));
+
+    act(() => {
+      gateway.emit({
+        event: "chat.content",
+        payload: {
+          sessionKey: gatewaySessionKey,
+          messageId: "message-during-refresh",
+          text: "Live answer during refresh",
+        },
+      });
+      emptyRefresh.resolve([]);
+    });
+    await act(async () => {
+      await emptyRefresh.promise;
+    });
+
+    await waitFor(() => expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ content: "Live answer during refresh" }),
+    ])));
+    expect(result.current.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ content: "Question before refresh" }),
+      expect.objectContaining({ content: "Answer before refresh" }),
+      expect.objectContaining({ content: "Live answer during refresh" }),
+    ]));
     unmount();
   });
 
@@ -8179,6 +8511,7 @@ describe("useOpenClawSession", () => {
   it("clears cached browser history when gateway history is authoritatively empty", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", messageCount: 0, updatedAt: 1 }]);
     const cacheKey = openClawChatHistoryCacheKey("deploy-123");
     expect(cacheKey).toBeTruthy();
     window.localStorage.setItem(cacheKey!, JSON.stringify({
@@ -8254,6 +8587,7 @@ describe("useOpenClawSession", () => {
   it("clears prior live mutations when a later hydration is authoritatively empty", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", messageCount: 1, updatedAt: 1 }]);
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -8276,6 +8610,7 @@ describe("useOpenClawSession", () => {
 
     const emptyHydration = deferred<unknown[]>();
     const historyCallsBeforeReconnect = gateway.chatHistory.mock.calls.length;
+    gateway.sessionsList.mockResolvedValue([{ key: "main", messageCount: 0, updatedAt: 2 }]);
     gateway.chatHistory.mockReturnValue(emptyHydration.promise);
     act(() => gateway.emitConnectionState("connecting"));
     await waitFor(() => expect(result.current.status).toBe("connecting"));
@@ -8294,6 +8629,7 @@ describe("useOpenClawSession", () => {
   it("clears an unconfirmed failed turn when reconnect history is authoritatively empty", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", messageCount: 0, updatedAt: 1 }]);
     gateway.chatSend.mockImplementation(async function* () {
       throw new Error("send interrupted");
     });
@@ -8304,7 +8640,7 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
     };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
 
     act(() => result.current.setInput("Unconfirmed request"));
@@ -8326,6 +8662,44 @@ describe("useOpenClawSession", () => {
     });
     await waitFor(() => expect(result.current.messages).toEqual([]));
     expect(result.current.activeSessionCanSend).toBe(true);
+    unmount();
+  });
+
+  it("keeps mounted history when reconnect returns an unconfirmed empty snapshot", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{ key: "main", messageCount: 2, updatedAt: 1 }]);
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "Question before reconnect" },
+      { role: "assistant", content: "Answer before reconnect" },
+    ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    const reconnectHistory = deferred<unknown[]>();
+    const historyCallsBeforeReconnect = gateway.chatHistory.mock.calls.length;
+    gateway.chatHistory.mockReturnValue(reconnectHistory.promise);
+    act(() => gateway.emitConnectionState("connecting"));
+    await waitFor(() => expect(result.current.status).toBe("connecting"));
+    act(() => gateway.emitConnectionState("connected"));
+    await waitFor(() => expect(gateway.chatHistory.mock.calls.length).toBeGreaterThan(historyCallsBeforeReconnect));
+
+    await act(async () => {
+      reconnectHistory.resolve([]);
+      await reconnectHistory.promise;
+    });
+    await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
+    expect(result.current.messages.map((message) => message.content)).toEqual([
+      "Question before reconnect",
+      "Answer before reconnect",
+    ]);
     unmount();
   });
 

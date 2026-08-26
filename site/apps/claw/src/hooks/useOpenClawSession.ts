@@ -375,6 +375,26 @@ function localOpenClawSessionRecord(sessionKey: string, title = fallbackOpenClaw
   };
 }
 
+function sessionIndexConfirmsEmptyHistory(
+  session: OpenClawSessionRecord | null | undefined,
+): boolean {
+  if (!session || session.messageCount !== 0) return false;
+  const rawMessageCount = session.raw.messageCount ?? session.raw.message_count;
+  const numericMessageCount = typeof rawMessageCount === "number"
+    ? rawMessageCount
+    : typeof rawMessageCount === "string" && rawMessageCount.trim()
+      ? Number(rawMessageCount)
+      : Number.NaN;
+  return Number.isFinite(numericMessageCount) && numericMessageCount === 0;
+}
+
+function gatewayHistoryCanReplaceLocalMessages(
+  historyMessages: ChatMessage[],
+  session: OpenClawSessionRecord | null | undefined,
+): boolean {
+  return historyMessages.length > 0 || sessionIndexConfirmsEmptyHistory(session);
+}
+
 function isReusableEmptyOpenClawSession(session: OpenClawSessionRecord): boolean {
   return session.messageCount === 0 &&
     !session.readOnly &&
@@ -455,6 +475,7 @@ function sameOpenClawSessionRecordForDisplay(left: OpenClawSessionRecord, right:
     left.lastMessageAt === right.lastMessageAt &&
     left.title === right.title &&
     left.messageCount === right.messageCount &&
+    sessionIndexConfirmsEmptyHistory(left) === sessionIndexConfirmsEmptyHistory(right) &&
     left.sourceChannelId === right.sourceChannelId &&
     left.spawnedBy === right.spawnedBy &&
     left.readOnly === right.readOnly &&
@@ -1996,14 +2017,14 @@ export function useOpenClawSession(
       !findOpenClawSelectableSession(currentHydration.sessions, target.sessionKey);
   }, []);
 
-  const restoredCacheConflictsWithEmptyIndexedHistory = useCallback((
+  const restoredCacheIsNotConfirmedEmptyByIndex = useCallback((
     target: ChatHistoryTarget,
     historyMessages: ChatMessage[],
     session: OpenClawSessionRecord | null | undefined,
   ) => (
     historyMessages.length === 0 &&
     restoredCachedHistoryTargetsRef.current.has(chatHistoryTargetKey(target)) &&
-    Boolean(session && session.messageCount > 0)
+    Boolean(session && !gatewayHistoryCanReplaceLocalMessages(historyMessages, session))
   ), []);
 
   useEffect(() => {
@@ -2091,6 +2112,20 @@ export function useOpenClawSession(
           setChatHistoryPhase(refreshTarget, "loading");
           return undefined;
         }
+        const historyHasNoNewLiveMutations = (
+          chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
+        ) === mutationRevision;
+        const indexedHistoryIsAuthoritativelyEmpty = (
+          historyMessages.length === 0 &&
+          sessionIndexConfirmsEmptyHistory(latestTargetState.sessionRecord) &&
+          historyHasNoNewLiveMutations &&
+          !activeChatSendTargetsRef.current.has(targetKey) &&
+          !optimisticChatHistoryTargetsRef.current.has(targetKey) &&
+          !connectionLiveHistoryTargetsRef.current.has(targetKey) &&
+          !pendingChatHistoryUpdatesRef.current.has(targetKey) &&
+          !reconnectPendingChatTargetsRef.current.has(targetKey) &&
+          !chatHistoryRecoveryTargetsRef.current.has(targetKey)
+        );
         if (isEphemeralOpenClawSessionName(targetState.gatewaySessionKey)) {
           const entry = temporaryChatLeaseRef.current;
           if (
@@ -2109,11 +2144,7 @@ export function useOpenClawSession(
           return historyMessages;
         }
         if (targetHadSendAuthority) {
-          if (
-            historyMessages.length === 0 &&
-            restoredCachedHistoryTargetsRef.current.has(targetKey) &&
-            latestTargetState.sessionRecord?.messageCount === 0
-          ) {
+          if (indexedHistoryIsAuthoritativelyEmpty) {
             replaceChatHistoryFromGateway(refreshTarget, historyMessages);
             setChatHistoryPhase(refreshTarget, "ready");
             return historyMessages;
@@ -2126,7 +2157,7 @@ export function useOpenClawSession(
           setChatHistoryPhase(refreshTarget, "ready");
           return historyMessages;
         }
-        if (restoredCacheConflictsWithEmptyIndexedHistory(
+        if (restoredCacheIsNotConfirmedEmptyByIndex(
           refreshTarget,
           historyMessages,
           latestTargetState.sessionRecord,
@@ -2136,14 +2167,12 @@ export function useOpenClawSession(
           }
           return historyMessages;
         }
-        const historyHasNoNewLiveMutations = (
-          chatHistoryMutationRevisionsRef.current.get(targetKey) ?? 0
-        ) === mutationRevision;
         if (historyHasNoNewLiveMutations && !activeChatSendTargetsRef.current.has(targetKey)) {
           if (chatHistoryRecoveryTargetsRef.current.has(targetKey)) return historyMessages;
           const targetHasUnconfirmedLiveState = (
             optimisticChatHistoryTargetsRef.current.has(targetKey) ||
             connectionLiveHistoryTargetsRef.current.has(targetKey) ||
+            pendingChatHistoryUpdatesRef.current.has(targetKey) ||
             restoredCacheIsTemporarilyUnindexed(refreshTarget)
           );
           if (
@@ -2156,7 +2185,11 @@ export function useOpenClawSession(
             setChatHistoryPhase(refreshTarget, "error");
             return historyMessages;
           }
-          replaceChatHistoryFromGateway(refreshTarget, historyMessages);
+          if (gatewayHistoryCanReplaceLocalMessages(historyMessages, latestTargetState.sessionRecord)) {
+            replaceChatHistoryFromGateway(refreshTarget, historyMessages);
+          } else {
+            dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
+          }
           if (grantChatSendAuthority(refreshTarget, targetGateway, targetState.gatewaySessionKey)) {
             setChatHistoryPhase(refreshTarget, "ready");
           }
@@ -2187,7 +2220,7 @@ export function useOpenClawSession(
       if (chatHistoryRefreshRef.current === entry) chatHistoryRefreshRef.current = null;
     });
     return promise;
-  }, [gateway, agentId, activeSessionKey, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, dispatchChatHistory, grantChatSendAuthority, replaceChatHistoryFromGateway, resolveChatTargetState, restoredCacheConflictsWithEmptyIndexedHistory, restoredCacheIsTemporarilyUnindexed, revokeChatSendAuthority, setChatHistoryPhase]);
+  }, [gateway, agentId, activeSessionKey, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, dispatchChatHistory, grantChatSendAuthority, replaceChatHistoryFromGateway, resolveChatTargetState, restoredCacheIsNotConfirmedEmptyByIndex, restoredCacheIsTemporarilyUnindexed, revokeChatSendAuthority, setChatHistoryPhase]);
 
   useEffect(() => {
     const recoverFromGap = (targetGateway: GatewayClient) => {
@@ -2246,7 +2279,11 @@ export function useOpenClawSession(
               return;
             }
             const historyMessages = hydrated.messages;
-            const recoveryPreservesRestoredCache = restoredCacheConflictsWithEmptyIndexedHistory(
+            const recoveryGatewayHistoryCanReplace = gatewayHistoryCanReplaceLocalMessages(
+              historyMessages,
+              hydrated.activeSessionRecord,
+            );
+            const recoveryPreservesRestoredCache = restoredCacheIsNotConfirmedEmptyByIndex(
               recoveryTarget,
               historyMessages,
               hydrated.activeSessionRecord,
@@ -2260,6 +2297,7 @@ export function useOpenClawSession(
             const recoveryHasUnconfirmedLiveState = (
               optimisticChatHistoryTargetsRef.current.has(recoveryTargetKey) ||
               connectionLiveHistoryTargetsRef.current.has(recoveryTargetKey) ||
+              pendingChatHistoryUpdatesRef.current.has(recoveryTargetKey) ||
               restoredCacheIsTemporarilyUnindexed(recoveryTarget, { sessions: nextSessions, fetched: true })
             );
             const recoveryHistoryConfirmsLiveState = recoveryPreservesRestoredCache || !recoveryHasUnconfirmedLiveState || historyConfirmsCurrentConversationTail(
@@ -2277,7 +2315,11 @@ export function useOpenClawSession(
                 dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, recoveryTarget);
                 setChatHistoryPhase(recoveryTarget, "ready");
               } else {
-                if (recoveryPreservesTerminalFeedback || recoveryPreservesRestoredCache) {
+                if (
+                  recoveryPreservesTerminalFeedback ||
+                  recoveryPreservesRestoredCache ||
+                  !recoveryGatewayHistoryCanReplace
+                ) {
                   dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, recoveryTarget);
                 } else {
                   replaceChatHistoryFromGateway(recoveryTarget, historyMessages);
@@ -2319,7 +2361,7 @@ export function useOpenClawSession(
         gatewayGapRecoveryRef.current = () => undefined;
       }
     };
-  }, [agentId, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, dispatchChatHistory, fetchSessionList, grantChatSendAuthority, historyHydrationEnabled, reconcileHydratedGatewayRun, replaceChatHistoryFromGateway, restoredCacheConflictsWithEmptyIndexedHistory, restoredCacheIsTemporarilyUnindexed, revokeChatSendAuthority, setChatHistoryPhase]);
+  }, [agentId, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, dispatchChatHistory, fetchSessionList, grantChatSendAuthority, historyHydrationEnabled, reconcileHydratedGatewayRun, replaceChatHistoryFromGateway, restoredCacheIsNotConfirmedEmptyByIndex, restoredCacheIsTemporarilyUnindexed, revokeChatSendAuthority, setChatHistoryPhase]);
 
   const finishCreatingSession = useCallback((sessionKey: string) => {
     creatingSessionKeysRef.current.delete(sessionKey);
@@ -2909,10 +2951,24 @@ export function useOpenClawSession(
         const hydratedSessionReadOnly = hydrated.activeSessionRecord?.readOnly === true;
         const preserveReconnectPendingHistory = reconnectPendingChatTargetsRef.current.has(targetKey);
         const preserveTerminalFeedback = gatewayRunTerminalRefreshTargetsRef.current.has(targetKey);
-        const preserveRestoredCache = restoredCacheConflictsWithEmptyIndexedHistory(
+        const preserveRestoredCache = restoredCacheIsNotConfirmedEmptyByIndex(
           target,
           hydrated.messages,
           hydrated.activeSessionRecord,
+        );
+        const gatewayHistoryCanReplace = gatewayHistoryCanReplaceLocalMessages(
+          hydrated.messages,
+          hydrated.activeSessionRecord,
+        );
+        const restoredCacheTemporarilyUnindexed = restoredCacheIsTemporarilyUnindexed(
+          target,
+          sessionHydration,
+        );
+        const currentTargetMessages = liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
+        const mergeUnconfirmedEmptyHistory = (
+          currentTargetMessages.length > 0 &&
+          !gatewayHistoryCanReplace &&
+          !restoredCacheTemporarilyUnindexed
         );
         const preserveLocalSessionHistory = hydratedSessionReadOnly ||
           activeSessionIsEphemeral ||
@@ -2922,7 +2978,7 @@ export function useOpenClawSession(
         const targetHasUnconfirmedLiveState = (
           optimisticChatHistoryTargetsRef.current.has(targetKey) ||
           connectionLiveHistoryTargetsRef.current.has(targetKey) ||
-          restoredCacheIsTemporarilyUnindexed(target, sessionHydration)
+          restoredCacheTemporarilyUnindexed
         );
         const gatewayConfirmsCurrentLiveState = !targetHasUnconfirmedLiveState || historyConfirmsCurrentConversationTail(
           liveChatHistoryByTargetRef.current.get(targetKey) ?? [],
@@ -2940,13 +2996,21 @@ export function useOpenClawSession(
           !activeChatSendTargetsRef.current.has(targetKey) &&
           hydrated.historyStatus === "fulfilled"
         ) {
-          if (preserveLocalSessionHistory || preserveConcurrentLiveHistory) {
+          if (
+            preserveLocalSessionHistory ||
+            preserveConcurrentLiveHistory ||
+            mergeUnconfirmedEmptyHistory
+          ) {
             dispatchChatHistory({
               type: "merge-history-refresh",
               messages: hydrated.messages,
               clearInterruptedOnMatch: preserveReconnectPendingHistory,
             }, target);
-            historyApplied = preserveReconnectPendingHistory || preserveRestoredCache
+            historyApplied = (
+              preserveReconnectPendingHistory ||
+              preserveRestoredCache ||
+              mergeUnconfirmedEmptyHistory
+            )
               ? grantChatSendAuthority(target, gateway, hydrated.gatewaySessionKey)
               : true;
           } else if (!chatHistoryRecoveryTargetsRef.current.has(targetKey)) {
@@ -2995,7 +3059,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, activeSessionSelectionResolved, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, deletedSessionKeys, dispatchChatHistory, ensureInitialSessionMaterialized, fetchSessionList, flushQueuedChatHistoryUpdates, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, reconcileHydratedGatewayRun, replaceChatHistoryFromGateway, requestedActiveSessionKeyTrimmed, resolveChatTargetState, restoredCacheConflictsWithEmptyIndexedHistory, restoredCacheIsTemporarilyUnindexed, setChatHistoryPhase]);
+  }, [gateway, status, agentId, activeSessionKey, activeGatewaySessionKey, activeSessionIsEphemeral, activeSessionSelectionResolved, applyConnectionHydration, applyFetchedSessions, beginChatHistoryRequest, chatHistoryRequestIsCurrent, chatTargetHasSendAuthority, completeReconnectSessionRefresh, deletedSessionKeys, dispatchChatHistory, ensureInitialSessionMaterialized, fetchSessionList, flushQueuedChatHistoryUpdates, fullHydrationEnabled, grantChatSendAuthority, historyHydrationEnabled, hydrateConnectionForGateway, reconcileHydratedGatewayRun, replaceChatHistoryFromGateway, requestedActiveSessionKeyTrimmed, resolveChatTargetState, restoredCacheIsNotConfirmedEmptyByIndex, restoredCacheIsTemporarilyUnindexed, setChatHistoryPhase]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
