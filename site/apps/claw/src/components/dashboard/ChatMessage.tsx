@@ -45,7 +45,6 @@ import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboa
 import { ToolCallDisclosureButton, ToolCallSectionList, ToolCallStatusFrame } from "@/components/dashboard/chat/ToolCallPresentation";
 import { TimestampDisplay } from "@/components/dashboard/chat/TimestampDisplay";
 import { TooltipHint } from "@/components/ClawTooltip";
-import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 
 // ── Helpers ──
 
@@ -1203,19 +1202,14 @@ function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<Ch
           onClick={(event) => {
             if (forcedOpen) event.preventDefault();
           }}
-          className={`flex min-h-8 w-fit max-w-full list-none items-center gap-2 rounded-sm font-medium outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden ${forcedOpen ? "cursor-default" : "cursor-pointer transition-colors hover:text-foreground"}`}
+          className={`flex min-h-8 w-fit max-w-full list-none items-center gap-1.5 rounded-sm font-medium outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden ${forcedOpen ? "cursor-default" : "cursor-pointer transition-colors hover:text-foreground"}`}
         >
           <span
-            aria-hidden="true"
-            data-testid="agent-assistant-reasoning-logo"
-            className="relative flex h-4 w-4 shrink-0 items-center justify-center"
+            data-testid="agent-assistant-reasoning-label"
+            className={`truncate transition-[color,text-shadow] duration-200 motion-reduce:transition-none ${reasoning.state === "active" ? "text-[var(--selection-accent)] [text-shadow:0_0_14px_rgb(var(--selection-accent-rgb)_/_0.65)]" : "[text-shadow:none]"}`}
           >
-            <span
-              className={`absolute inset-0 rounded-[0.3rem] border ${reasoning.state === "active" ? "animate-pulse border-primary/70 motion-reduce:animate-none" : "border-text-muted/40"}`}
-            />
-            <HyperCLILogoMark className={`h-2.5 w-2.5 ${reasoning.state === "active" ? "" : "opacity-70"}`} />
+            Thoughts
           </span>
-          <span className="truncate">{label}</span>
           <ChevronRight
             aria-hidden="true"
             className={`h-3.5 w-3.5 shrink-0 transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
@@ -1223,7 +1217,7 @@ function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<Ch
         </summary>
         <div
           ref={contentRef}
-          className="ml-[0.4375rem] max-h-48 overflow-y-auto border-l border-border py-1.5 pl-[1.375rem] pr-2"
+          className="max-h-48 overflow-y-auto border-l border-border py-1.5 pl-4 pr-2"
         >
           <p className="max-w-full whitespace-pre-wrap break-words leading-5 [overflow-wrap:anywhere]">
             {reasoning.text}

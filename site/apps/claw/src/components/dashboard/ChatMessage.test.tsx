@@ -2093,8 +2093,11 @@ describe("ChatMessageBubble", () => {
       const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
       expect(toggle).toHaveAccessibleName("Thinking");
       expect(toggle.querySelector(".lucide-brain")).not.toBeInTheDocument();
-      expect(screen.getByTestId("agent-assistant-reasoning-logo").querySelector(".animate-pulse"))
-        .toHaveClass("motion-reduce:animate-none");
+      expect(screen.queryByTestId("agent-assistant-reasoning-logo")).not.toBeInTheDocument();
+      expect(screen.getByTestId("agent-assistant-reasoning-label"))
+        .toHaveTextContent("Thoughts");
+      expect(screen.getByTestId("agent-assistant-reasoning-label"))
+        .toHaveClass("text-[var(--selection-accent)]", "[text-shadow:0_0_14px_rgb(var(--selection-accent-rgb)_/_0.65)]");
       expect(thought).toHaveClass("w-full");
       expect(thought).not.toHaveClass("max-w-[72ch]");
       expect(thought).toHaveTextContent("Inspecting the workspace configuration");
@@ -2124,8 +2127,11 @@ describe("ChatMessageBubble", () => {
       expect(thought).not.toHaveAttribute("open");
       expect(toggle).toHaveAccessibleName("Thought for 3s");
       expect(toggle).not.toHaveAttribute("aria-disabled");
-      expect(screen.getByTestId("agent-assistant-reasoning-logo").querySelector(".animate-pulse"))
-        .not.toBeInTheDocument();
+      expect(screen.queryByTestId("agent-assistant-reasoning-logo")).not.toBeInTheDocument();
+      expect(screen.getByTestId("agent-assistant-reasoning-label"))
+        .toHaveTextContent("Thoughts");
+      expect(screen.getByTestId("agent-assistant-reasoning-label"))
+        .not.toHaveClass("[text-shadow:0_0_14px_rgb(var(--selection-accent-rgb)_/_0.65)]");
       expect(screen.getByText("Reasoning complete")).toHaveClass("sr-only");
 
       fireEvent.click(toggle);
