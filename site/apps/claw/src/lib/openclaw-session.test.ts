@@ -1493,3 +1493,483 @@ describe("openclaw session keys", () => {
     expect(hydrated.gwAgentId).toBe(deploymentId);
   });
 });
+
+describe("openclaw commentary session wiring", () => {
+  function createStreamContext(initial: ChatMessage[] = []) {
+    let messages = initial;
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    return {
+      context: {
+        setMessages,
+        setSending: vi.fn(),
+        appendActivity: vi.fn(),
+        assistantRenderId: "assistant-render-1",
+        clientTurnId: "client-turn-1",
+      },
+      messages: () => messages,
+    };
+  }
+
+  it("keeps a model without commentary on the ordinary content-only path", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "m1", turnId: "t1", runId: "r1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "content", text: "A plain answer.", ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "done", ...identity } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]).toMatchObject({ role: "assistant", content: "A plain answer." });
+    expect(messages()[0].progress).toBeUndefined();
+    expect(messages()[0].thinking).toBeUndefined();
+  });
+
+  it("turns typed commentary chat events into one progress note, then settles on done", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "m1", turnId: "t1", runId: "r1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: "Checking credentials", replace: true, ...identity } as any,
+    });
+    // Mirrored ordinary chat text of the same commentary.
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: "Checking credentials",
+        replace: true,
+        ...identity,
+        data: { message: { role: "assistant", content: "Checking credentials" } },
+      } as any,
+    });
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0].content).toBe("");
+    expect(messages()[0].progress).toMatchObject({ text: "Checking credentials", state: "active" });
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "tool_call", ...identity, data: { toolCallId: "tool-1", name: "read", args: { path: "config" } } } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: "Verifying the config", replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: "Verifying the config\nAll good.",
+        replace: true,
+        ...identity,
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "done",
+        ...identity,
+        data: {
+          message: {
+            role: "assistant",
+            stopReason: "stop",
+            content: [{ type: "text", text: "Checking credentials\nVerifying the config\nAll good." }],
+          },
+        },
+      } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    const row = messages()[0]!;
+    expect(row.progress).toMatchObject({ text: "Verifying the config", state: "settled" });
+    // The mirrored working notes never duplicate into the ordinary reply;
+    // only the final answer tail remains, preserving boundary whitespace.
+    expect(row.content).toBe("\nAll good.");
+    expect(row.content).not.toContain("Checking credentials");
+    expect(row.content).not.toContain("Verifying the config");
+    expect(row.thinking).toBeUndefined();
+  });
+
+  it("uses the cumulative chat payload to suppress a mirrored commentary suffix", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { runId: "r1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: "Inspecting the workspace", replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: "Inspecting the workspace",
+        ...identity,
+        data: { message: { role: "assistant", content: "Inspecting the workspace" } },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "commentary",
+        text: "Inspecting the workspace and checking configuration",
+        replace: true,
+        ...identity,
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: " and checking configuration",
+        ...identity,
+        data: {
+          message: {
+            role: "assistant",
+            content: "Inspecting the workspace and checking configuration",
+          },
+        },
+      } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]).toMatchObject({
+      content: "",
+      progress: {
+        text: "Inspecting the workspace and checking configuration",
+        state: "active",
+      },
+    });
+  });
+
+  it("never renders raw thinking as progress, even when both stream kinds arrive", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "m1", turnId: "t1", runId: "r1", sessionKey: "raw" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "thinking", text: THINKING_LEAK_SENTINEL, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: "Public working note", replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "content", text: "Answer", ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "done", ...identity } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    const row = messages()[0]!;
+    expect(row.progress?.text).toBe("Public working note");
+    expect(serializedNoThinkingLeak(row)).toBe(true);
+  });
+
+  it("settles progress when the run is aborted mid-commentary", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { runId: "r1", sessionKey: "main" };
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: "Halfway through", replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "error", text: "aborted", ...identity, data: { state: "aborted" } } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]!.progress).toMatchObject({ text: "Halfway through", state: "settled" });
+  });
+
+  it("handles raw gateway agent commentary frames for adopted (passive) runs", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const base = {
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+    };
+
+    handleOpenClawSessionEvent({
+      ...base,
+      gatewayEvent: {
+        type: "event",
+        event: "agent",
+        payload: {
+          stream: "assistant",
+          runId: "passive-run",
+          sessionKey: "main",
+          data: { phase: "commentary", text: "Adopted run working note", delta: "", replace: true },
+        },
+      } as any,
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      progress: { text: "Adopted run working note", state: "active" },
+    });
+
+    handleOpenClawSessionEvent({
+      ...base,
+      gatewayEvent: {
+        type: "event",
+        event: "chat",
+        payload: {
+          runId: "passive-run",
+          sessionKey: "main",
+          state: "final",
+          message: {
+            role: "assistant",
+            stopReason: "stop",
+            content: [{ type: "text", text: "Adopted run working note\nPassive answer." }],
+          },
+        },
+      } as any,
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.progress?.state).toBe("settled");
+    expect(messages[0]!.content).toContain("Passive answer.");
+  });
+
+  it.each([
+    {
+      label: "lifecycle completion",
+      event: {
+        type: "event",
+        event: "agent",
+        payload: {
+          stream: "lifecycle",
+          runId: "passive-run",
+          sessionKey: "main",
+          data: { phase: "end" },
+        },
+      },
+    },
+    {
+      label: "an aborted chat event",
+      event: {
+        type: "event",
+        event: "chat.aborted",
+        payload: { runId: "passive-run", sessionKey: "main", state: "aborted" },
+      },
+    },
+    {
+      label: "an aborted chat error",
+      event: {
+        type: "event",
+        event: "chat.error",
+        payload: { runId: "passive-run", sessionKey: "main", state: "aborted", message: "aborted" },
+      },
+    },
+  ])("settles passive commentary after $label", ({ event }) => {
+    let messages: ChatMessage[] = [{
+      role: "assistant",
+      content: "",
+      runId: "passive-run",
+      sessionKey: "main",
+      progress: { text: "Adopted run working note", state: "active", revisions: [] },
+    }];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+      gatewayEvent: event as any,
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.progress).toMatchObject({
+      text: "Adopted run working note",
+      state: "settled",
+    });
+  });
+
+  it("drops passive commentary frames addressed to another session", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+      gatewayEvent: {
+        type: "event",
+        event: "agent",
+        payload: {
+          stream: "assistant",
+          runId: "passive-run",
+          sessionKey: "someone-else",
+          data: { phase: "commentary", text: "Foreign session note", delta: "", replace: true },
+        },
+      } as any,
+    });
+
+    expect(messages).toEqual([]);
+  });
+
+  it("suppresses raw commentary frames while an owned chatSend stream is active", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+      suppressChatStreamEvents: true,
+      gatewayEvent: {
+        type: "event",
+        event: "agent",
+        payload: {
+          stream: "assistant",
+          runId: "owned-run",
+          sessionKey: "main",
+          data: { phase: "commentary", text: "Duplicate raw frame", delta: "", replace: true },
+        },
+      } as any,
+    });
+
+    expect(messages).toEqual([]);
+  });
+
+  it("keeps hydrated turn state stable across a full reload of a commentary run", async () => {
+    const history = [
+      { role: "user", content: [{ type: "text", text: "Check the config" }], timestamp: 1 },
+      {
+        role: "assistant",
+        stopReason: "toolUse",
+        timestamp: 2,
+        content: [{ type: "text", text: "Reading config files." }],
+      },
+      {
+        role: "assistant",
+        stopReason: "toolUse",
+        timestamp: 3,
+        content: [{ type: "text", text: "Reading config files.\nValidating two entries." }],
+      },
+      {
+        role: "assistant",
+        stopReason: "stop",
+        timestamp: 4,
+        content: [{ type: "text", text: "Config is valid." }],
+      },
+    ];
+    const gateway = {
+      configGet: vi.fn(async () => ({})),
+      configSchema: vi.fn(async () => null),
+      chatHistory: vi.fn(async () => history),
+      agentsList: vi.fn(async () => [{ id: "main" }]),
+      sessionsList: vi.fn(async () => []),
+      filesList: vi.fn(async () => []),
+      cronList: vi.fn(async () => []),
+      modelsList: vi.fn(async () => []),
+    };
+
+    const hydrated = await hydrateOpenClawSession(gateway as any, "agent-1");
+    const assistantRows = hydrated.messages.filter((message) => message.role === "assistant");
+    expect(assistantRows).toHaveLength(1);
+    expect(assistantRows[0]!).toMatchObject({
+      content: "Config is valid.",
+      progress: {
+        text: "Reading config files.\nValidating two entries.",
+        state: "settled",
+      },
+    });
+    expect(assistantRows[0]!.progress?.revisions).toEqual([
+      "Reading config files.",
+      "Reading config files.\nValidating two entries.",
+    ]);
+
+    // A second hydration of the same history produces the same stable rows.
+    const rehydrated = await hydrateOpenClawSession(gateway as any, "agent-1");
+    expect(rehydrated.messages.map((message) => message.renderId)).toEqual(
+      hydrated.messages.map((message) => message.renderId),
+    );
+  });
+
+  it("folds persisted commentary into the final reply across an intervening error notice", async () => {
+    const gateway = {
+      configGet: vi.fn(async () => ({})),
+      configSchema: vi.fn(async () => null),
+      chatHistory: vi.fn(async () => [
+        { role: "user", content: [{ type: "text", text: "Check the config" }], timestamp: 1 },
+        {
+          role: "assistant",
+          stopReason: "toolUse",
+          timestamp: 2,
+          content: [{ type: "text", text: "Reading the config file" }],
+        },
+        {
+          role: "assistant",
+          stopReason: "error",
+          errorMessage: "quota exceeded for model A",
+          timestamp: 3,
+          content: [],
+        },
+        {
+          role: "assistant",
+          stopReason: "stop",
+          timestamp: 4,
+          content: [{ type: "text", text: "Reading the config file\nConfig is valid." }],
+        },
+      ]),
+      agentsList: vi.fn(async () => [{ id: "main" }]),
+      sessionsList: vi.fn(async () => []),
+      filesList: vi.fn(async () => []),
+      cronList: vi.fn(async () => []),
+      modelsList: vi.fn(async () => []),
+    };
+
+    const hydrated = await hydrateOpenClawSession(gateway as any, "agent-1");
+
+    expect(hydrated.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Check the config" }),
+      expect.objectContaining({ role: "system", content: "Assistant response failed: quota exceeded for model A." }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "\nConfig is valid.",
+        progress: expect.objectContaining({ text: "Reading the config file", state: "settled" }),
+      }),
+    ]);
+  });
+
+  function serializedNoThinkingLeak(row: ChatMessage): boolean {
+    const serialized = JSON.stringify(row);
+    if (serialized.includes(THINKING_LEAK_SENTINEL)) return false;
+    // Progress is serialized independently; private thinking is omitted.
+    return row.progress?.text === "Public working note";
+  }
+});

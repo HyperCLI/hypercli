@@ -193,6 +193,94 @@ describe("openclaw chat history state", () => {
     ]);
   });
 
+  it("keeps one live settled progress row when terminal history contains cumulative progress snapshots", () => {
+    const current: ChatMessage[] = [
+      { role: "user", content: "Check the config", renderId: "user-live" },
+      {
+        role: "assistant",
+        content: "\nConfig is valid.",
+        progress: {
+          text: "Reading the config file and validating entries",
+          state: "settled",
+          revisions: [
+            "Reading the config file",
+            "Reading the config file and validating entries",
+          ],
+        },
+        runId: "run-live",
+        renderId: "assistant-live",
+      },
+    ];
+
+    const messages = reduceChatHistoryMessages(current, {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Check the config", renderId: "user-history" },
+        {
+          role: "assistant",
+          content: "",
+          progress: { text: "Reading the config file", state: "settled", revisions: ["Reading the config file"] },
+          renderId: "progress-history-1",
+        },
+        {
+          role: "assistant",
+          content: "",
+          progress: {
+            text: "Reading the config file and validating entries",
+            state: "settled",
+            revisions: ["Reading the config file and validating entries"],
+          },
+          renderId: "progress-history-2",
+        },
+        { role: "assistant", content: "\nConfig is valid.", renderId: "assistant-history" },
+      ],
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Check the config", renderId: "user-live" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "\nConfig is valid.",
+        progress: expect.objectContaining({
+          text: "Reading the config file and validating entries",
+          state: "settled",
+        }),
+        renderId: "assistant-live",
+      }),
+    ]);
+  });
+
+  it("does not resurrect active progress when refreshed history has settled", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Check the config", renderId: "user-live" },
+      {
+        role: "assistant",
+        content: "Config is valid.",
+        progress: { text: "Checking the config", state: "active", revisions: ["Checking the config"] },
+        runId: "run-1",
+        renderId: "assistant-live",
+      },
+    ], {
+      type: "merge-history-refresh",
+      messages: [
+        { role: "user", content: "Check the config", renderId: "user-history" },
+        {
+          role: "assistant",
+          content: "Config is valid.",
+          progress: { text: "Checking the config", state: "settled", revisions: ["Checking the config"] },
+          runId: "run-1",
+          renderId: "assistant-history",
+        },
+      ],
+    });
+
+    expect(messages[1]).toMatchObject({
+      role: "assistant",
+      progress: { text: "Checking the config", state: "settled" },
+      renderId: "assistant-live",
+    });
+  });
+
   it("does not roll a fuller live reply back to an equally revised truncated history projection", () => {
     const projectedPrefix = "a".repeat(8_000);
     const complete = `${projectedPrefix}\nThe complete ending remains visible.`;
@@ -441,6 +529,47 @@ describe("openclaw chat history state", () => {
     expect(messages[1]).toEqual(expect.objectContaining({ runId: "run-1", status: "interrupted" }));
     expect(messages[2]).toEqual(expect.objectContaining({ runId: "run-2" }));
     expect(messages[2]?.status).toBeUndefined();
+  });
+
+  it("settles progress when interrupting a partial assistant reply", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Stop after starting", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "Partial answer",
+        progress: { text: "Checking files", state: "active", revisions: ["Checking files"] },
+        runId: "run-1",
+        timestamp: 2,
+      },
+    ], { type: "mark-interrupted", runId: "run-1" });
+
+    expect(messages[1]).toMatchObject({
+      role: "assistant",
+      status: "interrupted",
+      progress: { text: "Checking files", state: "settled" },
+    });
+  });
+
+  it("settles progress before adding a stopped notice when no reply is visible", () => {
+    const messages = reduceChatHistoryMessages([
+      { role: "user", content: "Stop immediately", timestamp: 1 },
+      {
+        role: "assistant",
+        content: "",
+        progress: { text: "Checking files", state: "active", revisions: ["Checking files"] },
+        runId: "run-1",
+        timestamp: 2,
+      },
+    ], { type: "mark-interrupted", runId: "run-1" });
+
+    expect(messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Stop immediately" }),
+      expect.objectContaining({
+        role: "assistant",
+        progress: expect.objectContaining({ text: "Checking files", state: "settled" }),
+      }),
+      expect.objectContaining({ role: "system", content: "Reply stopped" }),
+    ]);
   });
 
   it("adds one stopped notice when no assistant reply is visible", () => {

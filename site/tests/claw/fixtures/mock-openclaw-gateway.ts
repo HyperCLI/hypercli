@@ -39,6 +39,45 @@ export interface MockGatewayInstalledSkill {
   eligible?: boolean;
 }
 
+/**
+ * Deterministic chat transcript for one `chat.send`. The mock answers the
+ * send, emits an optional raw thinking frame (private reasoning that must
+ * never surface in the UI), streams each commentary entry as an explicit
+ * `agent` commentary frame plus its ordinary cumulative `chat` mirror, and
+ * then holds the terminal frame until `releaseMockGatewayFinals(page)` so the
+ * spec can assert on the active working-note surface before finalizing.
+ * Cumulative texts mirror the real gateway contract: commentary payloads
+ * carry `replace: true` with cumulative `text`, and chat deltas replace their
+ * visible content with that same latest commentary value.
+ */
+export interface MockGatewayChatScript {
+  /** Gateway session key this script answers. Defaults to "main". */
+  sessionKey?: string;
+  /** Run id returned by the send ack and carried on every frame. */
+  runId?: string;
+  /** Cumulative user-facing working notes, in order. */
+  commentary?: string[];
+  /** Raw private reasoning frame emitted before commentary. */
+  thinking?: string;
+  /** Final answer text, appended after the last commentary note. */
+  finalText: string;
+  /** stopReason for the terminal message. Defaults to "stop". */
+  finalStopReason?: string;
+  /**
+   * When false, the terminal frame is emitted immediately after the last
+   * commentary mirror instead of being held for `releaseMockGatewayFinals`.
+   */
+  holdFinal?: boolean;
+}
+
+/** One persisted transcript row as `chat.history` returns it. */
+export interface MockGatewayHistoryRow {
+  role: string;
+  stopReason?: string;
+  timestamp: number;
+  content: Array<{ type: string; text: string }>;
+}
+
 export interface MockGatewayOptions {
   /** Granted scopes in the authenticated hello. Defaults to admin. */
   scopes?: Array<"operator.read" | "operator.admin">;
@@ -81,13 +120,29 @@ export interface MockGatewayOptions {
    * durability. State is per browser context, so specs stay isolated.
    */
   persistConfig?: boolean;
+  /**
+   * Queued `chat.send` transcripts, consumed one per send in arrival order.
+   * Terminal frames are held until `releaseMockGatewayFinals(page)` so specs
+   * can observe streaming states without sleeps.
+   */
+  chatScripts?: MockGatewayChatScript[];
+  /**
+   * Preloaded `chat.history` rows per session key; completed scripts append
+   * their persisted rows here so a reload rehydrates from the same transcript.
+   */
+  chatHistories?: Record<string, MockGatewayHistoryRow[]>;
+  /** Sessions returned by `sessions.list`. Defaults to the main session. */
+  sessions?: Array<{ key: string; label?: string; updatedAt?: string }>;
 }
 
 const DEFAULT_METHODS = [
   "config.get",
   "config.patch",
   "config.schema",
+  "chat.send",
+  "chat.abort",
   "chat.history",
+  "sessions.list",
   "agents.list",
   "files.list",
   "skills.status",
@@ -136,6 +191,21 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       disabled: boolean;
       eligible: boolean;
     };
+    type ChatScript = {
+      sessionKey: string;
+      runId: string;
+      commentary: string[];
+      thinking: string | null;
+      finalText: string;
+      finalStopReason: string;
+      holdFinal: boolean;
+    };
+    type HistoryRow = {
+      role: string;
+      stopReason?: string;
+      timestamp: number;
+      content: Array<{ type: string; text: string }>;
+    };
     type Options = {
       scopes: string[];
       methods: string[];
@@ -151,6 +221,9 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       config: Record<string, unknown>;
       failConfigPatch: boolean;
       persistConfig: boolean;
+      chatScripts: ChatScript[];
+      chatHistories: Record<string, HistoryRow[]>;
+      sessions: Array<{ key: string; label?: string; updatedAt?: string }>;
     };
 
     const parsed = JSON.parse(rawOptions) as Partial<Options>;
@@ -169,6 +242,17 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       config: parsed.config ?? {},
       failConfigPatch: parsed.failConfigPatch === true,
       persistConfig: parsed.persistConfig === true,
+      chatScripts: (parsed.chatScripts ?? []).map((script, index) => ({
+        sessionKey: script.sessionKey ?? "main",
+        runId: script.runId ?? `run-mock-${index + 1}`,
+        commentary: script.commentary ?? [],
+        thinking: script.thinking ?? null,
+        finalText: script.finalText ?? "",
+        finalStopReason: script.finalStopReason ?? "stop",
+        holdFinal: script.holdFinal !== false,
+      })),
+      chatHistories: JSON.parse(JSON.stringify(parsed.chatHistories ?? {})) as Record<string, HistoryRow[]>,
+      sessions: parsed.sessions ?? [{ key: "main", label: "Main session" }],
     };
 
     const CONFIG_STORAGE_KEY = "__mockGatewayConfig";
@@ -220,8 +304,26 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
       config: persistedConfig ? (JSON.parse(persistedConfig) as Record<string, unknown>) : options.config,
       configHash: "hash-1",
       configWrites: [] as Array<{ method: string; raw: string; baseHash: string }>,
+      // Queued chat transcripts keyed by session key; each `chat.send` shifts
+      // one script and replays it. Held terminal frames are closures owning
+      // the receiving socket, released deterministically by the spec.
+      chatScripts: options.chatScripts.reduce<Record<string, ChatScript[]>>((acc, script) => {
+        (acc[script.sessionKey] ??= []).push(script);
+        return acc;
+      }, {}),
+      chatHistories: options.chatHistories,
+      heldFinals: [] as Array<() => void>,
+      historyClock: 1000,
+      sendCalls: [] as Array<Record<string, unknown>>,
     };
     (window as unknown as { __mockGateway: typeof state }).__mockGateway = state;
+    (window as unknown as { __mockGatewayReleaseFinals: () => number }).__mockGatewayReleaseFinals = () => {
+      // Every held emission routes through this.emit, which defers to the
+      // page's task queue; the spec waits for the resulting DOM state.
+      const releases = state.heldFinals.splice(0, state.heldFinals.length);
+      for (const release of releases) release();
+      return releases.length;
+    };
 
     const manifestEntry = (proposal: Proposal) => ({
       id: proposal.id,
@@ -615,8 +717,117 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
           this.emit({ type: "res", id, ok: true, payload: { schema: {}, uiHints: {} } });
           return;
         }
+        if (method === "chat.send") {
+          state.sendCalls.push({ method, sessionKey: params.sessionKey, message: params.message });
+          // Dashboard chat uses a generated `dashboard:<uuid>` session key, so
+          // a script may declare `sessionKey: "*"` as a catch-all; an exact
+          // session queue always wins for cross-session specs.
+          const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey : "main";
+          const exactQueue = state.chatScripts[sessionKey] ?? [];
+          const wildcardQueue = state.chatScripts["*"] ?? [];
+          const queue = exactQueue.length > 0 ? exactQueue : wildcardQueue;
+          const script = queue.length > 0 ? queue.shift()! : null;
+          const runId = script?.runId ?? `run-mock-${state.historyClock++}`;
+          this.emit({ type: "res", id, ok: true, payload: { runId } });
+          if (!script) return;
+
+          const userText = typeof params.message === "string" ? params.message : "";
+          const rows = (state.chatHistories[sessionKey] ??= []);
+          rows.push({ role: "user", timestamp: state.historyClock++, content: [{ type: "text", text: userText }] });
+
+          // Emission order mirrors the live gateway contract: private
+          // reasoning first, then each working note as an explicit
+          // commentary frame paired with its cumulative ordinary chat
+          // mirror, and finally the terminal frame.
+          let visible = "";
+          const emitCommentary = (note: string) => {
+            visible = note;
+            this.emit({
+              type: "event",
+              event: "agent",
+              payload: {
+                stream: "assistant",
+                runId,
+                sessionKey,
+                data: { phase: "commentary", text: note, delta: "", replace: true },
+              },
+            });
+            this.emit({
+              type: "event",
+              event: "chat",
+              payload: {
+                runId,
+                sessionKey,
+                state: "delta",
+                message: { role: "assistant", content: [{ type: "text", text: visible }] },
+              },
+            });
+          };
+          const finalize = () => {
+            const fullText = [visible, script.finalText].filter(Boolean).join("\n");
+            // Persist exactly what the live gateway persists: each cumulative
+            // note is its own text-only assistant row with
+            // stopReason "toolUse", the final answer uses "stop".
+            for (const note of script.commentary) {
+              rows.push({ role: "assistant", stopReason: "toolUse", timestamp: state.historyClock++, content: [{ type: "text", text: note }] });
+            }
+            rows.push({
+              role: "assistant",
+              stopReason: script.finalStopReason,
+              timestamp: state.historyClock++,
+              content: [{ type: "text", text: fullText }],
+            });
+            this.emit({
+              type: "event",
+              event: "chat",
+              payload: {
+                runId,
+                sessionKey,
+                state: "final",
+                message: {
+                  role: "assistant",
+                  stopReason: script.finalStopReason,
+                  content: [{ type: "text", text: fullText }],
+                },
+              },
+            });
+          };
+
+          if (script.thinking) {
+            this.emit({
+              type: "event",
+              event: "agent",
+              payload: {
+                stream: "thinking",
+                runId,
+                sessionKey,
+                data: { delta: script.thinking, text: script.thinking },
+              },
+            });
+          }
+          for (const note of script.commentary) emitCommentary(note);
+          if (script.holdFinal) state.heldFinals.push(() => finalize());
+          else finalize();
+          return;
+        }
+        if (method === "chat.abort") {
+          // Bounded behavior: discard any held terminal frames and ack. No
+          // additional frames are emitted; the client owns its stop state.
+          state.heldFinals.length = 0;
+          this.emit({ type: "res", id, ok: true, payload: { aborted: true } });
+          return;
+        }
         if (method === "chat.history") {
-          this.emit({ type: "res", id, ok: true, payload: { messages: [] } });
+          const sessionKey = typeof params.sessionKey === "string" ? params.sessionKey : "main";
+          const messages = (state.chatHistories[sessionKey] ?? []).map((row) => ({
+            ...row,
+            content: row.content.map((block) => ({ ...block })),
+          }));
+          this.emit({ type: "res", id, ok: true, payload: { messages } });
+          return;
+        }
+        if (method === "sessions.list") {
+          this.emit({ type: "res", id, ok: true, payload: { sessions: options.sessions } });
           return;
         }
         if (method === "agents.list") {
@@ -705,7 +916,21 @@ export async function installMockGateway(page: import("@playwright/test").Page, 
     config: options.config ?? {},
     failConfigPatch: options.failConfigPatch === true,
     persistConfig: options.persistConfig === true,
+    chatScripts: options.chatScripts ?? [],
+    chatHistories: options.chatHistories ?? {},
+    sessions: options.sessions ?? [{ key: "main", label: "Main session" }],
   }));
+}
+
+/**
+ * Emit every held terminal chat frame. Returns how many runs finalized so a
+ * spec can prove it released exactly the runs it started.
+ */
+export async function releaseMockGatewayFinals(page: import("@playwright/test").Page): Promise<number> {
+  return page.evaluate(() => {
+    const release = (window as unknown as { __mockGatewayReleaseFinals?: () => number }).__mockGatewayReleaseFinals;
+    return release ? release() : 0;
+  });
 }
 
 export interface MockGatewayCall {
@@ -727,6 +952,7 @@ export interface MockGatewayInspection {
   installedKeys: string[];
   configWrites: MockGatewayConfigWrite[];
   config: Record<string, unknown>;
+  sendCalls: Array<Record<string, unknown>>;
 }
 
 /** Read the mock's recorded wire traffic back out of the page. */
@@ -741,6 +967,7 @@ export async function inspectMockGateway(page: import("@playwright/test").Page):
         rejectCalls: Array<{ proposalId: string; expectedRevisionHash: string | null }>;
         configWrites: Array<{ method: string; raw: string; baseHash: string }>;
         config: Record<string, unknown>;
+        sendCalls: Array<Record<string, unknown>>;
       };
     }).__mockGateway;
     return {
@@ -751,6 +978,7 @@ export async function inspectMockGateway(page: import("@playwright/test").Page):
       installedKeys: state.installedSkills.map((skill) => skill.skillKey),
       configWrites: state.configWrites.map((write) => ({ ...write })),
       config: JSON.parse(JSON.stringify(state.config)) as Record<string, unknown>,
+      sendCalls: state.sendCalls.map((call) => ({ ...call })),
     };
   });
 }

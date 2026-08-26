@@ -3746,4 +3746,64 @@ describe("AgentChatPanel", () => {
     expect(retry).toHaveBeenCalledTimes(1);
     expect(onStopAgent).not.toHaveBeenCalled();
   });
+
+  it("renders a progress-only assistant row for working commentary instead of dropping it", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Check the deployment" },
+          {
+            role: "assistant",
+            content: "",
+            progress: { text: "Checking the deployment target", state: "active", revisions: ["Checking the deployment target"] },
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    const renderedMessages = chatMessageBubbleMock.mock.calls.map(([props]) => props);
+    const progressRow = renderedMessages.find((props: any) => props.message?.progress?.text === "Checking the deployment target");
+    expect(progressRow).toBeDefined();
+  });
+
+  it("keeps commentary-bearing rows on a single stable render key across progress updates", () => {
+    const baseChat = buildChat({
+      status: "connected",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+      sending: true,
+      activeSessionSending: true,
+      messages: [
+        { role: "user", content: "Check the deployment", renderId: "turn-1:user" },
+        {
+          role: "assistant",
+          content: "",
+          renderId: "turn-1:assistant",
+          progress: { text: "Checking the deployment target", state: "active", revisions: ["Checking the deployment target"] },
+        },
+      ],
+    });
+    const firstRender = renderAgentChatPanel({ chat: baseChat, isSelectedRunning: true });
+    chatMessageBubbleMock.mockClear();
+
+    baseChat.messages = [
+      baseChat.messages[0]!,
+      {
+        ...baseChat.messages[1]!,
+        progress: { text: "Checking the deployment target and routes", state: "active" as const, revisions: ["Checking the deployment target"] },
+      },
+    ];
+    firstRender.rerender(<AgentChatPanel {...buildAgentChatPanelProps({ chat: baseChat })} />);
+
+    const renderedRowKeys = chatMessageBubbleMock.mock.calls.map(([props]) => props.message?.renderId);
+    expect(renderedRowKeys.filter((key) => key === "turn-1:assistant")).toHaveLength(1);
+  });
 });

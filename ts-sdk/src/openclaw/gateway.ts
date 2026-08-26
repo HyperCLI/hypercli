@@ -195,9 +195,9 @@ export interface GatewayEvent {
 }
 
 export interface ChatEvent {
-  type: "content" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
+  type: "content" | "commentary" | "thinking" | "tool_call" | "tool_result" | "done" | "error";
   text?: string;
-  /** For content events, `true` replaces the turn's display text; `false` or omission appends. */
+  /** For content or commentary events, `true` replaces the current text; `false` or omission appends. */
   replace?: boolean;
   /** Protocol event identity, when supplied by the gateway payload. */
   eventId?: string;
@@ -2308,7 +2308,9 @@ function isChatStreamGatewayEvent(event: GatewayEvent): boolean {
   if (event.event !== "agent") return false;
   const payload = asRecord(event.payload) ?? {};
   const stream = typeof payload.stream === "string" ? payload.stream.toLowerCase() : "";
-  return stream === "tool" || stream === "lifecycle";
+  if (stream === "tool" || stream === "lifecycle") return true;
+  const phase = String(asRecord(payload.data)?.phase ?? "").toLowerCase();
+  return stream === "assistant" && phase === "commentary";
 }
 
 function isTerminalChatStreamGatewayEvent(event: GatewayEvent): boolean {
@@ -5500,6 +5502,27 @@ export class GatewayClient {
               ...(update.replace ? { replace: true } : {}),
               ...identity,
             };
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "assistant") {
+          const commentaryPayload = asRecord(payload.data) ?? {};
+          const phase = typeof commentaryPayload.phase === "string"
+            ? commentaryPayload.phase.toLowerCase()
+            : "";
+          if (phase === "commentary") {
+            const cumulativeText = typeof commentaryPayload.text === "string" ? commentaryPayload.text : "";
+            const deltaText = typeof commentaryPayload.delta === "string" ? commentaryPayload.delta : "";
+            const text = cumulativeText.trim() ? cumulativeText : deltaText;
+            if (text.trim()) {
+              yield {
+                type: "commentary",
+                text,
+                ...(commentaryPayload.replace === true ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
+            }
           }
           continue;
         }

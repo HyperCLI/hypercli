@@ -7,6 +7,7 @@ import {
   normalizeLiveToolCall,
   normalizeLiveToolResult,
   OPENCLAW_EMPTY_REPLY_NOTICE,
+  settleAssistantProgress,
   upsertAssistantMessage,
   type ChatMessage,
 } from "./openclaw-chat";
@@ -1655,5 +1656,315 @@ describe("openclaw chat normalization", () => {
     }, { appendContent: true });
 
     expect(resumed[0]?.content).toBe("Déjame revisar. Tenemos dos logos.");
+  });
+});
+
+describe("openclaw commentary progress reconciliation", () => {
+  // Contract evidence (HAR-derived, structural): the gateway emits explicit
+  // user-facing commentary as `agent` events with stream "assistant" and
+  // data.phase "commentary" (cumulative `text`, `replace: true`), mirrors the
+  // same text through ordinary `chat` deltas as a prefix of the accumulated
+  // visible text, and persists it as text-only assistant rows whose
+  // stopReason is "toolUse" while final answers use stopReason "stop".
+  const commentary = (text: string, runId = "run-1") => ({
+    role: "assistant" as const,
+    content: "",
+    progress: { text, state: "active" as const, revisions: [] as string[] },
+    runId,
+    renderId: `${runId}:assistant`,
+    timestamp: 1,
+  });
+
+  it("creates one progress row from commentary updates without touching content", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Inspecting"), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, commentary("Inspecting the workspace"), { updateProgress: "replace" });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      content: "",
+      progress: { text: "Inspecting the workspace", state: "active" },
+    });
+    expect(messages[0]?.thinking).toBeUndefined();
+  });
+
+  it("keeps mirrored ordinary chat text out of the assistant reply content", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Checking credentials"), { updateProgress: "replace" });
+    // Mirrored cumulative chat text equals the commentary text.
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Checking credentials",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toBe("");
+    expect(messages[0]?.progress?.text).toBe("Checking credentials");
+  });
+
+  it("splits a mirrored commentary prefix from the growing final answer tail", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Checking credentials"), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Checking credentials\nCredentials verified. Two keys are valid.",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.progress?.text).toBe("Checking credentials");
+    expect(messages[0]?.content).toBe("\nCredentials verified. Two keys are valid.");
+  });
+
+  it("reclassifies a mirrored chat prefix when the commentary marker arrives late", () => {
+    let messages: ChatMessage[] = [];
+    // Ordinary mirrored content first, marker late.
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Reviewing settings",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 1,
+    }, { replaceContent: true });
+    expect(messages[0]?.content).toBe("Reviewing settings");
+
+    messages = upsertAssistantMessage(messages, commentary("Reviewing settings"), { updateProgress: "replace" });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toBe("");
+    expect(messages[0]?.progress?.text).toBe("Reviewing settings");
+  });
+
+  it("handles commentary replacement while the mirrored chat text still carries the older revision", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Reading the config file and 24 more entries"), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Reading the config file and 24 more entries",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+    expect(messages[0]?.content).toBe("");
+
+    // The model revises its working note; the mirror has not caught up yet.
+    messages = upsertAssistantMessage(messages, commentary("Reading the config"), { updateProgress: "replace" });
+    expect(messages[0]?.progress?.text).toBe("Reading the config");
+    expect(messages[0]?.content).toBe("");
+
+    // Late mirrored frame carrying the older revision must not reappear as content.
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Reading the config file and 24 more entries",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 3,
+    }, { replaceContent: true });
+    expect(messages[0]?.content).toBe("");
+    expect(messages[0]?.progress?.text).toBe("Reading the config");
+  });
+
+  it("keeps interstitial text that never prefix-matches any commentary revision", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Working on it"), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "A genuinely independent interstitial note.",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+
+    expect(messages[0]?.content).toBe("A genuinely independent interstitial note.");
+    expect(messages[0]?.progress?.text).toBe("Working on it");
+  });
+
+  it("does not let commentary from another run attach to the active row", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Run one streamed answer",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 1,
+    }, { replaceContent: true });
+
+    messages = upsertAssistantMessage(messages, commentary("Run two working note", "run-2"), { updateProgress: "replace" });
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.progress).toBeUndefined();
+    expect(messages[1]?.progress?.text).toBe("Run two working note");
+  });
+
+  it("settles progress without losing the note or the final answer", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Checking credentials"), { updateProgress: "replace" });
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Checking credentials\nCredentials verified.",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+
+    const settled = settleAssistantProgress(messages, { renderId: "run-1:assistant" });
+    expect(settled[0]?.progress).toMatchObject({ text: "Checking credentials", state: "settled" });
+    expect(settled[0]?.content).toContain("Credentials verified.");
+    // Settling is idempotent.
+    const settledAgain = settleAssistantProgress(settled, { renderId: "run-1:assistant" });
+    expect(settledAgain).toEqual(settled);
+  });
+
+  it("settles every matching row when an identity is supplied, without touching other sessions", () => {
+    let messages: ChatMessage[] = [
+      { role: "assistant", content: "", progress: { text: "Session A note", state: "active", revisions: [] }, sessionKey: "session-a", renderId: "a:1", timestamp: 1 },
+      { role: "assistant", content: "", progress: { text: "Session B note", state: "active", revisions: [] }, sessionKey: "session-b", renderId: "b:1", timestamp: 2 },
+    ];
+    messages = settleAssistantProgress(messages, { sessionKey: "session-a" });
+    expect(messages[0]?.progress?.state).toBe("settled");
+    expect(messages[1]?.progress?.state).toBe("active");
+  });
+
+  it("survives 1,000 rapid commentary updates on one row with bounded memory", () => {
+    let messages: ChatMessage[] = [];
+    for (let update = 0; update < 1000; update += 1) {
+      messages = upsertAssistantMessage(
+        messages,
+        commentary(`Working note revision ${update}`),
+        { updateProgress: "replace" },
+      );
+    }
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.progress?.text).toBe("Working note revision 999");
+    // Reconciliation memory stays bounded instead of growing one entry per update.
+    expect((messages[0]?.progress?.revisions ?? []).length).toBeLessThanOrEqual(16);
+    // A late mirrored frame carrying an early revision must not resurface.
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "Working note revision 999",
+      runId: "run-1",
+      renderId: "run-1:assistant",
+      timestamp: 2,
+    }, { replaceContent: true });
+    expect(messages[0]?.content).toBe("");
+  });
+
+  it("preserves emoji, CJK, RTL, markdown-looking, and HTML-like commentary as plain text", () => {
+    const tricky = [
+      "🛠️ تحقق من الإعدادات، ثم اكتب التقرير ✅",
+      "確認しています。レポートを書きます。",
+      "**not markdown** `<script>alert(1)</script>` [link](javascript:alert(1))",
+      "line one\nline two <b>stays text</b>",
+    ];
+    for (const text of tricky) {
+      const messages = upsertAssistantMessage([], commentary(text), { updateProgress: "replace" });
+      expect(messages[0]?.progress?.text).toBe(text);
+      expect(messages[0]?.content).toBe("");
+    }
+  });
+
+  it("skips empty and whitespace-only commentary updates without creating a row", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary(""), { updateProgress: "replace" });
+    expect(messages).toEqual([]);
+    let withContent: ChatMessage[] = [{ role: "assistant", content: "Real answer", runId: "run-1", renderId: "run-1:assistant", timestamp: 1 }];
+    withContent = upsertAssistantMessage(withContent, commentary("   "), { updateProgress: "replace" });
+    expect(withContent).toHaveLength(1);
+    expect(withContent[0]?.progress).toBeUndefined();
+    expect(withContent[0]?.content).toBe("Real answer");
+  });
+
+  it("marks text-only assistant history rows with stopReason toolUse as settled progress", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      stopReason: "toolUse",
+      timestamp: 10,
+      content: [{ type: "text", text: "I scanned the workspace and found two issues." }],
+    });
+
+    expect(normalized).not.toBeNull();
+    expect(normalized).toMatchObject({
+      role: "assistant",
+      content: "",
+      progress: { text: "I scanned the workspace and found two issues.", state: "settled" },
+    });
+  });
+
+  it("keeps final answers (stopReason stop) and tool-bearing toolUse rows as ordinary assistant messages", () => {
+    const finalAnswer = normalizeHistoryMessage({
+      role: "assistant",
+      stopReason: "stop",
+      timestamp: 11,
+      content: [{ type: "text", text: "Both issues are fixed." }],
+    });
+    expect(finalAnswer?.content).toBe("Both issues are fixed.");
+    expect(finalAnswer?.progress).toBeUndefined();
+
+    const withTools = normalizeHistoryMessage({
+      role: "assistant",
+      stopReason: "toolUse",
+      timestamp: 12,
+      content: [
+        { type: "text", text: "Now running the verifier." },
+        { type: "tool_use", id: "tool-1", name: "exec", arguments: { command: "npm test" } },
+      ],
+    });
+    expect(withTools?.content).toBe("Now running the verifier.");
+    expect(withTools?.progress).toBeUndefined();
+  });
+
+  it("keeps unknown or missing stopReason history rows as ordinary assistant messages", () => {
+    for (const stopReason of [undefined, "max_tokens", "stop_sequence"]) {
+      const normalized = normalizeHistoryMessage({
+        role: "assistant",
+        ...(stopReason ? { stopReason } : {}),
+        timestamp: 13,
+        content: [{ type: "text", text: "Ordinary assistant text." }],
+      });
+      expect(normalized?.content).toBe("Ordinary assistant text.");
+      expect(normalized?.progress).toBeUndefined();
+    }
+  });
+
+  it("hydrated settled progress round-trips through live merge without duplication", () => {
+    const hydrated = normalizeHistoryMessage({
+      role: "assistant",
+      stopReason: "toolUse",
+      messageId: "msg-c1",
+      runId: "run-9",
+      sessionKey: "main",
+      timestamp: 14,
+      content: [{ type: "text", text: "Working note from history." }],
+    });
+    expect(hydrated?.progress?.text).toBe("Working note from history.");
+
+    // A live settle marker for the same row must not create a second row.
+    const merged = upsertAssistantMessage([hydrated!], {
+      role: "assistant",
+      content: "",
+      messageId: "msg-c1",
+      runId: "run-9",
+      sessionKey: "main",
+      timestamp: 15,
+    });
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.progress?.text).toBe("Working note from history.");
+    expect(merged[0]?.content).toBe("");
+  });
+
+  it("keeps commentary state out of the serialized thinking channel", () => {
+    let messages: ChatMessage[] = [];
+    messages = upsertAssistantMessage(messages, commentary("Visible working note"), { updateProgress: "replace" });
+    const serialized = JSON.stringify(messages);
+    expect(serialized).toContain("Visible working note");
+    expect(serialized).not.toContain('"thinking"');
+    expect(messages[0]).not.toHaveProperty("thinking");
   });
 });

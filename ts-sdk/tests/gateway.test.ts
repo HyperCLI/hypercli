@@ -5603,3 +5603,440 @@ describe("NodeServer", () => {
     server.stop();
   });
 });
+
+describe("GatewayClient OpenClaw commentary chat events", () => {
+  // Contract evidence: the live gateway emits explicit user-facing progress
+  // commentary as `agent` events with payload.stream "assistant" and
+  // payload.data.phase "commentary" (cumulative `text`, `delta`, `replace`).
+  // These frames are distinct from raw reasoning (`stream "thinking"`, which
+  // must stay private) and are mirrored through ordinary `chat` deltas, so the
+  // SDK must surface a dedicated typed event instead of discarding the marker.
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    vi.restoreAllMocks();
+    vi.stubGlobal("WebSocket", MockWebSocket as any);
+    vi.stubGlobal("localStorage", new MockLocalStorage() as any);
+    vi.stubGlobal("crypto", webcrypto as any);
+    vi.useRealTimers();
+  });
+
+  function newChatClient() {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, _params?: Record<string, any>) => {
+      if (method === "chat.send") return { runId: "run-commentary" };
+      if (method === "chat.history") return { messages: [] };
+      throw new Error(`unexpected RPC ${method}`);
+    });
+    return client;
+  }
+
+  function emit(client: GatewayClient, frame: unknown) {
+    (client as any).handleMessage(JSON.stringify(frame));
+  }
+
+  function commentaryFrame(text: string, overrides: Record<string, unknown> = {}) {
+    return {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { phase: "commentary", text, delta: "", replace: true },
+        ...overrides,
+      },
+    };
+  }
+
+  async function collectChatSend(client: GatewayClient, message = "inspect", sessionKey = "main") {
+    return (async () => {
+      const events: Array<Record<string, unknown> & { type: string }> = [];
+      for await (const event of client.chatSend(message, sessionKey)) {
+        events.push(event as unknown as Record<string, unknown> & { type: string });
+      }
+      return events;
+    })();
+  }
+
+  it("surfaces explicit assistant commentary frames as typed commentary chat events", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, commentaryFrame("Inspecting the workspace"));
+    emit(client, commentaryFrame("Inspecting the workspace sources"));
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Inspection complete." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    const types = events.map((event) => event.type);
+    expect(types.filter((type) => type === "commentary")).toHaveLength(2);
+    expect(types.at(-1)).toBe("done");
+    const commentary = events.filter((event) => event.type === "commentary");
+    expect(commentary[0]).toMatchObject({
+      type: "commentary",
+      text: "Inspecting the workspace",
+      replace: true,
+      runId: "run-commentary",
+      sessionKey: "main",
+    });
+    expect(commentary[1]).toMatchObject({
+      text: "Inspecting the workspace sources",
+      replace: true,
+    });
+    // Commentary must not overload the private thinking channel.
+    for (const event of events) {
+      expect(event.type).not.toBe("thinking");
+    }
+    // The final answer still arrives as ordinary terminal content.
+    const finalContent = events.filter((event) => event.type === "content").at(-1);
+    expect(finalContent?.text).toBe("Inspection complete.");
+  });
+
+  it("keeps the mirrored ordinary chat deltas flowing alongside commentary events", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, commentaryFrame("Checking credentials"));
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text: "Checking credentials" }] },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Checking credentials\nCredentials verified." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toContain("commentary");
+    const contentEvents = events.filter((event) => event.type === "content");
+    expect(contentEvents.length).toBeGreaterThan(0);
+    expect(events.at(-1)?.type).toBe("done");
+  });
+
+  it("respects replace flags and keeps repeated identical replacements stable", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    for (let update = 0; update < 8; update += 1) {
+      emit(client, commentaryFrame("Same cumulative commentary text"));
+    }
+    emit(client, commentaryFrame("Short replacement"));
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Short replacement\nDone." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    const commentary = events.filter((event) => event.type === "commentary");
+    expect(commentary).toHaveLength(9);
+    expect(commentary.every((event) => event.replace === true)).toBe(true);
+    expect(commentary.at(-1)?.text).toBe("Short replacement");
+  });
+
+  it("falls back to delta text when a commentary frame carries no cumulative text", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { phase: "commentary", delta: "Reading files", },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { phase: "commentary", delta: " and parsing them" },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Parsed." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    const commentary = events.filter((event) => event.type === "commentary");
+    expect(commentary.map((event) => event.text)).toEqual(["Reading files", " and parsing them"]);
+    expect(commentary.every((event) => event.replace !== true)).toBe(true);
+  });
+
+  it("skips commentary frames whose text and delta are both empty", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { phase: "commentary", text: "", delta: "", replace: true },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { phase: "commentary", text: "   ", delta: "  ", replace: true },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Done." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "commentary")).toHaveLength(0);
+    expect(events.at(-1)?.type).toBe("done");
+  });
+
+  it("ignores assistant-stream frames without an explicit commentary phase", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { delta: "tok", text: "tok" },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { phase: "notes", delta: "internal note", text: "internal note" },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "tok complete" }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "commentary")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "thinking")).toHaveLength(0);
+  });
+
+  it("never surfaces raw thinking-stream frames as commentary or content", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "thinking",
+        runId: "run-commentary",
+        sessionKey: "main",
+        data: { delta: "PRIVATE_REASONING_SENTINEL", text: "PRIVATE_REASONING_SENTINEL" },
+      },
+    });
+    emit(client, commentaryFrame("Visible working note"));
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Final answer." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "thinking")).toHaveLength(0);
+    expect(JSON.stringify(events)).not.toContain("PRIVATE_REASONING_SENTINEL");
+  });
+
+  it("does not leak commentary across sessions or to unaccepted runs", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    // Commentary for another session and for a run this stream never accepted.
+    emit(client, {
+      ...commentaryFrame("foreign session commentary"),
+      payload: {
+        stream: "assistant",
+        runId: "run-commentary",
+        sessionKey: "other-session",
+        data: { phase: "commentary", text: "foreign session commentary", delta: "", replace: true },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "agent",
+      payload: {
+        stream: "assistant",
+        runId: "foreign-run",
+        sessionKey: "main",
+        data: { phase: "commentary", text: "foreign run commentary", delta: "", replace: true },
+      },
+    });
+    emit(client, commentaryFrame("Owned commentary"));
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Owned answer." }],
+        },
+      },
+    });
+
+    const events = await streamPromise;
+    const commentary = events.filter((event) => event.type === "commentary");
+    expect(commentary).toHaveLength(1);
+    expect(commentary[0]?.text).toBe("Owned commentary");
+    expect(JSON.stringify(events)).not.toContain("foreign session commentary");
+    expect(JSON.stringify(events)).not.toContain("foreign run commentary");
+  });
+
+  it("tolerates commentary arriving after the mirrored chat prefix and after completion", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    // Mirrored chat text first, marker late.
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text: "Reviewing settings" }] },
+      },
+    });
+    emit(client, commentaryFrame("Reviewing settings"));
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          stopReason: "stop",
+          content: [{ type: "text", text: "Reviewing settings\nSettings are valid." }],
+        },
+      },
+    });
+    // A straggler after the terminal frame must not reopen the stream.
+    emit(client, commentaryFrame("Late duplicate commentary"));
+
+    const events = await streamPromise;
+    expect(events.at(-1)?.type).toBe("done");
+    const commentary = events.filter((event) => event.type === "commentary");
+    expect(commentary.map((event) => event.text)).toEqual(["Reviewing settings"]);
+  });
+});

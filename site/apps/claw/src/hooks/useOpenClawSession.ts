@@ -2461,7 +2461,9 @@ export function useOpenClawSession(
         (
           gatewayEvent.event === "agent" &&
           !isGatewayRunTerminal &&
-          ["tool", "lifecycle"].includes(lifecycleStream)
+          (["tool", "lifecycle"].includes(lifecycleStream) || (
+            lifecycleStream === "assistant" && lifecyclePhase === "commentary"
+          ))
         )
       );
       const advanceGatewayRunRevision = () => {

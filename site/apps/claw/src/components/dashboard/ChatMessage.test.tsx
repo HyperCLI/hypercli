@@ -1889,4 +1889,151 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByRole("button", { name: /open private-report\.pdf in files/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /download private-report\.pdf/i })).not.toBeInTheDocument();
   });
+
+  describe("assistant working commentary", () => {
+    it("renders active commentary as a calm live working note separate from the reply", () => {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            progress: { text: "Checking the deployment target", state: "active", revisions: ["Checking the deployment target"] },
+          }}
+          isStreaming
+        />,
+      );
+
+      const progress = screen.getByTestId("agent-assistant-progress");
+      expect(progress).toHaveAttribute("data-progress-state", "active");
+      expect(progress).toHaveTextContent("Checking the deployment target");
+      expect(screen.getByRole("status", { name: /working/i })).toBeInTheDocument();
+      expect(progress.querySelector("svg")).toHaveClass("motion-reduce:animate-none");
+      expect(screen.queryByText(/chain of thought/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/\bsdk\b/i)).not.toBeInTheDocument();
+    });
+
+    it("keeps progress text fully out of the ordinary reply content", () => {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "Credentials verified.",
+            progress: { text: "Checking credentials", state: "settled", revisions: ["Checking credentials"] },
+          }}
+        />,
+      );
+
+      // The progress note renders once, in its own surface; the reply shows it nowhere.
+      const progress = screen.getByTestId("agent-assistant-progress");
+      expect(progress).toHaveAttribute("data-progress-state", "settled");
+      const markdownRegion = document.querySelectorAll(".prose-chat");
+      const regionText = Array.from(markdownRegion).map((node) => node.textContent).join("\n");
+      expect(regionText).not.toContain("Checking credentials");
+      expect(screen.getByText("Credentials verified.")).toBeInTheDocument();
+    });
+
+    it("collapses settled progress into a keyboard-operable disclosure", async () => {
+      const { container } = render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "Done.",
+            progress: { text: "Read 4 files and ran the verifier twice.", state: "settled", revisions: [] },
+          }}
+        />,
+      );
+
+      const toggle = screen.getByRole("button", { name: /working notes|progress/i });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(toggle.querySelector("svg")).toHaveClass("motion-reduce:transition-none");
+      const detail = container.querySelector("[id]");
+      // Collapsed by default: the note text is not visible.
+      expect(detail ? detail.getAttribute("aria-hidden") : null).not.toBe("false");
+      const visibleText = Array.from(container.querySelectorAll("div, p, span"))
+        .filter((element) => element.textContent === "Read 4 files and ran the verifier twice.")
+        .filter((element) => element.getClientRects().length > 0);
+      expect(visibleText).toHaveLength(0);
+
+      toggle.focus();
+      fireEvent.keyDown(toggle, { key: "Enter" });
+      fireEvent.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"));
+      expect(screen.getByText("Read 4 files and ran the verifier twice.")).toBeInTheDocument();
+    });
+
+    it("renders untrusted commentary as plain text without executing markup or loops", () => {
+      const untrusted = "<img src=x onerror=alert(1)> **not bold** [click](javascript:alert(1))";
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            progress: { text: untrusted, state: "active", revisions: [] },
+          }}
+          isStreaming
+        />,
+      );
+
+      expect(screen.getByText(untrusted)).toBeInTheDocument();
+      expect(document.querySelector("img")).toBeNull();
+    });
+
+    it("renders no progress surface at all for a model that only streams ordinary content", () => {
+      const { container } = render(
+        <ChatMessageBubble
+          message={{ role: "assistant", content: "Just an answer." }}
+          isStreaming
+        />,
+      );
+
+      expect(screen.queryByTestId("agent-assistant-progress")).toBeNull();
+      expect(screen.getByText("Just an answer.")).toBeInTheDocument();
+      // No ARIA status region was added for absent commentary.
+      expect(container.querySelectorAll('[data-progress-state]')).toHaveLength(0);
+    });
+
+    it("never exposes raw thinking through the progress surface", () => {
+      const { container } = render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "Visible answer.",
+            thinking: `Raw inner reasoning: ${THINKING_LEAK_SENTINEL}`,
+            progress: { text: "Public working note", state: "settled", revisions: [] },
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId("agent-assistant-progress")).not.toHaveTextContent(THINKING_LEAK_SENTINEL);
+      expect(container.textContent ?? "").not.toContain(THINKING_LEAK_SENTINEL);
+      expect(screen.getByText(/internal reasoning hidden/i)).toBeInTheDocument();
+    });
+
+    it("caps long commentary on a compact, wrap-safe surface", () => {
+      const longNote = `Working note ${"segment ".repeat(200)}`;
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            progress: { text: longNote, state: "active", revisions: [] },
+          }}
+          isStreaming
+        />,
+      );
+
+      const progress = screen.getByTestId("agent-assistant-progress");
+      expect(progress.className).toContain("max-w-full");
+      expect(progress.querySelector("p,div,span")).not.toBeNull();
+      // Wrap-safe containers instead of unbounded horizontal growth.
+      const textHolder = Array.from(progress.querySelectorAll("*")).find((el) =>
+        typeof (el as HTMLElement).className === "string" && (
+          (el as HTMLElement).className.includes("break-words") ||
+          (el as HTMLElement).className.includes("overflow-wrap") ||
+          (el as HTMLElement).className.includes("line-clamp")
+        ),
+      );
+      expect(textHolder).toBeDefined();
+    });
+  });
 });

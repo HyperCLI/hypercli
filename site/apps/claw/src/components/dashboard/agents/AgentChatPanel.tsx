@@ -386,6 +386,7 @@ function hasMatchingVoiceFile(files: ChatPendingFile[] | undefined, voicePath: s
 function hasRenderableMessagePayload(message: ChatSession["messages"][number]): boolean {
   return Boolean(
     message.content.trim() ||
+    message.progress?.text.trim() ||
     (message.toolCalls?.length ?? 0) > 0 ||
     (message.mediaUrls?.length ?? 0) > 0 ||
     (message.attachments?.length ?? 0) > 0 ||

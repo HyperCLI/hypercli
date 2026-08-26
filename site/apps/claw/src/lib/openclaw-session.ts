@@ -30,6 +30,8 @@ import {
   normalizeLiveToolResult,
   OPENCLAW_EMPTY_REPLY_NOTICE,
   sanitizeChatDisplayText,
+  settleAssistantProgress,
+  stripAssistantProgressContent,
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
 
@@ -189,8 +191,17 @@ function appendReplyStoppedActivity(
 function isGatewayChatStreamEvent(event: string, payload: unknown): boolean {
   if (event === "chat" || event.startsWith("chat.")) return true;
   if (event !== "agent") return false;
-  const stream = String((payload as Record<string, unknown> | null)?.stream || "").toLowerCase();
-  return stream === "tool" || stream === "lifecycle";
+  const payloadRecord = payload as Record<string, unknown> | null;
+  const stream = String(payloadRecord?.stream || "").toLowerCase();
+  if (stream === "tool" || stream === "lifecycle") return true;
+  const data = payloadRecord?.data as Record<string, unknown> | undefined;
+  return stream === "assistant" && String(data?.phase || "").toLowerCase() === "commentary";
+}
+
+function commentaryText(payload: Record<string, unknown>): string {
+  const cumulativeText = typeof payload.text === "string" ? payload.text : "";
+  const deltaText = typeof payload.delta === "string" ? payload.delta : "";
+  return cumulativeText.trim() ? cumulativeText : deltaText;
 }
 
 export function handleOpenClawChatStreamEvent({
@@ -205,15 +216,34 @@ export function handleOpenClawChatStreamEvent({
   const identity = streamChatMessageIdentity(chatEvent);
 
   if (chatEvent.type === "content") {
-    const text = sanitizeChatDisplayText(chatEvent.text ?? "");
-    if (text || chatEvent.replace === true) {
+    const cumulativeMessage = normalizeHistoryMessage(payload.message, { preserveBoundaryWhitespace: true });
+    const cumulativeText = cumulativeMessage?.role === "assistant"
+      ? cumulativeMessage.progress?.text ?? cumulativeMessage.content
+      : null;
+    const text = sanitizeChatDisplayText(cumulativeText || chatEvent.text || "");
+    const replaceContent = Boolean(cumulativeText) || chatEvent.replace === true;
+    if (text || replaceContent) {
       setMessages((prev) => upsertAssistantMessage(
         prev,
         identifiedAssistantMessage({ role: "assistant", content: text, timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
         {
-          replaceContent: chatEvent.replace === true,
-          appendContent: chatEvent.replace !== true,
+          replaceContent,
+          appendContent: !replaceContent,
         },
+      ));
+    }
+  } else if (chatEvent.type === "commentary") {
+    const text = sanitizeChatDisplayText(chatEvent.text ?? "");
+    if (text.trim()) {
+      setMessages((prev) => upsertAssistantMessage(
+        prev,
+        identifiedAssistantMessage({
+          role: "assistant",
+          content: "",
+          progress: { text, state: "active", revisions: [text] },
+          timestamp: Date.now(),
+        }, identity, assistantRenderId, clientTurnId),
+        { updateProgress: chatEvent.replace === true ? "replace" : "append" },
       ));
     }
   } else if (chatEvent.type === "thinking") {
@@ -233,18 +263,23 @@ export function handleOpenClawChatStreamEvent({
     }
   } else if (chatEvent.type === "done") {
     const normalized = normalizeHistoryMessage(payload.message);
-    if (normalized?.role === "assistant") {
-      setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage(normalized, identity, assistantRenderId, clientTurnId)));
-    } else if (assistantRenderId && Object.keys(identity).length > 0) {
-      setMessages((prev) => upsertAssistantMessage(
-        prev,
-        identifiedAssistantMessage({ role: "assistant", content: "", timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
-      ));
-    }
+    const settleIdentity = { ...identity, ...(assistantRenderId ? { renderId: assistantRenderId } : {}) };
+    setMessages((prev) => {
+      const next = normalized?.role === "assistant"
+        ? upsertAssistantMessage(prev, identifiedAssistantMessage(normalized, identity, assistantRenderId, clientTurnId))
+        : assistantRenderId && Object.keys(identity).length > 0
+          ? upsertAssistantMessage(
+            prev,
+            identifiedAssistantMessage({ role: "assistant", content: "", timestamp: Date.now() }, identity, assistantRenderId, clientTurnId),
+          )
+          : prev;
+      return settleAssistantProgress(next, settleIdentity);
+    });
     setSending(false);
     appendActivity({ type: "message", action: "Assistant response complete" });
   } else if (chatEvent.type === "error") {
     const message = chatEvent.text || "Unknown error";
+    setMessages((prev) => settleAssistantProgress(prev, { ...identity, ...(assistantRenderId ? { renderId: assistantRenderId } : {}) }));
     if (isAbortedChatPayload(payload, message)) {
       setSending(false);
       appendReplyStoppedActivity(appendActivity);
@@ -308,19 +343,58 @@ export function handleOpenClawSessionEvent({
     }
   }
 
+  if (event === "agent" && String(payloadRecord.stream || "").toLowerCase() === "assistant") {
+    const data = payloadRecord.data as Record<string, unknown> | undefined;
+    if (data && String(data.phase || "").toLowerCase() === "commentary") {
+      const text = sanitizeChatDisplayText(commentaryText(data));
+      if (text.trim()) {
+        setMessages((prev) => upsertAssistantMessage(
+          prev,
+          identifiedAssistantMessage({
+            role: "assistant",
+            content: "",
+            progress: { text, state: "active", revisions: [text] },
+            timestamp: Date.now(),
+          }, identity),
+          { updateProgress: data.replace === true ? "replace" : "append" },
+        ));
+      }
+    }
+  }
+
+  if (event === "agent" && String(payloadRecord.stream || "").toLowerCase() === "lifecycle") {
+    const data = payloadRecord.data as Record<string, unknown> | undefined;
+    const phase = String(data?.phase || "").toLowerCase();
+    if (phase === "end" || isAbortSignal(phase) || (data && isAbortedChatPayload(data))) {
+      setMessages((prev) => settleAssistantProgress(prev, identity));
+    }
+  }
+
   if (event === "chat") {
     if (isAbortedChatPayload(payloadRecord)) {
+      setMessages((prev) => settleAssistantProgress(prev, identity));
       setSending(false);
       appendReplyStoppedActivity(appendActivity);
       return;
     }
     const normalized = normalizeHistoryMessage(payloadRecord.message ?? payloadRecord);
-    appendLiveChatMessage(
-      setMessages,
-      normalized ? identifiedAssistantMessage(normalized, identity) : null,
-      { replaceContent: payloadRecord.replace === true },
-    );
-    if ((payload as Record<string, unknown>).state === "final") setSending(false);
+    const state = String(payloadRecord.state || "").toLowerCase();
+    const isTerminal = state === "final" || state === "error";
+    if (normalized?.role === "assistant") {
+      setMessages((prev) => {
+        const next = upsertAssistantMessage(
+          prev,
+          identifiedAssistantMessage(normalized, identity),
+          { replaceContent: payloadRecord.replace === true },
+        );
+        return isTerminal ? settleAssistantProgress(next, identity) : next;
+      });
+    } else if (normalized) {
+      appendLiveChatMessage(setMessages, identifiedAssistantMessage(normalized, identity));
+    } else if (isTerminal) {
+      setMessages((prev) => settleAssistantProgress(prev, identity));
+    }
+    if (isTerminal) setSending(false);
   } else if (event === "chat.content") {
     const normalized = normalizeHistoryMessage(
       payloadRecord.message ?? payloadRecord,
@@ -358,8 +432,13 @@ export function handleOpenClawSessionEvent({
     const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
     if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, identifiedAssistantMessage({ role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }, identity)));
   } else if (event === "chat.done") {
+    setMessages((prev) => settleAssistantProgress(prev, identity));
     setSending(false);
     void refreshSessions();
+  } else if (event === "chat.aborted") {
+    setMessages((prev) => settleAssistantProgress(prev, identity));
+    setSending(false);
+    appendReplyStoppedActivity(appendActivity);
   } else if (event === "sessions.changed") {
     void refreshSessions({ fresh: true });
   } else if (event === "sessions.updated") {
@@ -367,6 +446,7 @@ export function handleOpenClawSessionEvent({
     if (Array.isArray(list)) setSessions(normalizeOpenClawSessions(list));
   } else if (event === "chat.error") {
     const message = String(payloadRecord.message ?? "Unknown error");
+    setMessages((prev) => settleAssistantProgress(prev, identity));
     if (isAbortedChatPayload(payloadRecord, message)) {
       setSending(false);
       appendReplyStoppedActivity(appendActivity);
@@ -479,9 +559,69 @@ function nonEmptyString(value: unknown): string | null {
 
 function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
   if (!Array.isArray(messages)) return [];
-  return messages
+  const normalized = messages
     .map((message) => normalizeHistoryMessage(message))
     .filter((message): message is ChatMessage => message !== null);
+  const result: ChatMessage[] = [];
+  let pendingProgressIndex: number | null = null;
+
+  for (const message of normalized) {
+    if (message.role !== "assistant") {
+      result.push(message);
+      if (message.role === "user") pendingProgressIndex = null;
+      continue;
+    }
+
+    if (message.progress?.text) {
+      if (pendingProgressIndex === null) {
+        result.push(message);
+        pendingProgressIndex = result.length - 1;
+        continue;
+      }
+
+      const pending = result[pendingProgressIndex];
+      if (!pending?.progress) {
+        result.push(message);
+        pendingProgressIndex = result.length - 1;
+        continue;
+      }
+      const revisions = Array.from(new Set([
+        ...pending.progress.revisions,
+        pending.progress.text,
+        ...message.progress.revisions,
+        message.progress.text,
+      ])).filter((revision) => revision.trim()).slice(-16);
+      result[pendingProgressIndex] = {
+        ...pending,
+        progress: { text: message.progress.text, state: "settled", revisions },
+      };
+      continue;
+    }
+
+    if (pendingProgressIndex === null) {
+      result.push(message);
+      continue;
+    }
+
+    const pending = result[pendingProgressIndex];
+    if (!pending?.progress) {
+      pendingProgressIndex = null;
+      result.push(message);
+      continue;
+    }
+    const content = stripAssistantProgressContent(message.content, pending.progress);
+    const nextMessage = content === message.content ? message : { ...message, content };
+    if (message.toolCalls?.length) {
+      result.push(nextMessage);
+      continue;
+    }
+
+    result.splice(pendingProgressIndex, 1);
+    result.push({ ...nextMessage, progress: pending.progress });
+    pendingProgressIndex = null;
+  }
+
+  return result;
 }
 
 function normalizedStringArray(value: unknown): string[] {

@@ -207,6 +207,13 @@ function mergeAssistantSnapshot(history: ChatMessage, current: ChatMessage): Cha
     ...(!history.mediaUrls?.length && current.mediaUrls?.length ? { mediaUrls: current.mediaUrls } : {}),
     ...(!history.files?.length && current.files?.length ? { files: current.files } : {}),
     ...(!history.attachments?.length && current.attachments?.length ? { attachments: current.attachments } : {}),
+    ...(current.progress
+      ? {
+          progress: history.progress?.state === "settled"
+            ? { ...current.progress, state: "settled" as const }
+            : current.progress,
+        }
+      : {}),
     ...(current.status ? { status: current.status } : {}),
   };
 }
@@ -266,6 +273,14 @@ function reconcileCurrentLastTurn(
       message.role === "assistant" && hasProtocolCorrelation(message)
     ))) {
       next.push(...currentTail.filter(assistantMessageHasVisibleReply));
+      historyAssistantIndex = next.length - 1;
+    }
+
+    if (currentAssistant.progress && historyAssistantIndex >= 0) {
+      for (let index = historyAssistantIndex - 1; index > historyLastUserIndex; index -= 1) {
+        const message = next[index];
+        if (message && assistantMessageIsProgressOnly(message)) next.splice(index, 1);
+      }
     }
   }
 
@@ -300,6 +315,10 @@ function assistantMessageHasVisibleReply(message: ChatMessage): boolean {
       (message.files?.length ?? 0) > 0
     )
   );
+}
+
+function assistantMessageIsProgressOnly(message: ChatMessage): boolean {
+  return message.role === "assistant" && Boolean(message.progress?.text.trim()) && !assistantMessageHasVisibleReply(message);
 }
 
 function terminalNoticeKey(content: string): string | null {
@@ -350,16 +369,27 @@ export function reduceChatHistoryMessages(current: ChatMessage[], action: ChatHi
       return -1;
     })();
     const lastAssistant = lastAssistantIndex >= 0 ? currentMessages[lastAssistantIndex] : null;
+    const interruptedMessages = lastAssistant
+      ? currentMessages.map((message, index) => (
+          index === lastAssistantIndex
+            ? {
+                ...message,
+                ...(message.progress?.state === "active"
+                  ? { progress: { ...message.progress, state: "settled" as const } }
+                  : {}),
+                ...(assistantMessageHasVisibleReply(message) ? { status: "interrupted" as const } : {}),
+              }
+            : message
+        ))
+      : currentMessages;
     if (lastAssistant && assistantMessageHasVisibleReply(lastAssistant)) {
-      return currentMessages.map((message, index) => (
-        index === lastAssistantIndex ? { ...message, status: "interrupted" } : message
-      ));
+      return interruptedMessages;
     }
     if (currentMessages[currentMessages.length - 1]?.role === "system" && currentMessages[currentMessages.length - 1]?.content === OPENCLAW_REPLY_STOPPED_MESSAGE) {
-      return currentMessages;
+      return interruptedMessages;
     }
     return dedupeChatMessages([
-      ...currentMessages,
+      ...interruptedMessages,
       { role: "system", content: OPENCLAW_REPLY_STOPPED_MESSAGE, timestamp: Date.now() },
     ]);
   }
