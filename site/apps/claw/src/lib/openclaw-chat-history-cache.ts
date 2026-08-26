@@ -74,11 +74,13 @@ function equivalentStoredCacheKeys(
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
       if (!key || key === canonicalKey || !key.startsWith(sessionPrefix)) continue;
-      const storedSession = decodeURIComponent(key.slice(sessionPrefix.length));
-      if (
-        isGeneratedOpenClawSessionName(storedSession) &&
-        unscopedOpenClawSessionKey(storedSession) === canonicalSession
-      ) aliases.push(key);
+      try {
+        const storedSession = decodeURIComponent(key.slice(sessionPrefix.length));
+        if (
+          isGeneratedOpenClawSessionName(storedSession) &&
+          unscopedOpenClawSessionKey(storedSession) === canonicalSession
+        ) aliases.push(key);
+      } catch {}
     }
   } catch {}
   return aliases;

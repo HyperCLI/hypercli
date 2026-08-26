@@ -130,6 +130,7 @@ describe("openclaw chat history cache", () => {
 
   it("scopes entries by session and never stores ephemeral private chats", () => {
     expect(openClawChatHistoryCacheKey("agent-scope", "session-hypercli-ephemeral-1234abcd")).toBeNull();
+    expect(openClawChatHistoryCacheKey("agent-scope", "agent:default:session-hypercli-ephemeral-1234abcd")).toBeNull();
 
     writeCachedOpenClawChatHistory("agent-scope", [{ role: "user", content: "main thread" }]);
     writeCachedOpenClawChatHistory("agent-scope", [{ role: "user", content: "side thread" }], "dashboard:local-1");
@@ -144,6 +145,23 @@ describe("openclaw chat history cache", () => {
     clearCachedOpenClawChatHistory("agent-scope", "dashboard:local-1");
     expect(readCachedOpenClawChatHistory("agent-scope", "dashboard:local-1")).toEqual([]);
     expect(cachedHistoryKeys("agent-scope")).toHaveLength(1);
+  });
+
+  it("keeps non-generated scoped session keys isolated", () => {
+    const alphaSession = "agent:alpha:support-thread";
+    const betaSession = "agent:beta:support-thread";
+
+    expect(openClawChatHistoryCacheKey("agent-scoped", alphaSession)).not.toBe(
+      openClawChatHistoryCacheKey("agent-scoped", betaSession),
+    );
+    writeCachedOpenClawChatHistory("agent-scoped", [
+      { role: "assistant", content: "Alpha transcript" },
+    ], alphaSession);
+
+    expect(readCachedOpenClawChatHistory("agent-scoped", alphaSession)).toEqual([
+      expect.objectContaining({ content: "Alpha transcript" }),
+    ]);
+    expect(readCachedOpenClawChatHistory("agent-scoped", betaSession)).toEqual([]);
   });
 
   it("shares generated-session history across scoped and route-safe aliases", () => {
@@ -184,6 +202,56 @@ describe("openclaw chat history cache", () => {
     ]);
     expect(window.localStorage.getItem(legacyKey)).toBeNull();
     expect(window.localStorage.getItem(requireCacheKey("agent-legacy-alias", sessionKey))).not.toBeNull();
+  });
+
+  it("skips a malformed stored key while finding a valid generated-session alias", () => {
+    const agentId = "agent-malformed-alias";
+    const sessionKey = "dashboard:99999999-8888-4777-8666-555555555555";
+    const malformedKey = [
+      "hypercli:openclaw-chat-history:v1",
+      encodeURIComponent(agentId),
+      "session",
+      "%E0%A4%A",
+    ].join(":");
+    const legacyKey = [
+      "hypercli:openclaw-chat-history:v1",
+      encodeURIComponent(agentId),
+      "session",
+      encodeURIComponent(`agent:default:${sessionKey}`),
+    ].join(":");
+    window.localStorage.setItem(malformedKey, "malformed-key-sentinel");
+    window.localStorage.setItem(legacyKey, JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [{ role: "assistant", content: "Valid transcript after malformed key" }],
+    }));
+
+    expect(readCachedOpenClawChatHistory(agentId, sessionKey)).toEqual([
+      expect.objectContaining({ content: "Valid transcript after malformed key" }),
+    ]);
+    expect(window.localStorage.getItem(malformedKey)).toBe("malformed-key-sentinel");
+  });
+
+  it("clears the canonical entry and its legacy scoped generated-session alias", () => {
+    const agentId = "agent-clear-aliases";
+    const sessionKey = "dashboard:abcdefab-cdef-4abc-8def-abcdefabcdef";
+    const payload = JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [{ role: "assistant", content: "Transcript to clear" }],
+    });
+    const keys = [
+      requireCacheKey(agentId, sessionKey),
+      requireCacheKey(agentId, sessionKey).replace(
+        encodeURIComponent(sessionKey),
+        encodeURIComponent(`agent:default:${sessionKey}`),
+      ),
+    ];
+    for (const key of keys) window.localStorage.setItem(key, payload);
+
+    clearCachedOpenClawChatHistory(agentId, sessionKey);
+
+    for (const key of keys) expect(window.localStorage.getItem(key)).toBeNull();
   });
 
   it("still reads a scoped alias when migration storage is unavailable", () => {
