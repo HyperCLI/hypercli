@@ -1,7 +1,11 @@
 "use client";
 
 import { ensureChatMessageRenderId, type ChatMessage } from "@/lib/openclaw-chat";
-import { isEphemeralOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
+import {
+  isEphemeralOpenClawSessionName,
+  isGeneratedOpenClawSessionName,
+  unscopedOpenClawSessionKey,
+} from "@/lib/openclaw-session-sdk-surface";
 
 const CACHE_VERSION = 1;
 const CACHE_KEY_PREFIX = "hypercli:openclaw-chat-history:v1";
@@ -35,7 +39,11 @@ function normalizedAgentId(agentId: string | null | undefined): string | null {
 
 function normalizedSessionKey(sessionKey: string | null | undefined): string | null {
   const normalized = (sessionKey ?? "").trim();
-  return normalized && normalized !== "main" ? normalized : null;
+  if (!normalized) return null;
+  const canonical = isGeneratedOpenClawSessionName(normalized)
+    ? unscopedOpenClawSessionKey(normalized)
+    : normalized;
+  return canonical !== "main" ? canonical : null;
 }
 
 export function openClawChatHistoryCacheKey(
@@ -48,6 +56,32 @@ export function openClawChatHistoryCacheKey(
   if (session && isEphemeralOpenClawSessionName(session)) return null;
   const agentKey = `${CACHE_KEY_PREFIX}:${encodeURIComponent(normalized)}`;
   return session ? `${agentKey}:session:${encodeURIComponent(session)}` : agentKey;
+}
+
+function equivalentStoredCacheKeys(
+  localStorage: Storage,
+  agentId: string | null | undefined,
+  sessionKey: string | null | undefined,
+  canonicalKey: string,
+): string[] {
+  const normalizedAgent = normalizedAgentId(agentId);
+  const canonicalSession = normalizedSessionKey(sessionKey);
+  if (!normalizedAgent || !canonicalSession || !isGeneratedOpenClawSessionName(canonicalSession)) return [];
+
+  const sessionPrefix = `${CACHE_KEY_PREFIX}:${encodeURIComponent(normalizedAgent)}:session:`;
+  const aliases: string[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || key === canonicalKey || !key.startsWith(sessionPrefix)) continue;
+      const storedSession = decodeURIComponent(key.slice(sessionPrefix.length));
+      if (
+        isGeneratedOpenClawSessionName(storedSession) &&
+        unscopedOpenClawSessionKey(storedSession) === canonicalSession
+      ) aliases.push(key);
+    }
+  } catch {}
+  return aliases;
 }
 
 function trimText(value: string, maxChars: number, suffix: string): string {
@@ -157,15 +191,36 @@ export function readCachedOpenClawChatHistory(
   const localStorage = storage();
   if (!key || !localStorage) return [];
 
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Partial<CachedChatHistoryPayload>;
-    if (parsed.version !== CACHE_VERSION) return [];
-    return normalizeCachedMessages(parsed.messages);
-  } catch {
-    return [];
+  const candidateKeys = [key, ...equivalentStoredCacheKeys(localStorage, agentId, sessionKey, key)];
+  let selected: {
+    key: string;
+    raw: string;
+    messages: ChatMessage[];
+    updatedAt: number;
+  } | null = null;
+  for (const candidateKey of candidateKeys) {
+    try {
+      const raw = localStorage.getItem(candidateKey);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Partial<CachedChatHistoryPayload>;
+      if (parsed.version !== CACHE_VERSION) continue;
+      const messages = normalizeCachedMessages(parsed.messages);
+      if (messages.length === 0) continue;
+      const updatedAt = typeof parsed.updatedAt === "number" && Number.isFinite(parsed.updatedAt)
+        ? parsed.updatedAt
+        : 0;
+      if (!selected || updatedAt > selected.updatedAt) {
+        selected = { key: candidateKey, raw, messages, updatedAt };
+      }
+    } catch {}
   }
+  if (!selected) return [];
+
+  try {
+    if (selected.key !== key) localStorage.setItem(key, selected.raw);
+    for (const alias of candidateKeys.slice(1)) localStorage.removeItem(alias);
+  } catch {}
+  return selected.messages;
 }
 
 export function writeCachedOpenClawChatHistory(
@@ -180,6 +235,9 @@ export function writeCachedOpenClawChatHistory(
   try {
     const serialized = serializePayload(messages);
     localStorage.setItem(key, serialized);
+    for (const alias of equivalentStoredCacheKeys(localStorage, agentId, sessionKey, key)) {
+      localStorage.removeItem(alias);
+    }
   } catch {
     // Local history is a UX fallback. Quota/private-mode failures should not
     // interrupt live chat.
@@ -195,6 +253,7 @@ export function clearCachedOpenClawChatHistory(
   if (!key || !localStorage) return;
 
   try {
-    localStorage.removeItem(key);
+    const keys = [key, ...equivalentStoredCacheKeys(localStorage, agentId, sessionKey, key)];
+    for (const candidateKey of keys) localStorage.removeItem(candidateKey);
   } catch {}
 }

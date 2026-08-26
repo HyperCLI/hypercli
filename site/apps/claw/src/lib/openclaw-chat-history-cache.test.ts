@@ -146,6 +146,104 @@ describe("openclaw chat history cache", () => {
     expect(cachedHistoryKeys("agent-scope")).toHaveLength(1);
   });
 
+  it("shares generated-session history across scoped and route-safe aliases", () => {
+    const sessionKey = "dashboard:019789ab-cdef-4abc-8def-0123456789ab";
+    const scopedSessionKey = `agent:default:${sessionKey}`;
+
+    expect(openClawChatHistoryCacheKey("agent-alias", scopedSessionKey)).toBe(
+      openClawChatHistoryCacheKey("agent-alias", sessionKey),
+    );
+    writeCachedOpenClawChatHistory("agent-alias", [
+      { role: "assistant", content: "Shared transcript" },
+    ], scopedSessionKey);
+
+    expect(readCachedOpenClawChatHistory("agent-alias", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Shared transcript" }),
+    ]);
+    clearCachedOpenClawChatHistory("agent-alias", sessionKey);
+    expect(readCachedOpenClawChatHistory("agent-alias", scopedSessionKey)).toEqual([]);
+  });
+
+  it("migrates an existing scoped generated-session cache entry", () => {
+    const sessionKey = "dashboard:11111111-2222-4333-8444-555555555555";
+    const scopedSessionKey = `agent:default:${sessionKey}`;
+    const legacyKey = [
+      "hypercli:openclaw-chat-history:v1",
+      encodeURIComponent("agent-legacy-alias"),
+      "session",
+      encodeURIComponent(scopedSessionKey),
+    ].join(":");
+    window.localStorage.setItem(legacyKey, JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [{ role: "assistant", content: "Legacy scoped transcript" }],
+    }));
+
+    expect(readCachedOpenClawChatHistory("agent-legacy-alias", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Legacy scoped transcript" }),
+    ]);
+    expect(window.localStorage.getItem(legacyKey)).toBeNull();
+    expect(window.localStorage.getItem(requireCacheKey("agent-legacy-alias", sessionKey))).not.toBeNull();
+  });
+
+  it("still reads a scoped alias when migration storage is unavailable", () => {
+    const sessionKey = "dashboard:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const scopedSessionKey = `agent:default:${sessionKey}`;
+    const legacyKey = [
+      "hypercli:openclaw-chat-history:v1",
+      encodeURIComponent("agent-read-only-alias"),
+      "session",
+      encodeURIComponent(scopedSessionKey),
+    ].join(":");
+    window.localStorage.setItem(legacyKey, JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [{ role: "assistant", content: "Read-only legacy transcript" }],
+    }));
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota exceeded", "QuotaExceededError");
+    });
+
+    try {
+      expect(readCachedOpenClawChatHistory("agent-read-only-alias", sessionKey)).toEqual([
+        expect.objectContaining({ role: "assistant", content: "Read-only legacy transcript" }),
+      ]);
+    } finally {
+      setItemSpy.mockRestore();
+    }
+    expect(window.localStorage.getItem(legacyKey)).not.toBeNull();
+  });
+
+  it("prefers the newest valid generated-session cache entry during migration", () => {
+    const sessionKey = "dashboard:12345678-1234-4234-8234-123456789abc";
+    const scopedSessionKey = `agent:default:${sessionKey}`;
+    const canonicalKey = requireCacheKey("agent-newest-alias", sessionKey);
+    const legacyKey = [
+      "hypercli:openclaw-chat-history:v1",
+      encodeURIComponent("agent-newest-alias"),
+      "session",
+      encodeURIComponent(scopedSessionKey),
+    ].join(":");
+    window.localStorage.setItem(canonicalKey, JSON.stringify({
+      version: 1,
+      updatedAt: 1,
+      messages: [],
+    }));
+    window.localStorage.setItem(legacyKey, JSON.stringify({
+      version: 1,
+      updatedAt: 2,
+      messages: [{ role: "assistant", content: "Newest valid transcript" }],
+    }));
+
+    expect(readCachedOpenClawChatHistory("agent-newest-alias", sessionKey)).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Newest valid transcript" }),
+    ]);
+    expect(window.localStorage.getItem(legacyKey)).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem(canonicalKey) ?? "{}").messages).toEqual([
+      { role: "assistant", content: "Newest valid transcript" },
+    ]);
+  });
+
   it("never throws when the browser refuses the write (quota or private mode)", () => {
     const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("quota exceeded", "QuotaExceededError");
