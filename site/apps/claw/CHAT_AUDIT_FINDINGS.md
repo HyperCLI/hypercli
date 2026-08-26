@@ -32,7 +32,7 @@ Work remaining:
       run under a documented policy that still permits intentional polling.
 - [x] Emit one terminal SDK error and clear local sending state when the guard
       trips, even if the abort RPC fails.
-- [ ] Add an absolute run-duration or event budget that cannot be extended by
+- [x] Add an absolute run-duration or event budget that cannot be extended by
       nonterminal activity.
 - [ ] Add idempotency keys or approval requirements for mutating tools at the
       execution boundary.
@@ -55,7 +55,7 @@ Release gates:
 - [ ] One requested tool call produces exactly one start and one result.
 - [ ] A repeated call is stopped before a second side effect is dispatched.
 - [ ] One run produces exactly one terminal outcome.
-- [ ] Continuous nonterminal traffic cannot keep a run alive indefinitely.
+- [x] Continuous nonterminal traffic cannot keep a run alive indefinitely.
 - [ ] Stop and guard-triggered aborts leave no active SDK handler or UI sending
       state.
 
@@ -73,14 +73,21 @@ SDK containment policy:
   `CHAT_TOOL_RESULT_CORRELATION_FAILED` error. Both guard paths detach stream
   handlers before requesting abort, and abort failure does not suppress the
   terminal error.
+- The 15-minute run deadline is fixed before `chat.send` and is never refreshed
+  by stream activity. Expiry requests `chat.abort` and emits one terminal
+  `CHAT_RUN_DURATION_LIMIT` error; a natural terminal already received at the
+  deadline takes precedence.
 
 Primary source references:
 
 - `ts-sdk/src/openclaw/gateway.ts:1438`
-- `ts-sdk/src/openclaw/gateway.ts:5363`
-- `ts-sdk/src/openclaw/gateway.ts:5384`
-- `ts-sdk/src/openclaw/gateway.ts:5632`
+- `ts-sdk/src/openclaw/gateway.ts:5364`
+- `ts-sdk/src/openclaw/gateway.ts:5385`
+- `ts-sdk/src/openclaw/gateway.ts:5633`
+- `ts-sdk/src/openclaw/gateway.ts:5664`
+- `ts-sdk/src/openclaw/gateway.ts:6120`
 - `ts-sdk/tests/gateway.test.ts:4641`
+- `ts-sdk/tests/gateway.test.ts:5007`
 
 ## P1 - High
 

@@ -5301,6 +5301,7 @@ export class GatewayClient {
     }
 
     const idempotencyKey = makeId();
+    const runDeadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
     const acceptedRunIds = new Set<string>([idempotencyKey]);
     if (options.ephemeralSession) this.suppressEphemeralRunId(idempotencyKey);
     const queuedEvents: GatewayEvent[] = [];
@@ -5629,7 +5630,7 @@ export class GatewayClient {
         }
         return historyText;
       };
-      const stopForToolSafety = (
+      const stopForChatSafety = (
         failure: { code: string; text: string; details: Record<string, any> },
         identity: ReturnType<typeof chatEventIdentity>,
       ): { event: ChatEvent; abort: Promise<void> } => {
@@ -5659,8 +5660,14 @@ export class GatewayClient {
         };
       };
 
-      let deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
-      while (Date.now() < deadline) {
+      while (true) {
+        if (Date.now() >= runDeadline) {
+          const terminalEvent = streamState.terminalEvent;
+          if (!terminalEvent) break;
+          queuedEvents.length = 0;
+          queuedEvents.push(terminalEvent);
+          streamState.terminalEvent = null;
+        }
         if (queuedEvents.length === 0) {
           if (streamCloseError) throw streamCloseError;
           if (pendingLifecycleError && Date.now() >= pendingLifecycleError.expiresAt) {
@@ -5672,9 +5679,9 @@ export class GatewayClient {
             };
             return;
           }
-          const remainingMs = Math.max(100, Math.min(
+          const remainingMs = Math.max(1, Math.min(
             1000,
-            deadline - Date.now(),
+            runDeadline - Date.now(),
             pendingLifecycleError ? pendingLifecycleError.expiresAt - Date.now() : Number.POSITIVE_INFINITY,
           ));
           await new Promise<void>((resolve) => {
@@ -5723,8 +5730,6 @@ export class GatewayClient {
         if (pendingLifecycleError && fallbackContinued) {
           pendingLifecycleError = null;
         }
-
-        deadline = Date.now() + DEFAULT_AGENT_TIMEOUT;
 
         if (evt.event === "chat.content") {
           const text = typeof payload.text === "string" ? payload.text : "";
@@ -5794,7 +5799,7 @@ export class GatewayClient {
               };
             }
             if (result.failure && !streamState.terminalEvent) {
-              const stopped = stopForToolSafety(result.failure, identity);
+              const stopped = stopForChatSafety(result.failure, identity);
               yield stopped.event;
               await stopped.abort;
               return;
@@ -5897,7 +5902,7 @@ export class GatewayClient {
             yield { type: "tool_result", ...identity, data: payload };
           }
           if (result.failure && !streamState.terminalEvent) {
-            const stopped = stopForToolSafety(result.failure, identity);
+            const stopped = stopForChatSafety(result.failure, identity);
             yield stopped.event;
             await stopped.abort;
             return;
@@ -6110,7 +6115,17 @@ export class GatewayClient {
       }
 
       if (streamCloseError) throw streamCloseError;
-      throw new Error("Streaming chat.send timed out");
+      const stopped = stopForChatSafety(
+        {
+          code: "CHAT_RUN_DURATION_LIMIT",
+          text: "Chat stopped after reaching the maximum run duration.",
+          details: { durationMs: DEFAULT_AGENT_TIMEOUT },
+        },
+        { runId: serverRunId || idempotencyKey, sessionKey },
+      );
+      yield stopped.event;
+      await stopped.abort;
+      return;
     } finally {
       if (acknowledgementPending) this.finishEphemeralChatAcknowledgement(false);
       this.internalEventHandlers.delete(handler);

@@ -5004,6 +5004,103 @@ describe("GatewayClient", () => {
     expect(rpc.mock.calls.some(([method]) => method === "chat.abort")).toBe(false);
   });
 
+  it("chatSend enforces a fixed run duration despite nonterminal activity", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      (client as any).connected = true;
+      (client as any).ws = { readyState: MockWebSocket.OPEN };
+      const rpc = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+        if (method === "chat.send") return { runId: "duration-limit-run" };
+        if (method === "chat.abort") return {};
+        throw new Error(`unexpected RPC ${method}`);
+      });
+
+      const streamPromise = (async () => {
+        const events = [];
+        for await (const event of client.chatSend("Keep working", "main")) events.push(event);
+        return events;
+      })();
+
+      await flushMicrotasks();
+      vi.setSystemTime(new Date(899_500));
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat.content",
+        payload: { runId: "duration-limit-run", sessionKey: "main", text: "Still working" },
+      }));
+      await flushMicrotasks();
+      await vi.advanceTimersByTimeAsync(500);
+
+      const events = await streamPromise;
+      expect(events).toMatchObject([
+        { type: "content", text: "Still working" },
+        {
+          type: "error",
+          runId: "duration-limit-run",
+          data: {
+            code: "CHAT_RUN_DURATION_LIMIT",
+            durationMs: 900_000,
+            abortRequested: true,
+          },
+        },
+      ]);
+      expect(rpc).toHaveBeenCalledWith("chat.abort", {
+        sessionKey: "main",
+        runId: "duration-limit-run",
+      });
+      expect((client as any).activeNormalChatStreams.size).toBe(0);
+      expect((client as any).internalEventHandlers.size).toBe(0);
+      expect((client as any).internalStreamCloseHandlers.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("chatSend prefers a natural terminal received at the run deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    try {
+      const client = new GatewayClient({
+        url: "wss://openclaw-agent.example",
+        gatewayToken: "gw-token",
+      });
+      (client as any).connected = true;
+      (client as any).ws = { readyState: MockWebSocket.OPEN };
+      const rpc = vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "duration-terminal-run" });
+
+      const streamPromise = (async () => {
+        const events = [];
+        for await (const event of client.chatSend("Finish", "main")) events.push(event);
+        return events;
+      })();
+
+      await flushMicrotasks();
+      vi.setSystemTime(new Date(900_000));
+      (client as any).handleMessage(JSON.stringify({
+        type: "event",
+        event: "chat",
+        payload: {
+          runId: "duration-terminal-run",
+          sessionKey: "main",
+          state: "final",
+          message: { role: "assistant", content: [{ type: "text", text: "Finished" }] },
+        },
+      }));
+
+      const events = await streamPromise;
+      expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+      expect(events[0]?.text).toBe("Finished");
+      expect(rpc.mock.calls.some(([method]) => method === "chat.abort")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("chatSend falls back to lifecycle end when chat final is missing", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
