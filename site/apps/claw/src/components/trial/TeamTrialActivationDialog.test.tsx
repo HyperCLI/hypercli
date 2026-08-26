@@ -97,7 +97,7 @@ describe("TeamTrialActivationDialog", () => {
     expect(onStartTrial).toHaveBeenCalledOnce();
   });
 
-  it("serves bundled images directly and clears the inherited desktop width cap", () => {
+  it("serves bundled images directly in a bounded desktop dialog", () => {
     render(
       <TeamTrialActivationDialog
         open
@@ -110,7 +110,11 @@ describe("TeamTrialActivationDialog", () => {
       "src",
       "/images/team-trial/feature-image-03.png",
     );
-    expect(screen.getByTestId("team-trial-activation-dialog")).toHaveClass("sm:max-w-none");
+    expect(screen.getByTestId("team-trial-activation-dialog")).toHaveClass(
+      "sm:max-w-none",
+      "sm:h-[min(600px,calc(100dvh-2rem))]",
+      "sm:w-[min(1120px,calc(100vw-2rem))]",
+    );
   });
 
   it("advances automatically and supports manual pagination", () => {

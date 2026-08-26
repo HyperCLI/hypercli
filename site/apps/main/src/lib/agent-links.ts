@@ -3,7 +3,7 @@ import { NAV_URLS } from "@hypercli/shared-ui";
 const AGENTS_DASHBOARD_URL = `${NAV_URLS.clawDashboard}/agents`;
 
 export function agentTrialHref(_planId: string): string {
-  return `${NAV_URLS.claw}/trial`;
+  return `${AGENTS_DASHBOARD_URL}?view=overview`;
 }
 
 export const TEAM_TRIAL_HREF = agentTrialHref("team");

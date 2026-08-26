@@ -500,14 +500,6 @@ function trialClaimErrorMessage(error: unknown): string {
     : "Trial access could not be started. Try again.";
 }
 
-function clearTeamTrialIntentSearchParams(): void {
-  if (typeof window === "undefined") return;
-  const params = new URLSearchParams(window.location.search);
-  params.delete("intent");
-  if (params.get("plan")?.toLowerCase() === TEAM_TRIAL_PLAN_ID) params.delete("plan");
-  syncDashboardSearchParams(params);
-}
-
 function normalizeBundle(value: unknown): SlotBundle {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const entries = Object.entries(value as Record<string, unknown>)
@@ -1122,9 +1114,7 @@ function AgentsPageContent() {
   const requestedLegacyMainSession = Boolean(requestedSessionRouteValue && !requestedSessionKey);
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
-  const requestedIntent = searchParams.get("intent")?.trim().toLowerCase() || null;
   const requestedPlanId = searchParams.get("plan")?.trim() || null;
-  const teamTrialIntentRequested = requestedIntent === "trial" && (!requestedPlanId || requestedPlanId.toLowerCase() === TEAM_TRIAL_PLAN_ID);
   const stripeCheckoutRecoveryRequested = searchParams.get("checkout") === "success" && Boolean(searchParams.get("session_id")?.trim());
   const requestedSection = searchParams.get("section")?.trim() || null;
   const requestedKnowledgeCollectionId = resolveKnowledgeCollectionId(searchParams);
@@ -1292,7 +1282,6 @@ function AgentsPageContent() {
   const pendingSlotReleasesRef = useRef<PendingSlotReleaseMap>(new Map());
   const tokenUsageRefreshSchedulerRef = useRef<TokenUsageRefreshScheduler | null>(null);
   const checkoutReturnHandledRef = useRef(false);
-  const appliedTeamTrialIntentRef = useRef<string | null>(null);
   const trialClaimPrincipalRef = useRef<string | null>(null);
   const agentDataGenerationRef = useRef(0);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
@@ -2791,7 +2780,6 @@ function AgentsPageContent() {
     try {
       const token = await getToken();
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
-      clearTeamTrialIntentSearchParams();
       const checkoutAttemptId = createPlanCheckoutAttemptId();
       const { checkout, pending } = await createTeamTrialCheckoutState(
         { startTrial: (request) => requestTrialCheckout(token, request) },
@@ -2850,7 +2838,6 @@ function AgentsPageContent() {
       const intent = pendingAuthIntent;
       setPendingAuthIntent(null);
       if (activeTrial) {
-        clearTeamTrialIntentSearchParams();
         setError("Your trial is already active.");
         return;
       }
@@ -2859,7 +2846,6 @@ function AgentsPageContent() {
         const draftMatchesPrincipal = !firstAgentSetupDraft?.principalId
           || firstAgentSetupDraft.principalId === user.id;
         if (!draftMatchesIntent || !draftMatchesPrincipal) {
-          clearTeamTrialIntentSearchParams();
           setError("This agent setup belongs to a different account. Start a fresh setup before starting the Team trial.");
           return;
         }
@@ -2874,17 +2860,6 @@ function AgentsPageContent() {
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [activeTrial, authLoading, firstAgentSetupDraft, isAuthenticated, pendingAuthIntent, startTrial, user?.id]);
-
-  useEffect(() => {
-    if (!teamTrialIntentRequested || stripeCheckoutRecoveryRequested) {
-      appliedTeamTrialIntentRef.current = null;
-      return;
-    }
-    const key = `${requestedIntent}:${requestedPlanId ?? TEAM_TRIAL_PLAN_ID}`;
-    if (authLoading || appliedTeamTrialIntentRef.current === key) return;
-    appliedTeamTrialIntentRef.current = key;
-    beginTeamTrial();
-  }, [authLoading, beginTeamTrial, requestedIntent, requestedPlanId, stripeCheckoutRecoveryRequested, teamTrialIntentRequested]);
 
   const beginEmbeddedTeamTrial = useCallback((product: UpgradeDisplayProduct) => {
     const agentSize = primaryLaunchTier(product.bundle);
@@ -6565,7 +6540,6 @@ function AgentsPageContent() {
           setTrialActivationOpen(open);
           if (!open) {
             setTrialActivationContext(null);
-            clearTeamTrialIntentSearchParams();
           }
         }}
         onStartTrial={() => {

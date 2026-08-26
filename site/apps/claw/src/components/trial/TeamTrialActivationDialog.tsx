@@ -124,7 +124,7 @@ export function TeamTrialActivationDialog({
           event.preventDefault();
           headingRef.current?.focus();
         }}
-        className="z-[10021] h-[min(850px,calc(100dvh-1rem))] w-[min(1600px,calc(100vw-1rem))] max-w-none grid-rows-[minmax(220px,0.78fr)_minmax(0,1.22fr)] gap-0 overflow-hidden rounded-[26px] border-[#303036] bg-[#18181b] p-0 text-[#f7f7f8] shadow-[0_36px_120px_rgba(0,0,0,0.68)] motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none sm:h-[min(820px,calc(100dvh-2rem))] sm:w-[min(1600px,calc(100vw-2rem))] sm:max-w-none md:grid-cols-[1fr_1fr] md:grid-rows-1 [&>button:last-child]:z-30 [&>button:last-child]:text-[#d7d7da] max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none"
+        className="z-[10021] h-[min(600px,calc(100dvh-1rem))] w-[min(1120px,calc(100vw-1rem))] max-w-none grid-rows-[minmax(220px,0.78fr)_minmax(0,1.22fr)] gap-0 overflow-hidden rounded-[18px] border-[#303036] bg-[#18181b] p-0 text-[#f7f7f8] shadow-[0_36px_120px_rgba(0,0,0,0.68)] motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none sm:h-[min(600px,calc(100dvh-2rem))] sm:w-[min(1120px,calc(100vw-2rem))] sm:max-w-none md:grid-cols-[1fr_1fr] md:grid-rows-1 [&>button:last-child]:z-30 [&>button:last-child]:text-[#d7d7da] max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none"
       >
         <DialogDescription className="sr-only">
           Start a seven-day free trial to use tools, files, skills, automations, and desktop access.
@@ -194,31 +194,31 @@ export function TeamTrialActivationDialog({
         </section>
 
         <section className="flex min-h-0 flex-col bg-[#18181b]">
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-7 sm:px-9 sm:pb-9 sm:pt-10 lg:px-12 lg:pt-14">
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-7 sm:px-8 sm:pb-8 sm:pt-9">
             <DialogTitle
               ref={headingRef}
               tabIndex={-1}
-              className="max-w-[26ch] text-balance text-[clamp(1.65rem,3vw,2.35rem)] font-medium leading-[1.08] tracking-[-0.03em] text-white outline-none"
+              className="max-w-[26ch] text-balance text-[clamp(1.55rem,2.2vw,1.875rem)] font-medium leading-[1.1] tracking-[-0.03em] text-white outline-none"
             >
               Unlock the full HyperCLI experience
             </DialogTitle>
-            <p className="mt-4 max-w-[42rem] text-[15px] leading-6 text-[#a5a5ad] sm:text-[17px] sm:leading-7">
+            <p className="mt-3 max-w-[42rem] text-[15px] leading-6 text-[#a5a5ad] sm:text-[16px]">
               See what your agent can do with full access for 7 days. Connect your tools, work with files, run skills, automate recurring work, and use its own desktop.
             </p>
 
-            <ol className="mt-7 space-y-0 sm:mt-10">
+            <ol className="mt-7 space-y-0 sm:mt-8">
               <TrialMoment
-                icon={<Rocket className="h-5 w-5" />}
+                icon={<Rocket className="h-4 w-4" />}
                 title="Your trial starts today"
                 detail="Full access begins immediately."
               />
               <TrialMoment
-                icon={<BellRing className="h-5 w-5" />}
+                icon={<BellRing className="h-4 w-4" />}
                 title="We'll remind you before it ends"
                 detail="No surprise charges."
               />
               <TrialMoment
-                icon={<CalendarClock className="h-5 w-5" />}
+                icon={<CalendarClock className="h-4 w-4" />}
                 title={`Your trial ends ${endsOn}`}
                 detail="Cancel anytime."
                 last
@@ -255,16 +255,16 @@ function TrialMoment({
   last?: boolean;
 }) {
   return (
-    <li className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-x-4 sm:grid-cols-[3.75rem_minmax(0,1fr)] sm:gap-x-5">
+    <li className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4">
       <div className="flex flex-col items-center">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2a2a2e] text-white sm:h-14 sm:w-14">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2a2a2e] text-white">
           {icon}
         </span>
-        {!last ? <span aria-hidden="true" className="my-2 h-8 w-px bg-white/10 sm:h-10" /> : null}
+        {!last ? <span aria-hidden="true" className="my-2 h-8 w-px bg-white/10" /> : null}
       </div>
-      <div className={last ? "pt-1" : "pb-5 pt-1 sm:pb-7"}>
-        <h3 className="text-[17px] font-semibold leading-6 text-white sm:text-[19px]">{title}</h3>
-        <p className="mt-1 text-[14px] leading-5 text-[#96969f] sm:text-[16px] sm:leading-6">{detail}</p>
+      <div className={last ? "pt-0.5" : "pb-4 pt-0.5"}>
+        <h3 className="text-[17px] font-semibold leading-6 text-white">{title}</h3>
+        <p className="mt-1 text-[14px] leading-5 text-[#96969f] sm:text-[15px] sm:leading-6">{detail}</p>
       </div>
     </li>
   );

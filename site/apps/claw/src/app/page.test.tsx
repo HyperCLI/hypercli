@@ -52,14 +52,14 @@ describe("Claw login page", () => {
     expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?view=overview");
   });
 
-  it("preserves a Team trial handoff after authentication", async () => {
+  it("lands a Team trial handoff on the Free dashboard after authentication", async () => {
     window.history.replaceState(null, "", "/?intent=trial&plan=team");
     mocks.auth = { isLoading: false, isAuthenticated: true };
 
     render(<Home />);
 
     await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/trial");
+      expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?view=overview");
     });
   });
 

@@ -57,13 +57,13 @@ describe("dashboard routes", () => {
     );
   });
 
-  it("builds and preserves an explicit Team trial entry", () => {
-    expect(buildAgentTrialHref()).toBe("/trial");
+  it("lands Team trial links on the Free dashboard", () => {
+    expect(buildAgentTrialHref()).toBe("/dashboard/agents?view=overview");
     expect(buildAuthenticatedClawHomeHref("?intent=trial&plan=team")).toBe(
-      "/trial",
+      "/dashboard/agents?view=overview",
     );
     expect(buildAuthenticatedClawHomeHref("?plan=team")).toBe(
-      "/trial",
+      "/dashboard/agents?view=overview",
     );
     expect(buildAuthenticatedClawHomeHref("?plan=pro")).toBe(
       "/dashboard/agents?open=agent-launcher&plan=pro",

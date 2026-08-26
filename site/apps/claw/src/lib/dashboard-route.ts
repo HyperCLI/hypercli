@@ -27,7 +27,7 @@ export function buildAgentLauncherHref(planId?: string | null): string {
 }
 
 export function buildAgentTrialHref(_planId = "team"): string {
-  return "/trial";
+  return DASHBOARD_VIEW_HREFS.overview;
 }
 
 export function buildAuthenticatedClawHomeHref(search = ""): string {
