@@ -4,6 +4,8 @@ import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { getActiveAgentTrial } from "@/lib/agent-trial";
 import {
   canStartTeamTrialForPrincipal,
+  resolveProductUseAccess,
+  type ProductUseAccessDecision,
   type TeamTrialStartState,
 } from "@/lib/plan-checkout-state";
 
@@ -176,6 +178,20 @@ describe("agents page Team trial surfacing", () => {
 
   it.each(cases)("%s", (_label, state, expected) => {
     expect(canStartTeamTrialForPrincipal(state)).toBe(expected);
+  });
+
+  const productUseCases: Array<[string, TeamTrialStartState, ProductUseAccessDecision]> = [
+    ["fails closed while billing data is loading", cases[0]![1], "loading"],
+    ["opens trial activation for an eligible Free account", cases[5]![1], "trial"],
+    ["opens the paid catalog when trial history exists", cases[6]![1], "upgrade"],
+    ["allows an active paid subscription", cases[7]![1], "allow"],
+    ["allows direct grant-backed access", cases[8]![1], "allow"],
+    ["allows an active trial", cases[9]![1], "allow"],
+    ["opens the paid catalog when billing history is unresolved", cases[3]![1], "upgrade"],
+  ];
+
+  it.each(productUseCases)("resolves product use: %s", (_label, state, expected) => {
+    expect(resolveProductUseAccess(state)).toBe(expected);
   });
 
   it("keeps an active trial on the management path regardless of history shape", () => {

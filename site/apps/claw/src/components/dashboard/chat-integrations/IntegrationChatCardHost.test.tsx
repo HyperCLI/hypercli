@@ -63,7 +63,7 @@ describe("IntegrationChatCardHost", () => {
           checking: false,
           configuring: false,
           error: null,
-          connectHref: "/slack/start",
+          onStartOAuth: vi.fn(),
           onChooseHosted: vi.fn(),
           onChooseSelfHosted: vi.fn(),
           onBackToChoice: vi.fn(),

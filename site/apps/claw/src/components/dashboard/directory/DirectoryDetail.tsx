@@ -18,6 +18,7 @@ interface DirectoryDetailProps {
   onOpenShell: () => void;
   onBack: () => void;
   onCloseModal: () => void;
+  onRequestProductUse?: () => boolean;
 }
 
 export function DirectoryDetail({
@@ -29,6 +30,7 @@ export function DirectoryDetail({
   onOpenShell,
   onBack,
   onCloseModal,
+  onRequestProductUse,
 }: DirectoryDetailProps) {
   const plugin = useMemo(() => PLUGIN_REGISTRY.find((p) => p.id === pluginId), [pluginId]);
   const [enabling, setEnabling] = useState(false);
@@ -47,6 +49,7 @@ export function DirectoryDetail({
   const Icon = plugin.icon;
 
   const handleSimpleEnable = async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setEnabling(true);
     try {
       const parts = plugin.configPath.split(".");
@@ -91,6 +94,7 @@ export function DirectoryDetail({
           onOpenShell={() => { onCloseModal(); onOpenShell(); }}
           onClose={onBack}
           configPath={plugin.configPath}
+          onRequestProductUse={onRequestProductUse}
         />
       );
     }
@@ -109,6 +113,7 @@ export function DirectoryDetail({
           onChannelProbe={onChannelProbe}
           onClose={onBack}
           onVerified={() => setJustEnabled(true)}
+          onRequestProductUse={onRequestProductUse}
         />
       );
     }

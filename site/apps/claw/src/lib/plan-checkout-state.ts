@@ -708,6 +708,18 @@ export function canStartTeamTrialForPrincipal(state: TeamTrialStartState): boole
   );
 }
 
+export type ProductUseAccessDecision = "loading" | "allow" | "trial" | "upgrade";
+
+export function resolveProductUseAccess(state: TeamTrialStartState): ProductUseAccessDecision {
+  if (
+    !state.principalId
+    || state.billingDataPrincipalId !== state.principalId
+    || !state.summary
+  ) return "loading";
+  if (hasActivePlan(state.summary)) return "allow";
+  return canStartTeamTrialForPrincipal(state) ? "trial" : "upgrade";
+}
+
 export function checkoutReflectedInSummary(
   summary: HyperAgentSubscriptionSummary | null | undefined,
   pending: PendingPlanCheckout | null,

@@ -22,6 +22,7 @@ export interface IntegrationSetupRenderContext {
   onDismiss?: () => void;
   directSetup?: boolean;
   slackRelaySetup?: SlackRelaySetupOptions;
+  onRequestProductUse?: () => boolean;
 }
 
 export function gatewayReconnect(chat: ChatSession) {

@@ -124,6 +124,7 @@ type KnowledgeHubProps = {
   onNavigateCollection?: (collectionId: string | null) => void;
   onSelectedCollectionChange?: (collection: KnowledgeHubSelectedCollection | null) => void;
   headerControlsTargetId?: string;
+  onRequestProductUse?: () => boolean;
 };
 
 function agentName(agent: KnowledgeHubAgent): string {
@@ -222,6 +223,7 @@ function CreateCollectionDialog({
   agentsLoading,
   agentsError,
   onCreate,
+  onRequestProductUse,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -229,6 +231,7 @@ function CreateCollectionDialog({
   agentsLoading: boolean;
   agentsError: string | null;
   onCreate: (name: string, description: string, agentIds: string[]) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const nameInputId = useId();
   const descriptionInputId = useId();
@@ -268,6 +271,7 @@ function CreateCollectionDialog({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!trimmedName || submitting) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -609,6 +613,7 @@ function CollectionSettings({
   busy,
   nameInputId,
   onSave,
+  onRequestProductUse,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -616,6 +621,7 @@ function CollectionSettings({
   busy: boolean;
   nameInputId: string;
   onSave: (name: string, description: string) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const initialName = knowledgeWorkspaceName(collection.workspace);
   const initialDescription = collection.workspace.description?.trim() ?? "";
@@ -644,6 +650,7 @@ function CollectionSettings({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!trimmedName || saving || !canAdminister || !hasChanges) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSaving(true);
     setError(null);
     try {
@@ -725,11 +732,13 @@ function FileDetails({
   file,
   busy,
   onSave,
+  onRequestProductUse,
 }: {
   collection: KnowledgeHubCollection;
   file: WorkspaceFile;
   busy: boolean;
   onSave: (input: { displayName: string; keywords: string[]; summary: string | null }) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const initialDisplayName = fileName(file);
   const initialKeywords = parseKeywords(file.keywords.join(","));
@@ -770,6 +779,7 @@ function FileDetails({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!trimmedDisplayName || !hasChanges || saving || busy || !canWrite) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSaving(true);
     setError(null);
     try {
@@ -1724,6 +1734,7 @@ export function KnowledgeHub({
   onNavigateCollection,
   onSelectedCollectionChange,
   headerControlsTargetId,
+  onRequestProductUse,
 }: KnowledgeHubProps) {
   const {
     workspacesClient,
@@ -2027,11 +2038,13 @@ export function KnowledgeHub({
 
   function openUploadPicker() {
     if (busyAction) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setActiveTab("knowledge");
     window.requestAnimationFrame(() => document.getElementById(uploadInputId)?.click());
   }
 
   async function handleCreate(name: string, description: string, agentIds: string[]) {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     const collection = await runAction("create-collection", () => createCollection({
       name,
       description: description || undefined,
@@ -2059,6 +2072,7 @@ export function KnowledgeHub({
 
   async function handleUpload(files: File[]) {
     if (!selectedCollection || files.length === 0 || busyAction) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     const uploaded = await runAction(`upload:${selectedCollection.workspace.id}`, () => uploadFiles(selectedCollection, files));
     if (uploaded[0]) {
       changeSelectedFilePath(uploaded[0].path);
@@ -2080,6 +2094,7 @@ export function KnowledgeHub({
   }
 
   async function toggleAgentAccess(collection: KnowledgeHubCollection, agentId: string, enabled: boolean) {
+    if (enabled && onRequestProductUse && !onRequestProductUse()) return;
     setBusyAgentId(agentId);
     setActionError(null);
     try {
@@ -2096,6 +2111,7 @@ export function KnowledgeHub({
   async function retryFailedSources(collection: KnowledgeHubCollection) {
     const failedFiles = collection.files?.filter((file) => knowledgeFileHealth(file) === "failed") ?? [];
     if (failedFiles.length === 0) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     const key = `retry-all:${collection.workspace.id}`;
     setBusyAction(key);
     setActionError(null);
@@ -2153,7 +2169,10 @@ export function KnowledgeHub({
             onEditCollection={openCollectionEditor}
             onDeleteCollection={requestCollectionDelete}
             onOpenKnowledge={openCollectionKnowledge}
-            onCreateCollection={() => setCreateOpen(true)}
+            onCreateCollection={() => {
+              if (onRequestProductUse && !onRequestProductUse()) return;
+              setCreateOpen(true);
+            }}
             headingRef={indexHeadingRef}
           />
         ) : selectedCollection ? (
@@ -2271,7 +2290,10 @@ export function KnowledgeHub({
                   onDragOverChange={setDragOver}
                   onSelectFile={chooseFile}
                   onDownload={(file) => { void downloadSource(selectedCollection, file).catch(() => undefined); }}
-                  onRegenerate={(file) => { void runAction(`regenerate:${selectedCollection.workspace.id}:${file.path}`, () => regenerateFile(selectedCollection, file)).catch(() => undefined); }}
+                  onRegenerate={(file) => {
+                    if (onRequestProductUse && !onRequestProductUse()) return;
+                    void runAction(`regenerate:${selectedCollection.workspace.id}:${file.path}`, () => regenerateFile(selectedCollection, file)).catch(() => undefined);
+                  }}
                   onDelete={(file) => requestFileDelete(selectedCollection, file)}
                   onRetryAll={() => { void retryFailedSources(selectedCollection); }}
                 />
@@ -2340,7 +2362,10 @@ export function KnowledgeHub({
                 <Download />
               </Button>
               {selectedCanWrite ? (
-                <Button type="button" variant="ghost" size="icon" onClick={() => { void runSourceAction(`regenerate:${selectedCollection.workspace.id}:${selectedFile.path}`, () => regenerateFile(selectedCollection, selectedFile), "The agent view couldn't be regenerated.").catch(() => undefined); }} disabled={selectedBusy} aria-label="Regenerate agent view" className="h-8 w-8">
+                <Button type="button" variant="ghost" size="icon" onClick={() => {
+                  if (onRequestProductUse && !onRequestProductUse()) return;
+                  void runSourceAction(`regenerate:${selectedCollection.workspace.id}:${selectedFile.path}`, () => regenerateFile(selectedCollection, selectedFile), "The agent view couldn't be regenerated.").catch(() => undefined);
+                }} disabled={selectedBusy} aria-label="Regenerate agent view" className="h-8 w-8">
                   {busyAction?.startsWith("regenerate:") ? <Loader2 className="animate-spin motion-reduce:animate-none" /> : <RefreshCw />}
                 </Button>
               ) : null}
@@ -2360,6 +2385,7 @@ export function KnowledgeHub({
                   collection={selectedCollection}
                   file={selectedFile}
                   busy={selectedBusy}
+                  onRequestProductUse={onRequestProductUse}
                   onSave={async (input) => {
                     const updated = await runAction(`metadata:${selectedCollection.workspace.id}:${selectedFile.path}`, () => updateFile(selectedCollection, selectedFile, input));
                     changeSelectedFilePath(updated.path);
@@ -2403,6 +2429,7 @@ export function KnowledgeHub({
           collection={editingCollection}
           busy={Boolean(busyAction?.includes(editingCollection.workspace.id))}
           nameInputId={collectionNameInputId}
+          onRequestProductUse={onRequestProductUse}
           onSave={async (name, description) => {
             await runAction(`collection:${editingCollection.workspace.id}`, () => updateCollection(editingCollection, { name, description }));
           }}
@@ -2416,6 +2443,7 @@ export function KnowledgeHub({
           agents={agents}
           agentsLoading={agentsLoading}
           agentsError={agentsError}
+          onRequestProductUse={onRequestProductUse}
           onCreate={handleCreate}
         />
       ) : null}

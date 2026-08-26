@@ -39,6 +39,7 @@ export function renderGatewayDefinedChannelSetup(context: IntegrationSetupRender
       onOpenFullSetup={openFullSetup(context)}
       onDismiss={context.onDismiss}
       directSetup={context.directSetup ?? false}
+      onRequestProductUse={context.onRequestProductUse}
     />
   );
 }

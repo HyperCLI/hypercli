@@ -67,6 +67,7 @@ interface ChannelChatConnectorCardProps {
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
   directSetup?: boolean;
+  onRequestProductUse?: () => boolean;
 }
 
 type CardMode = "overview" | "setup" | "saved" | "verifying" | "ready" | "failed" | "manage";
@@ -242,6 +243,7 @@ export function ChannelChatConnectorCard({
   onOpenFullSetup,
   onDismiss,
   directSetup = false,
+  onRequestProductUse,
 }: ChannelChatConnectorCardProps) {
   const definition = CHANNEL_DEFINITIONS[channelId];
   const brand = INTEGRATION_BRAND_LOGOS[channelId];
@@ -281,6 +283,7 @@ export function ChannelChatConnectorCard({
       ? "setup"
       : localMode;
   const configured = persistedWhatsAppPairing?.status === "connected" || (localRuntimeConfigured ?? configuredFromConfig);
+  const allowProductUse = () => onRequestProductUse?.() ?? true;
   const error = persistedWhatsAppPairing?.status === "failed"
     ? "WhatsApp pairing stopped. Check the agent connection and generate a new code."
     : localError;
@@ -333,6 +336,7 @@ export function ChannelChatConnectorCard({
   };
 
   const save = async () => {
+    if (!allowProductUse()) return;
     if (validationError) {
       setError(validationError);
       return;
@@ -430,6 +434,7 @@ export function ChannelChatConnectorCard({
   }
 
   const beginWhatsAppSetup = async (force = false) => {
+    if (!allowProductUse()) return;
     const requestId = whatsAppPairingRequestRef.current + 1;
     whatsAppPairingRequestRef.current = requestId;
     setMode("setup");
@@ -537,6 +542,7 @@ export function ChannelChatConnectorCard({
       void beginWhatsAppSetup(configured);
       return;
     }
+    if (!allowProductUse()) return;
     if (advancedSlackTransport) {
       setError(`This Slack account uses ${slackMode === "http" ? "HTTP Request URLs" : "Relay"}. Manage it in integrations.`);
       return;
@@ -594,6 +600,7 @@ export function ChannelChatConnectorCard({
   };
 
   const verify = async () => {
+    if (!allowProductUse()) return;
     setMode("verifying");
     setProbing(true);
     setError(null);
@@ -650,6 +657,7 @@ export function ChannelChatConnectorCard({
   };
 
   const finish = () => {
+    if (!allowProductUse()) return;
     setMode("manage");
     onReconnectGateway?.();
   };
@@ -882,6 +890,7 @@ export function ChannelChatConnectorCard({
                 loading={workflowLoading}
                 unavailable={workflowUnavailable && !runtimeInstructions}
                 inputControls={inputControls}
+                onRequestProductUse={onRequestProductUse}
                 onRunShellProposal={onRunShellProposal}
                 onVerifyConnection={probeConnection}
                 verificationDisabled={mode !== "saved"}

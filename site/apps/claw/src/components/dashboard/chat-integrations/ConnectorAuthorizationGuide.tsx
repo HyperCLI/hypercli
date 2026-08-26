@@ -28,6 +28,7 @@ interface ConnectorAuthorizationGuideProps {
   provider?: AgentConnectorsProvider | null;
   accountId?: string;
   variant?: "setup" | "owner";
+  onRequestProductUse?: () => boolean;
   onApproved?: () => void;
 }
 
@@ -45,6 +46,7 @@ export function ConnectorAuthorizationGuide({
   provider,
   accountId,
   variant = "setup",
+  onRequestProductUse,
   onApproved,
 }: ConnectorAuthorizationGuideProps) {
   const [code, setCode] = useState("");
@@ -59,6 +61,7 @@ export function ConnectorAuthorizationGuide({
 
   const approve = async () => {
     if (!provider?.approveAuthorization || !codeValid) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setApproving(true);
     setError(null);
     try {

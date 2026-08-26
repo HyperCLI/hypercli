@@ -12,6 +12,7 @@ type SharedKnowledgeSectionProps = {
   agentsLoading?: boolean;
   agentsError?: string | null;
   preferredAgentId?: string | null;
+  onRequestProductUse?: () => boolean;
 };
 
 export function SharedKnowledgeSection({
@@ -19,6 +20,7 @@ export function SharedKnowledgeSection({
   agentsLoading = false,
   agentsError = null,
   preferredAgentId = null,
+  onRequestProductUse,
 }: SharedKnowledgeSectionProps) {
   const { user } = useAgentAuth();
   const principalId = user?.id ?? null;
@@ -46,6 +48,7 @@ export function SharedKnowledgeSection({
       onSelectWorkspace={selectWorkspace}
       onWorkspacesChanged={refreshWorkspaces}
       ready={Boolean(workspacesClient) && !isLoading}
+      onRequestProductUse={onRequestProductUse}
     />
   );
 }

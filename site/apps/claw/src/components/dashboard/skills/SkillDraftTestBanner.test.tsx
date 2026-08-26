@@ -42,4 +42,15 @@ describe("SkillDraftTestBanner", () => {
     expect(await screen.findByText(/draft is still local/i)).toBeInTheDocument();
     expect(screen.queryByText(/provider stack|private-path/i)).not.toBeInTheDocument();
   });
+
+  it("stays actionable without a false error when saving is blocked", async () => {
+    const onSaveDraft = vi.fn(async () => false);
+    renderWithClient(<SkillDraftTestBanner testSession={testSession} onOpenDraft={vi.fn()} onSaveDraft={onSaveDraft} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /save to agent/i }));
+
+    await waitFor(() => expect(onSaveDraft).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: /save to agent/i })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

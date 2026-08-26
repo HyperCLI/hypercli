@@ -9,7 +9,7 @@ import type { SkillDraftTestSession } from "./skill-draft-store";
 export interface SkillDraftTestBannerProps {
   testSession: SkillDraftTestSession;
   onOpenDraft: () => void;
-  onSaveDraft?: () => Promise<void>;
+  onSaveDraft?: () => Promise<boolean | void>;
 }
 
 export function SkillDraftTestBanner({ testSession, onOpenDraft, onSaveDraft }: SkillDraftTestBannerProps) {
@@ -21,7 +21,8 @@ export function SkillDraftTestBanner({ testSession, onOpenDraft, onSaveDraft }: 
     setSaving(true);
     setSaveError(null);
     try {
-      await onSaveDraft();
+      const saved = await onSaveDraft();
+      if (saved === false) return;
       toast.success(`${testSession.skillName} saved to the agent.`);
     } catch {
       setSaveError("The draft is still local. Reconnect the agent and try saving again.");

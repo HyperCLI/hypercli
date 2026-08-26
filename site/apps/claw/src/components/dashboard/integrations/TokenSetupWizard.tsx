@@ -19,6 +19,7 @@ interface TokenSetupWizardProps {
   onChannelProbe: () => Promise<ChannelProbeResult>;
   onClose: () => void;
   onVerified?: () => void;
+  onRequestProductUse?: () => boolean;
 }
 
 export function TokenSetupWizard({
@@ -33,6 +34,7 @@ export function TokenSetupWizard({
   onChannelProbe,
   onClose,
   onVerified,
+  onRequestProductUse,
 }: TokenSetupWizardProps) {
   const [step, setStep] = useState<"form" | "connecting" | "verifying" | "done">("form");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -54,6 +56,7 @@ export function TokenSetupWizard({
     .some((f) => !values[f.key]?.trim());
 
   const handleConnect = async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setStep("connecting");
     setConnectError(null);
     try {

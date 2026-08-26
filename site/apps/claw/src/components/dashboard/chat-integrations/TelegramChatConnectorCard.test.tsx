@@ -449,6 +449,8 @@ describe("TelegramChatConnectorCard", () => {
     }));
     const onReconnectGateway = vi.fn();
     const onOpenIntegrationDetails = vi.fn();
+    let productUseAllowed = true;
+    const onRequestProductUse = vi.fn(() => productUseAllowed);
 
     render(
       <TelegramChatConnectorCard
@@ -460,6 +462,7 @@ describe("TelegramChatConnectorCard", () => {
         onReconnectGateway={onReconnectGateway}
         onOpenIntegrationDetails={onOpenIntegrationDetails}
         onGenerateConnectorWorkflow={vi.fn(async () => generatedWorkflow)}
+        onRequestProductUse={onRequestProductUse}
       />,
     );
 
@@ -514,6 +517,14 @@ describe("TelegramChatConnectorCard", () => {
     expect(screen.getByRole("button", { name: /open in integrations/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open telegram settings/i })).not.toBeInTheDocument();
 
+    productUseAllowed = false;
+    onRequestProductUse.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /finish/i }));
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onReconnectGateway).not.toHaveBeenCalled();
+    expect(screen.getByText("Message Telegram")).toBeInTheDocument();
+
+    productUseAllowed = true;
     fireEvent.click(screen.getByRole("button", { name: /finish/i }));
     expect(onReconnectGateway).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("Manage Telegram settings")).toBeInTheDocument();

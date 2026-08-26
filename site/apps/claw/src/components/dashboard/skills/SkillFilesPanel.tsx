@@ -21,6 +21,7 @@ interface SkillFilesPanelProps {
   connected: boolean;
   isDesktopViewport?: boolean;
   operations?: SkillResourceOperations;
+  onBeforeWrite?: () => boolean;
   onSkillContentChanged: (content: string) => void;
   onLocalDirectoryCreated?: (path: string) => void;
 }
@@ -35,6 +36,7 @@ export function SkillFilesPanel({
   connected,
   isDesktopViewport,
   operations,
+  onBeforeWrite,
   onSkillContentChanged,
   onLocalDirectoryCreated,
 }: SkillFilesPanelProps) {
@@ -122,6 +124,7 @@ export function SkillFilesPanel({
         onDeleteFile={deleteFile}
         onUploadFile={uploadFile}
         onCreateDirectory={createDirectory}
+        onBeforeWrite={localPreview ? undefined : onBeforeWrite}
         isReadOnlyFile={() => !canWrite}
         readOnlyLabel={localPreview ? "Local preview" : !canWrite ? "Read-only skill" : undefined}
         readOnlyDescription={localPreview

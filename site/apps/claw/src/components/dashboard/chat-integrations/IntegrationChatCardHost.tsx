@@ -21,6 +21,7 @@ interface IntegrationChatCardHostProps {
   onDismiss?: () => void;
   directSetup?: boolean;
   slackRelaySetup?: SlackRelaySetupOptions;
+  onRequestProductUse?: () => boolean;
 }
 
 export function IntegrationChatCardHost(props: IntegrationChatCardHostProps) {

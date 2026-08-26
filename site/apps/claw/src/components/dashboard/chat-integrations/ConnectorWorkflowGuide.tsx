@@ -52,6 +52,7 @@ interface ConnectorWorkflowGuideProps {
   loading?: boolean;
   unavailable?: boolean;
   inputControls?: ConnectorWorkflowInputControls;
+  onRequestProductUse?: () => boolean;
   onRunShellProposal?: (command: readonly string[]) => Promise<void>;
   onVerifyConnection?: () => Promise<ConnectorWorkflowVerificationResult>;
   verificationDisabled?: boolean;
@@ -166,6 +167,7 @@ export function ConnectorWorkflowGuide({
   loading = false,
   unavailable = false,
   inputControls,
+  onRequestProductUse,
   onRunShellProposal,
   onVerifyConnection,
   verificationDisabled = false,
@@ -415,6 +417,7 @@ export function ConnectorWorkflowGuide({
                               setCommandErrors((current) => ({ ...current, [step.id]: true }));
                               return;
                             }
+                            if (onRequestProductUse && !onRequestProductUse()) return;
                             try {
                               await onRunShellProposal(command);
                               setCommandErrors((current) => ({ ...current, [step.id]: false }));
@@ -445,9 +448,10 @@ export function ConnectorWorkflowGuide({
                           <button
                             type="button"
                             disabled={verificationDisabled || !onVerifyConnection || verificationState?.status === "testing"}
-                            onClick={async () => {
-                              if (!onVerifyConnection || verificationDisabled) return;
-                              setVerificationStates((current) => ({
+                             onClick={async () => {
+                               if (!onVerifyConnection || verificationDisabled) return;
+                               if (onRequestProductUse && !onRequestProductUse()) return;
+                               setVerificationStates((current) => ({
                                 ...current,
                                 [verificationKey]: { status: "testing" },
                               }));

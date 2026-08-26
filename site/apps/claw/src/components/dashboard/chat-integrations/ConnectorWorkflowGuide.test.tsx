@@ -353,6 +353,25 @@ describe("ConnectorWorkflowGuide", () => {
     expect(screen.getByText("Approved")).toBeInTheDocument();
   });
 
+  it("does not run a generated command when product use is blocked", async () => {
+    const onRequestProductUse = vi.fn(() => false);
+    const onRunShellProposal = vi.fn(async () => undefined);
+    render(
+      <ConnectorWorkflowGuide
+        workflow={workflow}
+        onRequestProductUse={onRequestProductUse}
+        onRunShellProposal={onRunShellProposal}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^approve$/i }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /^approve$/i })).toBeEnabled());
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onRunShellProposal).not.toHaveBeenCalled();
+    expect(screen.queryByText("Approved")).not.toBeInTheDocument();
+  });
+
   it("runs verification inline and only completes the step after a successful probe", async () => {
     let resolveProbe: ((result: { success: boolean; message?: string }) => void) | undefined;
     const onVerifyConnection = vi.fn(() => new Promise<{ success: boolean; message?: string }>((resolve) => {
@@ -412,5 +431,36 @@ describe("ConnectorWorkflowGuide", () => {
     fireEvent.click(screen.getByRole("button", { name: /retry test/i }));
     await waitFor(() => expect(onVerifyConnection).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("button", { name: /complete step/i })).toBeDisabled();
+  });
+
+  it("does not enter verification loading when product use is blocked", () => {
+    const onRequestProductUse = vi.fn(() => false);
+    const onVerifyConnection = vi.fn(async () => ({ success: true }));
+    const verificationWorkflow: ConnectorWorkflow = {
+      schema: "hypercli.connector-workflow.v1",
+      connectorId: "slack",
+      runtimeFingerprint: "openclaw:slack",
+      summary: "Verify Slack.",
+      steps: [{
+        id: "verify",
+        title: "Test the connection",
+        instructions: "Check the saved connection.",
+        kind: "verify",
+        approvalRequired: false,
+      }],
+    };
+    render(
+      <ConnectorWorkflowGuide
+        workflow={verificationWorkflow}
+        onRequestProductUse={onRequestProductUse}
+        onVerifyConnection={onVerifyConnection}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onVerifyConnection).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /^testing$/i })).not.toBeInTheDocument();
   });
 });

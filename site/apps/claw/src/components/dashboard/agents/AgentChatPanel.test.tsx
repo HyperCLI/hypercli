@@ -2349,6 +2349,81 @@ describe("AgentChatPanel", () => {
     expect(sendMessage).toHaveBeenCalledWith("Summarize this session so far with decisions, open tasks, and next actions.");
   });
 
+  it("requests access before sending a prompt slash command", async () => {
+    const setInput = vi.fn();
+    const sendMessage = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/summary",
+        setInput,
+        sendMessage,
+      }),
+      isSelectedRunning: true,
+      onRequestProductUse,
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(setInput).not.toHaveBeenCalledWith("");
+  });
+
+  it("requests access before creating a conversation from a slash command", async () => {
+    const onNewConversation = vi.fn();
+    const onRequestProductUse = vi.fn(() => false);
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/new",
+      }),
+      isSelectedRunning: true,
+      onRequestProductUse,
+      slashCommandActions: { onNewConversation },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onNewConversation).not.toHaveBeenCalled();
+  });
+
+  it("keeps new agent slash commands exempt from the product-use gate", async () => {
+    const onNewAgent = vi.fn();
+    const onRequestProductUse = vi.fn(() => false);
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/new-agent",
+      }),
+      isSelectedRunning: true,
+      onRequestProductUse,
+      slashCommandActions: { onNewAgent },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(onRequestProductUse).not.toHaveBeenCalled();
+    expect(onNewAgent).toHaveBeenCalledOnce();
+  });
+
   it("runs a UI slash command through the provided page callback", async () => {
     const setInput = vi.fn();
     const onOpenFiles = vi.fn();

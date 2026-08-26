@@ -57,6 +57,7 @@ interface GitHubChatConnectorCardProps {
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
   directSetup?: boolean;
+  onRequestProductUse?: () => boolean;
 }
 
 function hasGitHubCapability(configSchema: OpenClawConfigSchemaResponse | null): boolean {
@@ -336,6 +337,7 @@ export function GitHubChatConnectorCard({
   onOpenFullSetup,
   onDismiss,
   directSetup = false,
+  onRequestProductUse,
 }: GitHubChatConnectorCardProps) {
   const reduceMotion = useReducedMotion();
   const hasCapability = hasGitHubCapability(configSchema);
@@ -366,6 +368,10 @@ export function GitHubChatConnectorCard({
   const verificationResetTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFocusVerifyRef = React.useRef<number | null>(null);
   const authId = runtimeSetup?.setupId ?? (typeof authStart?.authId === "string" ? authStart.authId : "");
+  const allowProductUse = React.useCallback(
+    () => onRequestProductUse?.() ?? true,
+    [onRequestProductUse],
+  );
   const managedUserCode = runtimeSetup?.deviceCode ?? (typeof authStart?.userCode === "string" ? authStart.userCode : "");
   const managedVerificationHref = runtimeSetup?.deviceUrl ?? (typeof authStart?.verificationUri === "string"
     ? authStart.verificationUri
@@ -594,6 +600,7 @@ export function GitHubChatConnectorCard({
   }, [authId, authPollRevision, authStart?.expiresAt, authStart?.intervalMs, connected, connectorsProvider, onAuthStatus, onIntegrationStatus, runtimeSetup?.expiresAt, runtimeSetup?.pollIntervalMs, step]);
 
   const generateWorkflow = React.useCallback(async () => {
+    if (!allowProductUse()) return false;
     if (!onGenerateConnectorWorkflow) return false;
     setWorkflowLoading(true);
     setWorkflowUnavailable(false);
@@ -607,7 +614,7 @@ export function GitHubChatConnectorCard({
     } finally {
       setWorkflowLoading(false);
     }
-  }, [onGenerateConnectorWorkflow, workflow]);
+  }, [allowProductUse, onGenerateConnectorWorkflow, workflow]);
 
   React.useEffect(() => {
     if (!directSetup || !connected || !onGenerateConnectorWorkflow || directSetupStartedRef.current) return;
@@ -616,6 +623,7 @@ export function GitHubChatConnectorCard({
   }, [connected, directSetup, generateWorkflow, onGenerateConnectorWorkflow]);
 
   const startAgentSetup = React.useCallback(async () => {
+    if (!allowProductUse()) return;
     if (!onStartAgentGitHubSetup && onGenerateConnectorWorkflow) {
       await generateWorkflow();
       return;
@@ -640,9 +648,10 @@ export function GitHubChatConnectorCard({
     } finally {
       setAgentSetupSending(false);
     }
-  }, [generateWorkflow, onGenerateConnectorWorkflow, onStartAgentGitHubSetup]);
+  }, [allowProductUse, generateWorkflow, onGenerateConnectorWorkflow, onStartAgentGitHubSetup]);
 
   const start = async () => {
+    if (!allowProductUse()) return;
     setError(null);
     setTechnicalDetails(null);
     setAuthStart(null);
@@ -795,7 +804,7 @@ export function GitHubChatConnectorCard({
           ) : agentFlowActive ? (
             <>
               {showAgentDeviceCode && onVerifyAgentGitHubSetup ? (
-                <button type="button" className={buttonClass()} disabled={checkingAgentAuthorization} onClick={() => void verifyAgentGitHubSetup(true)}>
+                <button type="button" className={buttonClass()} disabled={checkingAgentAuthorization} onClick={() => { if (allowProductUse()) void verifyAgentGitHubSetup(true); }}>
                   {checkingAgentAuthorization ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                   {checkingAgentAuthorization ? "Checking" : "Check connection"}
                 </button>
@@ -832,7 +841,7 @@ export function GitHubChatConnectorCard({
           {!agentFlowActive && visibleStep === "connected" && (
             <>
               {onIntegrationStatus && (
-                <button type="button" className={buttonClass()} onClick={() => void refresh(true)}>
+                <button type="button" className={buttonClass()} onClick={() => { if (allowProductUse()) void refresh(true); }}>
                   <RefreshCw className="h-3.5 w-3.5" />
                   Test
                 </button>
@@ -861,6 +870,7 @@ export function GitHubChatConnectorCard({
           workflow={workflow}
           loading={workflowLoading}
           unavailable={effectiveWorkflowUnavailable}
+          onRequestProductUse={onRequestProductUse}
           onRunShellProposal={onRunShellProposal}
         />
       ) : agentFlowActive ? (

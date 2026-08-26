@@ -604,6 +604,7 @@ interface AgentChatPanelProps {
   sendingAudio: boolean;
   startRecording: () => void;
   handleSendChat: () => void;
+  onRequestProductUse?: () => boolean;
   formatDuration: (seconds: number) => string;
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
   slashCommandActions?: AgentSlashCommandActions;
@@ -652,6 +653,7 @@ export function AgentChatPanel({
   sendingAudio,
   startRecording,
   handleSendChat,
+  onRequestProductUse,
   formatDuration,
   onConnectionCta,
   slashCommandActions,
@@ -837,15 +839,23 @@ export function AgentChatPanel({
     hasEarlierMessagesRef.current = chatMessageWindow.hasEarlierMessages;
   }, [chatMessageWindow.hasEarlierMessages]);
   const visibleChatMessages = chatMessageWindow.messages;
-  const triggerFilePicker = React.useCallback(() => fileInputRef.current?.click(), []);
+  const allowProductUse = React.useCallback(
+    () => onRequestProductUse?.() ?? true,
+    [onRequestProductUse],
+  );
+  const triggerFilePicker = React.useCallback(() => {
+    if (!allowProductUse()) return;
+    fileInputRef.current?.click();
+  }, [allowProductUse]);
   const submitChatFileDrop = React.useCallback(async (files: ChatFileDropInput) => {
+    if (!allowProductUse()) return;
     setFileDropError("");
     try {
       await handleChatFileDrop(files);
     } catch (cause) {
       setFileDropError(cause instanceof Error ? cause.message : "The files could not be added.");
     }
-  }, [handleChatFileDrop]);
+  }, [allowProductUse, handleChatFileDrop]);
   const commandActions = React.useMemo<AgentSlashCommandActions>(() => ({
     ...slashCommandActions,
     onStartAgent: isAgentStartable(selectedAgent) ? slashCommandActions?.onStartAgent : undefined,
@@ -963,12 +973,14 @@ export function AgentChatPanel({
   );
   const startAgentGitHubSetup = React.useCallback(async () => {
     if (!chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
+    if (!allowProductUse()) return;
     await chat.sendMessage(GITHUB_AGENT_SETUP_PROMPT, { displayContent: "Set up GitHub in this workspace." });
-  }, [chat]);
+  }, [allowProductUse, chat]);
   const verifyAgentGitHubSetup = React.useCallback(async () => {
     if (!chat.activeSessionCanSend || chat.activeSessionReadOnly) return;
+    if (!allowProductUse()) return;
     await chat.sendMessage(GITHUB_AGENT_VERIFY_PROMPT, { displayContent: "Check GitHub connection in this workspace." });
-  }, [chat]);
+  }, [allowProductUse, chat]);
 
   const handleConnectionSuggestionClick = React.useCallback((suggestion: ChatConnectionSuggestion) => {
     if (suggestion.connectorId) {
@@ -1077,8 +1089,9 @@ export function AgentChatPanel({
     (composerHasText || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
   const submitCurrentChat = React.useCallback(() => {
     if (!canSendChatDraft) return;
+    if (!allowProductUse()) return;
     handleSendChat();
-  }, [canSendChatDraft, handleSendChat]);
+  }, [allowProductUse, canSendChatDraft, handleSendChat]);
   const composerHasDraft =
     recording ||
     preparingAudioPreview ||
@@ -1100,6 +1113,7 @@ export function AgentChatPanel({
     if (!chat.connected || !chat.activeSessionCanSend || chat.activeSessionReadOnly || activeSessionSending || temporaryChatTransitioning) return;
     const retryContent = source.retryContent ?? source.content;
     if (!retryContent.trim() && !(source.attachments?.length || source.files?.length)) return;
+    if (!allowProductUse()) return;
     setRetryingFailedReplyKey(rowKey);
     try {
       await chat.sendMessage(retryContent, {
@@ -1110,7 +1124,7 @@ export function AgentChatPanel({
     } finally {
       setRetryingFailedReplyKey((current) => current === rowKey ? null : current);
     }
-  }, [activeSessionSending, chat, temporaryChatTransitioning]);
+  }, [activeSessionSending, allowProductUse, chat, temporaryChatTransitioning]);
   const modelMenuAvailable = chat.backend === "openclaw";
   // Hermes chatSend does not forward attachments yet; hide the attach action
   // rather than silently dropping user files. Unspecced sessions (legacy test
@@ -1456,6 +1470,7 @@ export function AgentChatPanel({
                           onStartAgentGitHubSetup={startAgentGitHubSetup}
                           onVerifyAgentGitHubSetup={verifyAgentGitHubSetup}
                           onOpenIntegrationDetails={openIntegrationDetails}
+                          onRequestProductUse={onRequestProductUse}
                         />
                       ))}
                     </div>
@@ -1484,6 +1499,7 @@ export function AgentChatPanel({
                   onStartAgentGitHubSetup={startAgentGitHubSetup}
                   onVerifyAgentGitHubSetup={verifyAgentGitHubSetup}
                   onOpenIntegrationDetails={openIntegrationDetails}
+                  onRequestProductUse={onRequestProductUse}
                   onDismiss={() => setActiveIntegrationCard(null)}
                 />
               </div>
@@ -1738,7 +1754,7 @@ export function AgentChatPanel({
                     </button>
                   </TooltipHint>
                   <TooltipHint label="Send voice message" disabled={composerDisabled || activeSessionSending || sendingAudio}>
-                    <button aria-label="Send voice message" onClick={sendAudio} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                    <button aria-label="Send voice message" onClick={() => { if (allowProductUse()) sendAudio(); }} disabled={composerDisabled || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
                       {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     </button>
                   </TooltipHint>
@@ -1913,6 +1929,7 @@ export function AgentChatPanel({
                       isSelectedRunning={isSelectedRunning}
                       actions={commandActions}
                       onFeedback={handleSlashCommandFeedback}
+                      onRequestProductUse={onRequestProductUse}
                     />
                   ) : null}
                   {fileMentionMenuOpen ? (
@@ -1966,6 +1983,7 @@ export function AgentChatPanel({
                       <div className="shrink-0">
                         <OpenClawModelMenu
                           chat={chat}
+                          onRequestProductUse={onRequestProductUse}
                           compactTrigger
                           disabled={composerDisabled || activeSessionSending}
                           onOpenSettings={slashCommandActions?.onOpenConfig}
@@ -1977,6 +1995,7 @@ export function AgentChatPanel({
                         <div className="hidden sm:block">
                           <OpenClawModelMenu
                             chat={chat}
+                            onRequestProductUse={onRequestProductUse}
                             disabled={composerDisabled || activeSessionSending}
                             onOpenSettings={slashCommandActions?.onOpenConfig}
                           />
@@ -2001,7 +2020,7 @@ export function AgentChatPanel({
                         disabled={composerDisabled || composerHasText}
                         triggerClassName={composerHasText ? "max-sm:hidden" : undefined}
                       >
-                        <button aria-label={recordVoiceTooltip} onClick={startRecording} disabled={composerDisabled || composerHasText} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
+                        <button aria-label={recordVoiceTooltip} onClick={() => { if (allowProductUse()) startRecording(); }} disabled={composerDisabled || composerHasText} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]">
                           <Mic className="w-4 h-4" />
                         </button>
                       </TooltipHint>

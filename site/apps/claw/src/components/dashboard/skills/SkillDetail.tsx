@@ -87,9 +87,10 @@ export interface SkillDetailProps {
   connected: boolean;
   isDesktopViewport: boolean;
   resourceOperations?: SkillResourceOperations;
+  onRequestProductUse?: () => boolean;
   onSkillContentChanged: (content: string) => void;
   onLocalDirectoryCreated: (path: string) => void;
-  onSaveToAgent?: (content: string) => Promise<void>;
+  onSaveToAgent?: (content: string) => Promise<boolean | void>;
   onDiscardDraft?: () => Promise<void>;
 }
 
@@ -105,6 +106,7 @@ export function SkillDetail({
   connected,
   isDesktopViewport,
   resourceOperations,
+  onRequestProductUse,
   onSkillContentChanged,
   onLocalDirectoryCreated,
   onSaveToAgent,
@@ -149,6 +151,7 @@ export function SkillDetail({
 
   const handleSaveSetup = async () => {
     if (!canSaveSetup) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -168,6 +171,7 @@ export function SkillDetail({
 
   const handleSaveContent = async () => {
     if (!contentIsDirty || !contentDraft.trim()) return;
+    if (!localPreview && onRequestProductUse && !onRequestProductUse()) return;
     setContentSaving(true);
     setContentError(null);
     try {
@@ -201,10 +205,12 @@ export function SkillDetail({
 
   const handleSaveToAgent = async () => {
     if (!onSaveToAgent || persisting) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setPersisting(true);
     setPersistError(null);
     try {
-      await onSaveToAgent(contentDraft);
+      const saved = await onSaveToAgent(contentDraft);
+      if (saved === false) return;
       toast.success(`${skill.name} saved to the agent.`);
     } catch {
       setPersistError("The draft is still stored in this browser. Reconnect the agent and try saving again.");
@@ -290,6 +296,7 @@ export function SkillDetail({
               connected={connected}
               isDesktopViewport={isDesktopViewport}
               operations={resourceOperations}
+              onBeforeWrite={onRequestProductUse}
               onSkillContentChanged={onSkillContentChanged}
               onLocalDirectoryCreated={onLocalDirectoryCreated}
             />

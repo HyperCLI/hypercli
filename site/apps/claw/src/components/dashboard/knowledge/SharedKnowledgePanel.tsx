@@ -68,6 +68,7 @@ type SharedKnowledgePanelProps = {
   onSelectWorkspace?: (workspaceId: string, workspace?: Workspace) => void;
   onWorkspacesChanged?: (preferredWorkspaceId?: string | null) => Promise<unknown> | void;
   ready?: boolean;
+  onRequestProductUse?: () => boolean;
 };
 
 type PendingPathDelete = {
@@ -270,12 +271,14 @@ function NewKnowledgeBaseModal({
   defaultAgentId,
   onClose,
   onCreate,
+  onRequestProductUse,
 }: {
   agents: SharedKnowledgeAgent[];
   agentsLoading?: boolean;
   defaultAgentId?: string | null;
   onClose: () => void;
   onCreate: (name: string, description: string, agentIds: string[]) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
@@ -288,6 +291,7 @@ function NewKnowledgeBaseModal({
   const canCreate = Boolean(name.trim()) && !submitting && !agentsLoading;
   const handleCreate = async () => {
     if (!canCreate) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -379,7 +383,7 @@ function NewKnowledgeBaseModal({
   );
 }
 
-function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase; onClose: () => void; onSave: (name: string, description: string) => Promise<void> }) {
+function EditKnowledgeBaseModal({ base, onClose, onSave, onRequestProductUse }: { base: KnowledgeBase; onClose: () => void; onSave: (name: string, description: string) => Promise<void>; onRequestProductUse?: () => boolean }) {
   const [name, setName] = React.useState(collectionDisplayName(base.workspace));
   const [description, setDescription] = React.useState(base.workspace.description || "");
   const [saving, setSaving] = React.useState(false);
@@ -388,6 +392,7 @@ function EditKnowledgeBaseModal({ base, onClose, onSave }: { base: KnowledgeBase
 
   const handleSave = async () => {
     if (!canSave) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSaving(true);
     setError(null);
     try {
@@ -448,11 +453,13 @@ function FileMetadataForm({
   busy,
   readOnly = false,
   onSave,
+  onRequestProductUse,
 }: {
   file: WorkspaceFile;
   busy?: boolean;
   readOnly?: boolean;
   onSave: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const [displayName, setDisplayName] = React.useState(file.displayName || "");
   const [keywords, setKeywords] = React.useState(keywordsInput(file.keywords));
@@ -463,6 +470,7 @@ function FileMetadataForm({
   const canSave = Boolean(displayName.trim()) && !busy && !saving && !readOnly;
   const handleSave = async () => {
     if (!canSave) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSaving(true);
     setError(null);
     try {
@@ -534,6 +542,7 @@ function WorkspaceFilesView({
   onRequestDeletePath,
   onUpdateFile,
   onRegenerateFile,
+  onRequestProductUse,
 }: {
   base: KnowledgeBase;
   workspaces: WorkspacesAPI | null;
@@ -543,6 +552,7 @@ function WorkspaceFilesView({
   onRequestDeletePath: (path: string, options?: { recursive?: boolean }) => void;
   onUpdateFile: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
   onRegenerateFile: (path: string) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const [currentPath, setCurrentPath] = React.useState("");
   const [selectedPath, setSelectedPath] = React.useState<string | null>(null);
@@ -616,6 +626,7 @@ function WorkspaceFilesView({
     event.stopPropagation();
     setDragOver(false);
     if (!event.dataTransfer.files.length || busy || !canWrite) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     void uploadFiles(event.dataTransfer.files);
   };
 
@@ -657,7 +668,10 @@ function WorkspaceFilesView({
           <p className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">{currentPath || base.workspace.slug}</p>
           {canWrite ? (
             <>
-              <button type="button" onClick={() => inputRef.current?.click()} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+              <button type="button" onClick={() => {
+                if (onRequestProductUse && !onRequestProductUse()) return;
+                inputRef.current?.click();
+              }} disabled={busy} className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border px-2 text-[11px] text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
                 <Plus className="h-3 w-3" />
                 Upload
               </button>
@@ -737,7 +751,11 @@ function WorkspaceFilesView({
                 </button>
               </TooltipHint>
               {canWrite ? (
-                <button type="button" onClick={() => { setViewError(null); void onRegenerateFile(selectedFile.path).catch((err) => setViewError(describeError(err, "Unable to regenerate file."))); }} disabled={busy} className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
+                <button type="button" onClick={() => {
+                  if (onRequestProductUse && !onRequestProductUse()) return;
+                  setViewError(null);
+                  void onRegenerateFile(selectedFile.path).catch((err) => setViewError(describeError(err, "Unable to regenerate file.")));
+                }} disabled={busy} className="inline-flex h-8 items-center gap-2 rounded-lg border border-border px-3 text-[12px] font-semibold text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-45">
                   <RefreshCw className="h-3.5 w-3.5" />
                   Regenerate
                 </button>
@@ -745,7 +763,7 @@ function WorkspaceFilesView({
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               {tab === "metadata" ? (
-                <FileMetadataForm key={`${selectedFile.id}:${selectedFile.displayName}:${selectedFile.summary || ""}:${selectedFile.keywords.join("|")}`} file={selectedFile} busy={busy} readOnly={!canWrite} onSave={onUpdateFile} />
+                <FileMetadataForm key={`${selectedFile.id}:${selectedFile.displayName}:${selectedFile.summary || ""}:${selectedFile.keywords.join("|")}`} file={selectedFile} busy={busy} readOnly={!canWrite} onSave={onUpdateFile} onRequestProductUse={onRequestProductUse} />
               ) : loadingView ? (
                 <div className="flex h-full items-center justify-center text-text-muted">
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -799,6 +817,7 @@ function KnowledgeBaseCard({
   onRequestDeletePath,
   onUpdateFile,
   onRegenerateFile,
+  onRequestProductUse,
 }: {
   base: KnowledgeBase;
   agents: SharedKnowledgeAgent[];
@@ -817,6 +836,7 @@ function KnowledgeBaseCard({
   onRequestDeletePath: (path: string, options?: { recursive?: boolean }) => void;
   onUpdateFile: (path: string, patch: WorkspaceFilePatch) => Promise<void>;
   onRegenerateFile: (path: string) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const assignedAgents = assignedAgentsForBase(base, agentById);
   const unknownAgentCount = Math.max(0, base.agentIds.length - assignedAgents.length);
@@ -884,6 +904,7 @@ function KnowledgeBaseCard({
               onRequestDeletePath={onRequestDeletePath}
               onUpdateFile={onUpdateFile}
               onRegenerateFile={onRegenerateFile}
+              onRequestProductUse={onRequestProductUse}
             />
           )}
 
@@ -939,6 +960,7 @@ export function SharedKnowledgePanel({
   onSelectWorkspace,
   onWorkspacesChanged,
   ready = Boolean(workspaces),
+  onRequestProductUse,
 }: SharedKnowledgePanelProps) {
   const {
     selectedWorkspaceId: globallySelectedWorkspaceId,
@@ -1078,6 +1100,7 @@ export function SharedKnowledgePanel({
   }, [selectedWorkspaceId]);
 
   const createBase = async (name: string, description: string, agentIds: string[]) => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     if (!workspaces) throw new Error("The Collection catalog is not connected.");
     setError(null);
     try {
@@ -1115,6 +1138,7 @@ export function SharedKnowledgePanel({
   };
 
   const updateBase = async (base: KnowledgeBase, name: string, description: string) => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     if (!workspaces) throw new Error("The Collection catalog is not connected.");
     if (!workspaceCanAdminister(base.workspace)) throw new Error("Collection admin access is required to update this Collection.");
     setBaseBusy(base.workspace.id, true);
@@ -1160,10 +1184,12 @@ export function SharedKnowledgePanel({
   const toggleAssignedAgent = async (base: KnowledgeBase, agentId: string) => {
     if (!workspaces) return;
     if (!workspaceCanAdminister(base.workspace)) return;
+    const currentGrants = activeAgentGrants(base.grants, agentId);
+    if (currentGrants.length === 0 && onRequestProductUse && !onRequestProductUse()) return;
     setBaseBusy(base.workspace.id, true);
     setError(null);
     try {
-      const grants = activeAgentGrants(base.grants, agentId);
+      const grants = currentGrants;
       if (grants.length > 0) {
         const results = await Promise.allSettled(
           grants.map((grant) => workspaces.revokeGrant(base.workspace.slug, grant.id)),
@@ -1208,6 +1234,7 @@ export function SharedKnowledgePanel({
   };
 
   const uploadFiles = async (base: KnowledgeBase, uploads: Array<{ path: string; file: File }>) => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
     if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to upload files.");
     setBaseBusy(base.workspace.id, true);
@@ -1289,6 +1316,7 @@ export function SharedKnowledgePanel({
   };
 
   const updateFileFields = async (base: KnowledgeBase, path: string, patch: WorkspaceFilePatch) => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
     if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to update file metadata.");
     setBaseBusy(base.workspace.id, true);
@@ -1311,6 +1339,7 @@ export function SharedKnowledgePanel({
   };
 
   const regenerateFile = async (base: KnowledgeBase, path: string) => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     if (!workspaces) throw new Error("Shared knowledge is not connected.");
     if (!workspaceCanWrite(base.workspace)) throw new Error("Contributor access is required to regenerate files.");
     setBaseBusy(base.workspace.id, true);
@@ -1357,7 +1386,10 @@ export function SharedKnowledgePanel({
               }} disabled={!workspaces || !ready || loading} aria-label="Refresh shared knowledge" className="h-9 w-9 rounded-xl border-border bg-transparent text-text-secondary hover:bg-surface-low hover:text-foreground dark:border-border dark:bg-transparent dark:hover:bg-surface-low">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               </Button>
-              <Button type="button" onClick={() => setCreateOpen(true)} disabled={!workspaces || !ready || agentsLoading} className="h-9 shrink-0 rounded-xl px-4 font-semibold">
+              <Button type="button" onClick={() => {
+                if (onRequestProductUse && !onRequestProductUse()) return;
+                setCreateOpen(true);
+              }} disabled={!workspaces || !ready || agentsLoading} className="h-9 shrink-0 rounded-xl px-4 font-semibold">
                  <Plus className="h-4 w-4" /> New Collection
               </Button>
             </div>
@@ -1419,6 +1451,7 @@ export function SharedKnowledgePanel({
               onRequestDeletePath={(path, options) => requestPathDelete(base, path, options)}
               onUpdateFile={(path, patch) => updateFileFields(base, path, patch)}
               onRegenerateFile={(path) => regenerateFile(base, path)}
+              onRequestProductUse={onRequestProductUse}
             />
           ))}
           {workspaces && ready && !loading && !connectionError && knowledgeBases.length === 0 && (
@@ -1438,6 +1471,7 @@ export function SharedKnowledgePanel({
           defaultAgentId={preferredAgentId}
           onClose={() => setCreateOpen(false)}
           onCreate={createBase}
+          onRequestProductUse={onRequestProductUse}
         />
       )}
       {editingBase && (
@@ -1445,6 +1479,7 @@ export function SharedKnowledgePanel({
           base={editingBase}
           onClose={() => setEditingBaseId(null)}
           onSave={(name, description) => updateBase(editingBase, name, description)}
+          onRequestProductUse={onRequestProductUse}
         />
       )}
       <ConfirmDialog

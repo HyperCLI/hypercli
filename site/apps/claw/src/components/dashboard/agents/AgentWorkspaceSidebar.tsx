@@ -130,6 +130,7 @@ interface AgentWorkspaceSidebarProps {
   thinkingSessionKeys?: string[];
   selectedSessionKey?: string | null;
   pinnedSessionKeys?: readonly string[];
+  onRequestProductUse?: () => boolean;
   onSelectSession?: (sessionKey: string) => void;
   onSetSessionPinned?: (sessionKey: string, pinned: boolean) => void;
   onRenameSession?: (sessionKey: string, title: string) => Promise<void> | void;
@@ -554,11 +555,13 @@ function RenameSessionDialog({
   title,
   onClose,
   onSave,
+  onRequestProductUse,
 }: {
   session: OpenClawSessionRecord | null;
   title: string;
   onClose: () => void;
   onSave: (sessionKey: string, title: string) => Promise<void>;
+  onRequestProductUse?: () => boolean;
 }) {
   const [value, setValue] = useState(title);
   const [saving, setSaving] = useState(false);
@@ -577,6 +580,7 @@ function RenameSessionDialog({
   const canSave = Boolean(trimmed) && trimmed !== title.trim() && !saving;
   const save = async () => {
     if (!canSave) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSaving(true);
     setError(null);
     try {
@@ -1078,6 +1082,7 @@ export function AgentWorkspaceSidebar({
   thinkingSessionKeys = [],
   selectedSessionKey,
   pinnedSessionKeys = [],
+  onRequestProductUse,
   onSelectSession,
   onSetSessionPinned,
   onRenameSession,
@@ -1205,6 +1210,7 @@ export function AgentWorkspaceSidebar({
           : "Desktop is unavailable.";
   const createNewSession = async () => {
     if (newSessionDisabledReason || !onCreateSession) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setCreatingSession(true);
     try {
       await onCreateSession();
@@ -1473,7 +1479,10 @@ export function AgentWorkspaceSidebar({
                           thinking={thinking}
                           provisional={provisional}
                           onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
-                          onSetPinned={onSetSessionPinned ? (nextPinned) => onSetSessionPinned(session.key, nextPinned) : undefined}
+                          onSetPinned={onSetSessionPinned ? (nextPinned) => {
+                            if (nextPinned && onRequestProductUse && !onRequestProductUse()) return;
+                            onSetSessionPinned(session.key, nextPinned);
+                          } : undefined}
                           onRename={() => setRenameTarget(session)}
                           onDelete={() => setDeleteTarget(session)}
                         />
@@ -1500,6 +1509,7 @@ export function AgentWorkspaceSidebar({
         session={renameTarget}
         title={renameTargetTitle}
         onClose={() => setRenameTarget(null)}
+        onRequestProductUse={onRequestProductUse}
         onSave={async (sessionKey, title) => {
           if (!onRenameSession) throw new Error("Rename is unavailable.");
           await onRenameSession(sessionKey, title);

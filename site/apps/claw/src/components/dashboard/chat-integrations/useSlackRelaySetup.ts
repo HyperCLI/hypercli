@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { getSlackInstallStatus, startSlackOAuth, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { configureHostedSlackRelayChannel, type AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -32,13 +32,12 @@ export interface SlackRelaySetupOptions {
   checking: boolean;
   configuring: boolean;
   error: string | null;
-  connectHref: string;
+  onStartOAuth: () => void;
   onChooseHosted: () => void;
   onChooseSelfHosted: () => void;
   onBackToChoice: () => void;
   onRefreshHosted: () => void;
   onConfigureHosted: () => void;
-  onRememberReturn?: () => void;
 }
 
 function reducer(state: SlackRelayState, action: SlackRelayAction): SlackRelayState {
@@ -147,6 +146,28 @@ export function useSlackRelaySetup({
     }
   }, [agentId, channelsProvider, getToken, onRefreshChannels]);
 
+  const startOAuth = useCallback(async () => {
+    const operationId = operationRef.current + 1;
+    operationRef.current = operationId;
+    dispatch({ type: "check-start" });
+    if (!SLACK_RELAY_BASE_URL) {
+      dispatch({ type: "check-error", error: "Slack relay is not configured for this environment." });
+      return;
+    }
+    if (!isAuthenticated) {
+      dispatch({ type: "check-error", error: "Sign in before connecting Slack." });
+      return;
+    }
+    try {
+      const oauth = await startSlackOAuth({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: await getToken() });
+      if (operationRef.current === operationId) window.location.assign(oauth.authorizeUrl);
+    } catch {
+      if (operationRef.current === operationId) {
+        dispatch({ type: "check-error", error: "Slack authorization could not start. Retry from this page." });
+      }
+    }
+  }, [getToken, isAuthenticated]);
+
   const installStatus = state.mode === "self-hosted" ? null : state.installStatus;
   return {
     mode: state.mode,
@@ -158,7 +179,7 @@ export function useSlackRelaySetup({
     checking: (state.mode !== "self-hosted" && state.phase === "checking") || authLoading,
     configuring: state.mode === "hosted" && state.phase === "configuring",
     error: state.mode === "hosted" || state.mode === "prompt" ? state.error : null,
-    connectHref: "/slack/start",
+    onStartOAuth: () => void startOAuth(),
     onChooseHosted: () => {
       dispatch({ type: "choose-hosted" });
       void refresh();

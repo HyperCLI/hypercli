@@ -468,7 +468,8 @@ function SkillsCreateModalContent({
         draftPersistedRef.current = true;
       }
       if (operation !== operationRef.current) return;
-      await onTest(activeGenerated);
+      const started = await onTest(activeGenerated);
+      if (started === false) return;
       if (operation !== operationRef.current) return;
       handleClose();
     } catch {
@@ -486,7 +487,8 @@ function SkillsCreateModalContent({
     setConfirmationAction(action);
     setError(null);
     try {
-      await callback?.(savedSkill);
+      const completed = await callback?.(savedSkill);
+      if (completed === false) return;
       if (operation !== operationRef.current) return;
       handleClose();
     } catch {

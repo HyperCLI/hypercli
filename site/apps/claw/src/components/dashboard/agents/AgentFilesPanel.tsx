@@ -39,6 +39,7 @@ export type AgentFilesPanelProps = Omit<
   | "onUploadFile"
   | "onCreateDirectory"
 > & {
+  onRequestProductUse?: () => boolean;
   onListFiles: (path?: string) => Promise<FileEntry[]>;
   onOpenFile: (path: string) => Promise<AgentFileOpenResponse<string>>;
   onOpenFileBytes?: (
@@ -127,6 +128,7 @@ export function AgentFilesPanel({
   initialPreviewPath,
   isReadOnlyFile,
   renderMarkdown: renderMarkdownOverride,
+  onRequestProductUse,
   onListFiles,
   onOpenFile,
   onOpenFileBytes,
@@ -184,8 +186,9 @@ export function AgentFilesPanel({
 
   const saveFile = useCallback(async (path: string, content: string) => {
     if (!onSaveFile) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     await onSaveFile(sourceWritePath(path, normalizedRootPath), content);
-  }, [normalizedRootPath, onSaveFile]);
+  }, [normalizedRootPath, onRequestProductUse, onSaveFile]);
 
   const deleteFile = useCallback(async (
     path: string,
@@ -200,13 +203,15 @@ export function AgentFilesPanel({
     content: Uint8Array,
   ) => {
     if (!onUploadFile) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     await onUploadFile(sourceWritePath(path, normalizedRootPath), content);
-  }, [normalizedRootPath, onUploadFile]);
+  }, [normalizedRootPath, onRequestProductUse, onUploadFile]);
 
   const createDirectory = useCallback(async (path: string) => {
     if (!onCreateDirectory) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     await onCreateDirectory(sourceWritePath(path, normalizedRootPath));
-  }, [normalizedRootPath, onCreateDirectory]);
+  }, [normalizedRootPath, onCreateDirectory, onRequestProductUse]);
 
   const normalizedInitialPreviewPath = initialPreviewPath
     ? normalizeInitialPreviewPath(initialPreviewPath, normalizedRootPath)
@@ -230,6 +235,7 @@ export function AgentFilesPanel({
       onDeleteFile={onDeleteFile ? deleteFile : undefined}
       onUploadFile={onUploadFile ? uploadFile : undefined}
       onCreateDirectory={onCreateDirectory ? createDirectory : undefined}
+      onBeforeWrite={onRequestProductUse}
       isReadOnlyFile={isReadOnlyFile ?? isProtectedFile}
       renderMarkdown={renderMarkdownOverride ?? renderMarkdown}
     />

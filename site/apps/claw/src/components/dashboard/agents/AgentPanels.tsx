@@ -488,6 +488,7 @@ interface AgentSettingsPanelProps {
   onDeleteAgentAvatar?: (agentId: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
+  onRequestProductUse?: () => boolean;
   isDesktopViewport?: boolean;
 }
 
@@ -1889,6 +1890,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onDeleteAgentAvatar,
     onUpdateAgentLaunchConfig,
     onSaveOpenClawConfig,
+    onRequestProductUse,
     isDesktopViewport = true,
   } = props;
   const [internalActiveSection, setInternalActiveSection] = React.useState<AgentSettingsSection>("general");
@@ -2239,6 +2241,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
+    const productUseSettingsChanged = backendProfileChanged
+      || Boolean(agentAvatarFile)
+      || agentLaunchChanged
+      || modelChanged
+      || memoryIndexChanged;
+    if (productUseSettingsChanged && onRequestProductUse && !onRequestProductUse()) return;
+
     setProfileSaving(true);
     let savingSection: "profile" | "agent" | null = null;
     let savingAvatar: "profile" | "agent" | null = null;
@@ -2411,6 +2420,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onProfileNameChange,
     onUploadAgentAvatar,
     onDeleteAgentAvatar,
+    onRequestProductUse,
     onSaveOpenClawConfig,
     profileAvatar,
     profileAvatarChanged,

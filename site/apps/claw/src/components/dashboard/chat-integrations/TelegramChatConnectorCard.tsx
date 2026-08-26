@@ -62,6 +62,7 @@ interface TelegramChatConnectorCardProps {
   onOpenFullSetup?: () => void;
   onDismiss?: () => void;
   directSetup?: boolean;
+  onRequestProductUse?: () => boolean;
 }
 
 type TelegramTone = "neutral" | "primary" | "warning";
@@ -234,6 +235,7 @@ export function TelegramChatConnectorCard({
   onOpenFullSetup,
   onDismiss,
   directSetup = false,
+  onRequestProductUse,
 }: TelegramChatConnectorCardProps) {
   const currentConfig = telegramConfig(config);
   const configured = isPluginConnected("telegram", config);
@@ -288,6 +290,7 @@ export function TelegramChatConnectorCard({
   const requestIdRef = React.useRef(0);
   const directSetupStartedRef = React.useRef(false);
   const connectionConfigured = configured || settingsSaved;
+  const allowProductUse = () => onRequestProductUse?.() ?? true;
 
   const effectiveMode: TelegramMode = connectionConfigured && mode === "overview"
     ? "manage"
@@ -411,6 +414,7 @@ export function TelegramChatConnectorCard({
   }, []);
 
   const saveTelegram = async () => {
+    if (!allowProductUse()) return;
     const validationError = validateSetup();
     if (validationError) {
       setError(validationError);
@@ -488,6 +492,7 @@ export function TelegramChatConnectorCard({
 
   const requestAgentAccessUpdate = async () => {
     if (!onAgentConfigUpdate || !configured) return;
+    if (!allowProductUse()) return;
     const validationError = validateSetup();
     if (validationError) {
       setError(validationError);
@@ -520,6 +525,7 @@ export function TelegramChatConnectorCard({
   };
 
   const beginSetup = () => {
+    if (!allowProductUse()) return;
     setError(null);
     setShowManualFallback(false);
     setAuthorizationApproved(false);
@@ -555,6 +561,7 @@ export function TelegramChatConnectorCard({
   }, [configured, directSetup]);
 
   const finishTelegramSetup = () => {
+    if (!allowProductUse()) return;
     setError(null);
     setShowManualFallback(false);
     setMode("manage");
@@ -959,6 +966,7 @@ export function TelegramChatConnectorCard({
               displayName="Telegram"
               flow={activeAuthorizationFlow}
               provider={connectorsProvider}
+              onRequestProductUse={onRequestProductUse}
               onApproved={() => setAuthorizationApproved(true)}
             />
           ) : (
@@ -1003,6 +1011,7 @@ export function TelegramChatConnectorCard({
               loading={workflowLoading}
               unavailable={workflowUnavailable && !runtimeInstructions}
               inputControls={inputControls}
+              onRequestProductUse={onRequestProductUse}
               onRunShellProposal={onRunShellProposal}
               onVerifyConnection={() => verifyTelegram({ poll: true, inline: true })}
               verificationDisabled={effectiveMode !== "saved"}
@@ -1119,7 +1128,7 @@ export function TelegramChatConnectorCard({
           </>
         ) : effectiveMode === "failed" ? (
           <>
-            <button type="button" className={buttonClass("primary")} disabled={(!connectorsProvider && !onChannelProbe) || probing} onClick={() => void verifyTelegram({ poll: false, nextModeOnStart: "verifying" })}>
+            <button type="button" className={buttonClass("primary")} disabled={(!connectorsProvider && !onChannelProbe) || probing} onClick={() => { if (allowProductUse()) void verifyTelegram({ poll: false, nextModeOnStart: "verifying" }); }}>
               {probing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Retry test
             </button>

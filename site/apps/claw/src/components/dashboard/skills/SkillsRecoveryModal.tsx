@@ -9,9 +9,10 @@ export interface SkillsRecoveryModalProps {
   candidate: AgentSkillRecoveryCandidate;
   onClose: () => void;
   onRecover: (request: AgentSkillRecoverRequest) => Promise<AgentSkillRecoverResult>;
+  onRequestProductUse?: () => boolean;
 }
 
-export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRecoveryModalProps) {
+export function SkillsRecoveryModal({ candidate, onClose, onRecover, onRequestProductUse }: SkillsRecoveryModalProps) {
   const [skillId, setSkillId] = React.useState(candidate.suggestedSkillId);
   const [selectedPaths, setSelectedPaths] = React.useState<string[]>(
     candidate.entries.filter((entry) => entry.selectable && entry.selectedByDefault).map((entry) => entry.path),
@@ -25,6 +26,7 @@ export function SkillsRecoveryModal({ candidate, onClose, onRecover }: SkillsRec
 
   const handleRecover = async () => {
     if (recovering || !validSkillId) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setRecovering(true);
     setError(null);
     try {

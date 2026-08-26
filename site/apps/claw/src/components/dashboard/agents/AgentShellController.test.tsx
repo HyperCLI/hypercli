@@ -1,4 +1,5 @@
-import { render } from "@testing-library/react";
+import { createRef } from "react";
+import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentShellController } from "./AgentShellController";
@@ -6,6 +7,7 @@ import { AgentShellController } from "./AgentShellController";
 const shellMocks = vi.hoisted(() => ({
   status: "connected" as "connected" | "connecting" | "reconnecting" | "disconnected",
   terminalReady: true,
+  reconnect: vi.fn(),
 }));
 
 vi.mock("@/hooks/useAgentShell", () => ({
@@ -13,7 +15,7 @@ vi.mock("@/hooks/useAgentShell", () => ({
     status: shellMocks.status,
     send: vi.fn(),
     resize: vi.fn(),
-    reconnect: vi.fn(),
+    reconnect: shellMocks.reconnect,
   }),
 }));
 
@@ -58,5 +60,27 @@ describe("AgentShellController", () => {
 
     unmount();
     expect(onStatusChange).toHaveBeenLastCalledWith("disconnected");
+  });
+
+  it("blocks reconnect before invoking shell transport", () => {
+    const ref = createRef<{ reconnect: () => void }>();
+    const onRequestProductUse = vi.fn(() => false);
+    shellMocks.status = "disconnected";
+    shellMocks.reconnect.mockClear();
+    render(
+      <AgentShellController
+        ref={ref}
+        deployments={null}
+        agentId="agent-1"
+        visible
+        onRequestProductUse={onRequestProductUse}
+      />,
+    );
+
+    act(() => ref.current?.reconnect());
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(shellMocks.reconnect).not.toHaveBeenCalled();
+    shellMocks.status = "connected";
   });
 });

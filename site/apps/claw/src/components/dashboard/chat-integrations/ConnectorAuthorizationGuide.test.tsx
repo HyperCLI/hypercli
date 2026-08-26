@@ -78,4 +78,25 @@ describe("ConnectorAuthorizationGuide", () => {
     expect(await screen.findByText("Code approved")).toBeInTheDocument();
     expect(onApproved).toHaveBeenCalledTimes(1);
   });
+
+  it("does not approve a short code when product use is blocked", () => {
+    const connectorsProvider = provider();
+    const onRequestProductUse = vi.fn(() => false);
+    render(
+      <ConnectorAuthorizationGuide
+        connectorId="signal"
+        displayName="Signal"
+        flow={flow}
+        provider={connectorsProvider}
+        onRequestProductUse={onRequestProductUse}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Signal authorization code"), { target: { value: "ABCD2345" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve code" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(connectorsProvider.approveAuthorization).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Approve code" })).toBeEnabled();
+  });
 });

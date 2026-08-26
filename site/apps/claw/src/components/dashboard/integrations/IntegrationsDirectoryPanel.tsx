@@ -2,7 +2,7 @@
 
 import React from "react";
 import { AlertTriangle, ArrowRight, Cable, Loader2, MessageSquare, Plus, RefreshCw } from "lucide-react";
-import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { getSlackInstallStatus, startSlackOAuth, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader } from "@hypercli/shared-ui";
@@ -64,6 +64,7 @@ interface IntegrationsDirectoryPanelProps {
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe: () => Promise<Record<string, unknown>>;
   onOpenShell: () => void;
+  onRequestProductUse?: () => boolean;
 }
 
 interface IntegrationTile {
@@ -296,10 +297,6 @@ function statusClass(tone: StatusTone): string {
   return "border border-border bg-surface-high text-text-secondary";
 }
 
-function slackStartHref(): string {
-  return "/slack/start";
-}
-
 function IntegrationCard({ tile, onOpen }: { tile: IntegrationTile; onOpen: () => void }) {
   const Icon = tile.icon;
   const status = tileStatus(tile);
@@ -460,6 +457,7 @@ export function IntegrationsDirectoryPanel({
   onSaveConfig,
   onChannelProbe,
   onOpenShell,
+  onRequestProductUse,
 }: IntegrationsDirectoryPanelProps) {
   const [searchQuery, setSearchQuery] = React.useState("");
   const requestedChannelId = initialPluginId ?? null;
@@ -605,6 +603,7 @@ export function IntegrationsDirectoryPanel({
   const selectedIsSlackRelaySetup = selectedChannelId === "slack" && Boolean(SLACK_RELAY_BASE_URL);
 
   const prepareSlackSupport = React.useCallback(async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     const operation = gatewaySession.ensureSlackSupport;
     await Promise.resolve();
     setSlackPreparationState({ operation, status: "preparing", error: null });
@@ -621,7 +620,7 @@ export function IntegrationsDirectoryPanel({
       });
       throw new Error(message);
     }
-  }, [gatewaySession.ensureSlackSupport, refreshIntegrations]);
+  }, [gatewaySession.ensureSlackSupport, onRequestProductUse, refreshIntegrations]);
 
   const refreshSlackInstallStatus = React.useCallback(async (): Promise<SlackInstallStatus | null> => {
     const operationId = slackRelayOperationRef.current + 1;
@@ -645,6 +644,28 @@ export function IntegrationsDirectoryPanel({
       if (slackRelayOperationRef.current !== operationId) return null;
       dispatchSlackRelay({ type: "check-error", error: "Slack status could not be checked. Sign in again or retry." });
       return null;
+    }
+  }, [getToken, isAuthenticated]);
+
+  const startSlackAuthorization = React.useCallback(async () => {
+    const operationId = slackRelayOperationRef.current + 1;
+    slackRelayOperationRef.current = operationId;
+    dispatchSlackRelay({ type: "check-start" });
+    if (!SLACK_RELAY_BASE_URL) {
+      dispatchSlackRelay({ type: "check-error", error: "Slack relay is not configured for this environment." });
+      return;
+    }
+    if (!isAuthenticated) {
+      dispatchSlackRelay({ type: "check-error", error: "Sign in before connecting Slack." });
+      return;
+    }
+    try {
+      const oauth = await startSlackOAuth({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: await getToken() });
+      if (slackRelayOperationRef.current === operationId) window.location.assign(oauth.authorizeUrl);
+    } catch {
+      if (slackRelayOperationRef.current === operationId) {
+        dispatchSlackRelay({ type: "check-error", error: "Slack authorization could not start. Retry from this page." });
+      }
     }
   }, [getToken, isAuthenticated]);
 
@@ -734,7 +755,7 @@ export function IntegrationsDirectoryPanel({
           <button type="button" onClick={handleDetailBack} className="mb-5 rounded-full border border-border px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground">
             {detailBackLabel}
           </button>
-          <CustomIntegrationPanel key={agentId} connected={connected} runEphemeralPrompt={gatewaySession.runEphemeralPrompt} />
+          <CustomIntegrationPanel key={agentId} connected={connected} runEphemeralPrompt={gatewaySession.runEphemeralPrompt} onRequestProductUse={onRequestProductUse} />
         </div>
       </div>
     );
@@ -845,7 +866,10 @@ export function IntegrationsDirectoryPanel({
                 refreshing={refreshing}
                 onRefresh={() => void refreshIntegrations()}
                 slackPreparation={selectedTile.id === "slack" ? selectedSlackPreparation : undefined}
-                onRetrySlack={() => void prepareSlackSupport().catch(() => undefined)}
+                onRetrySlack={() => {
+                  if (onRequestProductUse && !onRequestProductUse()) return;
+                  void prepareSlackSupport().catch(() => undefined);
+                }}
               />
             ) : null}
             <OpenClawChannelSettingsPanel
@@ -861,6 +885,7 @@ export function IntegrationsDirectoryPanel({
               }}
               onOpenPairing={selectedTile.id === "whatsapp" ? onOpenShell : undefined}
               slackPublicBaseUrl={selectedTile.id === "slack" ? agentPublicUrl ?? undefined : undefined}
+              onRequestProductUse={onRequestProductUse}
             />
           </div>
         </div>
@@ -878,7 +903,7 @@ export function IntegrationsDirectoryPanel({
       checking: (slackRelayState.mode !== "self-hosted" && slackRelayState.phase === "checking") || authLoading,
       configuring: slackRelayState.mode === "hosted" && slackRelayState.phase === "configuring",
       error: slackRelayState.mode === "hosted" ? slackRelayState.error : null,
-      connectHref: slackStartHref(),
+      onStartOAuth: () => void startSlackAuthorization(),
       onChooseHosted: () => {
         dispatchSlackRelay({ type: "choose-hosted" });
         void refreshSlackInstallStatus();
@@ -902,16 +927,19 @@ export function IntegrationsDirectoryPanel({
             {detailBackLabel}
           </button>
           {selectedTile.id === "slack" ? (
-            <SlackPreparationBanner state={selectedSlackPreparation} onRetry={() => void prepareSlackSupport().catch(() => undefined)} />
+            <SlackPreparationBanner state={selectedSlackPreparation} onRetry={() => {
+              if (onRequestProductUse && !onRequestProductUse()) return;
+              void prepareSlackSupport().catch(() => undefined);
+            }} />
           ) : null}
           <IntegrationChatCardHost
             action={action}
             chat={gatewaySession}
             agentId={agentId}
             agentName={agentName}
-            directSetup
             slackRelaySetup={slackRelaySetup}
             onOpenFullSetup={selectedTile.id === "whatsapp" ? () => onOpenShell() : undefined}
+            onRequestProductUse={onRequestProductUse}
           />
         </div>
       </div>
@@ -929,11 +957,15 @@ export function IntegrationsDirectoryPanel({
             pluginId={selectedTile.plugin.id}
             config={config}
             connected={connected}
-            onSaveConfig={onSaveConfig}
+            onSaveConfig={async (patch) => {
+              if (onRequestProductUse && !onRequestProductUse()) return;
+              await onSaveConfig(patch);
+            }}
             onChannelProbe={onChannelProbe}
             onOpenShell={onOpenShell}
             onBack={handleDetailBack}
             onCloseModal={handleDetailBack}
+            onRequestProductUse={onRequestProductUse}
           />
         </div>
       </div>

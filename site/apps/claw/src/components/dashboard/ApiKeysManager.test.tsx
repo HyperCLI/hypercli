@@ -92,6 +92,59 @@ describe("ApiKeysManager", () => {
     });
   });
 
+  it("blocks API key creation before loading or transport", async () => {
+    const onRequestProductUse = vi.fn(() => false);
+    render(
+      <ApiKeysManager
+        apiBaseUrl="https://api.dev.hypercli.com/api"
+        getToken={async () => "app-token"}
+        previewState="empty"
+        onRequestProductUse={onRequestProductUse}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Create API key" }));
+    fireEvent.change(screen.getByPlaceholderText("Enter key name"), { target: { value: "blocked-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Key" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(sdkMocks.create).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create Key" })).toBeEnabled();
+    expect(screen.getByRole("dialog", { name: "Create API Key" })).toBeInTheDocument();
+  });
+
+  it("blocks API key rename before loading or transport", async () => {
+    const onRequestProductUse = vi.fn(() => false);
+    sdkMocks.list.mockResolvedValue([{
+      keyId: "key-rename",
+      name: "old-name",
+      tags: ["*:*"],
+      apiKey: null,
+      apiKeyPreview: "hyper_api_...name",
+      last4: "name",
+      isActive: true,
+      createdAt: "2026-05-26T00:00:00Z",
+      lastUsedAt: null,
+    }]);
+    render(
+      <ApiKeysManager
+        apiBaseUrl="https://api.dev.hypercli.com/api"
+        getToken={async () => "app-token"}
+        onRequestProductUse={onRequestProductUse}
+      />,
+    );
+
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Actions for old-name" }), { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Key name" }), { target: { value: "new-name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(sdkMocks.rename).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByRole("dialog", { name: "Rename API key" })).toBeInTheDocument();
+  });
+
   it("can force the empty presentation without changing stored keys", async () => {
     sdkMocks.list.mockResolvedValue([{
       keyId: "key-existing",

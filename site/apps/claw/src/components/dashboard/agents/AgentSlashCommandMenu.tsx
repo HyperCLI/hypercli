@@ -82,6 +82,7 @@ interface AgentSlashCommandMenuProps {
   isSelectedRunning: boolean;
   actions?: AgentSlashCommandActions;
   onFeedback?: (message: string) => void;
+  onRequestProductUse?: () => boolean;
 }
 
 interface SlashCommandContext {
@@ -129,6 +130,32 @@ const PROMPTS = {
   handoff: "Create a concise handoff for another operator continuing this work.",
   diff: "Review workspace changes and summarize the diff.",
 };
+
+const PRODUCT_USE_COMMAND_IDS = new Set([
+  "summary",
+  "new",
+  "retry",
+  "start",
+  "upload",
+  "mkdir",
+  "write",
+  "diff",
+  "model",
+  "probe",
+  "run",
+  "rename",
+  "fix",
+  "test",
+  "ship",
+  "explain",
+  "todo",
+  "handoff",
+]);
+
+function commandRequiresProductUse(command: SlashCommand, args: string): boolean {
+  if (PRODUCT_USE_COMMAND_IDS.has(command.id)) return true;
+  return command.id === "skill" && parseSkillCommandArgs(args).action === "install";
+}
 
 export function agentLifecycleLabel(state: string, isRunning: boolean): string {
   if (isRunning) return "running";
@@ -1039,6 +1066,7 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
     isSelectedRunning,
     actions = {},
     onFeedback,
+    onRequestProductUse,
   }, ref) {
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [status, setStatus] = useState("");
@@ -1130,6 +1158,9 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
     }, [args, contextFor, isSelectedRunning]);
 
     const runCommand = React.useCallback(async (command: SlashCommand, commandArgs: string) => {
+      if (commandRequiresProductUse(command, commandArgs) && onRequestProductUse && !onRequestProductUse()) {
+        return true;
+      }
       setBusyCommandId(command.id);
       try {
         await command.run(contextFor(commandArgs));
@@ -1139,7 +1170,7 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
         setBusyCommandId(null);
       }
       return true;
-    }, [contextFor]);
+    }, [contextFor, onRequestProductUse]);
 
     const executeConnectSuggestion = React.useCallback(async (suggestion: ChatConnectionSuggestion | undefined) => {
       if (busyCommandId) return false;

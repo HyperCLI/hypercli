@@ -111,6 +111,9 @@ describe("ChannelChatConnectorCard", () => {
 
   it("keeps Discord credentials out of generated guidance and saves the approved config", async () => {
     const connectorsProvider = provider("discord");
+    const onReconnectGateway = vi.fn();
+    let productUseAllowed = true;
+    const onRequestProductUse = vi.fn(() => productUseAllowed);
     const onGenerateConnectorWorkflow = vi.fn(async (_connectorId: ConnectorId) => workflow("discord", [{
       id: "discord-token",
       title: "Create the runtime-compatible bot",
@@ -127,6 +130,8 @@ describe("ChannelChatConnectorCard", () => {
         config={null}
         connectorsProvider={connectorsProvider}
         onGenerateConnectorWorkflow={onGenerateConnectorWorkflow}
+        onReconnectGateway={onReconnectGateway}
+        onRequestProductUse={onRequestProductUse}
       />,
     );
 
@@ -147,6 +152,17 @@ describe("ChannelChatConnectorCard", () => {
     }));
     expect(JSON.stringify(onGenerateConnectorWorkflow.mock.calls)).not.toContain(token);
     expect(await screen.findByText("Settings saved")).toBeInTheDocument();
+
+    productUseAllowed = false;
+    onRequestProductUse.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onReconnectGateway).not.toHaveBeenCalled();
+    expect(screen.getByText("Settings saved")).toBeInTheDocument();
+
+    productUseAllowed = true;
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    expect(onReconnectGateway).toHaveBeenCalledOnce();
   });
 
   it("tests the saved connection from the workflow verification step", async () => {
@@ -585,6 +601,26 @@ describe("ChannelChatConnectorCard", () => {
     expect(onSaveConfig).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect Slack" }));
     await waitFor(() => expect(onSaveConfig).toHaveBeenCalledWith({ channels: { slack: null } }));
+  });
+
+  it("blocks a manual connection test before probing", async () => {
+    const connectorsProvider = provider("slack", { configured: true, usable: true });
+    const onRequestProductUse = vi.fn(() => false);
+    render(
+      <ChannelChatConnectorCard
+        channelId="slack"
+        connected
+        config={{ channels: { slack: { enabled: true, botToken: "stored", appToken: "stored" } } }}
+        connectorsProvider={connectorsProvider}
+        onRequestProductUse={onRequestProductUse}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Test" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(connectorsProvider.list).not.toHaveBeenCalledWith({ connectorId: "slack", probe: true });
+    expect(screen.queryByRole("button", { name: "Testing" })).not.toBeInTheDocument();
   });
 
   it("does not delete a root Slack configuration when multiple accounts need a choice", async () => {

@@ -151,6 +151,7 @@ export interface SkillsPanelProps {
   onRecoverSkill?: (request: AgentSkillRecoverRequest) => Promise<AgentSkillRecoverResult>;
   onGenerateSkill?: (prompt: string, options: { signal: AbortSignal; timeoutMs: number; maxResponseChars: number }) => Promise<string>;
   onTestSkill: (skill: AgentSkill) => Promise<void> | void;
+  onRequestProductUse?: () => boolean;
   skillProposals?: AgentSkillProposalSummary[];
   skillProposalsLoading?: boolean;
   skillProposalsError?: string | null;
@@ -182,6 +183,7 @@ export function SkillsPanel({
   onRecoverSkill,
   onGenerateSkill,
   onTestSkill,
+  onRequestProductUse,
   skillProposals = [],
   skillProposalsLoading = false,
   skillProposalsError,
@@ -208,6 +210,7 @@ export function SkillsPanel({
   const skillDrafts = useSkillDrafts(draftScope);
   const localSkills = React.useMemo(() => skillDrafts.drafts.map(storedDraftToAgentSkill), [skillDrafts.drafts]);
   const scopeLabel = agentName?.trim() || "this agent";
+  const allowProductUse = () => onRequestProductUse?.() ?? true;
   const visibleRecoveryCandidates = recoveryCandidates.filter((candidate) => !dismissedRecoveryCandidateIds.includes(candidate.id));
   const recoveryCandidate = visibleRecoveryCandidates.find((candidate) => candidate.id === recoveryCandidateId) ?? null;
 
@@ -334,10 +337,13 @@ export function SkillsPanel({
   };
 
   const handleTest = async (skill: AgentSkill) => {
+    if (!allowProductUse()) return false;
     try {
       await onTestSkill(skill);
+      return true;
     } catch {
       toast.warning(`The ${skill.name} test did not start. Check the agent connection and try again.`);
+      return false;
     }
   };
 
@@ -347,6 +353,7 @@ export function SkillsPanel({
       toast.info("Save this draft to the agent before changing whether it is active.");
       return;
     }
+    if (enabled && !allowProductUse()) return;
     setTogglingSkillId(row.skill.id);
     try {
       if (!onUpdateSkill) throw new Error("Skill configuration is unavailable for this agent.");
@@ -381,6 +388,7 @@ export function SkillsPanel({
 
   const persistLocalSkills = async (requestedSkills: AgentSkill[]) => {
     if (!onCreateSkill) throw new Error("Saving skills to this agent is unavailable.");
+    if (!allowProductUse()) return false;
     const localById = new Map(localSkills.map((skill) => [skill.id, skill]));
     const pending = requestedSkills
       .filter((skill) => localById.has(skill.id))
@@ -408,10 +416,12 @@ export function SkillsPanel({
         ? `${savedIds.size} saved; ${failures.length} remain as local drafts. Reconnect the agent and try again.`
         : "The skills remain as local drafts. Reconnect the agent and try saving again.");
     }
+    return true;
   };
 
   const handleSaveContent = async (row: SkillListRow, content: string) => {
     if (!row.localPreview) {
+      if (!allowProductUse()) return;
       if (row.skill.resourceAccess !== "read-write" || !skillResourceOperations?.writeResource) {
         throw new Error("Editing skill instructions is unavailable for this agent.");
       }
@@ -422,6 +432,7 @@ export function SkillsPanel({
 
   const handleRecoverSkill = async (request: AgentSkillRecoverRequest) => {
     if (!onRecoverSkill) throw new Error("Organizing workspace skills is unavailable for this agent.");
+    if (!allowProductUse()) throw new Error("Start your free trial to organize workspace skills.");
     const result = await onRecoverSkill(request);
     setDismissedRecoveryCandidateIds((current) => [...new Set([...current, request.candidateId])]);
     toast.success(`${result.skillId} moved to Skills.`);
@@ -459,6 +470,7 @@ export function SkillsPanel({
         connected={connected}
         isDesktopViewport={isDesktopViewport}
         resourceOperations={skillResourceOperations}
+        onRequestProductUse={onRequestProductUse}
          onSkillContentChanged={(content) => { void handleContentSaved(selectedRow.skill.id, content); }}
          onLocalDirectoryCreated={(path) => { void handleLocalDirectoryCreated(selectedRow.skill.id, path); }}
          onSaveToAgent={selectedRow.localPreview && onCreateSkill ? (content) => persistLocalSkills([{ ...selectedRow.skill, content }]) : undefined}
@@ -479,6 +491,7 @@ export function SkillsPanel({
         onApply={onApplySkillProposal}
         onReject={onRejectSkillProposal}
         onApproved={async () => { await onRefreshSkills?.(); }}
+        onRequestProductUse={onRequestProductUse}
       />
     );
   }
@@ -634,7 +647,10 @@ export function SkillsPanel({
         renderPreview={(content) => <SkillMarkdown content={content} />}
         confirmationDescription="Save it to the agent, start a related test in a new chat, or keep it as a browser-only preview."
         activateLabel="Save to agent"
-        onGenerate={onGenerateSkill ? async (description, signal) => parseGeneratedSkillDraft(await onGenerateSkill(buildSkillGenerationPrompt(description), { signal, timeoutMs: 120_000, maxResponseChars: 128 * 1024 })) : undefined}
+        onGenerate={onGenerateSkill ? async (description, signal) => {
+          if (!allowProductUse()) throw new Error("Start your free trial to generate a skill.");
+          return parseGeneratedSkillDraft(await onGenerateSkill(buildSkillGenerationPrompt(description), { signal, timeoutMs: 120_000, maxResponseChars: 128 * 1024 }));
+        } : undefined}
         onActivate={(generated) => persistLocalSkills([generatedSkillToAgentSkill(generated)])}
         onTest={(generated) => handleTest(generatedSkillToAgentSkill(generated))}
         onKeepPreview={(generated) => { toast.success(`${generated.name} kept as a local draft.`); }}
@@ -650,7 +666,7 @@ export function SkillsPanel({
         onTest={(items) => { const skill = items[0] ? importItemToAgentSkill(items[0]) : null; if (skill) return handleTest(skill); }}
         onKeepPreview={(items) => { toast.success(`${items.length === 1 ? "Skill" : `${items.length} skills`} kept as ${items.length === 1 ? "a local draft" : "local drafts"}.`); }}
       />
-      {recoveryCandidate && <SkillsRecoveryModal key={recoveryCandidate.id} candidate={recoveryCandidate} onClose={() => setRecoveryCandidateId(null)} onRecover={handleRecoverSkill} />}
+      {recoveryCandidate && <SkillsRecoveryModal key={recoveryCandidate.id} candidate={recoveryCandidate} onClose={() => setRecoveryCandidateId(null)} onRecover={handleRecoverSkill} onRequestProductUse={onRequestProductUse} />}
     </div>
   );
 }

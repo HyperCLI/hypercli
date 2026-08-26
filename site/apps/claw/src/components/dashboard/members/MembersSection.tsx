@@ -53,6 +53,7 @@ type MembersSectionProps = {
   compact?: boolean;
   agents?: MembersSectionAgent[];
   agentsLoading?: boolean;
+  onRequestProductUse?: () => boolean;
 };
 
 type MemberDirectoryRow =
@@ -172,7 +173,7 @@ function SummaryCard({
   );
 }
 
-export function MembersSection({ compact = false, agents = [], agentsLoading = false }: MembersSectionProps) {
+export function MembersSection({ compact = false, agents = [], agentsLoading = false, onRequestProductUse }: MembersSectionProps) {
   const { getToken, user } = useAgentAuth();
   const {
     workspacesClient,
@@ -457,6 +458,7 @@ export function MembersSection({ compact = false, agents = [], agentsLoading = f
       || !resolvedSubjectId
       || busy
     ) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setBusyWorkspaceId(targetWorkspaceId);
     setMutationError(null);
     try {

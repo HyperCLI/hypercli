@@ -16,6 +16,7 @@ const authMocks = vi.hoisted(() => ({
 
 const sdkMocks = vi.hoisted(() => ({
   getSlackInstallStatus: vi.fn(),
+  startSlackOAuth: vi.fn(),
 }));
 
 vi.mock("@/hooks/useAgentAuth", () => ({
@@ -27,6 +28,7 @@ vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
   return {
     ...actual,
     getSlackInstallStatus: sdkMocks.getSlackInstallStatus,
+    startSlackOAuth: sdkMocks.startSlackOAuth,
   };
 });
 
@@ -376,15 +378,19 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(screen.queryByText("Waiting for gateway")).not.toBeInTheDocument();
   });
 
-  it("uses the shared runtime connector card and generated setup guidance", async () => {
+  it("starts the shared runtime connector card from its explicit setup action", async () => {
     const session = gatewaySession();
     renderPanel({ gatewaySession: session });
+
+    expect(session.connectorsProvider!.startSetup).not.toHaveBeenCalled();
+    expect(session.generateConnectorWorkflow).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
     expect((await screen.findAllByText("Runtime-generated telegram setup.")).length).toBeGreaterThan(0);
     expect(session.connectorsProvider!.startSetup).toHaveBeenCalledWith({ connectorId: "telegram", mode: "config" });
     expect(session.generateConnectorWorkflow).toHaveBeenCalledWith("telegram");
     expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^back$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open in integrations/i })).not.toBeInTheDocument();
   });
 
@@ -424,10 +430,12 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelsReady: true,
     });
 
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
+
     expect((await screen.findAllByText("Runtime-generated discord setup.")).length).toBeGreaterThan(0);
     expect(screen.getByText(/connect discord/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^back$/i })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Discord is not available" })).not.toBeInTheDocument();
   });
 
@@ -513,11 +521,33 @@ describe("IntegrationsDirectoryPanel", () => {
 
     expect((await screen.findAllByText("Connect Slack")).length).toBeGreaterThan(0);
     await waitFor(() => expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("link", { name: /Connect with Slack/i })).toHaveAttribute("href", "/slack/start");
+    expect(screen.getByRole("button", { name: /Connect with Slack/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Advanced mode/i })).toBeInTheDocument();
     expect(screen.queryByLabelText("Slack Bot token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Slack App token")).not.toBeInTheDocument();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
+  });
+
+  it("starts Express OAuth only after the product-use check", async () => {
+    const onRequestProductUse = vi.fn(() => true);
+    sdkMocks.startSlackOAuth.mockImplementation(() => new Promise(() => undefined));
+    renderPanel({
+      initialPluginId: "slack",
+      gatewaySession: gatewaySession(),
+      config: null,
+      reportedChannels: [],
+      reportedChannelSnapshot: { observedAt: 1, channels: [] },
+      reportedChannelsReady: true,
+      onRequestProductUse,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Connect with Slack/i }));
+
+    await waitFor(() => expect(sdkMocks.startSlackOAuth).toHaveBeenCalledWith({
+      relayBaseUrl: "https://api.dev.hypercli.com",
+      token: "jwt-token",
+    }));
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
   });
 
   it("shows hosted Slack once connected status is loaded", async () => {
@@ -795,16 +825,21 @@ describe("IntegrationsDirectoryPanel", () => {
   it.each(["discord"] as const)("opens %s with the shared runtime connector card", async (integrationId) => {
     renderPanel({ initialPluginId: integrationId, gatewaySession: gatewaySession() });
 
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
+
     expect((await screen.findAllByText(`Runtime-generated ${integrationId} setup.`)).length).toBeGreaterThan(0);
     expect(screen.getByText(new RegExp(`connect ${integrationId}`, "i"))).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start setup/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^back$/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^back$/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open in integrations/i })).not.toBeInTheDocument();
   });
 
-  it("automatically configures WhatsApp and displays its QR code", async () => {
+  it("configures WhatsApp from its explicit setup action and displays its QR code", async () => {
     const session = gatewaySession();
     renderPanel({ initialPluginId: "whatsapp", gatewaySession: session });
+
+    expect(session.webLoginStart).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
     expect(await screen.findByRole("img", { name: /whatsapp pairing qr code/i })).toBeInTheDocument();
     expect(session.webLoginStart).toHaveBeenCalledWith({ force: false, timeoutMs: 25_000, verbose: true });
@@ -829,6 +864,8 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannelSnapshot: runtimeSnapshot(offlineWhatsApp),
     });
 
+    fireEvent.click(await screen.findByRole("button", { name: /re-pair/i }));
+
     expect(await screen.findByRole("img", { name: /whatsapp pairing qr code/i })).toBeInTheDocument();
     expect(session.webLoginStart).toHaveBeenCalledWith({ force: true, timeoutMs: 25_000, verbose: true });
     expect(screen.queryByRole("heading", { name: /whatsapp configuration/i })).not.toBeInTheDocument();
@@ -843,8 +880,22 @@ describe("IntegrationsDirectoryPanel", () => {
     });
     renderPanel({ initialPluginId: "whatsapp", gatewaySession: session, onOpenShell });
 
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
     fireEvent.click(await screen.findByRole("button", { name: /use shell instead/i }));
 
     expect(onOpenShell).toHaveBeenCalledTimes(1);
+  });
+
+  it("requests access before starting runtime setup", async () => {
+    const session = gatewaySession();
+    const onRequestProductUse = vi.fn(() => false);
+    renderPanel({ initialPluginId: "telegram", gatewaySession: session, onRequestProductUse });
+
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(session.connectorsProvider!.startSetup).not.toHaveBeenCalled();
+    expect(session.generateConnectorWorkflow).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /start setup/i })).toBeInTheDocument();
   });
 });

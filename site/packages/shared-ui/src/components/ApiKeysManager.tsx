@@ -117,6 +117,7 @@ export interface ApiKeysManagerProps {
   cardClassName?: string;
   createButtonClassName?: string;
   previewState?: "empty";
+  onRequestProductUse?: () => boolean;
 }
 
 type ManagedApiKey = Awaited<ReturnType<BrowserHyperCLI["keys"]["get"]>>;
@@ -320,6 +321,7 @@ export function ApiKeysManager({
   cardClassName = "overflow-hidden",
   createButtonClassName,
   previewState,
+  onRequestProductUse,
 }: ApiKeysManagerProps) {
   const [keys, setKeys] = useState<ManagedApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -417,6 +419,7 @@ export function ApiKeysManager({
       setError("Add at least one permission baseline or selector tag.");
       return;
     }
+    if (onRequestProductUse && !onRequestProductUse()) return;
 
     setCreating(true);
     setError(null);
@@ -455,6 +458,7 @@ export function ApiKeysManager({
       setError("Please enter a key name.");
       return;
     }
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSavingName(true);
     setError(null);
     try {

@@ -271,6 +271,7 @@ export interface AgentFilesPanelProps {
   onDeleteFile?: (path: string, options?: { recursive?: boolean }, source?: AgentFilesPanelSource) => Promise<void>;
   onUploadFile?: (path: string, content: Uint8Array, source: AgentFilesWritableSource) => Promise<void>;
   onCreateDirectory?: (path: string, source: AgentFilesWritableSource) => Promise<void>;
+  onBeforeWrite?: () => boolean;
   isReadOnlyFile?: (path: string) => boolean;
   readOnlyLabel?: string;
   readOnlyDescription?: ReactNode;
@@ -299,6 +300,7 @@ export function AgentFilesPanel({
   onDeleteFile,
   onUploadFile,
   onCreateDirectory,
+  onBeforeWrite,
   isReadOnlyFile = () => false,
   readOnlyLabel,
   readOnlyDescription,
@@ -759,6 +761,7 @@ export function AgentFilesPanel({
 
   async function handleUploadFile(path: string, content: Uint8Array) {
     if (!onUploadFile || sourceMode === "gateway") return;
+    if (onBeforeWrite && !onBeforeWrite()) return;
     const viewRevision = viewRevisionRef.current;
     await onUploadFile(path, content, sourceMode);
     if (viewRevision === viewRevisionRef.current) await loadFiles();
@@ -766,6 +769,7 @@ export function AgentFilesPanel({
 
   async function handleUploadDirectory(path: string) {
     if (!onCreateDirectory || sourceMode === "gateway") return;
+    if (onBeforeWrite && !onBeforeWrite()) return;
     const viewRevision = viewRevisionRef.current;
     await onCreateDirectory(path, sourceMode);
     if (viewRevision === viewRevisionRef.current) await loadFiles();
@@ -780,6 +784,7 @@ export function AgentFilesPanel({
 
   async function handleCreateDirectory() {
     if (!onCreateDirectory || sourceMode === "gateway") return;
+    if (onBeforeWrite && !onBeforeWrite()) return;
     const trimmedName = newFolderName.trim();
     const validationError = validateNewFolderName(trimmedName);
     if (validationError) {
@@ -903,6 +908,7 @@ export function AgentFilesPanel({
         : readOnlyDescription}
       onClose={clearPreview}
       onSave={onSaveFile && previewWritable ? handleSaveFile : undefined}
+      onBeforeWrite={onBeforeWrite}
       onDownload={onDownloadFileBytes && !(isGatewaySource && shouldReadFileAsBytes(previewEntry)) ? handleDownloadFile : undefined}
       onRetry={() => { void handleOpenFile(previewEntry); }}
       renderMarkdown={renderMarkdown}
@@ -974,6 +980,7 @@ export function AgentFilesPanel({
             <button
               type="button"
               onClick={() => {
+                if (onBeforeWrite && !onBeforeWrite()) return;
                 setShowCreateFolder((open) => !open);
                 setShowUpload(false);
                 setNewFolderError(null);
@@ -1002,6 +1009,7 @@ export function AgentFilesPanel({
               type="button"
               aria-label="Upload files"
               onClick={() => {
+                if (onBeforeWrite && !onBeforeWrite()) return;
                 setShowUpload((open) => !open);
                 setShowCreateFolder(false);
               }}

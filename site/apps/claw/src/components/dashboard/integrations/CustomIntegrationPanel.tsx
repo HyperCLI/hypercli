@@ -35,6 +35,7 @@ const EMPTY_DRAFT: CustomIntegrationRequest = {
 interface CustomIntegrationPanelProps {
   connected: boolean;
   runEphemeralPrompt?: CustomIntegrationRunner;
+  onRequestProductUse?: () => boolean;
 }
 
 function buttonClass(tone: "primary" | "secondary" = "secondary") {
@@ -80,7 +81,7 @@ function heroCopy(
   };
 }
 
-export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: CustomIntegrationPanelProps) {
+export function CustomIntegrationPanel({ connected, runEphemeralPrompt, onRequestProductUse }: CustomIntegrationPanelProps) {
   const [draft, setDraft] = React.useState<CustomIntegrationRequest>(EMPTY_DRAFT);
   const [running, setRunning] = React.useState(false);
   const [cancelling, setCancelling] = React.useState(false);
@@ -136,6 +137,7 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
 
   const runSetup = React.useCallback(async (confirmedIds: string[] = []) => {
     if (!runEphemeralPrompt || !connected || running || !draft.serviceName.trim() || !match) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     let prompt: string;
     try {
       prompt = buildCustomIntegrationAgentPrompt(draft, {
@@ -190,7 +192,7 @@ export function CustomIntegrationPanel({ connected, runEphemeralPrompt }: Custom
         abortRef.current = null;
       }
     }
-  }, [appendActivity, connected, draft, match, result, runEphemeralPrompt, running]);
+  }, [appendActivity, connected, draft, match, onRequestProductUse, result, runEphemeralPrompt, running]);
 
   const cancelRun = () => {
     if (!running || cancelling || !abortRef.current) return;

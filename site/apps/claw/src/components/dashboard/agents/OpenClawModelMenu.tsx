@@ -50,6 +50,7 @@ interface OpenClawModelMenuProps {
   compactTrigger?: boolean;
   onOpenSettings?: () => void;
   onSelectionComplete?: () => void;
+  onRequestProductUse?: () => boolean;
 }
 
 function errorMessage(cause: unknown, fallback: string): string {
@@ -75,7 +76,7 @@ function thinkingLevelLabel(option: { id: string; label: string } | undefined, f
   return option?.label.trim() || (fallback ? titleizeVariant(fallback) : "");
 }
 
-export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = false, onOpenSettings, onSelectionComplete }: OpenClawModelMenuProps) {
+export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = false, onOpenSettings, onSelectionComplete, onRequestProductUse }: OpenClawModelMenuProps) {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [addDialogOpen, setAddDialogOpen] = React.useState(false);
   const [providerValue, setProviderValue] = React.useState("");
@@ -113,6 +114,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
 
   const selectModel = async (model: string) => {
     if (selectingModel || selectingVariant || addingModel) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSelectingModel(model);
     setSelectionError(null);
     try {
@@ -128,6 +130,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
 
   const selectVariant = async (thinkingLevel: string) => {
     if (selectingModel || selectingVariant || addingModel) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setSelectingVariant(thinkingLevel);
     setSelectionError(null);
     try {
@@ -161,6 +164,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
   const addModel = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (addingModel) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setAddingModel(true);
     setAddError(null);
 

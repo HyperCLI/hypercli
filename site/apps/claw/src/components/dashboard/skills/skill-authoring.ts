@@ -21,7 +21,7 @@ export interface SkillImportItem {
   content: string;
 }
 
-export type SkillConfirmationCallback<T> = (value: T) => Promise<void> | void;
+export type SkillConfirmationCallback<T> = (value: T) => Promise<boolean | void> | boolean | void;
 
 export function skillSlugFromName(value: string): string {
   return value

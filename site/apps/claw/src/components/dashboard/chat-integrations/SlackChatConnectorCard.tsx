@@ -70,6 +70,7 @@ function SlackChatConnectorCardContent({
   slackRelaySetup: SlackRelaySetupOptions;
 }) {
   const docsHref = "https://docs.hypercli.com/agents/integrations";
+  const allowProductUse = () => channelProps.onRequestProductUse?.() ?? true;
 
   if (slackRelaySetup.mode === "self-hosted") {
     return (
@@ -189,9 +190,10 @@ function SlackChatConnectorCardContent({
                   <ArrowRight aria-hidden="true" className="relative h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1" />
                 </button>
               ) : (
-                <a
-                  href={slackRelaySetup.connectHref}
-                  onClick={slackRelaySetup.onRememberReturn}
+                <button
+                  type="button"
+                  onClick={() => { if (allowProductUse()) slackRelaySetup.onStartOAuth(); }}
+                  disabled={slackRelaySetup.checking}
                   className="group relative flex w-full items-center gap-4 overflow-hidden rounded-2xl border border-white/15 px-4 py-4 text-left text-white shadow-sm transition-all hover:-translate-y-0.5 hover:brightness-105 sm:px-5"
                   style={{ backgroundColor: brand.color }}
                 >
@@ -205,7 +207,7 @@ function SlackChatConnectorCardContent({
                     <span className="mt-0.5 block text-[11px] text-white/75">Authorize the hosted @{slackRelaySetup.handle} app. No bot or app tokens required.</span>
                   </span>
                   <ExternalLink aria-hidden="true" className="relative h-5 w-5 shrink-0" />
-                </a>
+                </button>
               )
             ) : (
               <div className="flex items-center gap-4 rounded-2xl border border-border bg-surface-low/80 px-4 py-4">
@@ -220,7 +222,7 @@ function SlackChatConnectorCardContent({
             )}
             <button
               type="button"
-              onClick={slackRelaySetup.onChooseSelfHosted}
+              onClick={() => { if (allowProductUse()) slackRelaySetup.onChooseSelfHosted(); }}
               className="group inline-flex items-center gap-2 px-1 text-left text-[11px] text-text-muted transition-colors hover:text-foreground"
             >
               <span>Prefer your own Slack app?</span>
@@ -262,7 +264,7 @@ function SlackChatConnectorCardContent({
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <button
                 type="button"
-                onClick={slackRelaySetup.onChooseSelfHosted}
+                onClick={() => { if (allowProductUse()) slackRelaySetup.onChooseSelfHosted(); }}
                 disabled={slackRelaySetup.configuring}
                 className="group inline-flex items-center gap-2 text-left text-[11px] text-text-muted transition-colors hover:text-foreground disabled:opacity-50"
               >
@@ -272,14 +274,14 @@ function SlackChatConnectorCardContent({
               </button>
               {!slackRelaySetup.attached ? (
                 slackRelaySetup.connected ? (
-                  <button type="button" className={buttonClass("primary")} disabled={slackRelaySetup.configuring} onClick={slackRelaySetup.onConfigureHosted}>
+                  <button type="button" className={buttonClass("primary")} disabled={slackRelaySetup.configuring} onClick={() => { if (allowProductUse()) slackRelaySetup.onConfigureHosted(); }}>
                     {slackRelaySetup.configuring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                     Attach agent <ArrowRight className="h-3.5 w-3.5" />
                   </button>
                 ) : (
-                  <a href={slackRelaySetup.connectHref} onClick={slackRelaySetup.onRememberReturn} className={buttonClass("primary")}>
+                  <button type="button" onClick={() => { if (allowProductUse()) slackRelaySetup.onStartOAuth(); }} className={buttonClass("primary")}>
                     Connect with Slack <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
+                  </button>
                 )
               ) : null}
             </div>

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { HyperAgentSubscriptionTrial } from "@hypercli.com/sdk/agent";
 import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
@@ -56,6 +56,7 @@ const billingMocks = vi.hoisted(() => {
 
 const slackMocks = vi.hoisted(() => ({
   getSlackInstallStatus: vi.fn(),
+  startSlackOAuth: vi.fn(),
 }));
 
 vi.mock("@/hooks/useAgentAuth", () => ({
@@ -93,6 +94,7 @@ vi.mock("@hypercli.com/sdk/agents", async (importOriginal) => {
   return {
     ...actual,
     getSlackInstallStatus: slackMocks.getSlackInstallStatus,
+    startSlackOAuth: slackMocks.startSlackOAuth,
   };
 });
 
@@ -418,7 +420,7 @@ describe("AccountSettingsPanel", () => {
     expect(screen.queryByRole("navigation", { name: "Sections" })).not.toBeInTheDocument();
     expect(document.querySelector(".agent-desktop-navigation")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Slack" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Connect Slack" })).toHaveAttribute("href", "/slack/start");
+    expect(screen.getByRole("button", { name: "Connect Slack" })).toBeEnabled();
     expect(screen.getByRole("link", { name: "Debug" })).toHaveAttribute("href", "/slack/status");
     expect(screen.queryByText(/Pro Plan/)).not.toBeInTheDocument();
   });
@@ -437,7 +439,32 @@ describe("AccountSettingsPanel", () => {
     expect(await screen.findByText("@hyperdev is connected to Test Workspace.")).toBeInTheDocument();
     expect(screen.getByText("Team T123")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Disconnect Slack" })).toBeDisabled();
-    expect(screen.getByRole("link", { name: "Reconnect Slack" })).toHaveAttribute("href", "/slack/start");
+    expect(screen.getByRole("button", { name: "Reconnect Slack" })).toBeEnabled();
+  });
+
+  it("blocks Slack OAuth before invoking the SDK", async () => {
+    const onRequestProductUse = vi.fn(() => false);
+    render(<AccountSettingsPanel onRequestProductUse={onRequestProductUse} />);
+
+    const connectButton = await screen.findByRole("button", { name: "Connect Slack" });
+    fireEvent.click(connectButton);
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(slackMocks.startSlackOAuth).not.toHaveBeenCalled();
+  });
+
+  it("starts Slack OAuth immediately after the product-use check", async () => {
+    const onRequestProductUse = vi.fn(() => true);
+    slackMocks.startSlackOAuth.mockImplementation(() => new Promise(() => undefined));
+    render(<AccountSettingsPanel onRequestProductUse={onRequestProductUse} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Slack" }));
+
+    await waitFor(() => expect(slackMocks.startSlackOAuth).toHaveBeenCalledWith({
+      relayBaseUrl: "https://api.agents.dev.hypercli.com",
+      token: "token",
+    }));
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
   });
 
   it("aligns the appearance controls without exposing a retired loading preference", () => {

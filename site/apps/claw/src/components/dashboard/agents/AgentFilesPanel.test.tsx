@@ -283,6 +283,30 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => expect(onListFiles.mock.calls.length).toBeGreaterThanOrEqual(4));
   });
 
+  it("requests access before saving a workspace file", async () => {
+    const onSaveFile = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => [
+        { name: "notes.txt", path: "notes.txt", type: "file" as const },
+      ]),
+      onOpenFile: vi.fn(async () => "before"),
+      onOpenFileBytes: undefined,
+      onSaveFile,
+      onRequestProductUse,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "notes.txt" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "notes.txt contents" }), {
+      target: { value: "after" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onSaveFile).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "notes.txt contents" })).toHaveValue("after");
+  });
+
   it("uploads without a storage destination selector", async () => {
     const onUploadFile = vi.fn(async () => undefined);
     const onListFiles = vi.fn(async () => []);

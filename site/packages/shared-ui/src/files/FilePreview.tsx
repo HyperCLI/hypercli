@@ -51,6 +51,7 @@ export interface FilePreviewProps {
   onClose: () => void;
   showClose?: boolean;
   onSave?: (path: string, content: string) => Promise<void>;
+  onBeforeWrite?: () => boolean;
   onDownload?: (entry: FileEntry) => void;
   onRetry?: () => void;
   renderMarkdown?: FilePreviewMarkdownRenderer;
@@ -172,6 +173,7 @@ export function FilePreview({
   onClose,
   showClose = true,
   onSave,
+  onBeforeWrite,
   onDownload,
   onRetry,
   renderMarkdown,
@@ -241,6 +243,7 @@ export function FilePreview({
 
   const handleSave = async () => {
     if (!onSave || !isDirty) return;
+    if (onBeforeWrite && !onBeforeWrite()) return;
     setSaving(true);
     setSaveError(null);
     try {

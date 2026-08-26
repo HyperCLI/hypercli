@@ -1748,9 +1748,11 @@ describe("AgentSettingsPanel", () => {
 
   it("removes a persisted managed agent avatar through the page callback", async () => {
     const onDeleteAgentAvatar = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
     renderAgentSettingsPanel({
       agent: { ...agent, avatarUrl: "https://cdn.example.test/agent.png" },
       onDeleteAgentAvatar,
+      onRequestProductUse,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
@@ -1758,6 +1760,7 @@ describe("AgentSettingsPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(onDeleteAgentAvatar).toHaveBeenCalledWith("agent-1"));
+    expect(onRequestProductUse).not.toHaveBeenCalled();
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
   });
 
@@ -1809,6 +1812,23 @@ describe("AgentSettingsPanel", () => {
       expect(onUpdateAgentProfile).toHaveBeenCalledWith("agent-1", { name: "Renamed Agent" });
     });
     expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("requests access before saving agent settings", () => {
+    const onUpdateAgentProfile = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
+    renderAgentSettingsPanel({ onUpdateAgentProfile, onRequestProductUse });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
+      target: { value: "Renamed Agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onUpdateAgentProfile).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Agent name" })).toHaveValue("Renamed Agent");
+    expect(screen.queryByText("Agent settings updated.")).not.toBeInTheDocument();
   });
 
   it("preserves unsaved settings when the selected agent display name changes", async () => {

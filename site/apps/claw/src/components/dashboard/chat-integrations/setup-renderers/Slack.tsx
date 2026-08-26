@@ -24,6 +24,7 @@ export function renderSlackSetup(context: IntegrationSetupRenderContext) {
       onOpenFullSetup={openFullSetup(context)}
       onDismiss={context.onDismiss}
       slackRelaySetup={slackRelaySetup}
+      onRequestProductUse={context.onRequestProductUse}
     />
   );
 }

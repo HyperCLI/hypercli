@@ -54,6 +54,7 @@ export interface OpenClawChannelSettingsPanelProps {
   onRefresh?: () => Promise<void> | void;
   onOpenPairing?: () => void;
   slackPublicBaseUrl?: string;
+  onRequestProductUse?: () => boolean;
 }
 
 type OptionalProviderOperations = Partial<Pick<AgentChannelsProvider, "readConfig" | "update" | "read" | "removeConfig">>;
@@ -201,6 +202,7 @@ export function OpenClawChannelSettingsPanel({
   onRefresh,
   onOpenPairing,
   slackPublicBaseUrl,
+  onRequestProductUse,
 }: OpenClawChannelSettingsPanelProps) {
   const operations = provider as OptionalProviderOperations;
   const name = CHANNEL_NAMES[channelId];
@@ -355,6 +357,7 @@ export function OpenClawChannelSettingsPanel({
   };
 
   const save = async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     const validationError = validate();
     if (validationError) {
       setError(validationError);
@@ -455,6 +458,7 @@ export function OpenClawChannelSettingsPanel({
   };
 
   const probe = async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     const read = operations.read;
     if (typeof read !== "function") {
       setError("Connection testing is unavailable for this agent.");
@@ -916,7 +920,7 @@ export function OpenClawChannelSettingsPanel({
               {operation === "probe" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />} Test connection
             </button>
             {channelId === "whatsapp" && onOpenPairing ? (
-              <button type="button" className={`${SECONDARY_BUTTON} w-full`} disabled={!connected || busy} onClick={onOpenPairing}><RefreshCw className="h-3.5 w-3.5" /> Re-pair WhatsApp</button>
+              <button type="button" className={`${SECONDARY_BUTTON} w-full`} disabled={!connected || busy} onClick={() => { if (!onRequestProductUse || onRequestProductUse()) onOpenPairing(); }}><RefreshCw className="h-3.5 w-3.5" /> Re-pair WhatsApp</button>
             ) : null}
           </aside>
         </div>
@@ -935,6 +939,7 @@ export function OpenClawChannelSettingsPanel({
                 provider={connectorsProvider}
                 accountId={resolvedAccountId ?? selectedAccountId}
                 variant="owner"
+                onRequestProductUse={onRequestProductUse}
                 onApproved={() => setNotice("Pairing code approved.")}
               />
             ) : (

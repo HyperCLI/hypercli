@@ -10,12 +10,14 @@ import { agentDisplayLabel } from "@/components/dashboard/agents/agentViewModel"
 interface AgentDisplayNameEditorProps {
   agent: Agent;
   onUpdate?: (agentId: string, displayName: string) => Promise<void> | void;
+  onRequestProductUse?: () => boolean;
   className?: string;
 }
 
 export function AgentDisplayNameEditor({
   agent,
   onUpdate,
+  onRequestProductUse,
   className,
 }: AgentDisplayNameEditorProps) {
   const displayName = agentDisplayLabel(agent);
@@ -46,6 +48,7 @@ export function AgentDisplayNameEditor({
       cancelEditing();
       return;
     }
+    if (onRequestProductUse && !onRequestProductUse()) return;
 
     setSaving(true);
     setError(null);

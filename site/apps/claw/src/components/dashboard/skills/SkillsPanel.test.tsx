@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type { AgentSkillProposalSummary } from "@hypercli.com/sdk/skills";
+import { toast } from "@hypercli/shared-ui";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
@@ -416,6 +417,36 @@ describe("SkillsPanel", () => {
     expect(screen.getByRole("switch", { name: /activate weather skill/i })).not.toBeChecked();
   });
 
+  it("keeps disabling an installed skill available as a cleanup action", async () => {
+    const onRequestProductUse = vi.fn(() => false);
+    const onUpdateSkill = vi.fn(async () => undefined);
+    renderPanel({
+      onRequestProductUse,
+      onUpdateSkill,
+      installedSkills: [providerSkill({ id: "weather", name: "Weather" })],
+    });
+
+    fireEvent.click(screen.getByRole("switch", { name: /disable weather skill/i }));
+
+    await waitFor(() => expect(onUpdateSkill).toHaveBeenCalledWith("weather", { enabled: false, env: {} }));
+    expect(onRequestProductUse).not.toHaveBeenCalled();
+  });
+
+  it("blocks activating an installed skill before updating the provider", () => {
+    const onRequestProductUse = vi.fn(() => false);
+    const onUpdateSkill = vi.fn(async () => undefined);
+    renderPanel({
+      onRequestProductUse,
+      onUpdateSkill,
+      installedSkills: [providerSkill({ id: "weather", name: "Weather", disabled: true, availability: "disabled" })],
+    });
+
+    fireEvent.click(screen.getByRole("switch", { name: /activate weather skill/i }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onUpdateSkill).not.toHaveBeenCalled();
+  });
+
   it("shows unmet requirements as needs setup without disabling the skill", () => {
     renderPanel({
       installedSkills: [providerSkill({
@@ -536,6 +567,29 @@ describe("SkillsPanel", () => {
     await expect(loadSkillDraft(draftScope, "release-helper")).resolves.toBeNull();
   });
 
+  it("does not report a restored draft as saved when activation is blocked", async () => {
+    const draftScope = { ownerId: "blocked@example.com", agentId: "agent-blocked" };
+    await saveSkillDraft(draftScope, {
+      id: "release-helper",
+      origin: "created",
+      content: "---\nname: release-helper\ndescription: Prepare releases.\n---\n# Release Helper",
+      directories: [],
+    });
+    const onRequestProductUse = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    const onCreateSkill = vi.fn(async () => ({ skillId: "release-helper" }));
+    const successToast = vi.spyOn(toast, "success");
+    renderPanel({ draftScope, onCreateSkill, onRequestProductUse });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Configure" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save to agent" }));
+
+    await waitFor(() => expect(onRequestProductUse).toHaveBeenCalledTimes(2));
+    expect(onCreateSkill).not.toHaveBeenCalled();
+    expect(successToast).not.toHaveBeenCalledWith("Release Helper saved to the agent.");
+    expect(screen.getByRole("button", { name: "Save to agent" })).toBeEnabled();
+    await expect(loadSkillDraft(draftScope, "release-helper")).resolves.not.toBeNull();
+  });
+
   it("disables agent generation until chat is ready", () => {
     renderPanel({ onGenerateSkill: undefined });
     fireEvent.click(screen.getByRole("button", { name: /create skill/i }));
@@ -624,6 +678,26 @@ describe("SkillsPanel", () => {
     expect(onRefreshSkills).toHaveBeenCalledOnce();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(screen.queryByText("Github Helper", { selector: "h3" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a created skill open when product use is blocked at activation", async () => {
+    const onRequestProductUse = vi.fn()
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
+    const onCreateSkill = vi.fn(async () => ({ skillId: "github-helper" }));
+    renderPanel({ onRequestProductUse, onCreateSkill });
+
+    fireEvent.click(screen.getByRole("button", { name: /create skill/i }));
+    fireEvent.click(screen.getByRole("button", { name: /describe with ai/i }));
+    fireEvent.change(screen.getByPlaceholderText(/i want a skill/i), { target: { value: "Search GitHub repos" } });
+    fireEvent.click(screen.getByRole("button", { name: /generate skill/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /save skill/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /save to agent/i }));
+
+    await waitFor(() => expect(onRequestProductUse).toHaveBeenCalledTimes(2));
+    expect(onCreateSkill).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save to agent/i })).toBeEnabled();
   });
 
   it("keeps a created preview when saving to the agent fails", async () => {

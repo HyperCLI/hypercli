@@ -15,6 +15,7 @@ interface QrLoginWizardProps {
   onClose: () => void;
   /** Config path from plugin registry — "channels.*" uses legacy shape, otherwise uses plugins.entries shape */
   configPath?: string;
+  onRequestProductUse?: () => boolean;
 }
 
 export function QrLoginWizard({
@@ -24,6 +25,7 @@ export function QrLoginWizard({
   onOpenShell,
   onClose,
   configPath,
+  onRequestProductUse,
 }: QrLoginWizardProps) {
   const [step, setStep] = useState<"intro" | "enabling">("intro");
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +43,7 @@ export function QrLoginWizard({
   };
 
   const handleEnable = async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setStep("enabling");
     setError(null);
     try {

@@ -182,4 +182,15 @@ describe("OpenClawSettingsDrawer", () => {
       },
     }));
   });
+
+  it("does not report success when the save boundary blocks the change", async () => {
+    const onSaveConfig = vi.fn(async () => false);
+    renderDrawer({ onSaveConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: /save section/i }));
+
+    await waitFor(() => expect(onSaveConfig).toHaveBeenCalledOnce());
+    expect(screen.queryByText(/saved section/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save section/i })).toBeEnabled();
+  });
 });

@@ -481,6 +481,18 @@ describe("AgentWorkspaceSidebar", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "New Session" })).toBeEnabled());
   });
 
+  it("requests access before creating a session", () => {
+    const onCreateSession = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
+    renderAgentWorkspaceSidebar({ onCreateSession, onRequestProductUse, sessionsFetched: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "New Session" }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onCreateSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "New Session" })).toBeEnabled();
+  });
+
   it("renders sessions and opens the selected session by display name", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
@@ -1392,8 +1404,39 @@ describe("AgentWorkspaceSidebar", () => {
     await waitFor(() => expect(onRenameSession).toHaveBeenCalledWith("session-1", "Renamed chat"));
   });
 
+  it("keeps the rename dialog open when product access is blocked", () => {
+    const onRenameSession = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
+    renderAgentWorkspaceSidebar({
+      sessions: [{
+        key: "session-1",
+        clientMode: "browser",
+        clientDisplayName: "What is an agent",
+        createdAt: 1,
+        lastMessageAt: 20,
+        title: "What is an agent",
+        messageCount: 1,
+        raw: {},
+      }],
+      selectedSessionKey: "session-1",
+      onRenameSession,
+      onRequestProductUse,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Session options for What is an agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /rename/i }));
+    fireEvent.change(screen.getByDisplayValue("What is an agent"), { target: { value: "Renamed chat" } });
+    fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(onRenameSession).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Rename session" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Renamed chat")).toBeEnabled();
+  });
+
   it("confirms deleting a recent session", async () => {
     const onDeleteSession = vi.fn(async () => undefined);
+    const onRequestProductUse = vi.fn(() => false);
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "session-1",
@@ -1407,6 +1450,7 @@ describe("AgentWorkspaceSidebar", () => {
       }],
       selectedSessionKey: "session-1",
       onDeleteSession,
+      onRequestProductUse,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for What is an agent" }));
@@ -1417,6 +1461,7 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete session" }));
 
     await waitFor(() => expect(onDeleteSession).toHaveBeenCalledWith("session-1"));
+    expect(onRequestProductUse).not.toHaveBeenCalled();
   });
 
   it("does not render the desktop workspace sidebar below the desktop breakpoint", () => {

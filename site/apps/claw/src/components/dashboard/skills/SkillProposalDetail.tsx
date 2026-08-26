@@ -19,6 +19,7 @@ interface SkillProposalDetailProps {
   onApply?: (proposalId: string, revision?: string) => Promise<unknown>;
   onReject?: (proposalId: string, revision?: string) => Promise<unknown>;
   onApproved: () => Promise<unknown>;
+  onRequestProductUse?: () => boolean;
 }
 
 export function SkillProposalDetail({
@@ -30,6 +31,7 @@ export function SkillProposalDetail({
   onApply,
   onReject,
   onApproved,
+  onRequestProductUse,
 }: SkillProposalDetailProps) {
   const titleRef = React.useRef<HTMLHeadingElement>(null);
   const [inspection, setInspection] = React.useState<AgentSkillProposalInspection | null>(null);
@@ -60,6 +62,7 @@ export function SkillProposalDetail({
 
   const apply = async () => {
     if (!inspection?.content.trim() || decision || !onApply) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
     setDecision("apply");
     setError(null);
     try {

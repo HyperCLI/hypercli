@@ -152,11 +152,11 @@ export default function SlackStatusPage() {
         </section>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link href="/slack/start" className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] px-4 py-2 text-sm font-medium text-[var(--selection-accent)]">
+          <Link href={DASHBOARD_VIEW_HREFS.settings} className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[rgb(var(--selection-accent-rgb)_/_0.12)] px-4 py-2 text-sm font-medium text-[var(--selection-accent)]">
             Connect Slack
           </Link>
-          <Link href={DASHBOARD_VIEW_HREFS.settings} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
-            Settings
+          <Link href={DASHBOARD_VIEW_HREFS.overview} className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground">
+            Dashboard
           </Link>
         </div>
       </div>

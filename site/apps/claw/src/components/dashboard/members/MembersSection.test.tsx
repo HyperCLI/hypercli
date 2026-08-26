@@ -452,6 +452,20 @@ describe("MembersSection", () => {
     expect(mocks.workspaceContext.refreshSelectedWorkspaceAgents).not.toHaveBeenCalled();
   });
 
+  it("requests access before creating a Collection grant", async () => {
+    const onRequestProductUse = vi.fn(() => false);
+    render(<MembersSection agents={accountAgents} onRequestProductUse={onRequestProductUse} />);
+    await screen.findByText("Alex Chen");
+
+    fireEvent.click(screen.getByRole("button", { name: "Add access" }));
+    fireEvent.change(screen.getByLabelText("User UUID"), { target: { value: "user-3" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/ }));
+
+    expect(onRequestProductUse).toHaveBeenCalledOnce();
+    expect(mocks.workspaces.grant).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("User UUID")).toHaveValue("user-3");
+  });
+
   it("reloads the snapshot and agent context after agent creation", async () => {
     const user = userEvent.setup();
     render(<MembersSection agents={accountAgents} />);
@@ -477,11 +491,12 @@ describe("MembersSection", () => {
   });
 
   it("revokes every grouped grant, reloads, closes confirmation, and reports a partial failure", async () => {
+    const onRequestProductUse = vi.fn(() => false);
     mocks.workspaces.revokeGrant.mockImplementation(async (_workspaceId, grantId) => {
       if (grantId === "grant-agent-contributor") throw new Error("Backend denied contributor grant");
     });
 
-    render(<MembersSection agents={accountAgents} />);
+    render(<MembersSection agents={accountAgents} onRequestProductUse={onRequestProductUse} />);
     await screen.findByText("Research Agent");
 
     fireEvent.click(screen.getByRole("button", { name: "Remove Research Agent" }));
@@ -497,6 +512,7 @@ describe("MembersSection", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Partially removed Research Agent");
     expect(screen.getByRole("alert")).toHaveTextContent("1 of 2 active access grants failed");
     expect(screen.getByRole("alert")).toHaveTextContent("Backend denied contributor grant");
+    expect(onRequestProductUse).not.toHaveBeenCalled();
   });
 
   it("reports a full grouped-subject failure without inferring protected access", async () => {

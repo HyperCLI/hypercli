@@ -85,6 +85,7 @@ import { PlanComparisonModal } from "@/components/dashboard/agents/PlanCompariso
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import { EmbeddedPlanCheckout } from "@/components/dashboard/agents/EmbeddedPlanCheckout";
 import { AgentDashboardTour } from "@/components/dashboard/agents/AgentDashboardTour";
+import { TeamTrialActivationDialog } from "@/components/trial/TeamTrialActivationDialog";
 import { clearFirstAgentSetupDraft, updateFirstAgentSetupDraftPlan, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import {
@@ -161,6 +162,7 @@ import {
   mergeLaunchSlotInventories,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
+  resolveProductUseAccess,
   TEAM_TRIAL_PLAN_ID,
   type PendingPlanCheckout,
   type FirstAgentTrialCheckoutContext,
@@ -331,7 +333,6 @@ const AGENT_CLEANUP_CONFLICT_COOLDOWN_MS = 30_000;
 const CHAT_UPLOAD_DRAIN_WAIT_MS = 1_500;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
-const SHELL_INTENT_TTL_MS = 12_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 const KNOWLEDGE_HUB_SURFACE_CONTROLS_ID = "knowledge-hub-surface-controls";
 
@@ -384,7 +385,7 @@ const AccountSettingsPanel = dynamic(
   { loading: DeferredDashboardPanel },
 );
 const ApiKeysSettingsPanel = dynamic(
-  () => import("@/app/dashboard/keys/page"),
+  () => import("@/components/dashboard/ApiKeysSettingsPanel"),
   { loading: DeferredDashboardPanel },
 );
 const ProfileBillingSection = dynamic(
@@ -463,7 +464,7 @@ interface UpgradeCheckoutPlan {
 
 type AgentAuthIntent =
   | { kind: "checkout"; plan: UpgradeCheckoutPlan; presentation?: "modal" | "embedded" }
-  | { kind: "trial"; firstAgentSetup?: FirstAgentTrialCheckoutContext }
+  | { kind: "trial"; firstAgentSetup?: FirstAgentTrialCheckoutContext; presentation?: "activation-dialog" | "direct" }
   | { kind: "launch" }
   | { kind: "workspace" }
   | { kind: "navigate"; href: string };
@@ -1127,6 +1128,7 @@ function AgentsPageContent() {
   const requestedSection = searchParams.get("section")?.trim() || null;
   const requestedKnowledgeCollectionId = resolveKnowledgeCollectionId(searchParams);
   const requestedTab = searchParams.get("tab")?.trim() || null;
+  const requestedFilePath = searchParams.get("file")?.trim() || null;
   const requestedView = searchParams.get("view")?.trim() || null;
   const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const membersAvailable = isDashboardReleaseSurfaceAvailable("members");
@@ -1203,6 +1205,7 @@ function AgentsPageContent() {
       "domainId",
       "settings",
       "tab",
+      "file",
       "view",
       "slack_oauth_ok",
       "slack_oauth_error",
@@ -1240,6 +1243,8 @@ function AgentsPageContent() {
   const [checkoutRecoveryDialogOpen, setCheckoutRecoveryDialogOpen] = useState(false);
   const [pendingAuthIntent, setPendingAuthIntent] = useState<AgentAuthIntent | null>(null);
   const [trialCheckoutPending, setTrialCheckoutPending] = useState(false);
+  const [trialActivationOpen, setTrialActivationOpen] = useState(false);
+  const [trialActivationContext, setTrialActivationContext] = useState<FirstAgentTrialCheckoutContext | null>(null);
   const [trialClock, setTrialClock] = useState(() => Date.now());
   const [trialSummaryObservedAt, setTrialSummaryObservedAt] = useState(() => Date.now());
   const [billingReflectionState, dispatchBillingReflection] = useReducer(
@@ -1483,6 +1488,7 @@ function AgentsPageContent() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete("section");
     params.delete("tab");
+    params.delete("file");
     const query = params.toString();
     preserveMainTabOnRouteCleanupRef.current = true;
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
@@ -1519,6 +1525,7 @@ function AgentsPageContent() {
     if (!requestedTab || requestedAgentTab) return;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("tab");
+    params.delete("file");
     const query = params.toString();
     router.replace(`/dashboard/agents${query ? `?${query}` : ""}`, { scroll: false });
   }, [requestedAgentTab, requestedTab, router, searchParams]);
@@ -1747,6 +1754,8 @@ function AgentsPageContent() {
     setAgentOnboardingOverlay(null);
     setCheckoutRecoveryDialogOpen(false);
     setTrialCheckoutPending(false);
+    setTrialActivationOpen(false);
+    setTrialActivationContext(null);
     trialClaimPrincipalRef.current = null;
     setPaidFirstAgentCheckout(null);
     setResumeAgentLauncher(false);
@@ -2717,39 +2726,37 @@ function AgentsPageContent() {
   // Activation-code grant entitlements carry no subscription or payment history,
   // so the billing-history check alone would wrongly offer a trial to grant holders.
   const hasActivePlanAccess = subscriptionSummary ? hasActivePlan(subscriptionSummary) : false;
+  const productUseAccess = resolveProductUseAccess({
+    principalId: user?.id,
+    billingDataPrincipalId,
+    summary: subscriptionSummary,
+    hasBillingHistory,
+    now: trialClock,
+    observedAt: trialSummaryObservedAt,
+  });
   const tokenCapacityActionLabel = canStartTeamTrial
     ? "Start free trial"
     : hasActivePlanAccess
       ? "Add capacity"
       : "Upgrade";
-
-  useEffect(() => {
-    if (
-      authLoading ||
-      !isAuthenticated ||
-      !user?.id ||
-      billingDataPrincipalId !== user.id ||
-      hasBillingHistory !== false ||
-      hasActivePlanAccess ||
-      stripeCheckoutRecoveryRequested ||
-      checkoutReturnRecoveryActive ||
-      pendingAuthIntent ||
-      trialCheckoutPending
-    ) return;
-    router.replace("/trial");
-  }, [
-    authLoading,
-    billingDataPrincipalId,
-    checkoutReturnRecoveryActive,
-    hasActivePlanAccess,
-    hasBillingHistory,
-    isAuthenticated,
-    pendingAuthIntent,
-    router,
-    stripeCheckoutRecoveryRequested,
-    trialCheckoutPending,
-    user?.id,
-  ]);
+  const requestProductUse = useCallback((): boolean => {
+    if (productUseAccess === "loading") {
+      setError(billingDataError ?? "Checking account access. Try again in a moment.");
+      return false;
+    }
+    if (productUseAccess === "allow") return true;
+    if (productUseAccess === "upgrade") {
+      setUpgradeCatalogError(hasBillingHistory === null
+        ? "Trial eligibility could not be loaded. Refresh billing data before continuing."
+        : null);
+      setUpgradeCatalogOpen(true);
+      return false;
+    }
+    setUpgradeCatalogOpen(false);
+    setTrialActivationContext(null);
+    setTrialActivationOpen(true);
+    return false;
+  }, [billingDataError, hasBillingHistory, productUseAccess]);
 
   useEffect(() => {
     if (!activeTrial) return;
@@ -2808,25 +2815,31 @@ function AgentsPageContent() {
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
       trialClaimPrincipalRef.current = null;
       setTrialCheckoutPending(false);
+      setTrialActivationOpen(false);
+      setTrialActivationContext(null);
       setError(trialClaimErrorMessage(claimError));
     }
   }, [activeTrial, getToken, subscriptionSummary, teamTrialProduct, user?.id]);
 
   const beginTeamTrial = useCallback((
     firstAgentSetup?: FirstAgentTrialCheckoutContext,
+    options?: { presentation?: "activation-dialog" | "direct" },
   ) => {
     if (trialCheckoutPending || activeTrial) return;
     setError(null);
+    const presentation = options?.presentation ?? "activation-dialog";
     if (!isAuthenticated) {
       requestAuthentication({
         kind: "trial",
         ...(firstAgentSetup ? { firstAgentSetup } : {}),
+        presentation,
       });
       return;
     }
     setPendingAuthIntent({
       kind: "trial",
       ...(firstAgentSetup ? { firstAgentSetup } : {}),
+      presentation,
     });
   }, [activeTrial, isAuthenticated, requestAuthentication, trialCheckoutPending]);
 
@@ -2850,7 +2863,13 @@ function AgentsPageContent() {
           return;
         }
       }
-      void startTrial(intent.firstAgentSetup);
+      if (intent.presentation === "direct") {
+        void startTrial(intent.firstAgentSetup);
+        return;
+      }
+      setUpgradeCatalogOpen(false);
+      setTrialActivationContext(intent.firstAgentSetup ?? null);
+      setTrialActivationOpen(true);
     }, 0);
     return () => window.clearTimeout(timeout);
   }, [activeTrial, authLoading, firstAgentSetupDraft, isAuthenticated, pendingAuthIntent, startTrial, user?.id]);
@@ -2893,7 +2912,7 @@ function AgentsPageContent() {
           agentSize,
         }
       : undefined;
-    beginTeamTrial(firstAgentSetup);
+    beginTeamTrial(firstAgentSetup, { presentation: "direct" });
   }, [beginTeamTrial, firstAgentSetupDraft, knowledgeHubAvailable, selectedWorkspaceId, user?.id]);
 
   const embeddedFirstAgentSetup = (() => {
@@ -3158,46 +3177,33 @@ function AgentsPageContent() {
   }, [selectedAgentId]);
 
   // ── Gateway Chat hook ──
-  const [shellIntentAgentId, setShellIntentAgentId] = useState<string | null>(null);
-  const shellIntentAgentIdRef = useRef<string | null>(null);
-  const shellIntentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelShellIntent = useCallback(() => {
-    if (shellIntentTimerRef.current) {
-      clearTimeout(shellIntentTimerRef.current);
-      shellIntentTimerRef.current = null;
-    }
-    shellIntentAgentIdRef.current = null;
-    setShellIntentAgentId(null);
-  }, []);
+  const [shellAccessAgentId, setShellAccessAgentId] = useState<string | null>(null);
   const prepareShell = useCallback(() => {
-    if (
-      selectedAgentId &&
-      shellIntentAgentIdRef.current === selectedAgentId &&
-      shellIntentTimerRef.current
-    ) return;
     preloadAgentShellTerminalRuntime();
-    if (selectedAgentId && selectedAgentState === "RUNNING") {
-      shellIntentAgentIdRef.current = selectedAgentId;
-      setShellIntentAgentId(selectedAgentId);
-      if (shellIntentTimerRef.current) clearTimeout(shellIntentTimerRef.current);
-      const intendedAgentId = selectedAgentId;
-      shellIntentTimerRef.current = setTimeout(() => {
-        shellIntentTimerRef.current = null;
-        if (shellIntentAgentIdRef.current === intendedAgentId) shellIntentAgentIdRef.current = null;
-        setShellIntentAgentId((current) => current === intendedAgentId ? null : current);
-      }, SHELL_INTENT_TTL_MS);
-    }
-  }, [selectedAgentId, selectedAgentState]);
-  useEffect(() => () => {
-    if (shellIntentTimerRef.current) clearTimeout(shellIntentTimerRef.current);
   }, []);
+  const authorizeShell = useCallback(() => {
+    prepareShell();
+    if (!selectedAgentId || selectedAgentState !== "RUNNING") return false;
+    if (!requestProductUse()) return false;
+    setShellAccessAgentId(selectedAgentId);
+    return true;
+  }, [prepareShell, requestProductUse, selectedAgentId, selectedAgentState]);
+  useEffect(() => {
+    if (shellAccessAgentId && (shellAccessAgentId !== selectedAgentId || selectedAgentState !== "RUNNING")) {
+      setShellAccessAgentId(null);
+    }
+  }, [selectedAgentId, selectedAgentState, shellAccessAgentId]);
 
-  const shellEnabled = useAgentShellActivation({
+  const shellActivated = useAgentShellActivation({
     agentId: selectedAgentId,
     agentState: selectedAgentState,
     activeTab: mainTab,
-    intent: shellIntentAgentId === selectedAgentId,
   });
+  const shellEnabled = shellActivated && shellAccessAgentId === selectedAgentId;
+  useEffect(() => {
+    if (mainTab !== "shell" || !selectedAgentId || selectedAgentState !== "RUNNING" || shellAccessAgentId === selectedAgentId) return;
+    authorizeShell();
+  }, [authorizeShell, mainTab, selectedAgentId, selectedAgentState, shellAccessAgentId]);
   const selectedAgentPrimarySurface = agentPrimarySurface(selectedAgent?.runtime);
 
   useEffect(() => {
@@ -3218,7 +3224,7 @@ function AgentsPageContent() {
     ) return;
 
     const timeout = window.setTimeout(() => {
-      prepareShell();
+      if (!authorizeShell()) return;
       setOpenclawSettingsOpen(false);
       setMainTab("shell");
       setMobileShowChat(true);
@@ -3233,7 +3239,7 @@ function AgentsPageContent() {
   }, [
     isSelectedRunning,
     mainTab,
-    prepareShell,
+    authorizeShell,
     requestedAgentTab,
     router,
     searchParams,
@@ -3472,6 +3478,7 @@ function AgentsPageContent() {
   ) => {
     const agentId = selectedAgentId;
     if (!agentId) throw new Error("No agent selected");
+    if (!requestProductUse()) throw new Error("Start your free trial to rename this file safely.");
 
     const normalizedFromPath = normalizeOpenClawWorkspaceFilePath(fromPath);
     const normalizedSafePath = normalizeOpenClawWorkspaceFilePath(safeCandidatePath);
@@ -3489,7 +3496,7 @@ function AgentsPageContent() {
       await agentClient.fileDelete(agentId, normalizedFromPath);
     } catch {}
     return normalizedSafePath;
-  }, [selectedAgentId]);
+  }, [requestProductUse, selectedAgentId]);
 
   const readAgentFileResult = useCallback(async (path: string): Promise<AgentFileReadRecoveryResult<string>> => {
     const agentId = selectedAgentId;
@@ -4469,6 +4476,7 @@ function AgentsPageContent() {
   ]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
+    if (!requestProductUse()) return;
     cancelledStartAgentIdsRef.current.delete(agentId);
     const generation = agentDataGenerationRef.current;
     setStartingId(agentId);
@@ -4531,7 +4539,7 @@ function AgentsPageContent() {
       cancelledStartAgentIdsRef.current.delete(agentId);
       if (generation === agentDataGenerationRef.current) setStartingId(null);
     }
-  }, [applyAgentMutationResult, getToken, invalidateAgentCapacity, markAgentCleanupCooldown, refreshExactAgentAfterLifecycleConflict, runAgentMutation]);
+  }, [applyAgentMutationResult, getToken, invalidateAgentCapacity, markAgentCleanupCooldown, refreshExactAgentAfterLifecycleConflict, requestProductUse, runAgentMutation]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
@@ -5551,6 +5559,7 @@ function AgentsPageContent() {
     const deletedSelectedSession = sameOpenClawSelectableSessionKey(sessionKey, selectedSessionKey);
     if (fallbackSessionKey && !deletedSelectedSession) return;
 
+    if (!fallbackSessionKey && !requestProductUse()) return;
     const nextSessionKey = fallbackSessionKey ?? await chat.createSession({ waitForCreation: true });
     if (selectedAgentIdRef.current !== targetAgentId) return;
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [targetAgentId]: nextSessionKey }));
@@ -5849,7 +5858,7 @@ function AgentsPageContent() {
     closeMobileNavigation();
   };
   const openShellTab = () => {
-    prepareShell();
+    if (!authorizeShell()) return;
     openAgentSurfaceRoute("shell");
     setOpenclawSettingsOpen(false);
     selectMainTab("shell");
@@ -6006,6 +6015,7 @@ function AgentsPageContent() {
           ? "Clear the current draft before starting a private chat"
           : undefined;
   const startPrivateChat = async () => {
+    if (!requestProductUse()) return;
     try {
       await chat.startTemporaryChat();
     } catch (cause) {
@@ -6125,6 +6135,7 @@ function AgentsPageContent() {
           thinkingSessionKeys={chat.thinkingSessionKeys}
           selectedSessionKey={selectedSessionKey}
           pinnedSessionKeys={pinnedSessionKeys}
+          onRequestProductUse={requestProductUse}
           onSelectSession={selectSession}
           onSetSessionPinned={setSessionPinned}
           onRenameSession={renameSession}
@@ -6140,7 +6151,6 @@ function AgentsPageContent() {
           onOpenShell={openShellTab}
           onOpenActivity={openActivityTab}
           onShellIntent={prepareShell}
-          onShellIntentEnd={cancelShellIntent}
           onOpenOpenClaw={openOpenClawSettings}
           onOpenSettings={openAgentAccountSettings}
           settingsActive={dashboardView === "settings" && accountSettingsSection === "agent"}
@@ -6170,7 +6180,7 @@ function AgentsPageContent() {
     onProfileNameChange: setAccountProfileName,
     onProfileAvatarChange: setAccountAvatarUrl,
     onStartAgent: () => {
-      if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id);
+      if (selectedAgent && requestProductUse()) void handleLaunchLifecycleAction(selectedAgent.id);
     },
     onStopAgent: () => {
       if (selectedAgent) void handleStop(selectedAgent.id);
@@ -6179,7 +6189,7 @@ function AgentsPageContent() {
       if (selectedAgent) void handleArchive(selectedAgent.id);
     },
     onRestoreAgent: () => {
-      if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id);
+      if (selectedAgent && requestProductUse()) void handleLaunchLifecycleAction(selectedAgent.id);
     },
     onDeleteAgent: () => {
       if (selectedAgent) {
@@ -6272,6 +6282,7 @@ function AgentsPageContent() {
       await chat.saveConfig(patch);
       completeJourneyForEvent("rules-confirmed");
     },
+    onRequestProductUse: requestProductUse,
     isDesktopViewport,
   };
 
@@ -6353,7 +6364,7 @@ function AgentsPageContent() {
   const settingsMembersHref = `${buildDashboardViewHref("settings", { agentId: requestedAgentId })}&settings=members`;
   const showMobileSettingsMenu = !searchParams.has("settings");
   const settingsSectionContent = accountSettingsSection === "preferences" ? (
-    <AccountSettingsPanel />
+    <AccountSettingsPanel onRequestProductUse={requestProductUse} />
   ) : accountSettingsSection === "workspace" && knowledgeHubAvailable ? (
     <WorkspaceOverviewPanel
       accountAgents={accountAgents}
@@ -6371,12 +6382,12 @@ function AgentsPageContent() {
     />
   ) : accountSettingsSection === "members" ? (
     <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
-      <MembersSection agents={accountAgents} agentsLoading={agentsLoading} />
+      <MembersSection agents={accountAgents} agentsLoading={agentsLoading} onRequestProductUse={requestProductUse} />
     </div>
   ) : accountSettingsSection === "api-keys" ? (
     <div className="h-full min-h-0 overflow-y-auto bg-background px-4 py-7 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
-        <ApiKeysSettingsPanel />
+        <ApiKeysSettingsPanel onRequestProductUse={requestProductUse} />
       </div>
     </div>
   ) : accountSettingsSection === "billing" ? (
@@ -6454,6 +6465,7 @@ function AgentsPageContent() {
                 key={selectedAgent.id}
                 agent={selectedAgent}
                 onUpdate={updateAgentDisplayName}
+                onRequestProductUse={requestProductUse}
                 className="w-full px-1"
               />
             ) : (
@@ -6536,6 +6548,24 @@ function AgentsPageContent() {
           </div>
         </div>
       )}
+
+      <TeamTrialActivationDialog
+        open={trialActivationOpen}
+        checkoutPending={trialCheckoutPending}
+        onOpenChange={(open) => {
+          if (trialCheckoutPending) return;
+          setTrialActivationOpen(open);
+          if (!open) {
+            setTrialActivationContext(null);
+            clearTeamTrialIntentSearchParams();
+          }
+        }}
+        onStartTrial={() => {
+          if (trialCheckoutPending) return;
+          const firstAgentSetup = trialActivationContext ?? undefined;
+          void startTrial(firstAgentSetup);
+        }}
+      />
 
       <UpgradePlanCatalogModal
         open={upgradeCatalogOpen}
@@ -6772,6 +6802,7 @@ function AgentsPageContent() {
             thinkingSessionKeys={chat.thinkingSessionKeys}
             selectedSessionKey={selectedSessionKey}
             pinnedSessionKeys={pinnedSessionKeys}
+            onRequestProductUse={requestProductUse}
             onSelectSession={selectSession}
             onSetSessionPinned={setSessionPinned}
             onRenameSession={renameSession}
@@ -6787,7 +6818,6 @@ function AgentsPageContent() {
             onOpenShell={openShellTab}
             onOpenActivity={openActivityTab}
             onShellIntent={prepareShell}
-            onShellIntentEnd={cancelShellIntent}
             onOpenOpenClaw={openOpenClawSettings}
             onOpenSettings={openAgentAccountSettings}
             settingsActive={false}
@@ -6831,6 +6861,7 @@ function AgentsPageContent() {
           stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
           headerAction={renderPrivateChatControl()}
           onUpdateAgentDisplayName={updateAgentDisplayName}
+          onRequestProductUse={requestProductUse}
           launcherContent={agentLauncherOpen ? (
             <div
               aria-hidden={agentLauncherSuspended || undefined}
@@ -6951,9 +6982,9 @@ function AgentsPageContent() {
               deployments={deployments}
               agentId={selectedAgentId}
               visible={!agentLauncherOpen && !dashboardView && mainTab === "shell" && Boolean(isSelectedRunning)}
-              prewarm={shellIntentAgentId === selectedAgentId}
               getDeployments={getFreshShellDeployments}
               onStatusChange={setShellStatus}
+              onRequestProductUse={requestProductUse}
             />
           ) : null}
           panelContent={mainTab === "chat" ? (
@@ -6990,6 +7021,7 @@ function AgentsPageContent() {
               sendingAudio={sendingAudio}
               startRecording={startRecording}
               handleSendChat={handleSendChat}
+              onRequestProductUse={requestProductUse}
               formatDuration={formatDuration}
               onConnectionCta={openConnectionSuggestion}
               fileSyncRoot={chatFilesSyncRoot}
@@ -7002,7 +7034,11 @@ function AgentsPageContent() {
                 <SkillDraftTestBanner
                   testSession={activeSkillDraftTest.testSession}
                   onOpenDraft={() => openSkillsTab(activeSkillDraftTest.testSession?.draftId)}
-                  onSaveDraft={agentSkills.capabilities?.createSkill ? saveActiveSkillDraft : undefined}
+                  onSaveDraft={agentSkills.capabilities?.createSkill ? async () => {
+                    if (!requestProductUse()) return false;
+                    await saveActiveSkillDraft();
+                    return true;
+                  } : undefined}
                 />
               ) : undefined}
               journeyIntro={journeyIntroVisibleInChat ? {
@@ -7038,7 +7074,10 @@ function AgentsPageContent() {
                 onOpenBilling: () => leaveAgentsPage(ACCOUNT_PAGE_HREFS.billing),
                 onNewConversation: createSession,
                 onStartAgent: selectedAgent && isAgentStartable(selectedAgent)
-                  ? async () => { await handleLaunchLifecycleAction(selectedAgent.id); }
+                  ? async () => {
+                      if (!requestProductUse()) return;
+                      await handleLaunchLifecycleAction(selectedAgent.id);
+                    }
                   : undefined,
                 onStopAgent: async () => {
                   if (selectedAgent) await handleStop(selectedAgent.id);
@@ -7052,6 +7091,7 @@ function AgentsPageContent() {
                 },
                 onOpenAgentSettings: openAgentSettingsTab,
                 onCreateDirectory: async (name) => {
+                  if (!requestProductUse()) return;
                   await createAgentDirectory(`${OPENCLAW_WORKSPACE_PREFIX}/${name}`);
                 },
               }}
@@ -7075,19 +7115,20 @@ function AgentsPageContent() {
                     : undefined
                 : undefined}
               onLaunchAction={() => {
-                if (selectedAgent?.hasDesktop) void handleOpenDesktop(selectedAgent);
+                if (selectedAgent?.hasDesktop && requestProductUse()) void handleOpenDesktop(selectedAgent);
               }}
             />
           ) : mainTab === "files" ? (
             <AgentFilesPanel
-              key={`${selectedAgent?.id ?? "no-agent"}:${filesSyncRoot}`}
+              key={`${selectedAgent?.id ?? "no-agent"}:${filesSyncRoot}:${requestedFilePath ?? ""}`}
               agentId={selectedAgentId}
               agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
               rootPath={filesSyncRoot}
               connected={Boolean(selectedAgentId)}
-              initialPreviewPath={filesPreviewPath}
+              initialPreviewPath={requestedFilePath ?? filesPreviewPath}
               isDesktopViewport={isDesktopViewport}
               error={null}
+              onRequestProductUse={requestProductUse}
               onListFiles={listAgentFiles}
               onOpenFile={readAgentFileResult}
               onOpenFileBytes={readAgentFileBytesResult}
@@ -7129,6 +7170,7 @@ function AgentsPageContent() {
               onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
               onChannelProbe={async () => chat.channelsStatus(true)}
               onOpenShell={openShellTab}
+              onRequestProductUse={requestProductUse}
             />
           ) : mainTab === "skills" ? (
             <SkillsPanel
@@ -7151,6 +7193,7 @@ function AgentsPageContent() {
               onRecoverSkill={agentSkills.capabilities?.recoverSkill ? agentSkills.recover : undefined}
               onGenerateSkill={chat.ready ? chat.runEphemeralPrompt : undefined}
               onTestSkill={testSkillInNewSession}
+              onRequestProductUse={requestProductUse}
               skillProposals={skillProposals.proposals}
               skillProposalsLoading={skillProposals.loading}
               skillProposalsError={skillProposals.error}
@@ -7172,6 +7215,7 @@ function AgentsPageContent() {
               onNavigateCollection={openKnowledgeHubSurface}
               onSelectedCollectionChange={handleKnowledgeCollectionChange}
               headerControlsTargetId={KNOWLEDGE_HUB_SURFACE_CONTROLS_ID}
+              onRequestProductUse={requestProductUse}
             />
           ) : mainTab === "knowledge" ? (
             <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
@@ -7180,11 +7224,12 @@ function AgentsPageContent() {
                 agentsLoading={agentsLoading}
                 agentsError={agentsLoadError}
                 preferredAgentId={selectedAgentId ?? requestedAgentId}
+                onRequestProductUse={requestProductUse}
               />
             </div>
           ) : mainTab === "members" ? (
             <div className="h-full overflow-y-auto bg-background px-4 py-6 sm:px-6 lg:px-8">
-              <MembersSection agents={accountAgents} agentsLoading={agentsLoading} />
+              <MembersSection agents={accountAgents} agentsLoading={agentsLoading} onRequestProductUse={requestProductUse} />
             </div>
           ) : mainTab === "scheduled" ? (
             SCHEDULED_MANAGER_ENABLED ? (
@@ -7203,12 +7248,15 @@ function AgentsPageContent() {
                   await chat.refreshCron();
                 }}
                 onCreate={async (job) => {
+                  if (!requestProductUse()) return;
                   await chat.addCron(job);
                 }}
                 onUpdate={async (jobId, job) => {
+                  if (!requestProductUse()) return;
                   await chat.updateCron(jobId, job);
                 }}
                 onRun={async (jobId) => {
+                  if (!requestProductUse()) return;
                   await chat.runCron(jobId);
                   await chat.refreshCron();
                 }}
@@ -7219,8 +7267,9 @@ function AgentsPageContent() {
                   && selectedAgentLaunchLifecycleAction
                   && startingId !== selectedAgent.id
                   && restoringId !== selectedAgent.id
-                  ? async () => {
-                      await handleLaunchLifecycleAction(selectedAgent.id);
+                   ? async () => {
+                       if (!requestProductUse()) return;
+                       await handleLaunchLifecycleAction(selectedAgent.id);
                     }
                   : undefined}
                 launchActionLabel={selectedAgentLaunchLifecycleAction === "restore" ? "Restore agent" : "Start agent"}
@@ -7284,12 +7333,12 @@ function AgentsPageContent() {
           onShowInspector={() => setInspectorSheetOpen(true)}
           showInspectorButton={SHOW_AGENT_INSPECTOR}
           onStart={() => {
-            if (selectedAgent) {
+            if (selectedAgent && requestProductUse()) {
               void handleLaunchLifecycleAction(selectedAgent.id);
             }
           }}
           onRestore={() => {
-            if (selectedAgent) {
+            if (selectedAgent && requestProductUse()) {
               void handleLaunchLifecycleAction(selectedAgent.id);
             }
           }}
@@ -7327,8 +7376,8 @@ function AgentsPageContent() {
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
               onMarketplaceClick: openIntegrationsTab,
-              onAgentStart: () => { if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id); },
-              onAgentRestore: () => { if (selectedAgent) void handleLaunchLifecycleAction(selectedAgent.id); },
+              onAgentStart: () => { if (selectedAgent && requestProductUse()) void handleLaunchLifecycleAction(selectedAgent.id); },
+              onAgentRestore: () => { if (selectedAgent && requestProductUse()) void handleLaunchLifecycleAction(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,
               agentRestoring: Boolean(selectedAgent && restoringId === selectedAgent.id),
@@ -7410,8 +7459,10 @@ function AgentsPageContent() {
         connecting={chat.connecting}
         hydrating={chat.hydrating}
         onSaveConfig={async (patch) => {
+          if (!requestProductUse()) return false;
           await chat.saveConfig(patch);
           completeJourneyForEvent("rules-confirmed");
+          return true;
         }}
         isDesktopViewport={isDesktopViewport}
       />

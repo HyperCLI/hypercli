@@ -89,6 +89,7 @@ interface AgentMainPanelProps {
   headerAction?: React.ReactNode;
   surfaceHeader?: DashboardSurfaceHeader | null;
   onUpdateAgentDisplayName?: (agentId: string, displayName: string) => Promise<void> | void;
+  onRequestProductUse?: () => boolean;
   onCreate: () => void;
   onCreateAgent?: (params: AgentCreationSetupCreateParams) => Promise<string | null>;
   budget?: {
@@ -147,6 +148,7 @@ export function AgentMainPanel({
   headerAction,
   surfaceHeader = null,
   onUpdateAgentDisplayName,
+  onRequestProductUse,
   onCreate,
   onCreateAgent,
   budget,
@@ -582,6 +584,7 @@ export function AgentMainPanel({
                   key={selectedAgent.id}
                   agent={selectedAgent}
                   onUpdate={onUpdateAgentDisplayName}
+                  onRequestProductUse={onRequestProductUse}
                   className="w-full"
                 />
                 {!chatConnected && effectiveAgentStatus?.tone !== "ready" && (

@@ -154,7 +154,8 @@ function SkillsImportModalContent({
     setConfirmationAction(action);
     setError(null);
     try {
-      await callback?.(importedItems);
+      const completed = await callback?.(importedItems);
+      if (completed === false) return;
       if (operation !== operationRef.current) return;
       handleClose();
     } catch {

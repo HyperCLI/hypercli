@@ -19,6 +19,10 @@ const devAgentSetupPageSource = readFileSync(
   resolve(process.cwd(), "src/app/dev/agent-setup/agents/page.tsx"),
   "utf8",
 );
+const nextConfigSource = readFileSync(
+  resolve(process.cwd(), "next.config.ts"),
+  "utf8",
+);
 
 describe("dashboard agents page release boundary", () => {
   it("does not restore consumed checkout params when async agent selection updates the route", () => {
@@ -134,6 +138,59 @@ describe("dashboard agents page release boundary", () => {
     expect(pageSource).toContain("knowledgeCollectionsLoading={knowledgeHubAvailable && workspacesLoading}");
   });
 
+  it("gates private chat creation before starting a temporary session", () => {
+    const startPrivateChat = pageSource.slice(
+      pageSource.indexOf("const startPrivateChat"),
+      pageSource.indexOf("const endPrivateChat"),
+    );
+
+    expect(startPrivateChat).toContain("if (!requestProductUse()) return;");
+    expect(startPrivateChat.indexOf("requestProductUse()")).toBeLessThan(startPrivateChat.indexOf("chat.startTemporaryChat()"));
+  });
+
+  it("gates resize-and-start before lifecycle loading and transport", () => {
+    const resizeAndStart = pageSource.slice(
+      pageSource.indexOf("const handleResizeAndStart"),
+      pageSource.indexOf("const selectedAgentHasTierOptions"),
+    );
+
+    expect(resizeAndStart.indexOf("requestProductUse()")).toBeGreaterThan(-1);
+    expect(resizeAndStart.indexOf("requestProductUse()")).toBeLessThan(resizeAndStart.indexOf("setStartingId(agentId)"));
+    expect(resizeAndStart.indexOf("requestProductUse()")).toBeLessThan(resizeAndStart.indexOf("agentClient.resize"));
+  });
+
+  it("gates automatic file recovery before its rename transport", () => {
+    const safeRename = pageSource.slice(
+      pageSource.indexOf("const renameAgentFileToSafeName"),
+      pageSource.indexOf("const readAgentFileResult"),
+    );
+
+    expect(safeRename.indexOf("requestProductUse()")).toBeGreaterThan(-1);
+    expect(safeRename.indexOf("requestProductUse()")).toBeLessThan(safeRename.indexOf("fileWriteBytes"));
+  });
+
+  it("keeps Shell preloading passive and authorizes before mounting transport", () => {
+    const shellBoundary = pageSource.slice(
+      pageSource.indexOf("const [shellAccessAgentId"),
+      pageSource.indexOf("const selectedAgentPrimarySurface"),
+    );
+
+    expect(shellBoundary).toContain("preloadAgentShellTerminalRuntime()");
+    expect(shellBoundary).toContain("if (!requestProductUse()) return false;");
+    expect(pageSource).toContain("persistentPanelContent={shellEnabled ? (");
+    expect(pageSource).toContain("const shellEnabled = shellActivated && shellAccessAgentId === selectedAgentId;");
+  });
+
+  it("does not create a replacement session after cleanup without fresh access", () => {
+    const deleteSession = pageSource.slice(
+      pageSource.indexOf("const deleteSession"),
+      pageSource.indexOf("const createSession"),
+    );
+
+    expect(deleteSession.indexOf("chat.deleteSession(sessionKey)")).toBeLessThan(deleteSession.indexOf("requestProductUse()"));
+    expect(deleteSession.indexOf("requestProductUse()")).toBeLessThan(deleteSession.indexOf("chat.createSession"));
+  });
+
   it("withholds Members callbacks from workspace surfaces while the surface is unavailable", () => {
     // Sidebar, empty-state, and settings surfaces must not expose Members
     // callbacks when the surface is disabled.
@@ -209,6 +266,12 @@ describe("dashboard agents SDK lifetime boundary", () => {
 });
 
 describe("dev agents page release boundary", () => {
+  it("redirects the dev-only setup tree out of production artifacts", () => {
+    expect(nextConfigSource).toContain('if (process.env.NODE_ENV !== "production") return [];');
+    expect(nextConfigSource).toContain('source: "/dev/agent-setup/:path*"');
+    expect(nextConfigSource).toContain('destination: "/dashboard/agents?view=overview"');
+  });
+
   it("keeps its Schedule surface and inspector behind the shared coming-soon policy", () => {
     expect(devAgentSetupPageSource).toContain("<AgentScheduledEmptyState />");
     expect(devAgentSetupPageSource).toContain("showCronManager: SCHEDULED_MANAGER_ENABLED");

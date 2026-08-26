@@ -53,6 +53,12 @@ vi.mock("@/components/dashboard/DashboardShell", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock("@/components/trial/TeamTrialActivationDialog", () => ({
+  TeamTrialActivationDialog: ({ open, onStartTrial }: { open: boolean; onStartTrial: () => void }) => open
+    ? <button type="button" onClick={onStartTrial}>Start 7-day free trial</button>
+    : null,
+}));
+
 vi.mock("@hypercli/shared-ui", () => ({
   HyperCLILogo: () => <div>HyperCLI</div>,
   PrivyLoginPanel: () => <div>Login</div>,
@@ -91,6 +97,7 @@ describe("TrialPage", () => {
     expect(claimButton).toHaveAttribute("id", "claim-trial-button");
     expect(claimButton).toHaveClass("claim-trial-button");
     fireEvent.click(claimButton);
+    fireEvent.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
 
     await waitFor(() => expect(mocks.startTrial).toHaveBeenCalledOnce());
     expect(mocks.startTrial).toHaveBeenCalledWith("token", {
@@ -121,6 +128,7 @@ describe("TrialPage", () => {
     render(<TrialPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
 
     expect(await screen.findByRole("heading", { name: "Retry to open secure checkout" })).toBeVisible();
     expect(screen.getByText(/Checkout did not open/i)).toBeVisible();

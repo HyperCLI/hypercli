@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle2, Loader2, RefreshCw } from "lucide-react";
-import { getSlackInstallStatus, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
+import { getSlackInstallStatus, startSlackOAuth, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { Button, Card, ThemeSelector } from "@hypercli/shared-ui";
 
 import { TooltipHint } from "@/components/ClawTooltip";
@@ -11,9 +11,10 @@ import { SlackIcon } from "@/components/dashboard/BrandIcons";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
 
-function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) {
+function SlackAccountSection({ getToken, onRequestProductUse }: { getToken: () => Promise<string>; onRequestProductUse?: () => boolean }) {
   const [status, setStatus] = useState<SlackInstallStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [oauthStarting, setOauthStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -41,6 +42,22 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
   }, [refresh]);
 
   const connected = status?.connected === true;
+  const startOAuth = async () => {
+    if (onRequestProductUse && !onRequestProductUse()) return;
+    if (!SLACK_RELAY_BASE_URL) {
+      setError("Slack relay is not configured for this environment.");
+      return;
+    }
+    setOauthStarting(true);
+    setError(null);
+    try {
+      const oauth = await startSlackOAuth({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: await getToken() });
+      window.location.assign(oauth.authorizeUrl);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not start Slack OAuth.");
+      setOauthStarting(false);
+    }
+  };
   return (
     <Card className="mb-5 gap-0 rounded-xl bg-surface-low p-5 text-left">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -87,8 +104,9 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
               </Button>
             </TooltipHint>
           ) : null}
-          <Button asChild size="sm" className="h-9 rounded-lg text-xs font-semibold">
-            <Link href="/slack/start">{connected ? "Reconnect Slack" : "Connect Slack"}</Link>
+          <Button type="button" size="sm" disabled={oauthStarting} onClick={() => void startOAuth()} className="h-9 rounded-lg text-xs font-semibold">
+            {oauthStarting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {connected ? "Reconnect Slack" : "Connect Slack"}
           </Button>
         </div>
       </div>
@@ -96,7 +114,7 @@ function SlackAccountSection({ getToken }: { getToken: () => Promise<string> }) 
   );
 }
 
-export default function AccountSettingsPanel() {
+export default function AccountSettingsPanel({ onRequestProductUse }: { onRequestProductUse?: () => boolean }) {
   const { getToken } = useAgentAuth();
 
   return (
@@ -111,7 +129,7 @@ export default function AccountSettingsPanel() {
             <ThemeSelector aria-label="Appearance theme" className="justify-self-start md:justify-self-end" />
           </div>
         </Card>
-        <SlackAccountSection getToken={getToken} />
+        <SlackAccountSection getToken={getToken} onRequestProductUse={onRequestProductUse} />
       </div>
     </div>
   );

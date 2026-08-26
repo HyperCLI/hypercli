@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { HyperCLILogo, PrivyLoginPanel, RecoveryState } from "@hypercli/shared-ui";
 import DashboardShell from "@/components/dashboard/DashboardShell";
+import { TeamTrialActivationDialog } from "@/components/trial/TeamTrialActivationDialog";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import {
   createPlanCheckoutAttemptId,
@@ -32,6 +33,7 @@ export default function TrialPage() {
   const { getToken, isAuthenticated, isLoading, user } = useAgentAuth();
   const [claimState, setClaimState] = useState<TrialClaimState>("idle");
   const [error, setError] = useState<TrialRecovery | null>(null);
+  const [activationOpen, setActivationOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -85,6 +87,7 @@ export default function TrialPage() {
     } catch (error) {
       console.error("Trial checkout failed", error);
       setClaimState("idle");
+      setActivationOpen(false);
       setError({
         title: "Retry to open secure checkout",
         description: "Checkout did not open. Retry when you are ready to continue.",
@@ -110,7 +113,7 @@ export default function TrialPage() {
               className="claim-trial-button btn-primary inline-flex min-h-11 items-center justify-center rounded-lg px-5 text-sm font-semibold disabled:cursor-wait disabled:opacity-70"
               type="button"
               disabled={claimState === "claiming"}
-              onClick={() => void claimTrial()}
+              onClick={() => setActivationOpen(true)}
             >
               {claimState === "claiming" ? "Opening checkout..." : "Start free trial"}
             </button>
@@ -127,6 +130,14 @@ export default function TrialPage() {
             ) : null}
           </div>
         </section>
+        <TeamTrialActivationDialog
+          open={activationOpen}
+          checkoutPending={claimState === "claiming"}
+          onOpenChange={setActivationOpen}
+          onStartTrial={() => {
+            void claimTrial();
+          }}
+        />
       </main>
     </DashboardShell>
   );

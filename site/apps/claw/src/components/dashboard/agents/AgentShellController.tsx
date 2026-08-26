@@ -18,6 +18,7 @@ interface AgentShellControllerProps {
   prewarm?: boolean;
   getDeployments?: (signal: AbortSignal) => Promise<Deployments | null>;
   onStatusChange?: (status: ShellStatus) => void;
+  onRequestProductUse?: () => boolean;
 }
 
 export const AgentShellController = React.memo(React.forwardRef<AgentShellControllerHandle, AgentShellControllerProps>(
@@ -28,6 +29,7 @@ export const AgentShellController = React.memo(React.forwardRef<AgentShellContro
     prewarm = false,
     getDeployments,
     onStatusChange,
+    onRequestProductUse,
   }, ref) {
     const shellOutputHandlerRef = useRef<(text: string) => void>(() => undefined);
     const handleShellData = useCallback((text: string) => {
@@ -49,6 +51,10 @@ export const AgentShellController = React.memo(React.forwardRef<AgentShellContro
       onInputRejected: handleShellInputRejected,
       getDeployments,
     });
+    const handleShellInput = useCallback((data: string) => {
+      if (onRequestProductUse && !onRequestProductUse()) return;
+      send(data);
+    }, [onRequestProductUse, send]);
     const {
       shellBoxRef,
       writeOutput,
@@ -60,7 +66,7 @@ export const AgentShellController = React.memo(React.forwardRef<AgentShellContro
       status,
       visible,
       prewarm,
-      onInput: send,
+      onInput: handleShellInput,
       onResize: resize,
     });
 
@@ -69,9 +75,10 @@ export const AgentShellController = React.memo(React.forwardRef<AgentShellContro
     }, [writeOutput]);
 
     const handleReconnect = useCallback(() => {
+      if (onRequestProductUse && !onRequestProductUse()) return;
       if (terminalError) retryTerminal();
       if (status !== "connected") reconnect();
-    }, [reconnect, retryTerminal, status, terminalError]);
+    }, [onRequestProductUse, reconnect, retryTerminal, status, terminalError]);
 
     useImperativeHandle(ref, () => ({ reconnect: handleReconnect }), [handleReconnect]);
 

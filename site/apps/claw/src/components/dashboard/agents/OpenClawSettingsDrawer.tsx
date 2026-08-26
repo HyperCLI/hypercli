@@ -34,7 +34,7 @@ interface OpenClawSettingsDrawerProps {
   connected: boolean;
   connecting: boolean;
   hydrating: boolean;
-  onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
+  onSaveConfig: (patch: Record<string, unknown>) => Promise<boolean | void>;
   isDesktopViewport?: boolean;
 }
 
@@ -462,7 +462,8 @@ function OpenClawSettingsDrawerContent({
     setSaving(true);
     setStatusMessage({ agentId, error: null, success: null });
     try {
-      await onSaveConfig({ [activeSection]: draft[activeSection] });
+      const saved = await onSaveConfig({ [activeSection]: draft[activeSection] });
+      if (saved === false) return;
       clearJsonDraftState();
       setStatusMessage({ agentId, error: null, success: `Saved section: ${activeSection}` });
     } catch (err) {

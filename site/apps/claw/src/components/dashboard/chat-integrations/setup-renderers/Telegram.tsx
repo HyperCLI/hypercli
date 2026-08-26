@@ -24,6 +24,7 @@ export function renderTelegramSetup(context: IntegrationSetupRenderContext) {
       onOpenFullSetup={context.onOpenFullSetup ? () => context.onOpenFullSetup?.(action.integrationId) : undefined}
       onDismiss={context.onDismiss}
       directSetup={context.directSetup ?? false}
+      onRequestProductUse={context.onRequestProductUse}
     />
   );
 }

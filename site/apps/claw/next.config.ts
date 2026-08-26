@@ -40,6 +40,14 @@ function localDevelopmentOrigins(): string[] {
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  async redirects() {
+    if (process.env.NODE_ENV !== "production") return [];
+    return [{
+      source: "/dev/agent-setup/:path*",
+      destination: "/dashboard/agents?view=overview",
+      permanent: false,
+    }];
+  },
   async headers() {
     return [
       {
