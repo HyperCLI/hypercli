@@ -1444,7 +1444,7 @@ function upsertAssistantMessage(
   if (isInternalHeartbeatMessage(incoming)) {
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
   }
-  const sanitizedIncoming = sanitizeAssistantMessage(incoming);
+  let sanitizedIncoming = sanitizeAssistantMessage(incoming);
   if (isInternalHeartbeatMessage(sanitizedIncoming)) {
     const last = prev[prev.length - 1];
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
@@ -1456,6 +1456,32 @@ function upsertAssistantMessage(
     return prev;
   }
   let assistantIndex = matchingAssistantIndex(prev, sanitizedIncoming);
+  if (options.startNewRound && sanitizedIncoming.content) {
+    const correlationFields = ["messageId", "turnId", "runId", "clientTurnId", "renderId"] as const;
+    const suppliedCorrelations = correlationFields.filter((field) => Boolean(sanitizedIncoming[field]));
+    let completedToolProgress: ChatMessage["progress"];
+    for (let index = prev.length - 1; index >= 0; index -= 1) {
+      const candidate = prev[index];
+      const isCorrelated = index === assistantIndex || suppliedCorrelations.some(
+        (field) => candidate?.[field] === sanitizedIncoming[field],
+      );
+      if (
+        candidate?.role === "assistant" &&
+        candidate.progress &&
+        candidate.toolCalls?.some((toolCall) => toolCall.result !== undefined) &&
+        isCorrelated
+      ) {
+        completedToolProgress = candidate.progress;
+        break;
+      }
+    }
+    if (completedToolProgress) {
+      sanitizedIncoming = {
+        ...sanitizedIncoming,
+        content: stripAssistantProgressContent(sanitizedIncoming.content, completedToolProgress),
+      };
+    }
+  }
   if (
     options.startNewRound &&
     assistantIndex >= 0 &&

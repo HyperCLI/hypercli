@@ -1711,6 +1711,78 @@ describe("openclaw commentary session wiring", () => {
     expect(row.thinking).toBeUndefined();
   });
 
+  it("strips cumulative commentary from a final round after a completed tool call", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "m1", turnId: "t1", runId: "r1", sessionKey: "main" };
+    const commentary = "Running the requested read-only check command now.";
+    const final = "LIVE_TOOL_FINAL";
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "commentary", text: commentary, replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: commentary,
+        replace: true,
+        ...identity,
+        data: { message: { role: "assistant", content: commentary } },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "tool_call",
+        ...identity,
+        data: { toolCallId: "tool-1", name: "exec", args: { command: "printf test" } },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "tool_result",
+        ...identity,
+        data: { toolCallId: "tool-1", name: "exec", result: "test" },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "content",
+        text: final,
+        replace: true,
+        ...identity,
+        data: { message: { role: "assistant", content: `${commentary}${final}` } },
+      } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: {
+        type: "done",
+        ...identity,
+        data: {
+          message: {
+            role: "assistant",
+            stopReason: "stop",
+            content: [{ type: "text", text: `${commentary}${final}` }],
+          },
+        },
+      } as any,
+    });
+
+    expect(messages()).toHaveLength(2);
+    expect(messages()[0]).toMatchObject({
+      content: "",
+      progress: { text: commentary, state: "settled" },
+      toolCalls: [expect.objectContaining({ id: "tool-1", result: "test" })],
+    });
+    expect(messages()[1]).toMatchObject({ content: final });
+    expect(messages().map((message) => message.content).join(""))
+      .not.toContain(commentary);
+  });
+
   it("uses the cumulative chat payload to suppress a mirrored commentary suffix", () => {
     const { context, messages } = createStreamContext();
     const identity = { runId: "r1", sessionKey: "main" };
