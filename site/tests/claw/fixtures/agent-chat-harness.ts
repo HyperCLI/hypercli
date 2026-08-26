@@ -13,6 +13,7 @@ export const AGENT_CHAT_TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB
 export interface AgentChatHarnessOptions {
   agentId: string;
   hostname: string;
+  syncRoot?: string;
 }
 
 export async function installAgentChatAuth(page: Page): Promise<void> {
@@ -34,7 +35,7 @@ export async function installAgentChatAuth(page: Page): Promise<void> {
 }
 
 export async function interceptAgentChatBackend(page: Page, options: AgentChatHarnessOptions): Promise<void> {
-  const { agentId, hostname } = options;
+  const { agentId, hostname, syncRoot } = options;
   const deployment = {
     id: agentId,
     name: "Intercepted Chat Agent",
@@ -46,6 +47,7 @@ export async function interceptAgentChatBackend(page: Page, options: AgentChatHa
     openclaw_url: `wss://${hostname}`,
     gateway_url: `wss://${hostname}`,
     launch_epoch: 1,
+    ...(syncRoot ? { launch_config: { sync_root: syncRoot } } : {}),
     routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
     created_at: "2026-08-24T00:00:00Z",
     updated_at: "2026-08-24T00:00:00Z",

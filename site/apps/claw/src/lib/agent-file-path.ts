@@ -33,6 +33,53 @@ export function normalizeAgentBrowserFilePath(path: string): string {
   return absolute ? (normalized ? `/${normalized}` : "/") : normalized;
 }
 
+function escapesAbsoluteFilesystemRoot(path: string): boolean {
+  const replaced = path.trim().replace(/\\/g, "/");
+  if (!replaced.startsWith("/")) return false;
+
+  let depth = 0;
+  for (const segment of replaced.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (depth === 0) return true;
+      depth -= 1;
+    } else {
+      depth += 1;
+    }
+  }
+  return false;
+}
+
+export function resolveAgentFileSourcePath(path: string, syncRoot: string): string {
+  if (escapesAbsoluteFilesystemRoot(path)) {
+    throw new Error("This location is browse-only.");
+  }
+  const normalizedPath = normalizeAgentBrowserFilePath(path);
+  if (!normalizedPath.startsWith("/")) {
+    if (normalizedPath === ".." || normalizedPath.startsWith("../")) {
+      throw new Error("This location is browse-only.");
+    }
+    return normalizedPath;
+  }
+
+  const normalizedRoot = normalizeAgentBrowserFilePath(syncRoot);
+  if (!normalizedRoot.startsWith("/")) {
+    throw new Error("The synchronized filesystem root is unavailable.");
+  }
+  if (normalizedPath === normalizedRoot) return "";
+  if (normalizedRoot === "/") return normalizedPath.slice(1);
+  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    return normalizedPath.slice(normalizedRoot.length + 1);
+  }
+  throw new Error("This location is browse-only.");
+}
+
+export function resolveAgentFileReadPath(path: string, syncRoot: string): string {
+  return syncRoot
+    ? resolveAgentFileSourcePath(path, syncRoot)
+    : normalizeOpenClawWorkspaceFilePath(path);
+}
+
 export function normalizeOpenClawWorkspaceFilePath(path: string): string {
   const normalized = normalizeAgentFilePath(path);
   const workspacePrefix = normalizeAgentFilePath(OPENCLAW_WORKSPACE_PREFIX);
@@ -73,8 +120,20 @@ export function normalizeOpenClawMediaDisplayPath(path: string): string {
   return trimmed.startsWith("/") ? trimmed : `/${normalized}`;
 }
 
-export function normalizeOpenClawMediaFilePath(path: string): string {
+export function normalizeOpenClawMediaFilePath(path: string, syncRoot = ""): string {
   const trimmed = path.trim().replace(/^MEDIA:\s*/i, "");
+  const browserPath = normalizeAgentBrowserFilePath(trimmed);
+  if (browserPath.startsWith("/") && syncRoot) {
+    try {
+      resolveAgentFileSourcePath(browserPath, syncRoot);
+      // Keep source-root paths absolute until the shared Files adapter resolves
+      // them. This avoids confusing a real `workspace/` directory with the
+      // legacy OpenClaw workspace shorthand below.
+      return browserPath;
+    } catch {
+      // Preserve the existing display-alias handling for paths outside the root.
+    }
+  }
   const normalized = normalizeAgentFilePath(trimmed);
   const workspacePrefix = normalizeAgentFilePath(OPENCLAW_WORKSPACE_PREFIX);
   const syncWorkspaceDir = normalizeAgentFilePath(OPENCLAW_WORKSPACE_DIR);

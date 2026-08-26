@@ -191,6 +191,7 @@ import {
   launchConfigSyncRoot,
   normalizeAgentBrowserFilePath,
   normalizeOpenClawWorkspaceFilePath,
+  resolveAgentFileReadPath,
 } from "@/lib/agent-file-path";
 import {
   AgentLoadingState,
@@ -998,7 +999,7 @@ function UpgradePlanCatalogModal({
   );
 }
 
-function normalizeAgentFilePath(path: string): string {
+function normalizeAgentBrowserPath(path: string): string {
   return normalizeAgentBrowserFilePath(path);
 }
 
@@ -1015,7 +1016,7 @@ function stringFileMetadata(value: unknown): string | undefined {
 }
 
 function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
-  const path = normalizeAgentFilePath(entry.path);
+  const path = normalizeAgentBrowserPath(entry.path);
   return {
     name: entry.name || path.split("/").filter(Boolean).pop() || entry.path,
     path,
@@ -3112,6 +3113,7 @@ function AgentsPageContent() {
       : null),
     [selectedSdkAgent],
   );
+  const chatFilesSyncRoot = filesSyncRoot || (selectedOpenClawAgent ? OPENCLAW_SYNC_ROOT : "");
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && isAgentTransitionalState(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
@@ -3431,7 +3433,7 @@ function AgentsPageContent() {
   const listAgentFiles = useCallback(async (path?: string) => {
     if (!selectedAgentId) return [];
     const agentClient = await getAgentClient();
-    const normalizedPath = normalizeAgentFilePath(path ?? "");
+    const normalizedPath = normalizeAgentBrowserPath(path ?? "");
     const entries = await agentClient.filesList(selectedAgentId, normalizedPath);
     return (entries as AgentFileEntry[])
       .filter((entry) => !isAgentDirectoryMarkerEntry(entry))
@@ -3506,7 +3508,7 @@ function AgentsPageContent() {
 
   const readAgentFileResult = useCallback(async (path: string): Promise<AgentFileReadRecoveryResult<string>> => {
     const agentId = selectedAgentId;
-    const normalizedPath = normalizeAgentFilePath(path);
+    const normalizedPath = resolveAgentFileReadPath(path, chatFilesSyncRoot);
     if (!agentId) return { content: "", path: normalizedPath, renamed: false };
 
     const agentClient = await getAgentClient();
@@ -3522,7 +3524,7 @@ function AgentsPageContent() {
       read: (targetPath) => agentClient.fileRead(agentId, targetPath),
       rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
     });
-  }, [getAgentClient, renameAgentFileToSafeName, selectedAgentId]);
+  }, [chatFilesSyncRoot, getAgentClient, renameAgentFileToSafeName, selectedAgentId]);
 
   const readAgentFile = useCallback(async (path: string) => {
     const result = await readAgentFileResult(path);
@@ -3534,7 +3536,7 @@ function AgentsPageContent() {
     options?: AgentFilePreviewReadOptions,
   ): Promise<AgentFileReadRecoveryResult<Uint8Array>> => {
     const agentId = selectedAgentId;
-    const normalizedPath = normalizeAgentFilePath(path);
+    const normalizedPath = resolveAgentFileReadPath(path, chatFilesSyncRoot);
     if (!agentId) return { content: new Uint8Array(), path: normalizedPath, renamed: false };
 
     const agentClient = await getAgentClient();
@@ -3556,7 +3558,7 @@ function AgentsPageContent() {
       content: recovered.content.content,
       mimeType: recovered.content.mimeType,
     };
-  }, [getAgentClient, renameAgentFileToSafeName, selectedAgentId]);
+  }, [chatFilesSyncRoot, getAgentClient, renameAgentFileToSafeName, selectedAgentId]);
 
   const readAgentFileBytes = useCallback(async (path: string, options?: AgentFilePreviewReadOptions) => {
     const result = await readAgentFileBytesResult(path, options);
@@ -3579,7 +3581,7 @@ function AgentsPageContent() {
     const agentClient = await getAgentClient();
     await agentClient.fileWrite(
       selectedAgentId,
-      normalizeAgentFilePath(path),
+      normalizeAgentBrowserPath(path),
       content,
     );
     await refreshChatFileReferences().catch(() => undefined);
@@ -3590,7 +3592,7 @@ function AgentsPageContent() {
     const agentClient = await getAgentClient();
     await agentClient.fileWriteBytes(
       selectedAgentId,
-      normalizeAgentFilePath(path),
+      normalizeAgentBrowserPath(path),
       content,
     );
     await refreshChatFileReferences().catch(() => undefined);
@@ -3598,7 +3600,7 @@ function AgentsPageContent() {
 
   const createAgentDirectory = useCallback(async (path: string) => {
     if (!selectedAgentId) return;
-    const normalizedPath = normalizeAgentFilePath(path);
+    const normalizedPath = normalizeAgentBrowserPath(path);
     if (!normalizedPath) {
       throw new Error("Folder path is required.");
     }
@@ -3617,7 +3619,7 @@ function AgentsPageContent() {
   ) => {
     if (!selectedAgentId) return;
     const agentClient = await getAgentClient();
-    await agentClient.fileDelete(selectedAgentId, normalizeAgentFilePath(path), options);
+    await agentClient.fileDelete(selectedAgentId, normalizeAgentBrowserPath(path), options);
     await refreshChatFileReferences().catch(() => undefined);
   }, [getAgentClient, refreshChatFileReferences, selectedAgentId]);
 
@@ -6998,6 +7000,7 @@ function AgentsPageContent() {
               handleSendChat={handleSendChat}
               formatDuration={formatDuration}
               onConnectionCta={openConnectionSuggestion}
+              fileSyncRoot={chatFilesSyncRoot}
               onReadFileBytesFromChat={readAgentFileBytes}
               onReadGatewayMediaBytesFromChat={gatewayChat.readGatewayMediaBytes}
               onOpenFileFromChat={openFilesTab}

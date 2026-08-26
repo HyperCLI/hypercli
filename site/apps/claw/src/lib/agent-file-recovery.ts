@@ -1,4 +1,7 @@
-import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import {
+  normalizeAgentBrowserFilePath,
+  normalizeOpenClawWorkspaceFilePath,
+} from "@/lib/agent-file-path";
 import { OPENCLAW_WORKSPACE_DIR, OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 
 const DEFAULT_RETRY_COUNT = 1;
@@ -143,7 +146,7 @@ export async function readAgentFileWithRecovery<T>({
   retryCount = DEFAULT_RETRY_COUNT,
   retryDelayMs = DEFAULT_RETRY_DELAY_MS,
 }: AgentFileReadRecoveryOptions<T>): Promise<AgentFileReadRecoveryResult<T>> {
-  const normalizedPath = normalizeOpenClawWorkspaceFilePath(path);
+  const normalizedPath = normalizeAgentBrowserFilePath(path);
   throwIfFileReadAborted(signal);
 
   try {
@@ -163,13 +166,17 @@ export async function readAgentFileWithRecovery<T>({
       }
     }
 
-    const safeCandidatePath = getSafeOpenClawWorkspaceFilePath(normalizedPath);
+    const canRenameLegacyWorkspaceFile = normalizedPath === OPENCLAW_WORKSPACE_PREFIX
+      || normalizedPath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`);
+    const safeCandidatePath = canRenameLegacyWorkspaceFile
+      ? getSafeOpenClawWorkspaceFilePath(normalizedPath)
+      : null;
     if (!safeCandidatePath) throw lastError;
     throwIfFileReadAborted(signal);
 
     let renamedPath: string;
     try {
-      renamedPath = normalizeOpenClawWorkspaceFilePath(await rename(normalizedPath, safeCandidatePath));
+      renamedPath = normalizeAgentBrowserFilePath(await rename(normalizedPath, safeCandidatePath));
     } catch (renameError) {
       throwIfFileReadAborted(signal);
       throw new Error(

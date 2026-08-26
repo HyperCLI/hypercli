@@ -1,4 +1,9 @@
-import { normalizeOpenClawMediaDisplayPath, normalizeOpenClawMediaFilePath } from "@/lib/agent-file-path";
+import {
+  normalizeAgentBrowserFilePath,
+  normalizeOpenClawMediaDisplayPath,
+  normalizeOpenClawMediaFilePath,
+  resolveAgentFileSourcePath,
+} from "@/lib/agent-file-path";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import {
   inferFileMimeType,
@@ -48,6 +53,11 @@ export interface ExtractedContentMediaReferences {
 
 interface ExtractContentMediaOptions {
   streaming?: boolean;
+  syncRoot?: string;
+}
+
+interface ClassifyChatMediaOptions {
+  syncRoot?: string;
 }
 
 export function getChatFileLabel(file: { name?: string; path?: string }): string {
@@ -91,9 +101,19 @@ export function mediaWorkspacePathFromReference(path: string): string {
   return stripMediaWrapper(path);
 }
 
-export function isGeneratedMediaPath(path: string): boolean {
+export function isGeneratedMediaPath(path: string, syncRoot = ""): boolean {
+  const sourcePath = mediaWorkspacePathFromReference(path);
+  const browserPath = normalizeAgentBrowserFilePath(sourcePath);
+  if (syncRoot && browserPath.startsWith("/")) {
+    try {
+      resolveAgentFileSourcePath(browserPath, syncRoot);
+      return true;
+    } catch {
+      // Continue through the legacy OpenClaw path aliases below.
+    }
+  }
   return /^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)\/.+/i.test(
-    mediaWorkspacePathFromReference(path).replace(/^\/+/, ""),
+    sourcePath.replace(/^\/+/, ""),
   );
 }
 
@@ -130,9 +150,13 @@ function isKnownLocalFileHandle(value: string): boolean {
   return fileType.known && fileType.kind !== "image" && fileType.kind !== "audio" && fileType.kind !== "video";
 }
 
-export function generatedMediaFileFromPath(path: string, matchingFile?: ChatPendingFile | null): ContentMediaReference {
+export function generatedMediaFileFromPath(
+  path: string,
+  matchingFile?: ChatPendingFile | null,
+  options: ClassifyChatMediaOptions = {},
+): ContentMediaReference {
   const displayPath = normalizeOpenClawMediaDisplayPath(path);
-  const filePath = normalizeOpenClawMediaFilePath(matchingFile?.path || path);
+  const filePath = normalizeOpenClawMediaFilePath(matchingFile?.path || path, options.syncRoot);
   return {
     displayPath,
     raw: path,
@@ -156,14 +180,18 @@ export function isOpenClawManagedOutgoingMediaUrl(value: string): boolean {
   return OPENCLAW_MANAGED_OUTGOING_MEDIA.test(value.trim());
 }
 
-export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendingFile | null): ClassifiedChatMediaReference {
+export function classifyChatMediaReference(
+  raw: string,
+  matchingFile?: ChatPendingFile | null,
+  options: ClassifyChatMediaOptions = {},
+): ClassifiedChatMediaReference {
   const value = mediaWorkspacePathFromReference(raw);
   if (!value) return { kind: "unsupported", raw, label: "Preview unavailable" };
   if (isOpenClawManagedOutgoingMediaUrl(value)) {
     return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
   }
-  if (isGeneratedMediaPath(value)) {
-    return { kind: "workspace", media: generatedMediaFileFromPath(value, matchingFile), raw };
+  if (isGeneratedMediaPath(value, options.syncRoot)) {
+    return { kind: "workspace", media: generatedMediaFileFromPath(value, matchingFile, options), raw };
   }
   if (LOCAL_MEDIA_REFERENCE.test(value)) {
     if (isKnownLocalFileHandle(value)) {
@@ -268,7 +296,7 @@ export function extractContentMediaReferences(content: string, options: ExtractC
       if (deferAmbiguous) pendingMedia = true;
       return deferAmbiguous;
     }
-    const classified = classifyChatMediaReference(value);
+    const classified = classifyChatMediaReference(value, undefined, { syncRoot: options.syncRoot });
     if (classified.kind === "unsupported") {
       if (deferAmbiguous && isPotentiallyIncompleteStreamingMediaReference(value)) {
         pendingMedia = true;

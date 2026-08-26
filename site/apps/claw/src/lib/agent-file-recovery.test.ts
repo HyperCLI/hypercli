@@ -49,6 +49,24 @@ describe("agent file recovery", () => {
     expect(rename).not.toHaveBeenCalled();
   });
 
+  it("retries source-relative files without applying the legacy workspace alias", async () => {
+    const read = vi.fn().mockRejectedValue(podReadError());
+    const rename = vi.fn(async (_from: string, to: string) => to);
+
+    await expect(readAgentFileWithRecovery({
+      path: "workspace/audio/reply.wav",
+      read,
+      rename,
+      retryCount: 1,
+      retryDelayMs: 0,
+    })).rejects.toMatchObject({ message: "API Error 502: Pod file read failed" });
+
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenNthCalledWith(1, "workspace/audio/reply.wav");
+    expect(read).toHaveBeenNthCalledWith(2, "workspace/audio/reply.wav");
+    expect(rename).not.toHaveBeenCalled();
+  });
+
   it("renames unsafe workspace files when retry still fails", async () => {
     const read = vi.fn()
       .mockRejectedValueOnce(podReadError())

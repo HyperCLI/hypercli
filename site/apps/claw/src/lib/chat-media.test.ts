@@ -8,6 +8,23 @@ import {
 } from "./chat-media";
 
 describe("chat media references", () => {
+  it("keeps media inside the configured Files root on its real source path", () => {
+    const result = extractContentMediaReferences(
+      "Audio reply\nMEDIA:/srv/agent/workspace/audio/reply.mp3",
+      { syncRoot: "/srv/agent" },
+    );
+
+    expect(result.mediaFiles).toEqual([
+      expect.objectContaining({
+        file: expect.objectContaining({
+          name: "reply.mp3",
+          path: "/srv/agent/workspace/audio/reply.mp3",
+          type: "audio/mpeg",
+        }),
+      }),
+    ]);
+  });
+
   it("classifies OpenClaw workspace MEDIA paths as generated workspace media", () => {
     const reference = classifyChatMediaReference("MEDIA:/home/node/.openclaw/workspace/865621.jpg");
 

@@ -595,6 +595,7 @@ interface AgentChatPanelProps {
   formatDuration: (seconds: number) => string;
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
   slashCommandActions?: AgentSlashCommandActions;
+  fileSyncRoot?: string;
   onReadFileBytesFromChat?: ChatFileBytesReader;
   onReadGatewayMediaBytesFromChat?: ChatFileBytesReader;
   onOpenFileFromChat?: (path: string) => void;
@@ -642,6 +643,7 @@ export function AgentChatPanel({
   formatDuration,
   onConnectionCta,
   slashCommandActions,
+  fileSyncRoot,
   onReadFileBytesFromChat,
   onReadGatewayMediaBytesFromChat,
   onOpenFileFromChat,
@@ -1418,6 +1420,7 @@ export function AgentChatPanel({
                     agentMeta={selectedAgent.meta}
                     agentAvatarUrl={selectedAgentAvatarUrl}
                     userAvatarUrl={userAvatarUrl}
+                    fileSyncRoot={fileSyncRoot}
                     onReadFileBytesFromChat={onReadFileBytesFromChat ? stableReadFileBytesFromChat : undefined}
                     onReadGatewayMediaBytesFromChat={onReadGatewayMediaBytesFromChat ? stableReadGatewayMediaBytesFromChat : undefined}
                     onOpenFileFromChat={onOpenFileFromChat ? stableOpenFileFromChat : undefined}

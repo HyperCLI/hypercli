@@ -502,6 +502,7 @@ interface ChatMessageProps {
   senderName?: string;
   isGroupChat?: boolean;
   compactToolCalls?: boolean;
+  fileSyncRoot?: string;
   onReadFileBytesFromChat?: ChatFileBytesReader;
   onReadGatewayMediaBytesFromChat?: ChatFileBytesReader;
   onOpenFileFromChat?: (path: string) => void;
@@ -1179,6 +1180,7 @@ export function ChatMessageBubble({
   userAvatarUrl,
   senderName,
   isGroupChat = false,
+  fileSyncRoot,
   onReadFileBytesFromChat,
   onReadGatewayMediaBytesFromChat,
   onOpenFileFromChat,
@@ -1253,7 +1255,7 @@ export function ChatMessageBubble({
     ? stripInlineAudioReplyContent(rawEffectiveContent, inlineAudioFile)
     : rawEffectiveContent;
   const extractedContentMedia: ExtractedContentMediaReferences = !isUser
-    ? extractContentMediaReferences(effectiveContent, { streaming: isStreaming })
+    ? extractContentMediaReferences(effectiveContent, { streaming: isStreaming, syncRoot: fileSyncRoot })
     : { content: effectiveContent, mediaFiles: [] as ContentMediaReference[], directMedia: [], pendingMedia: false };
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
@@ -1273,7 +1275,7 @@ export function ChatMessageBubble({
     return {
       sourceUrl: url,
       matchingFile,
-      reference: classifyChatMediaReference(url, matchingFile),
+      reference: classifyChatMediaReference(url, matchingFile, { syncRoot: fileSyncRoot }),
     };
   });
   const generatedMediaUrlReferences = !isUser

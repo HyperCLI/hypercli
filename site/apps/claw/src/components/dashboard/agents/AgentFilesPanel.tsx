@@ -14,6 +14,7 @@ import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import {
   normalizeAgentBrowserFilePath,
   normalizeOpenClawMediaFilePath,
+  resolveAgentFileSourcePath,
 } from "@/lib/agent-file-path";
 import { isProtectedFile } from "@/lib/protected-files";
 
@@ -63,22 +64,6 @@ function absoluteSyncPath(path: string, syncRoot: string): string {
   return normalizeAgentBrowserFilePath(`${syncRoot}/${normalized}`);
 }
 
-function syncRelativePath(path: string, syncRoot: string): string {
-  const normalized = normalizeAgentBrowserFilePath(path);
-  if (!normalized.startsWith("/")) {
-    if (normalized === ".." || normalized.startsWith("../")) {
-      throw new Error("This location is browse-only.");
-    }
-    return normalized;
-  }
-  if (!syncRoot) throw new Error("The synchronized filesystem root is unavailable.");
-  if (normalized === syncRoot) return "";
-  if (normalized.startsWith(`${syncRoot}/`)) {
-    return normalized.slice(syncRoot.length + 1);
-  }
-  throw new Error("This location is browse-only.");
-}
-
 function normalizeInitialPreviewPath(path: string, syncRoot: string): string {
   const trimmed = path.trim();
   const browserPath = normalizeAgentBrowserFilePath(trimmed.replace(/^MEDIA:\s*/i, ""));
@@ -92,11 +77,11 @@ function normalizeInitialPreviewPath(path: string, syncRoot: string): string {
 }
 
 function sourceReadPath(path: string, syncRoot: string): string {
-  return syncRelativePath(path, syncRoot);
+  return resolveAgentFileSourcePath(path, syncRoot);
 }
 
 function sourceWritePath(path: string, syncRoot: string): string {
-  return syncRelativePath(path, syncRoot);
+  return resolveAgentFileSourcePath(path, syncRoot);
 }
 
 function displayPath(path: string, syncRoot: string): string {
