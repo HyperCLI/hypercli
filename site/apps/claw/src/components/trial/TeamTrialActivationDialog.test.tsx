@@ -97,6 +97,22 @@ describe("TeamTrialActivationDialog", () => {
     expect(onStartTrial).toHaveBeenCalledOnce();
   });
 
+  it("serves bundled images directly and clears the inherited desktop width cap", () => {
+    render(
+      <TeamTrialActivationDialog
+        open
+        onOpenChange={vi.fn()}
+        onStartTrial={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole("img")[0]).toHaveAttribute(
+      "src",
+      "/images/team-trial/feature-image-03.png",
+    );
+    expect(screen.getByTestId("team-trial-activation-dialog")).toHaveClass("sm:max-w-none");
+  });
+
   it("advances automatically and supports manual pagination", () => {
     vi.useFakeTimers();
     render(

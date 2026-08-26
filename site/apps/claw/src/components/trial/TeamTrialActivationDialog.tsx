@@ -124,7 +124,7 @@ export function TeamTrialActivationDialog({
           event.preventDefault();
           headingRef.current?.focus();
         }}
-        className="z-[10021] h-[min(850px,calc(100dvh-1rem))] w-[min(1600px,calc(100vw-1rem))] max-w-none grid-rows-[minmax(220px,0.78fr)_minmax(0,1.22fr)] gap-0 overflow-hidden rounded-[26px] border-[#303036] bg-[#18181b] p-0 text-[#f7f7f8] shadow-[0_36px_120px_rgba(0,0,0,0.68)] motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none sm:h-[min(820px,calc(100dvh-2rem))] sm:w-[min(1600px,calc(100vw-2rem))] md:grid-cols-[1fr_1fr] md:grid-rows-1 [&>button:last-child]:z-30 [&>button:last-child]:text-[#d7d7da] max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none"
+        className="z-[10021] h-[min(850px,calc(100dvh-1rem))] w-[min(1600px,calc(100vw-1rem))] max-w-none grid-rows-[minmax(220px,0.78fr)_minmax(0,1.22fr)] gap-0 overflow-hidden rounded-[26px] border-[#303036] bg-[#18181b] p-0 text-[#f7f7f8] shadow-[0_36px_120px_rgba(0,0,0,0.68)] motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none sm:h-[min(820px,calc(100dvh-2rem))] sm:w-[min(1600px,calc(100vw-2rem))] sm:max-w-none md:grid-cols-[1fr_1fr] md:grid-rows-1 [&>button:last-child]:z-30 [&>button:last-child]:text-[#d7d7da] max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none"
       >
         <DialogDescription className="sr-only">
           Start a seven-day free trial to use tools, files, skills, automations, and desktop access.
@@ -158,6 +158,7 @@ export function TeamTrialActivationDialog({
                     alt={feature.alt}
                     fill
                     priority={index === 0}
+                    unoptimized
                     sizes="(max-width: 767px) 100vw, 50vw"
                     className="object-cover"
                   />
