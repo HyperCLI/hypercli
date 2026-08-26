@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
+import { ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, RefreshCw, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import { RecoveryDetails } from "@hypercli/shared-ui";
 import {
@@ -45,6 +45,7 @@ import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboa
 import { ToolCallDisclosureButton, ToolCallSectionList, ToolCallStatusFrame } from "@/components/dashboard/chat/ToolCallPresentation";
 import { TimestampDisplay } from "@/components/dashboard/chat/TimestampDisplay";
 import { TooltipHint } from "@/components/ClawTooltip";
+import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 
 // ── Helpers ──
 
@@ -1193,7 +1194,7 @@ function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<Ch
         data-testid="agent-assistant-reasoning"
         data-reasoning-state={reasoning.state}
         aria-busy={reasoning.state === "active" || undefined}
-        className="group/reasoning mb-3 w-full max-w-[72ch] text-[13px] text-text-muted"
+        className="group/reasoning mb-3 w-full text-[13px] text-text-muted"
       >
         <summary
           data-testid="agent-assistant-reasoning-toggle"
@@ -1204,7 +1205,16 @@ function AssistantReasoningDisclosure({ reasoning }: { reasoning: NonNullable<Ch
           }}
           className={`flex min-h-8 w-fit max-w-full list-none items-center gap-2 rounded-sm font-medium outline-none marker:hidden focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [&::-webkit-details-marker]:hidden ${forcedOpen ? "cursor-default" : "cursor-pointer transition-colors hover:text-foreground"}`}
         >
-          <Brain aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 ${reasoning.state === "active" ? "text-primary" : "text-text-muted"}`} />
+          <span
+            aria-hidden="true"
+            data-testid="agent-assistant-reasoning-logo"
+            className="relative flex h-4 w-4 shrink-0 items-center justify-center"
+          >
+            <span
+              className={`absolute inset-0 rounded-[0.3rem] border ${reasoning.state === "active" ? "animate-pulse border-primary/70 motion-reduce:animate-none" : "border-text-muted/40"}`}
+            />
+            <HyperCLILogoMark className={`h-2.5 w-2.5 ${reasoning.state === "active" ? "" : "opacity-70"}`} />
+          </span>
           <span className="truncate">{label}</span>
           <ChevronRight
             aria-hidden="true"
@@ -1883,12 +1893,6 @@ export function ChatThinkingIndicator({
           transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
           style={{ width: "60%" }}
         />
-        <motion.div
-          animate={{ scale: [1, 1.08, 1] }}
-          transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
-        >
-          <Brain className="w-4 h-4 text-primary" />
-        </motion.div>
         <span className="min-w-0">
           <span className="block text-xs font-medium text-text-secondary">{label}</span>
           {description && !descriptionOnHover ? (

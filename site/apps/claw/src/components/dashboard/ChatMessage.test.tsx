@@ -8,6 +8,7 @@ import { ChatMessageBubble, ChatThinkingIndicator } from "./ChatMessage";
 
 vi.mock("@hypercli/shared-ui", async () => ({
   ...(await import("../../../../../packages/shared-ui/src/components/ui/tooltip")),
+  HyperCLILogo: (await import("../../../../../packages/shared-ui/src/components/HyperCLILogo")).HyperCLILogo,
   RecoveryDetails: (await import("../../../../../packages/shared-ui/src/components/patterns/recovery")).RecoveryDetails,
 }));
 
@@ -65,6 +66,7 @@ describe("ChatMessageBubble", () => {
     expect(detail).toHaveClass("absolute", "opacity-0", "group-hover:opacity-100", "group-focus-within:opacity-100");
     expect(detail).not.toHaveClass("max-h-0");
     expect(status.querySelector("[tabindex='0']")).toBeInTheDocument();
+    expect(status.querySelector("svg")).not.toBeInTheDocument();
     expect(status).not.toHaveAccessibleName(/25s/);
   });
 
@@ -2062,7 +2064,13 @@ describe("ChatMessageBubble", () => {
       expect(thought).toHaveAttribute("open");
       expect(thought).toHaveAttribute("aria-busy", "true");
       expect(thought).toHaveAttribute("data-reasoning-state", "active");
-      expect(screen.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName("Thinking");
+      const toggle = screen.getByTestId("agent-assistant-reasoning-toggle");
+      expect(toggle).toHaveAccessibleName("Thinking");
+      expect(toggle.querySelector(".lucide-brain")).not.toBeInTheDocument();
+      expect(screen.getByTestId("agent-assistant-reasoning-logo").querySelector(".animate-pulse"))
+        .toHaveClass("motion-reduce:animate-none");
+      expect(thought).toHaveClass("w-full");
+      expect(thought).not.toHaveClass("max-w-[72ch]");
       expect(thought).toHaveTextContent("Inspecting the workspace configuration");
       expect(screen.getByText("Reasoning in progress")).toHaveClass("sr-only");
       expect(screen.queryByTestId("agent-assistant-progress")).not.toBeInTheDocument();
@@ -2090,6 +2098,8 @@ describe("ChatMessageBubble", () => {
       expect(thought).not.toHaveAttribute("open");
       expect(toggle).toHaveAccessibleName("Thought for 3s");
       expect(toggle).not.toHaveAttribute("aria-disabled");
+      expect(screen.getByTestId("agent-assistant-reasoning-logo").querySelector(".animate-pulse"))
+        .not.toBeInTheDocument();
       expect(screen.getByText("Reasoning complete")).toHaveClass("sr-only");
 
       fireEvent.click(toggle);
