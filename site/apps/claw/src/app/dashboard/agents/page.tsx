@@ -227,7 +227,6 @@ import { AgentsPageLoadingShell } from "@/components/dashboard/agents/AgentsPage
 import { AgentDisplayNameEditor } from "@/components/dashboard/agents/AgentDisplayNameEditor";
 import { AgentPrivateChatControl } from "@/components/dashboard/agents/AgentPrivateChatControl";
 import { AgentWorkspaceSidebar, CollectionCreationDialog } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
-import { DailyTokenLimitDialog, resolveAgentTokenUsage } from "@/components/dashboard/agents/AgentTokenUsage";
 import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import {
   SettingsMenu,
@@ -260,7 +259,7 @@ import {
   type TokenUsageRefreshScheduler,
   type TokenUsageSnapshot,
 } from "@/components/dashboard/agents/tokenUsageRefreshScheduler";
-import { millisecondsUntilNextUtcTokenReset, tokenUsageSnapshot } from "@/components/dashboard/agents/agentTokenUsage";
+import { tokenUsageSnapshot } from "@/components/dashboard/agents/agentTokenUsage";
 import {
   countPendingSlotReleasesByTier,
   markPendingSlotReleaseComplete,
@@ -1229,8 +1228,6 @@ function AgentsPageContent() {
   const [billingDataPrincipalId, setBillingDataPrincipalId] = useState<string | null>(null);
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
   const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
-  const [tokenLimitDialogOpen, setTokenLimitDialogOpen] = useState(false);
-  const tokenLimitReachedRef = useRef(false);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
@@ -1445,11 +1442,7 @@ function AgentsPageContent() {
     : null;
   const tokenUsage = dailyTokenUsage;
   const tokenLimit = dailyTokenLimit;
-  const tokenLimitReached = resolveAgentTokenUsage(tokenUsage, tokenLimit).state === "reached";
   const tokenUsageLoading = isAuthenticated && billingDataPrincipalId !== user?.id && !billingDataError;
-  useLayoutEffect(() => {
-    tokenLimitReachedRef.current = tokenLimitReached;
-  }, [tokenLimitReached]);
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>(() => (
     requestedAgentId && requestedSessionKey
       ? { [requestedAgentId]: requestedSessionKey }
@@ -1727,8 +1720,6 @@ function AgentsPageContent() {
     setBillingDataPrincipalId(null);
     setBillingDataError(null);
     setDailyTokenUsage(null);
-    setTokenLimitDialogOpen(false);
-    tokenLimitReachedRef.current = false;
     setDeployments(null);
     setAgentsLoadError(null);
     setSelectedAgentId(null);
@@ -1963,10 +1954,7 @@ function AgentsPageContent() {
 
   const applyTokenUsageSnapshot = useCallback((snapshot: TokenUsageSnapshot) => {
     setDailyTokenUsage(snapshot.dailyTotal);
-    const limitReached = Boolean(dailyTokenLimit && snapshot.dailyTotal >= dailyTokenLimit);
-    tokenLimitReachedRef.current = limitReached;
-    if (!limitReached) setTokenLimitDialogOpen(false);
-  }, [dailyTokenLimit]);
+  }, []);
 
   const publishTokenUsage = useCallback((usage: Parameters<typeof tokenUsageSnapshot>[0] | null) => {
     if (!usage) return;
@@ -1990,16 +1978,6 @@ function AgentsPageContent() {
   }, [getToken, isAuthenticated]);
 
   const tokenUsagePrincipalId = isAuthenticated ? user?.id ?? null : null;
-  useEffect(() => {
-    if (!tokenUsagePrincipalId) return;
-    const timeout = window.setTimeout(() => {
-      tokenLimitReachedRef.current = false;
-      setDailyTokenUsage(null);
-      setTokenLimitDialogOpen(false);
-      tokenUsageRefreshSchedulerRef.current?.refresh();
-    }, millisecondsUntilNextUtcTokenReset(Date.now()));
-    return () => window.clearTimeout(timeout);
-  }, [tokenUsagePrincipalId]);
   useEffect(() => {
     if (!tokenUsagePrincipalId) return;
     const scheduler = createTokenUsageRefreshScheduler(
@@ -2397,8 +2375,6 @@ function AgentsPageContent() {
       setBillingDataPrincipalId(null);
       setBillingDataError(null);
       setDailyTokenUsage(null);
-      setTokenLimitDialogOpen(false);
-      tokenLimitReachedRef.current = false;
       const currentDeployments = deploymentsRef.current;
       deploymentsRef.current = null;
       currentDeployments?.dispose();
@@ -5097,10 +5073,6 @@ function AgentsPageContent() {
     let uploadInFlight = true;
     try {
       const token = await getToken();
-      if (tokenLimitReachedRef.current) {
-        setTokenLimitDialogOpen(true);
-        return;
-      }
       const timestamp = Date.now();
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${filename}`;
@@ -5115,11 +5087,6 @@ function AgentsPageContent() {
       await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, content);
       if (!targetIsCurrent()) {
         await agentClient.fileDelete(selectedAgent.id, uploadPath).catch(() => undefined);
-        return;
-      }
-      if (tokenLimitReachedRef.current) {
-        await agentClient.fileDelete(selectedAgent.id, uploadPath).catch(() => undefined);
-        if (targetIsCurrent()) setTokenLimitDialogOpen(true);
         return;
       }
       finishChatUpload(uploadGeneration);
@@ -5322,10 +5289,6 @@ function AgentsPageContent() {
   const handleSendChat = () => {
     if (chat.activeSessionReadOnly || uploadingChatFiles > 0) return;
     if (chat.pendingFiles.some((file) => pendingFileRemovalStatesRef.current[file.path])) return;
-    if (tokenLimitReached) {
-      setTokenLimitDialogOpen(true);
-      return;
-    }
     const draftInput = chat.input;
     const hasChatWork = draftInput.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
     const pendingJourneyCompletion = journeyChatCompletionRef.current;
@@ -6584,19 +6547,6 @@ function AgentsPageContent() {
         trialCheckoutPending={trialCheckoutPending}
       />
 
-      <DailyTokenLimitDialog
-        open={tokenLimitDialogOpen && tokenLimitReached}
-        actionLabel={tokenCapacityActionLabel}
-        onOpenChange={setTokenLimitDialogOpen}
-        onAction={() => {
-          if (canStartTeamTrial) {
-            beginTeamTrial();
-          } else {
-            void openUpgradeCatalog();
-          }
-        }}
-      />
-
       {upgradeCheckoutPlan && (
         <PlanCheckoutModal
           plan={upgradeCheckoutPlan}
@@ -7030,8 +6980,6 @@ function AgentsPageContent() {
               sendingAudio={sendingAudio}
               startRecording={startRecording}
               handleSendChat={handleSendChat}
-              tokenLimitReached={tokenLimitReached}
-              onTokenLimitBlocked={() => setTokenLimitDialogOpen(true)}
               formatDuration={formatDuration}
               onConnectionCta={openConnectionSuggestion}
               fileSyncRoot={chatFilesSyncRoot}

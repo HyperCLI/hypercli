@@ -32,9 +32,3 @@ export function tokenUsageSnapshot(usage: AgentUsageInput): TokenUsageSnapshot {
     dailyTotal: dailyTokenUsageTotal(usage) ?? 0,
   };
 }
-
-export function millisecondsUntilNextUtcTokenReset(timestamp: number): number {
-  const now = new Date(timestamp);
-  const nextReset = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
-  return Math.max(nextReset - timestamp, 0);
-}

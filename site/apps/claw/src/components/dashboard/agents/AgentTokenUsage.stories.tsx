@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 
-import { AgentTokenUsage, DailyTokenLimitDialog } from "./AgentTokenUsage";
+import { AgentTokenUsage } from "./AgentTokenUsage";
 
 const noOp = () => undefined;
 
@@ -30,7 +30,7 @@ export const Normal: Story = {
   },
 };
 
-export const ApproachingLimit: Story = {
+export const ApproachingAllowance: Story = {
   args: {
     tokenUsed: 20_000_000,
     tokenLimit: 25_000_000,
@@ -38,7 +38,7 @@ export const ApproachingLimit: Story = {
   },
 };
 
-export const LimitReached: Story = {
+export const AllowanceUsed: Story = {
   args: {
     tokenUsed: 25_000_000,
     tokenLimit: 25_000_000,
@@ -55,7 +55,7 @@ export const CollapsedApproaching: Story = {
   },
 };
 
-export const CollapsedReached: Story = {
+export const CollapsedAllowanceUsed: Story = {
   args: {
     collapsed: true,
     tokenUsed: 25_000_000,
@@ -64,25 +64,11 @@ export const CollapsedReached: Story = {
   },
 };
 
-export const MobileReached: Story = {
+export const MobileAllowanceUsed: Story = {
   args: {
     renderMobile: true,
     tokenUsed: 25_000_000,
     tokenLimit: 25_000_000,
     capacityActionLabel: "Add capacity",
   },
-};
-
-export const BlockedAction: Story = {
-  args: {
-    tokenUsed: 25_000_000,
-    tokenLimit: 25_000_000,
-    capacityActionLabel: "Add capacity",
-  },
-  render: (args) => (
-    <>
-      <AgentTokenUsage {...args} />
-      <DailyTokenLimitDialog open actionLabel="Add capacity" onOpenChange={noOp} onAction={noOp} />
-    </>
-  ),
 };

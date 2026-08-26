@@ -604,32 +604,6 @@ describe("AgentChatPanel", () => {
     ));
   });
 
-  it("opens token-limit recovery instead of retrying a failed reply", () => {
-    const sendMessage = vi.fn(async () => undefined);
-    const onTokenLimitBlocked = vi.fn();
-    renderAgentChatPanel({
-      chat: buildChat({
-        status: "connected",
-        gatewayConnected: true,
-        ready: true,
-        connected: true,
-        sendMessage,
-        messages: [
-          { role: "user", content: "Retry this", clientTurnId: "turn-blocked-retry" },
-          { role: "assistant", content: "The agent run failed before producing a reply.", clientTurnId: "turn-blocked-retry" },
-        ],
-      }),
-      isSelectedRunning: true,
-      tokenLimitReached: true,
-      onTokenLimitBlocked,
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Retry failed reply" }));
-
-    expect(onTokenLimitBlocked).toHaveBeenCalledOnce();
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
   it("offers a way to scroll to the latest message when reading earlier messages", () => {
     const chatScrollRef = createRef<HTMLDivElement>();
     const handleChatScroll = vi.fn();
@@ -1792,60 +1766,6 @@ describe("AgentChatPanel", () => {
     expect(screen.queryByRole("button", { name: /advanced mode/i })).not.toBeInTheDocument();
   });
 
-  it("preserves the draft and opens token-limit recovery instead of sending", () => {
-    const handleSendChat = vi.fn();
-    const onTokenLimitBlocked = vi.fn();
-    const setInput = vi.fn();
-    renderAgentChatPanel({
-      chat: buildChat({
-        status: "connected",
-        gatewayConnected: true,
-        ready: true,
-        connected: true,
-        input: "Keep working on this",
-        setInput,
-      }),
-      isSelectedRunning: true,
-      tokenLimitReached: true,
-      onTokenLimitBlocked,
-      handleSendChat,
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-    expect(onTokenLimitBlocked).toHaveBeenCalledOnce();
-    expect(handleSendChat).not.toHaveBeenCalled();
-    expect(setInput).not.toHaveBeenCalled();
-  });
-
-  it("preserves a voice preview and opens token-limit recovery instead of sending", () => {
-    const sendAudio = vi.fn();
-    const discardAudio = vi.fn();
-    const onTokenLimitBlocked = vi.fn();
-    renderAgentChatPanel({
-      chat: buildChat({
-        status: "connected",
-        gatewayConnected: true,
-        ready: true,
-        connected: true,
-      }),
-      isSelectedRunning: true,
-      audioUrl: "blob:voice-preview",
-      audioPreviewDuration: 12,
-      sendAudio,
-      discardAudio,
-      tokenLimitReached: true,
-      onTokenLimitBlocked,
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Send voice message" }));
-
-    expect(onTokenLimitBlocked).toHaveBeenCalledOnce();
-    expect(sendAudio).not.toHaveBeenCalled();
-    expect(discardAudio).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Send voice message" })).toBeInTheDocument();
-  });
-
   it.each([
     "connect a channel",
     "make a messaging integration",
@@ -2427,34 +2347,6 @@ describe("AgentChatPanel", () => {
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(setInput).toHaveBeenCalledWith("");
     expect(sendMessage).toHaveBeenCalledWith("Summarize this session so far with decisions, open tasks, and next actions.");
-  });
-
-  it("blocks prompt slash commands at the daily token limit without clearing the draft", async () => {
-    const setInput = vi.fn();
-    const sendMessage = vi.fn(async () => undefined);
-    const onTokenLimitBlocked = vi.fn();
-    renderAgentChatPanel({
-      chat: buildChat({
-        status: "connected",
-        gatewayConnected: true,
-        ready: true,
-        connected: true,
-        input: "/summary",
-        setInput,
-        sendMessage,
-      }),
-      isSelectedRunning: true,
-      tokenLimitReached: true,
-      onTokenLimitBlocked,
-    });
-
-    await act(async () => {
-      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
-    });
-
-    expect(onTokenLimitBlocked).toHaveBeenCalledOnce();
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(setInput).not.toHaveBeenCalled();
   });
 
   it("runs a UI slash command through the provided page callback", async () => {

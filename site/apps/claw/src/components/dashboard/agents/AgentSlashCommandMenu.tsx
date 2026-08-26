@@ -42,7 +42,6 @@ type SlashCommandMode = "ui" | "prompt" | "confirm";
 type SlashCommandCategory = "Chat" | "Agent" | "Workspace" | "Tools" | "Skills" | "Connections" | "Schedule" | "Diagnostics" | "Account";
 
 export interface AgentSlashCommandActions {
-  onBeforeChatSend?: () => boolean;
   onOpenFiles?: (path?: string) => void;
   onOpenConfig?: () => void;
   onOpenIntegrations?: () => void;
@@ -266,13 +265,12 @@ function refreshedSessionCount(refreshedSessions: Awaited<ReturnType<ChatSession
 }
 
 function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["run"] {
-  return async ({ args, chat, close, showFeedback, actions }) => {
+  return async ({ args, chat, close, showFeedback }) => {
     const message = typeof prompt === "function" ? prompt(args) : promptWithContext(prompt, args);
     if (!chat.activeSessionCanSend) {
       showFeedback("Wait for this conversation to finish loading, then try again.");
       return;
     }
-    if (actions.onBeforeChatSend?.() === false) return;
     chat.setInput("");
     if (chat.activeSessionSending) {
       chat.addPendingMessage(message);

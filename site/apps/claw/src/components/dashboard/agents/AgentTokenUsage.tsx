@@ -2,20 +2,12 @@
 
 import { AlertCircle, CalendarClock, Gauge, Loader2, Sparkles } from "lucide-react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@hypercli/shared-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ClawTooltip";
 import type { ActiveAgentTrial } from "@/lib/agent-trial";
 import { formatTokens } from "@/lib/format";
 
 const APPROACHING_DAILY_TOKEN_LIMIT_RATIO = 0.8;
-const DAILY_TOKEN_RESET_LABEL = "00:00 UTC";
+const DAILY_TOKEN_WINDOW_LABEL = "Usage since 00:00 UTC";
 
 export type AgentTokenUsageState = "unavailable" | "normal" | "approaching" | "reached";
 
@@ -35,6 +27,7 @@ export function resolveAgentTokenUsage(
   tokenUsed: number | null | undefined,
   tokenLimit: number | null | undefined,
 ): AgentTokenUsageSnapshot {
+  // Calendar-day usage is advisory; backend rolling windows own send admission.
   const tokensUsed = finiteNonNegative(tokenUsed);
   const normalizedLimit = finiteNonNegative(tokenLimit);
   const tokenTotal = normalizedLimit && normalizedLimit > 0 ? normalizedLimit : null;
@@ -103,9 +96,9 @@ export function AgentTokenUsage({
   const collapsedUsageLabel = trialCheckoutPending
     ? "Starting free trial"
     : usage.state === "reached"
-      ? `Daily token limit reached. Resets at ${DAILY_TOKEN_RESET_LABEL}. ${usageActionLabel}.`
+      ? `Today's token usage meets the daily allowance. ${DAILY_TOKEN_WINDOW_LABEL}. ${usageActionLabel}.`
       : usage.state === "approaching"
-        ? `Daily token limit is near. Resets at ${DAILY_TOKEN_RESET_LABEL}. ${usageActionLabel}.`
+        ? `Today's token usage is near the daily allowance. ${DAILY_TOKEN_WINDOW_LABEL}. ${usageActionLabel}.`
         : activeTrial
           ? `${activeTrial.planName} trial: ${activeTrial.timeRemainingLabel}`
           : trialOfferVisible
@@ -181,7 +174,7 @@ export function AgentTokenUsage({
           aria-valuemin={0}
           aria-valuemax={usage.tokenTotal ?? undefined}
           aria-valuenow={usage.tokensUsed != null && usage.tokenTotal ? Math.min(usage.tokensUsed, usage.tokenTotal) : undefined}
-          aria-valuetext={`${usage.label}${usage.state === "approaching" ? ". Near daily limit." : usage.state === "reached" ? ". Daily limit reached." : "."}`}
+          aria-valuetext={`${usage.label}${usage.state === "approaching" ? ". Near daily allowance." : usage.state === "reached" ? ". Daily allowance used." : "."}`}
           aria-busy={usage.tokensUsed == null || undefined}
           className="h-1 overflow-hidden rounded-full bg-surface-high"
         >
@@ -198,8 +191,8 @@ export function AgentTokenUsage({
           aria-live="polite"
           className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-[10px] font-medium leading-4 ${statusTone}`}
         >
-          <span>{usage.state === "reached" ? "Daily limit reached" : "Near daily limit"}</span>
-          <span className="whitespace-nowrap text-text-muted">Resets {DAILY_TOKEN_RESET_LABEL}</span>
+          <span>{usage.state === "reached" ? "Daily allowance used" : "Near daily allowance"}</span>
+          <span className="whitespace-nowrap text-text-muted">Since 00:00 UTC</span>
         </div>
       ) : null}
 
@@ -221,67 +214,5 @@ export function AgentTokenUsage({
         {usageActionLabel}
       </button>
     </div>
-  );
-}
-
-export function DailyTokenLimitDialog({
-  open,
-  actionLabel,
-  onOpenChange,
-  onAction,
-}: {
-  open: boolean;
-  actionLabel: string;
-  onOpenChange: (open: boolean) => void;
-  onAction: () => void;
-}) {
-  const recoveryCopy = actionLabel === "Add capacity"
-    ? "Add capacity to continue before the reset."
-    : actionLabel === "Start free trial"
-      ? "Start your free trial to continue before the reset."
-      : "Choose a higher plan to continue before the reset.";
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-testid="daily-token-limit-dialog"
-        closeLabel="Close daily token limit notice"
-        overlayClassName="z-[10000] bg-background/80 backdrop-blur-sm"
-        className="z-[10001] gap-0 overflow-hidden border-border bg-background p-0 sm:max-w-lg"
-      >
-        <DialogHeader className="gap-0 border-b border-border px-5 py-5 pr-12 text-left sm:px-6">
-          <div className="flex items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-destructive/25 bg-destructive/10 text-destructive">
-              <AlertCircle className="h-4 w-4" aria-hidden="true" />
-            </span>
-            <div className="min-w-0 pt-0.5">
-              <DialogTitle className="text-base leading-5 text-foreground">Daily token limit reached</DialogTitle>
-              <DialogDescription className="mt-2 text-sm leading-6 text-text-secondary">
-                Your account&apos;s shared token allowance has been used for today, so this action can&apos;t continue. It resets at {DAILY_TOKEN_RESET_LABEL}. {recoveryCopy}
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
-        <DialogFooter className="gap-2 bg-surface-low/55 px-5 py-4 sm:px-6">
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            Wait for reset
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onOpenChange(false);
-              onAction();
-            }}
-            className="btn-primary inline-flex h-9 items-center justify-center rounded-lg px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {actionLabel}
-          </button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
