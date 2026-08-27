@@ -48,11 +48,6 @@ const releaseConfig = {
       minimumSystemVersion: "10.15",
     },
     createUpdaterArtifacts: true,
-    // Bundle the Buzz backend provider as a sidecar so the app can install it
-    // into ~/.local/bin at runtime. Tauri resolves each platform build to the
-    // matching binaries/buzz-backend-hypercli-<target-triple> staged by the
-    // release workflow's "Build provider sidecar" step.
-    externalBin: ["binaries/buzz-backend-hypercli"],
   },
   plugins: {
     updater: {

@@ -18,17 +18,6 @@ export function renderGatewayDefinedChannelSetup(context: IntegrationSetupRender
       config={chat.config as Record<string, unknown> | null}
       connectorsProvider={chat.connectorsProvider}
       channelsProvider={chat.channelsProvider}
-      onSaveConfig={typeof chat.saveConfig === "function" ? chat.saveConfig : undefined}
-      onEnsureWhatsAppSupport={channelId === "whatsapp" && typeof chat.ensureWhatsAppSupport === "function"
-        ? chat.ensureWhatsAppSupport
-        : undefined}
-      onWhatsAppPairingStart={channelId === "whatsapp" && typeof chat.whatsAppPairingStart === "function"
-        ? chat.whatsAppPairingStart
-        : undefined}
-      whatsAppPairingState={channelId === "whatsapp" ? chat.whatsAppPairingState : undefined}
-      onCancelWhatsAppPairing={channelId === "whatsapp" && typeof chat.cancelWhatsAppPairing === "function"
-        ? chat.cancelWhatsAppPairing
-        : undefined}
       onWebLoginStart={typeof chat.webLoginStart === "function" ? chat.webLoginStart : undefined}
       onWebLoginWait={typeof chat.webLoginWait === "function" ? chat.webLoginWait : undefined}
       cachedWorkflow={chat.connectorWorkflows?.[channelId]}

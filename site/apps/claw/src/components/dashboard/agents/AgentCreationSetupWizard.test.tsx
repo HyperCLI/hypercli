@@ -197,6 +197,9 @@ describe("AgentCreationSetupWizard", () => {
       target: { value: "ghcr.io/acme/openclaw:stable" },
     });
     goToPlanStep();
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-setup-wizard")).toHaveAttribute("data-pack-ready", "true");
+    });
     fireEvent.click(screen.getAllByRole("button", { name: "Launch agent" })[0]);
 
     await waitFor(() => {
@@ -207,11 +210,14 @@ describe("AgentCreationSetupWizard", () => {
     });
   });
 
-  it("keeps Basic and Plus enabled before a Pro feature is selected", () => {
+  it("keeps Basic and Plus enabled before a Pro feature is selected", async () => {
     renderTieredLaunchableWizard();
 
     goToPlanStep();
 
+    await waitFor(() => {
+      expect(screen.getByTestId("agent-setup-wizard")).toHaveAttribute("data-pack-ready", "true");
+    });
     expect(getPlanCard("Basic")).toBeEnabled();
     expect(getPlanCard("Plus")).toBeEnabled();
     expect(getPlanCard("Pro")).toBeEnabled();

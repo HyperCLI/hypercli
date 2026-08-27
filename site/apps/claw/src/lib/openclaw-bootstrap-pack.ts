@@ -1,4 +1,5 @@
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
+import { assembleOpenClawBootstrapPack } from "@/lib/bootstrap-templates";
 
 export const OPENCLAW_BOOTSTRAP_PACK_VERSION = 2;
 export const OPENCLAW_BOOTSTRAP_REQUIRED_FILES = [
@@ -159,7 +160,9 @@ export function createOpenClawBootstrapDraft(
   return {
     version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
     inputs: normalizedInputs,
-    files: buildDeterministicOpenClawBootstrapPack(normalizedInputs),
+    files: typeof window === "undefined"
+      ? buildInlineOpenClawBootstrapPack(normalizedInputs)
+      : assembleOpenClawBootstrapPack(normalizedInputs),
     generationSource: "deterministic",
   };
 }
@@ -186,10 +189,30 @@ export function normalizeOpenClawBootstrapInputs(
   };
 }
 
+/**
+ * The canonical pack content no longer lives inline: templates ship as static
+ * assets under public/bootstrap/ and are assembled by
+ * `@/lib/bootstrap-templates`. This sync fallback exists only for non-browser
+ * contexts (tests, SSR) where the static assets cannot be fetched; it throws
+ * in the browser so call sites move to `assembleOpenClawBootstrapPack`
+ * instead of silently diverging from the shipped templates.
+ */
 export function buildDeterministicOpenClawBootstrapPack(
   rawInputs: Partial<OpenClawBootstrapInputs>,
 ): OpenClawBootstrapFile[] {
   const inputs = normalizeOpenClawBootstrapInputs(rawInputs, rawInputs.agentName);
+  if (typeof window !== "undefined") {
+    throw new Error(
+      "buildDeterministicOpenClawBootstrapPack is unavailable in the browser; " +
+      "use assembleOpenClawBootstrapPack from @/lib/bootstrap-templates.",
+    );
+  }
+  return buildInlineOpenClawBootstrapPack(inputs);
+}
+
+function buildInlineOpenClawBootstrapPack(
+  inputs: OpenClawBootstrapInputs,
+): OpenClawBootstrapFile[] {
   const toolsNotes = inputs.toolsNotes
     ? inputs.toolsNotes
     : "No environment-specific tool notes were provided. Inspect the available tools and ask before assuming access.";
@@ -556,7 +579,7 @@ export function resolveOpenClawBootstrapPack(
 ): OpenClawBootstrapFile[] {
   return files?.length
     ? validateOpenClawBootstrapPack(files)
-    : buildDeterministicOpenClawBootstrapPack(createDefaultOpenClawBootstrapInputs(agentName));
+    : buildInlineOpenClawBootstrapPack(createDefaultOpenClawBootstrapInputs(agentName));
 }
 
 export function parseOpenClawBootstrapDraft(value: unknown): OpenClawBootstrapDraft | null {
@@ -599,7 +622,7 @@ export function parseOpenClawBootstrapDraft(value: unknown): OpenClawBootstrapDr
         throw new Error("Incomplete legacy OpenClaw bootstrap pack");
       }
       const legacyByName = new Map(parsedFiles.map((file) => [file.name, file]));
-      files = buildDeterministicOpenClawBootstrapPack(inputs).map(
+      files = buildInlineOpenClawBootstrapPack(inputs).map(
         (file) => legacyByName.get(file.name) ?? file,
       );
     }

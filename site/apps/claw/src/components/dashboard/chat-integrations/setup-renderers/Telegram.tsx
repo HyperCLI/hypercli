@@ -11,7 +11,6 @@ export function renderTelegramSetup(context: IntegrationSetupRenderContext) {
       config={chat.config as Record<string, unknown> | null}
       configSchema={chat.configSchema}
       agentName={context.agentName}
-      onSaveConfig={typeof chat.saveConfig === "function" ? chat.saveConfig : undefined}
       onChannelProbe={typeof chat.channelsStatus === "function" ? () => chat.channelsStatus(true) : undefined}
       onAgentConfigUpdate={chat.activeSessionCanSend && typeof chat.sendMessage === "function"
         ? (prompt, displayContent) => chat.sendMessage(prompt, { displayContent })

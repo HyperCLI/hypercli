@@ -263,7 +263,7 @@ import {
   type TokenUsageRefreshScheduler,
   type TokenUsageSnapshot,
 } from "@/components/dashboard/agents/tokenUsageRefreshScheduler";
-import { tokenUsageSnapshot } from "@/components/dashboard/agents/agentTokenUsage";
+import { tokenUsageSnapshot } from "@/components/dashboard/agents/agent-token-usage";
 import {
   countPendingSlotReleasesByTier,
   markPendingSlotReleaseComplete,
@@ -294,6 +294,7 @@ import {
   normalizeDashboardReleaseSearchParams,
 } from "@/lib/dashboard-release-boundary";
 import { prepareOpenClawStarterFiles, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { debugAgentState, debugFlow } from "@/lib/debug-flow";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -4218,20 +4219,31 @@ function AgentsPageContent() {
     customImage = null,
     knowledgeCollectionId,
   }: AgentCreationSetupCreateParams, onLaunchAccepted?: (accepted: SdkAgent) => void) => {
+    debugFlow("create-agent", "entry", {
+      name,
+      agentType,
+      size,
+      filesCount: files.length,
+      knowledgeCollectionId,
+    });
     if (!isAuthenticated) {
+      debugFlow("create-agent", "early return: not authenticated");
       requestAuthentication({ kind: "launch" });
       return null;
     }
     if (shouldOfferWorkspaceCreation) {
+      debugFlow("create-agent", "early return: workspace creation offered");
       setWorkspaceCreationOpen(true);
       return null;
     }
     const principalId = privatePrincipalRef.current;
     if (!principalId) {
+      debugFlow("create-agent", "early return: no principal");
       requestAuthentication({ kind: "launch" });
       return null;
     }
     const generation = agentDataGenerationRef.current;
+    debugFlow("create-agent", "generation captured", { generation });
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
       const effectiveKnowledgeCollectionId = knowledgeHubAvailable ? knowledgeCollectionId : null;
@@ -4244,12 +4256,18 @@ function AgentsPageContent() {
       if (knowledgeCollection && knowledgeCollection.role !== "admin") {
         throw new Error("Collection admin access is required to assign this agent.");
       }
+      debugFlow("create-agent", "prepare starter files", { agentType, filesCount: files.length });
       const starterFiles = agentType === "hermes"
         ? files
         : await prepareOpenClawStarterFiles(files);
+      debugFlow("create-agent", "starter files prepared", { agentType, count: starterFiles.length });
       setError(null);
       const token = await getToken();
-      if (generation !== agentDataGenerationRef.current) return null;
+      if (generation !== agentDataGenerationRef.current) {
+        debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "getToken" });
+        return null;
+      }
+      debugFlow("create-agent", "create request", { agentType });
       const created = agentType === "hermes"
         ? await createHermesAgentDeployment(token, {
           name: name || undefined,
@@ -4279,16 +4297,28 @@ function AgentsPageContent() {
               : null,
           }),
         });
-      if (generation !== agentDataGenerationRef.current) return null;
+      debugFlow("create-agent", "created", { id: created.id ?? null });
+      if (generation !== agentDataGenerationRef.current) {
+        debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "create" });
+        return null;
+      }
       if (created.id) {
         const agentClient = createAgentClient(token);
+        debugFlow("create-agent", "wait for stopped", { id: created.id });
         const stoppedAgent = await waitForCreatedAgentStopped(agentClient, created);
-        if (generation !== agentDataGenerationRef.current) return null;
+        debugAgentState("create-agent", stoppedAgent, { event: "stopped" });
+        if (generation !== agentDataGenerationRef.current) {
+          debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "waitForCreatedAgentStopped" });
+          return null;
+        }
         applyAgentMutationResult(stoppedAgent);
         if (knowledgeCollection) {
           try {
             await assignAgentToCollection(created.id, knowledgeCollection.id);
-            if (generation !== agentDataGenerationRef.current) return null;
+            if (generation !== agentDataGenerationRef.current) {
+              debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "assignAgentToCollection" });
+              return null;
+            }
           } catch (assignmentError) {
             const detail = assignmentError instanceof Error
               ? assignmentError.message
@@ -4302,20 +4332,31 @@ function AgentsPageContent() {
             || generation !== agentDataGenerationRef.current
             || privatePrincipalRef.current !== principalId
           ) {
+            debugFlow("create-agent", "start: cancel precondition", {
+              agentId,
+              pageActive: pageActiveRef.current,
+              generation,
+              current: agentDataGenerationRef.current,
+              principalMatch: privatePrincipalRef.current === principalId,
+            });
             throw new Error("Workspace setup was cancelled before launch. The agent remains stopped.");
           }
+          debugFlow("create-agent", "start: request", { agentId });
           const runningAgent = await startAgent(token, agentId, (accepted) => {
+            debugAgentState("create-agent", accepted, { event: "start accepted" });
             if (generation === agentDataGenerationRef.current) {
               applyAgentMutationResult(accepted);
               invalidateAgentCapacity();
               onLaunchAccepted?.(accepted);
             }
           });
+          debugAgentState("create-agent", runningAgent, { event: "start running" });
           if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
         };
         cancelledStartAgentIdsRef.current.delete(created.id);
         try {
           if (agentType !== "hermes") {
+            debugFlow("create-agent", "stage+start: begin", { id: created.id, filesCount: starterFiles.length });
             await stageAgentStarterFilesAndStart({
               agentId: created.id,
               files: starterFiles,
@@ -4333,37 +4374,71 @@ function AgentsPageContent() {
                 || privatePrincipalRef.current !== principalId
               ),
             });
+            debugFlow("create-agent", "stage+start: done", { id: created.id });
           } else {
-            if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return null;
+            if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) {
+              debugFlow("create-agent", "early return: inactive before start", {
+                id: created.id,
+                pageActive: pageActiveRef.current,
+                principalMatch: privatePrincipalRef.current === principalId,
+              });
+              return null;
+            }
             await startCreatedAgent(created.id);
           }
         } catch (startError) {
           if (!cancelledStartAgentIdsRef.current.has(created.id)) throw startError;
+          debugFlow("create-agent", "start error swallowed: cancelled", {
+            id: created.id,
+            message: startError instanceof Error ? startError.message : String(startError),
+          });
         } finally {
           cancelledStartAgentIdsRef.current.delete(created.id);
         }
-        if (generation !== agentDataGenerationRef.current) return null;
+        if (generation !== agentDataGenerationRef.current) {
+          debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "stage+start" });
+          return null;
+        }
+        debugFlow("create-agent", "refresh agents", { id: created.id });
         const agentsRefreshed = await fetchAgents({ force: true });
-        if (generation !== agentDataGenerationRef.current) return null;
+        debugFlow("create-agent", "agents refreshed", { id: created.id, ok: agentsRefreshed });
+        if (generation !== agentDataGenerationRef.current) {
+          debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "fetchAgents" });
+          return null;
+        }
         if (!agentsRefreshed) {
           throw new Error("Agent was created, but agents could not be refreshed.");
         }
+        debugFlow("create-agent", "select agent", { id: created.id });
         await selectAgent(created.id, true);
-        if (generation !== agentDataGenerationRef.current) return null;
+        if (generation !== agentDataGenerationRef.current) {
+          debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "selectAgent" });
+          return null;
+        }
         setOpenclawSettingsOpen(false);
         setMainTab("chat");
         setMobileShowChat(true);
         completeJourneyForEvent("agent-created");
+        debugFlow("create-agent", "success", { id: created.id });
         return created.id;
       }
+      debugFlow("create-agent", "no id: refreshing agents");
       await fetchAgents({ force: true });
-      if (generation !== agentDataGenerationRef.current) return null;
+      if (generation !== agentDataGenerationRef.current) {
+        debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "no-id fetchAgents" });
+        return null;
+      }
       setError("Agent was created, but no agent id was returned.");
       return null;
     } catch (err) {
-      if (generation !== agentDataGenerationRef.current) return null;
+      if (generation !== agentDataGenerationRef.current) {
+        debugFlow("create-agent", "aborted: stale generation", { generation, current: agentDataGenerationRef.current, step: "catch" });
+        return null;
+      }
       const message = err instanceof Error ? err.message : "Failed to create agent";
-      if (!parseAgentCapacityError(err)) {
+      const capacityError = Boolean(parseAgentCapacityError(err));
+      debugFlow("create-agent", "error", { message, capacity: capacityError });
+      if (!capacityError) {
         setError(message);
       }
       throw err;
@@ -4389,7 +4464,7 @@ function AgentsPageContent() {
     const principalId = user?.id ?? null;
     if (!isFirstAgentSetupCheckout(pending) || !principalId || pending.principalId !== principalId) return;
 
-    const timeout = window.setTimeout(() => {
+    const timeout = window.setTimeout(async () => {
       const draft = firstAgentSetupDraft;
       if (!draft || draft.setupId !== pending.setupId || (draft.principalId && draft.principalId !== principalId)) {
         clearPendingPlanCheckout(principalId, pending);
@@ -4439,17 +4514,27 @@ function AgentsPageContent() {
       if (Math.max(budget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0) return;
       const attemptKey = `${pending.setupId}:${pending.returnSessionId ?? pending.startedAt}`;
       if (paidFirstAgentCreationAttemptsRef.current.has(attemptKey)) return;
-      paidFirstAgentCreationAttemptsRef.current.add(attemptKey);
 
-      const bootstrap = draft.bootstrapDraft ?? createOpenClawBootstrapDraft(draft.name);
       const draftAgentType = draft.agentType === "hermes" ? "hermes" : "openclaw";
+      let bootstrap = draft.bootstrapDraft ?? null;
+      if (!bootstrap && draftAgentType !== "hermes") {
+        try {
+          bootstrap = createOpenClawBootstrapDraft(draft.name);
+        } catch {
+          bootstrap = null;
+        }
+      }
+      // A failed template load must not burn the attempt: recovery re-runs on
+      // the next effect pass instead of stranding a paid checkout.
+      if (draftAgentType !== "hermes" && !bootstrap) return;
+      paidFirstAgentCreationAttemptsRef.current.add(attemptKey);
       void handleCreateFirstAgent({
         name: draft.name,
         handle: draft.displayName ? managedAgentHandleFromDisplayName(draft.displayName) : null,
         iconIndex: draft.iconIndex,
         size: pending.agentSize,
         agentType: draftAgentType,
-        files: draftAgentType === "hermes" ? [] : bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
+        files: draftAgentType === "hermes" || !bootstrap ? [] : bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
         enableDesktop: draft.enableDesktop,
         enableMemoryIndex: draft.enableMemoryIndex,
         customImage: draft.enableCustomImage ? draft.customImage || null : null,
@@ -6301,10 +6386,6 @@ function AgentsPageContent() {
       if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
       applyAgentMutationResult(updatedAgent);
     },
-    onSaveOpenClawConfig: async (patch) => {
-      await chat.saveConfig(patch);
-      completeJourneyForEvent("rules-confirmed");
-    },
     onRequestProductUse: requestProductUse,
     isDesktopViewport,
   };
@@ -7189,7 +7270,6 @@ function AgentsPageContent() {
               onRefreshChannels={chat.refreshReportedChannels}
               config={chat.config as Record<string, unknown> | null}
               connected={chat.connected}
-              onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
               onChannelProbe={async () => chat.channelsStatus(true)}
               onOpenShell={openShellTab}
               onRequestProductUse={requestProductUse}
@@ -7480,12 +7560,6 @@ function AgentsPageContent() {
         connected={chat.connected}
         connecting={chat.connecting}
         hydrating={chat.hydrating}
-        onSaveConfig={async (patch) => {
-          if (!requestProductUse()) return false;
-          await chat.saveConfig(patch);
-          completeJourneyForEvent("rules-confirmed");
-          return true;
-        }}
         isDesktopViewport={isDesktopViewport}
       />
 

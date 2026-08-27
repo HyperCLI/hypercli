@@ -2090,7 +2090,6 @@ export function AgentChatPanel({
                           onRequestProductUse={onRequestProductUse}
                           compactTrigger
                           disabled={composerDisabled || activeSessionSending}
-                          onOpenSettings={slashCommandActions?.onOpenConfig}
                         />
                       </div>
                     ) : null}
@@ -2101,7 +2100,6 @@ export function AgentChatPanel({
                             chat={chat}
                             onRequestProductUse={onRequestProductUse}
                             disabled={composerDisabled || activeSessionSending}
-                            onOpenSettings={slashCommandActions?.onOpenConfig}
                           />
                         </div>
                       ) : null}

@@ -1489,7 +1489,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("atomically activates an installed WhatsApp plugin on the active gateway", async () => {
+  it("does not activate WhatsApp during pairing; config is managed by the runtime image", async () => {
     const gateway = buildGateway();
     gateway.configGet.mockResolvedValue({
       plugins: { allow: ["brave"] },
@@ -1515,39 +1515,16 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
-      await result.current.whatsAppPairingStart();
+      await expect(result.current.whatsAppPairingStart()).rejects.toThrow(/managed by the runtime image/);
     });
 
-    expect(gateway.configPatch).toHaveBeenCalledWith({
-      plugins: {
-        entries: { whatsapp: { enabled: true } },
-        allow: ["brave", "whatsapp"],
-      },
-      channels: { whatsapp: { enabled: true } },
-    });
+    expect(gateway.configPatch).not.toHaveBeenCalled();
     expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([["openclaw", "plugins", "list", "--json"]]);
-    expect(gateway.webLoginStart).toHaveBeenCalledTimes(2);
-    expect(gateway.webLoginWait).toHaveBeenCalled();
     unmount();
   });
 
-  it("installs and enables WhatsApp through gateway plugin management", async () => {
-    const unavailablePlugin = {
-      id: "whatsapp",
-      name: "WhatsApp",
-      installed: false,
-      enabled: false,
-      state: "not-installed" as const,
-      install: { source: "official" as const, pluginId: "whatsapp" },
-    };
-    const installedPlugin = { ...unavailablePlugin, installed: true, state: "disabled" as const };
-    const enabledPlugin = { ...installedPlugin, enabled: true, state: "enabled" as const };
-    const gateway = Object.assign(buildGateway(), {
-      pluginsList: vi.fn(async () => ({ plugins: [unavailablePlugin], diagnostics: [], mutationAllowed: true })),
-      pluginsInstall: vi.fn(async () => ({ ok: true as const, plugin: installedPlugin, restartRequired: true as const })),
-      pluginsSetEnabled: vi.fn(async () => ({ ok: true as const, plugin: enabledPlugin, restartRequired: false })),
-      pluginsRefresh: vi.fn(async () => ({ ok: true as const })),
-    });
+  it("rejects WhatsApp support setup because it is managed by the runtime image", async () => {
+    const gateway = buildGateway();
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
@@ -1556,202 +1533,15 @@ describe("useOpenClawSession", () => {
       gateway: vi.fn(() => gateway),
       exec: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
       waitReady: vi.fn(async () => ({})),
-      configPatch: vi.fn(async () => undefined),
     };
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
-      await result.current.ensureWhatsAppSupport();
-    });
-
-    expect(gateway.pluginsInstall).toHaveBeenCalledWith({ source: "official", pluginId: "whatsapp" });
-    expect(gateway.pluginsSetEnabled).toHaveBeenCalledWith({ pluginId: "whatsapp", enabled: true });
-    expect(gateway.pluginsRefresh).toHaveBeenCalledTimes(1);
-    expect(agent.exec).toHaveBeenCalledWith(["openclaw", "gateway", "restart"], { timeout: 60 });
-    expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
-    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
-    expect(result.current.config).toEqual(expect.objectContaining({ channels: { whatsapp: { enabled: true } } }));
-    unmount();
-  });
-
-  it("falls back to the OpenClaw CLI for WhatsApp support on older gateways", async () => {
-    const gateway = buildGateway();
-    const commandEvents: OpenClawWhatsAppProgressEvent[] = [];
-    const agent = {
-      id: "agent-1",
-      connect: vi.fn(),
-      acquireConnectedGateway: acquireConnectedGatewayFixture,
-      waitForGatewayContext: vi.fn(async () => undefined),
-      gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string[]) => ({
-        exitCode: 0,
-        stdout: command.join(" ") === "openclaw plugins list --json" ? JSON.stringify({ plugins: [] }) : "",
-        stderr: "",
-      })),
-      waitReady: vi.fn(async () => ({})),
-      configPatch: vi.fn(async () => undefined),
-    };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
-    await waitFor(() => expect(result.current.ready).toBe(true));
-
-    await act(async () => {
-      await result.current.ensureWhatsAppSupport((event) => commandEvents.push(event));
-    });
-
-    expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([
-      ["openclaw", "plugins", "list", "--json"],
-      ["openclaw", "plugins", "install", "whatsapp"],
-      ["openclaw", "plugins", "enable", "whatsapp"],
-      ["openclaw", "gateway", "restart"],
-    ]);
-    expect(agent.exec.mock.calls).toEqual([
-      [["openclaw", "plugins", "list", "--json"], { timeout: 60 }],
-      [["openclaw", "plugins", "install", "whatsapp"], { timeout: 300 }],
-      [["openclaw", "plugins", "enable", "whatsapp"], { timeout: 60 }],
-      [["openclaw", "gateway", "restart"], { timeout: 60 }],
-    ]);
-    expect(commandEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ stage: "checking-runtime", status: "running" }),
-      expect.objectContaining({ command: "openclaw plugins list --json", status: "running" }),
-      expect.objectContaining({ command: "openclaw plugins install whatsapp", status: "succeeded", detail: "Exit code 0" }),
-      expect.objectContaining({ command: "openclaw plugins enable whatsapp", status: "succeeded", detail: "Exit code 0" }),
-      expect.objectContaining({ command: "openclaw gateway restart", status: "succeeded", detail: "Exit code 0" }),
-    ]));
-    expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
-    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
-    unmount();
-  });
-
-  it("does not reinstall or restart when WhatsApp support is already enabled", async () => {
-    const gateway = buildGateway();
-    gateway.channelsStatus.mockResolvedValue({
-      channels: { whatsapp: { configured: true, running: true } },
-      channelOrder: ["whatsapp"],
-    });
-    gateway.configGet.mockResolvedValue({ channels: { whatsapp: { enabled: true } } });
-    const agent = {
-      id: "agent-1",
-      connect: vi.fn(),
-      acquireConnectedGateway: acquireConnectedGatewayFixture,
-      waitForGatewayContext: vi.fn(async () => undefined),
-      gateway: vi.fn(() => gateway),
-      exec: vi.fn(async () => ({
-        exitCode: 0,
-        stdout: JSON.stringify({ plugins: [{ id: "whatsapp", installed: true, enabled: true, state: "enabled" }] }),
-        stderr: "",
-      })),
-      waitReady: vi.fn(async () => ({})),
-      configPatch: vi.fn(async () => undefined),
-    };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
-    await waitFor(() => expect(result.current.ready).toBe(true));
-
-    await act(async () => {
-      await result.current.ensureWhatsAppSupport();
+      await expect(result.current.ensureWhatsAppSupport()).rejects.toThrow(/managed by the runtime image/);
     });
 
     expect(agent.exec).not.toHaveBeenCalled();
-    expect(agent.waitReady).not.toHaveBeenCalled();
-    expect(gateway.configPatch).not.toHaveBeenCalled();
-    unmount();
-  });
-
-  it("restarts without reinstalling when WhatsApp is enabled but missing from the live gateway", async () => {
-    const gateway = buildGateway();
-    const agent = {
-      id: "agent-1",
-      connect: vi.fn(),
-      acquireConnectedGateway: acquireConnectedGatewayFixture,
-      waitForGatewayContext: vi.fn(async () => undefined),
-      gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string[]) => ({
-        exitCode: 0,
-        stdout: command.join(" ") === "openclaw plugins list --json"
-          ? JSON.stringify({ plugins: [{ id: "whatsapp", installed: true, enabled: true, state: "enabled" }] })
-          : "",
-        stderr: "",
-      })),
-      waitReady: vi.fn(async () => ({})),
-      configPatch: vi.fn(async () => undefined),
-    };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
-    await waitFor(() => expect(result.current.ready).toBe(true));
-
-    await act(async () => {
-      await result.current.ensureWhatsAppSupport();
-    });
-
-    expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([
-      ["openclaw", "plugins", "list", "--json"],
-      ["openclaw", "gateway", "restart"],
-    ]);
-    expect(agent.waitReady).toHaveBeenCalledWith(120_000, { probe: "config", retryIntervalMs: 2_000 });
-    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
-    unmount();
-  });
-
-  it("repairs an incompatible WhatsApp plugin through the OpenClaw catalog", async () => {
-    const gateway = buildGateway();
-    const agent = {
-      id: "agent-1",
-      connect: vi.fn(),
-      acquireConnectedGateway: acquireConnectedGatewayFixture,
-      waitForGatewayContext: vi.fn(async () => undefined),
-      gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string[]) => ({
-        exitCode: 0,
-        stdout: command.join(" ") === "openclaw plugins list --json" ? JSON.stringify({
-          plugins: [{
-            id: "whatsapp",
-            installed: true,
-            enabled: false,
-            version: "2026.7.1",
-            state: "error",
-            error: "requires plugin API >=2026.7.1",
-          }],
-        }) : "",
-        stderr: "",
-      })),
-      waitReady: vi.fn(async () => ({})),
-      configPatch: vi.fn(async () => undefined),
-    };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
-    await waitFor(() => expect(result.current.ready).toBe(true));
-
-    await act(async () => {
-      await result.current.ensureWhatsAppSupport();
-    });
-
-    expect(agent.exec).toHaveBeenCalledWith(
-      ["openclaw", "plugins", "install", "whatsapp", "--force"],
-      { timeout: 300 },
-    );
-    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
-    unmount();
-  });
-
-  it("does not configure WhatsApp when the official plugin installation fails", async () => {
-    const gateway = buildGateway();
-    const agent = {
-      id: "agent-1",
-      connect: vi.fn(),
-      acquireConnectedGateway: acquireConnectedGatewayFixture,
-      waitForGatewayContext: vi.fn(async () => undefined),
-      gateway: vi.fn(() => gateway),
-      exec: vi.fn(async (command: string[]) => command.join(" ") === "openclaw plugins list --json"
-        ? { exitCode: 0, stdout: JSON.stringify({ plugins: [] }), stderr: "" }
-        : { exitCode: 1, stdout: "", stderr: "ClawHub is unavailable" }),
-      waitReady: vi.fn(async () => ({})),
-      configPatch: vi.fn(async () => undefined),
-    };
-    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
-    await waitFor(() => expect(result.current.ready).toBe(true));
-
-    await expect(result.current.ensureWhatsAppSupport()).rejects.toThrow(
-      "Could not install WhatsApp support. ClawHub is unavailable",
-    );
-    expect(agent.exec).toHaveBeenCalledTimes(2);
     expect(agent.waitReady).not.toHaveBeenCalled();
     expect(gateway.configPatch).not.toHaveBeenCalled();
     unmount();
@@ -1927,19 +1717,16 @@ describe("useOpenClawSession", () => {
     expect(result.current.connectorsProvider).not.toBeNull();
 
     await act(async () => {
-      await result.current.connectorsProvider?.configure("telegram", { enabled: true, dmPolicy: "allowlist" });
+      await expect(
+        result.current.connectorsProvider?.configure("telegram", { enabled: true, dmPolicy: "allowlist" }),
+      ).rejects.toThrow(/read-only in hosted mode/);
       await result.current.connectorsProvider?.approveAuthorization?.({
         connectorId: "telegram",
         protocol: "short-code",
         code: "ABCD2345",
       });
     });
-    expect(gateway.configPatch).toHaveBeenCalledWith({
-      channels: { telegram: { enabled: true, dmPolicy: "allowlist" } },
-    });
-    expect(result.current.config).toEqual(expect.objectContaining({
-      channels: { telegram: { enabled: true, dmPolicy: "allowlist" } },
-    }));
+    expect(gateway.configPatch).not.toHaveBeenCalled();
     expect(agent.exec).toHaveBeenCalledWith(
       ["openclaw", "pairing", "approve", "telegram", "ABCD2345"],
       { timeout: 120 },
@@ -2140,7 +1927,7 @@ describe("useOpenClawSession", () => {
     }
   });
 
-  it("routes OpenClaw settings operations through the SDK gateway client", async () => {
+  it("hydrates OpenClaw settings with read-only gateway config access", async () => {
     const gateway = buildGateway();
     gateway.configGet.mockResolvedValue({
       channels: { telegram: { enabled: true } },
@@ -2164,31 +1951,17 @@ describe("useOpenClawSession", () => {
     const configGetCallsAfterHydrate = gateway.configGet.mock.calls.length;
 
     await act(async () => {
-      await result.current.saveConfig({
-        channels: { telegram: null },
-        llm: { model: "new-model" },
-      });
-    });
-    expect(gateway.configPatch).toHaveBeenCalledWith({
-      channels: { telegram: null },
-      llm: { model: "new-model" },
-    });
-    expect(gateway.configGet).toHaveBeenCalledTimes(configGetCallsAfterHydrate);
-    expect(result.current.config).toEqual({
-      channels: {},
-      llm: { model: "new-model", temperature: 0.2 },
-    });
-
-    await act(async () => {
-      await result.current.saveFullConfig({ llm: { model: "full-model" } });
-    });
-    expect(gateway.configSet).toHaveBeenCalledWith({ llm: { model: "full-model" } });
-    expect(result.current.config).toEqual({ llm: { model: "full-model" } });
-
-    await act(async () => {
       await result.current.channelsStatus(true, 2500);
     });
     expect(gateway.channelsStatus).toHaveBeenCalledWith(true, 2500);
+
+    // Hosted surfaces must not write openclaw.json; only configGet reads are exposed.
+    expect("saveConfig" in result.current).toBe(false);
+    expect("saveFullConfig" in result.current).toBe(false);
+    expect("saveFile" in result.current).toBe(false);
+    expect(gateway.configGet).toHaveBeenCalledTimes(configGetCallsAfterHydrate);
+    expect(gateway.configPatch).not.toHaveBeenCalled();
+    expect(gateway.configSet).not.toHaveBeenCalled();
 
     expect(agent.gateway).toHaveBeenCalledTimes(1);
     expect(gateway.connect).toHaveBeenCalledTimes(1);
@@ -2448,7 +2221,7 @@ describe("useOpenClawSession", () => {
     expect(gateway.integrationsStatus).toHaveBeenCalledTimes(backgroundIntegrationCalls + 3);
 
     await act(async () => {
-      await result.current.saveConfig({ llm: { model: "new-model" } });
+      await result.current.integrationsAuthStart({ integrationId: "github" });
       await result.current.channelsStatus(false);
       await result.current.integrationsStatus({ integrationId: "github" });
     });
@@ -2484,12 +2257,9 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps the previous channel inventory while config changes are being refreshed", async () => {
+  it("keeps the channel inventory untouched when a hosted config write is rejected", async () => {
     const gateway = buildGateway();
-    const refreshedStatus = deferred<Record<string, unknown>>();
-    gateway.channelsStatus
-      .mockResolvedValueOnce({ channels: { telegram: { configured: true, running: true } } })
-      .mockImplementationOnce(async () => refreshedStatus.promise);
+    gateway.channelsStatus.mockResolvedValue({ channels: { telegram: { configured: true, running: true } } });
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
@@ -2505,17 +2275,16 @@ describe("useOpenClawSession", () => {
     ]);
 
     await act(async () => {
-      await result.current.saveConfig({ channels: { telegram: null } });
+      await expect(
+        result.current.channelsProvider?.configure("telegram", { enabled: true }),
+      ).rejects.toThrow(/read-only in hosted mode/);
     });
 
-    expect(result.current.reportedChannelsReady).toBe(false);
+    expect(gateway.configPatch).not.toHaveBeenCalled();
+    expect(result.current.reportedChannelsReady).toBe(true);
     expect(result.current.reportedChannels).toEqual([
       expect.objectContaining({ channelId: "telegram", configured: true, running: true }),
     ]);
-
-    refreshedStatus.resolve({ channels: {} });
-    await waitFor(() => expect(result.current.reportedChannelsReady).toBe(true));
-    expect(result.current.reportedChannels).toEqual([]);
     unmount();
   });
 

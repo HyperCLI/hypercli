@@ -61,7 +61,7 @@ interface IntegrationsDirectoryPanelProps {
   onRefreshChannels?: (probe?: boolean) => Promise<AgentChannelsSnapshot | void>;
   config: Record<string, unknown> | null;
   connected: boolean;
-  onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
+  onSaveConfig?: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe: () => Promise<Record<string, unknown>>;
   onOpenShell: () => void;
   onRequestProductUse?: () => boolean;
@@ -957,10 +957,10 @@ export function IntegrationsDirectoryPanel({
             pluginId={selectedTile.plugin.id}
             config={config}
             connected={connected}
-            onSaveConfig={async (patch) => {
+            onSaveConfig={onSaveConfig ? async (patch) => {
               if (onRequestProductUse && !onRequestProductUse()) return;
               await onSaveConfig(patch);
-            }}
+            } : undefined}
             onChannelProbe={onChannelProbe}
             onOpenShell={onOpenShell}
             onBack={handleDetailBack}

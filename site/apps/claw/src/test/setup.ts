@@ -1,5 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vitest";
 
@@ -32,6 +34,32 @@ vi.mock("@turnkey/react-wallet-kit", () => ({
 }));
 
 vi.mock("@turnkey/react-wallet-kit/styles.css", () => ({}));
+
+// Instrumentation is a no-op dependency for tests; stub it so component tests
+// do not pull in the shared-ui debugLog implementation.
+vi.mock("@/lib/debug-flow", () => ({
+  debugTransition: vi.fn(),
+  debugFlow: vi.fn(),
+  debugAgentState: vi.fn(),
+}));
+
+// jsdom has no server for the static bootstrap templates. Serve them from
+// public/bootstrap/ so assembleOpenClawBootstrapPack exercises the real
+// shipped assets in tests.
+const originalFetch = globalThis.fetch.bind(globalThis);
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  const match = /^\/bootstrap\/([\w.-]+\.md)$/.exec(raw);
+  if (match) {
+    try {
+      const body = await readFile(path.join(__dirname, "../../public/bootstrap", match[1]), "utf-8");
+      return new Response(body, { status: 200 });
+    } catch {
+      return new Response("not found", { status: 404 });
+    }
+  }
+  return originalFetch(input, init);
+}) as typeof fetch;
 
 type ConsoleMatcher = string | RegExp;
 

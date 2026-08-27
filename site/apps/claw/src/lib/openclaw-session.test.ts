@@ -1492,7 +1492,7 @@ describe("openclaw session keys", () => {
     ]);
   });
 
-  it("migrates legacy UUID workspace files into the canonical main workspace", async () => {
+  it("surfaces legacy UUID workspace files read-only instead of migrating them", async () => {
     const deploymentId = "550e8400-e29b-41d4-a716-446655440000";
     const canonicalFiles: Array<{ name: string; size: number; missing: boolean }> = [];
     const legacyFiles = [{ name: "README.md", size: 12, missing: false }];
@@ -1512,14 +1512,11 @@ describe("openclaw session keys", () => {
         if (agentId === deploymentId) return legacyFiles;
         return [];
       }),
-      fileGet: vi.fn(async (agentId: string, name: string) => {
-        if (agentId === deploymentId && name === "README.md") return "# recovered";
-        throw new Error("missing");
+      fileGet: vi.fn(async () => {
+        throw new Error("hosted surfaces must not read legacy files for migration");
       }),
-      fileSet: vi.fn(async (agentId: string, name: string, content: string) => {
-        if (agentId === "main" && name === "README.md" && content === "# recovered") {
-          canonicalFiles.push({ name, size: content.length, missing: false });
-        }
+      fileSet: vi.fn(async () => {
+        throw new Error("hosted surfaces must not write gateway files");
       }),
     };
 
@@ -1527,10 +1524,10 @@ describe("openclaw session keys", () => {
 
     expect(gateway.filesList).toHaveBeenCalledWith("main");
     expect(gateway.filesList).toHaveBeenCalledWith(deploymentId);
-    expect(gateway.fileGet).toHaveBeenCalledWith(deploymentId, "README.md");
-    expect(gateway.fileSet).toHaveBeenCalledWith("main", "README.md", "# recovered");
-    expect(hydrated.files).toEqual([{ name: "README.md", size: "# recovered".length, missing: false }]);
-    expect(hydrated.gwAgentId).toBe("main");
+    expect(gateway.fileGet).not.toHaveBeenCalled();
+    expect(gateway.fileSet).not.toHaveBeenCalled();
+    expect(hydrated.files).toEqual(legacyFiles);
+    expect(hydrated.gwAgentId).toBe(deploymentId);
   });
 
   it("does not probe or migrate legacy UUID workspaces when canonical files already exist", async () => {
@@ -1565,7 +1562,7 @@ describe("openclaw session keys", () => {
     expect(hydrated.gwAgentId).toBe("main");
   });
 
-  it("falls back to the legacy UUID workspace when copying into main fails", async () => {
+  it("never attempts gateway writes while surfacing legacy UUID workspace files", async () => {
     const deploymentId = "550e8400-e29b-41d4-a716-446655440000";
     const legacyFiles = [{ name: "lost.md", size: 9, missing: false }];
     const gateway = {
@@ -1584,12 +1581,11 @@ describe("openclaw session keys", () => {
         if (agentId === deploymentId) return legacyFiles;
         return [];
       }),
-      fileGet: vi.fn(async (agentId: string, name: string) => {
-        if (agentId === deploymentId && name === "lost.md") return "recovered";
-        throw new Error("missing");
+      fileGet: vi.fn(async () => {
+        throw new Error("hosted surfaces must not read legacy files for migration");
       }),
       fileSet: vi.fn(async () => {
-        throw new Error("canonical workspace is not writable yet");
+        throw new Error("canonical workspace is not writable from hosted surfaces");
       }),
     };
 
@@ -1597,8 +1593,8 @@ describe("openclaw session keys", () => {
 
     expect(gateway.filesList).toHaveBeenCalledWith("main");
     expect(gateway.filesList).toHaveBeenCalledWith(deploymentId);
-    expect(gateway.fileGet).toHaveBeenCalledWith(deploymentId, "lost.md");
-    expect(gateway.fileSet).toHaveBeenCalledWith("main", "lost.md", "recovered");
+    expect(gateway.fileGet).not.toHaveBeenCalled();
+    expect(gateway.fileSet).not.toHaveBeenCalled();
     expect(hydrated.files).toEqual(legacyFiles);
     expect(hydrated.gwAgentId).toBe(deploymentId);
   });

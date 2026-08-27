@@ -117,6 +117,36 @@ function goToPlanStep() {
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 }
 
+type PersistedSetupDraft = {
+  bootstrapDraft?: {
+    inputs?: { agentName?: string };
+    files?: Array<{ name: string; content: string }>;
+  };
+};
+
+function readPersistedSetupDraft(): PersistedSetupDraft {
+  return JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}");
+}
+
+// The bootstrap pack hydrates asynchronously from /bootstrap/*.md on mount.
+// Launch and plan actions stay gated until the pack is assembled, so tests
+// that click them must first wait for the wizard to report readiness.
+async function waitForPackReady(): Promise<void> {
+  await waitFor(() => {
+    expect(screen.getByTestId("agent-setup-wizard")).toHaveAttribute("data-pack-ready", "true");
+  });
+}
+
+// Wait until the wizard's debounced draft persistence reflects the bootstrap
+// inputs matching the current agent name. Use this after the workspace step
+// re-syncs the pack with a typed display name, before personality-stage
+// background generation begins.
+async function waitForPackInputsAgentName(agentName: string): Promise<void> {
+  await waitFor(() => {
+    expect(readPersistedSetupDraft().bootstrapDraft?.inputs?.agentName).toBe(agentName);
+  });
+}
+
 describe("FirstAgentSetupWizard", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
@@ -209,6 +239,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
     expect(screen.queryByText(/Collection/)).not.toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanFooterAction("Launch agent"));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
@@ -249,6 +280,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(within(selector).getByRole("option", { name: "Archive (admin access required)" })).toBeDisabled();
     fireEvent.change(selector, { target: { value: "collection-1" } });
     goToPlanStep();
+    await waitForPackReady();
     fireEvent.click(getPlanFooterAction("Launch agent"));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
@@ -334,7 +366,7 @@ describe("FirstAgentSetupWizard", () => {
     });
     const advancedToggle = screen.getByTestId("agent-setup-advanced-toggle");
     const optionalSettings = screen.getByTestId("agent-setup-advanced-settings");
-    expect(optionalSettings?.parentElement).toHaveClass("grid", "min-h-full", "content-center");
+    expect(optionalSettings?.parentElement).toHaveClass("mx-auto", "my-auto", "w-full");
     expect(optionalSettings).not.toHaveAttribute("open");
     fireEvent.click(advancedToggle);
     expect(optionalSettings).toHaveAttribute("open");
@@ -397,6 +429,9 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "background-builder" } });
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(onGenerateBootstrap).not.toHaveBeenCalled();
+    // Let the workspace step re-sync the pack to the typed display name
+    // before the personality stage kicks off background file generation.
+    await waitForPackInputsAgentName("background-builder");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(1));
     expect(onGenerateBootstrap.mock.calls.map(([name]) => name)).toEqual([
@@ -615,6 +650,7 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     goToPlanStep();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
@@ -790,6 +826,7 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitForPackReady();
     fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "medium" })));
@@ -877,6 +914,7 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitForPackReady();
     fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledOnce());
@@ -924,10 +962,22 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    // Let the starter pack finish hydrating before any workspace edits, so
+    // the deterministic re-assembly applies on top of the hydrated files.
+    await waitForPackReady();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: /^Research a market/ }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: /^The Detective/ }));
+    // Wait for the re-assembled pack (with the selected objective and
+    // personality baked in) to settle before launching.
+    await waitFor(() => {
+      const files = readPersistedSetupDraft().bootstrapDraft?.files ?? [];
+      expect(files.find((file) => file.name === "AGENTS.md")?.content)
+        .toContain("Research a market. Investigate an industry, competitors, and opportunities.");
+      expect(files.find((file) => file.name === "SOUL.md")?.content)
+        .toContain("Be observant, skeptical, and relentless about finding the truth.");
+    });
     fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledOnce());
@@ -1071,6 +1121,7 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     goToPlanStep();
+    await waitForPackReady();
     fireEvent.click(getPlanFooterAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("plus"));
@@ -1180,6 +1231,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
     await screen.findAllByText("No slots available");
+    await waitForPackReady();
     fireEvent.click(getPlanFooterAction("Buy more slots"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("team-launch"));
@@ -1207,6 +1259,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(await screen.findByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
     view.rerender(<FirstAgentSetupWizard {...props} selectedCatalogPlanId="basic" />);
+    await waitForPackReady();
     fireEvent.click(getPlanFooterAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledWith("basic"));
@@ -1279,6 +1332,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(screen.queryByRole("heading", { name: "5 AIU" })).not.toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
@@ -1323,6 +1377,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(screen.getAllByText("No slots available")).toHaveLength(2);
     expect(screen.queryByText("0 Medium slots available")).not.toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Buy more slots"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
@@ -1405,6 +1460,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Payment active, waiting for entitlement")).toBeInTheDocument();
     expect(screen.getByText("Medium slot provisioning")).toBeInTheDocument();
     expect(screen.getByText("Launch entitlement is still provisioning")).toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Open plans"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
@@ -1456,6 +1512,7 @@ describe("FirstAgentSetupWizard", () => {
     goToPlanStep();
 
     expect(screen.getByText("1 Medium slot available")).toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalled());
@@ -1508,6 +1565,7 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     goToPlanStep();
+    await waitForPackReady();
     fireEvent.click(getPlanFooterAction("Launch agent"));
 
     await waitFor(() =>
@@ -1554,6 +1612,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
     expect(screen.getByText("Uses your active direct entitlement")).toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
@@ -1587,6 +1646,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
@@ -1622,6 +1682,7 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     goToPlanStep();
+    await waitForPackReady();
     fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() => expect(screen.getByText("Large capacity unavailable")).toBeInTheDocument());

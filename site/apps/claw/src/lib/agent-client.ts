@@ -5,6 +5,7 @@ import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
+import { debugFlow } from "./debug-flow";
 import { generateAgentName, isGeneratedAgentName } from "./agent-name";
 import { getHermesDefaultImage } from "./hermes-launch";
 import {
@@ -83,6 +84,18 @@ function cloneStoredStartLaunchConfig(agent: SdkAgent, runtimeLabel: string): Ag
 
 function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string): AgentLaunchConfig {
   const launchConfig = cloneStoredStartLaunchConfig(agent, "OpenClaw") as unknown as Record<string, unknown>;
+  // Hosted contract: nested OpenClaw config never replays into START. Agents
+  // created while the frontend coupled starter files to a partial
+  // { agents: { defaults: ... } } config carry that partial shape in their
+  // stored launch config, and replaying it materializes an openclaw.json that
+  // blocks gateway startup (missing gateway.mode). The image owns config.
+  if (isRecord(launchConfig.config)) {
+    debugFlow("agent-client", "dropping stored nested OpenClaw config from start replay", {
+      agentId: agent.id ?? null,
+      keys: Object.keys(launchConfig.config).slice(0, 8),
+    });
+  }
+  launchConfig.config = {};
   launchConfig.env = {
     ...(isRecord(launchConfig.env) ? launchConfig.env : {}),
     [CONTROL_UI_ALLOWED_ORIGIN_ENV]: controlUiOrigin,

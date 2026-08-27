@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { assembleOpenClawBootstrapPack } from "./bootstrap-templates";
 import {
-  buildDeterministicOpenClawBootstrapPack,
   buildOpenClawBootstrapFileGenerationMessages,
   buildOpenClawBootstrapFileResponseFormat,
   buildOpenClawBootstrapGenerationMessages,
@@ -16,8 +16,8 @@ import {
 } from "./openclaw-bootstrap-pack";
 
 describe("OpenClaw bootstrap pack", () => {
-  it("builds the canonical required files without retired runtime files", () => {
-    const files = buildDeterministicOpenClawBootstrapPack(
+  it("builds the canonical required files without retired runtime files", async () => {
+    const files = await assembleOpenClawBootstrapPack(
       createDefaultOpenClawBootstrapInputs("Cairn"),
     );
 
@@ -37,12 +37,26 @@ describe("OpenClaw bootstrap pack", () => {
     expect(isModelGeneratedOpenClawBootstrapFile("BOOTSTRAP.md")).toBe(false);
   });
 
-  it("adds MEMORY.md only when the user opts in with durable context", () => {
-    const withoutNotes = buildDeterministicOpenClawBootstrapPack({
+  it("keeps BOOTSTRAP.md fully static regardless of inputs", async () => {
+    const first = await assembleOpenClawBootstrapPack(createDefaultOpenClawBootstrapInputs("Cairn"));
+    const second = await assembleOpenClawBootstrapPack({
+      ...createDefaultOpenClawBootstrapInputs("Rook"),
+      purpose: "Chaos.",
+    });
+    const firstBootstrap = first.find((file) => file.name === "BOOTSTRAP.md")?.content;
+    const secondBootstrap = second.find((file) => file.name === "BOOTSTRAP.md")?.content;
+
+    expect(firstBootstrap).toBe(secondBootstrap);
+    expect(firstBootstrap).not.toContain("{{");
+    expect(firstBootstrap).not.toContain("Cairn");
+  });
+
+  it("adds MEMORY.md only when the user opts in with durable context", async () => {
+    const withoutNotes = await assembleOpenClawBootstrapPack({
       ...createDefaultOpenClawBootstrapInputs("Cairn"),
       includeMemory: true,
     });
-    const withNotes = buildDeterministicOpenClawBootstrapPack({
+    const withNotes = await assembleOpenClawBootstrapPack({
       ...createDefaultOpenClawBootstrapInputs("Cairn"),
       includeMemory: true,
       memoryNotes: "The user is preparing a product launch.",
@@ -52,8 +66,8 @@ describe("OpenClaw bootstrap pack", () => {
     expect(withNotes.map((file) => file.name)).toContain("MEMORY.md");
   });
 
-  it("validates required names and resolves backup paths", () => {
-    const files = buildDeterministicOpenClawBootstrapPack(
+  it("validates required names and resolves backup paths", async () => {
+    const files = await assembleOpenClawBootstrapPack(
       createDefaultOpenClawBootstrapInputs("Cairn"),
     );
 
@@ -63,13 +77,13 @@ describe("OpenClaw bootstrap pack", () => {
       .toThrow("Missing required OpenClaw bootstrap file: USER.md");
   });
 
-  it("builds the model prompt in the frontend and validates its JSON response", () => {
+  it("builds the model prompt in the frontend and validates its JSON response", async () => {
     const inputs = {
       ...createDefaultOpenClawBootstrapInputs("Cairn"),
       userName: "Morgan",
     };
     const messages = buildOpenClawBootstrapGenerationMessages(inputs);
-    const files = buildDeterministicOpenClawBootstrapPack(inputs);
+    const files = await assembleOpenClawBootstrapPack(inputs);
 
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("system");
@@ -148,9 +162,9 @@ describe("OpenClaw bootstrap pack", () => {
     ).toBe(6);
   });
 
-  it("rejects model output with retired files or an unrequested memory file", () => {
+  it("rejects model output with retired files or an unrequested memory file", async () => {
     const inputs = createDefaultOpenClawBootstrapInputs("Cairn");
-    const files = buildDeterministicOpenClawBootstrapPack(inputs);
+    const files = await assembleOpenClawBootstrapPack(inputs);
 
     expect(() => parseGeneratedOpenClawBootstrapPack(JSON.stringify({
       files: [...files, { name: "TOOLS.md", content: "wrong" }],

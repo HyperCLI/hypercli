@@ -3,30 +3,41 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
 import { openMainWindow } from "./api";
 import CreateWindow from "./CreateWindow";
+import EditWindow from "./EditWindow";
 import Nav from "./Nav";
 import SettingsWindow from "./SettingsWindow";
 
-type View = "new" | "connections";
+type View = "new" | "connections" | "edit";
 
 const TITLES: Record<View, string> = {
   new: "New Agent",
   connections: "Connections",
+  edit: "Edit Agent",
 };
 
 function initialView(): View {
-  return new URLSearchParams(window.location.search).get("view") ===
-    "connections"
-    ? "connections"
-    : "new";
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view");
+  if (view === "connections") return "connections";
+  if (view === "edit" && params.get("agent")) return "edit";
+  return "new";
 }
 
 export default function PanelWindow() {
   const [view, setView] = useState<View>(initialView);
+  const [editAgentId, setEditAgentId] = useState<string>(
+    () => new URLSearchParams(window.location.search).get("agent") ?? "",
+  );
 
   useEffect(() => {
     const unlisten = listen<string>("panel-navigate", (event) => {
-      if (event.payload === "new" || event.payload === "connections") {
-        setView(event.payload);
+      // Payload is a view name, optionally `edit:<agentId>`.
+      const payload = event.payload;
+      if (payload === "new" || payload === "connections") {
+        setView(payload);
+      } else if (payload.startsWith("edit:")) {
+        setEditAgentId(payload.slice("edit:".length));
+        setView("edit");
       }
     });
     return () => {
@@ -55,7 +66,9 @@ export default function PanelWindow() {
                 { label: "New agent", onClick: () => setView("new" as const) },
                 { label: "Connections" },
               ]
-            : [{ label: "New agent" }]),
+            : view === "edit"
+              ? [{ label: "Edit agent" }]
+              : [{ label: "New agent" }]),
         ]}
         action={
           view === "new" ? (
@@ -79,6 +92,8 @@ export default function PanelWindow() {
       />
       {view === "new" ? (
         <CreateWindow onOpenConnections={() => setView("connections")} />
+      ) : view === "edit" ? (
+        <EditWindow agentId={editAgentId} />
       ) : (
         <SettingsWindow />
       )}

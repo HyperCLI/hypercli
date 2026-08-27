@@ -1,0 +1,2 @@
+# Staged sidecar binaries (built by the release workflow or staged locally).
+binaries/

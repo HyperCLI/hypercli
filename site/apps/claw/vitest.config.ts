@@ -1,10 +1,30 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vitest/config";
+import { defineConfig, type Plugin } from "vitest/config";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
+// The app imports public/bootstrap/*.md with Turbopack-only
+// `with { turbopackModuleType: "raw" }` attributes. Vite strips the attribute
+// and would parse the Markdown as JS, so serve those files as raw text here.
+function rawMarkdownPlugin(): Plugin {
+  return {
+    name: "claw-raw-markdown",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if (!source.endsWith(".md")) return null;
+      const base = importer ? path.dirname(importer) : rootDir;
+      return { id: `${path.resolve(base, source)}?raw-md`, moduleSideEffects: false };
+    },
+    load(id) {
+      if (!id.endsWith("?raw-md")) return null;
+      return `export default ${JSON.stringify(require("node:fs").readFileSync(id.slice(0, -7), "utf-8"))};`;
+    },
+  };
+}
+
 export default defineConfig({
+  plugins: [rawMarkdownPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(rootDir, "src"),

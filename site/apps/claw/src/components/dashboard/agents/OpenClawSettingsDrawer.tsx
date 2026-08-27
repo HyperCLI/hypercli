@@ -34,7 +34,7 @@ interface OpenClawSettingsDrawerProps {
   connected: boolean;
   connecting: boolean;
   hydrating: boolean;
-  onSaveConfig: (patch: Record<string, unknown>) => Promise<boolean | void>;
+  onSaveConfig?: (patch: Record<string, unknown>) => Promise<boolean | void>;
   isDesktopViewport?: boolean;
 }
 
@@ -166,7 +166,7 @@ function OpenClawSectionEditor({
   onToggleMap: (pathKey: string) => void;
   onToggleDynamicEntry: (entryKey: string) => void;
   onShowMoreDynamicEntries: (pathKey: string, total: number) => void;
-  onSave: () => Promise<void>;
+  onSave?: () => Promise<void>;
   onClose?: () => void;
   isDesktopViewport: boolean;
   onMobileBack: () => void;
@@ -208,15 +208,17 @@ function OpenClawSectionEditor({
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => void onSave()}
-            disabled={saving || !connected || !draft || Boolean(jsonDraftError) || !sectionKey}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
-            Save Section
-          </button>
+          {onSave ? (
+            <button
+              type="button"
+              onClick={() => void onSave()}
+              disabled={saving || !connected || !draft || Boolean(jsonDraftError) || !sectionKey}
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
+              Save Section
+            </button>
+          ) : null}
           {onClose && (
             <TooltipHint label="Close OpenClaw settings">
               <button type="button" aria-label="Close OpenClaw settings" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
@@ -226,6 +228,11 @@ function OpenClawSectionEditor({
           )}
         </div>
 
+        {!onSave && (
+          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+            OpenClaw config is managed by the runtime image. These settings are read-only.
+          </div>
+        )}
         {(error || success || settingsBootStatus || jsonDraftError) && (
           <div className="space-y-2">
             {(error || jsonDraftError) && (
@@ -260,7 +267,7 @@ function OpenClawSectionEditor({
               path={[sectionKey]}
               schemaBundle={schemaBundle}
               draft={draft}
-              disabled={!connected || saving}
+              disabled={!connected || saving || !onSave}
               jsonDrafts={jsonDrafts}
               jsonDraftErrors={jsonDraftErrors}
               mapDraftKeys={mapDraftKeys}
@@ -453,7 +460,7 @@ function OpenClawSettingsDrawerContent({
   }, []);
 
   const saveActiveSection = useCallback(async () => {
-    if (!draft || !activeSection || !connected) return;
+    if (!onSaveConfig || !draft || !activeSection || !connected) return;
     const jsonDraftError = Object.values(jsonDraftErrors)[0];
     if (jsonDraftError) {
       setStatusMessage({ agentId, error: jsonDraftError, success: null });
@@ -563,7 +570,7 @@ function OpenClawSettingsDrawerContent({
                     onToggleMap={toggleMap}
                     onToggleDynamicEntry={toggleDynamicEntry}
                     onShowMoreDynamicEntries={showMoreDynamicEntries}
-                    onSave={saveActiveSection}
+                    onSave={onSaveConfig ? saveActiveSection : undefined}
                     onClose={onClose}
                     isDesktopViewport={isDesktopViewport}
                     onMobileBack={() => setMobileSectionsOpen(true)}

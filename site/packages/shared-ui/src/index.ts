@@ -367,7 +367,7 @@ export {
   getLlmApiUrl,
   withCorsProxy,
 } from "./utils/api";
-export { debugLog } from "./utils/debug";
+export { debugLog, isDebugLogging } from "./utils/debug";
 export {
   toStripeCents,
   toUsdcUnits,

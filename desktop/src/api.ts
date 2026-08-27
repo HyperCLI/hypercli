@@ -61,8 +61,7 @@ export interface BuzzCreateInput {
 }
 
 export const listBuzzConnections = () =>
-  invoke<BuzzConnectionMetadata[]>("list_buzz_connections");
-export const saveBuzzConnection = (input: {
+  invoke<BuzzConnectionMetadata[]>("list_buzz_connections");export const saveBuzzConnection = (input: {
   label: string;
   relay: string;
   nsec: string;
@@ -73,6 +72,47 @@ export const listBuzzChannels = (connectionId: string) =>
   invoke<VisibleChannel[]>("list_buzz_channels", { connectionId });
 export const createBuzzAgent = (input: BuzzCreateInput) =>
   invoke<LauncherAgent>("create_buzz_agent", { input });
+
+export interface ProviderStatus {
+  installed: string[];
+  missing: string[];
+  broken: string[];
+  translocated: boolean;
+  bin_dir: string;
+  bin_dir_exists: boolean;
+}
+
+export const providerStatus = () => invoke<ProviderStatus>("provider_status");
+export const installProviders = () =>
+  invoke<ProviderStatus>("install_providers");
+export const uninstallProviders = () =>
+  invoke<ProviderStatus>("uninstall_providers");
+
+export interface AgentEditConfig {
+  id: string;
+  name: string;
+  size: string | null;
+  state: string;
+  runtime: string | null;
+  is_buzz: boolean;
+  model: string | null;
+  instructions: string | null;
+  concurrency: number | null;
+  editable: boolean;
+}
+
+export const getAgentEditConfig = (agentId: string) =>
+  invoke<AgentEditConfig>("get_agent_edit_config", { agentId });
+export const updateAgent = (
+  agentId: string,
+  input: {
+    name?: string | null;
+    size?: string | null;
+    model?: string | null;
+    instructions?: string | null;
+    concurrency?: number | null;
+  },
+) => invoke<void>("update_agent", { agentId, input });
 export const openCreateWindow = () => invoke<void>("open_create_window");
 export const openSettingsWindow = () => invoke<void>("open_settings_window");
 export const openMainWindow = () => invoke<void>("open_main_window");

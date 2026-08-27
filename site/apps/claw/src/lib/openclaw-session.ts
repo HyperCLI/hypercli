@@ -1143,7 +1143,7 @@ export async function refreshOpenClawChatMessages(
   }
 }
 
-function resolveGatewayAgentId(agents: Array<Record<string, unknown>>): string {
+export function resolveGatewayAgentId(agents: Array<Record<string, unknown>>): string {
   const mainAgent = agents.find((agent) => agent.id === CANONICAL_GATEWAY_AGENT_ID)?.id;
   if (typeof mainAgent === "string") return mainAgent;
 
@@ -1211,33 +1211,10 @@ function defaultSessionIsReadOnlyChannel(sessions: OpenClawSessionRecord[]): boo
   ));
 }
 
-async function migrateLegacyGatewayFiles(
-  gateway: GatewayClient,
-  sourceAgentId: string,
-  targetAgentId: string,
-  files: WorkspaceFile[],
-): Promise<WorkspaceFile[] | null> {
-  const copied: WorkspaceFile[] = [];
-  for (const file of files) {
-    const name = typeof file.name === "string" ? file.name.trim() : "";
-    if (!name || file.missing) continue;
-    try {
-      const content = await gateway.fileGet(sourceAgentId, name);
-      await gateway.fileSet(targetAgentId, name, content);
-      copied.push(file);
-    } catch {}
-  }
-
-  if (copied.length === 0) return null;
-
-  try {
-    const refreshedFiles = await gateway.filesList(targetAgentId) as WorkspaceFile[];
-    if (refreshedFiles.length > 0) return refreshedFiles;
-  } catch {}
-
-  return copied;
-}
-
+// Legacy gateway workspaces were previously copied into the canonical agent
+// workspace with gateway fileSet calls. Hosted surfaces must not write gateway
+// files anymore, so legacy files are surfaced read-only under their original
+// workspace id instead of being migrated.
 async function recoverLegacyGatewayFiles(
   gateway: GatewayClient,
   agents: Array<Record<string, unknown>>,
@@ -1252,11 +1229,6 @@ async function recoverLegacyGatewayFiles(
     }
 
     if (!hasRecoverableFiles(legacyFiles)) continue;
-
-    const migratedFiles = await migrateLegacyGatewayFiles(gateway, legacyAgentId, canonicalAgentId, legacyFiles);
-    if (migratedFiles && migratedFiles.length > 0) {
-      return { files: migratedFiles, agentId: canonicalAgentId };
-    }
 
     return { files: legacyFiles, agentId: legacyAgentId };
   }

@@ -91,6 +91,13 @@ const nextConfig: NextConfig = {
       // Ignore pino/thread-stream test files (same as webpack null-loader rule)
       "./node_modules/pino/test/**": { loaders: [], as: "*.js" },
       "./node_modules/thread-stream/test/**": { loaders: [], as: "*.js" },
+      // Static bootstrap Markdown templates embedded at compile time.
+      // NOTE: native `{ type: "raw" }` and per-import `turbopackModuleType`
+      // attributes both compiled to `undefined` in Next 16.3.3 — raw-loader
+      // is the only form verified to emit a real string in browser bundles.
+      // The repo-root-relative scoped key did not match (unknown module
+      // type); the bare extension key is the only one Turbopack resolves.
+      "*.md": { loaders: ["raw-loader"], as: "*.js" },
     },
   },
   webpack: (config) => {
@@ -105,6 +112,12 @@ const nextConfig: NextConfig = {
     config.module.rules.push({
       test: /node_modules[\/\\](thread-stream|pino)[\/\\]test/,
       loader: "null-loader",
+    });
+    // Static bootstrap Markdown templates embedded at compile time (webpack
+    // fallback for non-Turbopack builds; Turbopack uses raw-loader above).
+    config.module.rules.push({
+      test: /public[\/\\]bootstrap[\/\\].*\.md$/,
+      type: "asset/source",
     });
     return config;
   },

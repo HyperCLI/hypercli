@@ -183,6 +183,19 @@ describe("OpenClawSettingsDrawer", () => {
     }));
   });
 
+  it("renders hosted settings read-only when onSaveConfig is omitted", () => {
+    renderDrawer({ onSaveConfig: undefined });
+
+    expect(screen.queryByRole("button", { name: /save section/i })).not.toBeInTheDocument();
+    expect(screen.getByText("OpenClaw config is managed by the runtime image. These settings are read-only.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Channels" }));
+    fireEvent.click(screen.getByRole("button", { name: /2 configured/i }));
+    fireEvent.click(screen.getByRole("button", { name: "work" }));
+
+    expect(screen.getByRole("switch", { name: "Enabled" })).toBeDisabled();
+  });
+
   it("does not report success when the save boundary blocks the change", async () => {
     const onSaveConfig = vi.fn(async () => false);
     renderDrawer({ onSaveConfig });

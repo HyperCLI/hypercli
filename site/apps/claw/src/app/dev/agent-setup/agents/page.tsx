@@ -107,6 +107,7 @@ import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { createOpenClawDashboardSessionKey } from "@/lib/openclaw-session-key";
+import { resolveGatewayAgentId } from "@/lib/openclaw-session";
 import { displayOpenClawSessionName, isOpenClawMainSessionKey } from "@/lib/openclaw-session-sdk-surface";
 import { prepareOpenClawStarterFiles, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
@@ -793,14 +794,28 @@ export default function DevAgentSetupAgentsPage() {
     chat.setInput(buildTeamFirstPrompt(teamSetupSummary, selectedAgentDisplayName));
   }, [chat, selectedAgentDisplayName, teamSetupSummary]);
 
+  // Dev-only escape hatch: write straight to the connected gateway client.
+  // The hosted session surface intentionally no longer exposes config/file writes.
+  const devGatewayWriteConfig = useCallback(async (patch: Record<string, unknown>) => {
+    const gateway = chat.gateway;
+    if (!gateway) throw new Error("Gateway unavailable.");
+    await gateway.configPatch(patch);
+  }, [chat.gateway]);
+  const devGatewayWriteFile = useCallback(async (name: string, content: string) => {
+    const gateway = chat.gateway;
+    if (!gateway) throw new Error("Gateway unavailable.");
+    const agents = await gateway.agentsList();
+    await gateway.fileSet(resolveGatewayAgentId(agents), name, content);
+  }, [chat.gateway]);
+
   const retryTeamStarterContext = useCallback(async () => {
     if (!teamSetupSummary || !chat.connected) return;
     setRetryingTeamContext(true);
     try {
       for (const file of buildTeamStarterFiles(teamSetupSummary)) {
-        await chat.saveFile(file.name, file.content);
+        await devGatewayWriteFile(file.name, file.content);
       }
-      await chat.saveConfig({
+      await devGatewayWriteConfig({
         setup: {
           source: "dev-agent-setup",
           plan: "team",
@@ -817,7 +832,7 @@ export default function DevAgentSetupAgentsPage() {
     } finally {
       setRetryingTeamContext(false);
     }
-  }, [chat, teamSetupSummary]);
+  }, [chat, devGatewayWriteConfig, devGatewayWriteFile, teamSetupSummary]);
 
   const teamSetupActions = useMemo(() => {
     if (!teamSetupSummary) return [];
@@ -2408,7 +2423,7 @@ export default function DevAgentSetupAgentsPage() {
                 onRefreshChannels={chat.refreshReportedChannels}
                 config={chat.config as Record<string, unknown> | null}
                 connected={chat.connected}
-                onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
+                onSaveConfig={async (patch) => { await devGatewayWriteConfig(patch); }}
                 onChannelProbe={async () => chat.channelsStatus(true)}
                 onOpenShell={() => setMainTab("shell")}
               />
@@ -2483,7 +2498,7 @@ export default function DevAgentSetupAgentsPage() {
                   if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
                   applyAgentMutationResult(updatedAgent);
                 }}
-                onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
+                onSaveOpenClawConfig={async (patch) => { await devGatewayWriteConfig(patch); }}
               />
             ) : mainTab === "logs" ? (
               <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />

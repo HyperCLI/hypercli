@@ -281,7 +281,6 @@ describe("useHermesSession (AgentGatewaySession adapter)", () => {
     expect(second.cronJobs).toBe(first.cronJobs);
     expect(second.reportedChannels).toBe(first.reportedChannels);
     expect(second.endTemporaryChat).toBe(first.endTemporaryChat);
-    expect(second.saveConfig).toBe(first.saveConfig);
   });
 
   it("does not reconnect or wipe messages when the roster rehydrates the same agent", async () => {

@@ -82,7 +82,16 @@ describe("IntegrationChatCardHost", () => {
   it("wires Telegram finish to gateway reconnect", async () => {
     const retry = vi.fn();
     const retryAndRefreshSessions = vi.fn();
-    const saveConfig = vi.fn(async () => undefined);
+    // Hosted surfaces no longer write gateway config directly; connector
+    // setup goes through the agent-owned connectors provider.
+    const configure = vi.fn(async () => undefined);
+    const connectorsProvider = {
+      runtime: { id: "openclaw" },
+      list: vi.fn(async () => [{ connectorId: "telegram", usable: true }]),
+      startSetup: vi.fn(async () => ({ instructions: null })),
+      pollSetup: vi.fn(),
+      configure,
+    };
 
     render(
       <IntegrationChatCardHost
@@ -91,7 +100,7 @@ describe("IntegrationChatCardHost", () => {
           connected: true,
           config: null,
           configSchema: telegramSchema,
-          saveConfig,
+          connectorsProvider,
           generateConnectorWorkflow: vi.fn(async () => ({
             schema: "hypercli.connector-workflow.v1",
             connectorId: "telegram",
@@ -121,7 +130,7 @@ describe("IntegrationChatCardHost", () => {
     fireEvent.change(screen.getByLabelText("Telegram group policy"), { target: { value: "runtime-default" } });
     fireEvent.click(screen.getByRole("button", { name: /save settings/i }));
 
-    await waitFor(() => expect(saveConfig).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(configure).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByRole("button", { name: /step 2: test the connection/i }));
     fireEvent.click(screen.getByRole("button", { name: /^test connection$/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /^continue$/i })).toBeEnabled());

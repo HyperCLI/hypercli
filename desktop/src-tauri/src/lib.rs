@@ -1,5 +1,7 @@
 mod buzz_connections;
 mod buzz_launch;
+mod agent_edit;
+mod providers;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1258,6 +1260,11 @@ pub fn run() {
             buzz_launch::save_buzz_connection,
             buzz_launch::remove_buzz_connection,
             buzz_launch::list_buzz_channels,
+            providers::provider_status,
+            providers::install_providers,
+            providers::uninstall_providers,
+            agent_edit::get_agent_edit_config,
+            agent_edit::update_agent,
             start_agent,
             stop_agent,
             archive_agent,

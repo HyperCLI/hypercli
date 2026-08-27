@@ -34,7 +34,7 @@ import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { getConnectCommandSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import { SCHEDULED_MANAGER_ENABLED } from "@/lib/dashboard-release-boundary";
-import { buildOpenClawDefaultModelPatch, normalizeOpenClawModelOptions } from "@/lib/openclaw-models";
+import { normalizeOpenClawModelOptions } from "@/lib/openclaw-models";
 
 type ChatSession = AgentGatewaySession;
 type ChatConnectorId = NonNullable<ChatConnectionSuggestion["connectorId"]>;
@@ -308,31 +308,6 @@ function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["
     }
     close();
   };
-}
-
-function optionValue(model: Record<string, unknown>): string {
-  const value = model.value ?? model.id ?? model.modelId ?? model.model_id ?? model.name;
-  return typeof value === "string" ? value : "";
-}
-
-function resolveRequestedModel(chat: ChatSession, args: string): { modelValue?: string; status?: string } {
-  const requested = args.trim();
-  const models = normalizeOpenClawModelOptions(chat.config, chat.models, requested);
-  if (!requested) {
-    return {
-      status: models.length > 0 ? `Pass a model id. First option: ${models[0].value}` : "No model options are loaded yet.",
-    };
-  }
-
-  const match = models.find((model) => model.value === requested || model.label.toLowerCase() === requested.toLowerCase());
-  if (!match) {
-    const fallback = chat.models.find((model) => optionValue(model) === requested);
-    if (!fallback) {
-      return { status: `Model "${requested}" is not in the loaded model list.` };
-    }
-  }
-
-  return { modelValue: match?.value ?? requested };
 }
 
 function buildSlashCommands(): SlashCommand[] {
@@ -631,39 +606,7 @@ function buildSlashCommands(): SlashCommand[] {
       Icon: Zap,
       run: ({ chat, setStatus }) => {
         const modelOptions = normalizeOpenClawModelOptions(chat.config, chat.models);
-        setStatus(modelOptions.length > 0 ? `${modelOptions.length} models available. Use /model <id> to switch.` : "No model options are loaded yet.");
-      },
-    },
-    {
-      id: "model",
-      aliases: ["model"],
-      title: "Set model",
-      description: "Switch the default model.",
-      category: "Tools",
-      mode: "confirm",
-      Icon: Zap,
-      requiresRunningAgent: true,
-      isEnabled: ({ chat }) => chat.connected ? true : "Connect the gateway before changing models.",
-      confirm: ({ args, chat }) => {
-        const resolved = resolveRequestedModel(chat, args);
-        return resolved.modelValue ? {
-          title: "Set default model",
-          message: `Set default model to ${resolved.modelValue}?`,
-          confirmLabel: "Set model",
-        } : null;
-      },
-      run: async ({ args, chat, setStatus, close, showFeedback }) => {
-        const resolved = resolveRequestedModel(chat, args);
-        if (!resolved.modelValue) {
-          setStatus(resolved.status ?? "Model is unavailable.");
-          return;
-        }
-        const modelValue = resolved.modelValue;
-        await chat.saveConfig(buildOpenClawDefaultModelPatch(modelValue));
-        chat.setInput("");
-        setStatus(`Default model set to ${modelValue}.`);
-        showFeedback(`Default model set to ${modelValue}.`);
-        close();
+        setStatus(modelOptions.length > 0 ? `${modelOptions.length} models available. Pick one from the model menu to switch this conversation.` : "No model options are loaded yet.");
       },
     },
     {

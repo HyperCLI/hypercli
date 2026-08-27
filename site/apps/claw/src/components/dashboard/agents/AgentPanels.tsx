@@ -4,27 +4,26 @@ import Link from "next/link";
 import React from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, RotateCcw, Send, SlidersHorizontal, Sparkles, Square, UsersRound, X } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, RotateCcw, Send, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import { HostedSlackLaunchEnv } from "@hypercli.com/sdk/channels";
-import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { Button, Input, Switch, writeClipboardText } from "@hypercli/shared-ui";
 
-import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
+import type { Agent } from "@/app/dashboard/agents/types";
 import { isAgentDeletable, isAgentOffline, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
-import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
+import { asObject, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from "@/components/ClawTooltip";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, RosterNavigationItem, type ConversationThread, type ThreadSurfaceActionsFor } from "@/components/dashboard/AgentsChannelsSidebar";
-import { FilePreview, type FileEntry } from "@hypercli/shared-ui/files";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient, createBrowserHyperCLIClient, createHermesAgentDeployment, startAgent, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { prepareOpenClawStarterFiles, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { debugFlow } from "@/lib/debug-flow";
 import { buildHermesLaunchOptions, getHermesDefaultImage } from "@/lib/hermes-launch";
 import { isHermesAgentRuntime } from "@/lib/agent-runtime";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
@@ -37,417 +36,20 @@ import {
 } from "@/lib/openclaw-launch";
 import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
-import type { WorkspaceFile } from "@/lib/openclaw-chat";
-import type { ActivityEntry } from "@/lib/openclaw-session";
 import {
   buildOpenClawDefaultModelPatch,
   getOpenClawDefaultModel,
   normalizeOpenClawModelOptions,
   type OpenClawModelOption,
 } from "@/lib/openclaw-models";
-import { OpenClawErrorBoundary } from "./page-helpers";
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "./AgentCreationSetupWizard";
 import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
-import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 import { DASHBOARD_VIEW_HREFS, KNOWLEDGE_HUB_HREF } from "@/lib/dashboard-route";
 import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 import { agentDisplayLabel } from "./agentViewModel";
 import { AgentChatComposerShell } from "./AgentChatComposerShell";
 import { AgentFeatureEmptyState } from "./AgentFeatureEmptyState";
-
-interface SessionLike {
-  connected: boolean;
-  connecting: boolean;
-  hydrating?: boolean;
-  config: Record<string, unknown> | null;
-  configSchema: OpenClawConfigSchemaResponse | null;
-  models: unknown[];
-  saveConfig: (patch: Record<string, unknown>) => Promise<void>;
-  saveFullConfig: (config: Record<string, unknown>) => Promise<void>;
-  channelsStatus: (probe?: boolean, timeoutMs?: number) => Promise<Record<string, any>>;
-  activityFeed: ActivityEntry[];
-  files: WorkspaceFile[];
-}
-
-interface OpenClawConfigPanelProps {
-  open?: boolean;
-  agent: Agent | null;
-  onClose?: () => void;
-  embedded?: boolean;
-  openclawSections: Array<[string, unknown]>;
-  openclawSchemaBundle: OpenClawConfigSchemaResponse | null;
-  effectiveOpenclawSection: string | null;
-  setActiveOpenclawSection: (section: string) => void;
-  activeOpenclawSectionLabel: string | null;
-  openclawSaving: boolean;
-  openclawDraft: JsonObject | null;
-  openclawError: string | null;
-  openclawSuccess: string | null;
-  chat: SessionLike;
-  visibleOpenclawSections: Array<[string, unknown]>;
-  renderOpenclawField: (schemaRaw: unknown, path: string[], depth?: number) => React.ReactNode;
-  saveOpenclawSection: (sectionKey: string) => Promise<void>;
-  saveAllOpenclaw: () => Promise<void>;
-  openclawPaneRef: React.RefObject<HTMLDivElement | null>;
-  isDesktopViewport?: boolean;
-}
-
-export function OpenClawConfigPanel({
-  open = true,
-  agent,
-  onClose,
-  embedded = false,
-  openclawSaving,
-  openclawDraft,
-  openclawError,
-  openclawSuccess,
-  chat,
-}: OpenClawConfigPanelProps) {
-  const [localError, setLocalError] = React.useState<string | null>(null);
-  const [localSuccess, setLocalSuccess] = React.useState<string | null>(null);
-  const [localSaving, setLocalSaving] = React.useState(false);
-  const configBootStatus = getAgentGatewayPanelBootStatus({
-    connected: chat.connected,
-    connecting: chat.connecting,
-    loading: chat.hydrating === true,
-    loadingTitle: "Loading settings",
-    loadingDetail: "Reading OpenClaw settings.",
-    connectingDetail: "Opening the settings workspace.",
-    waitingDetail: "Reconnect the gateway before editing openclaw.json.",
-  });
-  const editorContent = React.useMemo(() => JSON.stringify(openclawDraft ?? {}, null, 2), [openclawDraft]);
-  const editorEntry = React.useMemo<FileEntry>(() => ({
-    name: "openclaw.json",
-    path: "openclaw.json",
-    type: "file",
-    size: editorContent.length,
-  }), [editorContent]);
-
-  React.useEffect(() => {
-    if (!open) {
-      setLocalError(null);
-      setLocalSuccess(null);
-      setLocalSaving(false);
-    }
-  }, [open]);
-
-  const saveOpenclawJson = React.useCallback(async (_path: string, content: string) => {
-    setLocalError(null);
-    setLocalSuccess(null);
-
-    if (!chat.connected) {
-      setLocalError("Gateway disconnected. Reconnect before editing openclaw.json.");
-      return;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch (error) {
-      setLocalError(error instanceof Error ? `Invalid JSON: ${error.message}` : "Invalid JSON");
-      return;
-    }
-
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      setLocalError("openclaw.json must contain a JSON object.");
-      return;
-    }
-
-    setLocalSaving(true);
-    try {
-      await chat.saveFullConfig(parsed as Record<string, unknown>);
-      setLocalSuccess("Saved openclaw.json");
-    } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "Failed to save openclaw.json");
-    } finally {
-      setLocalSaving(false);
-    }
-  }, [chat]);
-
-  const effectiveError = localError ?? openclawError;
-  const effectiveSuccess = localSuccess ?? openclawSuccess;
-  const saving = openclawSaving || localSaving;
-
-  if (!open || !agent) return null;
-
-  return (
-    <div className={`flex h-full min-h-0 flex-col bg-background ${embedded ? "rounded-lg border border-border" : ""}`}>
-      <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border px-4">
-        <SlidersHorizontal className="h-4 w-4 text-[var(--selection-accent)]" />
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">OpenClaw Config</p>
-          <p className="text-[10px] text-text-muted">Editing openclaw.json</p>
-        </div>
-        <div className="flex-1" />
-        {saving && <p className="text-[10px] text-text-muted">Saving openclaw.json</p>}
-        {onClose && (
-          <TooltipHint label="Close OpenClaw config">
-            <button type="button" aria-label="Close OpenClaw config" onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </TooltipHint>
-        )}
-      </div>
-      {(effectiveError || effectiveSuccess) && (
-        <div className="flex-shrink-0 space-y-2 border-b border-border px-4 py-3">
-          {effectiveError && (
-            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{effectiveError}</div>
-          )}
-          {effectiveSuccess && !effectiveError && (
-            <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">{effectiveSuccess}</div>
-          )}
-        </div>
-      )}
-      <div className="min-h-0 flex-1">
-        <FilePreview
-          key={agent.id}
-          entry={editorEntry}
-          content={editorContent}
-          loading={chat.connecting && !chat.connected}
-          error={null}
-          readOnly={!chat.connected}
-          readOnlyLabel="Disconnected"
-          readOnlyDescription={configBootStatus?.detail ?? "Reconnect the gateway before editing openclaw.json."}
-          onClose={onClose ?? (() => {})}
-          showClose={Boolean(onClose)}
-          onSave={chat.connected ? saveOpenclawJson : undefined}
-        />
-      </div>
-    </div>
-  );
-}
-
-function openclawSectionLabel(
-  schemaBundle: OpenClawConfigSchemaResponse | null,
-  sectionKey: string,
-  sectionSchema: unknown,
-): string {
-  const hint = getOpenClawUiHint(schemaBundle, [sectionKey]);
-  return hint?.label?.trim() ||
-    (typeof asObject(sectionSchema)?.title === "string"
-      ? String(asObject(sectionSchema)?.title)
-      : humanizeKey(sectionKey));
-}
-
-function openclawSectionDescription(
-  schemaBundle: OpenClawConfigSchemaResponse | null,
-  sectionKey: string,
-  sectionSchema: unknown,
-  fallback = "",
-): string {
-  const hint = getOpenClawUiHint(schemaBundle, [sectionKey]);
-  return hint?.help?.trim() ||
-    (typeof asObject(sectionSchema)?.description === "string"
-      ? String(asObject(sectionSchema)?.description)
-      : fallback);
-}
-
-export function OpenClawSettingsPanel({
-  open = true,
-  agent,
-  onClose,
-  openclawSections,
-  openclawSchemaBundle,
-  effectiveOpenclawSection,
-  setActiveOpenclawSection,
-  activeOpenclawSectionLabel,
-  openclawSaving,
-  openclawDraft,
-  openclawError,
-  openclawSuccess,
-  chat,
-  visibleOpenclawSections,
-  renderOpenclawField,
-  saveOpenclawSection,
-  saveAllOpenclaw,
-  openclawPaneRef,
-  isDesktopViewport = true,
-}: OpenClawConfigPanelProps) {
-  const [mobileSectionsOpen, setMobileSectionsOpen] = React.useState(true);
-  const hasSections = openclawSections.length > 0;
-  const saveLabel = effectiveOpenclawSection ? "Save Section" : "Save All";
-  const settingsBootStatus = getAgentGatewayPanelBootStatus({
-    connected: chat.connected,
-    connecting: chat.connecting,
-    loading: chat.hydrating === true || (chat.connected && !openclawSchemaBundle),
-    loadingTitle: "Loading settings",
-    loadingDetail: "Reading OpenClaw settings.",
-    connectingDetail: "Opening the settings workspace.",
-    waitingDetail: "Connect the agent gateway to edit OpenClaw settings.",
-  });
-
-  React.useEffect(() => {
-    if (isDesktopViewport) setMobileSectionsOpen(false);
-  }, [isDesktopViewport]);
-
-  if (!open || !agent) return null;
-
-  const sectionList = (
-    <div className="space-y-1">
-      {openclawSections.map(([sectionKey, sectionSchema]) => {
-        const sectionLabel = openclawSectionLabel(openclawSchemaBundle, sectionKey, sectionSchema);
-        const sectionDescription = openclawSectionDescription(openclawSchemaBundle, sectionKey, sectionSchema, sectionKey);
-        const selected = effectiveOpenclawSection === sectionKey;
-        return (
-          <TooltipHint key={`openclaw-section-${sectionKey}`} label={sectionDescription} side="right">
-            <button
-              type="button"
-              onClick={() => {
-                setActiveOpenclawSection(sectionKey);
-                setMobileSectionsOpen(false);
-              }}
-              className={`block w-full rounded-lg border px-2.5 py-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                selected
-                  ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] font-medium text-foreground"
-                  : "border-transparent text-text-muted hover:bg-surface-low/50 hover:text-foreground"
-              }`}
-            >
-              <span className="block truncate">{sectionLabel}</span>
-            </button>
-          </TooltipHint>
-        );
-      })}
-    </div>
-  );
-
-  const statusMessages = (
-    <>
-      {openclawError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {openclawError}
-        </div>
-      )}
-      {openclawSuccess && !openclawError && (
-        <div className="rounded-lg border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-3 py-2 text-sm text-[var(--selection-accent)]">
-          {openclawSuccess}
-        </div>
-      )}
-      {settingsBootStatus && !chat.connected && !chat.connecting && (
-        <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-          {settingsBootStatus.detail}
-        </div>
-      )}
-      {settingsBootStatus && chat.connecting && !chat.connected && (
-        <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {settingsBootStatus.title}
-        </div>
-      )}
-      {settingsBootStatus && chat.connected && !hasSections && !openclawSchemaBundle && (
-        <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {settingsBootStatus.detail}
-        </div>
-      )}
-      {chat.connected && !hasSections && openclawSchemaBundle && (
-        <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-          No config schema available from gateway.
-        </div>
-      )}
-    </>
-  );
-
-  const editorContent = (
-    <OpenClawErrorBoundary>
-      <div className={isDesktopViewport ? "mx-auto w-full max-w-6xl space-y-4" : "mx-auto max-w-xl space-y-4"}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            {!isDesktopViewport && (
-              <button
-                type="button"
-                onClick={() => setMobileSectionsOpen(true)}
-                className="mb-3 inline-flex items-center gap-2 text-sm text-text-muted transition-colors hover:text-foreground"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Back
-              </button>
-            )}
-            <h3 className="truncate text-lg font-semibold text-foreground">
-              {activeOpenclawSectionLabel ?? "OpenClaw Config"}
-            </h3>
-            {openclawSchemaBundle?.version && (
-              <p className="mt-1 text-xs text-text-muted">
-                Schema version <span className="font-mono">{openclawSchemaBundle.version}</span>
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
-            disabled={openclawSaving || !chat.connected || !openclawDraft}
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {openclawSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
-            {saveLabel}
-          </button>
-          {onClose && (
-            <TooltipHint label="Close OpenClaw settings">
-              <button type="button" aria-label="Close OpenClaw settings" onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground">
-                <X className="h-4 w-4" />
-              </button>
-            </TooltipHint>
-          )}
-        </div>
-
-        {statusMessages}
-
-        {hasSections && openclawDraft && (
-          <div className="space-y-4">
-            {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
-              const sectionDescription = openclawSectionDescription(openclawSchemaBundle, sectionKey, sectionSchema);
-              return (
-                <section key={`openclaw-editor-${sectionKey}`} className="space-y-4 rounded-xl border border-border bg-surface-low/30 p-4">
-                  {sectionDescription && (
-                    <p className="text-xs leading-5 text-text-muted">{sectionDescription}</p>
-                  )}
-                  {renderOpenclawField(sectionSchema, [sectionKey])}
-                </section>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </OpenClawErrorBoundary>
-  );
-
-  if (!isDesktopViewport && mobileSectionsOpen) {
-    return (
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-          <SlidersHorizontal className="h-4 w-4 text-[var(--selection-accent)]" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">OpenClaw settings</p>
-            <p className="text-[10px] text-text-muted">Choose a section to edit</p>
-          </div>
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="mx-auto max-w-xl rounded-xl border border-border bg-surface-low/20 p-4">
-            <h3 className="text-lg font-semibold text-foreground">OpenClaw Sections</h3>
-            <p className="mt-1 text-sm text-text-muted">Choose a section to edit.</p>
-            <div className="mt-4">{sectionList}</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={`flex h-full min-h-0 bg-background ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
-      {isDesktopViewport && (
-        <aside className="w-[200px] min-w-[160px] max-w-[260px] shrink-0 border-r border-border bg-surface-low/20">
-          <div className="h-full overflow-y-auto p-3">
-            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">Sections</p>
-            {sectionList}
-          </div>
-        </aside>
-      )}
-      <div ref={openclawPaneRef} className={`min-w-0 flex-1 overflow-y-auto ${isDesktopViewport ? "p-6" : "p-4"}`}>
-        {editorContent}
-      </div>
-    </div>
-  );
-}
 
 interface AgentSettingsPanelProps {
   agent: Agent | null;
@@ -814,6 +416,11 @@ function buildUpdatedLaunchConfig(
 ): Record<string, unknown> {
   const launchConfig = editableLaunchConfigFromAgent(agent);
   if (image) launchConfig.image = image;
+  // OpenClaw nested runtime config is image-owned. Never echo a stored
+  // (possibly partial) config back into the launch contract from settings.
+  if (!isHermesAgentRuntime(agent.runtime)) {
+    launchConfig.config = {};
+  }
   if (isHermesAgentRuntime(agent.runtime)) {
     // Hermes launch configs carry no OpenClaw routes/env; only the image and
     // the user's additional env are editable. Managed platform keys survive.
@@ -2998,11 +2605,13 @@ export function AgentList({
   const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, agentType = "openclaw", files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeCollectionId }: AgentCreationSetupCreateParams) => {
     const creationScope = rosterOrderScope;
     const shouldAbort = () => !activeRef.current || rosterOrderScopeRef.current !== creationScope;
+    debugFlow("launcher", "create: entry", { name, agentType, size, filesCount: files.length, knowledgeCollectionId });
     try {
       if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
       const starterFiles = agentType === "hermes"
         ? files
         : await prepareOpenClawStarterFiles(files);
+      debugFlow("launcher", "create: starter files prepared", { agentType, count: starterFiles.length });
       const token = await getToken();
       const created = agentType === "hermes"
         ? await createHermesAgentDeployment(token, {
@@ -3026,9 +2635,12 @@ export function AgentList({
           }),
         });
       const createdId = created.id ?? null;
+      debugFlow("launcher", "create: created", { createdId });
       if (createdId) {
         const agentClient = createAgentClient(token);
+        debugFlow("launcher", "create: wait for stopped", { createdId });
         await waitForCreatedAgentStopped(agentClient, { ...created, id: createdId });
+        debugFlow("launcher", "create: stopped", { createdId });
         try {
           await fetchAgents();
         } catch {}
@@ -3044,12 +2656,16 @@ export function AgentList({
         }
         const startCreatedAgent = async (agentId: string) => {
           if (shouldAbort()) {
+            debugFlow("launcher", "start: abort precondition", { agentId });
             throw new Error("Workspace setup was cancelled before launch. The agent remains stopped.");
           }
           void Promise.resolve(fetchAgents()).catch(() => undefined);
+          debugFlow("launcher", "start: request", { agentId });
           await startAgent(token, agentId);
+          debugFlow("launcher", "start: running", { agentId });
         };
         if (agentType !== "hermes") {
+          debugFlow("launcher", "stage+start: begin", { createdId, filesCount: starterFiles.length });
           await stageAgentStarterFilesAndStart({
             agentId: createdId,
             files: starterFiles,
@@ -3063,8 +2679,12 @@ export function AgentList({
             startAgent: startCreatedAgent,
             shouldAbort,
           });
+          debugFlow("launcher", "stage+start: done", { createdId });
         } else {
-          if (shouldAbort()) return null;
+          if (shouldAbort()) {
+            debugFlow("launcher", "create: aborted before start", { createdId });
+            return null;
+          }
           await startCreatedAgent(createdId);
         }
         const agentsRefreshed = await fetchAgents();
@@ -3074,18 +2694,27 @@ export function AgentList({
         setSelectedAgentId(createdId);
         setMobileShowChat(true);
         setShowAgentLauncher(false);
+        debugFlow("launcher", "create: success", { createdId });
       } else {
+        debugFlow("launcher", "create: no id returned");
         await fetchAgents();
       }
       return createdId;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create agent");
+      const message = err instanceof Error ? err.message : "Failed to create agent";
+      debugFlow("launcher", "create: error", { message });
+      setError(message);
       return null;
     }
   }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, knowledgeHubAvailable, rosterOrderScope, setError, setMobileShowChat, setSelectedAgentId]);
 
   const createAgentAndCloseLauncher = React.useCallback(async (params: AgentCreationSetupCreateParams) => {
+    debugFlow("launcher", "createAgentAndCloseLauncher: entry", {
+      external: Boolean(onCreateAgent),
+      agentType: params.agentType ?? "openclaw",
+    });
     const createdId = await (onCreateAgent ?? createAgentFromLauncher)(params);
+    debugFlow("launcher", "createAgentAndCloseLauncher: resolved", { createdId });
     if (createdId) setShowAgentLauncher(false);
     return createdId;
   }, [createAgentFromLauncher, onCreateAgent]);

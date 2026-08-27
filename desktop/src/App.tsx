@@ -167,7 +167,6 @@ function LoadBar({
   label,
   ratio,
   value,
-  unit,
   detail,
   showPercent = true,
 }: {
@@ -175,22 +174,20 @@ function LoadBar({
   label: string;
   /** Drives the bar fill (0–1). Undefined renders an empty track. */
   ratio?: number;
-  /** Absolute usage text, shown when `showPercent` is false. */
+  /** Absolute usage text, shown on the right when `showPercent` is false. */
   value: string;
-  /** Unit suffix for `value` (kept in its own column so numbers align). */
-  unit: string;
   detail: string;
-  /** When false, the bar fills from `ratio` but the label shows the absolute
-   * `value` instead of a percentage (used when no real limit is reported, so
-   * the fallback-scaled fill isn't misread as a true utilization %). */
+  /** When false, the bar fills from `ratio` but the right-hand readout shows
+   * the absolute `value` instead of a percentage (used when no real limit is
+   * reported, so the fallback-scaled fill isn't misread as a true
+   * utilization %). */
   showPercent?: boolean;
 }) {
   const percent =
     ratio === undefined
       ? undefined
       : Math.min(100, Math.max(0, Math.round(ratio * 100)));
-  const labelText = showPercent && percent !== undefined ? `${percent}%` : value;
-  const unitText = showPercent && percent !== undefined ? "" : unit;
+  const readout = showPercent && percent !== undefined ? `${percent}%` : value;
   return (
     <span
       className="flex w-full items-center gap-1.5"
@@ -200,7 +197,10 @@ function LoadBar({
           : `${label}: ${detail}`
       }
     >
-      <span className="shrink-0 text-ink-dim">{icon}</span>
+      <span className="flex w-10 shrink-0 items-center gap-1 text-xs tabular-nums text-ink-dim">
+        {icon}
+        {label}
+      </span>
       <span
         className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-raised"
         role="progressbar"
@@ -216,9 +216,8 @@ function LoadBar({
           />
         )}
       </span>
-      <span className="flex w-[4.5rem] shrink-0 items-baseline whitespace-nowrap text-xs tabular-nums text-ink-dim">
-        <span className="shrink-0 text-left">{unitText}</span>
-        <span className="ml-auto shrink-0 text-right">{labelText}</span>
+      <span className="w-10 shrink-0 text-right text-xs tabular-nums whitespace-nowrap text-ink-dim">
+        {readout}
       </span>
     </span>
   );
@@ -445,7 +444,6 @@ function AgentRow({
               label="CPU"
               ratio={cpuRatio}
               value={cpuText ?? "?"}
-              unit="CPU"
               showPercent={Boolean(cpuCapacity)}
               detail={
                 cpuCapacity
@@ -460,7 +458,6 @@ function AgentRow({
               label="RAM"
               ratio={memoryRatio}
               value={memoryText ?? "?"}
-              unit="GB"
               showPercent={Boolean(memoryCapacity)}
               detail={
                 memoryCapacity

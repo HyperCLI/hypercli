@@ -11,7 +11,6 @@ export function renderSlackSetup(context: IntegrationSetupRenderContext) {
       config={chat.config as Record<string, unknown> | null}
       connectorsProvider={chat.connectorsProvider}
       channelsProvider={chat.channelsProvider}
-      onSaveConfig={typeof chat.saveConfig === "function" ? chat.saveConfig : undefined}
       onWebLoginStart={typeof chat.webLoginStart === "function" ? chat.webLoginStart : undefined}
       onWebLoginWait={typeof chat.webLoginWait === "function" ? chat.webLoginWait : undefined}
       cachedWorkflow={chat.connectorWorkflows?.slack}

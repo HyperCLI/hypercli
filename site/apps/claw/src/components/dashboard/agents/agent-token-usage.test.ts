@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { tokenUsageSnapshot } from "./agentTokenUsage";
+import { tokenUsageSnapshot } from "./agent-token-usage";
 
 describe("tokenUsageSnapshot", () => {
   it("keeps attributed usage in both the agent map and daily total", () => {

@@ -38,6 +38,7 @@ import {
   getEffectivePlanIdFromSummary,
   type LaunchSourceKind,
 } from "@/lib/agent-launch-state";
+import { debugFlow } from "@/lib/debug-flow";
 import {
   clearFirstAgentSetupDraft,
   createFirstAgentSetupId,
@@ -45,14 +46,16 @@ import {
   writeFirstAgentSetupDraft,
 } from "@/hooks/useFirstAgentSetupDraft";
 import {
-  buildDeterministicOpenClawBootstrapPack,
   createOpenClawBootstrapDraft,
   isModelGeneratedOpenClawBootstrapFile,
+  normalizeOpenClawBootstrapInputs,
+  OPENCLAW_BOOTSTRAP_PACK_VERSION,
   type OpenClawBootstrapDraft,
   type OpenClawBootstrapFile,
   type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
 } from "@/lib/openclaw-bootstrap-pack";
+import { assembleOpenClawBootstrapPack } from "@/lib/bootstrap-templates";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
 import { OpenClawBootstrapStep, type OpenClawBootstrapStage } from "./OpenClawBootstrapStep";
@@ -887,6 +890,17 @@ export function FirstAgentSetupWizard({
   const [bootstrapDraft, setBootstrapDraft] = React.useState<OpenClawBootstrapDraft>(() => (
     restoredDraft?.bootstrapDraft ?? createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
   ));
+  // The pack assembles synchronously from compile-time templates; an empty
+  // pack means something fundamental broke, so the launch path fails closed.
+  const bootstrapPackReady = bootstrapDraft.files.length > 0;
+  const [bootstrapPackError] = React.useState<string | null>(
+    bootstrapPackReady ? null : "Workspace files could not be prepared.",
+  );
+  const retryBootstrapPack = React.useCallback(() => {
+    setBootstrapDraft((current) => (
+      current.files.length > 0 ? current : createOpenClawBootstrapDraft(restoredDraft?.name ?? "Your agent")
+    ));
+  }, [restoredDraft?.name]);
   const bootstrapGenerationRunRef = React.useRef(0);
   const bootstrapInitialGenerationStartedRef = React.useRef(false);
   const slotInventory = budget?.slots ?? EMPTY_SLOT_INVENTORY;
@@ -988,7 +1002,8 @@ export function FirstAgentSetupWizard({
     const runId = bootstrapGenerationRunRef.current + 1;
     bootstrapGenerationRunRef.current = runId;
     const inputs = { ...rawInputs, agentName: workspaceAgentName };
-    const fallbackFiles = buildDeterministicOpenClawBootstrapPack(inputs);
+    const fallbackFiles: OpenClawBootstrapFile[] = assembleOpenClawBootstrapPack(inputs);
+    if (bootstrapGenerationRunRef.current !== runId) return;
     const names = fallbackFiles
       .map((file) => file.name)
       .filter(isModelGeneratedOpenClawBootstrapFile);
@@ -1178,6 +1193,10 @@ export function FirstAgentSetupWizard({
   }, [planOptions]);
 
   React.useEffect(() => {
+    debugFlow("setup-wizard", "creating transition", { creating });
+  }, [creating]);
+
+  React.useEffect(() => {
     const normalizedPlanId = selectedCatalogPlanId?.trim() || restoredDraft?.plan || initialPlanId?.trim() || null;
     if (!normalizedPlanId) return;
     const matchingPlan = displayedPlanOptions.find((plan) => (
@@ -1196,18 +1215,22 @@ export function FirstAgentSetupWizard({
 
   const saveDraftAndCreate = async (planId = selectedPlanId) => {
     if (creating) return;
+    debugFlow("setup-wizard", "saveDraftAndCreate: entry", { planId });
     const plan = displayedPlanOptions.find((option) => option.id === planId) ?? selectedPlan;
     dispatchWizard({ type: "CLEAR_ERROR" });
     if (!plan) {
+      debugFlow("setup-wizard", "CREATE_FAILED", { message: "Plan catalog is unavailable right now." });
       dispatchWizard({ type: "CREATE_FAILED", message: "Plan catalog is unavailable right now." });
       return;
     }
     if (plan.disabled) {
+      debugFlow("setup-wizard", "CREATE_FAILED", { message: "Choose a Pro plan to use selected Pro features." });
       dispatchWizard({ type: "CREATE_FAILED", message: "Choose a Pro plan to use selected Pro features." });
       return;
     }
     const selectedCustomImage = enableCustomImage ? effectiveCustomImage.trim() : null;
     if (enableCustomImage && !selectedCustomImage) {
+      debugFlow("setup-wizard", "CREATE_FAILED", { message: "Custom image is required." });
       dispatchWizard({ type: "CREATE_FAILED", message: "Custom image is required." });
       return;
     }
@@ -1219,9 +1242,11 @@ export function FirstAgentSetupWizard({
         try {
           await onOpenPlanCatalog(plan.catalogPlanId ?? plan.id);
         } catch (error) {
+          const message = error instanceof Error ? error.message : "Plan catalog is unavailable right now.";
+          debugFlow("setup-wizard", "CREATE_FAILED", { message });
           dispatchWizard({
             type: "CREATE_FAILED",
-            message: error instanceof Error ? error.message : "Plan catalog is unavailable right now.",
+            message,
           });
         }
       } else if (typeof window !== "undefined") {
@@ -1230,14 +1255,23 @@ export function FirstAgentSetupWizard({
       return;
     }
     if (Math.max(slotInventory[plan.size]?.available ?? 0, 0) <= 0) {
+      debugFlow("setup-wizard", "CREATE_FAILED", { message: "No launch entitlement slot available.", size: plan.size });
       dispatchWizard({
         type: "CREATE_FAILED",
         message: "Payment may be active, but no launch entitlement slot is available yet. Refresh billing before creating an agent.",
       });
       return;
     }
+    debugFlow("setup-wizard", "CREATE_REQUESTED", { planId: plan.id, size: plan.size, agentType });
     dispatchWizard({ type: "CREATE_REQUESTED" });
     try {
+      debugFlow("setup-wizard", "onCreateAgent: start", {
+        name: deploymentName,
+        size: plan.size,
+        agentType,
+        filesCount: agentType === "hermes" ? 0 : bootstrapDraft.files.length,
+        knowledgeCollectionId: effectiveKnowledgeCollectionId,
+      });
       const createdId = await onCreateAgent({
         creationId: setupId,
         name: deploymentName,
@@ -1253,14 +1287,18 @@ export function FirstAgentSetupWizard({
         customImage: selectedCustomImage,
         knowledgeCollectionId: effectiveKnowledgeCollectionId,
       });
+      debugFlow("setup-wizard", "onCreateAgent: resolved", { createdId });
       if (createdId && typeof window !== "undefined") {
         clearFirstAgentSetupDraft();
       }
       if (!createdId) {
+        debugFlow("setup-wizard", "CREATE_FINISHED_WITHOUT_ID");
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
       }
     } catch (error) {
-      dispatchWizard({ type: "CREATE_FAILED", message: error instanceof Error ? error.message : "Failed to create agent" });
+      const message = error instanceof Error ? error.message : "Failed to create agent";
+      debugFlow("setup-wizard", "CREATE_FAILED", { message });
+      dispatchWizard({ type: "CREATE_FAILED", message });
     }
   };
 
@@ -1268,6 +1306,11 @@ export function FirstAgentSetupWizard({
     if (!planId || creating) return;
     const plan = displayedPlanOptions.find((option) => option.id === planId);
     if (!plan || plan.disabled) return;
+    // Fails closed: never start a create with an unassembled starter pack.
+    if (agentType !== "hermes" && bootstrapDraft.files.length === 0) {
+      dispatchWizard({ type: "CREATE_FAILED", message: bootstrapPackError ?? "Workspace files are still being prepared. Try again in a moment." });
+      return;
+    }
     dispatchWizard({ type: "SELECT_PLAN", planId });
     void saveDraftAndCreate(planId);
   };
@@ -1324,6 +1367,7 @@ export function FirstAgentSetupWizard({
         data-testid="agent-setup-wizard"
         data-agent-launch-surface={embeddedPresentation || inlinePresentation || undefined}
         data-presentation={embeddedPresentation ? "embedded" : undefined}
+        data-pack-ready={bootstrapPackReady}
         initial={embeddedPresentation || inlinePresentation ? false : { opacity: 0, y: 10 }}
         animate={embeddedPresentation || inlinePresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
         transition={{ duration: embeddedPresentation || inlinePresentation ? 0 : 0.2 }}
@@ -1489,10 +1533,13 @@ export function FirstAgentSetupWizard({
         {!draftResumeOpen && currentStep === "identity" && (
           <>
             <div className={cx(
-              "min-h-0 flex-1 overflow-y-auto",
+              "flex min-h-0 flex-1 flex-col overflow-y-auto",
               largePresentation ? "px-[clamp(1.25rem,2.7vw,2rem)] py-[clamp(1.25rem,4vw,3rem)]" : "px-5 py-4 sm:px-6",
             )} data-slot="agent-setup-scroll-body">
-              <div className={cx("mx-auto grid min-h-full w-full content-center", (embeddedPresentation || inlinePresentation) && "max-w-[660px]")}>
+              {/* Center vertically when the content fits; on short viewports the
+                  auto margins collapse so the step overflows from the top and
+                  stays scrollable instead of clipping the footer. */}
+              <div className={cx("mx-auto my-auto w-full", (embeddedPresentation || inlinePresentation) && "max-w-[660px]")}>
                 <span className={cx(
                   "block font-semibold leading-none text-foreground",
                   largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
@@ -1991,10 +2038,28 @@ export function FirstAgentSetupWizard({
               Back
             </WizardButton>
             {largePresentation ? null : <WizardMomentum stage="capacity" />}
+            {agentType !== "hermes" && !bootstrapPackReady ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2 text-[12px] leading-4 text-text-muted">
+                {bootstrapPackError ? (
+                  <>
+                    <span className="text-danger">{bootstrapPackError}</span>
+                    <button
+                      type="button"
+                      onClick={retryBootstrapPack}
+                      className="shrink-0 font-medium text-foreground underline underline-offset-2 hover:text-selection-accent"
+                    >
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  <span>Preparing workspace files...</span>
+                )}
+              </div>
+            ) : null}
             <WizardButton
               large={largePresentation}
               testId="agent-setup-launch"
-              disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled)}
+              disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled) || (agentType !== "hermes" && !bootstrapPackReady)}
               busy={creating || selectedPlanIsReleasing}
               onClick={() => handlePlanAction()}
             >

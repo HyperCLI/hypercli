@@ -1,34 +1,20 @@
 "use client";
 
 import React from "react";
-import { Check, ChevronDown, Loader2, Plus } from "lucide-react";
+import { Check, ChevronDown, Loader2 } from "lucide-react";
 import {
-  Button,
   Command,
   CommandGroup,
   CommandItem,
   CommandList,
   CommandSeparator,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
 } from "@hypercli/shared-ui";
 
 import {
-  buildOpenClawModelUpsertPatch,
   getOpenClawDefaultModel,
-  normalizeOpenClawConfiguredProviders,
   normalizeOpenClawModelOptions,
 } from "@/lib/openclaw-models";
 
@@ -39,7 +25,6 @@ interface OpenClawModelMenuSession {
   activeSessionThinkingDefault: string | null;
   config: Record<string, unknown> | null;
   models: Array<Record<string, unknown>>;
-  saveConfig: (patch: Record<string, unknown>) => Promise<void>;
   setActiveSessionModel: (model: string) => Promise<void>;
   setActiveSessionThinkingLevel: (thinkingLevel: string) => Promise<void>;
 }
@@ -48,7 +33,6 @@ interface OpenClawModelMenuProps {
   chat: OpenClawModelMenuSession;
   disabled?: boolean;
   compactTrigger?: boolean;
-  onOpenSettings?: () => void;
   onSelectionComplete?: () => void;
   onRequestProductUse?: () => boolean;
 }
@@ -76,17 +60,12 @@ function thinkingLevelLabel(option: { id: string; label: string } | undefined, f
   return option?.label.trim() || (fallback ? titleizeVariant(fallback) : "");
 }
 
-export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = false, onOpenSettings, onSelectionComplete, onRequestProductUse }: OpenClawModelMenuProps) {
+export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = false, onSelectionComplete, onRequestProductUse }: OpenClawModelMenuProps) {
   const menuContentId = React.useId();
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [addDialogOpen, setAddDialogOpen] = React.useState(false);
-  const [providerValue, setProviderValue] = React.useState("");
-  const [modelValue, setModelValue] = React.useState("");
   const [selectingModel, setSelectingModel] = React.useState<string | null>(null);
   const [selectingVariant, setSelectingVariant] = React.useState<string | null>(null);
-  const [addingModel, setAddingModel] = React.useState(false);
   const [selectionError, setSelectionError] = React.useState<string | null>(null);
-  const [addError, setAddError] = React.useState<string | null>(null);
 
   const defaultModel = getOpenClawDefaultModel(chat.config);
   const currentModel = chat.activeSessionModel || defaultModel;
@@ -94,13 +73,6 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
     () => normalizeOpenClawModelOptions(chat.config, chat.models, currentModel),
     [chat.config, chat.models, currentModel],
   );
-  const providerOptions = React.useMemo(
-    () => normalizeOpenClawConfiguredProviders(chat.config),
-    [chat.config],
-  );
-  const resolvedProviderValue = providerOptions.some((provider) => provider.value === providerValue)
-    ? providerValue
-    : providerOptions[0]?.value ?? "";
   const currentOption = modelOptions.find((option) => option.value === currentModel);
   const triggerLabel = currentOption ? displayModelName(currentOption) : currentModel || "Choose model";
   const activeVariantId = chat.activeSessionThinkingLevel || chat.activeSessionThinkingDefault || "";
@@ -114,7 +86,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
     : `Model: ${triggerLabel}`;
 
   const selectModel = async (model: string) => {
-    if (selectingModel || selectingVariant || addingModel) return;
+    if (selectingModel || selectingVariant) return;
     if (onRequestProductUse && !onRequestProductUse()) return;
     setSelectingModel(model);
     setSelectionError(null);
@@ -130,7 +102,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
   };
 
   const selectVariant = async (thinkingLevel: string) => {
-    if (selectingModel || selectingVariant || addingModel) return;
+    if (selectingModel || selectingVariant) return;
     if (onRequestProductUse && !onRequestProductUse()) return;
     setSelectingVariant(thinkingLevel);
     setSelectionError(null);
@@ -143,62 +115,6 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
     } finally {
       setSelectingVariant(null);
     }
-  };
-
-  const openAddDialog = () => {
-    setMenuOpen(false);
-    setSelectionError(null);
-    setAddError(null);
-    setModelValue("");
-    setProviderValue((current) => providerOptions.some((provider) => provider.value === current)
-      ? current
-      : providerOptions[0]?.value ?? "");
-    setAddDialogOpen(true);
-  };
-
-  const closeAddDialog = () => {
-    if (addingModel) return;
-    setAddDialogOpen(false);
-    setAddError(null);
-  };
-
-  const addModel = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (addingModel) return;
-    if (onRequestProductUse && !onRequestProductUse()) return;
-    setAddingModel(true);
-    setAddError(null);
-
-    const providerId = resolvedProviderValue.trim();
-    const modelId = modelValue.trim();
-    let configuredModel = "";
-    try {
-      const patch = buildOpenClawModelUpsertPatch(chat.config, providerId, modelId);
-      configuredModel = `${providerId}/${modelId}`;
-      await chat.saveConfig(patch);
-    } catch (cause) {
-      setAddError(errorMessage(cause, "Unable to add the model."));
-      setAddingModel(false);
-      return;
-    }
-
-    try {
-      await chat.setActiveSessionModel(configuredModel);
-      setAddDialogOpen(false);
-      setModelValue("");
-      onSelectionComplete?.();
-    } catch (cause) {
-      setAddDialogOpen(false);
-      setSelectionError(`Model added, but it could not be selected: ${errorMessage(cause, "Unknown error")}`);
-      setMenuOpen(true);
-    } finally {
-      setAddingModel(false);
-    }
-  };
-
-  const openProviderSettings = () => {
-    setAddDialogOpen(false);
-    onOpenSettings?.();
   };
 
   return (
@@ -246,8 +162,8 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
                           key={option.id}
                           aria-label={`Variant: ${label}${selected ? ", current" : ""}`}
                           value={`variant ${label} ${option.id}`}
-                          disabled={Boolean(selectingModel || selectingVariant || addingModel)}
-                          onSelect={() => { void selectVariant(option.id); }}
+                      disabled={Boolean(selectingModel || selectingVariant)}
+                      onSelect={() => { void selectVariant(option.id); }}
                           className={`rounded-lg px-2.5 py-2 data-[selected=true]:!bg-surface-high data-[selected=true]:!text-foreground ${selected ? "bg-surface-low ring-1 ring-inset ring-border" : ""}`}
                         >
                           <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-muted">{label}</span>
@@ -270,7 +186,7 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
                       key={option.value}
                       aria-label={`${option.label}${selected ? ", current" : ""}`}
                       value={`${optionLabel} ${option.label} ${option.value} ${option.detail ?? ""}`}
-                      disabled={Boolean(selectingModel || selectingVariant || addingModel)}
+                      disabled={Boolean(selectingModel || selectingVariant)}
                       onSelect={() => { void selectModel(option.value); }}
                       className={`items-start rounded-lg px-2.5 py-2.5 data-[selected=true]:!bg-surface-high data-[selected=true]:!text-foreground ${selected ? "bg-surface-low ring-1 ring-inset ring-border" : ""}`}
                     >
@@ -284,18 +200,6 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
                   );
                 })}
               </CommandGroup>
-              <CommandSeparator className="my-1" />
-              <CommandGroup forceMount>
-                <CommandItem
-                  forceMount
-                  value="add new model"
-                  onSelect={openAddDialog}
-                  className="rounded-lg px-2.5 py-2 text-xs font-medium text-foreground"
-                >
-                  <Plus className="h-3.5 w-3.5 text-text-muted" />
-                  Add new model
-                </CommandItem>
-              </CommandGroup>
             </CommandList>
           </Command>
           {selectionError ? (
@@ -305,81 +209,6 @@ export function OpenClawModelMenu({ chat, disabled = false, compactTrigger = fal
           ) : null}
         </PopoverContent>
       </Popover>
-
-      <Dialog open={addDialogOpen} onOpenChange={(open) => { if (!open) closeAddDialog(); }}>
-        <DialogContent
-          closeLabel="Close add model"
-          overlayClassName="z-[79] bg-background/70 backdrop-blur-sm"
-          className="z-[80] gap-0 overflow-hidden rounded-2xl border-border bg-background p-0 shadow-2xl sm:max-w-[500px]"
-        >
-          <DialogHeader className="gap-0 border-b border-border px-5 py-4 pr-12 text-left">
-            <DialogTitle className="text-base text-foreground">Add model</DialogTitle>
-            <DialogDescription className="mt-1 text-xs leading-relaxed text-text-muted">
-              Add a model to a configured provider and use it in this conversation.
-            </DialogDescription>
-          </DialogHeader>
-
-          <form onSubmit={(event) => { void addModel(event); }}>
-            <div className="space-y-4 px-5 py-5">
-              {providerOptions.length > 0 ? (
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
-                  <label className="block min-w-0">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Model ID</span>
-                    <input
-                      autoFocus
-                      value={modelValue}
-                      onChange={(event) => setModelValue(event.target.value)}
-                      disabled={addingModel}
-                      placeholder="claude-sonnet-4-5"
-                      spellCheck={false}
-                      className="h-10 w-full rounded-xl border border-border bg-surface-low/35 px-3 font-mono text-[12px] text-foreground outline-none transition-colors placeholder:font-sans placeholder:text-text-muted focus:border-foreground/50 disabled:opacity-55"
-                    />
-                  </label>
-                  <label className="block min-w-0">
-                    <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.16em] text-text-muted">Provider</span>
-                    <Select value={resolvedProviderValue} onValueChange={setProviderValue} disabled={addingModel}>
-                      <SelectTrigger aria-label="Model provider" className="h-10 w-full rounded-xl border-border bg-surface-low/35 text-xs">
-                        <SelectValue placeholder="Select provider" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providerOptions.map((provider) => (
-                          <SelectItem key={provider.value} value={provider.value} className="text-xs">
-                            {provider.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </label>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border bg-surface-low/35 px-4 py-3">
-                  <p className="text-sm font-medium text-foreground">No model provider configured</p>
-                  <p className="mt-1 text-xs leading-5 text-text-muted">Configure a provider before adding custom models.</p>
-                  {onOpenSettings ? (
-                    <button type="button" onClick={openProviderSettings} className="mt-3 text-xs font-semibold text-foreground hover:underline">
-                      Open model provider settings
-                    </button>
-                  ) : null}
-                </div>
-              )}
-
-              {addError ? (
-                <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-5 text-destructive">
-                  {addError}
-                </div>
-              ) : null}
-            </div>
-
-            <DialogFooter className="border-t border-border px-5 py-4">
-              <Button type="button" variant="outline" size="sm" onClick={closeAddDialog} disabled={addingModel}>Cancel</Button>
-              <Button type="submit" size="sm" disabled={providerOptions.length === 0 || !resolvedProviderValue || !modelValue.trim() || addingModel}>
-                {addingModel ? <Loader2 className="animate-spin" /> : <Plus />}
-                Add model
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }

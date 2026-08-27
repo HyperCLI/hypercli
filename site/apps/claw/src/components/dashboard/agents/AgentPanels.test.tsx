@@ -2093,6 +2093,8 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
         image: "ghcr.io/hypercli/hypercli-openclaw:custom",
+        // Nested runtime config is image-owned; settings never echoes it back.
+        config: {},
         env: {
           OPENCLAW_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
@@ -2554,6 +2556,8 @@ describe("AgentSettingsPanel", () => {
     });
     expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
+      // Nested runtime config is image-owned; settings never echoes it back.
+      config: {},
       env: {
         OPENCLAW_DESKTOP_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",

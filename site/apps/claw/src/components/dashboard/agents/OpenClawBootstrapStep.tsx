@@ -3,11 +3,13 @@
 import React from "react";
 import { ChevronDown } from "lucide-react";
 import {
-  buildDeterministicOpenClawBootstrapPack,
   createOpenClawBootstrapDraft,
+  normalizeOpenClawBootstrapInputs,
+  OPENCLAW_BOOTSTRAP_PACK_VERSION,
   type OpenClawBootstrapDraft,
   type OpenClawBootstrapInputs,
 } from "@/lib/openclaw-bootstrap-pack";
+import { assembleOpenClawBootstrapPack } from "@/lib/bootstrap-templates";
 
 interface OpenClawBootstrapStepProps {
   agentName: string;
@@ -69,10 +71,6 @@ function exampleClassName(selected: boolean) {
   }`;
 }
 
-function newDraft(agentName: string, inputs?: Partial<OpenClawBootstrapInputs>): OpenClawBootstrapDraft {
-  return createOpenClawBootstrapDraft(agentName, inputs);
-}
-
 export function OpenClawBootstrapStep({
   agentName,
   draft,
@@ -80,22 +78,46 @@ export function OpenClawBootstrapStep({
   stage,
   wide = false,
 }: OpenClawBootstrapStepProps) {
-  const effectiveDraft = draft ?? newDraft(agentName);
+  const [fallbackDraft, setFallbackDraft] = React.useState<OpenClawBootstrapDraft | null>(null);
+  React.useEffect(() => {
+    if (draft) return;
+    try {
+      setFallbackDraft(createOpenClawBootstrapDraft(agentName));
+    } catch {
+      // Templates unavailable; step renders an empty pack until they resolve.
+    }
+  }, [agentName, draft]);
+  const effectiveDraft = draft ?? fallbackDraft ?? {
+    version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
+    inputs: normalizeOpenClawBootstrapInputs(null, agentName),
+    files: [],
+    generationSource: "deterministic" as const,
+  };
 
   React.useEffect(() => {
     if (!draft || draft.inputs.agentName === agentName) return;
-    onChange({
-      ...draft,
-      inputs: { ...draft.inputs, agentName },
-      files: buildDeterministicOpenClawBootstrapPack({ ...draft.inputs, agentName }),
-      generationSource: "deterministic",
-    });
+    try {
+      const files = assembleOpenClawBootstrapPack({ ...draft.inputs, agentName });
+      onChange({
+        ...draft,
+        inputs: { ...draft.inputs, agentName },
+        files,
+        generationSource: "deterministic",
+      });
+    } catch {
+      // Templates unavailable; keep the prior pack until they resolve.
+    }
   }, [agentName, draft, onChange]);
 
   const updateInputs = (patch: Partial<OpenClawBootstrapInputs>) => {
     const inputs = { ...effectiveDraft.inputs, ...patch, agentName };
-    const files = buildDeterministicOpenClawBootstrapPack(inputs);
-    onChange({ ...effectiveDraft, inputs, files, generationSource: "deterministic" });
+    onChange({ ...effectiveDraft, inputs, generationSource: "deterministic" });
+    try {
+      const files = assembleOpenClawBootstrapPack(inputs);
+      onChange({ ...effectiveDraft, inputs, files, generationSource: "deterministic" });
+    } catch {
+      // Templates unavailable; inputs still update so the step stays usable.
+    }
   };
 
   return (

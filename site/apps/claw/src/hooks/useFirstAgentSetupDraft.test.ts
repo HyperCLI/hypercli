@@ -60,8 +60,8 @@ describe("first agent setup draft", () => {
     expect(draft).not.toHaveProperty("knowledgeDomainId");
   });
 
-  it("keeps a stable setup identity and full launch snapshot when the paid plan changes", () => {
-    const bootstrapDraft = createOpenClawBootstrapDraft("Tern");
+  it("keeps a stable setup identity and full launch snapshot when the paid plan changes", async () => {
+    const bootstrapDraft = await createOpenClawBootstrapDraft("Tern");
     bootstrapDraft.files[0] = {
       ...bootstrapDraft.files[0],
       content: "# Custom instructions\n\nKeep this exact setup.",

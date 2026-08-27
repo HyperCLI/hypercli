@@ -45,7 +45,6 @@ function buildChat(overrides: Partial<Parameters<typeof OpenClawModelMenu>[0]["c
     models: [
       { id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5", providerId: "anthropic", providerName: "Anthropic" },
     ],
-    saveConfig: vi.fn(async () => undefined),
     setActiveSessionModel: vi.fn(async () => undefined),
     setActiveSessionThinkingLevel: vi.fn(async () => undefined),
     ...overrides,
@@ -177,42 +176,14 @@ describe("OpenClawModelMenu", () => {
     await waitFor(() => expect(chat.setActiveSessionModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4-5"));
   });
 
-  it("adds a model to a configured provider and selects it", async () => {
+  it("does not offer persistent model additions", () => {
     const chat = buildChat();
     renderWithClient(<OpenClawModelMenu chat={chat} />);
 
     fireEvent.click(screen.getByRole("button", { name: /model: gpt-5 mini/i }));
-    fireEvent.click(screen.getByText("Add new model"));
 
-    expect(screen.getByRole("dialog", { name: "Add model" })).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("claude-sonnet-4-5"), { target: { value: "gpt-5.2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add model" }));
-
-    await waitFor(() => expect(chat.saveConfig).toHaveBeenCalledWith({
-      models: {
-        providers: {
-          openai: {
-            models: [
-              { id: "gpt-5-mini", name: "GPT-5 Mini" },
-              { id: "gpt-5.2", name: "gpt-5.2" },
-            ],
-          },
-        },
-      },
-    }));
-    expect(chat.setActiveSessionModel).toHaveBeenCalledWith("openai/gpt-5.2");
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument());
-  });
-
-  it("directs users to settings when no provider is configured", () => {
-    const onOpenSettings = vi.fn();
-    const chat = buildChat({ config: { agents: { defaults: {} } }, models: [] });
-    renderWithClient(<OpenClawModelMenu chat={chat} onOpenSettings={onOpenSettings} />);
-
-    fireEvent.click(screen.getByRole("button", { name: /model: choose model/i }));
-    fireEvent.click(screen.getByText("Add new model"));
-    fireEvent.click(screen.getByRole("button", { name: "Open model provider settings" }));
-
-    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Add new model")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Add model" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" })).toBeInTheDocument();
   });
 });

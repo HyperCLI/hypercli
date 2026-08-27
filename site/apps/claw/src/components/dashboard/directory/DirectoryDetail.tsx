@@ -13,7 +13,7 @@ interface DirectoryDetailProps {
   pluginId: string;
   config: Record<string, unknown> | null;
   connected: boolean;
-  onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
+  onSaveConfig?: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe: () => Promise<Record<string, unknown>>;
   onOpenShell: () => void;
   onBack: () => void;
@@ -49,6 +49,7 @@ export function DirectoryDetail({
   const Icon = plugin.icon;
 
   const handleSimpleEnable = async () => {
+    if (!onSaveConfig) return;
     if (onRequestProductUse && !onRequestProductUse()) return;
     setEnabling(true);
     try {
@@ -82,6 +83,16 @@ export function DirectoryDetail({
             <p className="text-xs text-text-muted mt-0.5">This integration is active on your agent.</p>
           </div>
         </motion.div>
+      );
+    }
+
+    if (!onSaveConfig) {
+      return (
+        <div className="rounded-xl border border-border bg-surface-low/30 p-4">
+          <p className="text-sm text-text-muted">
+            OpenClaw config is managed by the runtime image. Setup is available in the runtime image documentation.
+          </p>
+        </div>
       );
     }
 

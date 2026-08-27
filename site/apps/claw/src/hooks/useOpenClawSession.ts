@@ -46,6 +46,7 @@ import type {
   OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/openclaw/gateway";
 import { launchConfigSyncRoot } from "@/lib/agent-file-path";
+import { debugFlow, debugTransition } from "@/lib/debug-flow";
 import {
   type ChatAttachment,
   type ChatMessage,
@@ -129,7 +130,6 @@ const OPENCLAW_TEMPORARY_CHAT_CLEANUP_WAIT_MS = 1_500;
 const OPENCLAW_TEMPORARY_CHAT_TITLE = "Private chat";
 const OPENCLAW_TEMPORARY_CHAT_CLEANUP_TIMEOUT = Symbol("temporary-chat-cleanup-timeout");
 const CHAT_IMAGE_READ_CONCURRENCY = 4;
-const WHATSAPP_GATEWAY_READY_TIMEOUT_MS = 120_000;
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent does not allow connections from this dashboard address. Did you create it from another dashboard?";
@@ -182,18 +182,17 @@ function whatsAppChannelEnabled(config: Record<string, unknown> | null): boolean
   return whatsapp?.enabled === true;
 }
 
-function whatsAppActivationPatch(config: Record<string, unknown> | null): Record<string, unknown> {
-  const plugins = isRecord(config?.plugins) ? config.plugins : null;
-  const allow = Array.isArray(plugins?.allow)
-    ? plugins.allow.filter((entry): entry is string => typeof entry === "string")
-    : null;
-  return {
-    plugins: {
-      entries: { whatsapp: { enabled: true } },
-      ...(allow && allow.length > 0 && !allow.includes("whatsapp") ? { allow: [...allow, "whatsapp"] } : {}),
-    },
-    channels: { whatsapp: { enabled: true } },
-  };
+const OPENCLAW_CONFIG_MANAGED_MESSAGE = "OpenClaw config is read-only in hosted mode. It is managed by the runtime image.";
+const WHATSAPP_SETUP_MANAGED_MESSAGE = "WhatsApp setup is unavailable here. Channel configuration is managed by the runtime image.";
+
+function rejectOpenClawConfigWrite(): Promise<never> {
+  debugFlow("config", "write blocked: managed by the runtime image");
+  return Promise.reject(new Error(OPENCLAW_CONFIG_MANAGED_MESSAGE));
+}
+
+function rejectWhatsAppSetup(): Promise<never> {
+  debugFlow("whatsapp", "setup blocked: managed by the runtime image");
+  return Promise.reject(new Error(WHATSAPP_SETUP_MANAGED_MESSAGE));
 }
 
 function isUnsupportedGatewayMethodError(error: unknown): boolean {
@@ -686,25 +685,6 @@ function integrationStatusCacheKey(params: GatewayIntegrationStatusParams): stri
   const normalized: Record<string, unknown> = { ...params };
   if (normalized.probe === false) delete normalized.probe;
   return stableStatusCacheKey(normalized);
-}
-
-function mergeOpenClawConfigPatch(
-  current: Record<string, unknown> | null,
-  patch: Record<string, unknown>,
-): Record<string, unknown> {
-  const next = isRecord(current) ? { ...current } : {};
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === null) {
-      delete next[key];
-      continue;
-    }
-    if (isRecord(value) && isRecord(next[key])) {
-      next[key] = mergeOpenClawConfigPatch(next[key], value);
-      continue;
-    }
-    next[key] = value;
-  }
-  return next;
 }
 
 function stringifyErrorForSearch(value: unknown): string {
@@ -1530,6 +1510,7 @@ export function useOpenClawSession(
       || !sessionAgent
       || typeof sessionAgent.acquireConnectedGateway !== "function"
     ) {
+      debugFlow("session", "status: disconnected", { reason: "session unavailable", agentId: agentId ?? null });
       setGateway(null);
       setStatus("disconnected");
       setError(null);
@@ -1539,6 +1520,7 @@ export function useOpenClawSession(
       };
     }
 
+    debugFlow("session", "status: connecting", { agentId });
     setGateway(null);
     setStatus("connecting");
     setError(null);
@@ -1565,6 +1547,7 @@ export function useOpenClawSession(
             // GatewayClient state subscription exists yet. Surface that progress
             // without treating it as a transport transition or resetting drafts.
             if (!active || localGateway) return;
+            debugFlow("session", "status: pairing progress", { pairing, agentId });
             setStatus(pairing ? "pairing" : "connecting");
             setError(null);
           },
@@ -1601,6 +1584,7 @@ export function useOpenClawSession(
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
           if (appliedConnectionState === nextState) return;
+          debugTransition("session", appliedConnectionState ?? "initial", nextState, { agentId });
           if (nextState === "pairing") {
             appliedConnectionState = nextState;
             setStatus("pairing");
@@ -1669,6 +1653,11 @@ export function useOpenClawSession(
         unsubscribeConnectionState = client.onConnectionState(applyState);
       } catch (e: unknown) {
         if (!active) return;
+        debugFlow("session", "status: disconnected", {
+          reason: "gateway acquire failed",
+          agentId,
+          message: e instanceof Error ? e.message : String(e),
+        });
         setGateway(null);
         setStatus("disconnected");
         resetSessionStateForDisconnect({ preserveMessages: true, preserveDrafts: true });
@@ -3636,25 +3625,6 @@ export function useOpenClawSession(
     return content;
   }, [gateway, gwAgentId, appendActivity]);
 
-  const saveFile = useCallback(async (name: string, content: string) => {
-    if (!gateway) throw new Error("Not connected");
-    await gateway.fileSet(gwAgentId, name, content);
-    connectionHydrationRef.current = null;
-    appendActivity({ type: "tool", action: "file_write", detail: `${name} · ${content.length.toLocaleString()} chars` });
-  }, [gateway, gwAgentId, appendActivity]);
-
-  const saveConfig = useCallback(async (patch: Record<string, unknown>) => {
-    if (!gateway) throw new Error("Not connected");
-    await gateway.configPatch(patch);
-    clearGatewayStatusCaches();
-    setConfig((current) => mergeOpenClawConfigPatch(current, patch));
-    updateConnectionHydration((connection) => {
-      connection.config = mergeOpenClawConfigPatch(connection.config, patch);
-    });
-    const keys = Object.keys(patch);
-    appendActivity({ type: "system", action: "Config updated", detail: keys.length > 0 ? keys.slice(0, 3).join(", ") + (keys.length > 3 ? `, +${keys.length - 3}` : "") : "" });
-  }, [gateway, appendActivity, clearGatewayStatusCaches, updateConnectionHydration]);
-
   const setActiveSessionModel = useCallback(async (model: string) => {
     const nextModel = model.trim();
     if (!gateway) throw new Error("Connect the gateway before changing models.");
@@ -3751,17 +3721,6 @@ export function useOpenClawSession(
     appendActivity({ type: "system", action: "Conversation variant changed", detail: resolvedThinkingLevel });
   }, [activeGatewaySessionKey, activeSessionKey, activeSessionModel, activeSessionReadOnly, activeSessionReadOnlyReason, activeSessionSelectionKey, agentId, appendActivity, gateway, refreshSessionListAfterSelectionPatch, setTitledSessions]);
 
-  const saveFullConfig = useCallback(async (nextConfig: Record<string, unknown>) => {
-    if (!gateway) throw new Error("Not connected");
-    await gateway.configSet(nextConfig);
-    clearGatewayStatusCaches();
-    setConfig(nextConfig);
-    updateConnectionHydration((connection) => {
-      connection.config = nextConfig;
-    });
-    appendActivity({ type: "system", action: "openclaw.json updated", detail: "Saved full OpenClaw config" });
-  }, [gateway, appendActivity, clearGatewayStatusCaches, updateConnectionHydration]);
-
   const channelsStatus = useCallback(async (probe = false, timeoutMs?: number, channel?: string) => {
     if (!gateway) throw new Error("Not connected");
     if (probe || timeoutMs !== undefined || channel) {
@@ -3780,43 +3739,9 @@ export function useOpenClawSession(
     return promise;
   }, [gateway]);
 
-  const configureWhatsAppChannel = useCallback(async (patch: Record<string, unknown>) => {
-    if (!gateway) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
-    const provider = new OpenClawChannelsProvider({
-      channelsStatus: async (probe, timeoutMs, channel) => await channelsStatus(probe, timeoutMs, channel) as ChannelsStatusResult,
-      channelsLogout: (channel, accountId) => gateway.channelsLogout(channel, accountId),
-      configGet: () => gateway.configGet(),
-      configPatch: saveConfig,
-    });
-    await provider.configureWhatsapp(patch);
-  }, [channelsStatus, gateway, saveConfig]);
-
-  const applyConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
-    if (!gateway) throw new Error("Not connected");
-    await gateway.configPatch(patch);
-    clearGatewayStatusCaches();
-    setConfig((current) => mergeOpenClawConfigPatch(current, patch));
-    updateConnectionHydration((connection) => {
-      connection.config = mergeOpenClawConfigPatch(connection.config, patch);
-    });
-  }, [clearGatewayStatusCaches, gateway, updateConnectionHydration]);
-
-  const ensureWhatsAppSupport = useCallback(async (reportProgress?: WhatsAppSupportProgressReporter) => {
-    if (!gateway || !agent) throw new Error("Automatic WhatsApp setup is unavailable for this workspace.");
-    const provider = new OpenClawWhatsAppProvider(gateway, {
-      runCommand: (command, timeoutSeconds) => agent.exec([...command], { timeout: timeoutSeconds }),
-      onProgress: reportProgress,
-    });
-    const support = await provider.ensureSupport();
-    if (support.restartRequired) {
-      await provider.restartGateway();
-      await agent.waitReady(WHATSAPP_GATEWAY_READY_TIMEOUT_MS, { probe: "config", retryIntervalMs: 2_000 });
-      appendActivity({ type: "connection", action: "WhatsApp support prepared" });
-    }
-    if (!whatsAppChannelEnabled(config)) {
-      await configureWhatsAppChannel({ enabled: true });
-    }
-  }, [agent, appendActivity, config, configureWhatsAppChannel, gateway]);
+  const ensureWhatsAppSupport = useCallback(async (_reportProgress?: WhatsAppSupportProgressReporter) => {
+    await rejectWhatsAppSetup();
+  }, []);
 
   const whatsAppPairingStart = useCallback(async (
     options: GatewayWebLoginStartOptions = {},
@@ -3844,10 +3769,7 @@ export function useOpenClawSession(
       pairing: {
         webLoginStart: (loginOptions) => gateway.webLoginStart(loginOptions),
         webLoginWait: (waitOptions) => gateway.webLoginWait(waitOptions),
-        activate: async () => {
-          await applyConfigPatch(whatsAppActivationPatch(config));
-          channelConfigured = true;
-        },
+        activate: rejectOpenClawConfigWrite,
       },
     });
     const configureChannel = async () => {
@@ -3861,7 +3783,7 @@ export function useOpenClawSession(
       };
       publishProgress({ ...baseEvent, status: "running" });
       try {
-        await configureWhatsAppChannel({ enabled: true });
+        await rejectOpenClawConfigWrite();
         channelConfigured = true;
         publishProgress({ ...baseEvent, status: "succeeded" });
       } catch (cause) {
@@ -3929,7 +3851,7 @@ export function useOpenClawSession(
       }
       throw cause;
     }
-  }, [agent, applyConfigPatch, config, configureWhatsAppChannel, gateway]);
+  }, [agent, config, gateway]);
 
   const cancelWhatsAppPairing = useCallback(() => {
     whatsAppPairingRequestRef.current += 1;
@@ -3951,9 +3873,9 @@ export function useOpenClawSession(
       channelsStatus: async (probe, timeoutMs, channel) => await channelsStatus(probe, timeoutMs, channel) as ChannelsStatusResult,
       channelsLogout: (channel, accountId) => gateway.channelsLogout(channel, accountId),
       configGet: () => gateway.configGet(),
-      configPatch: saveConfig,
+      configPatch: rejectOpenClawConfigWrite,
     }) : null,
-    [channelsStatus, gateway, saveConfig],
+    [channelsStatus, gateway],
   );
 
   const refreshReportedChannels = useCallback(async (probe = false) => {
@@ -4652,9 +4574,10 @@ export function useOpenClawSession(
 
   const connectorRuntime = useMemo<AgentRuntimeDescriptor>(() => {
     const launchImage = safeRuntimeImage(agent?.launchConfig?.image);
+    // OpenClaw config writes are blocked in hosted mode (managed by the
+    // runtime image), so the descriptor must not advertise config.patch.
     const capabilities = [
       ...(typeof gateway?.channelsStatus === "function" ? ["channels.status"] : []),
-      ...(typeof gateway?.configPatch === "function" ? ["config.patch"] : []),
       ...(typeof gateway?.runEphemeralChat === "function" ? ["ephemeral.chat"] : []),
     ];
     return {
@@ -4702,7 +4625,7 @@ export function useOpenClawSession(
 
   const connectorsProvider = useMemo(() => gateway ? new OpenClawConnectorsProvider({
     channelsStatus,
-    configPatch: saveConfig,
+    configPatch: rejectOpenClawConfigWrite,
     integrationsStatus,
     integrationsAuthStart,
     integrationsAuthStatus,
@@ -4715,7 +4638,6 @@ export function useOpenClawSession(
     integrationsAuthStatus,
     integrationsStatus,
     runConnectorCommand,
-    saveConfig,
   ]);
 
   const connectorWorkflow = useConnectorWorkflow({
@@ -4830,11 +4752,8 @@ export function useOpenClawSession(
     config,
     configSchema,
     openFile,
-    saveFile,
-    saveConfig,
     setActiveSessionModel,
     setActiveSessionThinkingLevel,
-    saveFullConfig,
     channelsStatus,
     ensureWhatsAppSupport,
     whatsAppPairingStart,
