@@ -124,7 +124,7 @@ describe("FirstAgentSetupWizard", () => {
     releaseBoundaryMock.knowledgeHubAvailable = false;
   });
 
-  it("hides Hermes and resets a saved Hermes selection in the shipped launcher", () => {
+  it("shows Hermes as coming soon and resets a saved Hermes selection in the shipped launcher", () => {
     window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
       source: "first-agent-setup",
       name: "saved-hermes-agent",
@@ -144,9 +144,16 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
     const selector = screen.getByTestId("agent-setup-runtime-selector");
-    expect(within(selector).getByTestId("agent-setup-runtime-openclaw")).toHaveAttribute("aria-pressed", "true");
-    expect(within(selector).queryByTestId("agent-setup-runtime-hermes")).not.toBeInTheDocument();
-    expect(within(selector).queryByText("Hermes")).not.toBeInTheDocument();
+    const openClawOption = within(selector).getByTestId("agent-setup-runtime-openclaw");
+    const hermesOption = within(selector).getByTestId("agent-setup-runtime-hermes");
+    expect(openClawOption).toHaveAttribute("aria-pressed", "true");
+    expect(hermesOption).toBeDisabled();
+    expect(hermesOption).toHaveAttribute("aria-pressed", "false");
+    expect(within(hermesOption).getByText("Coming soon")).toBeInTheDocument();
+
+    fireEvent.click(hermesOption);
+    expect(openClawOption).toHaveAttribute("aria-pressed", "true");
+    expect(hermesOption).toHaveAttribute("aria-pressed", "false");
   });
 
   it("does not surface Collections when Knowledge Hub is unavailable", () => {
@@ -807,8 +814,11 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     expect(screen.getByTestId("agent-setup-runtime-openclaw")).toHaveAttribute("aria-pressed", "true");
-    fireEvent.click(screen.getByTestId("agent-setup-runtime-hermes"));
-    expect(screen.getByTestId("agent-setup-runtime-hermes")).toHaveAttribute("aria-pressed", "true");
+    const hermesOption = screen.getByTestId("agent-setup-runtime-hermes");
+    expect(hermesOption).not.toBeDisabled();
+    expect(within(hermesOption).queryByText("Coming soon")).not.toBeInTheDocument();
+    fireEvent.click(hermesOption);
+    expect(hermesOption).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.queryByRole("button", { name: /^Research a market/ })).not.toBeInTheDocument();

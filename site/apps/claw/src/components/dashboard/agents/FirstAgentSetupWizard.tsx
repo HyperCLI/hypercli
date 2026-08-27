@@ -1498,7 +1498,7 @@ export function FirstAgentSetupWizard({
                   role="group"
                   aria-label="Agent type"
                   data-testid="agent-setup-runtime-selector"
-                  className={cx("grid", hermesLauncherAvailable && "sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2")}
+                  className={cx("grid sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2")}
                 >
                   {([
                     {
@@ -1506,13 +1506,17 @@ export function FirstAgentSetupWizard({
                       testId: "agent-setup-runtime-openclaw",
                       name: "OpenClaw",
                       description: "Workspace agent with chat, files, and built-in tools.",
+                      disabled: false,
+                      status: null,
                     },
-                    ...(hermesLauncherAvailable ? [{
+                    {
                       type: "hermes" as LauncherAgentType,
                       testId: "agent-setup-runtime-hermes",
                       name: "Hermes",
                       description: "Self-improving agent with an OpenAI-compatible API.",
-                    }] : []),
+                      disabled: !hermesLauncherAvailable,
+                      status: hermesLauncherAvailable ? null : "Coming soon",
+                    },
                   ]).map((option) => {
                     const selected = agentType === option.type;
                     return (
@@ -1521,11 +1525,14 @@ export function FirstAgentSetupWizard({
                         type="button"
                         data-testid={option.testId}
                         aria-pressed={selected}
+                        disabled={option.disabled}
                         onClick={() => handleAgentTypeChange(option.type)}
                         className={cx(
-                          "flex items-start border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/40",
+                          "flex items-start border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/40 disabled:cursor-not-allowed",
                           largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5",
-                          selected
+                          option.disabled
+                            ? "border-border bg-surface-low/60"
+                            : selected
                             ? "border-selection-accent/65 bg-[rgb(var(--selection-accent-rgb)_/_0.055)]"
                             : "border-border bg-background hover:border-border-strong hover:bg-surface-high",
                         )}
@@ -1533,13 +1540,20 @@ export function FirstAgentSetupWizard({
                         <span className={cx(
                           "mt-1 flex shrink-0 items-center justify-center rounded-full border",
                           largePresentation ? "h-4 w-4" : "h-3.5 w-3.5",
-                          selected ? "border-selection-accent" : "border-border-strong",
+                          selected ? "border-selection-accent" : option.disabled ? "border-border" : "border-border-strong",
                         )}>
                           {selected ? <span className="block h-1.5 w-1.5 rounded-full bg-selection-accent" /> : null}
                         </span>
                         <span className="min-w-0">
-                          <span className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[15px]" : "text-[12px]")}>
-                            {option.name}
+                          <span className="flex items-center justify-between gap-2">
+                            <span className={cx("font-semibold leading-tight", option.disabled ? "text-text-secondary" : "text-foreground", largePresentation ? "text-[15px]" : "text-[12px]")}>
+                              {option.name}
+                            </span>
+                            {option.status ? (
+                              <span className={cx("shrink-0 rounded-full border border-border bg-background font-medium text-text-muted", largePresentation ? "px-2 py-1 text-[10px]" : "px-1.5 py-0.5 text-[9px]")}>
+                                {option.status}
+                              </span>
+                            ) : null}
                           </span>
                           <span className={cx("mt-1 block text-text-muted", largePresentation ? "text-[13px] leading-5" : "text-[11px] leading-4")}>
                             {option.description}
