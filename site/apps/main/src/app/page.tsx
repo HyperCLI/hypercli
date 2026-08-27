@@ -213,7 +213,7 @@ export default function Home() {
           <div className="text-center">
             <GetStartedLink
               label="Launch your agent"
-              toAgentDashboard
+              trial
               className={marketingCtaClassName()}
             />
             <p className="mx-auto mt-2 max-w-[230px] text-xs text-text-muted">
@@ -542,7 +542,7 @@ export default function Home() {
           <MarketingActionGroup>
             <GetStartedLink
               label="Deploy your agent"
-              toAgentDashboard
+              trial
               className={marketingCtaClassName({ size: "final" })}
             />
             <GetStartedLink
