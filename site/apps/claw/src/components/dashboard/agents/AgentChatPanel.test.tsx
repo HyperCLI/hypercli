@@ -3989,11 +3989,49 @@ describe("AgentChatPanel", () => {
     expect(assistantRow?.message?.reasoning?.text).toBe("Comparing deployment metadata");
     expect(assistantRow?.message?.toolCalls).toHaveLength(1);
     const progress = screen.getByTestId("agent-assistant-progress");
+    expect(screen.getByTestId("agent-chat-response-status")).toContainElement(progress);
     expect(progress).toHaveAttribute("data-progress-state", "active");
     const status = within(progress).getByRole("status", { name: "Working" });
     expect(status).toHaveTextContent("Checking the deployment target");
     expect(status).toHaveAttribute("data-appearance", "inline");
     expect(screen.queryByRole("status", { name: /starting response/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps commentary in the response status when tool activity settles it before publication", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Check the deployment" },
+          {
+            role: "assistant",
+            content: "",
+            progress: {
+              text: "Checking the deployment target",
+              state: "settled",
+              revisions: ["Checking the deployment target"],
+            },
+            toolCalls: [{ name: "web_search", args: "{}" }],
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    const progress = screen.getByTestId("agent-assistant-progress");
+    expect(screen.getByTestId("agent-chat-response-status")).toContainElement(progress);
+    expect(progress).toHaveAttribute("data-progress-state", "active");
+    expect(within(progress).getByRole("status", { name: "Working" }))
+      .toHaveTextContent("Checking the deployment target");
+    expect(screen.queryByRole("status", { name: /using tools/i })).not.toBeInTheDocument();
+    const renderedMessages = chatMessageBubbleMock.mock.calls.map(([props]) => props);
+    const toolRow = renderedMessages.find((props: any) => props.message?.toolCalls?.[0]?.name === "web_search");
+    expect(toolRow?.message?.progress).toBeUndefined();
   });
 
   it("replaces transient commentary in one stable response status", () => {

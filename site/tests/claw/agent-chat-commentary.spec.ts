@@ -32,10 +32,10 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
  * frame held until `releaseMockGatewayFinals` so assertions on streaming
  * state never depend on timing.
  *
- * Contract under test: working commentary is a distinct typed concept on the
- * assistant row (`data-testid="agent-assistant-progress"`), settles into a
- * collapsed working-notes disclosure, never duplicates into the ordinary
- * reply, and never crosses with provider reasoning or legacy raw thinking.
+ * Contract under test: active working commentary occupies the response-status
+ * surface, then settles into a collapsed working-notes disclosure on the
+ * assistant row. It never duplicates into the ordinary reply or crosses with
+ * provider reasoning or legacy raw thinking.
  */
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
@@ -83,6 +83,42 @@ async function promoteMockThinkingToStructuredReasoning(page: import("@playwrigh
               runId: payload.runId,
               sessionKey: payload.sessionKey,
               reasoning_content_delta: payload.data?.delta ?? "",
+            },
+          }, replacer, space);
+        }
+        return nativeStringify(value, replacer, space);
+      };
+    })();
+  `);
+}
+
+async function replaceCommentaryMirrorWithToolStart(page: import("@playwright/test").Page): Promise<void> {
+  await page.addInitScript(`
+    (() => {
+      const nativeStringify = JSON.stringify.bind(JSON);
+      JSON.stringify = function(value, replacer, space) {
+        if (
+          value &&
+          typeof value === "object" &&
+          value.type === "event" &&
+          value.event === "chat" &&
+          value.payload?.state === "delta" &&
+          value.payload?.message?.role === "assistant"
+        ) {
+          const payload = value.payload;
+          return nativeStringify({
+            type: "event",
+            event: "agent",
+            payload: {
+              runId: payload.runId,
+              sessionKey: payload.sessionKey,
+              stream: "tool",
+              data: {
+                phase: "start",
+                tool_call_id: "tool-commentary-read",
+                tool_name: "functions.read",
+                args: { path: "/workspace/config.json" },
+              },
             },
           }, replacer, space);
         }
@@ -145,7 +181,9 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
 
     // Active: exactly one working-note surface is identifiable for assistive
     // technology while the ordinary reply contains no mirrored commentary.
-    const progress = page.locator(`${PROGRESS}[data-progress-state="active"]`);
+    const responseStatus = page.getByTestId("agent-chat-response-status");
+    const progress = responseStatus.locator(`${PROGRESS}[data-progress-state="active"]`);
+    await expect(responseStatus).toHaveCount(1);
     await expect(progress).toHaveCount(1);
     await expect(progress).toContainText("Reading the config file and validating entries");
     await expect(progress).not.toContainText("validating entries and");
@@ -156,12 +194,15 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(page.locator(REASONING)).toHaveCount(0);
     // The mirrored ordinary chat text must not appear as a reply paragraph.
     const transcript = page.getByTestId("agent-chat-transcript");
+    await expect(transcript.locator(PROGRESS)).toHaveCount(1);
+    await expect(transcript.locator(`${PROGRESS}[data-progress-state="active"]`)).toHaveCount(1);
     await expect(transcript.locator(".prose-chat").getByText(/Reading the config file/)).toHaveCount(0);
     await expect(transcript.locator(".prose-chat")).not.toContainText("validating entries");
 
     // Finish the run deterministically. Public commentary settles beside the
     // final answer without entering the answer's markdown lane.
     await releaseMockGatewayFinals(page);
+    await expect(responseStatus).toHaveCount(0);
     const settledProgress = page.locator(`${PROGRESS}[data-progress-state="settled"]`);
     await expect(settledProgress).toHaveCount(1);
     const workingNotes = page.getByRole("button", { name: "Working notes" });
@@ -175,6 +216,27 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(page.getByText(THINKING_SENTINEL)).toHaveCount(0);
   });
 
+  test("keeps commentary in the response status when tool activity settles it in the same publication batch", async ({ page }) => {
+    await replaceCommentaryMirrorWithToolStart(page);
+    await installMockGateway(page, {
+      chatScripts: [commentaryScript({ commentary: ["Reading the deployment config"] })],
+    });
+    await installAuth(page);
+    await interceptBackend(page);
+    await openChatTab(page);
+    await sendChat(page, "Check the deployment config");
+
+    const responseStatus = page.getByTestId("agent-chat-response-status");
+    const progress = responseStatus.locator(`${PROGRESS}[data-progress-state="active"]`);
+    await expect(progress).toContainText("Reading the deployment config");
+    await expect(page.getByRole("status", { name: /using tools/i })).toHaveCount(0);
+    await expect(page.getByTestId("agent-chat-transcript").locator(PROGRESS)).toHaveCount(1);
+
+    await releaseMockGatewayFinals(page);
+    await expect(responseStatus).toHaveCount(0);
+    await expect(page.locator(`${PROGRESS}[data-progress-state="settled"]`)).toContainText("Reading the deployment config");
+  });
+
   test("keeps only the latest correlated commentary round live", async ({ page }) => {
     await assignDistinctCommentaryMessageIds(page);
     await installMockGateway(page, { chatScripts: [commentaryScript()] });
@@ -183,7 +245,8 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await openChatTab(page);
     await sendChat(page, "Check the config in two rounds");
 
-    await expect(page.locator(`${PROGRESS}[data-progress-state="active"]`)).toHaveCount(1);
+    const responseStatus = page.getByTestId("agent-chat-response-status");
+    await expect(responseStatus.locator(`${PROGRESS}[data-progress-state="active"]`)).toHaveCount(1);
     await expect(page.locator(`${PROGRESS}[data-progress-state="settled"]`)).toHaveCount(1);
     await expect(page.getByRole("status", { name: "Working" })).toHaveCount(1);
     await expect(page.getByRole("button", { name: "Working notes" })).toHaveCount(1);

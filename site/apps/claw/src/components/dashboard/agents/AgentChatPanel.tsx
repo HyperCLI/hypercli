@@ -106,6 +106,17 @@ interface ActiveResponseStatusPresentation {
   commentary?: boolean;
 }
 
+function latestCurrentTurnCommentary(messages: ChatMessage[]): { index: number; text: string } | null {
+  // Tool activity can settle commentary in the same publication batch; the active send still owns its presentation.
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user") return null;
+    const text = message?.role === "assistant" ? message.progress?.text.trim() : "";
+    if (text) return { index, text };
+  }
+  return null;
+}
+
 function formatResponseElapsed(elapsedMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
   if (totalSeconds < 2) return "just started";
@@ -133,10 +144,7 @@ function activeResponseStatusPresentation(
   }
   const currentTurn = messages.slice(userIndex + 1);
   const assistant = [...currentTurn].reverse().find((message) => message.role === "assistant") ?? null;
-  const commentaryMessage = [...currentTurn].reverse().find((message) => (
-    message.role === "assistant" && message.progress?.state === "active" && message.progress.text.trim()
-  ));
-  const activeCommentary = commentaryMessage?.progress?.text.trim() ?? "";
+  const activeCommentary = latestCurrentTurnCommentary(messages)?.text ?? "";
   const userMessage = userIndex >= 0 ? messages[userIndex] : null;
   const startedAt = typeof userMessage?.timestamp === "number"
     ? userMessage.timestamp
@@ -204,12 +212,12 @@ function activeResponseStatusPresentation(
 }
 
 function currentTurnHasActiveReasoning(messages: ChatMessage[]): boolean {
+  if (latestCurrentTurnCommentary(messages)) return false;
   let hasActiveReasoning = false;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "user") return hasActiveReasoning;
     if (message?.role !== "assistant") continue;
-    if (message.progress?.state === "active" && message.progress.text.trim()) return false;
     if (message.reasoning?.state === "active") hasActiveReasoning = true;
   }
   return hasActiveReasoning;
@@ -236,12 +244,17 @@ function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
     />
   );
   if (status.appearance !== "inline") return indicator;
+  if (status.commentary) {
+    return (
+      <div data-testid="agent-chat-response-status" className="-mt-2 pl-9">
+        <div data-testid="agent-assistant-progress" data-progress-state="active">
+          {indicator}
+        </div>
+      </div>
+    );
+  }
   return (
-    <div
-      data-testid={status.commentary ? "agent-assistant-progress" : "agent-chat-response-handoff"}
-      data-progress-state={status.commentary ? "active" : undefined}
-      className="-mt-2 pl-9"
-    >
+    <div data-testid="agent-chat-response-handoff" className="-mt-2 pl-9">
       {indicator}
     </div>
   );
@@ -756,6 +769,9 @@ export function AgentChatPanel({
   const [fileMentionSelectedIndex, setFileMentionSelectedIndex] = React.useState(0);
   const activeSessionSending = chat.activeSessionSending ?? chat.sending;
   const activeSessionAborting = chat.activeSessionAborting ?? chat.aborting;
+  const responseCommentaryIndex = activeSessionSending
+    ? latestCurrentTurnCommentary(chat.messages)?.index ?? -1
+    : -1;
   const historyIndexRef = React.useRef<number | null>(null);
   const draftBeforeHistoryRef = React.useRef("");
   const pendingHistoryInputRef = React.useRef<string | null>(null);
@@ -1445,8 +1461,7 @@ export function AgentChatPanel({
               ? msg
               : { ...msg, content: parsedUiActions.displayContent };
             const { progress: displayProgress, ...messageWithoutActiveProgress } = displayMessage;
-            const rowIsInCurrentTurn = !chat.messages.slice(i + 1).some((message) => message.role === "user");
-            const transcriptMessage = activeSessionSending && rowIsInCurrentTurn && displayProgress?.state === "active"
+            const transcriptMessage = i === responseCommentaryIndex
               ? messageWithoutActiveProgress
               : displayMessage;
             const voicePath = extractVoicePathFromMessage(msg.content);
