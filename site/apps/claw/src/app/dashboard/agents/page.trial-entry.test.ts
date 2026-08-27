@@ -8,28 +8,38 @@ const pageSource = readFileSync(
 );
 
 describe("dashboard Team trial entry", () => {
-  it("opens authentication for an anonymous marketing handoff without opening trial activation", () => {
+  it("preserves trial activation while authenticating a marketing handoff", () => {
     const effectStart = pageSource.indexOf("if (!teamTrialEntryRequested)");
-    const effectEnd = pageSource.indexOf("}, [authLoading, isAuthenticated", effectStart);
+    const effectEnd = pageSource.indexOf("}, [authLoading, pendingAuthIntent", effectStart);
     const entryEffect = pageSource.slice(effectStart, effectEnd);
 
     expect(effectStart).toBeGreaterThan(-1);
     expect(entryEffect).toContain(
-      'requestAuthentication({ kind: "navigate", href: DASHBOARD_VIEW_HREFS.overview });',
+      'requestAuthentication({ kind: "trial", presentation: "activation-dialog" });',
     );
+    expect(entryEffect).not.toContain('kind: "navigate"');
     expect(entryEffect).not.toContain("setTrialActivationOpen(true)");
     expect(entryEffect).not.toContain("beginTeamTrial(");
   });
 
-  it("returns authenticated visitors to Overview and consumes the handoff marker", () => {
+  it("consumes the handoff marker after preserving the trial continuation", () => {
     const effectStart = pageSource.indexOf("if (!teamTrialEntryRequested)");
-    const effectEnd = pageSource.indexOf("}, [authLoading, isAuthenticated", effectStart);
+    const effectEnd = pageSource.indexOf("}, [authLoading, pendingAuthIntent", effectStart);
     const entryEffect = pageSource.slice(effectStart, effectEnd);
 
     expect(entryEffect).toContain('params.delete("intent")');
     expect(entryEffect).toContain('params.delete("plan")');
     expect(entryEffect).toContain('params.set("view", "overview")');
     expect(entryEffect).toContain("syncDashboardSearchParams(params)");
+  });
+
+  it("opens trial activation after the handoff principal is authenticated", () => {
+    const continuationStart = pageSource.indexOf('if (pendingAuthIntent?.kind !== "trial"');
+    const continuationEnd = pageSource.indexOf("}, [activeTrial, authLoading", continuationStart);
+    const continuationEffect = pageSource.slice(continuationStart, continuationEnd);
+
+    expect(continuationStart).toBeGreaterThan(-1);
+    expect(continuationEffect).toContain("setTrialActivationOpen(true)");
   });
 
   it("does not replace the login handoff with the anonymous dashboard tour", () => {

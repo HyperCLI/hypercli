@@ -139,6 +139,7 @@ function renderTieredLaunchableWizard(onCreateAgent = vi.fn(async () => "agent-1
 }
 
 function goToPlanStep() {
+  fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Test Agent" } });
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));

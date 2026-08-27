@@ -127,6 +127,13 @@ type WizardStepId = "identity" | "workspace" | "plan";
 
 const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
+function validateAgentName(value: string): string | null {
+  const name = value.trim();
+  if (name.length < 3) return "Agent name must be at least 3 characters.";
+  if (!/^[A-Za-z0-9 ]+$/.test(name)) return "Agent name can only contain letters, numbers, and spaces.";
+  return null;
+}
+
 export { updateFirstAgentSetupDraftPlan } from "@/hooks/useFirstAgentSetupDraft";
 
 const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
@@ -1621,7 +1628,10 @@ export function FirstAgentSetupWizard({
                 <input
                   id="first-agent-name"
                   autoFocus
+                  required
+                  minLength={3}
                   maxLength={64}
+                  pattern="[A-Za-z0-9 ]+"
                   value={agentName}
                   placeholder="e.g. Research Assistant"
                   aria-invalid={Boolean(agentNameError)}
@@ -1785,13 +1795,16 @@ export function FirstAgentSetupWizard({
               {onClose ? <WizardButton large={largePresentation} variant="secondary" onClick={onClose}>Cancel</WizardButton> : null}
               {largePresentation ? null : <WizardMomentum stage="identity" />}
               <WizardButton testId="agent-setup-continue-identity" onClick={() => {
-                if (agentName.trim()) {
-                  try {
-                    managedAgentHandleFromDisplayName(agentName);
-                  } catch (error) {
-                    setAgentNameError(error instanceof Error ? error.message : "Enter a valid display name.");
-                    return;
-                  }
+                const validationError = validateAgentName(agentName);
+                if (validationError) {
+                  setAgentNameError(validationError);
+                  return;
+                }
+                try {
+                  managedAgentHandleFromDisplayName(agentName);
+                } catch (error) {
+                  setAgentNameError(error instanceof Error ? error.message : "Enter a valid agent name.");
+                  return;
                 }
                 if (saveDraftAsYouGo) persistDraft();
                 if (agentType === "hermes") {

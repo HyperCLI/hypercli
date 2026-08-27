@@ -1606,18 +1606,15 @@ function AgentsPageContent() {
       return;
     }
     if (authLoading) return;
-    if (isAuthenticated) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete("intent");
-      if (params.get("plan")?.trim().toLowerCase() === TEAM_TRIAL_PLAN_ID) params.delete("plan");
-      params.set("view", "overview");
-      syncDashboardSearchParams(params);
-      return;
-    }
     if (appliedTeamTrialEntryRef.current || pendingAuthIntent) return;
     appliedTeamTrialEntryRef.current = true;
-    requestAuthentication({ kind: "navigate", href: DASHBOARD_VIEW_HREFS.overview });
-  }, [authLoading, isAuthenticated, pendingAuthIntent, requestAuthentication, searchParams, teamTrialEntryRequested]);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("intent");
+    if (params.get("plan")?.trim().toLowerCase() === TEAM_TRIAL_PLAN_ID) params.delete("plan");
+    params.set("view", "overview");
+    syncDashboardSearchParams(params);
+    requestAuthentication({ kind: "trial", presentation: "activation-dialog" });
+  }, [authLoading, pendingAuthIntent, requestAuthentication, searchParams, teamTrialEntryRequested]);
   useEffect(() => {
     if (
       !pendingAuthIntent

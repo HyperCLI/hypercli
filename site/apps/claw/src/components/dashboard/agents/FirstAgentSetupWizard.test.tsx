@@ -112,7 +112,13 @@ function getPlanFooterAction(name: string): HTMLElement {
   return actions[actions.length - 1];
 }
 
+function enterValidAgentName(name = "Research Assistant") {
+  fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: name } });
+}
+
 function goToPlanStep() {
+  const nameInput = screen.getByLabelText("Agent name") as HTMLInputElement;
+  if (!nameInput.value) enterValidAgentName();
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -358,6 +364,8 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByTestId("agent-setup-continue-identity")).toBeEnabled();
     expect(screen.getByLabelText("Agent name")).toHaveValue("");
     expect(screen.getByLabelText("Agent name")).toHaveAttribute("placeholder", "e.g. Research Assistant");
+    expect(screen.getByLabelText("Agent name")).toHaveAttribute("minlength", "3");
+    expect(screen.getByLabelText("Agent name")).toHaveAttribute("pattern", "[A-Za-z0-9 ]+");
     expect(screen.queryByText("Avatar")).not.toBeInTheDocument();
     expect(screen.queryByText("What does it help with?")).not.toBeInTheDocument();
     expect(document.querySelector('input[type="file"]')).toBeNull();
@@ -374,6 +382,36 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByTestId("agent-setup-desktop-toggle")).toHaveAttribute("id", "agent-setup-desktop-toggle");
   });
 
+  it("requires a three-character agent name without special characters", () => {
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    const nameInput = screen.getByLabelText("Agent name");
+    const continueButton = screen.getByRole("button", { name: "Continue" });
+
+    fireEvent.click(continueButton);
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent name must be at least 3 characters.");
+    expect(nameInput).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(nameInput, { target: { value: "AI" } });
+    fireEvent.click(continueButton);
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent name must be at least 3 characters.");
+
+    fireEvent.change(nameInput, { target: { value: "Agent@One" } });
+    fireEvent.click(continueButton);
+    expect(screen.getByRole("alert")).toHaveTextContent("Agent name can only contain letters, numbers, and spaces.");
+
+    fireEvent.change(nameInput, { target: { value: "Agent One" } });
+    fireEvent.click(continueButton);
+    expect(screen.getByRole("heading", { name: "Set up the workspace" })).toBeInTheDocument();
+  });
+
   it("shows distinct launch momentum across every setup step", () => {
     renderWithClient(
       <FirstAgentSetupWizard
@@ -388,6 +426,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Moments from launch")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "48");
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByText("Define what it should accomplish")).toBeInTheDocument();
@@ -427,7 +466,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "background-builder" } });
+    enterValidAgentName("Background Builder");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(onGenerateBootstrap).not.toHaveBeenCalled();
     // Let the workspace step re-sync the pack to the typed display name
@@ -480,13 +519,13 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "night-ops-pilot" } });
+    enterValidAgentName("Night Ops Pilot");
 
     await waitFor(() => {
       const draft = JSON.parse(window.sessionStorage.getItem("hypercli-first-agent-draft") ?? "{}");
       expect(draft).toMatchObject({
         source: "first-agent-setup",
-        displayName: "night-ops-pilot",
+        displayName: "Night Ops Pilot",
         plan: null,
       });
       expect(draft.name).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
@@ -675,6 +714,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.getByRole("heading", { name: "Set up the workspace" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "What do you want to get done?" })).toBeInTheDocument();
@@ -704,6 +744,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
@@ -733,6 +774,7 @@ describe("FirstAgentSetupWizard", () => {
     };
     const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
@@ -775,6 +817,7 @@ describe("FirstAgentSetupWizard", () => {
     };
     const view = renderWithClient(<FirstAgentSetupWizard {...props} />);
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Next step" }));
@@ -825,6 +868,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitForPackReady();
@@ -871,6 +915,7 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(hermesOption);
     expect(hermesOption).toHaveAttribute("aria-pressed", "true");
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect(screen.queryByRole("button", { name: /^Research a market/ })).not.toBeInTheDocument();
 
@@ -913,6 +958,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitForPackReady();
@@ -966,6 +1012,7 @@ describe("FirstAgentSetupWizard", () => {
     // Let the starter pack finish hydrating before any workspace edits, so
     // the deterministic re-assembly applies on top of the hydrated files.
     await waitForPackReady();
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: /^Research a market/ }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -1099,6 +1146,7 @@ describe("FirstAgentSetupWizard", () => {
       />,
     );
 
+    enterValidAgentName();
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
