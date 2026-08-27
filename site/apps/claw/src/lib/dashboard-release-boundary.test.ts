@@ -25,9 +25,9 @@ describe("DASHBOARD_RELEASE_AVAILABILITY", () => {
     expect(SCHEDULED_MANAGER_ENABLED).toBe(false);
   });
 
-  it("ships with Hermes launcher, Knowledge Hub, and Members disabled for this release", () => {
+  it("ships with the Hermes launcher available and Knowledge Hub and Members disabled for this release", () => {
     expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
-      "hermes-launcher": false,
+      "hermes-launcher": true,
       "knowledge-hub": false,
       members: false,
     });
@@ -39,8 +39,8 @@ describe("DASHBOARD_RELEASE_AVAILABILITY", () => {
 });
 
 describe("isDashboardReleaseSurfaceAvailable", () => {
-  it("reports all surfaces unavailable under the shipped policy", () => {
-    expect(isDashboardReleaseSurfaceAvailable("hermes-launcher")).toBe(false);
+  it("reports shipped surfaces available and unreleased surfaces unavailable under the shipped policy", () => {
+    expect(isDashboardReleaseSurfaceAvailable("hermes-launcher")).toBe(true);
     expect(isDashboardReleaseSurfaceAvailable("knowledge-hub")).toBe(false);
     expect(isDashboardReleaseSurfaceAvailable("members")).toBe(false);
   });

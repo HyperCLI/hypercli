@@ -81,7 +81,7 @@ describe("DashboardNav", () => {
     // assertion fails after intentionally re-enabling a surface, update the
     // expectations below to match the new policy.
     expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
-      "hermes-launcher": false,
+      "hermes-launcher": true,
       "knowledge-hub": false,
       members: false,
     });
@@ -101,7 +101,7 @@ describe("DashboardNav", () => {
 
   it("hides release-gated surfaces from the mobile navigation menu while they are unavailable", () => {
     expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
-      "hermes-launcher": false,
+      "hermes-launcher": true,
       "knowledge-hub": false,
       members: false,
     });
