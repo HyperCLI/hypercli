@@ -1479,7 +1479,12 @@ async fn tokio_main() -> Result<()> {
     let mut pool = if config.lazy_pool {
         AgentPool::from_slots((0..config.agents).map(|_| None).collect())
     } else {
-        initialize_agent_pool(&PoolStartup::from_config(&config, observer.clone()), None).await?
+        initialize_agent_pool(
+            &PoolStartup::from_config(&config, observer.clone()),
+            None,
+            None,
+        )
+        .await?
     };
     let mut pool_ready = !config.lazy_pool;
     let mut pool_lifecycle: PoolLifecycle<AgentPool> = PoolLifecycle::listening();
@@ -1907,7 +1912,7 @@ async fn tokio_main() -> Result<()> {
                 let wake_tx = wake_tx.clone();
                 let wake_shutdown = shutdown_rx.clone();
                 wake_tasks.spawn(async move {
-                    let result = initialize_agent_pool(&startup, Some(wake_shutdown))
+                    let result = initialize_agent_pool(&startup, Some(wake_shutdown), Some(1))
                         .await
                         .map_err(|error| error.to_string());
                     if let Err(error) = wake_tx.send((attempt, result)).await {
@@ -4011,11 +4016,17 @@ impl PoolStartup {
 async fn initialize_agent_pool(
     startup: &PoolStartup,
     mut shutdown: Option<watch::Receiver<()>>,
+    initial_slots: Option<usize>,
 ) -> Result<AgentPool> {
     // One agent failing to start must not kill the whole pool.
     // Attempt each spawn under a 60-second timeout; a partial pool is valid.
     let mut agent_slots: Vec<Option<OwnedAgent>> = Vec::with_capacity(startup.agents as usize);
+    let slots_to_spawn = initial_pool_slots_to_spawn(startup.agents, initial_slots);
     for i in 0..startup.agents as usize {
+        if i >= slots_to_spawn {
+            agent_slots.push(None);
+            continue;
+        }
         let spawn_result = AcpClient::spawn(
             &startup.command,
             &startup.args,
@@ -4109,6 +4120,11 @@ async fn initialize_agent_pool(
     }
     tracing::info!("agent_pool_ready agents={}", live_count);
     Ok(AgentPool::from_slots(agent_slots))
+}
+
+fn initial_pool_slots_to_spawn(total_slots: u32, initial_slots: Option<usize>) -> usize {
+    let total_slots = total_slots as usize;
+    initial_slots.unwrap_or(total_slots).clamp(1, total_slots)
 }
 
 // ── spawn_and_init ────────────────────────────────────────────────────────────
@@ -5629,6 +5645,14 @@ mod error_outcome_emission_tests {
             })),
             "buzz-agent"
         );
+    }
+
+    #[test]
+    fn lazy_pool_wake_spawns_one_slot_before_background_refill() {
+        assert_eq!(initial_pool_slots_to_spawn(10, Some(1)), 1);
+        assert_eq!(initial_pool_slots_to_spawn(5, Some(1)), 1);
+        assert_eq!(initial_pool_slots_to_spawn(2, Some(1)), 1);
+        assert_eq!(initial_pool_slots_to_spawn(10, None), 10);
     }
 
     /// Spawn a real but inert agent subprocess (`cat`) so the error paths have
