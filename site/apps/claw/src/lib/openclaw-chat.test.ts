@@ -1159,6 +1159,56 @@ describe("openclaw chat normalization", () => {
     });
   });
 
+  it("reclassifies mirrored content when the provider reasoning marker arrives late", () => {
+    const reasoning = "Inspecting the workspace configuration";
+    let messages = upsertAssistantMessage([], {
+      role: "assistant",
+      content: reasoning,
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 1,
+    }, { replaceContent: true, startNewRound: true });
+
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "",
+      reasoning: { text: reasoning, state: "active", startedAt: 2 },
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 2,
+    }, { updateReasoning: "replace", startNewRound: true });
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      content: "",
+      reasoning: { text: reasoning, state: "active", startedAt: 2 },
+    });
+  });
+
+  it("keeps independent answer content when a later reasoning marker does not match it", () => {
+    let messages = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "The direct answer is ready.",
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 1,
+    }, { replaceContent: true, startNewRound: true });
+
+    messages = upsertAssistantMessage(messages, {
+      role: "assistant",
+      content: "",
+      reasoning: { text: "The direct answer needs source validation.", state: "active", startedAt: 2 },
+      runId: "run-1",
+      renderId: "assistant-1",
+      timestamp: 2,
+    }, { updateReasoning: "replace", startNewRound: true });
+
+    expect(messages[0]).toMatchObject({
+      content: "The direct answer is ready.",
+      reasoning: { text: "The direct answer needs source validation.", state: "settled" },
+    });
+  });
+
   it("starts a new reasoning round after completed tool activity", () => {
     let messages = upsertAssistantMessage([], {
       role: "assistant",

@@ -92,6 +92,51 @@ async function promoteMockThinkingToStructuredReasoning(page: import("@playwrigh
   `);
 }
 
+async function emitReasoningMarkerAfterItsChatMirror(page: import("@playwright/test").Page): Promise<void> {
+  await page.addInitScript(`
+    (() => {
+      const nativeStringify = JSON.stringify.bind(JSON);
+      JSON.stringify = function(value, replacer, space) {
+        const payload = value && typeof value === "object" ? value.payload : null;
+        if (
+          value?.type === "event" &&
+          value.event === "agent" &&
+          payload?.stream === "thinking"
+        ) {
+          const reasoning = payload.data?.text ?? "";
+          return nativeStringify({
+            type: "event",
+            event: "chat",
+            payload: {
+              runId: payload.runId,
+              sessionKey: payload.sessionKey,
+              state: "delta",
+              message: { role: "assistant", content: [{ type: "text", text: reasoning }] },
+            },
+          }, replacer, space);
+        }
+        if (
+          value?.type === "event" &&
+          value.event === "agent" &&
+          payload?.stream === "assistant" &&
+          payload.data?.phase === "commentary"
+        ) {
+          return nativeStringify({
+            type: "event",
+            event: "chat.thinking.delta",
+            payload: {
+              runId: payload.runId,
+              sessionKey: payload.sessionKey,
+              reasoning_content_delta: payload.data.text ?? "",
+            },
+          }, replacer, space);
+        }
+        return nativeStringify(value, replacer, space);
+      };
+    })();
+  `);
+}
+
 async function replaceCommentaryMirrorWithToolStart(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(`
     (() => {
@@ -302,6 +347,36 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(thought).not.toHaveAttribute("open", "");
     await expect(page.getByTestId("agent-assistant-reasoning-toggle")).toHaveAccessibleName(/thought/i);
     await expect(page.getByText("The deployment is valid.", { exact: true })).toBeVisible();
+  });
+
+  test("reclassifies a late reasoning marker without first showing it as a normal message", async ({ page }) => {
+    const reasoning = "Inspecting the workspace configuration.";
+    await emitReasoningMarkerAfterItsChatMirror(page);
+    await installMockGateway(page, {
+      chatScripts: [commentaryScript({
+        thinking: reasoning,
+        commentary: [reasoning],
+        finalText: "The configuration is valid.",
+      })],
+    });
+    await installAuth(page);
+    await interceptBackend(page);
+    await openChatTab(page);
+    await sendChat(page, "Check the configuration");
+
+    const transcript = page.getByTestId("agent-chat-transcript");
+    const thought = transcript.locator(REASONING);
+    await expect(thought).toHaveAttribute("data-reasoning-state", "active");
+    await expect(thought).toHaveAttribute("open", "");
+    await expect(thought).toContainText(reasoning);
+    await expect(transcript.locator(".prose-chat").getByText(reasoning, { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("agent-chat-response-handoff")).toHaveCount(0);
+
+    await releaseMockGatewayFinals(page);
+    await expect(thought).toHaveAttribute("data-reasoning-state", "settled");
+    await expect(thought).not.toHaveAttribute("open", "");
+    await expect(transcript.locator(".prose-chat").getByText("The configuration is valid.", { exact: true })).toBeVisible();
+    await expect(transcript.locator(".prose-chat").getByText(reasoning, { exact: true })).toHaveCount(0);
   });
 
   test("hydrates structured provider thoughts as a separate collapsed disclosure", async ({ page }) => {

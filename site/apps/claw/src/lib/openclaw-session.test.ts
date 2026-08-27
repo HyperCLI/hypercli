@@ -1599,6 +1599,27 @@ describe("openclaw commentary session wiring", () => {
     });
   });
 
+  it("moves a late-classified reasoning mirror out of ordinary answer content", () => {
+    const { context, messages } = createStreamContext();
+    const identity = { messageId: "round-1", turnId: "turn-1", runId: "run-1", sessionKey: "main" };
+    const reasoning = "Inspecting the workspace configuration";
+
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "content", text: reasoning, replace: true, ...identity } as any,
+    });
+    handleOpenClawChatStreamEvent({
+      ...context,
+      chatEvent: { type: "reasoning", text: reasoning, replace: true, ...identity } as any,
+    });
+
+    expect(messages()).toHaveLength(1);
+    expect(messages()[0]).toMatchObject({
+      content: "",
+      reasoning: { text: reasoning, state: "active" },
+    });
+  });
+
   it("keeps tool-loop reasoning and the final answer in separate assistant rounds", () => {
     const { context, messages } = createStreamContext();
     const baseIdentity = { turnId: "turn-1", runId: "run-1", sessionKey: "main" };

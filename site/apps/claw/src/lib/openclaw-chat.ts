@@ -1272,6 +1272,24 @@ export function stripAssistantProgressContent(
   return matchedPrefixLength > 0 ? content.slice(matchedPrefixLength) : content;
 }
 
+function stripAssistantReasoningContent(
+  content: string,
+  reasoning: ChatMessageReasoning | undefined,
+): string {
+  if (!content || !reasoning?.text.trim()) return content;
+  const candidates = new Set([reasoning.text, reasoning.text.trim()]);
+  let matchedPrefixLength = 0;
+  for (const candidate of candidates) {
+    for (const leadingBreak of ["", "\n", "\r\n"]) {
+      const prefix = `${leadingBreak}${candidate}`;
+      if (prefix.length > matchedPrefixLength && content.startsWith(prefix)) {
+        matchedPrefixLength = prefix.length;
+      }
+    }
+  }
+  return matchedPrefixLength > 0 ? content.slice(matchedPrefixLength) : content;
+}
+
 function chatMessageProtocolIdentity(
   message: ChatMessage,
 ): Partial<Pick<ChatMessage, "eventId" | "messageId" | "turnId" | "runId" | "sessionKey" | "revision">> {
@@ -1336,8 +1354,14 @@ function mergeAssistantMessage(
   const cleanCurrent = sanitizeAssistantMessage(current);
   const mergedProgress = mergeAssistantProgress(cleanCurrent.progress, incoming.progress, options.updateProgress);
   let mergedReasoning = mergeAssistantReasoning(cleanCurrent.reasoning, incoming.reasoning, options.updateReasoning);
-  const currentContent = stripAssistantProgressContent(cleanCurrent.content, mergedProgress);
-  const incomingContent = stripAssistantProgressContent(incoming.content, mergedProgress);
+  const currentContent = stripAssistantReasoningContent(
+    stripAssistantProgressContent(cleanCurrent.content, mergedProgress),
+    mergedReasoning,
+  );
+  const incomingContent = stripAssistantReasoningContent(
+    stripAssistantProgressContent(incoming.content, mergedProgress),
+    mergedReasoning,
+  );
   // Cumulative vs delta detection: only treat as cumulative when the incoming
   // text actually contains the current text as a prefix. The previous
   // length-based heuristic broke delta streams whenever a single chunk was
@@ -1366,9 +1390,8 @@ function mergeAssistantMessage(
     ? mergeToolCalls(cleanCurrent.toolCalls ?? [], incoming.toolCalls)
     : cleanCurrent.toolCalls;
   if (mergedReasoning?.state === "active" && (
-    cleanCurrent.content.trim() ||
+    mergedContent.trim() ||
     (cleanCurrent.toolCalls?.length ?? 0) > 0 ||
-    incoming.content.trim() ||
     (incoming.toolCalls?.length ?? 0) > 0
   )) {
     mergedReasoning = {
