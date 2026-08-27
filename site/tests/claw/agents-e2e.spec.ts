@@ -11,6 +11,7 @@ import {
   deleteClawAgentThroughUi,
   readClawAgentFileBytes,
   stopClawAgentThroughUi,
+  waitForBrowserAgentStartOrLaunchError,
 } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
@@ -29,9 +30,9 @@ test.use({ trace: "off", video: "off" });
  *
  * Recorded from a manual walkthrough on 2026-08-20; the Stripe checkout
  * recipe was re-proven manually in headed Chromium on 2026-08-23. Every click
- * target is an id or testid from the real UI. The only machinery borrowed
- * from the old suite is the identity bootstrap; everything else is plain
- * Playwright.
+ * target is a semantic locator or testid from the real UI. Shared fixtures
+ * encapsulate identity setup, hosted checkout controls, launch diagnostics,
+ * and repeated lifecycle or file assertions.
  */
 
 const startedAt = Date.now();
@@ -338,10 +339,12 @@ test.describe.serial("Agents E2E", () => {
       { timeout: 180_000 },
     );
     await page.getByRole("button", { name: "Launch agent" }).click();
+    await page.getByLabel("Agent name").fill("Agents E2E");
     await page.getByTestId("agent-setup-continue-identity").click();
     await page.getByTestId("agent-setup-continue-objective").click();
     // The personality continue IS the launch: its label reads "Launch agent"
     // and clicking it fires the deployment POST. There is no further step.
+    const started = waitForBrowserAgentStartOrLaunchError(page, 540_000);
     await page.getByTestId("agent-setup-continue-personality").click();
 
     const createResponse = await created;
@@ -351,11 +354,16 @@ test.describe.serial("Agents E2E", () => {
     await step(page, "created");
 
     // -- It starts on its own, then Ready -------------------------------------
-    // Creation parks the deployment STOPPED (~20s of provisioning), then the
-    // page fires the one POST /start itself. Nothing is clicked here on
-    // purpose: needing a manual Start is the regression this wait catches.
-    // Starts take about a minute; the budget covers a cold image pull.
-    await page.waitForURL(new RegExp(`agentId=${agentId}`), { timeout: 120_000 });
+    // Creation parks the deployment STOPPED, stages the workspace through its
+    // retained file route, then fires one POST /start. Nothing is clicked here:
+    // needing a manual Start remains a regression. Observe the real launch
+    // outcome through the app before asserting that it selected the new Agent.
+    const acceptedStart = await started;
+    expect(String(acceptedStart.id), "expected auto-start to target the created Agent").toBe(agentId);
+    await page.waitForURL(
+      (url) => url.searchParams.get("agentId") === agentId,
+      { timeout: 30_000 },
+    );
     const sessionEntry = page.getByTestId("agent-launch-entry");
     if (await sessionEntry.isVisible().catch(() => false)) {
       await sessionEntry.click();
