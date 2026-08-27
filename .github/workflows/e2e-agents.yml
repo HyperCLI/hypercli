@@ -16,7 +16,9 @@ jobs:
       matrix:
         include:
           - lane: openclaw
-            spec: tests/claw/agents-e2e.spec.ts
+            spec: >-
+              tests/claw/agents-e2e.spec.ts
+              tests/claw/agent-chat-stop.spec.ts
           - lane: hermes
             spec: tests/claw/agents-hermes-e2e.spec.ts
     name: e2e-${{ matrix.lane }}

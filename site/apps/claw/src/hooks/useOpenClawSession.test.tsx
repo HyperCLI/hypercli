@@ -9192,7 +9192,7 @@ describe("useOpenClawSession", () => {
     const release = deferred<void>();
     gateway.chatAbort.mockImplementation(async () => abortAck.promise);
     gateway.chatSend.mockImplementation(async function* () {
-      yield { type: "content" as const, text: "Partial answer" };
+      yield { type: "content" as const, text: "Partial answer", runId: "run-live" };
       await release.promise;
       yield { type: "done" as const, data: {} };
     });
@@ -9232,7 +9232,7 @@ describe("useOpenClawSession", () => {
     });
 
     await waitFor(() => expect(result.current.aborting).toBe(true));
-    expect(gateway.chatAbort).toHaveBeenCalledWith(activeSessionKey);
+    expect(gateway.chatAbort).toHaveBeenCalledWith(activeSessionKey, "run-live");
 
     await act(async () => {
       abortAck.resolve();

@@ -330,6 +330,7 @@ interface ActiveChatStreamEntry {
   iterator: AsyncGenerator<ChatEvent> | null;
   ownsStreamEvents: boolean;
   abortRequested: boolean;
+  runId?: string;
   adoptedGatewayRun?: boolean;
   adoptedRunId?: string;
   adoptedActiveRunIds?: string[];
@@ -3360,6 +3361,8 @@ export function useOpenClawSession(
             requestChatStreamCancellation(streamEntry);
             break;
           }
+          const streamRunId = nonEmptyString(chatEvent.runId);
+          if (streamRunId) streamEntry.runId = streamRunId;
           if (streamEntry.abortRequested) continue;
           handleOpenClawChatStreamEvent({
             chatEvent,
@@ -3399,6 +3402,8 @@ export function useOpenClawSession(
             requestChatStreamCancellation(streamEntry);
             break;
           }
+          const streamRunId = nonEmptyString(chatEvent.runId);
+          if (streamRunId) streamEntry.runId = streamRunId;
           if (streamEntry.abortRequested) continue;
           handleOpenClawChatStreamEvent({
             chatEvent,
@@ -3489,20 +3494,20 @@ export function useOpenClawSession(
       temporaryLease.agentId === target.agentId &&
       sameOpenClawSessionKey(temporaryLease.session.sessionKey, gatewaySessionKey),
     );
-    const requestedAdoptedRunId = streamEntry.adoptedRunId;
+    const requestedRunId = streamEntry.adoptedRunId ?? streamEntry.runId;
     streamEntry.abortRequested = true;
     markAbortingForTarget(target, streamEntry.token);
     try {
       if (targetIsTemporary && temporaryLease) await temporaryLease.session.chatAbort();
-      else if (requestedAdoptedRunId) await gateway.chatAbort(gatewaySessionKey, requestedAdoptedRunId);
+      else if (requestedRunId) await gateway.chatAbort(gatewaySessionKey, requestedRunId);
       else await gateway.chatAbort(gatewaySessionKey);
       if (!chatStreamEntryIsCurrent(targetKey, streamEntry)) return;
-      const remainingAdoptedRunIds = streamEntry.adoptedGatewayRun && requestedAdoptedRunId
-        ? (streamEntry.adoptedActiveRunIds ?? []).filter((runId) => runId !== requestedAdoptedRunId)
+      const remainingAdoptedRunIds = streamEntry.adoptedGatewayRun && requestedRunId
+        ? (streamEntry.adoptedActiveRunIds ?? []).filter((runId) => runId !== requestedRunId)
         : [];
       if (remainingAdoptedRunIds.length > 0) {
         flushQueuedChatHistoryUpdates(targetKey);
-        dispatchChatHistory({ type: "mark-interrupted", runId: requestedAdoptedRunId }, target);
+        dispatchChatHistory({ type: "mark-interrupted", runId: requestedRunId }, target);
         streamEntry.abortRequested = false;
         streamEntry.adoptedRunId = remainingAdoptedRunIds[0];
         streamEntry.adoptedActiveRunIds = remainingAdoptedRunIds;
@@ -3525,7 +3530,7 @@ export function useOpenClawSession(
       requestChatStreamCancellation(streamEntry);
       if (streamEntry.adoptedGatewayRun) activeChatStreamsRef.current.delete(targetKey);
       flushQueuedChatHistoryUpdates(targetKey);
-      dispatchChatHistory({ type: "mark-interrupted", runId: requestedAdoptedRunId }, target);
+      dispatchChatHistory({ type: "mark-interrupted", runId: requestedRunId }, target);
       clearSendingForTarget(target);
       clearAbortingForTarget(target, streamEntry.token);
       if (!targetIsTemporary) appendActivity({ type: "system", action: "Assistant reply stopped" });
@@ -3534,9 +3539,9 @@ export function useOpenClawSession(
       streamEntry.abortRequested = false;
       clearAbortingForTarget(target, streamEntry.token);
       if (
-        requestedAdoptedRunId &&
+        requestedRunId &&
         streamEntry.adoptedGatewayRun &&
-        !(streamEntry.adoptedActiveRunIds ?? []).includes(requestedAdoptedRunId)
+        !(streamEntry.adoptedActiveRunIds ?? []).includes(requestedRunId)
       ) return;
       if (!targetIsTemporary) appendActivity({ type: "error", action: "Stop failed", detail: formatOpenClawConnectionError(e) });
     }

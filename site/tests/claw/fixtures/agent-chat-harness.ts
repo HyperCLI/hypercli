@@ -84,6 +84,17 @@ export async function interceptAgentChatBackend(page: Page, options: AgentChatHa
       });
       return;
     }
+    if (pathName.endsWith("/agents/deployments/events/token") && method === "POST") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          token: "deployments-events-token",
+          ws_url: "wss://deployment-events.example.test/events",
+        }),
+      });
+      return;
+    }
     if (pathName.endsWith(`/agents/deployments/${agentId}`) && method === "GET") {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(deployment) });
       return;
