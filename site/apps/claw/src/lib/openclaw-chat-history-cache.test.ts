@@ -55,6 +55,44 @@ describe("openclaw chat history cache", () => {
     ]);
   });
 
+  it("preserves display-safe reasoning and progress without caching raw thinking", () => {
+    writeCachedOpenClawChatHistory("agent-activity", [{
+      role: "assistant",
+      content: "",
+      thinking: "Private runtime thinking",
+      reasoning: {
+        text: "Inspecting the workspace configuration",
+        state: "active",
+        startedAt: 10,
+      },
+      progress: {
+        text: "Reading config files",
+        state: "active",
+        revisions: ["Reading files", "Reading config files"],
+      },
+      runId: "run-active",
+    }]);
+
+    expect(readCachedOpenClawChatHistory("agent-activity")).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "",
+        reasoning: {
+          text: "Inspecting the workspace configuration",
+          state: "active",
+          startedAt: 10,
+        },
+        progress: {
+          text: "Reading config files",
+          state: "active",
+          revisions: ["Reading files", "Reading config files"],
+        },
+        runId: "run-active",
+      }),
+    ]);
+    expect(readCachedOpenClawChatHistory("agent-activity")[0]?.thinking).toBeUndefined();
+  });
+
   it("assigns a safe render identity when reading a legacy cached message", () => {
     writeCachedOpenClawChatHistory("agent-1", [{ role: "user", content: "Legacy question" }]);
 

@@ -1085,6 +1085,42 @@ describe("openclaw session keys", () => {
     expect(serialized).not.toContain("Received Model Group");
   });
 
+  it("drops an obsolete no-reply marker only when a later answer completes the same turn", async () => {
+    const answeredGateway = {
+      configGet: vi.fn(async () => ({})),
+      configSchema: vi.fn(async () => null),
+      chatHistory: vi.fn(async () => [
+        { role: "user", content: "Check the release" },
+        { role: "assistant", content: "The agent run failed before producing a reply." },
+        { role: "assistant", content: "The release is ready." },
+      ]),
+      agentsList: vi.fn(async () => [{ id: "main" }]),
+      sessionsList: vi.fn(async () => []),
+      cronList: vi.fn(async () => []),
+      modelsList: vi.fn(async () => []),
+      filesList: vi.fn(async () => []),
+    };
+    const failedGateway = {
+      ...answeredGateway,
+      chatHistory: vi.fn(async () => [
+        { role: "user", content: "Check the release" },
+        { role: "assistant", content: "The agent run failed before producing a reply." },
+      ]),
+    };
+
+    const answered = await hydrateOpenClawSession(answeredGateway as any, "agent-123");
+    const failed = await hydrateOpenClawSession(failedGateway as any, "agent-123");
+
+    expect(answered.messages.map((message) => message.content)).toEqual([
+      "Check the release",
+      "The release is ready.",
+    ]);
+    expect(failed.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Check the release" }),
+      expect.objectContaining({ role: "assistant", content: OPENCLAW_EMPTY_REPLY_NOTICE }),
+    ]);
+  });
+
   it("preserves exact sentence boundaries across gateway chat.content deltas", () => {
     let messages: ChatMessage[] = [];
     const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
@@ -2114,6 +2150,45 @@ describe("openclaw commentary session wiring", () => {
     expect(messages[0]!.content).toContain("Passive answer.");
   });
 
+  it("replaces cumulative reasoning snapshots for adopted runs", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const base = {
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+    };
+
+    for (const text of [
+      "Inspecting the workspace",
+      "Inspecting the workspace configuration",
+      "Inspecting the workspace configuration",
+    ]) {
+      handleOpenClawSessionEvent({
+        ...base,
+        gatewayEvent: {
+          type: "event",
+          event: "chat.reasoning",
+          payload: { runId: "passive-run", sessionKey: "main", text },
+        } as any,
+      });
+    }
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({
+      role: "assistant",
+      reasoning: {
+        text: "Inspecting the workspace configuration",
+        state: "active",
+      },
+    });
+  });
+
   it.each([
     {
       label: "lifecycle completion",
@@ -2279,6 +2354,70 @@ describe("openclaw commentary session wiring", () => {
     expect(rehydrated.messages.map((message) => message.renderId)).toEqual(
       hydrated.messages.map((message) => message.renderId),
     );
+  });
+
+  it("folds cumulative reasoning and commentary snapshots into one hydrated reply", async () => {
+    const gateway = {
+      configGet: vi.fn(async () => ({})),
+      configSchema: vi.fn(async () => null),
+      chatHistory: vi.fn(async () => [
+        { role: "user", content: [{ type: "text", text: "Check the config" }], timestamp: 1 },
+        {
+          role: "assistant",
+          stopReason: "toolUse",
+          timestamp: 2,
+          content: [{ type: "text", text: "Reading config files." }],
+        },
+        {
+          role: "assistant",
+          stopReason: "toolUse",
+          timestamp: 3,
+          content: [{ type: "text", text: "Reading config files.\nValidating two entries." }],
+        },
+        {
+          role: "assistant",
+          timestamp: 4,
+          content: [{ type: "thinking", thinking: "Inspecting the workspace" }],
+        },
+        {
+          role: "assistant",
+          timestamp: 5,
+          content: [{ type: "thinking", thinking: "Inspecting the workspace configuration" }],
+        },
+        {
+          role: "assistant",
+          stopReason: "stop",
+          timestamp: 6,
+          content: [{
+            type: "text",
+            text: "Reading config files.\nValidating two entries.\nConfig is valid.",
+          }],
+        },
+      ]),
+      agentsList: vi.fn(async () => [{ id: "main" }]),
+      sessionsList: vi.fn(async () => []),
+      filesList: vi.fn(async () => []),
+      cronList: vi.fn(async () => []),
+      modelsList: vi.fn(async () => []),
+    };
+
+    const hydrated = await hydrateOpenClawSession(gateway as any, "agent-1");
+    const assistantRows = hydrated.messages.filter((message) => message.role === "assistant");
+
+    expect(assistantRows).toHaveLength(1);
+    expect(assistantRows[0]).toMatchObject({
+      content: "\nConfig is valid.",
+      progress: {
+        text: "Reading config files.\nValidating two entries.",
+        state: "settled",
+      },
+      reasoning: {
+        text: "Inspecting the workspace configuration",
+        state: "settled",
+        startedAt: 4,
+        completedAt: 5,
+      },
+    });
   });
 
   it("folds persisted commentary into the final reply across an intervening error notice", async () => {

@@ -5334,6 +5334,67 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("merges cached tool and reasoning activity into an adopted run after reload", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "session-alpha",
+      title: "Alpha",
+      status: "running",
+      hasActiveRun: true,
+      activeRunIds: ["run-reload"],
+      messageCount: 1,
+    }] as any);
+    gateway.chatHistoryResult.mockResolvedValue({
+      messages: [{ role: "user", content: "Inspect the workspace" }],
+      sessionInfo: { status: "running", hasActiveRun: true, activeRunIds: ["run-reload"] },
+    } as any);
+    writeCachedOpenClawChatHistory("deploy-123", [
+      { role: "user", content: "Inspect the workspace", renderId: "cached-user" },
+      {
+        role: "assistant",
+        content: "",
+        renderId: "cached-activity",
+        runId: "run-reload",
+        reasoning: {
+          text: "Checking the workspace structure",
+          state: "active",
+          startedAt: 10,
+        },
+        toolCalls: [{
+          id: "tool-1",
+          name: "functions.read",
+          args: "{\"path\":\"README.md\"}",
+          result: "Read complete",
+        }],
+      },
+    ], "session-alpha");
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(
+      () => useOpenClawSession(agent as any, true, "session-alpha"),
+    );
+
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Inspect the workspace" }),
+      expect.objectContaining({
+        role: "assistant",
+        runId: "run-reload",
+        reasoning: expect.objectContaining({ text: "Checking the workspace structure" }),
+        toolCalls: [expect.objectContaining({ id: "tool-1", result: "Read complete" })],
+      }),
+    ]);
+    unmount();
+  });
+
   it("marks a buffered adopted response interrupted when the connection drops", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -9180,6 +9241,64 @@ describe("useOpenClawSession", () => {
 
     await act(async () => {
       toolResult.resolve();
+      await sendPromise;
+    });
+    unmount();
+  });
+
+  it("checkpoints an active reply to local history on pagehide", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const stream = controlledChatStream();
+    gateway.chatSend.mockReturnValue(stream.iterator);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      acquireConnectedGateway: acquireConnectedGatewayFixture,
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.activeSessionCanSend).toBe(true));
+    const sessionKey = result.current.activeSessionKey;
+    act(() => result.current.setInput("Inspect before refresh"));
+    let sendPromise!: Promise<void>;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(gateway.chatSend).toHaveBeenCalledTimes(1));
+    act(() => {
+      stream.emit({ type: "reasoning", text: "Inspecting the workspace", runId: "run-live" });
+      stream.emit({
+        type: "tool_call",
+        runId: "run-live",
+        data: {
+          tool_call_id: "tool-live",
+          tool_name: "functions.read",
+          args: { path: "README.md" },
+        },
+      });
+    });
+    await waitFor(() => expect(result.current.messages.some((message) => (
+      message.role === "assistant" &&
+      message.reasoning?.text === "Inspecting the workspace" &&
+      message.toolCalls?.[0]?.id === "tool-live"
+    ))).toBe(true));
+
+    act(() => window.dispatchEvent(new Event("pagehide")));
+
+    expect(readCachedOpenClawChatHistory("deploy-123", sessionKey)).toEqual([
+      expect.objectContaining({ role: "user", content: "Inspect before refresh" }),
+      expect.objectContaining({
+        role: "assistant",
+        reasoning: expect.objectContaining({ text: "Inspecting the workspace" }),
+        toolCalls: [expect.objectContaining({ id: "tool-live" })],
+      }),
+    ]);
+
+    await act(async () => {
+      stream.finish();
       await sendPromise;
     });
     unmount();

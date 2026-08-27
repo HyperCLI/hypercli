@@ -14,6 +14,7 @@ const MAX_CACHE_CHARS = 900_000;
 const MAX_MESSAGE_CONTENT_CHARS = 60_000;
 const MAX_TOOL_TEXT_CHARS = 8_000;
 const MAX_MEDIA_URL_CHARS = 4_096;
+const MAX_ACTIVITY_REVISIONS = 16;
 const TRUNCATED_MESSAGE_SUFFIX = "\n\n[Message shortened in local history.]";
 const TRUNCATED_TOOL_SUFFIX = "\n\n[Tool output shortened in local history.]";
 
@@ -118,8 +119,43 @@ function compactMessage(message: ChatMessage): ChatMessage | null {
         result: typeof toolCall.result === "string" ? trimText(toolCall.result, MAX_TOOL_TEXT_CHARS, TRUNCATED_TOOL_SUFFIX) : undefined,
       }))
     : undefined;
+  const reasoningText = typeof normalized.reasoning?.text === "string"
+    ? trimText(normalized.reasoning.text, MAX_MESSAGE_CONTENT_CHARS, TRUNCATED_MESSAGE_SUFFIX)
+    : "";
+  const reasoningStartedAt = normalized.reasoning?.startedAt;
+  const reasoningCompletedAt = normalized.reasoning?.completedAt;
+  const reasoning = reasoningText.trim() &&
+    (normalized.reasoning?.state === "active" || normalized.reasoning?.state === "settled" || normalized.reasoning?.state === "incomplete") &&
+    typeof reasoningStartedAt === "number" && Number.isFinite(reasoningStartedAt)
+    ? {
+        text: reasoningText,
+        state: normalized.reasoning.state,
+        startedAt: reasoningStartedAt,
+        ...(typeof reasoningCompletedAt === "number" && Number.isFinite(reasoningCompletedAt)
+          ? { completedAt: reasoningCompletedAt }
+          : {}),
+      }
+    : undefined;
+  const progressText = typeof normalized.progress?.text === "string"
+    ? trimText(normalized.progress.text, MAX_TOOL_TEXT_CHARS, TRUNCATED_TOOL_SUFFIX)
+    : "";
+  const progress = progressText.trim() &&
+    (normalized.progress?.state === "active" || normalized.progress?.state === "settled")
+    ? {
+        text: progressText,
+        state: normalized.progress.state,
+        revisions: Array.from(new Set([
+          ...(Array.isArray(normalized.progress.revisions)
+            ? normalized.progress.revisions
+                .filter((revision): revision is string => typeof revision === "string" && Boolean(revision.trim()))
+                .map((revision) => trimText(revision, MAX_TOOL_TEXT_CHARS, TRUNCATED_TOOL_SUFFIX))
+            : []),
+          progressText,
+        ])).slice(-MAX_ACTIVITY_REVISIONS),
+      }
+    : undefined;
 
-  if (!content && !files?.length && !mediaUrls?.length && !toolCalls?.length) return null;
+  if (!content && !files?.length && !mediaUrls?.length && !toolCalls?.length && !reasoning && !progress) return null;
 
   return {
     role: normalized.role,
@@ -141,6 +177,8 @@ function compactMessage(message: ChatMessage): ChatMessage | null {
     ...(files?.length ? { files } : {}),
     ...(mediaUrls?.length ? { mediaUrls } : {}),
     ...(toolCalls?.length ? { toolCalls } : {}),
+    ...(reasoning ? { reasoning } : {}),
+    ...(progress ? { progress } : {}),
     ...(normalized.status ? { status: normalized.status } : {}),
   };
 }

@@ -6376,6 +6376,54 @@ describe("GatewayClient OpenClaw commentary chat events", () => {
     expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("Configuration is valid.");
   });
 
+  it("reconciles cumulative dedicated reasoning frames without replaying prior text", async () => {
+    const client = newChatClient();
+    const streamPromise = collectChatSend(client);
+    await flushMicrotasks();
+
+    for (const text of [
+      "Inspecting the workspace",
+      "Inspecting the workspace configuration",
+      "Inspecting the workspace configuration",
+    ]) {
+      emit(client, {
+        type: "event",
+        event: "chat.reasoning",
+        payload: {
+          runId: "run-commentary",
+          sessionKey: "main",
+          text,
+        },
+      });
+    }
+    emit(client, {
+      type: "event",
+      event: "chat.reasoning.delta",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        delta: { type: "reasoning_delta", text: " carefully" },
+      },
+    });
+    emit(client, {
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "run-commentary",
+        sessionKey: "main",
+        state: "final",
+        message: { role: "assistant", content: [{ type: "text", text: "Configuration is valid." }] },
+      },
+    });
+
+    const events = await streamPromise;
+    expect(events.filter((event) => event.type === "reasoning").map((event) => event.text)).toEqual([
+      "Inspecting the workspace",
+      " configuration",
+      " carefully",
+    ]);
+  });
+
   it("streams Anthropic thinking_delta frames through the reasoning channel", async () => {
     const client = newChatClient();
     const streamPromise = collectChatSend(client);

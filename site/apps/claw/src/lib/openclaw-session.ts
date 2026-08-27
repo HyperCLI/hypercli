@@ -33,6 +33,7 @@ import {
   settleAssistantProgress,
   settleAssistantReasoning,
   stripAssistantProgressContent,
+  stripAssistantReasoningContent,
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
 
@@ -538,7 +539,10 @@ export function handleOpenClawSessionEvent({
           reasoning: { text, state: "active", startedAt: Date.now() },
           timestamp: Date.now(),
         }, identity),
-        { updateReasoning: payloadRecord.replace === true ? "replace" : "append", startNewRound: true },
+        {
+          updateReasoning: event === "chat.reasoning" || payloadRecord.replace === true ? "replace" : "append",
+          startNewRound: true,
+        },
       ));
     }
   } else if (event === "chat.tool_call") {
@@ -673,6 +677,60 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function assistantHistoryIdentityConflicts(current: ChatMessage, incoming: ChatMessage): boolean {
+  return (["messageId", "turnId", "runId"] as const).some((field) => (
+    Boolean(current[field] && incoming[field] && current[field] !== incoming[field])
+  ));
+}
+
+function assistantHistoryIsReasoningOnly(message: ChatMessage): boolean {
+  return message.role === "assistant" &&
+    Boolean(message.reasoning?.text.trim()) &&
+    !message.content.trim() &&
+    (message.toolCalls?.length ?? 0) === 0 &&
+    (message.mediaUrls?.length ?? 0) === 0 &&
+    (message.attachments?.length ?? 0) === 0 &&
+    (message.files?.length ?? 0) === 0;
+}
+
+function mergeCumulativeHistoryReasoning(
+  current: ChatMessage,
+  incoming: ChatMessage,
+): ChatMessage["reasoning"] | null {
+  const currentReasoning = current.reasoning;
+  const incomingReasoning = incoming.reasoning;
+  if (!currentReasoning || !incomingReasoning || assistantHistoryIdentityConflicts(current, incoming)) return null;
+  const currentText = currentReasoning.text;
+  const incomingText = incomingReasoning.text;
+  if (!currentText.startsWith(incomingText) && !incomingText.startsWith(currentText)) return null;
+  const text = incomingText.length >= currentText.length ? incomingText : currentText;
+  const completedAt = Math.max(
+    currentReasoning.completedAt ?? currentReasoning.startedAt,
+    incomingReasoning.completedAt ?? incomingReasoning.startedAt,
+  );
+  return {
+    text,
+    state: incomingReasoning.state,
+    startedAt: Math.min(currentReasoning.startedAt, incomingReasoning.startedAt),
+    ...(incomingReasoning.state === "active" ? {} : { completedAt }),
+  };
+}
+
+function isSupersedableNoReplyHistoryMessage(message: ChatMessage): boolean {
+  return message.role !== "user" && isOpenClawEmptyReplyFailureText(message.content);
+}
+
+function assistantHistoryHasFinalReply(message: ChatMessage): boolean {
+  return message.role === "assistant" &&
+    !isSupersedableNoReplyHistoryMessage(message) &&
+    Boolean(
+      message.content.trim() ||
+      (message.mediaUrls?.length ?? 0) > 0 ||
+      (message.attachments?.length ?? 0) > 0 ||
+      (message.files?.length ?? 0) > 0
+    );
+}
+
 function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
   if (!Array.isArray(messages)) return [];
   const normalized = messages
@@ -719,6 +777,11 @@ function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
       continue;
     }
 
+    if (assistantHistoryIsReasoningOnly(message) || isSupersedableNoReplyHistoryMessage(message)) {
+      result.push(message);
+      continue;
+    }
+
     const pending = result[pendingProgressIndex];
     if (!pending?.progress) {
       pendingProgressIndex = null;
@@ -737,7 +800,72 @@ function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
     pendingProgressIndex = null;
   }
 
-  return result;
+  const folded: ChatMessage[] = [];
+  let pendingReasoningIndex: number | null = null;
+  for (const message of result) {
+    if (message.role === "user") {
+      folded.push(message);
+      pendingReasoningIndex = null;
+      continue;
+    }
+
+    if (assistantHistoryIsReasoningOnly(message)) {
+      const pending = pendingReasoningIndex === null ? null : folded[pendingReasoningIndex];
+      const mergedReasoning = pending ? mergeCumulativeHistoryReasoning(pending, message) : null;
+      if (pending && mergedReasoning) {
+        folded[pendingReasoningIndex!] = {
+          ...pending,
+          reasoning: mergedReasoning,
+          ...(message.progress ? { progress: message.progress } : {}),
+        };
+      } else {
+        folded.push(message);
+        pendingReasoningIndex = folded.length - 1;
+      }
+      continue;
+    }
+
+    if (isSupersedableNoReplyHistoryMessage(message)) {
+      folded.push(message);
+      continue;
+    }
+
+    if (pendingReasoningIndex !== null && assistantHistoryHasFinalReply(message)) {
+      const pending = folded[pendingReasoningIndex];
+      if (pending?.reasoning && !assistantHistoryIdentityConflicts(pending, message)) {
+        const mergedReasoning = message.reasoning
+          ? mergeCumulativeHistoryReasoning(pending, message)
+          : pending.reasoning;
+        if (mergedReasoning) {
+          const progress = message.progress ?? pending.progress;
+          const withoutProgressMirror = stripAssistantProgressContent(message.content, progress);
+          const content = stripAssistantReasoningContent(withoutProgressMirror, mergedReasoning);
+          folded.splice(pendingReasoningIndex, 1);
+          folded.push({
+            ...message,
+            content,
+            reasoning: mergedReasoning,
+            ...(progress ? { progress } : {}),
+          });
+          pendingReasoningIndex = null;
+          continue;
+        }
+      }
+    }
+
+    folded.push(message);
+    if (message.role === "assistant") pendingReasoningIndex = null;
+  }
+
+  return folded.filter((message, index) => {
+    if (!isSupersedableNoReplyHistoryMessage(message)) return true;
+    for (let cursor = index + 1; cursor < folded.length; cursor += 1) {
+      const candidate = folded[cursor];
+      if (candidate?.role === "user") break;
+      if (candidate && assistantHistoryHasFinalReply(candidate)) return false;
+    }
+    return true;
+  });
 }
 
 function normalizedStringArray(value: unknown): string[] {

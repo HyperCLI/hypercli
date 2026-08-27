@@ -262,6 +262,9 @@ const OPENCLAW_EMPTY_REPLY_FAILURE_MARKERS = [
 
 export function isOpenClawEmptyReplyFailureText(text: string): boolean {
   const trimmed = text.trim();
+  if (/^(?:the )?agent run failed before producing a reply\.?$/i.test(trimmed)) {
+    return true;
+  }
   if (trimmed.length <= OPENCLAW_EMPTY_REPLY_NOTICE.length && trimmed.toLowerCase() === OPENCLAW_EMPTY_REPLY_NOTICE.toLowerCase()) {
     return true;
   }
@@ -1280,7 +1283,7 @@ export function stripAssistantProgressContent(
   return matchedPrefixLength > 0 ? content.slice(matchedPrefixLength) : content;
 }
 
-function stripAssistantReasoningContent(
+export function stripAssistantReasoningContent(
   content: string,
   reasoning: ChatMessageReasoning | undefined,
 ): string {

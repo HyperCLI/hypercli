@@ -2049,6 +2049,21 @@ export function useOpenClawSession(
     return () => window.clearTimeout(timeout);
   }, [agentId, activeSessionKey, activeSessionIsEphemeral, activeSessionReadOnly, chatSendAuthorityRevision, chatTargetHasSendAuthority, gateway, hydrationMode, messages, resolveChatTargetState, sendingTargets]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const checkpointActiveChatHistory = () => {
+      for (const targetKey of activeChatSendTargetsRef.current) {
+        const target = chatHistoryTargetFromKey(targetKey);
+        if (!target?.agentId || isEphemeralOpenClawSessionName(target.sessionKey)) continue;
+        const targetMessages = liveChatHistoryByTargetRef.current.get(targetKey);
+        if (!targetMessages?.length) continue;
+        writeCachedOpenClawChatHistory(target.agentId, targetMessages, target.sessionKey);
+      }
+    };
+    window.addEventListener("pagehide", checkpointActiveChatHistory);
+    return () => window.removeEventListener("pagehide", checkpointActiveChatHistory);
+  }, []);
+
   const replaceChatHistoryFromGateway = useCallback((
     target: ChatHistoryTarget,
     historyMessages: ChatMessage[],
@@ -2966,6 +2981,21 @@ export function useOpenClawSession(
           sessionHydration,
         );
         const currentTargetMessages = liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
+        const currentLastUser = [...currentTargetMessages].reverse().find((message) => message.role === "user");
+        const currentUserCount = currentTargetMessages.filter((message) => message.role === "user").length;
+        const hydratedUserCount = hydrated.messages.filter((message) => message.role === "user").length;
+        const gatewayConfirmsCurrentUser = Boolean(
+          currentLastUser && hydrated.messages.some((message) => sameConfirmedChatMessage(currentLastUser, message)),
+        );
+        const mergeRestoredCacheWithGateway = (
+          currentTargetMessages.length > 0 &&
+          currentUserCount <= hydratedUserCount &&
+          gatewayConfirmsCurrentUser &&
+          (
+            hydrated.hasActiveRun ||
+            (restoredCachedHistoryTargetsRef.current.has(targetKey) && hydrated.messages.length > 0)
+          )
+        );
         const mergeUnconfirmedEmptyHistory = (
           currentTargetMessages.length > 0 &&
           !gatewayHistoryCanReplace &&
@@ -2975,7 +3005,8 @@ export function useOpenClawSession(
           activeSessionIsEphemeral ||
           preserveReconnectPendingHistory ||
           preserveTerminalFeedback ||
-          preserveRestoredCache;
+          preserveRestoredCache ||
+          mergeRestoredCacheWithGateway;
         const targetHasUnconfirmedLiveState = (
           optimisticChatHistoryTargetsRef.current.has(targetKey) ||
           connectionLiveHistoryTargetsRef.current.has(targetKey) ||
@@ -3010,6 +3041,7 @@ export function useOpenClawSession(
             historyApplied = (
               preserveReconnectPendingHistory ||
               preserveRestoredCache ||
+              mergeRestoredCacheWithGateway ||
               mergeUnconfirmedEmptyHistory
             )
               ? grantChatSendAuthority(target, gateway, hydrated.gatewaySessionKey)

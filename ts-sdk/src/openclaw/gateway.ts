@@ -5882,10 +5882,18 @@ export class GatewayClient {
         if (evt.event === "chat.reasoning" || evt.event === "chat.reasoning.delta" || evt.event === "chat.thinking.delta") {
           const text = extractGatewayReasoningDelta(payload) || (typeof payload.text === "string" ? payload.text : "");
           if (text) {
-            const update = appendStreamContent(emittedReasoningText, text, false);
+            const update = evt.event === "chat.reasoning"
+              ? reconcileStreamContent(emittedReasoningText, text, payload.replace === true)
+              : appendStreamContent(emittedReasoningText, text, payload.replace === true);
             if (update) {
               emittedReasoningText = update.nextText;
-              yield { type: "reasoning", text: update.text, ...identity, data: payload };
+              yield {
+                type: "reasoning",
+                text: update.text,
+                ...(update.replace ? { replace: true } : {}),
+                ...identity,
+                data: payload,
+              };
             }
           }
           continue;

@@ -3536,12 +3536,13 @@ describe("AgentChatPanel", () => {
     expect(handoff).toContainElement(status);
     expect(handoff).toHaveClass("-mt-2", "pl-9");
     expect(status).toHaveTextContent("Preparing answer");
-    expect(status).toHaveTextContent("25s elapsed");
+    expect(status).toHaveTextContent("25s");
+    expect(status).not.toHaveTextContent("elapsed");
     expect(status).toHaveAttribute("data-appearance", "inline");
     expect(screen.queryByText("Waiting for final response")).not.toBeInTheDocument();
     expect(chatThinkingIndicatorMock).toHaveBeenLastCalledWith(expect.objectContaining({
       label: "Preparing answer",
-      description: "25s elapsed",
+      description: "25s",
       descriptionOnHover: false,
       appearance: "inline",
     }));
@@ -3654,7 +3655,7 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("status", { name: /starting response/i })).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(10_000));
-    expect(screen.getByRole("status", { name: /still working/i })).toHaveTextContent("Still with you, working with care · 10s elapsed");
+    expect(screen.getByRole("status", { name: /still working/i })).toHaveTextContent("Still with you, working with care · 10s");
   });
 
   it("shows a separate stop button while keeping send available for queued drafts", () => {

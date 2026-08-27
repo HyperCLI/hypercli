@@ -172,10 +172,10 @@ function latestCurrentTurnCommentary(messages: ChatMessage[]): { index: number; 
 function formatResponseElapsed(elapsedMs: number): string {
   const totalSeconds = Math.max(0, Math.floor(elapsedMs / 1_000));
   if (totalSeconds < 2) return "just started";
-  if (totalSeconds < 60) return `${totalSeconds}s elapsed`;
+  if (totalSeconds < 60) return `${totalSeconds}s`;
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
-  return seconds > 0 ? `${minutes}m ${seconds}s elapsed` : `${minutes}m elapsed`;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
 function warmResponseElapsed(elapsed: string): string {
