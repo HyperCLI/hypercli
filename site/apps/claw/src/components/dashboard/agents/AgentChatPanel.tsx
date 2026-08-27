@@ -73,6 +73,9 @@ const CHAT_HISTORY_LOAD_THRESHOLD_PX = 48;
 const CHAT_TRANSCRIPT_RENDER_LIMIT = 100;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const RESPONSE_STATUS_TICK_MS = 1_000;
+const COMMENTARY_SENTENCE_SEGMENTER = typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+  ? new Intl.Segmenter("en", { granularity: "sentence" })
+  : null;
 const AUDIO_BAR_WEIGHTS = [
   0.62,
   0.78,
@@ -106,12 +109,39 @@ interface ActiveResponseStatusPresentation {
   commentary?: boolean;
 }
 
+function latestCommentaryStatusText(text: string): string {
+  const latestLine = text
+    .trim()
+    .split(/\r?\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .at(-1) ?? "";
+  if (!latestLine || !COMMENTARY_SENTENCE_SEGMENTER) {
+    if (!latestLine) return "";
+    let latestStart = 0;
+    for (const match of latestLine.matchAll(/[.!?](?:["')\]]*)\s+|[。！？]+(?:["')\]]*)\s*/gu)) {
+      const nextStart = (match.index ?? 0) + match[0].length;
+      if (nextStart < latestLine.length) latestStart = nextStart;
+    }
+    return latestLine.slice(latestStart).trim() || latestLine;
+  }
+
+  let latestSentence = latestLine;
+  for (const part of COMMENTARY_SENTENCE_SEGMENTER.segment(latestLine)) {
+    const sentence = part.segment.trim();
+    if (sentence) latestSentence = sentence;
+  }
+  return latestSentence;
+}
+
 function latestCurrentTurnCommentary(messages: ChatMessage[]): { index: number; text: string } | null {
   // Tool activity can settle commentary in the same publication batch; the active send still owns its presentation.
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "user") return null;
-    const text = message?.role === "assistant" ? message.progress?.text.trim() : "";
+    const text = message?.role === "assistant"
+      ? latestCommentaryStatusText(message.progress?.text ?? "")
+      : "";
     if (text) return { index, text };
   }
   return null;

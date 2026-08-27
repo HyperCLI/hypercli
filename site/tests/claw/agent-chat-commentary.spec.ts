@@ -172,7 +172,13 @@ const commentaryScript = (overrides: Partial<MockGatewayChatScript> = {}): MockG
 
 test.describe("Agent chat working commentary (intercepted gateway)", () => {
   test("streams public commentary, keeps raw thinking private, and settles notes beside the final answer", async ({ page }) => {
-    const script = commentaryScript({ thinking: THINKING_SENTINEL });
+    const firstCommentary = "Reading the config file.";
+    const latestCommentary = "Validating entries now.";
+    const cumulativeCommentary = `${firstCommentary} ${latestCommentary}`;
+    const script = commentaryScript({
+      commentary: [firstCommentary, cumulativeCommentary],
+      thinking: THINKING_SENTINEL,
+    });
     await installMockGateway(page, { chatScripts: [script] });
     await installAuth(page);
     await interceptBackend(page);
@@ -185,8 +191,8 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     const progress = responseStatus.locator(`${PROGRESS}[data-progress-state="active"]`);
     await expect(responseStatus).toHaveCount(1);
     await expect(progress).toHaveCount(1);
-    await expect(progress).toContainText("Reading the config file and validating entries");
-    await expect(progress).not.toContainText("validating entries and");
+    await expect(progress).toContainText(latestCommentary);
+    await expect(progress).not.toContainText(firstCommentary);
     await expect(page.getByRole("status", { name: "Working" })).toHaveCount(1);
     await expect(page.getByRole("status", { name: /starting response/i })).toHaveCount(0);
     await expect(page.getByLabel("Streaming")).toHaveCount(0);
@@ -197,7 +203,7 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(transcript.locator(PROGRESS)).toHaveCount(1);
     await expect(transcript.locator(`${PROGRESS}[data-progress-state="active"]`)).toHaveCount(1);
     await expect(transcript.locator(".prose-chat").getByText(/Reading the config file/)).toHaveCount(0);
-    await expect(transcript.locator(".prose-chat")).not.toContainText("validating entries");
+    await expect(transcript.locator(".prose-chat")).not.toContainText(latestCommentary);
 
     // Finish the run deterministically. Public commentary settles beside the
     // final answer without entering the answer's markdown lane.
@@ -209,7 +215,8 @@ test.describe("Agent chat working commentary (intercepted gateway)", () => {
     await expect(workingNotes).toHaveAttribute("aria-expanded", "false");
     await workingNotes.click();
     await expect(workingNotes).toHaveAttribute("aria-expanded", "true");
-    await expect(settledProgress).toContainText("Reading the config file and validating entries");
+    await expect(settledProgress).toContainText(firstCommentary);
+    await expect(settledProgress).toContainText(latestCommentary);
     await expect(transcript.locator(".prose-chat").getByText("Config is valid.", { exact: true })).toBeVisible();
     // Once complete, the reply contains the answer exactly once and no notes.
     await expect(transcript.locator(".prose-chat").getByText(/Reading the config file/)).toHaveCount(0);
