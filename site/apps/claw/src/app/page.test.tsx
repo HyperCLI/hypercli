@@ -1,81 +1,40 @@
-import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  auth: { isLoading: false, isAuthenticated: false },
-  replace: vi.fn(),
+  redirect: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace }),
-}));
-
-vi.mock("@hypercli/shared-ui", () => ({
-  HyperCLILogo: () => <div>HyperCLI</div>,
-  PrivyLoginPanel: ({ onSuccess, errorMessage, errorTone, securityNote }: {
-    onSuccess?: () => void;
-    errorMessage?: string;
-    errorTone?: string;
-    securityNote?: string;
-  }) => (
-    <div
-      data-testid="login-panel"
-      data-has-redirect={onSuccess ? "true" : "false"}
-      data-error-message={errorMessage}
-      data-error-tone={errorTone}
-      data-security-note={securityNote}
-    />
-  ),
-}));
-
-vi.mock("@/hooks/useClawAuth", () => ({
-  useClawAuth: () => mocks.auth,
+  redirect: mocks.redirect,
 }));
 
 import Home from "./page";
 
-describe("Claw login page", () => {
+describe("Claw root page", () => {
   beforeEach(() => {
-    mocks.auth = { isLoading: false, isAuthenticated: false };
-    mocks.replace.mockReset();
-    window.history.replaceState(null, "", "/");
+    mocks.redirect.mockReset();
   });
 
-  it("lets authenticated state perform one direct agents redirect", async () => {
-    mocks.auth = { isLoading: false, isAuthenticated: true };
-
-    render(<Home />);
-
-    await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledOnce();
+  it("redirects to the agents dashboard", async () => {
+    await Home({
+      searchParams: Promise.resolve({}),
     });
-    expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?view=overview");
+
+    expect(mocks.redirect).toHaveBeenCalledOnce();
+    expect(mocks.redirect).toHaveBeenCalledWith("/dashboard/agents");
   });
 
-  it("lands a Team trial handoff on the Free dashboard after authentication", async () => {
-    window.history.replaceState(null, "", "/?intent=trial&plan=team");
-    mocks.auth = { isLoading: false, isAuthenticated: true };
-
-    render(<Home />);
-
-    await waitFor(() => {
-      expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents?view=overview");
+  it("preserves incoming handoff parameters", async () => {
+    await Home({
+      searchParams: Promise.resolve({
+        intent: "trial",
+        plan: "team",
+        tag: ["one", "two"],
+      }),
     });
-  });
 
-  it("does not give the login panel a competing redirect", () => {
-    render(<Home />);
-
-    expect(screen.getByTestId("login-panel")).toHaveAttribute("data-has-redirect", "false");
-    expect(screen.getByTestId("login-panel")).toHaveAttribute("data-error-tone", "neutral");
-    expect(screen.getByTestId("login-panel")).toHaveAttribute(
-      "data-error-message",
-      "Sign-in did not finish. Retry to reopen the session.",
+    expect(mocks.redirect).toHaveBeenCalledWith(
+      "/dashboard/agents?intent=trial&plan=team&tag=one&tag=two",
     );
-    expect(screen.getByTestId("login-panel")).toHaveAttribute(
-      "data-security-note",
-      "A secure one-time code will be sent to your email.",
-    );
-    expect(mocks.replace).not.toHaveBeenCalled();
   });
 });
