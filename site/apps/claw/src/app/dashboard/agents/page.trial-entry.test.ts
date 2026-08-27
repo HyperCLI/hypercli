@@ -44,6 +44,11 @@ describe("dashboard Team trial entry", () => {
     expect(pageSource).not.toContain("canStartTrial={agents.length > 0 && canStartTeamTrial}");
   });
 
+  it("does not pass the sidebar click event as first-agent setup context", () => {
+    expect(pageSource).not.toContain("onStartTrial={beginTeamTrial}");
+    expect(pageSource).toContain("onStartTrial={() => beginTeamTrial()}");
+  });
+
   it("resumes the agent creation flow after a reflected checkout", () => {
     const reflectedStart = pageSource.indexOf("const handleReflectedCheckout");
     const reflectedEnd = pageSource.indexOf("const refreshCheckoutEntitlements", reflectedStart);

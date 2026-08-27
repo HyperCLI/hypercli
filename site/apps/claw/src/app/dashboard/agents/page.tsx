@@ -6827,7 +6827,7 @@ function AgentsPageContent() {
             settingsActive={false}
             onUpgrade={() => { void openUpgradeCatalog(); }}
             capacityActionLabel={tokenCapacityActionLabel}
-            onStartTrial={beginTeamTrial}
+            onStartTrial={() => beginTeamTrial()}
             onManageTrial={() => { selectAccountSettingsSection("billing"); }}
           />
           <div aria-hidden="true" className="pointer-events-none absolute -top-2 bottom-0 right-0 z-[60] w-px bg-border" />
