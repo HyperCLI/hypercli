@@ -984,10 +984,18 @@ function historyStopReason(message: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase().replace(/[_-]/g, "") : "";
 }
 
+function isOpenClawCompactionHistoryMessage(message: unknown): boolean {
+  const record = asRecord(message);
+  if (!record) return false;
+  if (asRecord(record.__openclaw)?.kind === "compaction") return true;
+  return record.role === "custom" && record.customType === "openclaw.context-compaction";
+}
+
 function normalizeHistoryMessage(
   message: unknown,
   options: { preserveBoundaryWhitespace?: boolean } = {},
 ): ChatMessage | null {
+  if (isOpenClawCompactionHistoryMessage(message)) return null;
   if (isDeliveryMirrorHistoryMessage(message) && !isDisplayableDeliveryMirrorHistoryMessage(message)) return null;
   if (isInternalToolHistoryRole(rawHistoryRole(message))) return null;
   const normalized = normalizeGatewayChatMessage(message);

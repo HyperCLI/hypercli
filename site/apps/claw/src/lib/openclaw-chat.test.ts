@@ -848,6 +848,33 @@ describe("openclaw chat normalization", () => {
     expect(serialized).toContain(THINKING_LEAK_SENTINEL);
   });
 
+  it("drops OpenClaw compaction control records without filtering ordinary text", () => {
+    expect(normalizeHistoryMessage({
+      role: "system",
+      content: [{ type: "text", text: "Compaction" }],
+      __openclaw: { kind: "compaction", id: "compact-1", seq: 3 },
+    })).toBeNull();
+    expect(normalizeHistoryMessage({
+      role: "custom",
+      customType: "openclaw.context-compaction",
+      content: "Context compacted",
+      display: true,
+      excludeFromContext: true,
+    })).toBeNull();
+
+    expect(normalizeHistoryMessage({ role: "system", content: "Compaction" })).toEqual(
+      expect.objectContaining({ role: "system", content: "Compaction" }),
+    );
+    expect(normalizeHistoryMessage({ role: "assistant", content: "Context compacted" })).toEqual(
+      expect.objectContaining({ role: "assistant", content: "Context compacted" }),
+    );
+    expect(normalizeHistoryMessage({
+      role: "system",
+      content: [{ type: "text", text: "Reset" }],
+      __openclaw: { kind: "reset", id: "reset-1", seq: 4 },
+    })).toEqual(expect.objectContaining({ role: "system", content: "Reset" }));
+  });
+
   it("strips hidden workspace file headers from refreshed user text while preserving file chips", () => {
     const normalized = normalizeHistoryMessage({
       role: "user",

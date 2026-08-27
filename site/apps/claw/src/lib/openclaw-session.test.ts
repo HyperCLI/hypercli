@@ -399,6 +399,43 @@ describe("openclaw session keys", () => {
     }));
   });
 
+  it("keeps compacted history ordered without rendering compaction control rows", async () => {
+    const gateway = {
+      sessionsList: vi.fn(async () => [{ key: "session-alpha" }]),
+      chatHistory: vi.fn(async () => []),
+      chatHistoryResult: vi.fn(async () => ({
+        messages: [
+          { role: "user", content: "Inspect the release state" },
+          { role: "assistant", content: "Preparing the release context", stopReason: "toolUse" },
+          {
+            role: "system",
+            content: [{ type: "text", text: "Compaction" }],
+            __openclaw: { kind: "compaction", id: "compact-1", seq: 3 },
+          },
+          {
+            role: "custom",
+            customType: "openclaw.context-compaction",
+            content: "Context compacted",
+            display: true,
+            excludeFromContext: true,
+          },
+          { role: "assistant", content: "The release state is stable." },
+        ],
+      })),
+    };
+
+    const hydrated = await hydrateOpenClawHistory(gateway as any, "deploy-123", "session-alpha");
+
+    expect(hydrated.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "Inspect the release state" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "The release state is stable.",
+        progress: expect.objectContaining({ text: "Preparing the release context" }),
+      }),
+    ]);
+  });
+
   it("keeps the final output_text answer from refreshed tool-rich history", async () => {
     const gateway = {
       configGet: vi.fn(async () => ({})),
