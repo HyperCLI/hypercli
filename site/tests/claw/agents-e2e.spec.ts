@@ -82,7 +82,7 @@ interface WorkspaceContextReport {
   injectedWorkspaceFiles: WorkspaceContextFile[];
 }
 
-const PRESEEDED_CONFIG_PATH = ".openclaw/openclaw.json";
+const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 const PERSISTENT_WORKSPACE_PATHS = [
   ".openclaw/workspace/AGENTS.md",
   ".openclaw/workspace/SOUL.md",
@@ -367,14 +367,15 @@ test.describe.serial("Agents E2E", () => {
     await step(page, "ready");
 
     const initialWorkspace = await readWorkspaceSnapshot(page, agentId, [
-      PRESEEDED_CONFIG_PATH,
+      OPENCLAW_CONFIG_PATH,
       ...PERSISTENT_WORKSPACE_PATHS,
       BOOTSTRAP_WORKSPACE_PATH,
     ]);
     const initialConfig = JSON.parse(
-      new TextDecoder().decode(initialWorkspace.get(PRESEEDED_CONFIG_PATH)!),
-    ) as { agents?: { defaults?: { skipBootstrap?: boolean } } };
-    expect(initialConfig.agents?.defaults?.skipBootstrap).toBe(true);
+      new TextDecoder().decode(initialWorkspace.get(OPENCLAW_CONFIG_PATH)!),
+    ) as { gateway?: { mode?: string }; agents?: { defaults?: { workspace?: string } } };
+    expect(initialConfig.gateway?.mode).toBe("local");
+    expect(initialConfig.agents?.defaults?.workspace).toBe("~/.openclaw/workspace");
     for (const retiredPath of RETIRED_WORKSPACE_PATHS) {
       await expectWorkspaceFileMissing(page, agentId, retiredPath);
     }
@@ -455,11 +456,11 @@ test.describe.serial("Agents E2E", () => {
       .toBeVisible({ timeout: 360_000 });
     await expect(restartedComposer).toBeEnabled({ timeout: 60_000 });
     const restartedWorkspace = await readWorkspaceSnapshot(page, agentId, [
-      PRESEEDED_CONFIG_PATH,
+      OPENCLAW_CONFIG_PATH,
       ...PERSISTENT_WORKSPACE_PATHS,
     ]);
-    expect(restartedWorkspace.get(PRESEEDED_CONFIG_PATH))
-      .toEqual(initialWorkspace.get(PRESEEDED_CONFIG_PATH));
+    expect(restartedWorkspace.get(OPENCLAW_CONFIG_PATH))
+      .toEqual(initialWorkspace.get(OPENCLAW_CONFIG_PATH));
     for (const workspacePath of PERSISTENT_WORKSPACE_PATHS) {
       expect(restartedWorkspace.get(workspacePath), `expected ${workspacePath} bytes to survive restart`)
         .toEqual(confirmedWorkspace.get(workspacePath));

@@ -3020,7 +3020,6 @@ export function AgentList({
           ...buildOpenClawLaunchOptions({
             desktopEnabled: enableDesktop,
             customImage,
-            skipBootstrap: starterFiles.length > 0,
             memoryIndex: enableMemoryIndex
               ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
               : null,
@@ -3060,6 +3059,7 @@ export function AgentList({
             readFileBytes: (agentId, path) => (
               agentClient.fileReadBytes(agentId, path)
             ),
+            deleteFile: (agentId, path) => agentClient.fileDelete(agentId, path),
             startAgent: startCreatedAgent,
             shouldAbort,
           });

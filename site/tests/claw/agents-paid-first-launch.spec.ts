@@ -19,6 +19,14 @@ const TEST_PRINCIPAL_ID = "stored-session";
 const TEST_WORKSPACE_ID = "workspace-paid-first-agent";
 const TEST_SETUP_ID = "setup-paid-first-agent";
 const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}`;
+const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
+const STAGED_FILE_PATHS = [
+  ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/SOUL.md",
+  ".openclaw/workspace/IDENTITY.md",
+  ".openclaw/workspace/USER.md",
+  ".openclaw/workspace/BOOTSTRAP.md",
+] as const;
 
 test("creates the saved first agent after Stripe payment is reflected", async ({ page }) => {
   let createCount = 0;
@@ -26,7 +34,8 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
   let createBody: Record<string, unknown> | null = null;
   let createdAgent: Record<string, unknown> | null = null;
   let purchasedSlotAvailable = false;
-  const writtenFiles: Record<string, string> = {};
+  const writtenFiles: Record<string, Buffer> = {};
+  const stagingEvents: string[] = [];
 
   await page.context().addCookies([{
     name: "auth_token",
@@ -227,13 +236,6 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       });
       return;
     }
-    if (method === "POST" && pathName.includes("/files/")) {
-      const fileName = ["AGENTS.md", "SOUL.md", "USER.md"].find((name) => pathName.includes(name));
-      const content = route.request().postDataBuffer()?.toString("utf8") ?? "";
-      if (fileName) writtenFiles[fileName] = content;
-      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-      return;
-    }
     if (pathName.endsWith("/agents/plans")) {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
         plans: [{
@@ -291,6 +293,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
     }
     if (createdAgent && method === "POST" && pathName.endsWith("/agents/deployments/agent-paid-first/start")) {
       startCount += 1;
+      stagingEvents.push("start");
       createdAgent = { ...createdAgent, state: "RUNNING" };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
@@ -298,13 +301,39 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
 
-  // Reef answers starter-file writes on the agent hostname edge.
+  // Reef retains starter-file bytes so every write can be read back exactly
+  // before the deployment receives START.
   await page.route(/^https:\/\/reef\.test\//, async (route) => {
-    if (route.request().method() === "PUT") {
-      const pathName = new URL(route.request().url()).pathname;
-      const fileName = ["AGENTS.md", "SOUL.md", "USER.md"].find((name) => pathName.includes(name));
-      const content = route.request().postDataBuffer()?.toString("utf8") ?? "";
-      if (fileName) writtenFiles[fileName] = content;
+    const request = route.request();
+    const pathName = new URL(request.url()).pathname;
+    const fileMarker = "/files/";
+    const markerIndex = pathName.indexOf(fileMarker);
+    expect(pathName.startsWith("/_reef/files/")).toBe(true);
+    expect(request.headers().authorization).toBe("Bearer reef-token-paid-first");
+    const filePath = markerIndex >= 0
+      ? decodeURIComponent(pathName.slice(markerIndex + fileMarker.length))
+      : "";
+    if (request.method() === "PUT") {
+      expect(request.headers()["content-type"]).toContain("application/octet-stream");
+      writtenFiles[filePath] = Buffer.from(request.postDataBuffer() ?? Buffer.alloc(0));
+      stagingEvents.push(`write:${filePath}`);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    if (request.method() === "GET") {
+      stagingEvents.push(`read:${filePath}`);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/octet-stream",
+        body: writtenFiles[filePath] ?? Buffer.alloc(0),
+      });
+      return;
+    }
+    if (request.method() === "DELETE") {
+      delete writtenFiles[filePath];
+      stagingEvents.push(`delete:${filePath}`);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
@@ -322,11 +351,19 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
   // Lifecycle contract: create delivers a stopped Agent and the page issues one
   // explicit start afterwards; the SDK create payload carries no `start` flag.
   expect(createBody && "start" in createBody).toBe(false);
+  expect(createBody && "config" in createBody).toBe(false);
   expect(createBody?.meta).toMatchObject({ ui: { avatar: { icon_index: 11 } } });
   expect(createBody?.env).toMatchObject({ OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1" });
-  await expect.poll(() => writtenFiles["AGENTS.md"] ?? "").toContain("Preserve this saved file.");
+  await expect.poll(() => writtenFiles[".openclaw/workspace/AGENTS.md"]?.toString("utf8") ?? "")
+    .toContain("Preserve this saved file.");
   await expect.poll(() => startCount).toBe(1);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
+  expect(Object.keys(writtenFiles).sort()).toEqual([...STAGED_FILE_PATHS].sort());
+  expect(stagingEvents).toEqual([
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    `delete:${OPENCLAW_CONFIG_PATH}`,
+    "start",
+  ]);
   await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toBeNull();
   expect(await page.evaluate(() => (window as Window & { __sawPaidWorkspaceWelcome?: boolean }).__sawPaidWorkspaceWelcome)).toBe(false);
   await page.waitForTimeout(500);

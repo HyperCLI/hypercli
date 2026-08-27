@@ -46,6 +46,14 @@ const TEST_SETUP_ID = "setup-reflection-hardening";
 const TEST_WORKSPACE_ID = "workspace-reflection-hardening";
 const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}`;
 const FIRST_AGENT_DRAFT_KEY = "hypercli-first-agent-draft";
+const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
+const STAGED_FILE_PATHS = [
+  ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/SOUL.md",
+  ".openclaw/workspace/IDENTITY.md",
+  ".openclaw/workspace/USER.md",
+  ".openclaw/workspace/BOOTSTRAP.md",
+] as const;
 
 const WAITING_ENTITLEMENT_MESSAGE =
   "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.";
@@ -163,24 +171,32 @@ function expectCleanHygiene(log: HygieneLog): void {
 
 interface MockControls {
   readonly counters: { createCount: number; startCount: number; summaryGetCount: number };
-  readonly writtenFiles: Record<string, string>;
+  readonly writtenFiles: Record<string, Buffer>;
+  readonly stagingEvents: string[];
   /** Whether the purchased large slot is granted/available in billing data. */
   slotReflected: boolean;
   failStartWith: { status: number; body: Record<string, unknown> } | null;
   failPlansCatalog: boolean;
+  holdReadPath: string | null;
+  releaseRead: () => void;
 }
 
 /** Faithful current-contract backend: stopped create, Reef staging, one explicit start. */
 async function installMockBackend(page: Page): Promise<MockControls> {
   const counters = { createCount: 0, startCount: 0, summaryGetCount: 0 };
-  const writtenFiles: Record<string, string> = {};
+  const writtenFiles: Record<string, Buffer> = {};
+  const stagingEvents: string[] = [];
+  const readGate: Array<() => void> = [];
   let createdAgent: Record<string, unknown> | null = null;
   const controls: MockControls = {
     counters,
     writtenFiles,
+    stagingEvents,
     slotReflected: true,
     failStartWith: null,
     failPlansCatalog: false,
+    holdReadPath: null,
+    releaseRead: () => { for (const release of readGate.splice(0)) release(); },
   };
 
   // Account/profile surfaces outside the agents API use safe inert fixtures so
@@ -285,8 +301,9 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       });
       return;
     }
-    if (createdAgent && pathName.includes(`/agents/deployments/${createdAgent.id}/start`)) {
+    if (createdAgent && method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent.id}/start`)) {
       counters.startCount += 1;
+      stagingEvents.push("start");
       if (controls.failStartWith) {
         await route.fulfill({
           status: controls.failStartWith.status,
@@ -376,11 +393,38 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
 
-  // Reef answers starter-file writes on the agent hostname edge.
+  // Reef retains starter-file bytes so every write can be read back exactly
+  // before the deployment receives START.
   await page.route(/^https:\/\/reef\.test\//, async (route) => {
-    if (route.request().method() === "PUT") {
-      const fileName = new URL(route.request().url()).pathname.split("/").pop() ?? "";
-      if (fileName) writtenFiles[fileName] = route.request().postDataBuffer()?.toString("utf8") ?? "";
+    const request = route.request();
+    const pathName = new URL(request.url()).pathname;
+    const fileMarker = "/files/";
+    const markerIndex = pathName.indexOf(fileMarker);
+    expect(pathName.startsWith("/_reef/files/")).toBe(true);
+    expect(request.headers().authorization).toBe("Bearer reef-token-reflection");
+    const filePath = markerIndex >= 0
+      ? decodeURIComponent(pathName.slice(markerIndex + fileMarker.length))
+      : "";
+    if (request.method() === "PUT") {
+      expect(request.headers()["content-type"]).toContain("application/octet-stream");
+      writtenFiles[filePath] = Buffer.from(request.postDataBuffer() ?? Buffer.alloc(0));
+      stagingEvents.push(`write:${filePath}`);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    if (request.method() === "GET") {
+      stagingEvents.push(`read:${filePath}`);
+      if (controls.holdReadPath === filePath) {
+        await new Promise<void>((resolve) => readGate.push(resolve));
+      }
+      await route.fulfill({ status: 200, contentType: "application/octet-stream", body: writtenFiles[filePath] ?? Buffer.alloc(0) });
+      return;
+    }
+    if (request.method() === "DELETE") {
+      delete writtenFiles[filePath];
+      stagingEvents.push(`delete:${filePath}`);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
@@ -467,14 +511,24 @@ test("settles the paid-first recovery with a clean console and no failed app req
   await page.emulateMedia({ reducedMotion: "reduce" });
   const hygiene = trackHygiene(page);
   const backend = await installMockBackend(page);
+  backend.holdReadPath = ".openclaw/workspace/BOOTSTRAP.md";
   await plantSession(page);
 
   await page.goto("/dashboard/agents?checkout=success&session_id=cs_hygiene", { waitUntil: "domcontentloaded" });
 
   await expect.poll(() => backend.counters.createCount, { timeout: 60_000 }).toBe(1);
+  await expect.poll(() => backend.stagingEvents.at(-1), { timeout: 45_000 })
+    .toBe("read:.openclaw/workspace/BOOTSTRAP.md");
+  expect(backend.counters.startCount, "START must wait for the final Reef response body").toBe(0);
+  backend.releaseRead();
   await expect.poll(() => backend.counters.startCount, { timeout: 45_000 }).toBe(1);
   // The deterministic starter pack stages through Reef alongside the start.
-  await expect.poll(() => Object.keys(backend.writtenFiles).length, { timeout: 45_000 }).toBeGreaterThan(0);
+  await expect.poll(() => Object.keys(backend.writtenFiles).length, { timeout: 45_000 }).toBe(STAGED_FILE_PATHS.length);
+  expect(backend.stagingEvents).toEqual([
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    `delete:${OPENCLAW_CONFIG_PATH}`,
+    "start",
+  ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY), { timeout: 30_000 }).toBeNull();
   await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY), { timeout: 30_000 }).toBeNull();
   await page.waitForTimeout(2_000);

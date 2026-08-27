@@ -1,4 +1,4 @@
-import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
+import type { OpenClawCreateAgentOptions } from "@hypercli.com/sdk/agents";
 
 const OPENCLAW_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_IMAGE";
 const OPENCLAW_PRO_IMAGE_ENV = "NEXT_PUBLIC_OPENCLAW_PRO_IMAGE";
@@ -19,7 +19,7 @@ export type OpenClawWorkspacesSyncOptions = {
   workspace?: string | null;
 };
 
-type OpenClawLaunchOptions = Pick<OpenClawCreateAgentOptions & OpenClawStartAgentOptions, "image" | "env" | "config" | "openClawRoutes"> & {
+type OpenClawLaunchOptions = Pick<OpenClawCreateAgentOptions, "image" | "env" | "openClawRoutes"> & {
   memoryIndex: OpenClawMemoryIndexOptions | null;
   workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null;
 };
@@ -129,13 +129,11 @@ export function buildOpenClawLaunchOptions({
   customImage,
   memoryIndex,
   workspacesSync,
-  skipBootstrap = false,
 }: {
   desktopEnabled: boolean;
   customImage?: string | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
-  skipBootstrap?: boolean;
 }): OpenClawLaunchOptions {
   const baseImage = envValue(OPENCLAW_IMAGE_ENV);
   const proImage = envValue(OPENCLAW_PRO_IMAGE_ENV);
@@ -149,19 +147,6 @@ export function buildOpenClawLaunchOptions({
 
   return {
     image,
-    ...(skipBootstrap
-      ? {
-          config: {
-            agents: {
-              defaults: {
-                // Keep OpenClaw from replacing the pack Claw stages before START.
-                // A pre-seeded BOOTSTRAP.md remains active on the first turn.
-                skipBootstrap: true,
-              },
-            },
-          },
-        }
-      : {}),
     env: {
       ...(hyperApiBase ? { HYPER_API_BASE: hyperApiBase } : {}),
       ...buildOpenClawWorkspacesSyncEnv(workspacesSync ?? null),

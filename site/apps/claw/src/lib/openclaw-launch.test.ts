@@ -39,19 +39,7 @@ describe("buildOpenClawLaunchOptions", () => {
     });
   });
 
-  it("sets the real OpenClaw skip-bootstrap config only for a preconfigured workspace", () => {
-    expect(buildOpenClawLaunchOptions({
-      desktopEnabled: false,
-      skipBootstrap: true,
-    })).toMatchObject({
-      config: {
-        agents: {
-          defaults: {
-            skipBootstrap: true,
-          },
-        },
-      },
-    });
+  it("leaves the version-specific runtime config to the OpenClaw image", () => {
     expect(buildOpenClawLaunchOptions({ desktopEnabled: false })).not.toHaveProperty("config");
   });
 

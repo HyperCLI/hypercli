@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentStarterFileStagingError,
-  OPENCLAW_PRESEEDED_CONFIG_PATH,
+  OPENCLAW_CONFIG_PATH,
   describeStarterFileFailures,
   prepareOpenClawStarterFiles,
   stageAgentStarterFilesAndStart,
@@ -39,6 +39,10 @@ function inMemoryFileApi(events: string[] = []) {
       const content = storage.get(path);
       if (!content) throw Object.assign(new Error("Not found"), { statusCode: 404 });
       return content.slice();
+    }),
+    deleteFile: vi.fn(async (_agentId: string, path: string) => {
+      events.push(`delete:${path}`);
+      if (!storage.delete(path)) throw Object.assign(new Error("Not found"), { statusCode: 404 });
     }),
   };
 }
@@ -158,7 +162,7 @@ describe("agent starter files", () => {
     expect(describeStarterFileFailures(failures)).toContain("SOUL.md");
   });
 
-  it("writes and verifies the runtime config and complete workspace before START", async () => {
+  it("verifies the complete workspace and clears stale config before START", async () => {
     const events: string[] = [];
     const files = canonicalStarterFiles();
     const fileApi = inMemoryFileApi(events);
@@ -168,6 +172,7 @@ describe("agent starter files", () => {
       files,
       writeFileBytes: fileApi.writeFileBytes,
       readFileBytes: fileApi.readFileBytes,
+      deleteFile: fileApi.deleteFile,
       startAgent: async (agentId) => {
         events.push(`start:${agentId}`);
       },
@@ -176,8 +181,6 @@ describe("agent starter files", () => {
     expect(failures).toEqual([]);
     expect(uploaded).toHaveLength(5);
     expect(events).toEqual([
-      `write:${OPENCLAW_PRESEEDED_CONFIG_PATH}`,
-      `read:${OPENCLAW_PRESEEDED_CONFIG_PATH}`,
       "write:.openclaw/workspace/AGENTS.md",
       "read:.openclaw/workspace/AGENTS.md",
       "write:.openclaw/workspace/SOUL.md",
@@ -188,8 +191,69 @@ describe("agent starter files", () => {
       "read:.openclaw/workspace/USER.md",
       "write:.openclaw/workspace/BOOTSTRAP.md",
       "read:.openclaw/workspace/BOOTSTRAP.md",
+      `delete:${OPENCLAW_CONFIG_PATH}`,
       "start:agent-1",
     ]);
+    expect(fileApi.writeFileBytes).not.toHaveBeenCalledWith(
+      "agent-1",
+      OPENCLAW_CONFIG_PATH,
+      expect.anything(),
+    );
+  });
+
+  it("deletes a setup-owned stale config after workspace verification", async () => {
+    const events: string[] = [];
+    const fileApi = inMemoryFileApi(events);
+    fileApi.storage.set(OPENCLAW_CONFIG_PATH, new TextEncoder().encode('{"agents":{"defaults":{"skipBootstrap":true}}}'));
+
+    await stageAgentStarterFilesAndStart({
+      agentId: "agent-1",
+      files: canonicalStarterFiles(),
+      writeFileBytes: fileApi.writeFileBytes,
+      readFileBytes: fileApi.readFileBytes,
+      deleteFile: fileApi.deleteFile,
+      startAgent: async (agentId) => {
+        events.push(`start:${agentId}`);
+      },
+    });
+
+    expect(fileApi.storage.has(OPENCLAW_CONFIG_PATH)).toBe(false);
+    expect(events.slice(-2)).toEqual([
+      `delete:${OPENCLAW_CONFIG_PATH}`,
+      "start:agent-1",
+    ]);
+  });
+
+  it("retries an unrouted edge 404 while clearing stale config", async () => {
+    vi.useFakeTimers();
+    try {
+      const fileApi = inMemoryFileApi();
+      const startAgent = vi.fn(async () => undefined);
+      const deleteFile = vi.fn(async () => {
+        if (deleteFile.mock.calls.length === 1) {
+          throw Object.assign(new Error("API Error 404: 404 page not found"), {
+            statusCode: 404,
+            detail: "404 page not found",
+          });
+        }
+      });
+
+      const staged = stageAgentStarterFilesAndStart({
+        agentId: "agent-1",
+        files: canonicalStarterFiles(),
+        writeFileBytes: fileApi.writeFileBytes,
+        readFileBytes: fileApi.readFileBytes,
+        deleteFile,
+        startAgent,
+      });
+      await vi.runAllTimersAsync();
+      await staged;
+
+      expect(deleteFile).toHaveBeenCalledTimes(2);
+      expect(startAgent).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("leaves the Agent stopped when its staging owner changes before START", async () => {
@@ -208,6 +272,7 @@ describe("agent starter files", () => {
       files,
       writeFileBytes: fileApi.writeFileBytes,
       readFileBytes,
+      deleteFile: fileApi.deleteFile,
       startAgent,
       shouldAbort: () => abort,
     })).rejects.toThrow("Workspace setup was cancelled before launch. The agent remains stopped.");
@@ -218,11 +283,7 @@ describe("agent starter files", () => {
   it("leaves the Agent stopped when required workspace files cannot be written", async () => {
     const started: string[] = [];
     const fileApi = inMemoryFileApi();
-    const writeFileBytes = vi.fn(async (agentId: string, path: string, content: ArrayBuffer) => {
-      if (path === OPENCLAW_PRESEEDED_CONFIG_PATH) {
-        await fileApi.writeFileBytes(agentId, path, content);
-        return;
-      }
+    const writeFileBytes = vi.fn(async () => {
       throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
     });
 
@@ -231,6 +292,7 @@ describe("agent starter files", () => {
       files: canonicalStarterFiles(),
       writeFileBytes,
       readFileBytes: fileApi.readFileBytes,
+      deleteFile: fileApi.deleteFile,
       startAgent: async (agentId) => {
         started.push(agentId);
       },
@@ -248,6 +310,7 @@ describe("agent starter files", () => {
       },
     });
     expect(started).toEqual([]);
+    expect(fileApi.deleteFile).not.toHaveBeenCalled();
   });
 
   it("leaves the Agent stopped when readback differs from the staged bytes", async () => {
@@ -263,6 +326,7 @@ describe("agent starter files", () => {
       files: canonicalStarterFiles(),
       writeFileBytes: fileApi.writeFileBytes,
       readFileBytes,
+      deleteFile: fileApi.deleteFile,
       startAgent: started,
     })).rejects.toThrow("verification failed for .openclaw/workspace/SOUL.md");
 
@@ -281,9 +345,29 @@ describe("agent starter files", () => {
       files,
       writeFileBytes: fileApi.writeFileBytes,
       readFileBytes: fileApi.readFileBytes,
+      deleteFile: fileApi.deleteFile,
       startAgent,
     })).rejects.toThrow("Missing required OpenClaw starter file: IDENTITY.md");
     expect(fileApi.writeFileBytes).not.toHaveBeenCalled();
+    expect(startAgent).not.toHaveBeenCalled();
+  });
+
+  it("leaves the Agent stopped when stale config cannot be cleared", async () => {
+    const fileApi = inMemoryFileApi();
+    const startAgent = vi.fn(async () => undefined);
+    const deleteError = Object.assign(new Error("Forbidden"), { statusCode: 403 });
+
+    await expect(stageAgentStarterFilesAndStart({
+      agentId: "agent-1",
+      files: canonicalStarterFiles(),
+      writeFileBytes: fileApi.writeFileBytes,
+      readFileBytes: fileApi.readFileBytes,
+      deleteFile: vi.fn(async () => { throw deleteError; }),
+      startAgent,
+    })).rejects.toThrow("OpenClaw setup could not clear its incomplete configuration: Forbidden");
+
+    expect(fileApi.writeFileBytes).toHaveBeenCalledTimes(5);
+    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(5);
     expect(startAgent).not.toHaveBeenCalled();
   });
 
@@ -328,6 +412,7 @@ describe("agent starter files", () => {
       files: canonicalStarterFiles(),
       writeFileBytes: fileApi.writeFileBytes,
       readFileBytes: fileApi.readFileBytes,
+      deleteFile: fileApi.deleteFile,
       startAgent: async () => {
         events.push("start:agent-1");
         throw startError;
@@ -335,6 +420,6 @@ describe("agent starter files", () => {
     })).rejects.toBe(startError);
 
     expect(events.at(-1)).toBe("start:agent-1");
-    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(6);
+    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(5);
   });
 });

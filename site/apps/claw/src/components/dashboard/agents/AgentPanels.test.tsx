@@ -152,6 +152,9 @@ const agentClientMocks = vi.hoisted(() => ({
         files.set(path, new Uint8Array(content).slice());
       }),
       fileReadBytes: vi.fn(async (_agentId: string, path: string) => files.get(path)?.slice() ?? new Uint8Array()),
+      fileDelete: vi.fn(async (_agentId: string, path: string) => {
+        files.delete(path);
+      }),
       waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
       start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
     };
@@ -221,6 +224,9 @@ function createInMemoryAgentClient() {
       files.set(path, new Uint8Array(content).slice());
     }),
     fileReadBytes: vi.fn(async (_agentId: string, path: string) => files.get(path)?.slice() ?? new Uint8Array()),
+    fileDelete: vi.fn(async (_agentId: string, path: string) => {
+      files.delete(path);
+    }),
     waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
     start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
   };
@@ -814,7 +820,7 @@ describe("AgentList", () => {
     expect(onCreateAgent).toHaveBeenCalledOnce();
   });
 
-  it("waits for stopped storage, verifies the complete preseed, then starts once", async () => {
+  it("waits for stopped storage, verifies the workspace, clears stale config, then starts once", async () => {
     const operations: string[] = [];
     const storedFiles = new Map<string, Uint8Array>();
     const createOpenClawAgent = vi.fn(async (_token: string, _options?: Record<string, unknown>) => {
@@ -829,6 +835,10 @@ describe("AgentList", () => {
       operations.push(`read:${path}`);
       return storedFiles.get(path)?.slice() ?? new Uint8Array();
     });
+    const fileDelete = vi.fn(async (_agentId: string, path: string) => {
+      operations.push(`delete:${path}`);
+      storedFiles.delete(path);
+    });
     const waitForState = vi.fn(async () => {
       operations.push("wait-stopped");
       return { id: "created-agent", state: "STOPPED" };
@@ -839,6 +849,7 @@ describe("AgentList", () => {
     agentClientMocks.createAgentClient.mockReturnValue({
       fileWriteBytes,
       fileReadBytes,
+      fileDelete,
       waitForState,
       start: vi.fn(),
     });
@@ -860,13 +871,13 @@ describe("AgentList", () => {
     await waitFor(() => expect(setSelectedAgentId).toHaveBeenCalledWith("created-agent"));
     expect(createOpenClawAgent).toHaveBeenCalledOnce();
     expect(createOpenClawAgent.mock.calls[0]?.[1]).not.toHaveProperty("start");
+    expect(createOpenClawAgent.mock.calls[0]?.[1]).not.toHaveProperty("config");
     expect(fileWriteBytes).toHaveBeenCalledWith(
       "created-agent",
       ".openclaw/workspace/AGENTS.md",
       expect.anything(),
     );
     expect(fileWriteBytes.mock.calls.map((call) => call[1])).toEqual([
-      ".openclaw/openclaw.json",
       ".openclaw/workspace/AGENTS.md",
       ".openclaw/workspace/SOUL.md",
       ".openclaw/workspace/IDENTITY.md",
@@ -877,6 +888,7 @@ describe("AgentList", () => {
       fileWriteBytes.mock.calls.map((call) => call[1]),
     );
     expect(fileWriteBytes.mock.calls[0]).toHaveLength(3);
+    expect(fileDelete).toHaveBeenCalledWith("created-agent", ".openclaw/openclaw.json");
     expect(waitForState).toHaveBeenCalledWith("created-agent", ["STOPPED"]);
     expect(agentClientMocks.startAgent).toHaveBeenCalledWith(expect.any(String), "created-agent");
     expect(agentClientMocks.startAgent).toHaveBeenCalledOnce();
@@ -884,8 +896,6 @@ describe("AgentList", () => {
       "create-creating",
       "wait-stopped",
       "refresh",
-      "write:.openclaw/openclaw.json",
-      "read:.openclaw/openclaw.json",
       "write:.openclaw/workspace/AGENTS.md",
       "read:.openclaw/workspace/AGENTS.md",
       "write:.openclaw/workspace/SOUL.md",
@@ -896,6 +906,7 @@ describe("AgentList", () => {
       "read:.openclaw/workspace/USER.md",
       "write:.openclaw/workspace/BOOTSTRAP.md",
       "read:.openclaw/workspace/BOOTSTRAP.md",
+      "delete:.openclaw/openclaw.json",
       "refresh",
       "start",
       "refresh",

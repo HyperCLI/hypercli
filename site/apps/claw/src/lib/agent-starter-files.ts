@@ -54,20 +54,11 @@ interface UploadAgentStarterFilesOptions {
 
 interface StageAgentStarterFilesAndStartOptions extends Omit<UploadAgentStarterFilesOptions, "readFileBytes"> {
   readFileBytes: NonNullable<UploadAgentStarterFilesOptions["readFileBytes"]>;
+  deleteFile: (agentId: string, path: string) => Promise<unknown>;
   startAgent: (agentId: string) => Promise<unknown>;
 }
 
-export const OPENCLAW_PRESEEDED_CONFIG_PATH = ".openclaw/openclaw.json";
-
-// This suppresses OpenClaw's generated templates only. Existing workspace
-// files, including BOOTSTRAP.md, still enter the first turn's Project Context.
-const OPENCLAW_PRESEEDED_CONFIG = `${JSON.stringify({
-  agents: {
-    defaults: {
-      skipBootstrap: true,
-    },
-  },
-}, null, 2)}\n`;
+export const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 
 // Retained Reef is expected to serve STOPPED agents, but token, DNS, and route
 // propagation can briefly lag storage materialization. Each operation mints a
@@ -94,19 +85,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function isRetryableFileUploadError(error: unknown): boolean {
-  const statusCode = isRecord(error)
+function fileOperationStatusCode(error: unknown): number | null {
+  return isRecord(error)
     ? typeof error.statusCode === "number"
       ? error.statusCode
       : typeof error.status === "number"
         ? error.status
         : null
     : null;
+}
+
+function isRetryableFileOperationError(error: unknown): boolean {
+  const statusCode = fileOperationStatusCode(error);
   if (statusCode !== null) return RETRYABLE_FILE_UPLOAD_STATUS_CODES.has(statusCode);
 
   const message = error instanceof Error ? error.message : String(error);
   return error instanceof TypeError
     && /failed to fetch|network(?:error| request failed)|load failed/i.test(message);
+}
+
+function isMissingAgentFileError(error: unknown): boolean {
+  if (fileOperationStatusCode(error) !== 404) return false;
+  const detail = isRecord(error) && typeof error.detail === "string"
+    ? error.detail
+    : error instanceof Error
+      ? error.message
+      : String(error);
+  // A wildcard edge with no converged Reef route returns this plain-text 404.
+  // That is retryable; only Reef's application-level 404 proves file absence.
+  return !/404 page not found/i.test(detail);
 }
 
 async function runStarterFileOperationWithRetry(
@@ -122,7 +129,7 @@ async function runStarterFileOperationWithRetry(
       throwIfStarterFileStagingCancelled(shouldAbort);
       return;
     } catch (error) {
-      if (!isRetryableFileUploadError(error)) throw error;
+      if (!isRetryableFileOperationError(error)) throw error;
       const delay = STARTER_FILE_UPLOAD_RETRY_DELAYS_MS[
         Math.min(retryIndex, STARTER_FILE_UPLOAD_RETRY_DELAYS_MS.length - 1)
       ];
@@ -348,6 +355,7 @@ export async function stageAgentStarterFilesAndStart({
   files,
   writeFileBytes,
   readFileBytes,
+  deleteFile,
   startAgent,
   retryTimeoutMs = STARTER_FILE_UPLOAD_RETRY_TIMEOUT_MS,
   shouldAbort,
@@ -356,23 +364,6 @@ export async function stageAgentStarterFilesAndStart({
   const preparedFiles = await prepareOpenClawStarterFiles(files);
   throwIfStarterFileStagingCancelled(shouldAbort);
   const deadline = Date.now() + retryTimeoutMs;
-  const configContent = new TextEncoder().encode(OPENCLAW_PRESEEDED_CONFIG).buffer as ArrayBuffer;
-
-  try {
-    await writeAndVerifyStarterFile({
-      agentId,
-      path: OPENCLAW_PRESEEDED_CONFIG_PATH,
-      content: configContent,
-      writeFileBytes,
-      readFileBytes,
-      deadline,
-      shouldAbort,
-    });
-  } catch (error) {
-    if (error instanceof AgentStarterFileStagingCancelledError) throw error;
-    const detail = starterFileErrorMessage(error);
-    throw new Error(`OpenClaw setup could not be staged and verified: ${detail}. The agent remains stopped.`);
-  }
 
   const result = await uploadAgentStarterFiles({
     agentId,
@@ -384,6 +375,24 @@ export async function stageAgentStarterFilesAndStart({
   });
 
   if (result.failures.length > 0) throw new AgentStarterFileStagingError(result);
+
+  // This setup path previously wrote a partial config that prevented the
+  // runtime image from installing its complete, version-specific template.
+  // Clear only setup-owned state immediately before this first launch/retry.
+  try {
+    await runStarterFileOperationWithRetry(async () => {
+      try {
+        await deleteFile(agentId, OPENCLAW_CONFIG_PATH);
+      } catch (error) {
+        if (!isMissingAgentFileError(error)) throw error;
+      }
+    }, { deadline, shouldAbort });
+  } catch (error) {
+    if (error instanceof AgentStarterFileStagingCancelledError) throw error;
+    const detail = starterFileErrorMessage(error);
+    throw new Error(`OpenClaw setup could not clear its incomplete configuration: ${detail}. The agent remains stopped.`);
+  }
+
   throwIfStarterFileStagingCancelled(shouldAbort);
   await startAgent(agentId);
   return result;

@@ -29,6 +29,14 @@ const TEST_WORKSPACE_ID = "workspace-checkout-recovery";
 const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}`;
 const FOREIGN_PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent("other-principal")}`;
 const FIRST_AGENT_DRAFT_KEY = "hypercli-first-agent-draft";
+const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
+const STAGED_FILE_PATHS = [
+  ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/SOUL.md",
+  ".openclaw/workspace/IDENTITY.md",
+  ".openclaw/workspace/USER.md",
+  ".openclaw/workspace/BOOTSTRAP.md",
+] as const;
 
 const CANCELLED_BANNER = "Checkout cancelled. No plan changes were made.";
 const PENDING_BANNER = "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.";
@@ -111,7 +119,8 @@ async function plantSession(page: Page, options: PlantOptions = {}): Promise<voi
 
 interface MockControls {
   readonly counters: { createCount: number; startCount: number; listGetCount: number; summaryGetCount: number };
-  readonly writtenFiles: Record<string, string>;
+  readonly writtenFiles: Record<string, Buffer>;
+  readonly stagingEvents: string[];
   failCreateWith: { status: number; body: Record<string, unknown> } | null;
   holdCreateResponse: boolean;
   releaseCreate: () => void;
@@ -124,12 +133,14 @@ interface MockControls {
 /** A faithful current-contract backend: stopped create, Reef file staging, one explicit start. */
 async function installMockBackend(page: Page): Promise<MockControls> {
   const counters = { createCount: 0, startCount: 0, listGetCount: 0, summaryGetCount: 0 };
-  const writtenFiles: Record<string, string> = {};
+  const writtenFiles: Record<string, Buffer> = {};
+  const stagingEvents: string[] = [];
   let createdAgent: Record<string, unknown> | null = null;
 
   const controls: MockControls = {
     counters,
     writtenFiles,
+    stagingEvents,
     failCreateWith: null,
     holdCreateResponse: false,
     releaseCreate: () => {},
@@ -223,8 +234,21 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
     }
-    if (createdAgent && pathName.includes(`/agents/deployments/${createdAgent.id}/start`)) {
+    if (method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent?.id ?? "?"}/files/token`)) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          token: "reef-token-recovery",
+          url: "https://reef.test/_reef",
+          expires_at: "2026-12-31T00:00:00Z",
+        }),
+      });
+      return;
+    }
+    if (createdAgent && method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent.id}/start`)) {
       counters.startCount += 1;
+      stagingEvents.push("start");
       createdAgent = { ...createdAgent, state: "RUNNING" };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
@@ -313,11 +337,36 @@ async function installMockBackend(page: Page): Promise<MockControls> {
   });
 
   await page.route(/^https:\/\/reef\.test\//, async (route) => {
-    if (route.request().method() === "PUT") {
-      const pathName = new URL(route.request().url()).pathname;
-      const fileName = ["AGENTS.md", "SOUL.md", "USER.md"].find((name) => pathName.includes(name));
-      const content = route.request().postDataBuffer()?.toString("utf8") ?? "";
-      if (fileName) writtenFiles[fileName] = content;
+    const request = route.request();
+    const pathName = new URL(request.url()).pathname;
+    const fileMarker = "/files/";
+    const markerIndex = pathName.indexOf(fileMarker);
+    expect(pathName.startsWith("/_reef/files/")).toBe(true);
+    expect(request.headers().authorization).toBe("Bearer reef-token-recovery");
+    const filePath = markerIndex >= 0
+      ? decodeURIComponent(pathName.slice(markerIndex + fileMarker.length))
+      : "";
+    if (request.method() === "PUT") {
+      expect(request.headers()["content-type"]).toContain("application/octet-stream");
+      writtenFiles[filePath] = Buffer.from(request.postDataBuffer() ?? Buffer.alloc(0));
+      stagingEvents.push(`write:${filePath}`);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
+    }
+    if (request.method() === "GET") {
+      stagingEvents.push(`read:${filePath}`);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/octet-stream",
+        body: writtenFiles[filePath] ?? Buffer.alloc(0),
+      });
+      return;
+    }
+    if (request.method() === "DELETE") {
+      delete writtenFiles[filePath];
+      stagingEvents.push(`delete:${filePath}`);
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+      return;
     }
     await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
   });
@@ -459,6 +508,12 @@ test("does not create twice when the settled Stripe return URL is revisited", as
   await page.goto("/dashboard/agents?checkout=success&session_id=cs_duplicate_visit", { waitUntil: "domcontentloaded" });
   await expect.poll(() => backend.counters.createCount, { timeout: 45_000 }).toBe(1);
   await expect.poll(() => backend.counters.startCount, { timeout: 45_000 }).toBe(1);
+  expect(Object.keys(backend.writtenFiles).sort()).toEqual([...STAGED_FILE_PATHS].sort());
+  expect(backend.stagingEvents).toEqual([
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    `delete:${OPENCLAW_CONFIG_PATH}`,
+    "start",
+  ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY), { timeout: 30_000 }).toBeNull();
   await expect.poll(() => new URL(page.url()).searchParams.has("checkout"), { timeout: 30_000 }).toBe(false);
 
