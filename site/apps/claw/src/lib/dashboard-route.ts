@@ -30,6 +30,14 @@ export function buildAgentTrialHref(_planId = "team"): string {
   return DASHBOARD_VIEW_HREFS.overview;
 }
 
+export function isTeamTrialDashboardEntry(
+  searchParams: Pick<URLSearchParams, "get">,
+): boolean {
+  const intent = searchParams.get("intent")?.trim().toLowerCase();
+  const planId = searchParams.get("plan")?.trim().toLowerCase();
+  return intent === "trial" && (!planId || planId === "team");
+}
+
 export function buildAuthenticatedClawHomeHref(search = ""): string {
   const params = new URLSearchParams(search);
   const planId = params.get("plan")?.trim() || null;

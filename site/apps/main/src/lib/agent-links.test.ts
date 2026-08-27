@@ -11,7 +11,7 @@ import { TEAM_TRIAL_HREF, agentPlanCtaHref, agentTrialHref } from "./agent-links
 
 describe("agent links", () => {
   it("lands Team trial offers on the dashboard overview", () => {
-    const expected = "https://agents.example.com/dashboard/agents?view=overview";
+    const expected = "https://agents.example.com/dashboard/agents?view=overview&intent=trial&plan=team";
 
     expect(TEAM_TRIAL_HREF).toBe(expected);
     expect(agentTrialHref(" TEAM ")).toBe(expected);

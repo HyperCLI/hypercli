@@ -278,9 +278,11 @@ import { buildAgentWorkspaceTabHref, resolveAgentRouteTab, type AgentRouteTab } 
 import { agentPrimarySurface } from "@/lib/agent-runtime-surface";
 import {
   ACCOUNT_PAGE_HREFS,
+  DASHBOARD_VIEW_HREFS,
   buildAgentSettingsHref,
   buildDashboardViewHref,
   buildKnowledgeHubHref,
+  isTeamTrialDashboardEntry,
   resolveDashboardView,
   resolveKnowledgeCollectionId,
   syncDashboardSearchParams,
@@ -1115,6 +1117,7 @@ function AgentsPageContent() {
   const requestedIntegrationId = searchParams.get("integration")?.trim() || null;
   const requestedOpen = searchParams.get("open")?.trim() || null;
   const requestedPlanId = searchParams.get("plan")?.trim() || null;
+  const teamTrialEntryRequested = isTeamTrialDashboardEntry(searchParams);
   const stripeCheckoutRecoveryRequested = searchParams.get("checkout") === "success" && Boolean(searchParams.get("session_id")?.trim());
   const requestedSection = searchParams.get("section")?.trim() || null;
   const requestedKnowledgeCollectionId = resolveKnowledgeCollectionId(searchParams);
@@ -1146,7 +1149,7 @@ function AgentsPageContent() {
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const shouldOpenAgentTourFromPageEntry = AGENT_DASHBOARD_TOUR_ENABLED && !isAuthenticated && !requestedOpen && !requestedAgentId && !requestedSessionKey &&
-    !requestedIntegrationId && !requestedSection && !requestedTab && !requestedView &&
+    !requestedIntegrationId && !requestedSection && !requestedTab && !requestedView && !teamTrialEntryRequested &&
     !slackOAuthOk && !slackOAuthError && !firstAgentSetupDraft;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const dashboardDisplayName = displayNameForDashboard(user);
@@ -1313,6 +1316,7 @@ function AgentsPageContent() {
   const mobileSettingsMenuRef = useRef<HTMLElement | null>(null);
   const authenticationModalObservedRef = useRef(false);
   const authenticationLoginPendingRef = useRef(false);
+  const appliedTeamTrialEntryRef = useRef(false);
   const embeddedCheckoutSelectionRequestRef = useRef(0);
   const paidFirstAgentCreationAttemptsRef = useRef<Set<string>>(new Set());
   const selectedAgentIdRef = useRef<string | null>(null);
@@ -1595,6 +1599,24 @@ function AgentsPageContent() {
     authenticationLoginPendingRef.current = !isAuthenticationModalOpen;
     setPendingAuthIntent(intent);
   }, [isAuthenticationModalOpen]);
+  useEffect(() => {
+    if (!teamTrialEntryRequested) {
+      appliedTeamTrialEntryRef.current = false;
+      return;
+    }
+    if (authLoading) return;
+    if (isAuthenticated) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("intent");
+      if (params.get("plan")?.trim().toLowerCase() === TEAM_TRIAL_PLAN_ID) params.delete("plan");
+      params.set("view", "overview");
+      syncDashboardSearchParams(params);
+      return;
+    }
+    if (appliedTeamTrialEntryRef.current || pendingAuthIntent) return;
+    appliedTeamTrialEntryRef.current = true;
+    requestAuthentication({ kind: "navigate", href: DASHBOARD_VIEW_HREFS.overview });
+  }, [authLoading, isAuthenticated, pendingAuthIntent, requestAuthentication, searchParams, teamTrialEntryRequested]);
   useEffect(() => {
     if (
       !pendingAuthIntent

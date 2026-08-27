@@ -12,6 +12,7 @@ import {
   buildDashboardViewHref,
   buildDashboardViewRedirectHref,
   buildKnowledgeHubHref,
+  isTeamTrialDashboardEntry,
   resolveDashboardView,
   resolveKnowledgeCollectionId,
   syncDashboardSearchParams,
@@ -68,6 +69,13 @@ describe("dashboard routes", () => {
     expect(buildAuthenticatedClawHomeHref("?plan=pro")).toBe(
       "/dashboard/agents?open=agent-launcher&plan=pro",
     );
+  });
+
+  it("recognizes only Team trial dashboard handoffs", () => {
+    expect(isTeamTrialDashboardEntry(new URLSearchParams("intent=trial&plan=team"))).toBe(true);
+    expect(isTeamTrialDashboardEntry(new URLSearchParams("intent=TRIAL"))).toBe(true);
+    expect(isTeamTrialDashboardEntry(new URLSearchParams("intent=trial&plan=pro"))).toBe(false);
+    expect(isTeamTrialDashboardEntry(new URLSearchParams("plan=team"))).toBe(false);
   });
 
   it("builds a canonical Knowledge Hub link with a Collection selection", () => {
