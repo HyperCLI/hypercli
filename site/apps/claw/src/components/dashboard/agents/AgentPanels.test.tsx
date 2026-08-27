@@ -879,9 +879,6 @@ describe("AgentList", () => {
     );
     expect(fileWriteBytes.mock.calls.map((call) => call[1])).toEqual([
       ".openclaw/workspace/AGENTS.md",
-      ".openclaw/workspace/SOUL.md",
-      ".openclaw/workspace/IDENTITY.md",
-      ".openclaw/workspace/USER.md",
       ".openclaw/workspace/BOOTSTRAP.md",
     ]);
     expect(fileReadBytes.mock.calls.map((call) => call[1])).toEqual(
@@ -889,6 +886,10 @@ describe("AgentList", () => {
     );
     expect(fileWriteBytes.mock.calls[0]).toHaveLength(3);
     expect(fileDelete).toHaveBeenCalledWith("created-agent", ".openclaw/openclaw.json");
+    expect(fileDelete).toHaveBeenCalledWith("created-agent", ".openclaw/workspace/SOUL.md");
+    expect(fileDelete).toHaveBeenCalledWith("created-agent", ".openclaw/workspace/IDENTITY.md");
+    expect(fileDelete).toHaveBeenCalledWith("created-agent", ".openclaw/workspace/USER.md");
+    expect(fileDelete).toHaveBeenCalledWith("created-agent", ".openclaw/workspace/MEMORY.md");
     expect(waitForState).toHaveBeenCalledWith("created-agent", ["STOPPED"]);
     expect(agentClientMocks.startAgent).toHaveBeenCalledWith(expect.any(String), "created-agent");
     expect(agentClientMocks.startAgent).toHaveBeenCalledOnce();
@@ -898,15 +899,13 @@ describe("AgentList", () => {
       "refresh",
       "write:.openclaw/workspace/AGENTS.md",
       "read:.openclaw/workspace/AGENTS.md",
-      "write:.openclaw/workspace/SOUL.md",
-      "read:.openclaw/workspace/SOUL.md",
-      "write:.openclaw/workspace/IDENTITY.md",
-      "read:.openclaw/workspace/IDENTITY.md",
-      "write:.openclaw/workspace/USER.md",
-      "read:.openclaw/workspace/USER.md",
       "write:.openclaw/workspace/BOOTSTRAP.md",
       "read:.openclaw/workspace/BOOTSTRAP.md",
       "delete:.openclaw/openclaw.json",
+      "delete:.openclaw/workspace/SOUL.md",
+      "delete:.openclaw/workspace/IDENTITY.md",
+      "delete:.openclaw/workspace/USER.md",
+      "delete:.openclaw/workspace/MEMORY.md",
       "refresh",
       "start",
       "refresh",

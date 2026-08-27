@@ -10,7 +10,7 @@ The onboarding pack contains:
 - `SOUL.md` — purpose, voice, behavior, and boundaries
 - `IDENTITY.md` — the structured starting name and identity fields OpenClaw reads
 - `USER.md` — respectful user context and response preferences
-- `BOOTSTRAP.md` — the one-time first-conversation ritual; it is deleted after the user confirms the identity
+- `BOOTSTRAP.md` — the structured onboarding ritual for identity, user context, research, preferences, and relevant next steps; it is deleted after its completion criteria are met
 - `MEMORY.md` — optional curated durable context, created only when the user opts in and supplies content
 
 These are exact workspace-root filenames recognized by the OpenClaw runtime. Tool notes belong in the `## Tools` section of `AGENTS.md`. The launcher does not create retired tool/heartbeat files or app-specific pseudo-runtime files.
@@ -22,13 +22,11 @@ These are exact workspace-root filenames recognized by the OpenClaw runtime. Too
 3. The browser queues one generation task per model-assisted file and processes them in order with one Kimi request active at a time. `IDENTITY.md` and `BOOTSTRAP.md` stay deterministic so their structured fields and one-time lifecycle cannot drift. A client-side finite-state machine tracks each generated file as `queued`, `generating`, `ready`, or `fallback`; the UI reflects the real request state rather than a timer animation.
 4. Generation continues in the wizard while the user moves to the plan step. The complete pack, task state, and completed model results remain in client-side wizard state. Every file has a raw editor/preview, and edited content is the content that will be staged.
 5. The user chooses launch capacity.
-6. Claw validates the complete canonical pack, then creates the agent with `start: false` and OpenClaw's real `agents.defaults.skipBootstrap` option. That option means "do not replace this pre-seeded workspace"; the staged `BOOTSTRAP.md` still runs on the first real turn.
-7. While the agent is `STOPPED`, Claw writes the skip-bootstrap setting to retained `.openclaw/openclaw.json` and writes the canonical files to `.openclaw/workspace/` through the agent file API. It reads every write back and requires exact byte equality.
-8. Only after every required write is verified does Claw start the same agent. The managed runtime restores the retained volume into
-   `/home/node` before OpenClaw starts, so the first turn sees the prepared
-   files.
+6. Claw validates the complete canonical draft, then creates the agent with `start: false`. At the launch boundary, it quotes the reviewed `SOUL.md`, `IDENTITY.md`, `USER.md`, and optional `MEMORY.md` drafts into an `Unconfirmed setup hints` section in `BOOTSTRAP.md`. These hints remain subject to confirmation during native onboarding.
+7. While the agent is `STOPPED`, Claw writes only `AGENTS.md` and the augmented `BOOTSTRAP.md` to `.openclaw/workspace/` through the agent file API. It reads every write back and requires exact byte equality. Immediately before the first start or setup retry, it removes setup-owned `.openclaw/openclaw.json` state and any stale `SOUL.md`, `IDENTITY.md`, `USER.md`, or `MEMORY.md` drafts from an older staging attempt.
+8. Only after every required write and cleanup is verified does Claw start the same agent. The managed runtime restores the retained volume into `/home/node`, installs its complete version-specific configuration, and leaves the missing profile files for native OpenClaw workspace initialization.
 
-On the first primary user turn, OpenClaw injects every existing canonical file into the model's system-prompt Project Context. Because the workspace has no completed-setup marker and the pre-seeded `BOOTSTRAP.md` exists, OpenClaw enters full bootstrap mode and explicitly requires that file to guide the first visible reply. `skipBootstrap` suppresses runtime-generated replacement templates only; it does not suppress the staged `BOOTSTRAP.md`.
+On the first primary user turn, OpenClaw creates its stock `SOUL.md`, `IDENTITY.md`, and `USER.md` templates. Because those files still match the stock templates and no memory file exists, OpenClaw does not infer that onboarding is complete. The existing `BOOTSTRAP.md`, including the unconfirmed wizard hints, remains in the model's system-prompt Project Context. Its compatibility sequencing keeps intermediate answers in conversation state; the final onboarding turn writes the confirmed profile and memory details and deletes `BOOTSTRAP.md` together.
 
 After the initial REST load, Claw subscribes through
 `client.deployments.subscribe()`. Lifecycle invalidations are coalesced and
@@ -39,7 +37,7 @@ If file staging or start fails, the backend leaves the agent stopped rather than
 
 ## Deterministic generation
 
-`src/lib/openclaw-bootstrap-pack.ts` is the source of truth for the versioned, deterministic pack. It validates the exact allowlist, required files, uniqueness, non-empty content, and size limits. This path requires no model and is always available.
+`src/lib/openclaw-bootstrap-pack.ts` is the source of truth for the versioned, deterministic draft and its launch materialization. It validates the exact allowlists, required files, uniqueness, non-empty content, and size limits. This path requires no model and is always available.
 
 Structured fields are deliberately kept separate from generated Markdown. Regenerating rebuilds the files from those fields; direct editor changes otherwise remain intact.
 

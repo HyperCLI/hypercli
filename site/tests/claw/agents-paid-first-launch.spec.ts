@@ -13,10 +13,13 @@ const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURICompon
 const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 const STAGED_FILE_PATHS = [
   ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/BOOTSTRAP.md",
+] as const;
+const PRESTART_CLEANUP_PATHS = [
   ".openclaw/workspace/SOUL.md",
   ".openclaw/workspace/IDENTITY.md",
   ".openclaw/workspace/USER.md",
-  ".openclaw/workspace/BOOTSTRAP.md",
+  ".openclaw/workspace/MEMORY.md",
 ] as const;
 
 test("creates the saved first agent after Stripe payment is reflected", async ({ page }) => {
@@ -354,6 +357,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
   expect(stagingEvents).toEqual([
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
+    ...PRESTART_CLEANUP_PATHS.map((filePath) => `delete:${filePath}`),
     "start",
   ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();

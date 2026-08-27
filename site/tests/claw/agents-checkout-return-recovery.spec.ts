@@ -24,10 +24,13 @@ const FIRST_AGENT_CHECKOUT_DRAFT_KEY = `hyperclaw.firstAgentCheckoutDraft.v1:${e
 const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 const STAGED_FILE_PATHS = [
   ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/BOOTSTRAP.md",
+] as const;
+const PRESTART_CLEANUP_PATHS = [
   ".openclaw/workspace/SOUL.md",
   ".openclaw/workspace/IDENTITY.md",
   ".openclaw/workspace/USER.md",
-  ".openclaw/workspace/BOOTSTRAP.md",
+  ".openclaw/workspace/MEMORY.md",
 ] as const;
 
 const CANCELLED_BANNER = "Checkout cancelled. No plan changes were made.";
@@ -620,6 +623,7 @@ test("recovers a committed Agent after its create response fails without creatin
     "slack-patch",
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
+    ...PRESTART_CLEANUP_PATHS.map((filePath) => `delete:${filePath}`),
     "start",
   ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
@@ -643,6 +647,7 @@ test("does not create twice when the settled Stripe return URL is revisited", as
   expect(backend.stagingEvents).toEqual([
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
+    ...PRESTART_CLEANUP_PATHS.map((filePath) => `delete:${filePath}`),
     "start",
   ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY), { timeout: 30_000 }).toBeNull();
@@ -692,6 +697,7 @@ test("reconciles the already-created agent instead of duplicating it after a mid
   expect(backend.stagingEvents).toEqual([
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
+    ...PRESTART_CLEANUP_PATHS.map((filePath) => `delete:${filePath}`),
     "start",
   ]);
   await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY), { timeout: 30_000 }).toBeNull();

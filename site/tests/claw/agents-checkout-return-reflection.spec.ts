@@ -40,10 +40,13 @@ const FIRST_AGENT_DRAFT_KEY = "hypercli-first-agent-draft";
 const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 const STAGED_FILE_PATHS = [
   ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/BOOTSTRAP.md",
+] as const;
+const PRESTART_CLEANUP_PATHS = [
   ".openclaw/workspace/SOUL.md",
   ".openclaw/workspace/IDENTITY.md",
   ".openclaw/workspace/USER.md",
-  ".openclaw/workspace/BOOTSTRAP.md",
+  ".openclaw/workspace/MEMORY.md",
 ] as const;
 
 const WAITING_ENTITLEMENT_MESSAGE =
@@ -518,7 +521,7 @@ test("surfaces the terminal start failure after a successful recovery create wit
 test("keeps a readback mismatch stopped and retries that same Agent after Refresh", async ({ page }) => {
   test.setTimeout(120_000);
   const backend = await installMockBackend(page);
-  backend.corruptReadPath = ".openclaw/workspace/SOUL.md";
+  backend.corruptReadPath = ".openclaw/workspace/BOOTSTRAP.md";
   await plantSession(page);
 
   await page.goto("/dashboard/agents?checkout=success&session_id=cs_readback_mismatch", { waitUntil: "domcontentloaded" });
@@ -526,7 +529,7 @@ test("keeps a readback mismatch stopped and retries that same Agent after Refres
   await expect.poll(() => backend.counters.createCount, { timeout: 60_000 }).toBe(1);
   const errorBanner = page.getByTestId("agent-error-banner");
   await expect(errorBanner).toBeVisible({ timeout: 30_000 });
-  await expect(errorBanner).toContainText("Workspace file verification failed for .openclaw/workspace/SOUL.md");
+  await expect(errorBanner).toContainText("Workspace file verification failed for .openclaw/workspace/BOOTSTRAP.md");
   expect(backend.counters.startCount).toBe(0);
   expect(backend.stagingEvents).toEqual(
     STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
@@ -545,6 +548,7 @@ test("keeps a readback mismatch stopped and retries that same Agent after Refres
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
+    ...PRESTART_CLEANUP_PATHS.map((filePath) => `delete:${filePath}`),
     "start",
   ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
@@ -572,6 +576,7 @@ test("settles the paid-first recovery with a clean console and no failed app req
   expect(backend.stagingEvents).toEqual([
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
+    ...PRESTART_CLEANUP_PATHS.map((filePath) => `delete:${filePath}`),
     "start",
   ]);
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY), { timeout: 30_000 }).toBeNull();

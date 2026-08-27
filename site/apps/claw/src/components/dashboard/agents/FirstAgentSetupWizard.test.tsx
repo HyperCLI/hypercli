@@ -1045,7 +1045,8 @@ describe("FirstAgentSetupWizard", () => {
     expect(fileContents.get("SOUL.md"))
       .toContain("Be observant, skeptical, and relentless about finding the truth.");
     expect(fileContents.get("IDENTITY.md")).toContain("- **Name:**");
-    expect(fileContents.get("BOOTSTRAP.md")).toContain("delete `BOOTSTRAP.md`");
+    expect(fileContents.get("BOOTSTRAP.md"))
+      .toContain("structured, multi-turn onboarding ritual");
   });
 
   it("keeps a saved draft inside the main setup shell before resuming", async () => {

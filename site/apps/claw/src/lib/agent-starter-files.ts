@@ -2,8 +2,13 @@ import { toSafeAgentFileName } from "@/lib/agent-file-recovery";
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 import {
   OPENCLAW_BOOTSTRAP_OPTIONAL_FILES,
+  OPENCLAW_BOOTSTRAP_PRESTART_CLEANUP_FILES,
+  OPENCLAW_BOOTSTRAP_PROFILE_FILES,
   OPENCLAW_BOOTSTRAP_REQUIRED_FILES,
+  OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES,
+  materializeOpenClawBootstrapPackForStaging,
   validateOpenClawBootstrapPack,
+  validateOpenClawStagedBootstrapPack,
   type OpenClawBootstrapFileName,
 } from "@/lib/openclaw-bootstrap-pack";
 
@@ -200,7 +205,18 @@ export function validateOpenClawStarterFiles(files: readonly AgentStarterFile[])
     seen.add(key);
   }
 
-  for (const required of OPENCLAW_BOOTSTRAP_REQUIRED_FILES) {
+  const profileCount = OPENCLAW_BOOTSTRAP_PROFILE_FILES.filter((name) => seen.has(name.toLowerCase())).length;
+  if (profileCount === 0) {
+    const stagedAllowed = new Set<string>(OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES);
+    const unsupported = files.find((file) => !stagedAllowed.has(file.name));
+    if (unsupported) {
+      throw new Error(`Unsupported staged OpenClaw starter file: ${unsupported.name}`);
+    }
+  }
+  const requiredFiles = profileCount === 0
+    ? OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES
+    : OPENCLAW_BOOTSTRAP_REQUIRED_FILES;
+  for (const required of requiredFiles) {
     if (!seen.has(required.toLowerCase())) {
       throw new Error(`Missing required OpenClaw starter file: ${required}`);
     }
@@ -239,13 +255,25 @@ export async function prepareOpenClawStarterFiles(
     }
   }
 
-  validateOpenClawBootstrapPack(prepared.map(({ name, content }) => ({ name, content })));
-  return prepared.map(({ name, type, bytes }) => ({
-    name,
-    size: bytes.byteLength,
-    type,
-    arrayBuffer: async () => bytes.slice().buffer as ArrayBuffer,
-  }));
+  const decoded = prepared.map(({ name, content }) => ({ name, content }));
+  const hasProfileDrafts = decoded.some((file) => (
+    OPENCLAW_BOOTSTRAP_PROFILE_FILES.includes(file.name as (typeof OPENCLAW_BOOTSTRAP_PROFILE_FILES)[number])
+  ));
+  const staged = hasProfileDrafts
+    ? materializeOpenClawBootstrapPackForStaging(validateOpenClawBootstrapPack(decoded))
+    : validateOpenClawStagedBootstrapPack(decoded);
+  const preparedByName = new Map(prepared.map((file) => [file.name, file]));
+  const encoder = new TextEncoder();
+  return staged.map(({ name, content }) => {
+    const source = preparedByName.get(name);
+    const bytes = source?.content === content ? source.bytes : encoder.encode(content);
+    return {
+      name,
+      size: bytes.byteLength,
+      type: source?.type ?? "text/markdown",
+      arrayBuffer: async () => bytes.slice().buffer as ArrayBuffer,
+    };
+  });
 }
 
 function asBytes(content: ArrayBuffer | Uint8Array): Uint8Array {
@@ -391,6 +419,25 @@ export async function stageAgentStarterFilesAndStart({
     if (error instanceof AgentStarterFileStagingCancelledError) throw error;
     const detail = starterFileErrorMessage(error);
     throw new Error(`OpenClaw setup could not clear its incomplete configuration: ${detail}. The agent remains stopped.`);
+  }
+
+  // Profile and memory files are completion evidence to native OpenClaw
+  // bootstrap. Remove setup-owned drafts left by the older staging flow.
+  try {
+    for (const name of OPENCLAW_BOOTSTRAP_PRESTART_CLEANUP_FILES) {
+      const path = `${OPENCLAW_WORKSPACE_PREFIX}/${name}`;
+      await runStarterFileOperationWithRetry(async () => {
+        try {
+          await deleteFile(agentId, path);
+        } catch (error) {
+          if (!isMissingAgentFileError(error)) throw error;
+        }
+      }, { deadline, shouldAbort });
+    }
+  } catch (error) {
+    if (error instanceof AgentStarterFileStagingCancelledError) throw error;
+    const detail = starterFileErrorMessage(error);
+    throw new Error(`OpenClaw setup could not clear its draft profile or memory files: ${detail}. The agent remains stopped.`);
   }
 
   throwIfStarterFileStagingCancelled(shouldAbort);

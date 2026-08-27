@@ -179,21 +179,21 @@ describe("agent starter files", () => {
     });
 
     expect(failures).toEqual([]);
-    expect(uploaded).toHaveLength(5);
+    expect(uploaded).toHaveLength(2);
     expect(events).toEqual([
       "write:.openclaw/workspace/AGENTS.md",
       "read:.openclaw/workspace/AGENTS.md",
-      "write:.openclaw/workspace/SOUL.md",
-      "read:.openclaw/workspace/SOUL.md",
-      "write:.openclaw/workspace/IDENTITY.md",
-      "read:.openclaw/workspace/IDENTITY.md",
-      "write:.openclaw/workspace/USER.md",
-      "read:.openclaw/workspace/USER.md",
       "write:.openclaw/workspace/BOOTSTRAP.md",
       "read:.openclaw/workspace/BOOTSTRAP.md",
       `delete:${OPENCLAW_CONFIG_PATH}`,
+      "delete:.openclaw/workspace/SOUL.md",
+      "delete:.openclaw/workspace/IDENTITY.md",
+      "delete:.openclaw/workspace/USER.md",
+      "delete:.openclaw/workspace/MEMORY.md",
       "start:agent-1",
     ]);
+    expect(new TextDecoder().decode(fileApi.storage.get(".openclaw/workspace/BOOTSTRAP.md")))
+      .toContain("### Draft IDENTITY.md");
     expect(fileApi.writeFileBytes).not.toHaveBeenCalledWith(
       "agent-1",
       OPENCLAW_CONFIG_PATH,
@@ -205,6 +205,9 @@ describe("agent starter files", () => {
     const events: string[] = [];
     const fileApi = inMemoryFileApi(events);
     fileApi.storage.set(OPENCLAW_CONFIG_PATH, new TextEncoder().encode('{"agents":{"defaults":{"skipBootstrap":true}}}'));
+    for (const name of ["SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"]) {
+      fileApi.storage.set(`.openclaw/workspace/${name}`, new TextEncoder().encode("stale draft"));
+    }
 
     await stageAgentStarterFilesAndStart({
       agentId: "agent-1",
@@ -218,8 +221,15 @@ describe("agent starter files", () => {
     });
 
     expect(fileApi.storage.has(OPENCLAW_CONFIG_PATH)).toBe(false);
-    expect(events.slice(-2)).toEqual([
-      `delete:${OPENCLAW_CONFIG_PATH}`,
+    expect(fileApi.storage.has(".openclaw/workspace/SOUL.md")).toBe(false);
+    expect(fileApi.storage.has(".openclaw/workspace/IDENTITY.md")).toBe(false);
+    expect(fileApi.storage.has(".openclaw/workspace/USER.md")).toBe(false);
+    expect(fileApi.storage.has(".openclaw/workspace/MEMORY.md")).toBe(false);
+    expect(events.slice(-5)).toEqual([
+      "delete:.openclaw/workspace/SOUL.md",
+      "delete:.openclaw/workspace/IDENTITY.md",
+      "delete:.openclaw/workspace/USER.md",
+      "delete:.openclaw/workspace/MEMORY.md",
       "start:agent-1",
     ]);
   });
@@ -249,7 +259,7 @@ describe("agent starter files", () => {
       await vi.runAllTimersAsync();
       await staged;
 
-      expect(deleteFile).toHaveBeenCalledTimes(2);
+      expect(deleteFile).toHaveBeenCalledTimes(6);
       expect(startAgent).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -318,7 +328,7 @@ describe("agent starter files", () => {
     const fileApi = inMemoryFileApi();
     const readFileBytes = vi.fn(async (agentId: string, path: string) => {
       const content = await fileApi.readFileBytes(agentId, path);
-      return path.endsWith("SOUL.md") ? new TextEncoder().encode("wrong") : content;
+      return path.endsWith("BOOTSTRAP.md") ? new TextEncoder().encode("wrong") : content;
     });
 
     await expect(stageAgentStarterFilesAndStart({
@@ -328,7 +338,7 @@ describe("agent starter files", () => {
       readFileBytes,
       deleteFile: fileApi.deleteFile,
       startAgent: started,
-    })).rejects.toThrow("verification failed for .openclaw/workspace/SOUL.md");
+    })).rejects.toThrow("verification failed for .openclaw/workspace/BOOTSTRAP.md");
 
     expect(started).not.toHaveBeenCalled();
   });
@@ -352,6 +362,19 @@ describe("agent starter files", () => {
     expect(startAgent).not.toHaveBeenCalled();
   });
 
+  it("rejects pre-start memory outside the bootstrap hints", async () => {
+    const files = [
+      starterFile("AGENTS.md", "# AGENTS.md\n\nInstructions"),
+      starterFile("BOOTSTRAP.md", "# BOOTSTRAP.md\n\nOnboard the user"),
+      starterFile("MEMORY.md", "# MEMORY.md\n\nPremature completion evidence"),
+    ];
+
+    expect(() => validateOpenClawStarterFiles(files))
+      .toThrow("Unsupported staged OpenClaw starter file: MEMORY.md");
+    await expect(prepareOpenClawStarterFiles(files))
+      .rejects.toThrow("Unsupported staged OpenClaw starter file: MEMORY.md");
+  });
+
   it("leaves the Agent stopped when stale config cannot be cleared", async () => {
     const fileApi = inMemoryFileApi();
     const startAgent = vi.fn(async () => undefined);
@@ -366,8 +389,30 @@ describe("agent starter files", () => {
       startAgent,
     })).rejects.toThrow("OpenClaw setup could not clear its incomplete configuration: Forbidden");
 
-    expect(fileApi.writeFileBytes).toHaveBeenCalledTimes(5);
-    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(5);
+    expect(fileApi.writeFileBytes).toHaveBeenCalledTimes(2);
+    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(2);
+    expect(startAgent).not.toHaveBeenCalled();
+  });
+
+  it("leaves the Agent stopped when stale profile or memory drafts cannot be cleared", async () => {
+    const fileApi = inMemoryFileApi();
+    const startAgent = vi.fn(async () => undefined);
+    const deleteFile = vi.fn(async (_agentId: string, path: string) => {
+      if (path.endsWith("IDENTITY.md")) {
+        throw Object.assign(new Error("Forbidden"), { statusCode: 403 });
+      }
+      throw Object.assign(new Error("Not found"), { statusCode: 404 });
+    });
+
+    await expect(stageAgentStarterFilesAndStart({
+      agentId: "agent-1",
+      files: canonicalStarterFiles(),
+      writeFileBytes: fileApi.writeFileBytes,
+      readFileBytes: fileApi.readFileBytes,
+      deleteFile,
+      startAgent,
+    })).rejects.toThrow("OpenClaw setup could not clear its draft profile or memory files: Forbidden");
+
     expect(startAgent).not.toHaveBeenCalled();
   });
 
@@ -380,7 +425,14 @@ describe("agent starter files", () => {
     expect(sourceRead).toHaveBeenCalledOnce();
     expect(new TextDecoder().decode(await prepared[0]!.arrayBuffer()))
       .toBe("# AGENTS.md\n\nAGENTS.md content");
+    expect(prepared.map((file) => file.name)).toEqual(["AGENTS.md", "BOOTSTRAP.md"]);
+    expect(new TextDecoder().decode(await prepared[1]!.arrayBuffer()))
+      .toContain("### Draft SOUL.md");
     expect(prepared[0]!.size).toBe((await prepared[0]!.arrayBuffer()).byteLength);
+
+    const preparedAgain = await prepareOpenClawStarterFiles(prepared);
+    const bootstrapAgain = new TextDecoder().decode(await preparedAgain[1]!.arrayBuffer());
+    expect(bootstrapAgain.match(/## Unconfirmed setup hints/g)).toHaveLength(1);
   });
 
   it("rejects unreadable, empty, and oversized workspace files before staging", async () => {
@@ -420,6 +472,6 @@ describe("agent starter files", () => {
     })).rejects.toBe(startError);
 
     expect(events.at(-1)).toBe("start:agent-1");
-    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(5);
+    expect(fileApi.readFileBytes).toHaveBeenCalledTimes(2);
   });
 });

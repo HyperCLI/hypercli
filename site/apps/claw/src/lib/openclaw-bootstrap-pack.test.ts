@@ -8,10 +8,12 @@ import {
   buildOpenClawBootstrapResponseFormat,
   createDefaultOpenClawBootstrapInputs,
   isModelGeneratedOpenClawBootstrapFile,
+  materializeOpenClawBootstrapPackForStaging,
   openClawBootstrapBackupPath,
   parseGeneratedOpenClawBootstrapFile,
   parseGeneratedOpenClawBootstrapPack,
   parseOpenClawBootstrapDraft,
+  resolveOpenClawBootstrapPack,
   validateOpenClawBootstrapPack,
 } from "./openclaw-bootstrap-pack";
 
@@ -32,7 +34,8 @@ describe("OpenClaw bootstrap pack", () => {
     expect(files.find((file) => file.name === "AGENTS.md")?.content).toContain("## Tools");
     expect(files.find((file) => file.name === "SOUL.md")?.content).toContain("You are Cairn");
     expect(files.find((file) => file.name === "IDENTITY.md")?.content).toContain("- **Name:** Cairn");
-    expect(files.find((file) => file.name === "BOOTSTRAP.md")?.content).toContain("delete `BOOTSTRAP.md`");
+    expect(files.find((file) => file.name === "BOOTSTRAP.md")?.content)
+      .toContain("structured, multi-turn onboarding ritual");
     expect(isModelGeneratedOpenClawBootstrapFile("IDENTITY.md")).toBe(false);
     expect(isModelGeneratedOpenClawBootstrapFile("BOOTSTRAP.md")).toBe(false);
   });
@@ -49,6 +52,17 @@ describe("OpenClaw bootstrap pack", () => {
     expect(firstBootstrap).toBe(secondBootstrap);
     expect(firstBootstrap).not.toContain("{{");
     expect(firstBootstrap).not.toContain("Cairn");
+    expect(firstBootstrap).toContain("### Identity");
+    expect(firstBootstrap).toContain("### Personality / Soul");
+    expect(firstBootstrap).toContain("### Context");
+    expect(firstBootstrap).toContain("### Research");
+    expect(firstBootstrap).toContain("### Setup");
+    expect(firstBootstrap).toContain("### Value proposition + close");
+    expect(firstBootstrap).toContain("## Completion Criteria");
+
+    const fallbackBootstrap = resolveOpenClawBootstrapPack(null, "Cairn")
+      .find((file) => file.name === "BOOTSTRAP.md")?.content;
+    expect(fallbackBootstrap).toBe(firstBootstrap);
   });
 
   it("adds MEMORY.md only when the user opts in with durable context", async () => {
@@ -64,6 +78,37 @@ describe("OpenClaw bootstrap pack", () => {
 
     expect(withoutNotes.map((file) => file.name)).not.toContain("MEMORY.md");
     expect(withNotes.map((file) => file.name)).toContain("MEMORY.md");
+    const staged = materializeOpenClawBootstrapPackForStaging(withNotes);
+    expect(staged.map((file) => file.name)).toEqual(["AGENTS.md", "BOOTSTRAP.md"]);
+    expect(staged.find((file) => file.name === "BOOTSTRAP.md")?.content)
+      .toContain("### Draft MEMORY.md");
+    expect(staged.find((file) => file.name === "BOOTSTRAP.md")?.content)
+      .toContain("The user is preparing a product launch.");
+  });
+
+  it("moves profile drafts into native BOOTSTRAP.md as unconfirmed setup hints", async () => {
+    const draftFiles = await assembleOpenClawBootstrapPack({
+      ...createDefaultOpenClawBootstrapInputs("Cairn"),
+      userName: "Morgan",
+      timezone: "America/New_York",
+      companyRole: "Founder at Example Co",
+    });
+
+    const staged = materializeOpenClawBootstrapPackForStaging(draftFiles);
+    const bootstrap = staged.find((file) => file.name === "BOOTSTRAP.md")?.content ?? "";
+
+    expect(staged.map((file) => file.name)).toEqual(["AGENTS.md", "BOOTSTRAP.md"]);
+    expect(bootstrap).toContain("## Unconfirmed setup hints");
+    expect(bootstrap).toContain("### Draft SOUL.md");
+    expect(bootstrap).toContain("### Draft IDENTITY.md");
+    expect(bootstrap).toContain("### Draft USER.md");
+    expect(bootstrap).toContain("> - **Name:** Cairn");
+    expect(bootstrap).toContain("> - **Name / what to call them:** Morgan");
+    expect(bootstrap).toContain("> - **Timezone:** America/New_York");
+    expect(bootstrap).toContain("### Compatibility sequencing");
+    expect(bootstrap).toContain("do not modify `SOUL.md`, `IDENTITY.md`, or `USER.md`");
+    expect(bootstrap).toContain("On the final onboarding turn");
+    expect(bootstrap).toContain("Complete every remaining onboarding phase");
   });
 
   it("validates required names and resolves backup paths", async () => {
@@ -187,7 +232,7 @@ describe("OpenClaw bootstrap pack", () => {
       generationSource: "model",
     });
 
-    expect(upgraded?.version).toBe(2);
+    expect(upgraded?.version).toBe(3);
     expect(upgraded?.files.map((file) => file.name)).toEqual([
       "AGENTS.md",
       "SOUL.md",
@@ -199,5 +244,32 @@ describe("OpenClaw bootstrap pack", () => {
       .toContain("Keep this exact setup.");
     expect(upgraded?.files.find((file) => file.name === "IDENTITY.md")?.content)
       .toContain("- **Name:** Cairn");
+  });
+
+  it("upgrades saved v2 drafts while replacing their stale deterministic bootstrap", () => {
+    const inputs = createDefaultOpenClawBootstrapInputs("Cairn");
+    const current = assembleOpenClawBootstrapPack(inputs);
+    const upgraded = parseOpenClawBootstrapDraft({
+      version: 2,
+      inputs,
+      files: current.map((file) => (
+        file.name === "BOOTSTRAP.md"
+          ? { ...file, content: "# Old bootstrap\n\nDo the old flow." }
+          : file
+      )),
+      generationSource: "mixed",
+    });
+
+    expect(upgraded?.version).toBe(3);
+    expect(upgraded?.generationSource).toBe("mixed");
+    expect(upgraded?.files.find((file) => file.name === "BOOTSTRAP.md")?.content)
+      .toContain("structured, multi-turn onboarding ritual");
+    expect(upgraded?.files.find((file) => file.name === "BOOTSTRAP.md")?.content)
+      .not.toContain("Do the old flow");
+    expect(parseOpenClawBootstrapDraft({
+      version: "2",
+      inputs,
+      files: current,
+    })).toBeNull();
   });
 });

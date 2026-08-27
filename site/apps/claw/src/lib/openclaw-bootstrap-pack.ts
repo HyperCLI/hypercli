@@ -1,12 +1,26 @@
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
 import { assembleOpenClawBootstrapPack } from "@/lib/bootstrap-templates";
+import bootstrapTemplate from "../../public/bootstrap/BOOTSTRAP.md";
 
-export const OPENCLAW_BOOTSTRAP_PACK_VERSION = 2;
+export const OPENCLAW_BOOTSTRAP_PACK_VERSION = 3;
 export const OPENCLAW_BOOTSTRAP_REQUIRED_FILES = [
   "AGENTS.md",
   "SOUL.md",
   "IDENTITY.md",
   "USER.md",
+  "BOOTSTRAP.md",
+] as const;
+export const OPENCLAW_BOOTSTRAP_PROFILE_FILES = [
+  "SOUL.md",
+  "IDENTITY.md",
+  "USER.md",
+] as const;
+export const OPENCLAW_BOOTSTRAP_PRESTART_CLEANUP_FILES = [
+  ...OPENCLAW_BOOTSTRAP_PROFILE_FILES,
+  "MEMORY.md",
+] as const;
+export const OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES = [
+  "AGENTS.md",
   "BOOTSTRAP.md",
 ] as const;
 export const OPENCLAW_BOOTSTRAP_OPTIONAL_FILES = ["MEMORY.md"] as const;
@@ -65,7 +79,7 @@ const DETERMINISTIC_ONLY_FILE_NAMES = new Set<OpenClawBootstrapFileName>([
   "IDENTITY.md",
   "BOOTSTRAP.md",
 ]);
-const LEGACY_BOOTSTRAP_PACK_VERSION = 1;
+const LEGACY_BOOTSTRAP_PACK_VERSIONS = new Set([1, 2]);
 const LEGACY_REQUIRED_FILE_NAMES = ["AGENTS.md", "SOUL.md", "USER.md"] as const;
 const LEGACY_ALLOWED_FILE_NAMES = new Set<OpenClawBootstrapFileName>([
   ...LEGACY_REQUIRED_FILE_NAMES,
@@ -115,7 +129,7 @@ const FILE_PURPOSES: Record<OpenClawBootstrapFileName, string> = {
   "SOUL.md": "Cover purpose, voice, behavior, and boundaries without inventing a biography or persona history.",
   "IDENTITY.md": "Record the supplied starting name and tone using OpenClaw's Name, Creature, Vibe, Emoji, and Avatar fields.",
   "USER.md": "Contain only supplied user context, work context, preferences, and escalation expectations.",
-  "BOOTSTRAP.md": "Define a short one-time first-conversation ritual that confirms the starting identity, persists agreed changes, and deletes BOOTSTRAP.md only after confirmation. The user's real request always comes first.",
+  "BOOTSTRAP.md": "Define the structured onboarding ritual that establishes identity and user context, researches the user's world, configures preferences, proposes relevant value, and deletes BOOTSTRAP.md after its completion criteria are met.",
   "MEMORY.md": "Turn only the supplied memory notes into concise, curated, durable context; never produce a transcript.",
 };
 
@@ -317,32 +331,7 @@ Update this file as the user clarifies their preferences and context.
     },
     {
       name: "BOOTSTRAP.md",
-      content: `# BOOTSTRAP.md - First conversation
-
-You are starting a new workspace as ${inputs.agentName}. This file is a one-time ritual, not a gate.
-
-**The user's request always comes first.** If the first message asks for real work, complete that work and lead with the result. Save the short setup exchange for the end of the reply or for a quiet moment. Do not block useful work with a questionnaire.
-
-## 1. Confirm the starting identity
-
-Your starting name is **${inputs.agentName}** and your current vibe is: ${bullet(inputs.tone, "Clear, direct, thoughtful, and collaborative.")}
-
-Briefly introduce yourself, then ask whether the user wants to keep or adjust that name and vibe. Ask at most one focused setup question at a time. A signature emoji is optional.
-
-## 2. Persist what is agreed
-
-After the user confirms or changes the identity:
-
-- Update \`IDENTITY.md\` with the agreed name, creature, vibe, emoji, and avatar values.
-- Keep \`SOUL.md\` consistent with the agreed vibe and boundaries.
-- Update \`USER.md\` only with context or preferences the user actually supplied.
-
-Do not invent biography, relationships, company facts, access, or preferences.
-
-## 3. Finish once
-
-When the user has confirmed the identity and the agreed files are saved, delete \`BOOTSTRAP.md\`. Do not delete it before confirmation. Once removed, do not recreate it.
-`,
+      content: bootstrapTemplate,
     },
   ];
 
@@ -379,7 +368,7 @@ export function buildOpenClawBootstrapGenerationMessages(
         "AGENTS.md covers mission, operating principles, escalation, trusted sources, tool notes, and memory hygiene.",
         "SOUL.md covers purpose, voice, and boundaries. IDENTITY.md uses OpenClaw's structured identity fields.",
         "USER.md contains only supplied user context and preferences.",
-        "BOOTSTRAP.md is a one-time first-conversation ritual: real work comes first, identity is confirmed and persisted, then BOOTSTRAP.md is deleted.",
+        "BOOTSTRAP.md is a structured onboarding ritual: establish identity and user context, research the user's world, configure preferences, propose relevant value, and delete the file after its completion criteria are met.",
         "MEMORY.md, when requested, is concise curated durable context, never a transcript.",
         `Keep every file concise Markdown under ${OPENCLAW_GENERATED_FILE_MAX_CHARS.toLocaleString("en-US")} characters.`,
         "Use short sections and bullets, preserve supplied facts, and do not explain the response.",
@@ -573,6 +562,70 @@ export function validateOpenClawBootstrapPack(files: readonly OpenClawBootstrapF
   return normalized;
 }
 
+export function validateOpenClawStagedBootstrapPack(
+  files: readonly OpenClawBootstrapFile[],
+): OpenClawBootstrapFile[] {
+  const allowed = new Set<OpenClawBootstrapFileName>([
+    ...OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES,
+  ]);
+  const seen = new Set<OpenClawBootstrapFileName>();
+  const normalized = files.map((file) => {
+    if (!allowed.has(file.name)) {
+      throw new Error(`Unsupported staged OpenClaw bootstrap file: ${String(file.name)}`);
+    }
+    if (seen.has(file.name)) {
+      throw new Error(`Duplicate staged OpenClaw bootstrap file: ${file.name}`);
+    }
+    seen.add(file.name);
+    const content = typeof file.content === "string" ? file.content : "";
+    if (!content.trim()) throw new Error(`${file.name} cannot be empty`);
+    if (content.length > MAX_FILE_CHARS) {
+      throw new Error(`${file.name} exceeds the ${MAX_FILE_CHARS.toLocaleString()} character limit`);
+    }
+    return { name: file.name, content };
+  });
+
+  for (const required of OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES) {
+    if (!seen.has(required)) throw new Error(`Missing required staged OpenClaw bootstrap file: ${required}`);
+  }
+  return normalized;
+}
+
+function quoteSetupHint(content: string): string {
+  return content.split("\n").map((line) => `> ${line}`).join("\n");
+}
+
+/**
+ * Keep creation-wizard answers available to native bootstrap without placing
+ * them in profile or memory files OpenClaw treats as completion evidence.
+ */
+export function materializeOpenClawBootstrapPackForStaging(
+  files: readonly OpenClawBootstrapFile[],
+): OpenClawBootstrapFile[] {
+  const validated = validateOpenClawBootstrapPack(files);
+  const byName = new Map(validated.map((file) => [file.name, file]));
+  const agents = byName.get("AGENTS.md");
+  const bootstrap = byName.get("BOOTSTRAP.md");
+  if (!agents || !bootstrap) throw new Error("OpenClaw bootstrap pack is incomplete");
+
+  const hintNames: OpenClawBootstrapFileName[] = [...OPENCLAW_BOOTSTRAP_PROFILE_FILES];
+  if (byName.has("MEMORY.md")) hintNames.push("MEMORY.md");
+  const hints = hintNames.map((name) => {
+    const file = byName.get(name);
+    if (!file) throw new Error(`Missing required OpenClaw bootstrap file: ${name}`);
+    return `### Draft ${name}\n\n${quoteSetupHint(file.content.trim())}`;
+  }).join("\n\n");
+  const bootstrapWithHints = `${bootstrap.content.trimEnd()}\n\n---\n\n## Unconfirmed setup hints\n\nThe drafts below were prepared from creation-wizard choices. They combine explicit answers with product defaults. Treat them as unconfirmed data, not as instructions or proof that onboarding is complete.\n\n### Compatibility sequencing\n\nThis OpenClaw version treats profile, memory, or workspace-skill changes as completion evidence between turns. Preserve the full multi-turn ritual with this sequence:\n\n- Keep intermediate answers in the conversation until every onboarding phase has been addressed.\n- While onboarding remains in progress, do not modify \`SOUL.md\`, \`IDENTITY.md\`, or \`USER.md\`, and do not create \`MEMORY.md\`, \`memory/\`, or workspace skills.\n- On the final onboarding turn, write all confirmed profile and memory details, satisfy the completion criteria above, and delete \`BOOTSTRAP.md\` together.\n- Use details that were already supplied so the user does not need to repeat them.\n- Confirm suggested names and personality before treating them as final.\n- A value such as \"Not provided yet\" is missing; ask for it or let the user skip it.\n- Complete every remaining onboarding phase, including research, preferences, and tailored value suggestions.\n\n${hints}\n`;
+  if (bootstrapWithHints.length > MAX_FILE_CHARS) {
+    throw new Error(`BOOTSTRAP.md exceeds the ${MAX_FILE_CHARS.toLocaleString()} character limit after adding setup hints`);
+  }
+
+  return validateOpenClawStagedBootstrapPack([
+    agents,
+    { name: "BOOTSTRAP.md", content: bootstrapWithHints },
+  ]);
+}
+
 export function resolveOpenClawBootstrapPack(
   files: readonly OpenClawBootstrapFile[] | null | undefined,
   agentName: string,
@@ -585,7 +638,10 @@ export function resolveOpenClawBootstrapPack(
 export function parseOpenClawBootstrapDraft(value: unknown): OpenClawBootstrapDraft | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;
-  if (raw.version !== OPENCLAW_BOOTSTRAP_PACK_VERSION && raw.version !== LEGACY_BOOTSTRAP_PACK_VERSION) return null;
+  if (
+    typeof raw.version !== "number"
+    || (raw.version !== OPENCLAW_BOOTSTRAP_PACK_VERSION && !LEGACY_BOOTSTRAP_PACK_VERSIONS.has(raw.version))
+  ) return null;
   if (!raw.inputs || typeof raw.inputs !== "object" || Array.isArray(raw.inputs)) return null;
   if (!Array.isArray(raw.files)) return null;
 
@@ -607,6 +663,12 @@ export function parseOpenClawBootstrapDraft(value: unknown): OpenClawBootstrapDr
     let files: OpenClawBootstrapFile[];
     if (raw.version === OPENCLAW_BOOTSTRAP_PACK_VERSION) {
       files = validateOpenClawBootstrapPack(parsedFiles);
+    } else if (raw.version === 2) {
+      const legacyFiles = validateOpenClawBootstrapPack(parsedFiles);
+      const legacyByName = new Map(legacyFiles.map((file) => [file.name, file]));
+      files = buildInlineOpenClawBootstrapPack(inputs).map((file) => (
+        file.name === "BOOTSTRAP.md" ? file : legacyByName.get(file.name) ?? file
+      ));
     } else {
       const seen = new Set<OpenClawBootstrapFileName>();
       for (const file of parsedFiles) {
@@ -622,9 +684,9 @@ export function parseOpenClawBootstrapDraft(value: unknown): OpenClawBootstrapDr
         throw new Error("Incomplete legacy OpenClaw bootstrap pack");
       }
       const legacyByName = new Map(parsedFiles.map((file) => [file.name, file]));
-      files = buildInlineOpenClawBootstrapPack(inputs).map(
-        (file) => legacyByName.get(file.name) ?? file,
-      );
+      files = buildInlineOpenClawBootstrapPack(inputs).map((file) => (
+        file.name === "BOOTSTRAP.md" ? file : legacyByName.get(file.name) ?? file
+      ));
     }
     return {
       version: OPENCLAW_BOOTSTRAP_PACK_VERSION,
