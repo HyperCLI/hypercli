@@ -1,6 +1,6 @@
+mod agent_edit;
 mod buzz_connections;
 mod buzz_launch;
-mod agent_edit;
 mod providers;
 
 use std::collections::HashMap;
