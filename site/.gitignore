@@ -72,3 +72,4 @@ next-env.d.ts
 e2e/.env
 *storybook.log
 storybook-static
+.pw-state.json

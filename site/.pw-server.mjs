@@ -3,17 +3,29 @@
 // Usage:
 //   node .pw-server.mjs            # regular debugging: viewport follows window
 //   node .pw-server.mjs --desktop  # deterministic 1440x900 viewport (e2e-style)
+// Auth/session state persists to .pw-state.json (auto-saved every 30s and on
+// /save) so logins survive server restarts.
 import { chromium } from 'playwright';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const PORT = Number(process.env.PW_PORT || 9222);
 const desktop = process.argv.includes('--desktop') || process.env.PW_DESKTOP === '1';
+const STATE_PATH = path.join(process.cwd(), '.pw-state.json');
 const browser = await chromium.launch({ headless: false });
 // --desktop pins a fixed viewport for reproducible e2e runs; the default mode
 // lets the page viewport follow the real window size so the headed browser
 // matches the host screen for interactive debugging.
-const context = await browser.newContext(
-  desktop ? { viewport: { width: 1440, height: 900 } } : { viewport: null },
-);
+const context = await browser.newContext({
+  ...(desktop ? { viewport: { width: 1440, height: 900 } } : { viewport: null }),
+  ...(fs.existsSync(STATE_PATH) ? { storageState: STATE_PATH } : {}),
+});
+const saveState = async () => {
+  try {
+    await context.storageState({ path: STATE_PATH });
+  } catch {}
+};
+setInterval(saveState, 30_000).unref();
 const page = await context.newPage();
 page.on('console', (msg) => {
   if (msg.type() === 'error' || msg.type() === 'warning') {
@@ -60,6 +72,14 @@ const server = createServer(async (req, res) => {
     if (url.pathname === '/wait') {
       const ms = Number(url.searchParams.get('ms') || 1000);
       await page.waitForTimeout(ms);
+      return send(200, { ok: true });
+    }
+    if (url.pathname === '/save') {
+      await saveState();
+      return send(200, { ok: true, path: STATE_PATH });
+    }
+    if (url.pathname === '/press') {
+      await page.press(url.searchParams.get('sel'), url.searchParams.get('key') || 'Enter');
       return send(200, { ok: true });
     }
     send(404, { ok: false, error: 'unknown route' });
