@@ -10,6 +10,7 @@ import type {
 } from "@/lib/openclaw-bootstrap-pack";
 
 const releaseBoundaryMock = vi.hoisted(() => ({
+  hermesLauncherAvailable: false,
   knowledgeHubAvailable: false,
 }));
 
@@ -18,7 +19,9 @@ vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
   return {
     ...original,
     isDashboardReleaseSurfaceAvailable: (surface: string) => (
-      surface === "knowledge-hub"
+      surface === "hermes-launcher"
+        ? releaseBoundaryMock.hermesLauncherAvailable
+        : surface === "knowledge-hub"
         ? releaseBoundaryMock.knowledgeHubAvailable
         : original.isDashboardReleaseSurfaceAvailable(surface as never)
     ),
@@ -117,7 +120,33 @@ function goToPlanStep() {
 describe("FirstAgentSetupWizard", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    releaseBoundaryMock.hermesLauncherAvailable = false;
     releaseBoundaryMock.knowledgeHubAvailable = false;
+  });
+
+  it("hides Hermes and resets a saved Hermes selection in the shipped launcher", () => {
+    window.sessionStorage.setItem("hypercli-first-agent-draft", JSON.stringify({
+      source: "first-agent-setup",
+      name: "saved-hermes-agent",
+      iconIndex: 0,
+      category: "General",
+      agentType: "hermes",
+    }));
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onStartFresh={vi.fn()}
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue setup" }));
+    const selector = screen.getByTestId("agent-setup-runtime-selector");
+    expect(within(selector).getByTestId("agent-setup-runtime-openclaw")).toHaveAttribute("aria-pressed", "true");
+    expect(within(selector).queryByTestId("agent-setup-runtime-hermes")).not.toBeInTheDocument();
+    expect(within(selector).queryByText("Hermes")).not.toBeInTheDocument();
   });
 
   it("does not surface Collections when Knowledge Hub is unavailable", () => {
@@ -749,6 +778,7 @@ describe("FirstAgentSetupWizard", () => {
   });
 
   it("skips the workspace step and launches without bootstrap files for hermes agents", async () => {
+    releaseBoundaryMock.hermesLauncherAvailable = true;
     const onCreateAgent = vi.fn(async (_params: FirstAgentSetupCreateParams) => "agent-hermes");
 
     renderWithClient(

@@ -850,6 +850,7 @@ export function FirstAgentSetupWizard({
   knowledgeCollectionsLoading = false,
   size = "default",
 }: FirstAgentSetupWizardProps) {
+  const hermesLauncherAvailable = isDashboardReleaseSurfaceAvailable("hermes-launcher");
   const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [restoredDraft] = React.useState(() => {
     const draft = readFirstAgentSetupDraft();
@@ -869,7 +870,7 @@ export function FirstAgentSetupWizard({
   const [selectedCategory] = React.useState(restoredDraft?.category ?? "General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(() => restoredDraft?.iconIndex ?? randomAgentAvatarIconIndex());
   const [agentType, setAgentType] = React.useState<LauncherAgentType>(() => (
-    normalizeLauncherAgentType(restoredDraft?.agentType)
+    hermesLauncherAvailable ? normalizeLauncherAgentType(restoredDraft?.agentType) : "openclaw"
   ));
   const [enableDesktop, setEnableDesktop] = React.useState(restoredDraft?.enableDesktop ?? false);
   const [enableMemoryIndex, setEnableMemoryIndex] = React.useState(restoredDraft?.enableMemoryIndex ?? false);
@@ -1497,7 +1498,7 @@ export function FirstAgentSetupWizard({
                   role="group"
                   aria-label="Agent type"
                   data-testid="agent-setup-runtime-selector"
-                  className={cx("grid sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2")}
+                  className={cx("grid", hermesLauncherAvailable && "sm:grid-cols-2", largePresentation ? "gap-3 sm:gap-4" : "gap-2")}
                 >
                   {([
                     {
@@ -1506,12 +1507,12 @@ export function FirstAgentSetupWizard({
                       name: "OpenClaw",
                       description: "Workspace agent with chat, files, and built-in tools.",
                     },
-                    {
+                    ...(hermesLauncherAvailable ? [{
                       type: "hermes" as LauncherAgentType,
                       testId: "agent-setup-runtime-hermes",
                       name: "Hermes",
                       description: "Self-improving agent with an OpenAI-compatible API.",
-                    },
+                    }] : []),
                   ]).map((option) => {
                     const selected = agentType === option.type;
                     return (

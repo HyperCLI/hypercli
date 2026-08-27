@@ -1,4 +1,4 @@
-export type DashboardReleaseSurface = "knowledge-hub" | "members";
+export type DashboardReleaseSurface = "hermes-launcher" | "knowledge-hub" | "members";
 
 export type DashboardReleaseAvailability = Readonly<Record<DashboardReleaseSurface, boolean>>;
 
@@ -7,6 +7,7 @@ export const SCHEDULED_MANAGER_ENABLED = false;
 
 // Keep unstable implementations in place while excluding them from shipped navigation and routes.
 export const DASHBOARD_RELEASE_AVAILABILITY: DashboardReleaseAvailability = {
+  "hermes-launcher": false,
   "knowledge-hub": false,
   members: false,
 };

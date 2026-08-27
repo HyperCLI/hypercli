@@ -77,10 +77,14 @@ describe("DashboardNav", () => {
   });
 
   it("hides release-gated surfaces from the account menu while they are unavailable", () => {
-    // The shipped release policy must have both surfaces disabled; if this
+    // The shipped release policy must have all surfaces disabled; if this
     // assertion fails after intentionally re-enabling a surface, update the
     // expectations below to match the new policy.
-    expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({ "knowledge-hub": false, members: false });
+    expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
+      "hermes-launcher": false,
+      "knowledge-hub": false,
+      members: false,
+    });
 
     render(<DashboardNav />);
 
@@ -96,7 +100,11 @@ describe("DashboardNav", () => {
   });
 
   it("hides release-gated surfaces from the mobile navigation menu while they are unavailable", () => {
-    expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({ "knowledge-hub": false, members: false });
+    expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
+      "hermes-launcher": false,
+      "knowledge-hub": false,
+      members: false,
+    });
 
     render(<DashboardNav />);
 

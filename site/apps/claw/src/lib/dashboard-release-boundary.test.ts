@@ -9,11 +9,13 @@ import {
 } from "./dashboard-release-boundary";
 
 const ALL_AVAILABLE: DashboardReleaseAvailability = {
+  "hermes-launcher": true,
   "knowledge-hub": true,
   members: true,
 };
 
 const ALL_DISABLED: DashboardReleaseAvailability = {
+  "hermes-launcher": false,
   "knowledge-hub": false,
   members: false,
 };
@@ -23,32 +25,36 @@ describe("DASHBOARD_RELEASE_AVAILABILITY", () => {
     expect(SCHEDULED_MANAGER_ENABLED).toBe(false);
   });
 
-  it("ships with Knowledge Hub and Members disabled for this release", () => {
+  it("ships with Hermes launcher, Knowledge Hub, and Members disabled for this release", () => {
     expect(DASHBOARD_RELEASE_AVAILABILITY).toEqual({
+      "hermes-launcher": false,
       "knowledge-hub": false,
       members: false,
     });
   });
 
-  it("exposes exactly the two gated surfaces", () => {
-    expect(Object.keys(DASHBOARD_RELEASE_AVAILABILITY).sort()).toEqual(["knowledge-hub", "members"]);
+  it("exposes exactly the three gated surfaces", () => {
+    expect(Object.keys(DASHBOARD_RELEASE_AVAILABILITY).sort()).toEqual(["hermes-launcher", "knowledge-hub", "members"]);
   });
 });
 
 describe("isDashboardReleaseSurfaceAvailable", () => {
-  it("reports both surfaces unavailable under the shipped policy", () => {
+  it("reports all surfaces unavailable under the shipped policy", () => {
+    expect(isDashboardReleaseSurfaceAvailable("hermes-launcher")).toBe(false);
     expect(isDashboardReleaseSurfaceAvailable("knowledge-hub")).toBe(false);
     expect(isDashboardReleaseSurfaceAvailable("members")).toBe(false);
   });
 
   it("reports surfaces available when the injected availability allows them", () => {
+    expect(isDashboardReleaseSurfaceAvailable("hermes-launcher", ALL_AVAILABLE)).toBe(true);
     expect(isDashboardReleaseSurfaceAvailable("knowledge-hub", ALL_AVAILABLE)).toBe(true);
     expect(isDashboardReleaseSurfaceAvailable("members", ALL_AVAILABLE)).toBe(true);
   });
 
   it("supports re-enabling a single surface independently", () => {
-    const knowledgeOnly: DashboardReleaseAvailability = { "knowledge-hub": true, members: false };
+    const knowledgeOnly: DashboardReleaseAvailability = { "hermes-launcher": false, "knowledge-hub": true, members: false };
     expect(isDashboardReleaseSurfaceAvailable("knowledge-hub", knowledgeOnly)).toBe(true);
+    expect(isDashboardReleaseSurfaceAvailable("hermes-launcher", knowledgeOnly)).toBe(false);
     expect(isDashboardReleaseSurfaceAvailable("members", knowledgeOnly)).toBe(false);
   });
 });
@@ -178,7 +184,7 @@ describe("normalizeDashboardReleaseSearchParams", () => {
   });
 
   it("only strips surfaces whose availability is disabled", () => {
-    const knowledgeOnly: DashboardReleaseAvailability = { "knowledge-hub": true, members: false };
+    const knowledgeOnly: DashboardReleaseAvailability = { "hermes-launcher": false, "knowledge-hub": true, members: false };
     expect(
       normalizeDashboardReleaseSearchParams(new URLSearchParams("section=knowledge-hub&collectionId=c"), knowledgeOnly),
     ).toBeNull();
@@ -189,7 +195,7 @@ describe("normalizeDashboardReleaseSearchParams", () => {
     expect(membersStripped?.get("section")).toBeNull();
     expect(membersStripped?.get("collectionId")).toBe("c");
 
-    const membersOnly: DashboardReleaseAvailability = { "knowledge-hub": false, members: true };
+    const membersOnly: DashboardReleaseAvailability = { "hermes-launcher": false, "knowledge-hub": false, members: true };
     const hubStripped = normalizeDashboardReleaseSearchParams(
       new URLSearchParams("section=knowledge-hub&settings=members&domainId=d"),
       membersOnly,
@@ -258,7 +264,7 @@ describe("normalizeDashboardReleaseSearchParams", () => {
   });
 
   it("strips knowledge-hub params even when the availability object is frozen", () => {
-    const frozen = Object.freeze({ "knowledge-hub": false, members: true }) as DashboardReleaseAvailability;
+    const frozen = Object.freeze({ "hermes-launcher": false, "knowledge-hub": false, members: true }) as DashboardReleaseAvailability;
     const normalized = normalizeDashboardReleaseSearchParams(
       new URLSearchParams("section=knowledge-hub&collectionId=col-1"),
       frozen,

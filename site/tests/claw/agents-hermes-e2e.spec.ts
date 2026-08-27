@@ -17,14 +17,13 @@ test.use({ trace: "off", video: "off" });
 
 /**
  * The Hermes variant of the Agents smoke test (agents-openclaw-e2e.spec.ts): same
- * throwaway identity, same Team trial, but the wizard's agent-type selector
- * picks Hermes — which skips the OpenClaw workspace step entirely — and the
- * chat round-trip runs over the Hermes HTTP/SSE API through the standard
- * chat UI.
+ * throwaway identity and same Team trial. Hermes is intentionally absent from
+ * the shipped launcher, so this lane provisions it through the official SDK,
+ * then verifies the Hermes HTTP/SSE round-trip through the standard chat UI.
  *
  *   bootstrap identity -> mint its JWT -> open the Team trial from the sidebar
- *   and complete Stripe hosted checkout (sandbox card) -> pick Hermes in the launcher ->
- *   it starts on its own -> Ready -> one chat round-trip -> stop from
+ *   and complete Stripe hosted checkout (sandbox card) -> create/start Hermes through
+ *   the SDK -> Ready -> one chat round-trip -> stop from
  *   settings -> delete from the Danger Zone.
  */
 
@@ -58,6 +57,10 @@ function apiBase(): string {
   return base.endsWith("/api") ? base : `${base}/api`;
 }
 
+function agentsApiBase(): string {
+  return `${apiBase().replace(/\/api$/, "")}/agents`;
+}
+
 async function mintToken(email: string): Promise<string> {
   const provided = (process.env.TEST_USER_TOKEN ?? "").trim();
   if (provided) return provided;
@@ -81,6 +84,60 @@ async function loginAs(page: Page, email: string): Promise<void> {
   }, token);
   await page.goto(`${appBase()}/dashboard`, { waitUntil: "domcontentloaded" });
   await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/dashboard");
+}
+
+async function createAndStartHermesAgent(email: string): Promise<string> {
+  const [{ Deployments }, { HTTPClient }] = await Promise.all([
+    import("@hypercli.com/sdk/agents"),
+    import("@hypercli.com/sdk/http"),
+  ]);
+  const token = await mintToken(email);
+  const baseUrl = agentsApiBase();
+  const deployments = new Deployments(new HTTPClient(baseUrl, token), token, baseUrl);
+  const browserOrigin = new URL(appBase()).origin;
+
+  try {
+    await expect.poll(async () => {
+      const budget = await deployments.budget();
+      const slots = budget.slots as Record<string, { available?: unknown }> | undefined;
+      return Number(slots?.medium?.available ?? 0);
+    }, {
+      timeout: 180_000,
+      message: "expected the purchased medium Agent slot to become available",
+    }).toBeGreaterThan(0);
+
+    const configuredImage = process.env.NEXT_PUBLIC_HERMES_AGENT_IMAGE?.trim() || undefined;
+    const created = await deployments.createHermesAgent({
+      name: `hermes-e2e-${Date.now().toString(36)}`,
+      size: "medium",
+      image: configuredImage,
+      corsOrigins: [browserOrigin],
+    });
+
+    expect(created.runtime, "expected a hermes-agent deployment").toBe("hermes-agent");
+    expect(
+      String(created.launchConfig?.env?.API_SERVER_CORS_ORIGINS ?? ""),
+      "Hermes launch must allow the browser origin",
+    ).toContain(browserOrigin);
+    expect(
+      created.launchConfig?.cors?.allowed_origins,
+      "Hermes route CORS must allow the browser origin",
+    ).toContain(browserOrigin);
+
+    const stopped = created.state.toUpperCase() === "STOPPED"
+      ? created
+      : await deployments.waitForState(created.id, ["STOPPED"], 180_000, ["FAILED", "DELETED"]);
+    if (!stopped.launchConfig) throw new Error("Hermes deployment returned no launch configuration");
+    if (!created.apiServerKey) throw new Error("Hermes deployment returned no API server key");
+
+    await deployments.startHermesAgent(created.id, {
+      launchConfig: stopped.launchConfig,
+      apiServerKey: created.apiServerKey,
+    });
+    return created.id;
+  } finally {
+    deployments.dispose();
+  }
 }
 
 /**
@@ -188,38 +245,12 @@ test.describe.serial("Agents E2E (Hermes)", () => {
     await claimTeamTrialThroughStripeCheckout(page);
     await step(page, "trial-claimed");
 
-    // -- Create a Hermes agent through the setup wizard -----------------------
-    const created = page.waitForResponse(
-      (r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/agents/deployments"),
-      { timeout: 180_000 },
-    );
-    await page.getByRole("button", { name: "Launch agent" }).click();
-    // The runtime selector defaults to OpenClaw; switch to Hermes.
-    await page.getByTestId("agent-setup-runtime-hermes").click();
-    await expect(page.getByTestId("agent-setup-runtime-hermes")).toHaveAttribute("aria-pressed", "true");
-    // Hermes skips the OpenClaw workspace step: identity continue lands on the
-    // capacity step, whose footer carries the launch action.
-    await page.getByTestId("agent-setup-continue-identity").click();
-    await expect(page.getByTestId("agent-setup-continue-objective")).toHaveCount(0);
-    await page.getByTestId("agent-setup-launch").click();
-
-    const createResponse = await created;
-    expect(createResponse.ok(), `expected the create to be accepted, got ${createResponse.status()}`).toBe(true);
-    const createRequestBody = createResponse.request().postDataJSON() as {
-      env?: Record<string, unknown>;
-      cors?: { allowed_origins?: unknown };
-    };
-    const pageOrigin = await page.evaluate(() => window.location.origin);
-    expect(createRequestBody.env?.API_SERVER_CORS_ORIGINS, "Hermes launch must allow the browser origin").toContain(pageOrigin);
-    expect(createRequestBody.cors?.allowed_origins, "Hermes route CORS must allow the browser origin").toContain(pageOrigin);
-    const createBody = (await createResponse.json()) as { id?: unknown; runtime?: unknown };
-    const agentId = String(createBody.id ?? "");
-    expect(agentId, "expected the create response to carry the Agent id").toBeTruthy();
-    expect(createBody.runtime, "expected a hermes-agent deployment").toBe("hermes-agent");
+    // -- Create and start Hermes through the SDK-owned runtime path ------------
+    const agentId = await createAndStartHermesAgent(identity!.email);
     await step(page, "created");
 
-    // -- It starts on its own, then Ready -------------------------------------
-    await page.waitForURL(new RegExp(`agentId=${agentId}`), { timeout: 120_000 });
+    // -- Open the created Agent, then wait for Ready ---------------------------
+    await page.goto(`${appBase()}/dashboard/agents?agentId=${encodeURIComponent(agentId)}`, { waitUntil: "domcontentloaded" });
     const sessionEntry = page.getByTestId("agent-launch-entry");
     if (await sessionEntry.isVisible().catch(() => false)) {
       await sessionEntry.click();
