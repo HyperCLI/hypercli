@@ -3960,7 +3960,7 @@ describe("AgentChatPanel", () => {
     expect(onStopAgent).not.toHaveBeenCalled();
   });
 
-  it("renders a progress-only assistant row for working commentary instead of dropping it", () => {
+  it("routes active commentary through the response status without duplicating it in the assistant row", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -3975,6 +3975,8 @@ describe("AgentChatPanel", () => {
             role: "assistant",
             content: "",
             progress: { text: "Checking the deployment target", state: "active", revisions: ["Checking the deployment target"] },
+            reasoning: { text: "Comparing deployment metadata", state: "active", startedAt: 1 },
+            toolCalls: [{ name: "web_search", args: "{}", result: "Search complete" }],
           },
         ],
       }),
@@ -3982,12 +3984,19 @@ describe("AgentChatPanel", () => {
     });
 
     const renderedMessages = chatMessageBubbleMock.mock.calls.map(([props]) => props);
-    const progressRow = renderedMessages.find((props: any) => props.message?.progress?.text === "Checking the deployment target");
-    expect(progressRow).toBeDefined();
+    const assistantRow = renderedMessages.find((props: any) => props.message?.role === "assistant");
+    expect(assistantRow?.message?.progress).toBeUndefined();
+    expect(assistantRow?.message?.reasoning?.text).toBe("Comparing deployment metadata");
+    expect(assistantRow?.message?.toolCalls).toHaveLength(1);
+    const progress = screen.getByTestId("agent-assistant-progress");
+    expect(progress).toHaveAttribute("data-progress-state", "active");
+    const status = within(progress).getByRole("status", { name: "Working" });
+    expect(status).toHaveTextContent("Checking the deployment target");
+    expect(status).toHaveAttribute("data-appearance", "inline");
     expect(screen.queryByRole("status", { name: /starting response/i })).not.toBeInTheDocument();
   });
 
-  it("keeps commentary-bearing rows on a single stable render key across progress updates", () => {
+  it("replaces transient commentary in one stable response status", () => {
     const baseChat = buildChat({
       status: "connected",
       gatewayConnected: true,
@@ -4006,7 +4015,8 @@ describe("AgentChatPanel", () => {
       ],
     });
     const firstRender = renderAgentChatPanel({ chat: baseChat, isSelectedRunning: true });
-    chatMessageBubbleMock.mockClear();
+    const progress = screen.getByTestId("agent-assistant-progress");
+    expect(progress).toHaveTextContent("Checking the deployment target");
 
     baseChat.messages = [
       baseChat.messages[0]!,
@@ -4017,7 +4027,38 @@ describe("AgentChatPanel", () => {
     ];
     firstRender.rerender(<AgentChatPanel {...buildAgentChatPanelProps({ chat: baseChat })} />);
 
-    const renderedRowKeys = chatMessageBubbleMock.mock.calls.map(([props]) => props.message?.renderId);
-    expect(renderedRowKeys.filter((key) => key === "turn-1:assistant")).toHaveLength(1);
+    expect(screen.getAllByTestId("agent-assistant-progress")).toHaveLength(1);
+    expect(screen.getByTestId("agent-assistant-progress")).toBe(progress);
+    expect(progress).toHaveTextContent("Checking the deployment target and routes");
+  });
+
+  it("keeps settled commentary on the assistant row after the reply completes", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: false,
+        activeSessionSending: false,
+        messages: [
+          { role: "user", content: "Check the deployment" },
+          {
+            role: "assistant",
+            content: "Deployment is healthy.",
+            progress: { text: "Checking the deployment target", state: "settled", revisions: ["Checking the deployment target"] },
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    const renderedMessages = chatMessageBubbleMock.mock.calls.map(([props]) => props);
+    const assistantRow = renderedMessages.find((props: any) => props.message?.role === "assistant");
+    expect(assistantRow?.message?.progress).toEqual(expect.objectContaining({
+      text: "Checking the deployment target",
+      state: "settled",
+    }));
+    expect(screen.queryByTestId("agent-assistant-progress")).not.toBeInTheDocument();
   });
 });

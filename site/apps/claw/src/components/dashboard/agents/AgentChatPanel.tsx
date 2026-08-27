@@ -103,6 +103,7 @@ interface ActiveResponseStatusPresentation {
   description: string;
   ariaLabel: string;
   appearance?: "pill" | "inline";
+  commentary?: boolean;
 }
 
 function formatResponseElapsed(elapsedMs: number): string {
@@ -132,6 +133,10 @@ function activeResponseStatusPresentation(
   }
   const currentTurn = messages.slice(userIndex + 1);
   const assistant = [...currentTurn].reverse().find((message) => message.role === "assistant") ?? null;
+  const commentaryMessage = [...currentTurn].reverse().find((message) => (
+    message.role === "assistant" && message.progress?.state === "active" && message.progress.text.trim()
+  ));
+  const activeCommentary = commentaryMessage?.progress?.text.trim() ?? "";
   const userMessage = userIndex >= 0 ? messages[userIndex] : null;
   const startedAt = typeof userMessage?.timestamp === "number"
     ? userMessage.timestamp
@@ -144,6 +149,16 @@ function activeResponseStatusPresentation(
   const pendingTools = toolCalls.filter((toolCall) => toolCall.result === undefined).length;
   const completedTools = toolCalls.length - pendingTools;
   const responseContent = assistant?.content ?? "";
+
+  if (activeCommentary) {
+    return {
+      label: activeCommentary,
+      description,
+      ariaLabel: "Working",
+      appearance: "inline",
+      commentary: true,
+    };
+  }
 
   if (pendingTools > 0) {
     return {
@@ -188,15 +203,16 @@ function activeResponseStatusPresentation(
   };
 }
 
-function currentTurnHasInlineActivity(messages: ChatMessage[]): boolean {
+function currentTurnHasActiveReasoning(messages: ChatMessage[]): boolean {
+  let hasActiveReasoning = false;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
-    if (message?.role === "user") return false;
-    if (message?.role === "assistant" && (
-      message.progress?.text.trim() || message.reasoning?.state === "active"
-    )) return true;
+    if (message?.role === "user") return hasActiveReasoning;
+    if (message?.role !== "assistant") continue;
+    if (message.progress?.state === "active" && message.progress.text.trim()) return false;
+    if (message.reasoning?.state === "active") hasActiveReasoning = true;
   }
-  return false;
+  return hasActiveReasoning;
 }
 
 function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
@@ -221,7 +237,11 @@ function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
   );
   if (status.appearance !== "inline") return indicator;
   return (
-    <div data-testid="agent-chat-response-handoff" className="-mt-2 pl-9">
+    <div
+      data-testid={status.commentary ? "agent-assistant-progress" : "agent-chat-response-handoff"}
+      data-progress-state={status.commentary ? "active" : undefined}
+      className="-mt-2 pl-9"
+    >
       {indicator}
     </div>
   );
@@ -1424,15 +1444,20 @@ export function AgentChatPanel({
             const displayMessage = parsedUiActions.displayContent === msg.content
               ? msg
               : { ...msg, content: parsedUiActions.displayContent };
+            const { progress: displayProgress, ...messageWithoutActiveProgress } = displayMessage;
+            const rowIsInCurrentTurn = !chat.messages.slice(i + 1).some((message) => message.role === "user");
+            const transcriptMessage = activeSessionSending && rowIsInCurrentTurn && displayProgress?.state === "active"
+              ? messageWithoutActiveProgress
+              : displayMessage;
             const voicePath = extractVoicePathFromMessage(msg.content);
             const inlineAudioFile = voicePath && !hasMatchingVoiceFile(msg.files, voicePath)
               ? { agentId: selectedAgent.id, path: voicePath }
               : null;
             return (
               <ChatMessageRenderBoundary key={rowKey} messageVersion={msg}>
-                {integrationConnectActions.length === 0 && hasRenderableMessagePayload(displayMessage) && (
+                {integrationConnectActions.length === 0 && hasRenderableMessagePayload(transcriptMessage) && (
                   <MemoizedChatMessageBubble
-                    message={displayMessage}
+                    message={transcriptMessage}
                     inlineAudioFile={inlineAudioFile}
                     agentId={selectedAgent.id}
                     timestampVariant="v2"
@@ -1524,7 +1549,7 @@ export function AgentChatPanel({
             if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
-            if (currentTurnHasInlineActivity(chat.messages)) return null;
+            if (currentTurnHasActiveReasoning(chat.messages)) return null;
             return <ActiveResponseStatus messages={chat.messages} />;
           })()}
 
