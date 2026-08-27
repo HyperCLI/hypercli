@@ -73,7 +73,7 @@ import {
 } from "@/lib/openclaw-session-sdk-surface";
 import { preloadAgentShellTerminalRuntime } from "@/lib/agent-shell-terminal-loader";
 import type { ActiveAgentTrial } from "@/lib/agent-trial";
-import { isBuzzAgentRuntime } from "@/lib/agent-runtime";
+import { isBuzzAgentRuntime, isHermesAgentRuntime } from "@/lib/agent-runtime";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -1218,6 +1218,7 @@ export function AgentWorkspaceSidebar({
       setCreatingSession(false);
     }
   };
+  const hermesRuntimeSelected = isHermesAgentRuntime(selectedAgent?.runtime);
   const workspaceItems: WorkspaceItem[] = [
     {
       id: "new-session",
@@ -1236,17 +1237,17 @@ export function AgentWorkspaceSidebar({
       onClick: () => onOpenFiles(),
       ...previewableItemProps,
     },
-    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...previewableItemProps },
+    ...(hermesRuntimeSelected ? [] : [{ id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...previewableItemProps }]),
     { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: onOpenSkills, ...previewableItemProps },
-    {
+    ...(hermesRuntimeSelected ? [] : [{
       id: "scheduled",
       label: "Scheduled",
       icon: CalendarClock,
       active: activeTab === "scheduled",
       onClick: onOpenScheduled,
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : previewableItemProps),
-    },
-    {
+    }]),
+    ...(hermesRuntimeSelected ? [] : [{
       id: "desktop",
       label: "Desktop",
       icon: Monitor,
@@ -1257,7 +1258,7 @@ export function AgentWorkspaceSidebar({
         if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
         else onOpenDesktopPreview?.();
       },
-    },
+    }]),
     ...(noSelectedAgent
       ? []
       : [{

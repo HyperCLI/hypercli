@@ -381,6 +381,20 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: "Desktop" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("hides Integrations, Desktop, and Scheduled for Hermes agents", () => {
+    renderAgentWorkspaceSidebar({
+      selectedAgent: { ...agent, runtime: "hermes-agent" },
+    });
+
+    expect(screen.queryByRole("button", { name: "Integrations" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Desktop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Scheduled" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New Session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Files" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Agent Settings" })).toBeInTheDocument();
+  });
+
   it("warms the Shell runtime only from Shell-specific navigation intent", () => {
     const onShellIntent = vi.fn();
     const onShellIntentEnd = vi.fn();
