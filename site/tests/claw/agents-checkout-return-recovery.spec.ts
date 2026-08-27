@@ -12,23 +12,15 @@ import { expect, test, type Page } from "@playwright/test";
  * creation, persisted-state hygiene, and zero uncaught page errors.
  */
 
-const FEAT_APP_BASE_URL = "https://agents.feat.hypercli.com";
-{
-  const configured = (process.env.TEST_BASE_URL ?? "").trim().replace(/\/+$/, "");
-  if (configured !== FEAT_APP_BASE_URL) {
-    throw new Error(
-      `Checkout-return recovery coverage is feat-only; TEST_BASE_URL must be ${FEAT_APP_BASE_URL}, got ${configured || "<missing>"}.`,
-    );
-  }
-}
-
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_PRINCIPAL_ID = "stored-session";
 const TEST_SETUP_ID = "setup-checkout-recovery";
+const FIRST_AGENT_SETUP_TAG = `first_agent_setup=${Buffer.from(TEST_SETUP_ID, "utf8").toString("hex")}`;
 const TEST_WORKSPACE_ID = "workspace-checkout-recovery";
 const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}`;
 const FOREIGN_PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent("other-principal")}`;
 const FIRST_AGENT_DRAFT_KEY = "hypercli-first-agent-draft";
+const FIRST_AGENT_CHECKOUT_DRAFT_KEY = `hyperclaw.firstAgentCheckoutDraft.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}:${encodeURIComponent(TEST_SETUP_ID)}`;
 const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 const STAGED_FILE_PATHS = [
   ".openclaw/workspace/AGENTS.md",
@@ -45,6 +37,7 @@ interface PlantOptions {
   pending?: Record<string, unknown> | null;
   foreignPendingRaw?: string | null;
   draft?: Record<string, unknown> | null;
+  checkoutDraft?: Record<string, unknown> | null;
   corruptPendingRaw?: string | null;
 }
 
@@ -89,7 +82,7 @@ function firstAgentDraft(overrides: Record<string, unknown> = {}): Record<string
 
 /** Plant the stored session and any persisted checkout/draft state before the app boots. */
 async function plantSession(page: Page, options: PlantOptions = {}): Promise<void> {
-  const { pending = null, foreignPendingRaw = null, draft = null, corruptPendingRaw = null } = options;
+  const { pending = null, foreignPendingRaw = null, draft = null, checkoutDraft = null, corruptPendingRaw = null } = options;
   await page.context().addCookies([{
     name: "auth_token",
     value: TEST_JWT,
@@ -99,40 +92,46 @@ async function plantSession(page: Page, options: PlantOptions = {}): Promise<voi
     secure: false,
     sameSite: "Lax",
   }]);
-  await page.addInitScript(({ token, pendingKey, foreignKey, draftKey, pendingValue, foreignValue, draftValue, corruptValue }) => {
+  await page.addInitScript(({ token, pendingKey, foreignKey, draftKey, checkoutDraftKey, pendingValue, foreignValue, draftValue, checkoutDraftValue, corruptValue }) => {
     window.localStorage.setItem("claw_auth_token", token);
     if (pendingValue) window.localStorage.setItem(pendingKey, pendingValue);
     if (foreignValue) window.localStorage.setItem(foreignKey, foreignValue);
     if (corruptValue) window.localStorage.setItem(pendingKey, corruptValue);
     if (draftValue) window.sessionStorage.setItem(draftKey, draftValue);
+    if (checkoutDraftValue) window.localStorage.setItem(checkoutDraftKey, checkoutDraftValue);
   }, {
     token: TEST_JWT,
     pendingKey: PENDING_CHECKOUT_KEY,
     foreignKey: FOREIGN_PENDING_CHECKOUT_KEY,
     draftKey: FIRST_AGENT_DRAFT_KEY,
+    checkoutDraftKey: FIRST_AGENT_CHECKOUT_DRAFT_KEY,
     pendingValue: pending ? JSON.stringify(pending) : null,
     foreignValue: foreignPendingRaw,
     draftValue: draft ? JSON.stringify(draft) : null,
+    checkoutDraftValue: checkoutDraft ? JSON.stringify(checkoutDraft) : null,
     corruptValue: corruptPendingRaw,
   });
 }
 
 interface MockControls {
-  readonly counters: { createCount: number; startCount: number; listGetCount: number; summaryGetCount: number };
+  readonly counters: { createCount: number; startCount: number; listGetCount: number; summaryGetCount: number; slackPatchCount: number };
   readonly writtenFiles: Record<string, Buffer>;
   readonly stagingEvents: string[];
   failCreateWith: { status: number; body: Record<string, unknown> } | null;
+  failCreateAfterCommitWith: { status: number; body: Record<string, unknown> } | null;
   holdCreateResponse: boolean;
   releaseCreate: () => void;
-  holdListResponse: boolean;
-  releaseList: () => void;
+  revealCreatedAgent: boolean;
+  includeUnrelatedSameNameAgent: boolean;
+  slackConnected: boolean;
   reflected: boolean;
+  createdAgentName: string;
   pageCreatedAgent: () => Record<string, unknown> | null;
 }
 
 /** A faithful current-contract backend: stopped create, Reef file staging, one explicit start. */
 async function installMockBackend(page: Page): Promise<MockControls> {
-  const counters = { createCount: 0, startCount: 0, listGetCount: 0, summaryGetCount: 0 };
+  const counters = { createCount: 0, startCount: 0, listGetCount: 0, summaryGetCount: 0, slackPatchCount: 0 };
   const writtenFiles: Record<string, Buffer> = {};
   const stagingEvents: string[] = [];
   let createdAgent: Record<string, unknown> | null = null;
@@ -142,17 +141,45 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     writtenFiles,
     stagingEvents,
     failCreateWith: null,
+    failCreateAfterCommitWith: null,
     holdCreateResponse: false,
     releaseCreate: () => {},
-    holdListResponse: false,
-    releaseList: () => {},
+    revealCreatedAgent: true,
+    includeUnrelatedSameNameAgent: false,
+    slackConnected: false,
     reflected: true,
+    createdAgentName: "recovery-agent",
     pageCreatedAgent: () => createdAgent,
+  };
+  const unrelatedSameNameAgent = {
+    id: "agent-unrelated-same-name",
+    name: "recovery-agent",
+    handle: "recovery-agent-existing",
+    user_id: TEST_PRINCIPAL_ID,
+    state: "RUNNING",
+    runtime: "openclaw",
+    managed: true,
+    is_launchable: true,
+    cpu: 4,
+    memory: 4,
+    hostname: "recovery-agent-existing.hypercli.app",
+    created_at: "2026-08-24T00:00:00Z",
+    updated_at: "2026-08-24T00:00:00Z",
+    tags: [`first_agent_setup=${Buffer.from("another-setup", "utf8").toString("hex")}`],
+    launch_config: {
+      config: {},
+      image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+      env: {},
+      routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
+      command: [],
+      entrypoint: [],
+      restart: false,
+      sync_root: "/home/node",
+      runtime_scopes: ["models:*"],
+    },
   };
   const createGate: Array<() => void> = [];
   controls.releaseCreate = () => { for (const release of createGate.splice(0)) release(); };
-  const listGate: Array<() => void> = [];
-  controls.releaseList = () => { for (const release of listGate.splice(0)) release(); };
 
   await page.route(/\/workspaces(?:\/.*)?$/, async (route) => {
     const pathName = new URL(route.request().url()).pathname;
@@ -161,6 +188,17 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(pathName.endsWith("/agents") || pathName.endsWith("/grants") ? [] : [generalWorkspace]),
+    });
+  });
+  await page.route(/\/slack\/install(?:\?|$)/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        connected: controls.slackConnected,
+        team_id: controls.slackConnected ? "T_RECOVERY" : null,
+        team_name: controls.slackConnected ? "Recovery Workspace" : null,
+      }),
     });
   });
 
@@ -175,18 +213,28 @@ async function installMockBackend(page: Page): Promise<MockControls> {
 
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
       counters.listGetCount += 1;
-      if (controls.holdListResponse) {
-        await new Promise<void>((resolve) => listGate.push(resolve));
-      }
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(createdAgent ? [createdAgent] : []),
+        body: JSON.stringify([
+          ...(controls.includeUnrelatedSameNameAgent ? [unrelatedSameNameAgent] : []),
+          ...(controls.revealCreatedAgent && createdAgent ? [createdAgent] : []),
+        ]),
       });
       return;
     }
     if (pathName.endsWith("/agents/deployments") && method === "POST") {
       counters.createCount += 1;
+      const createBody = route.request().postDataJSON() as Record<string, unknown>;
+      expect(createBody.tags).toEqual([FIRST_AGENT_SETUP_TAG]);
+      if (counters.createCount > 1) {
+        await route.fulfill({
+          status: 409,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "duplicate recovery create" }),
+        });
+        return;
+      }
       if (controls.failCreateWith) {
         await route.fulfill({
           status: controls.failCreateWith.status,
@@ -200,15 +248,19 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       }
       createdAgent = {
         id: "agent-recovery",
-        name: "recovery-agent",
+        name: controls.createdAgentName,
         handle: "recovery-agent",
         user_id: TEST_PRINCIPAL_ID,
         state: "STARTING",
+        runtime: "openclaw",
+        managed: true,
+        is_launchable: true,
         cpu: 4,
         memory: 4,
         hostname: "recovery-agent.hypercli.app",
         created_at: "2026-08-25T00:00:00Z",
         updated_at: "2026-08-25T00:00:00Z",
+        tags: createBody.tags,
         launch_config: {
           config: {},
           image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
@@ -226,11 +278,27 @@ async function installMockBackend(page: Page): Promise<MockControls> {
           runtime_scopes: ["models:*"],
         },
       };
+      if (controls.failCreateAfterCommitWith) {
+        await route.fulfill({
+          status: controls.failCreateAfterCommitWith.status,
+          contentType: "application/json",
+          body: JSON.stringify(controls.failCreateAfterCommitWith.body),
+        });
+        return;
+      }
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
     }
     if (createdAgent && method === "GET" && pathName.endsWith(`/agents/deployments/${createdAgent.id}`)) {
       if (createdAgent.state === "STARTING") createdAgent = { ...createdAgent, state: "STOPPED" };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
+    if (createdAgent && method === "PATCH" && pathName.endsWith(`/agents/deployments/${createdAgent.id}`)) {
+      const updateBody = route.request().postDataJSON() as Record<string, unknown>;
+      counters.slackPatchCount += 1;
+      stagingEvents.push("slack-patch");
+      createdAgent = { ...createdAgent, launch_config: updateBody.launch_config };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
     }
@@ -275,6 +343,7 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     }
     if (pathName.endsWith("/agents/plans/current")) {
       const reflected = controls.reflected;
+      const available = createdAgent ? 0 : 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -282,7 +351,7 @@ async function installMockBackend(page: Page): Promise<MockControls> {
           id: "pro",
           name: "Pro",
           pooled_tpd: 250000000,
-          slot_inventory: { large: { granted: 1, used: 0, available: 1 } },
+          slot_inventory: { large: { granted: 1, used: createdAgent ? 1 : 0, available } },
         } : {}),
       });
       return;
@@ -290,7 +359,13 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     if (pathName.endsWith("/agents/subscriptions/summary")) {
       counters.summaryGetCount += 1;
       const reflected = controls.reflected;
-      const slotInventory = { large: { granted: reflected ? 1 : 0, used: 0, available: reflected ? 1 : 0 } };
+      const slotInventory = {
+        large: {
+          granted: reflected ? 1 : 0,
+          used: reflected && createdAgent ? 1 : 0,
+          available: reflected && !createdAgent ? 1 : 0,
+        },
+      };
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -441,10 +516,9 @@ test("resumes the saved draft launcher when checkout is cancelled", async ({ pag
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
   expect(backend.counters.createCount).toBe(0);
 
-  // The draft is preserved and the user is handed straight back to it, narrow viewport included.
-  const summary = page.locator('[data-slot="saved-agent-draft-summary"]');
-  await expect(summary).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("heading", { name: "Your agent has a head start." })).toBeVisible();
+  // The draft is preserved and the user is handed straight back to its launcher,
+  // narrow viewport included. The exact restored substep is browser-state owned.
+  await expect(page.getByTestId("agent-setup-wizard")).toBeVisible({ timeout: 30_000 });
   expect(await page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).toContain("recovery-agent");
   expect(pageErrors).toEqual([]);
 });
@@ -469,6 +543,25 @@ test("resumes the launcher without creating when the saved draft no longer match
   expect(pageErrors).toEqual([]);
 });
 
+test("creates from the durable checkout draft when the returning tab has no session draft", async ({ page }) => {
+  test.setTimeout(120_000);
+  const pageErrors = trackPageErrors(page);
+  const backend = await installMockBackend(page);
+  await plantSession(page, {
+    pending: pendingCheckout(),
+    checkoutDraft: firstAgentDraft(),
+  });
+
+  await page.goto("/dashboard/agents?checkout=success&session_id=cs_replacement_tab", { waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => backend.counters.createCount, { timeout: 45_000 }).toBe(1);
+  await expect.poll(() => backend.counters.startCount, { timeout: 45_000 }).toBe(1);
+  expect(await page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).toBeNull();
+  await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), FIRST_AGENT_CHECKOUT_DRAFT_KEY)).toBeNull();
+  await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
+  expect(pageErrors).toEqual([]);
+});
+
 test("surfaces a create failure without losing the saved draft or duplicating the attempt", async ({ page }) => {
   test.setTimeout(90_000);
   const pageErrors = trackPageErrors(page);
@@ -483,16 +576,54 @@ test("surfaces a create failure without losing the saved draft or duplicating th
 
   await expect.poll(() => backend.counters.createCount, { timeout: 45_000 }).toBe(1);
 
-  // The terminal failure is surfaced where the user can act, the attempt is not
-  // silently duplicated, and the draft persists for the resumed launcher.
+  // The failure is surfaced where the user can act, the attempt is not
+  // silently duplicated, and the saved checkout remains explicitly retryable.
   const errorBanner = page.getByTestId("agent-error-banner");
   await expect(errorBanner).toBeVisible({ timeout: 30_000 });
   await expect(errorBanner).toContainText("deployment registry exploded");
-  await expect(page.locator('[data-slot="saved-agent-draft-summary"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-slot="paid-first-agent-recovery"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toBeVisible();
   expect(await page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).toContain("recovery-agent");
+  expect(await page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toContain(TEST_SETUP_ID);
   await page.waitForTimeout(3_000);
   expect(backend.counters.createCount).toBe(1);
   expect(backend.counters.startCount).toBe(0);
+  expect(pageErrors).toEqual([]);
+});
+
+test("recovers a committed Agent after its create response fails without creating twice", async ({ page }) => {
+  test.setTimeout(120_000);
+  const pageErrors = trackPageErrors(page);
+  const backend = await installMockBackend(page);
+  backend.revealCreatedAgent = false;
+  backend.slackConnected = true;
+  backend.failCreateAfterCommitWith = { status: 500, body: { detail: "create response was lost" } };
+  await plantSession(page, {
+    pending: pendingCheckout(),
+    draft: firstAgentDraft(),
+  });
+
+  await page.goto("/dashboard/agents?checkout=success&session_id=cs_committed_create_fails", { waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => backend.counters.createCount, { timeout: 45_000 }).toBe(1);
+  await expect(page.getByTestId("agent-error-banner")).toContainText("create response was lost", { timeout: 30_000 });
+  await expect(page.locator('[data-slot="paid-first-agent-recovery"]')).toBeVisible({ timeout: 30_000 });
+  expect(backend.counters.startCount).toBe(0);
+
+  backend.revealCreatedAgent = true;
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+
+  await expect.poll(() => backend.counters.startCount, { timeout: 60_000 }).toBe(1);
+  expect(backend.counters.createCount, "recovery must use the committed tagged Agent").toBe(1);
+  expect(backend.counters.slackPatchCount, "recovery must finish SDK-owned post-create config").toBe(1);
+  expect(backend.stagingEvents).toEqual([
+    "slack-patch",
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    `delete:${OPENCLAW_CONFIG_PATH}`,
+    "start",
+  ]);
+  await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
+  await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).toBeNull();
   expect(pageErrors).toEqual([]);
 });
 
@@ -535,24 +666,36 @@ test("reconciles the already-created agent instead of duplicating it after a mid
     draft: firstAgentDraft(),
   });
 
+  backend.includeUnrelatedSameNameAgent = true;
   backend.holdCreateResponse = true;
+  backend.createdAgentName = "recovery-agent-after-name-conflict";
   await page.goto("/dashboard/agents?checkout=success&session_id=cs_midcreate_reload", { waitUntil: "domcontentloaded" });
   await expect.poll(() => backend.counters.createCount, { timeout: 45_000 }).toBe(1);
 
   // The user reloads while the create request is in flight: the client aborts,
-  // but the backend may still commit. Hold the fresh roster read until the
-  // commit lands so the page can reconcile by the saved draft name.
+  // but the backend may still commit. The fresh roster first returns without
+  // that commit; the persisted submission fence must prevent a second POST and
+  // ignore the unrelated same-name Agent until Refresh sees the setup marker.
   const listReadsBeforeReload = backend.counters.listGetCount;
-  backend.holdListResponse = true;
   await page.goto("/dashboard/agents?checkout=success&session_id=cs_midcreate_reload", { waitUntil: "domcontentloaded" });
   await expect.poll(() => backend.counters.listGetCount, { timeout: 30_000 }).toBeGreaterThan(listReadsBeforeReload);
+  const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await expect(refresh).toBeVisible({ timeout: 30_000 });
+  expect(backend.counters.createCount).toBe(1);
+
   backend.releaseCreate();
-  backend.releaseList();
-  backend.holdListResponse = false;
+  await refresh.click();
 
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY), { timeout: 60_000 }).toBeNull();
   expect(backend.counters.createCount).toBe(1);
+  await expect.poll(() => backend.counters.startCount, { timeout: 45_000 }).toBe(1);
+  expect(backend.stagingEvents).toEqual([
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    `delete:${OPENCLAW_CONFIG_PATH}`,
+    "start",
+  ]);
   await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY), { timeout: 30_000 }).toBeNull();
+  expect(backend.counters.createCount).toBe(1);
   expect(pageErrors).toEqual([]);
 });
 

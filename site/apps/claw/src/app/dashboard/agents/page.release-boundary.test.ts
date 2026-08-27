@@ -25,6 +25,18 @@ const nextConfigSource = readFileSync(
 );
 
 describe("dashboard agents page release boundary", () => {
+  it("keeps diagnostic billing mocks out of production", () => {
+    const mockBoundaryStart = pageSource.indexOf("function isActiveNoSlotBillingMockEnabled");
+    const mockBoundaryEnd = pageSource.indexOf("function applyActiveNoSlotBillingMock", mockBoundaryStart);
+    const mockBoundary = pageSource.slice(mockBoundaryStart, mockBoundaryEnd);
+
+    expect(mockBoundaryStart).toBeGreaterThan(-1);
+    expect(mockBoundary).toContain('process.env.NODE_ENV === "production"');
+    expect(mockBoundary.indexOf("process.env.NODE_ENV")).toBeLessThan(
+      mockBoundary.indexOf("window.location.search"),
+    );
+  });
+
   it("does not restore consumed checkout params when async agent selection updates the route", () => {
     const routeSyncStart = pageSource.indexOf("const replaceAgentChatRoute");
     const routeSyncEnd = pageSource.indexOf("// Logs", routeSyncStart);

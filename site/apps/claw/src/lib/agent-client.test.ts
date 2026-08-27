@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { archiveAgent, createHermesAgentDeployment, createHyperAgentClient, createOpenClawAgent, deleteInactiveAgent, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped } from "./agent-client";
+import { archiveAgent, createFirstAgentSetupTag, createHermesAgentDeployment, createHyperAgentClient, createOpenClawAgent, deleteInactiveAgent, ensureRecoveredOpenClawLaunchConfig, isAgentForFirstAgentSetup, isAgentLifecycleStateConflictError, requestAgentStart, restoreAgent, startAgent, stopAgent, waitForAgentRunning, waitForCreatedAgentStopped, waitForCreatedAgentStoppedOrRunning } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
@@ -11,6 +11,7 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
       createOpenClaw: vi.fn(),
       createOpenClawPro: vi.fn(),
       createHermesAgent: vi.fn(),
+      ensureOpenClawHostedSlack: vi.fn(),
       archive: vi.fn(),
       delete: vi.fn(),
       get: vi.fn(),
@@ -103,6 +104,15 @@ function redactedHermesLaunchConfig(overrides: Record<string, unknown> = {}) {
 }
 
 describe("agent-client", () => {
+  it("encodes persisted setup ids as valid resource tags for exact recovery", () => {
+    const tag = createFirstAgentSetupTag(" setup_é/123 ");
+
+    expect(tag).toMatch(/^first_agent_setup=[a-f0-9]+$/);
+    expect(isAgentForFirstAgentSetup({ tags: ["owner=user-1", tag] }, "setup_é/123")).toBe(true);
+    expect(isAgentForFirstAgentSetup({ tags: [tag] }, "another-setup")).toBe(false);
+    expect(isAgentForFirstAgentSetup({ tags: [] }, "setup_é/123")).toBe(false);
+  });
+
   it("classifies stale lifecycle conflicts without treating service failures as stale state", () => {
     expect(isAgentLifecycleStateConflictError({
       statusCode: 409,
@@ -148,6 +158,7 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.createOpenClawPro.mockReset();
     deploymentsInstance.createHermesAgent.mockReset();
+    deploymentsInstance.ensureOpenClawHostedSlack.mockReset();
     deploymentsInstance.archive.mockReset();
     deploymentsInstance.delete.mockReset();
     deploymentsInstance.list.mockReset();
@@ -192,6 +203,24 @@ describe("agent-client", () => {
     expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
       "agent-123",
       ["STOPPED"],
+      300_000,
+      ["FAILED", "DELETED"],
+      4,
+    );
+  });
+
+  it("allows checkout recovery to reconcile either pre-start STOPPED or already-started RUNNING", async () => {
+    const running = { id: "agent-123", state: "RUNNING", launchEpoch: 4 };
+    deploymentsInstance.waitForState.mockResolvedValue(running);
+
+    await expect(waitForCreatedAgentStoppedOrRunning(deploymentsInstance as never, {
+      id: "agent-123",
+      launchEpoch: 4,
+    })).resolves.toBe(running);
+
+    expect(deploymentsInstance.waitForState).toHaveBeenCalledWith(
+      "agent-123",
+      ["STOPPED", "RUNNING"],
       300_000,
       ["FAILED", "DELETED"],
       4,
@@ -842,6 +871,56 @@ describe("agent-client", () => {
     }
   });
 
+  it("completes SDK-owned hosted Slack config before a recovered Agent starts", async () => {
+    getSlackInstallStatus.mockResolvedValue({
+      connected: true,
+      teamId: "T123",
+      teamName: "Test Workspace",
+      botUserId: "U123",
+      updatedAt: "2026-07-19T12:00:00Z",
+    });
+    const recovered = { id: "agent-123", state: "STOPPED", launchConfig: { config: {} } };
+    const finalized = { ...recovered, launchConfig: { config: { channels: { slack: { mode: "relay" } } } } };
+    deploymentsInstance.ensureOpenClawHostedSlack.mockResolvedValue(finalized);
+
+    await expect(ensureRecoveredOpenClawLaunchConfig(
+      "hyper_api_test",
+      deploymentsInstance as never,
+      recovered as never,
+    )).resolves.toBe(finalized);
+
+    expect(deploymentsInstance.ensureOpenClawHostedSlack).toHaveBeenCalledWith(
+      "agent-123",
+      "https://api.hypercli.com",
+    );
+  });
+
+  it("leaves a recovered Agent stopped when pending hosted Slack intent cannot be confirmed", async () => {
+    getSlackInstallStatus.mockRejectedValue(new Error("relay unavailable"));
+    const recovered = {
+      id: "agent-123",
+      state: "STOPPED",
+      launchConfig: {
+        config: {
+          channels: {
+            slack: {
+              groupPolicy: "open",
+              replyToMode: "all",
+            },
+          },
+        },
+      },
+    };
+
+    await expect(ensureRecoveredOpenClawLaunchConfig(
+      "hyper_api_test",
+      deploymentsInstance as never,
+      recovered as never,
+    )).rejects.toThrow("Hosted Slack setup could not be confirmed. The agent remains stopped.");
+
+    expect(deploymentsInstance.ensureOpenClawHostedSlack).not.toHaveBeenCalled();
+  });
+
   it("does not replace explicit self-hosted Slack launch config", async () => {
     getSlackInstallStatus.mockResolvedValue({
       connected: true,
@@ -953,6 +1032,30 @@ describe("agent-client", () => {
     await expect(result).resolves.toBe(recoveredAgent);
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledTimes(1);
     expect(deploymentsInstance.list).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns tagged ambiguous creates to checkout recovery for post-create finalization", async () => {
+    vi.useFakeTimers();
+    const timeout = new Error("Request timed out after 30 seconds");
+    timeout.name = "TimeoutError";
+    const setupTag = createFirstAgentSetupTag("setup-finalize");
+    deploymentsInstance.createOpenClaw.mockRejectedValue(timeout);
+    deploymentsInstance.list.mockResolvedValue([{
+      id: "agent-recovered",
+      name: "clear-window-works",
+      tags: [setupTag],
+      createdAt: new Date("2026-07-18T19:08:15.000Z"),
+    }]);
+
+    const result = createOpenClawAgent("hyper_api_test", {
+      name: "clear-window-works",
+      tags: [setupTag],
+    });
+    const rejection = expect(result).rejects.toBe(timeout);
+    await vi.advanceTimersByTimeAsync(750);
+
+    await rejection;
+    expect(deploymentsInstance.list).toHaveBeenCalledOnce();
   });
 
   it("retries generated names when the backend reports a collision", async () => {

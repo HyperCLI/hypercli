@@ -67,6 +67,7 @@ describe("plan checkout state", () => {
       workspaceId: "workspace-1",
       knowledgeCollectionId: "collection-1",
       agentSize: "large",
+      agentCreateStartedAt: 123,
     });
 
     expect(readPendingPlanCheckout("user-1")).toMatchObject({
@@ -75,6 +76,7 @@ describe("plan checkout state", () => {
       workspaceId: "workspace-1",
       knowledgeCollectionId: "collection-1",
       agentSize: "large",
+      agentCreateStartedAt: 123,
     });
     expect(readPendingPlanCheckout("user-1")).not.toHaveProperty("knowledgeDomainId");
     expect(JSON.parse(window.localStorage.getItem(pendingCheckoutStorageKey("user-1")) ?? "null")).toMatchObject({

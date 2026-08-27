@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createOpenClawBootstrapDraft } from "@/lib/openclaw-bootstrap-pack";
 import {
+  clearFirstAgentSetupCheckoutDraft,
   FIRST_AGENT_SETUP_DRAFT_KEY,
   parseFirstAgentSetupDraft,
+  preserveFirstAgentSetupDraftForCheckout,
+  readFirstAgentSetupCheckoutDraft,
   readFirstAgentSetupDraft,
   updateFirstAgentSetupDraftPlan,
   writeFirstAgentSetupDraft,
@@ -11,6 +14,7 @@ import {
 
 describe("first agent setup draft", () => {
   beforeEach(() => {
+    window.localStorage.clear();
     window.sessionStorage.clear();
   });
 
@@ -111,6 +115,40 @@ describe("first agent setup draft", () => {
       knowledgeCollectionId: "collection-1",
       knowledgeDomainId: "collection-1",
     });
+  });
+
+  it("restores a matching checkout draft when the returning tab has no session draft", () => {
+    writeFirstAgentSetupDraft({
+      setupId: "setup-1",
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+      knowledgeCollectionId: null,
+      name: "checkout-agent",
+      displayName: "Checkout Agent",
+      description: "Resume after payment.",
+      size: "large",
+      iconIndex: 3,
+      category: "Ops",
+      plan: "pro",
+      enableDesktop: false,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: "",
+    });
+
+    expect(preserveFirstAgentSetupDraftForCheckout("user-1", "setup-1")).toBe(true);
+    window.sessionStorage.clear();
+
+    expect(readFirstAgentSetupCheckoutDraft("user-1", "setup-1")).toMatchObject({
+      setupId: "setup-1",
+      principalId: "user-1",
+      displayName: "Checkout Agent",
+      enableMemoryIndex: true,
+    });
+    expect(readFirstAgentSetupCheckoutDraft("user-2", "setup-1")).toBeNull();
+
+    clearFirstAgentSetupCheckoutDraft("user-1", "setup-1");
+    expect(readFirstAgentSetupCheckoutDraft("user-1", "setup-1")).toBeNull();
   });
 
   it("normalizes the saved agent type and defaults legacy drafts to openclaw", () => {

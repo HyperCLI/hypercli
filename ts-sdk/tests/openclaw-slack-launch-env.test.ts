@@ -159,6 +159,32 @@ describe('hosted Slack launch env', () => {
     vi.unstubAllEnvs();
   });
 
+  it('finishes the hosted Slack launch contract for a recovered stopped Agent', async () => {
+    const get = vi.fn().mockResolvedValue(createdAgentPayload({
+      state: 'STOPPED',
+      runtime: 'openclaw',
+    }));
+    const patch = vi.fn().mockImplementation(async (_path: string, body: any) => ({
+      ...createdAgentPayload({ state: 'STOPPED', runtime: 'openclaw' }),
+      launch_config: body.launch_config,
+    }));
+    const deployments = deploymentsWith({ get, patch });
+
+    const recovered = await deployments.ensureOpenClawHostedSlack(AGENT_ID, RELAY_BASE);
+
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(patch.mock.calls[0]?.[1]?.launch_config?.env).toMatchObject({
+      HYPER_SLACK_APP_ENABLED: '1',
+      HYPER_SLACK_RELAY_URL: RELAY_WS,
+      HYPER_SLACK_API_URL: RELAY_API,
+      HYPER_SLACK_GATEWAY_ID: `agent:${AGENT_ID}`,
+    });
+    expect(recovered.launchConfig?.config?.channels?.slack).toMatchObject({
+      enabled: true,
+      mode: 'relay',
+    });
+  });
+
   it('createOpenClaw refuses an explicitly partial Slack env', async () => {
     const post = vi.fn();
     const deployments = deploymentsWith({ post });

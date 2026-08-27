@@ -4,20 +4,11 @@ import { expect, test } from "@playwright/test";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
-const FEAT_APP_BASE_URL = "https://agents.feat.hypercli.com";
-{
-  const configured = (process.env.TEST_BASE_URL ?? "").trim().replace(/\/+$/, "");
-  if (configured !== FEAT_APP_BASE_URL) {
-    throw new Error(
-      `Paid first-agent launch coverage is feat-only; TEST_BASE_URL must be ${FEAT_APP_BASE_URL}, got ${configured || "<missing>"}.`,
-    );
-  }
-}
-
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_PRINCIPAL_ID = "stored-session";
 const TEST_WORKSPACE_ID = "workspace-paid-first-agent";
 const TEST_SETUP_ID = "setup-paid-first-agent";
+const FIRST_AGENT_SETUP_TAG = `first_agent_setup=${Buffer.from(TEST_SETUP_ID, "utf8").toString("hex")}`;
 const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}`;
 const OPENCLAW_CONFIG_PATH = ".openclaw/openclaw.json";
 const STAGED_FILE_PATHS = [
@@ -191,6 +182,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
         hostname: "paid-setup-agent.hypercli.app",
         created_at: "2026-07-30T00:00:00Z",
         updated_at: "2026-07-30T00:00:00Z",
+        tags: Array.isArray(createBody?.tags) ? createBody.tags : [],
         // The explicit START replays this stored launch contract verbatim; the
         // complete owner-visible shape (with the gateway secret) is what the
         // page hands back. Mirrors agent-client.test.ts's fixture.
@@ -353,17 +345,18 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
   expect(createBody && "start" in createBody).toBe(false);
   expect(createBody && "config" in createBody).toBe(false);
   expect(createBody?.meta).toMatchObject({ ui: { avatar: { icon_index: 11 } } });
+  expect(createBody?.tags).toEqual([FIRST_AGENT_SETUP_TAG]);
   expect(createBody?.env).toMatchObject({ OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1" });
   await expect.poll(() => writtenFiles[".openclaw/workspace/AGENTS.md"]?.toString("utf8") ?? "")
     .toContain("Preserve this saved file.");
   await expect.poll(() => startCount).toBe(1);
-  await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
   expect(Object.keys(writtenFiles).sort()).toEqual([...STAGED_FILE_PATHS].sort());
   expect(stagingEvents).toEqual([
     ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
     `delete:${OPENCLAW_CONFIG_PATH}`,
     "start",
   ]);
+  await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
   await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("hypercli-first-agent-draft"))).toBeNull();
   expect(await page.evaluate(() => (window as Window & { __sawPaidWorkspaceWelcome?: boolean }).__sawPaidWorkspaceWelcome)).toBe(false);
   await page.waitForTimeout(500);

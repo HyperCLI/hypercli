@@ -143,6 +143,29 @@ describe("billing reflection machine", () => {
     });
   });
 
+  it("keeps a failed first-agent recovery retryable against the same checkout", () => {
+    const pending = {
+      principalId: "user-1",
+      planId: "pro",
+      planName: "Pro",
+      ownedCount: 0,
+      startedAt: 1,
+      flow: "first-agent-setup" as const,
+      setupId: "setup-1",
+      agentSize: "medium",
+    };
+
+    expect(billingReflectionReducer(initialBillingReflectionState, {
+      type: "RECOVERY_FAILED",
+      pending,
+    })).toEqual({
+      status: "pending",
+      pending,
+      reason: "setup-failed",
+      message: "Payment is active, but agent setup did not finish. Refresh to safely retry the saved setup.",
+    });
+  });
+
   it("dismisses any visible state back to idle", () => {
     const pending = { principalId: "user-1", planId: "pro", planName: "Pro", ownedCount: 0, startedAt: 1 };
     const syncing = billingReflectionReducer(initialBillingReflectionState, {

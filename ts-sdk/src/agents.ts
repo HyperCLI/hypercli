@@ -4822,6 +4822,17 @@ export class Deployments {
     return this.applyHostedSlackLaunchConfig(agent, prepared.slack.relayBaseUrl, prepared.gatewayToken);
   }
 
+  /** Complete the ID-dependent hosted Slack launch contract on a stopped Agent. */
+  async ensureOpenClawHostedSlack(agentIdOrName: string, relayBaseUrl?: string): Promise<Agent> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agent = await this.get(agentId);
+    if (!(agent instanceof OpenClawAgent)) {
+      throw new Error(`Agent ${agentId} is not an OpenClaw deployment`);
+    }
+    const resolvedRelayBaseUrl = resolveHostedSlackRelayBaseUrl(relayBaseUrl, this.agentApiBase);
+    return this.applyHostedSlackLaunchConfig(agent, resolvedRelayBaseUrl, agent.gatewayToken);
+  }
+
   /**
    * Write the complete hosted Slack launch env onto a freshly created Agent.
    *

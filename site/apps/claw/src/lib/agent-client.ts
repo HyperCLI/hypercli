@@ -41,6 +41,7 @@ const AGENT_LIFECYCLE_RECONCILE_DELAYS_MS = [0, 500, 1_500, 3_000] as const;
 const AGENT_LIFECYCLE_RECONCILE_REQUEST_TIMEOUT_MS = 2_000;
 const AGENT_NAME_CREATE_ATTEMPTS = 32;
 const AGENT_LIFECYCLE_TIMEOUT_MS = 300_000;
+const FIRST_AGENT_SETUP_TAG_KEY = "first_agent_setup";
 const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 const HERMES_CORS_ORIGINS_ENV = "API_SERVER_CORS_ORIGINS";
@@ -58,6 +59,24 @@ const REQUIRED_START_LAUNCH_KEYS = [
   "registry_url",
   "runtime_scopes",
 ] as const;
+
+export function createFirstAgentSetupTag(setupId: string): string {
+  const normalized = setupId.trim();
+  if (!normalized) throw new Error("First-agent setup id is required.");
+  const encoded = Array.from(
+    new TextEncoder().encode(normalized),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `${FIRST_AGENT_SETUP_TAG_KEY}=${encoded}`;
+}
+
+export function isAgentForFirstAgentSetup(
+  agent: Pick<SdkAgent, "tags">,
+  setupId: string,
+): boolean {
+  const normalized = setupId.trim();
+  return Boolean(normalized && agent.tags?.includes(createFirstAgentSetupTag(normalized)));
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -208,16 +227,17 @@ function agentCreatedAtMs(value: unknown): number {
 
 async function reconcileCreatedAgent(
   agentClient: Deployments,
-  options: { name?: string },
+  options: { name?: string; tags?: string[] },
 ): Promise<ListedAgent | null> {
   const expectedName = options.name?.trim();
-  if (!expectedName) return null;
+  const setupTag = options.tags?.find((tag) => tag.startsWith(`${FIRST_AGENT_SETUP_TAG_KEY}=`));
+  if (!setupTag && !expectedName) return null;
 
   for (const delay of AGENT_CREATE_RECONCILE_DELAYS_MS) {
     await sleep(delay);
     const agents = await agentClient.list();
     const matches = agents
-      .filter((agent) => agentName(agent) === expectedName)
+      .filter((agent) => setupTag ? agent.tags?.includes(setupTag) : agentName(agent) === expectedName)
       .sort((left, right) => agentCreatedAtMs(right) - agentCreatedAtMs(left));
     if (matches.length > 0) {
       return matches[0];
@@ -468,7 +488,7 @@ export function createPublicHyperAgentClient(origin?: string): HyperAgent {
   return createHyperAgentClient("", origin);
 }
 
-async function createAgentWithNameRetry<T extends { name?: string }>(
+async function createAgentWithNameRetry<T extends { name?: string; tags?: string[] }>(
   agentClient: Deployments,
   create: (options: T) => Promise<SdkAgent>,
   preparedOptions: T,
@@ -485,7 +505,12 @@ async function createAgentWithNameRetry<T extends { name?: string }>(
     } catch (initialError) {
       if (isAgentCreateSpecVisibilityError(initialError) || isAgentLifecycleTimeout(initialError)) {
         const reconciled = await reconcileCreatedAgent(agentClient, candidateOptions);
-        if (reconciled) return reconciled;
+        if (reconciled) {
+          const setupTag = candidateOptions.tags?.find((tag) => tag.startsWith(`${FIRST_AGENT_SETUP_TAG_KEY}=`));
+          // Tagged checkout creates may still owe runtime-specific post-create
+          // finalization. Let the persisted recovery flow finish that work.
+          if (!setupTag) return reconciled;
+        }
         throw initialError;
       }
       if (!canRegenerateName || !isAgentNameConflictError(initialError) || attemptedNames.size >= AGENT_NAME_CREATE_ATTEMPTS) {
@@ -508,6 +533,30 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
     ? agentClient.createOpenClawPro.bind(agentClient)
     : agentClient.createOpenClaw.bind(agentClient);
   return createAgentWithNameRetry(agentClient, create, preparedOptions);
+}
+
+export async function ensureRecoveredOpenClawLaunchConfig(
+  apiKey: string,
+  agentClient: Deployments,
+  agent: SdkAgent,
+): Promise<SdkAgent> {
+  if (!SLACK_RELAY_BASE_URL) return agent;
+  const config = isRecord(agent.launchConfig?.config) ? agent.launchConfig.config : {};
+  const channels = isRecord(config.channels) ? config.channels : {};
+  const slack = isRecord(channels.slack) ? channels.slack : {};
+  const pendingHostedSlackIntent = Object.keys(slack).length > 0 && !hasSelfHostedSlackConfig(slack);
+  let status: Awaited<ReturnType<typeof getSlackInstallStatus>>;
+  try {
+    status = await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: apiKey });
+  } catch (cause) {
+    if (pendingHostedSlackIntent) {
+      throw new Error("Hosted Slack setup could not be confirmed. The agent remains stopped.", { cause });
+    }
+    console.warn("Could not check hosted Slack install status during recovery.", cause);
+    return agent;
+  }
+  if (!status.connected || hasSelfHostedSlackConfig(slack)) return agent;
+  return agentClient.ensureOpenClawHostedSlack(agent.id, SLACK_RELAY_BASE_URL);
 }
 
 export async function createHermesAgentDeployment(apiKey: string, options: FrontendHermesAgentCreateOptions = {}) {
@@ -578,6 +627,22 @@ export async function waitForCreatedAgentStopped(
   return agentClient.waitForState(
     created.id,
     ["STOPPED"],
+    AGENT_LIFECYCLE_TIMEOUT_MS,
+    ["FAILED", "DELETED"],
+    minimumLaunchEpoch,
+  );
+}
+
+export async function waitForCreatedAgentStoppedOrRunning(
+  agentClient: Deployments,
+  created: { id: string; launchEpoch?: number },
+): Promise<SdkAgent> {
+  const minimumLaunchEpoch = typeof created.launchEpoch === "number" && created.launchEpoch > 0
+    ? created.launchEpoch
+    : undefined;
+  return agentClient.waitForState(
+    created.id,
+    ["STOPPED", "RUNNING"],
     AGENT_LIFECYCLE_TIMEOUT_MS,
     ["FAILED", "DELETED"],
     minimumLaunchEpoch,

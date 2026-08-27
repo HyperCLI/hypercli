@@ -5,7 +5,7 @@ import { expect, test, type Page } from "@playwright/test";
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 /**
- * Checkout-return reflection hardening — feat-only, deterministic.
+ * Checkout-return reflection hardening, deterministic against the built app.
  *
  * agents-paid-first-launch.spec.ts proves the paid-first recovery happy path.
  * This spec pins the remaining fresh-account reflection contract it does not
@@ -21,7 +21,7 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
  *   4. catalog-unavailable (/agents/plans 500) during recovery: a partial
  *      enrichment must not block or break the already-paid recovery.
  *
- * Everything drives the real feat build and intercepts only the backend API.
+ * Everything drives the real app build and intercepts only the backend API.
  *
  * The deployments event-subscription control channel (POST
  * /deployments/events/token) is intentionally left unanswered here: the live,
@@ -30,19 +30,10 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
  * against the app origin in this deterministic composition.
  */
 
-const FEAT_APP_BASE_URL = "https://agents.feat.hypercli.com";
-{
-  const configured = (process.env.TEST_BASE_URL ?? "").trim().replace(/\/+$/, "");
-  if (configured !== FEAT_APP_BASE_URL) {
-    throw new Error(
-      `Checkout-return reflection coverage is feat-only; TEST_BASE_URL must be ${FEAT_APP_BASE_URL}, got ${configured || "<missing>"}.`,
-    );
-  }
-}
-
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_PRINCIPAL_ID = "stored-session";
 const TEST_SETUP_ID = "setup-reflection-hardening";
+const FIRST_AGENT_SETUP_TAG = `first_agent_setup=${Buffer.from(TEST_SETUP_ID, "utf8").toString("hex")}`;
 const TEST_WORKSPACE_ID = "workspace-reflection-hardening";
 const PENDING_CHECKOUT_KEY = `hyperclaw.pendingPlanCheckout.v1:${encodeURIComponent(TEST_PRINCIPAL_ID)}`;
 const FIRST_AGENT_DRAFT_KEY = "hypercli-first-agent-draft";
@@ -57,6 +48,8 @@ const STAGED_FILE_PATHS = [
 
 const WAITING_ENTITLEMENT_MESSAGE =
   "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.";
+const SETUP_RETRY_MESSAGE =
+  "Payment is active, but agent setup did not finish. Refresh to safely retry the saved setup.";
 
 function pendingCheckout(): Record<string, unknown> {
   return {
@@ -139,7 +132,10 @@ function trackHygiene(page: Page): HygieneLog {
   const log: HygieneLog = { consoleErrors: [], consoleWarnings: [], pageErrors: [], failedRequests: [] };
   page.on("console", (message) => {
     if (message.type() === "error") log.consoleErrors.push(message.text());
-    else if (message.type() === "warning") log.consoleWarnings.push(message.text());
+    else if (
+      message.type() === "warning"
+      && message.text() !== "You have Reduced Motion enabled on your device. Animations may not appear as expected."
+    ) log.consoleWarnings.push(message.text());
   });
   page.on("pageerror", (error) => log.pageErrors.push(String(error)));
   page.on("requestfailed", (request) => {
@@ -177,6 +173,7 @@ interface MockControls {
   slotReflected: boolean;
   failStartWith: { status: number; body: Record<string, unknown> } | null;
   failPlansCatalog: boolean;
+  corruptReadPath: string | null;
   holdReadPath: string | null;
   releaseRead: () => void;
 }
@@ -195,6 +192,7 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     slotReflected: true,
     failStartWith: null,
     failPlansCatalog: false,
+    corruptReadPath: null,
     holdReadPath: null,
     releaseRead: () => { for (const release of readGate.splice(0)) release(); },
   };
@@ -251,6 +249,8 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     }
     if (pathName.endsWith("/agents/deployments") && method === "POST") {
       counters.createCount += 1;
+      const createBody = route.request().postDataJSON() as Record<string, unknown>;
+      expect(createBody.tags).toEqual([FIRST_AGENT_SETUP_TAG]);
       createdAgent = {
         id: "agent-reflection",
         name: "reflection-agent",
@@ -262,6 +262,7 @@ async function installMockBackend(page: Page): Promise<MockControls> {
         hostname: "reflection-agent.hypercli.app",
         created_at: "2026-08-25T00:00:00Z",
         updated_at: "2026-08-25T00:00:00Z",
+        tags: createBody.tags,
         launch_config: {
           config: {},
           image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
@@ -345,7 +346,9 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       return;
     }
     if (pathName.endsWith("/agents/plans/current")) {
-      const slots = controls.slotReflected ? { large: { granted: 1, used: 0, available: 1 } } : {};
+      const slots = controls.slotReflected
+        ? { large: { granted: 1, used: createdAgent ? 1 : 0, available: createdAgent ? 0 : 1 } }
+        : {};
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -355,7 +358,9 @@ async function installMockBackend(page: Page): Promise<MockControls> {
     }
     if (pathName.endsWith("/agents/subscriptions/summary")) {
       counters.summaryGetCount += 1;
-      const slots = controls.slotReflected ? { large: { granted: 1, used: 0, available: 1 } } : {};
+      const slots = controls.slotReflected
+        ? { large: { granted: 1, used: createdAgent ? 1 : 0, available: createdAgent ? 0 : 1 } }
+        : {};
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -417,7 +422,11 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       if (controls.holdReadPath === filePath) {
         await new Promise<void>((resolve) => readGate.push(resolve));
       }
-      await route.fulfill({ status: 200, contentType: "application/octet-stream", body: writtenFiles[filePath] ?? Buffer.alloc(0) });
+      const stored = writtenFiles[filePath] ?? Buffer.alloc(0);
+      const content = controls.corruptReadPath === filePath && stored.length > 0
+        ? Buffer.from(stored.map((byte, index) => index === 0 ? byte ^ 0xff : byte))
+        : stored;
+      await route.fulfill({ status: 200, contentType: "application/octet-stream", body: content });
       return;
     }
     if (request.method() === "DELETE") {
@@ -504,6 +513,42 @@ test("surfaces the terminal start failure after a successful recovery create wit
   for (const entry of hygiene.failedRequests) {
     expect(entry, describeHygiene(hygiene)).toContain("/start");
   }
+});
+
+test("keeps a readback mismatch stopped and retries that same Agent after Refresh", async ({ page }) => {
+  test.setTimeout(120_000);
+  const backend = await installMockBackend(page);
+  backend.corruptReadPath = ".openclaw/workspace/SOUL.md";
+  await plantSession(page);
+
+  await page.goto("/dashboard/agents?checkout=success&session_id=cs_readback_mismatch", { waitUntil: "domcontentloaded" });
+
+  await expect.poll(() => backend.counters.createCount, { timeout: 60_000 }).toBe(1);
+  const errorBanner = page.getByTestId("agent-error-banner");
+  await expect(errorBanner).toBeVisible({ timeout: 30_000 });
+  await expect(errorBanner).toContainText("Workspace file verification failed for .openclaw/workspace/SOUL.md");
+  expect(backend.counters.startCount).toBe(0);
+  expect(backend.stagingEvents).toEqual(
+    STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+  );
+  expect(await page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).not.toBeNull();
+
+  backend.corruptReadPath = null;
+  const refresh = page.getByRole("button", { name: "Refresh", exact: true });
+  await expect(page.getByLabel("Agent startup").getByText(SETUP_RETRY_MESSAGE, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dismiss checkout status" })).toHaveCount(0);
+  await refresh.click();
+
+  await expect.poll(() => backend.counters.startCount, { timeout: 60_000 }).toBe(1);
+  expect(backend.counters.createCount, "retry must stage and start the existing stopped Agent").toBe(1);
+  expect(backend.stagingEvents).toEqual([
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    ...STAGED_FILE_PATHS.flatMap((filePath) => [`write:${filePath}`, `read:${filePath}`]),
+    `delete:${OPENCLAW_CONFIG_PATH}`,
+    "start",
+  ]);
+  await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
+  await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).toBeNull();
 });
 
 test("settles the paid-first recovery with a clean console and no failed app requests", async ({ page }) => {

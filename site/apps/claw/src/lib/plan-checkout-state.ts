@@ -55,6 +55,7 @@ export interface PendingPlanCheckout {
   workspaceId?: string;
   knowledgeCollectionId?: string | null;
   agentSize?: string;
+  agentCreateStartedAt?: number;
 }
 
 export interface FirstAgentTrialCheckoutContext {
@@ -306,6 +307,9 @@ function parsePendingPlanCheckout(
         : {}),
       ...(typeof parsed.agentSize === "string" && parsed.agentSize.trim()
         ? { agentSize: parsed.agentSize.trim().slice(0, 40) }
+        : {}),
+      ...(Number.isFinite(Number(parsed.agentCreateStartedAt)) && Number(parsed.agentCreateStartedAt) > 0
+        ? { agentCreateStartedAt: Number(parsed.agentCreateStartedAt) }
         : {}),
     };
   } catch {

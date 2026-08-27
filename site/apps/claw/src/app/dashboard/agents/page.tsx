@@ -29,18 +29,22 @@ import {
   AGENT_CLEANUP_START_MESSAGE,
   archiveAgent,
   createAgentClient,
+  createFirstAgentSetupTag,
   createHermesAgentDeployment,
   createHyperAgentClient,
   createOpenClawAgent,
   createPublicHyperAgentClient,
   deleteInactiveAgent,
+  ensureRecoveredOpenClawLaunchConfig,
   isAgentCleanupConflictError,
+  isAgentForFirstAgentSetup,
   isAgentLifecycleStateConflictError,
   requestAgentStart,
   restoreAgent,
   startAgent,
   stopAgent,
   waitForCreatedAgentStopped,
+  waitForCreatedAgentStoppedOrRunning,
   waitForAgentRunning,
 } from "@/lib/agent-client";
 import {
@@ -86,7 +90,13 @@ import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@
 import { EmbeddedPlanCheckout } from "@/components/dashboard/agents/EmbeddedPlanCheckout";
 import { AgentDashboardTour } from "@/components/dashboard/agents/AgentDashboardTour";
 import { TeamTrialActivationDialog } from "@/components/trial/TeamTrialActivationDialog";
-import { clearFirstAgentSetupDraft, updateFirstAgentSetupDraftPlan, useFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
+import {
+  clearFirstAgentSetupCheckoutDraft,
+  clearFirstAgentSetupDraft,
+  readFirstAgentSetupCheckoutDraft,
+  updateFirstAgentSetupDraftPlan,
+  useFirstAgentSetupDraft,
+} from "@/hooks/useFirstAgentSetupDraft";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import {
   Dialog,
@@ -595,11 +605,13 @@ function getCheckoutLaunchReflectionStatus(
   summary: HyperAgentSubscriptionSummary | null,
   pending: PendingPlanCheckout | null,
   billingBudget: AgentBudget | null,
+  agents: readonly SdkAgent[] = [],
 ) {
   const reflectionStatus = getCheckoutReflectionStatus(summary, pending);
   if (
     reflectionStatus === "ready" &&
     isFirstAgentSetupCheckout(pending) &&
+    !agents.some((agent) => isAgentForFirstAgentSetup(agent, pending.setupId)) &&
     Math.max(billingBudget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0
   ) return "waiting-entitlement" as const;
   return reflectionStatus;
@@ -624,6 +636,7 @@ function upgradeProductFeatures(product: UpgradeDisplayProduct): string[] {
 }
 
 function isActiveNoSlotBillingMockEnabled(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
   if (typeof window === "undefined") return false;
   try {
     return new URLSearchParams(window.location.search).get(BILLING_MOCK_PARAM) === BILLING_MOCK_ACTIVE_NO_SLOT;
@@ -754,6 +767,7 @@ function buildBillingBudget(
 }
 
 type FetchAgentsResult = {
+  agents?: SdkAgent[];
   subscriptionSummary: HyperAgentSubscriptionSummary | null;
   budget: AgentBudget | null;
   billingReady: boolean;
@@ -1255,6 +1269,9 @@ function AgentsPageContent() {
     || billingReflectionState.status === "success"
     ? billingReflectionState.pending
     : null;
+  const checkoutSetupRecoveryLocked = [checkoutSyncPending, paidFirstAgentCheckout].some((pending) => (
+    isFirstAgentSetupCheckout(pending) && Boolean(pending.agentCreateStartedAt)
+  ));
   const checkoutAuthRecoveryOpen = Boolean(
     isAuthenticated &&
     pendingAuthIntent?.kind === "checkout" &&
@@ -1320,6 +1337,7 @@ function AgentsPageContent() {
   const appliedTeamTrialEntryRef = useRef(false);
   const embeddedCheckoutSelectionRequestRef = useRef(0);
   const paidFirstAgentCreationAttemptsRef = useRef<Set<string>>(new Set());
+  const paidFirstAgentCreationsInFlightRef = useRef<Set<string>>(new Set());
   const selectedAgentIdRef = useRef<string | null>(null);
   const endTemporaryChatBeforeSelectionRef = useRef<() => Promise<void>>(async () => undefined);
   const agentSelectionOperationRef = useRef(0);
@@ -1743,7 +1761,10 @@ function AgentsPageContent() {
     setSelectedAgentId(null);
     setSelectedSessionKeysByAgent({});
     pendingSlotReleasesRef.current.clear();
-    paidFirstAgentCreationAttemptsRef.current.clear();
+    if (previousPrincipal) {
+      paidFirstAgentCreationAttemptsRef.current.clear();
+      paidFirstAgentCreationsInFlightRef.current.clear();
+    }
     setPendingSlotReleases({});
     setDeletingId(null);
     setStartingId(null);
@@ -2165,9 +2186,10 @@ function AgentsPageContent() {
         measureDashboardPerformance("auth-to-deployments", "auth-ready", "deployments-ready");
 
         if (options?.includeEnrichment === false) {
-          return { subscriptionSummary: null, budget: null, billingReady: false };
+          return { agents: listedAgents, subscriptionSummary: null, budget: null, billingReady: false };
         }
-        return await refreshAgentEnrichment({ force: options?.force, token });
+        const enrichment = await refreshAgentEnrichment({ force: options?.force, token });
+        return enrichment ? { ...enrichment, agents: listedAgents } : null;
       } catch (err) {
         if (!isCurrentRequest()) return null;
         const described = describeAgentsPageError(err);
@@ -2308,12 +2330,17 @@ function AgentsPageContent() {
     const principalId = user?.id ?? null;
     if (!principalId) return;
     const pending = targetPending ?? readPendingPlanCheckout(principalId);
+    setError(null);
     dispatchBillingReflection({
       type: "SYNC_STARTED",
       pending,
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
     });
-    let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null);
+    const refreshedRoster = await fetchAgents({ force: true, includeEnrichment: false });
+    if (privatePrincipalRef.current !== principalId) return;
+    const reflectedAgents = refreshedRoster?.agents
+      ?? (agentDataPrincipalId === principalId ? sdkAgents : []);
+    let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null, reflectedAgents);
     for (let attempt = 0; attempt < 6; attempt += 1) {
       const refreshed = await refreshAgentEnrichment({ force: true });
       if (privatePrincipalRef.current !== principalId) return;
@@ -2321,6 +2348,7 @@ function AgentsPageContent() {
         refreshed?.subscriptionSummary ?? null,
         pending,
         refreshed?.budget ?? null,
+        reflectedAgents,
       );
       if (reflectionStatus === "ready") break;
       if (attempt < 5) {
@@ -2338,7 +2366,7 @@ function AgentsPageContent() {
       pending,
       reflectionStatus,
     });
-  }, [handleReflectedCheckout, refreshAgentEnrichment, user?.id]);
+  }, [agentDataPrincipalId, fetchAgents, handleReflectedCheckout, refreshAgentEnrichment, sdkAgents, user?.id]);
 
   const openUpgradeCatalog = useCallback(async (preferredPlanId?: string) => {
     if (preferredPlanId === "free") {
@@ -2499,6 +2527,13 @@ function AgentsPageContent() {
     if (!checkoutReturn) return;
     const principalId = user?.id ?? null;
     if (!principalId) return;
+    const finishCheckoutReturnRecovery = () => {
+      window.setTimeout(() => {
+        if (pageActiveRef.current && privatePrincipalRef.current === principalId) {
+          setCheckoutReturnRecoveryActive(false);
+        }
+      }, 0);
+    };
     let pending = readPendingPlanCheckout(principalId, {
       sessionId: checkoutReturn.sessionId,
       attemptId: checkoutReturn.attemptId,
@@ -2506,8 +2541,8 @@ function AgentsPageContent() {
     if (!pending) {
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
-      const timeout = window.setTimeout(() => setCheckoutReturnRecoveryActive(false), 0);
-      return () => window.clearTimeout(timeout);
+      finishCheckoutReturnRecovery();
+      return;
     }
 
     if (checkoutReturn.status === "cancelled") {
@@ -2515,8 +2550,14 @@ function AgentsPageContent() {
       clearPendingPlanCheckout(principalId, pending);
       dispatchBillingReflection({ type: "CHECKOUT_CANCELLED" });
       clearStripeCheckoutReturnState();
-      const timeout = window.setTimeout(() => setResumeAgentLauncher(true), 0);
-      return () => window.clearTimeout(timeout);
+      // Billing and roster state can settle in this tick. Once cancellation is
+      // accepted, that dependency churn must not cancel the launcher handoff.
+      window.setTimeout(() => {
+        if (pageActiveRef.current && privatePrincipalRef.current === principalId) {
+          setResumeAgentLauncher(true);
+        }
+      }, 0);
+      return;
     }
 
     if (billingDataPrincipalId !== principalId) {
@@ -2540,8 +2581,8 @@ function AgentsPageContent() {
     if (!pending) {
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
-      const timeout = window.setTimeout(() => setCheckoutReturnRecoveryActive(false), 0);
-      return () => window.clearTimeout(timeout);
+      finishCheckoutReturnRecovery();
+      return;
     }
     let active = true;
     const planLabel = pending?.planName ? `${pending.planName} plan` : "your plan";
@@ -2557,7 +2598,8 @@ function AgentsPageContent() {
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     void (async () => {
-      let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null);
+      const reflectedAgents = agentDataPrincipalId === principalId ? sdkAgents : [];
+      let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null, reflectedAgents);
 
       for (let attempt = 0; attempt < 6; attempt += 1) {
         const refreshed = await refreshAgentEnrichment({ force: true });
@@ -2567,6 +2609,7 @@ function AgentsPageContent() {
           refreshed?.subscriptionSummary ?? null,
           pending,
           refreshed?.budget ?? null,
+          reflectedAgents,
         );
         if (reflectionStatus === "ready") {
           break;
@@ -2596,7 +2639,7 @@ function AgentsPageContent() {
     return () => {
       active = false;
     };
-  }, [accountSettingsSection, authLoading, billingDataError, billingDataPrincipalId, dashboardView, handleReflectedCheckout, isAuthenticated, refreshAgentEnrichment, user?.id]);
+  }, [accountSettingsSection, agentDataPrincipalId, authLoading, billingDataError, billingDataPrincipalId, dashboardView, handleReflectedCheckout, isAuthenticated, refreshAgentEnrichment, sdkAgents, user?.id]);
 
   useEffect(() => {
     const principalId = user?.id ?? null;
@@ -2610,14 +2653,15 @@ function AgentsPageContent() {
     ) return;
     const pending = readPendingPlanCheckout(principalId);
     if (!pending?.returnSessionId) return;
-    const reflectionStatus = getCheckoutLaunchReflectionStatus(subscriptionSummary, pending, budget);
+    const reflectedAgents = agentDataPrincipalId === principalId ? sdkAgents : [];
+    const reflectionStatus = getCheckoutLaunchReflectionStatus(subscriptionSummary, pending, budget, reflectedAgents);
     if (reflectionStatus === "ready") {
       const timeout = window.setTimeout(() => handleReflectedCheckout(principalId, pending), 0);
       dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus });
       return () => window.clearTimeout(timeout);
     }
     dispatchBillingReflection({ type: "REFLECTION_RECEIVED", pending, reflectionStatus });
-  }, [accountSettingsSection, authLoading, billingDataPrincipalId, budget, dashboardView, handleReflectedCheckout, isAuthenticated, subscriptionSummary, user?.id]);
+  }, [accountSettingsSection, agentDataPrincipalId, authLoading, billingDataPrincipalId, budget, dashboardView, handleReflectedCheckout, isAuthenticated, sdkAgents, subscriptionSummary, user?.id]);
 
   useEffect(() => {
     if (!resumeAgentLauncher || authLoading || !isAuthenticated || agentsLoading) return;
@@ -4205,6 +4249,7 @@ function AgentsPageContent() {
   }, [getToken]);
 
   const handleCreateFirstAgent = useCallback(async ({
+    creationId,
     name,
     handle = null,
     iconIndex,
@@ -4258,6 +4303,7 @@ function AgentsPageContent() {
         ? files
         : await prepareOpenClawStarterFiles(files);
       debugFlow("create-agent", "starter files prepared", { agentType, count: starterFiles.length });
+      const setupTags = creationId ? [createFirstAgentSetupTag(creationId)] : undefined;
       setError(null);
       const token = await getToken();
       if (generation !== agentDataGenerationRef.current) {
@@ -4270,6 +4316,7 @@ function AgentsPageContent() {
           name: name || undefined,
           handle,
           size,
+          tags: setupTags,
           meta: {
             ui: {
               avatar: { icon_index: iconIndex },
@@ -4281,6 +4328,7 @@ function AgentsPageContent() {
           name: name || undefined,
           handle,
           size,
+          tags: setupTags,
           meta: {
             ui: {
               avatar: { icon_index: iconIndex },
@@ -4462,8 +4510,10 @@ function AgentsPageContent() {
     if (!isFirstAgentSetupCheckout(pending) || !principalId || pending.principalId !== principalId) return;
 
     const timeout = window.setTimeout(async () => {
-      const draft = firstAgentSetupDraft;
+      const draft = firstAgentSetupDraft
+        ?? readFirstAgentSetupCheckoutDraft(principalId, pending.setupId);
       if (!draft || draft.setupId !== pending.setupId || (draft.principalId && draft.principalId !== principalId)) {
+        clearFirstAgentSetupCheckoutDraft(principalId, pending.setupId);
         clearPendingPlanCheckout(principalId, pending);
         setPaidFirstAgentCheckout(null);
         setCheckoutReturnRecoveryActive(false);
@@ -4489,14 +4539,27 @@ function AgentsPageContent() {
         authLoading ||
         agentsLoading ||
         (knowledgeHubAvailable && workspacesLoading) ||
-        billingDataPrincipalId !== principalId ||
-        agentCreationBlockedReason
+        billingDataPrincipalId !== principalId
       ) return;
 
-      // Checkout recovery is correlated locally by the persisted draft name;
-      // setup IDs are UI state and never cross the public Agent API boundary.
-      const completedAgent = accountAgents.find((agent) => agent.name === draft.name);
-      if (completedAgent) {
+      // The persisted setup marker survives name-conflict retries and prevents
+      // recovery from ever staging files into an unrelated same-name Agent.
+      const attemptKey = pending.setupId;
+      const inFlightKey = `${principalId}:${pending.setupId}`;
+      if (paidFirstAgentCreationsInFlightRef.current.has(inFlightKey)) return;
+      const existingAgent = accountSdkAgents.find((agent) => (
+        isAgentForFirstAgentSetup(agent, pending.setupId)
+      ));
+      const keepRecoveryRetryable = (recoveryPending = pending) => {
+        paidFirstAgentCreationAttemptsRef.current.delete(attemptKey);
+        dispatchBillingReflection({ type: "RECOVERY_FAILED", pending: recoveryPending });
+        setPaidFirstAgentCheckout(null);
+        setResumeAgentLauncher(false);
+        setAgentLauncherOpen(false);
+        setCheckoutReturnRecoveryActive(true);
+      };
+      const settleRecoveredAgent = (agentId: string) => {
+        clearFirstAgentSetupCheckoutDraft(principalId, pending.setupId);
         clearPendingPlanCheckout(principalId, pending);
         clearFirstAgentSetupDraft();
         setPaidFirstAgentCheckout(null);
@@ -4504,12 +4567,84 @@ function AgentsPageContent() {
         setEmbeddedCheckoutProcessing(false);
         agentLauncherReturnHrefRef.current = null;
         setAgentLauncherOpen(false);
-        void selectAgent(completedAgent.id, true).finally(() => setCheckoutReturnRecoveryActive(false));
+        void selectAgent(agentId, true).finally(() => setCheckoutReturnRecoveryActive(false));
+      };
+      if (existingAgent) {
+        if (existingAgent.state.toUpperCase() === "RUNNING") {
+          if (!paidFirstAgentCreationAttemptsRef.current.has(attemptKey)) {
+            settleRecoveredAgent(existingAgent.id);
+          }
+          return;
+        }
+        if (paidFirstAgentCreationAttemptsRef.current.has(attemptKey)) return;
+        paidFirstAgentCreationAttemptsRef.current.add(attemptKey);
+        const draftAgentType = draft.agentType === "hermes" ? "hermes" : "openclaw";
+        const bootstrap = draft.bootstrapDraft ?? createOpenClawBootstrapDraft(draft.name);
+        const files = draftAgentType === "hermes"
+          ? []
+          : bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" }));
+        void (async () => {
+          const starterFiles = draftAgentType === "hermes"
+            ? files
+            : await prepareOpenClawStarterFiles(files);
+          const token = await getToken();
+          const agentClient = createAgentClient(token);
+          let recovered = await waitForCreatedAgentStoppedOrRunning(agentClient, existingAgent);
+          if (privatePrincipalRef.current !== principalId) return;
+          if (draftAgentType !== "hermes" && recovered.state.toUpperCase() !== "RUNNING") {
+            recovered = await ensureRecoveredOpenClawLaunchConfig(token, agentClient, recovered);
+            if (privatePrincipalRef.current !== principalId) return;
+          }
+          applyAgentMutationResult(recovered);
+          if (recovered.state.toUpperCase() !== "RUNNING") {
+            const startRecoveredAgent = async (agentId: string) => {
+              if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) {
+                throw new Error("Workspace setup was cancelled before launch. The agent remains stopped.");
+              }
+              const runningAgent = await startAgent(token, agentId, (accepted) => {
+                if (privatePrincipalRef.current === principalId) {
+                  applyAgentMutationResult(accepted);
+                  invalidateAgentCapacity();
+                }
+              });
+              if (privatePrincipalRef.current === principalId) applyAgentMutationResult(runningAgent);
+            };
+            if (draftAgentType === "hermes") {
+              if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
+              await startRecoveredAgent(recovered.id);
+            } else {
+              await stageAgentStarterFilesAndStart({
+                agentId: recovered.id,
+                files: starterFiles,
+                writeFileBytes: (agentId, path, content) => agentClient.fileWriteBytes(agentId, path, content),
+                readFileBytes: (agentId, path) => agentClient.fileReadBytes(agentId, path),
+                deleteFile: (agentId, path) => agentClient.fileDelete(agentId, path),
+                startAgent: startRecoveredAgent,
+                shouldAbort: () => !pageActiveRef.current || privatePrincipalRef.current !== principalId,
+              });
+            }
+          }
+          if (privatePrincipalRef.current !== principalId) return;
+          const agentsRefreshed = await fetchAgents({ force: true });
+          if (!agentsRefreshed) throw new Error("Agent was created, but agents could not be refreshed.");
+          if (privatePrincipalRef.current === principalId) settleRecoveredAgent(recovered.id);
+        })().catch((recoveryError) => {
+          if (privatePrincipalRef.current !== principalId) return;
+          setError(recoveryError instanceof Error ? recoveryError.message : "Failed to finish agent setup");
+          keepRecoveryRetryable();
+        });
         return;
       }
 
+      // Refresh clears this fence only after an authoritative roster read. A
+      // retry reuses the persisted name, whose active-row uniqueness prevents
+      // a second create while the setup tag remains the recovery identity.
+      if (pending.agentCreateStartedAt) {
+        keepRecoveryRetryable();
+        return;
+      }
+      if (agentCreationBlockedReason) return;
       if (Math.max(budget?.slots?.[pending.agentSize]?.available ?? 0, 0) <= 0) return;
-      const attemptKey = `${pending.setupId}:${pending.returnSessionId ?? pending.startedAt}`;
       if (paidFirstAgentCreationAttemptsRef.current.has(attemptKey)) return;
 
       const draftAgentType = draft.agentType === "hermes" ? "hermes" : "openclaw";
@@ -4525,26 +4660,61 @@ function AgentsPageContent() {
       // the next effect pass instead of stranding a paid checkout.
       if (draftAgentType !== "hermes" && !bootstrap) return;
       paidFirstAgentCreationAttemptsRef.current.add(attemptKey);
-      void handleCreateFirstAgent({
-        name: draft.name,
-        handle: draft.displayName ? managedAgentHandleFromDisplayName(draft.displayName) : null,
-        iconIndex: draft.iconIndex,
-        size: pending.agentSize,
-        agentType: draftAgentType,
-        files: draftAgentType === "hermes" || !bootstrap ? [] : bootstrap.files.map((file) => new File([file.content], file.name, { type: "text/markdown" })),
-        enableDesktop: draft.enableDesktop,
-        enableMemoryIndex: draft.enableMemoryIndex,
-        customImage: draft.enableCustomImage ? draft.customImage || null : null,
-        knowledgeCollectionId: knowledgeHubAvailable ? draft.knowledgeCollectionId : null,
-        creationId: pending.setupId,
-      }).then((createdId) => {
+      paidFirstAgentCreationsInFlightRef.current.add(inFlightKey);
+      let recoveryPending = pending;
+      void (async () => {
+        const files = draftAgentType === "hermes"
+          ? []
+          : bootstrap!.files.map((file) => new File([file.content], file.name, { type: "text/markdown" }));
+        if (draftAgentType !== "hermes") await prepareOpenClawStarterFiles(files);
+        if (privatePrincipalRef.current !== principalId) return null;
+        const claimPendingCreate = () => {
+          const current = readPendingPlanCheckout(principalId);
+          if (!isFirstAgentSetupCheckout(current) || current.setupId !== pending.setupId) return null;
+          if (current.agentCreateStartedAt) return null;
+          const claimed = { ...current, agentCreateStartedAt: Date.now() };
+          writePendingPlanCheckout(claimed);
+          return claimed;
+        };
+        const lockName = `hyperclaw:first-agent-create:${encodeURIComponent(principalId)}:${encodeURIComponent(pending.setupId)}`;
+        const claimed = typeof navigator !== "undefined" && navigator.locks
+          ? await navigator.locks.request(lockName, claimPendingCreate)
+          : claimPendingCreate();
+        if (!claimed) {
+          const current = readPendingPlanCheckout(principalId);
+          if (!isFirstAgentSetupCheckout(current) || current.setupId !== pending.setupId) return null;
+          recoveryPending = current;
+          throw new Error("Agent creation was already submitted for this setup.");
+        }
+        recoveryPending = claimed;
+        setPaidFirstAgentCheckout(recoveryPending);
+        return handleCreateFirstAgent({
+          name: draft.name,
+          handle: draft.displayName ? managedAgentHandleFromDisplayName(draft.displayName) : null,
+          iconIndex: draft.iconIndex,
+          size: pending.agentSize,
+          agentType: draftAgentType,
+          files,
+          enableDesktop: draft.enableDesktop,
+          enableMemoryIndex: draft.enableMemoryIndex,
+          customImage: draft.enableCustomImage ? draft.customImage || null : null,
+          knowledgeCollectionId: knowledgeHubAvailable ? draft.knowledgeCollectionId : null,
+          creationId: pending.setupId,
+        });
+      })().then((createdId) => {
         if (privatePrincipalRef.current !== principalId) return;
         if (!createdId) {
-          setPaidFirstAgentCheckout(null);
-          setResumeAgentLauncher(true);
+          const current = readPendingPlanCheckout(principalId);
+          if (isFirstAgentSetupCheckout(current) && current.setupId === pending.setupId) {
+            keepRecoveryRetryable(current);
+          } else {
+            setPaidFirstAgentCheckout(null);
+            setCheckoutReturnRecoveryActive(false);
+          }
           return;
         }
-        clearPendingPlanCheckout(principalId, pending);
+        clearPendingPlanCheckout(principalId, recoveryPending);
+        clearFirstAgentSetupCheckoutDraft(principalId, pending.setupId);
         clearFirstAgentSetupDraft();
         setPaidFirstAgentCheckout(null);
         setEmbeddedCheckoutPlan(null);
@@ -4554,21 +4724,26 @@ function AgentsPageContent() {
         setCheckoutReturnRecoveryActive(false);
       }).catch(() => {
         if (privatePrincipalRef.current !== principalId) return;
-        setPaidFirstAgentCheckout(null);
-        setResumeAgentLauncher(true);
+        keepRecoveryRetryable(recoveryPending);
+      }).finally(() => {
+        paidFirstAgentCreationsInFlightRef.current.delete(inFlightKey);
       });
     }, 0);
 
     return () => window.clearTimeout(timeout);
   }, [
     accountSdkAgents,
+    applyAgentMutationResult,
     agentCreationBlockedReason,
     agentsLoading,
     authLoading,
     billingDataPrincipalId,
     budget?.slots,
+    fetchAgents,
     firstAgentSetupDraft,
+    getToken,
     handleCreateFirstAgent,
+    invalidateAgentCapacity,
     knowledgeHubAvailable,
     paidFirstAgentCheckout,
     selectAgent,
@@ -6631,21 +6806,27 @@ function AgentsPageContent() {
                 Refresh
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => {
-                if (user?.id && checkoutSyncPending) {
-                  clearPendingPlanCheckout(user.id, checkoutSyncPending);
-                }
-                clearStripeCheckoutReturnState();
-                checkoutReturnHandledRef.current = true;
-                dispatchBillingReflection({ type: "DISMISS" });
-              }}
-              className="rounded p-0.5 text-current opacity-70 transition hover:opacity-100"
-              aria-label="Dismiss checkout status"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            {!checkoutSetupRecoveryLocked && (
+              <button
+                type="button"
+                onClick={() => {
+                  const resumeSavedSetup = isFirstAgentSetupCheckout(checkoutSyncPending);
+                  if (user?.id && checkoutSyncPending) {
+                    clearPendingPlanCheckout(user.id, checkoutSyncPending);
+                  }
+                  clearStripeCheckoutReturnState();
+                  checkoutReturnHandledRef.current = true;
+                  setPaidFirstAgentCheckout(null);
+                  setCheckoutReturnRecoveryActive(false);
+                  if (resumeSavedSetup) setResumeAgentLauncher(true);
+                  dispatchBillingReflection({ type: "DISMISS" });
+                }}
+                className="rounded p-0.5 text-current opacity-70 transition hover:opacity-100"
+                aria-label="Dismiss checkout status"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       )}

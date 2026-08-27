@@ -18,6 +18,7 @@ import { notifyBillingPlanChanged } from "@hypercli/shared-ui";
 
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
+import { preserveFirstAgentSetupDraftForCheckout } from "@/hooks/useFirstAgentSetupDraft";
 import {
   buildStripeCheckoutReturnUrl,
   clearPendingPlanCheckout,
@@ -191,6 +192,9 @@ export function EmbeddedPlanCheckout({
     checkoutAttemptId?: string,
     checkoutSessionId?: string | null,
   ): PendingPlanCheckout => {
+    if (firstAgentSetup) {
+      preserveFirstAgentSetupDraftForCheckout(principalId, firstAgentSetup.setupId);
+    }
     const pending = {
       principalId,
       planId: plan.id,

@@ -12,13 +12,14 @@ export type CheckoutSyncBanner = {
 export type BillingReflectionState =
   | { status: "idle" }
   | { status: "syncing"; pending: PendingPlanCheckout | null; message: string }
-  | { status: "pending"; pending: PendingPlanCheckout | null; reason: "waiting-payment" | "waiting-entitlement"; message: string }
+  | { status: "pending"; pending: PendingPlanCheckout | null; reason: "waiting-payment" | "waiting-entitlement" | "setup-failed"; message: string }
   | { status: "success"; pending: PendingPlanCheckout | null; message: string }
   | { status: "cancelled"; message: string };
 
 export type BillingReflectionEvent =
   | { type: "SYNC_STARTED"; pending: PendingPlanCheckout | null; message: string }
   | { type: "REFLECTION_RECEIVED"; pending: PendingPlanCheckout | null; reflectionStatus: CheckoutReflectionStatus }
+  | { type: "RECOVERY_FAILED"; pending: PendingPlanCheckout }
   | { type: "CHECKOUT_CANCELLED" }
   | { type: "DISMISS" };
 
@@ -70,6 +71,13 @@ export function billingReflectionReducer(
         pending: event.pending,
         reason: "waiting-payment",
         message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+      };
+    case "RECOVERY_FAILED":
+      return {
+        status: "pending",
+        pending: event.pending,
+        reason: "setup-failed",
+        message: "Payment is active, but agent setup did not finish. Refresh to safely retry the saved setup.",
       };
     case "CHECKOUT_CANCELLED":
       return {

@@ -13,6 +13,7 @@ import {
 export const FIRST_AGENT_SETUP_DRAFT_KEY = "hypercli-first-agent-draft";
 
 const FIRST_AGENT_SETUP_DRAFT_CHANGE_EVENT = "claw-first-agent-setup-draft-change";
+const FIRST_AGENT_CHECKOUT_DRAFT_KEY = "hyperclaw.firstAgentCheckoutDraft.v1";
 const HELP_CATEGORIES = new Set(["General", "Research", "Support", "Sales", "Ops", "Dev", "Content", "Automation"]);
 
 export interface FirstAgentSetupDraft {
@@ -44,6 +45,10 @@ export type FirstAgentSetupDraftInput = Omit<
 
 let fallbackRawDraft: string | null = null;
 let volatileStorage = false;
+
+function firstAgentCheckoutDraftKey(principalId: string, setupId: string): string {
+  return `${FIRST_AGENT_CHECKOUT_DRAFT_KEY}:${encodeURIComponent(principalId)}:${encodeURIComponent(setupId)}`;
+}
 
 function normalizeOptionalString(value: unknown, maxLength: number): string | null {
   if (typeof value !== "string") return null;
@@ -146,6 +151,49 @@ function subscribeToFirstAgentSetupDraft(onStoreChange: () => void): () => void 
 
 export function readFirstAgentSetupDraft(): FirstAgentSetupDraft | null {
   return parseFirstAgentSetupDraft(getFirstAgentSetupDraftRawSnapshot());
+}
+
+export function preserveFirstAgentSetupDraftForCheckout(principalId: string, setupId: string): boolean {
+  if (typeof window === "undefined") return false;
+  const draft = readFirstAgentSetupDraft();
+  if (
+    !draft
+    || draft.setupId !== setupId
+    || (draft.principalId && draft.principalId !== principalId)
+  ) return false;
+  try {
+    window.localStorage.setItem(firstAgentCheckoutDraftKey(principalId, setupId), JSON.stringify(draft));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readFirstAgentSetupCheckoutDraft(
+  principalId: string,
+  setupId: string,
+): FirstAgentSetupDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const draft = parseFirstAgentSetupDraft(
+      window.localStorage.getItem(firstAgentCheckoutDraftKey(principalId, setupId)),
+    );
+    if (
+      !draft
+      || draft.setupId !== setupId
+      || (draft.principalId && draft.principalId !== principalId)
+    ) return null;
+    return draft;
+  } catch {
+    return null;
+  }
+}
+
+export function clearFirstAgentSetupCheckoutDraft(principalId: string, setupId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(firstAgentCheckoutDraftKey(principalId, setupId));
+  } catch {}
 }
 
 export function writeFirstAgentSetupDraft(input: FirstAgentSetupDraftInput): void {
