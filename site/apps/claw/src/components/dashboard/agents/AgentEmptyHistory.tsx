@@ -3,7 +3,6 @@
 import { Button } from "@hypercli/shared-ui";
 import {
   Fingerprint,
-  HeartHandshake,
   MessagesSquare,
   Plug,
   UsersRound,
@@ -142,16 +141,10 @@ export function AgentEmptyHistory({
       className="agent-empty-history w-full max-w-[44rem] px-3 py-4 text-foreground sm:px-5"
     >
       <header className="text-center">
-        <div
-          aria-hidden="true"
-          className="agent-empty-history-logo mx-auto flex size-14 items-center justify-center rounded-[1.125rem] border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)] shadow-[0_12px_36px_rgb(var(--selection-accent-rgb)_/_0.1)]"
-        >
-          <HeartHandshake className="size-7" />
-        </div>
         <h2
           id="agent-empty-history-title"
           data-testid="agent-empty-history-title"
-          className="agent-empty-history-title mt-4 text-balance text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.035em] text-foreground"
+          className="agent-empty-history-title text-balance text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.035em] text-foreground"
         >
           {heading}
         </h2>

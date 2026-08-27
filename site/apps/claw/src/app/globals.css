@@ -381,13 +381,7 @@
     padding-block: 0.5rem;
   }
 
-  .agent-empty-history-logo {
-    width: 2.75rem;
-    height: 2.75rem;
-  }
-
   .agent-empty-history-title {
-    margin-top: 0.75rem;
     font-size: 1.5rem;
     line-height: 1.875rem;
   }
@@ -410,14 +404,6 @@
   .agent-empty-history {
     padding-inline: 0.5rem;
     padding-block: 0.5rem;
-  }
-
-  .agent-empty-history-logo {
-    display: none;
-  }
-
-  .agent-empty-history-title {
-    margin-top: 0;
   }
 
   .agent-empty-history-secondary-action {

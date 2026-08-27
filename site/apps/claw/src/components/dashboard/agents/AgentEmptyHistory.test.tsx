@@ -21,6 +21,7 @@ describe("AgentEmptyHistory", () => {
     expect(heading).toBeInTheDocument();
     expect(heading.closest("section")).toHaveClass("agent-empty-history", "w-full", "max-w-[44rem]");
     expect(heading.closest("section")).not.toHaveClass("max-h-full");
+    expect(heading.closest("header")?.querySelector(".agent-empty-history-logo")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Meet your new AI teammate." })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Say hello" })).not.toBeInTheDocument();
     expect(screen.queryByText(/getting to know each other/i)).not.toBeInTheDocument();
