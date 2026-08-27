@@ -90,10 +90,11 @@ describe("TeamTrialActivationDialog", () => {
       />,
     );
 
-    expect(screen.getByRole("heading", { name: "Unlock the full HyperCLI experience" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Try Team free for 7 days" })).toBeVisible();
     expect(screen.getAllByRole("img")).toHaveLength(6);
-    expect(screen.getByText("Your trial starts today")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Start 7-day free trial" }));
+    expect(screen.getByText("No charge today. Cancel anytime.")).toBeVisible();
+    expect(screen.getByText("We'll remind you before your trial ends.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Start my 7-day trial" }));
     expect(onStartTrial).toHaveBeenCalledOnce();
   });
 
@@ -106,15 +107,36 @@ describe("TeamTrialActivationDialog", () => {
       />,
     );
 
-    expect(screen.getAllByRole("img")[0]).toHaveAttribute(
-      "src",
-      "/images/team-trial/feature-image-03.png",
+    expect(screen.getAllByRole("img")[0].getAttribute("src")).toMatch(
+      /\/images\/team-trial\/feature-image-03\.png$/,
     );
     expect(screen.getByTestId("team-trial-activation-dialog")).toHaveClass(
       "sm:max-w-none",
       "sm:h-[min(600px,calc(100dvh-2rem))]",
       "sm:w-[min(1120px,calc(100vw-2rem))]",
     );
+    expect(screen.getByLabelText("1 of 6")).toHaveClass(
+      "isolate",
+      "overflow-hidden",
+      "[contain:layout_paint]",
+    );
+  });
+
+  it("replaces a failed slide image without exposing neighboring media", () => {
+    render(
+      <TeamTrialActivationDialog
+        open
+        onOpenChange={vi.fn()}
+        onStartTrial={vi.fn()}
+      />,
+    );
+
+    fireEvent.error(screen.getByAltText("Connected Gmail, HubSpot, Linear, and Slack workflow"));
+
+    expect(screen.queryByAltText("Connected Gmail, HubSpot, Linear, and Slack workflow")).not.toBeInTheDocument();
+    expect(screen.getByRole("img", {
+      name: "Connected Gmail, HubSpot, Linear, and Slack workflow. Preview unavailable.",
+    })).toBeVisible();
   });
 
   it("advances automatically and supports manual pagination", () => {

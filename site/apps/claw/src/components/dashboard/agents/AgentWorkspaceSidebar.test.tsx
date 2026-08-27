@@ -1571,6 +1571,29 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onCreateSession).not.toHaveBeenCalled();
   });
 
+  it("opens the existing trial offer from agentless workspace features when eligible", () => {
+    const onStartTrial = vi.fn();
+    const props = renderAgentWorkspaceSidebar({
+      selectedAgent: null,
+      canStartTrial: true,
+      onStartTrial,
+    });
+
+    for (const name of ["Files", "Integrations", "Skills", "Scheduled", "Desktop"]) {
+      const action = screen.getByRole("button", { name });
+      expect(action).toBeEnabled();
+      fireEvent.click(action);
+    }
+
+    expect(onStartTrial).toHaveBeenCalledTimes(5);
+    expect(props.onOpenFiles).not.toHaveBeenCalled();
+    expect(props.onOpenIntegrations).not.toHaveBeenCalled();
+    expect(props.onOpenSkills).not.toHaveBeenCalled();
+    expect(props.onOpenScheduled).not.toHaveBeenCalled();
+    expect(props.onOpenDesktop).not.toHaveBeenCalled();
+    expect(props.onOpenDesktopPreview).not.toHaveBeenCalled();
+  });
+
   it("keeps agentless previews disabled while the workspace itself is disabled", () => {
     renderAgentWorkspaceSidebar({
       selectedAgent: null,
@@ -1703,9 +1726,10 @@ describe("AgentWorkspaceSidebar", () => {
       onStartTrial,
     });
 
-    expect(screen.getByText("7-day free trial on Team")).toBeInTheDocument();
-    expect(screen.getByText("Daily tokens")).toBeInTheDocument();
-    expect(screen.getByText("-- / --")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Try Team free" })).toBeInTheDocument();
+    expect(screen.getByText("7 days free. No charge today. Cancel anytime.")).toBeInTheDocument();
+    expect(screen.queryByText("Daily tokens")).not.toBeInTheDocument();
+    expect(screen.queryByText("-- / --")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
@@ -1721,7 +1745,7 @@ describe("AgentWorkspaceSidebar", () => {
       onStartTrial,
     });
 
-    expect(screen.getByText("7-day free trial on Team")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Try Team free" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
     expect(onStartTrial).toHaveBeenCalledOnce();
   });

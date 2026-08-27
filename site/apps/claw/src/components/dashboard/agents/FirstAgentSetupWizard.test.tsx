@@ -471,7 +471,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(onGenerateBootstrap).not.toHaveBeenCalled();
     // Let the workspace step re-sync the pack to the typed display name
     // before the personality stage kicks off background file generation.
-    await waitForPackInputsAgentName("background-builder");
+    await waitForPackInputsAgentName("Background Builder");
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(1));
     expect(onGenerateBootstrap.mock.calls.map(([name]) => name)).toEqual([

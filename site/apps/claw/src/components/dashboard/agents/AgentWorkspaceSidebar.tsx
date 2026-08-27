@@ -1180,9 +1180,23 @@ export function AgentWorkspaceSidebar({
     : noSelectedAgent
       ? { disabled: true, disabledReason: emptyStateReason }
       : {};
-  const previewableItemProps = noSelectedAgent && allowAgentlessFeaturePreviews && !disabled
+  const agentlessTrialEntry = noSelectedAgent
+    && !allowAgentlessFeaturePreviews
+    && !disabled
+    && !activeTrial
+    && (!isAuthenticated || canStartTrial)
+    && !trialCheckoutPending
+    && Boolean(onStartTrial);
+  const previewableItemProps = noSelectedAgent && (allowAgentlessFeaturePreviews || agentlessTrialEntry) && !disabled
     ? {}
     : disabledItemProps;
+  const openWorkspaceFeature = (openFeature: () => void) => {
+    if (agentlessTrialEntry) {
+      onStartTrial?.();
+      return;
+    }
+    openFeature();
+  };
   const newSessionDisabledReason = disabled
     ? disabledReason
     : noSelectedAgent
@@ -1199,6 +1213,8 @@ export function AgentWorkspaceSidebar({
   const agentlessDesktopPreview = noSelectedAgent && allowAgentlessFeaturePreviews;
   const openDesktopDisabledReason = disabled
     ? disabledReason
+    : agentlessTrialEntry
+      ? undefined
     : agentlessDesktopPreview
       ? onOpenDesktopPreview
         ? undefined
@@ -1234,17 +1250,17 @@ export function AgentWorkspaceSidebar({
       label: "Files",
       icon: FolderOpen,
       active: activeTab === "files",
-      onClick: () => onOpenFiles(),
+      onClick: () => openWorkspaceFeature(onOpenFiles),
       ...previewableItemProps,
     },
-    ...(hermesRuntimeSelected ? [] : [{ id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...previewableItemProps }]),
-    { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: onOpenSkills, ...previewableItemProps },
+    ...(hermesRuntimeSelected ? [] : [{ id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: () => openWorkspaceFeature(onOpenIntegrations), ...previewableItemProps }]),
+    { id: "skills", label: "Skills", icon: Codepen, active: activeTab === "skills" || skillsActive, onClick: () => openWorkspaceFeature(onOpenSkills), ...previewableItemProps },
     ...(hermesRuntimeSelected ? [] : [{
       id: "scheduled",
       label: "Scheduled",
       icon: CalendarClock,
       active: activeTab === "scheduled",
-      onClick: onOpenScheduled,
+      onClick: () => openWorkspaceFeature(onOpenScheduled),
       ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : previewableItemProps),
     }]),
     ...(hermesRuntimeSelected ? [] : [{
@@ -1255,7 +1271,8 @@ export function AgentWorkspaceSidebar({
       disabled: Boolean(openDesktopDisabledReason),
       disabledReason: openDesktopDisabledReason,
       onClick: () => {
-        if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
+        if (agentlessTrialEntry) onStartTrial?.();
+        else if (selectedAgent && onOpenDesktop) void onOpenDesktop(selectedAgent);
         else onOpenDesktopPreview?.();
       },
     }]),

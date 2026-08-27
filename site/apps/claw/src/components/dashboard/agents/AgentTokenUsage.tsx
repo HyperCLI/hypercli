@@ -148,17 +148,42 @@ export function AgentTokenUsage({
     );
   }
 
+  if (trialOfferVisible) {
+    return (
+      <div
+        className={`rounded-[14px] border border-border bg-surface-low ${renderMobile ? "p-4" : "p-3"}`}
+        data-testid="agent-token-usage-panel"
+        data-token-usage-state={usage.state}
+      >
+        <h3 className={`${renderMobile ? "text-[17px]" : "text-[15px]"} text-balance font-semibold leading-5 text-foreground`}>
+          Try Team free
+        </h3>
+        <p className={`${renderMobile ? "text-sm" : "text-[12px]"} mt-2 text-pretty leading-[1.5] text-text-muted`}>
+          7 days free. No charge today. Cancel anytime.
+        </p>
+        <button
+          type="button"
+          onClick={onUsageAction}
+          disabled={trialCheckoutPending}
+          className={`btn-primary flex w-full items-center justify-center gap-2 rounded-[10px] border border-transparent font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-70 ${renderMobile ? "mt-4 h-11 text-sm" : "mt-3 h-9 text-[12px]"}`}
+        >
+          {trialCheckoutPending ? (
+            <Loader2 className={`${renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} animate-spin motion-reduce:animate-none`} aria-hidden="true" />
+          ) : (
+            <Sparkles className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} aria-hidden="true" />
+          )}
+          {usageActionLabel}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2" data-testid="agent-token-usage-panel" data-token-usage-state={usage.state}>
       {activeTrial ? (
         <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
           <CalendarClock className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="whitespace-nowrap">{activeTrial.planName} trial · {activeTrial.timeRemainingLabel}</span>
-        </div>
-      ) : trialOfferVisible ? (
-        <div className="flex w-full items-center justify-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.36)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] px-2 py-1 text-[10px] font-semibold leading-none text-[var(--selection-accent)]">
-          <Sparkles className="h-3 w-3 shrink-0" aria-hidden="true" />
-          <span className="whitespace-nowrap">7-day free trial on Team</span>
         </div>
       ) : null}
 

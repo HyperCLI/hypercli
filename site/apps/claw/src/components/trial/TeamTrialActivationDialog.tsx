@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import { BellRing, CalendarClock, Pause, Play, Rocket } from "lucide-react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { Pause, Play } from "lucide-react";
 import { useReducedMotion } from "framer-motion";
 import {
   Button,
@@ -45,16 +45,6 @@ const TRIAL_FEATURES = [
   },
 ] as const;
 
-function trialEndLabel(now: Date): string {
-  const trialEnd = new Date(now);
-  trialEnd.setDate(trialEnd.getDate() + 7);
-  return new Intl.DateTimeFormat(undefined, {
-    month: "long",
-    day: "numeric",
-    ...(trialEnd.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
-  }).format(trialEnd);
-}
-
 export interface TeamTrialActivationDialogProps {
   open: boolean;
   checkoutPending?: boolean;
@@ -77,7 +67,6 @@ export function TeamTrialActivationDialog({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const reducedMotion = useReducedMotion();
   const autoPlayPaused = Boolean(reducedMotion) || userPaused;
-  const endsOn = trialEndLabel(new Date());
 
   useEffect(() => {
     if (!api) return;
@@ -127,7 +116,7 @@ export function TeamTrialActivationDialog({
         className="z-[10021] h-[min(600px,calc(100dvh-1rem))] w-[min(1120px,calc(100vw-1rem))] max-w-none grid-rows-[minmax(220px,0.78fr)_minmax(0,1.22fr)] gap-0 overflow-hidden rounded-[18px] border-[#303036] bg-[#18181b] p-0 text-[#f7f7f8] shadow-[0_36px_120px_rgba(0,0,0,0.68)] motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none sm:h-[min(600px,calc(100dvh-2rem))] sm:w-[min(1120px,calc(100vw-2rem))] sm:max-w-none md:grid-cols-[1fr_1fr] md:grid-rows-1 [&>button:last-child]:z-30 [&>button:last-child]:text-[#d7d7da] max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none"
       >
         <DialogDescription className="sr-only">
-          Start a seven-day free trial to use tools, files, skills, automations, and desktop access.
+          Try Team free for seven days with no charge today. Cancel anytime.
         </DialogDescription>
 
         <section
@@ -150,18 +139,10 @@ export function TeamTrialActivationDialog({
               {TRIAL_FEATURES.map((feature, index) => (
                 <CarouselItem
                   key={feature.src}
-                  className="relative h-full pl-0"
+                  className="relative isolate h-full overflow-hidden pl-0 [contain:layout_paint]"
                   aria-label={`${index + 1} of ${TRIAL_FEATURES.length}`}
                 >
-                  <Image
-                    src={feature.src}
-                    alt={feature.alt}
-                    fill
-                    priority={index === 0}
-                    unoptimized
-                    sizes="(max-width: 767px) 100vw, 50vw"
-                    className="object-cover"
-                  />
+                  <TrialFeatureImage feature={feature} priority={index === 0} />
                 </CarouselItem>
               ))}
             </CarouselContent>
@@ -193,79 +174,71 @@ export function TeamTrialActivationDialog({
           </div>
         </section>
 
-        <section className="flex min-h-0 flex-col bg-[#18181b]">
-          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-7 pt-7 sm:px-8 sm:pb-8 sm:pt-9">
+        <section className="flex min-h-0 flex-col justify-center bg-[#18181b] px-6 py-9 sm:px-10 sm:py-12 md:px-12">
+          <div className="mx-auto w-full max-w-[30rem]">
             <DialogTitle
               ref={headingRef}
               tabIndex={-1}
-              className="max-w-[26ch] text-balance text-[clamp(1.55rem,2.2vw,1.875rem)] font-medium leading-[1.1] tracking-[-0.03em] text-white outline-none"
+              className="max-w-[14ch] text-balance text-[clamp(2rem,4.5vw,3.35rem)] font-medium leading-[1.02] tracking-[-0.04em] text-white outline-none"
             >
-              Unlock the full HyperCLI experience
+              Try Team free for 7 days
             </DialogTitle>
-            <p className="mt-3 max-w-[42rem] text-[15px] leading-6 text-[#a5a5ad] sm:text-[16px]">
-              See what your agent can do with full access for 7 days. Connect your tools, work with files, run skills, automate recurring work, and use its own desktop.
+            <p className="mt-5 max-w-[34ch] text-pretty text-[clamp(1rem,1.7vw,1.25rem)] leading-[1.5] text-[#a5a5ad]">
+              Give your agents connected tools, shared files, skills, automations, and a cloud desktop.
             </p>
-
-            <ol className="mt-7 space-y-0 sm:mt-8">
-              <TrialMoment
-                icon={<Rocket className="h-4 w-4" />}
-                title="Your trial starts today"
-                detail="Full access begins immediately."
-              />
-              <TrialMoment
-                icon={<BellRing className="h-4 w-4" />}
-                title="We'll remind you before it ends"
-                detail="No surprise charges."
-              />
-              <TrialMoment
-                icon={<CalendarClock className="h-4 w-4" />}
-                title={`Your trial ends ${endsOn}`}
-                detail="Cancel anytime."
-                last
-              />
-            </ol>
-          </div>
-
-          <footer className="flex shrink-0 justify-end border-t border-white/10 bg-[#1d1d20] px-5 py-4 sm:px-8 sm:py-5">
+            <p className="mt-4 text-[15px] font-medium leading-6 text-[#d7d7dc] sm:text-[16px]">
+              No charge today. Cancel anytime.
+            </p>
             <Button
               type="button"
               data-testid="team-trial-activation-confirm"
               disabled={checkoutPending}
               onClick={onStartTrial}
-              className="h-12 w-full rounded-xl bg-[#5f86f7] px-6 text-[16px] font-semibold text-[#101b3d] shadow-none hover:bg-[#7396fa] focus-visible:ring-[#9bb3ff] disabled:cursor-wait sm:w-auto"
+              className="mt-8 h-16 w-full rounded-[18px] bg-[#5f86f7] px-6 text-[18px] font-semibold text-[#101b3d] shadow-none hover:bg-[#7396fa] focus-visible:ring-[#9bb3ff] disabled:cursor-wait sm:h-[4.5rem] sm:text-[20px]"
             >
-              {checkoutPending ? "Opening checkout..." : "Start 7-day free trial"}
+              {checkoutPending ? "Opening secure checkout..." : "Start my 7-day trial"}
             </Button>
-          </footer>
+            <p className="mt-4 text-center text-[13px] leading-5 text-[#7f7f88] sm:text-[14px]">
+              We&apos;ll remind you before your trial ends.
+            </p>
+          </div>
         </section>
       </DialogContent>
     </Dialog>
   );
 }
 
-function TrialMoment({
-  icon,
-  title,
-  detail,
-  last = false,
+function TrialFeatureImage({
+  feature,
+  priority,
 }: {
-  icon: ReactNode;
-  title: string;
-  detail: string;
-  last?: boolean;
+  feature: (typeof TRIAL_FEATURES)[number];
+  priority: boolean;
 }) {
+  const [failed, setFailed] = useState(false);
+
   return (
-    <li className="grid grid-cols-[2.5rem_minmax(0,1fr)] gap-x-4">
-      <div className="flex flex-col items-center">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2a2a2e] text-white">
-          {icon}
-        </span>
-        {!last ? <span aria-hidden="true" className="my-2 h-8 w-px bg-white/10" /> : null}
-      </div>
-      <div className={last ? "pt-0.5" : "pb-4 pt-0.5"}>
-        <h3 className="text-[17px] font-semibold leading-6 text-white">{title}</h3>
-        <p className="mt-1 text-[14px] leading-5 text-[#96969f] sm:text-[15px] sm:leading-6">{detail}</p>
-      </div>
-    </li>
+    <div className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#d9828d]">
+      {failed ? (
+        <div
+          role="img"
+          aria-label={`${feature.alt}. Preview unavailable.`}
+          className="flex h-full w-full items-center justify-center px-8 text-center text-sm font-medium text-white/90"
+        >
+          Feature preview unavailable
+        </div>
+      ) : (
+        <Image
+          src={feature.src}
+          alt={feature.alt}
+          fill
+          priority={priority}
+          unoptimized
+          sizes="(max-width: 767px) 100vw, 50vw"
+          onError={() => setFailed(true)}
+          className="h-full w-full max-w-full select-none object-cover"
+        />
+      )}
+    </div>
   );
 }
