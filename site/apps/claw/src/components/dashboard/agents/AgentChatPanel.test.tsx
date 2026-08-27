@@ -3457,7 +3457,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("button", { name: /stop reply/i })).toBeInTheDocument();
   });
 
-  it("keeps response measurements to a warm elapsed-time detail", () => {
+  it("relies on the message streaming indicator once response content is visible", () => {
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -3475,10 +3475,13 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    const status = screen.getByRole("status", { name: /receiving response/i });
-    expect(status).toHaveTextContent("Still with you, working with care");
-    expect(status).not.toHaveTextContent("characters received");
-    expect(status).not.toHaveTextContent("updated");
+    expect(screen.queryByTestId("agent-chat-response-status")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-chat-response-handoff")).not.toBeInTheDocument();
+    const assistantProps = chatMessageBubbleMock.mock.calls.at(-1)?.[0] as {
+      isStreaming?: boolean;
+      showStreamingStatus?: boolean;
+    };
+    expect(assistantProps).toMatchObject({ isStreaming: true, showStreamingStatus: true });
   });
 
   it("reports active tool work while a tool call is pending", () => {
@@ -3503,6 +3506,9 @@ describe("AgentChatPanel", () => {
   });
 
   it("connects completed tool work to active answer preparation", () => {
+    const now = new Date("2026-08-27T06:50:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",
@@ -3512,7 +3518,7 @@ describe("AgentChatPanel", () => {
         sending: true,
         activeSessionSending: true,
         messages: [
-          { role: "user", content: "Research the latest options" },
+          { role: "user", content: "Research the latest options", timestamp: now.getTime() - 25_000 },
           {
             role: "assistant",
             content: "",
@@ -3530,12 +3536,17 @@ describe("AgentChatPanel", () => {
     expect(handoff).toContainElement(status);
     expect(handoff).toHaveClass("-mt-2", "pl-9");
     expect(status).toHaveTextContent("Preparing answer");
+    expect(status).toHaveTextContent("25s elapsed");
     expect(status).toHaveAttribute("data-appearance", "inline");
     expect(screen.queryByText("Waiting for final response")).not.toBeInTheDocument();
     expect(chatThinkingIndicatorMock).toHaveBeenLastCalledWith(expect.objectContaining({
       label: "Preparing answer",
+      description: "25s elapsed",
+      descriptionOnHover: false,
       appearance: "inline",
     }));
+    const assistantProps = chatMessageBubbleMock.mock.calls.at(-1)?.[0] as { showStreamingStatus?: boolean };
+    expect(assistantProps.showStreamingStatus).toBe(false);
   });
 
   it("reports reasoning activity without exposing its contents", () => {
@@ -3592,7 +3603,7 @@ describe("AgentChatPanel", () => {
     });
   });
 
-  it("shows only a warm elapsed-time detail for a long response", () => {
+  it("does not add a detached status to a long in-flight response", () => {
     const now = new Date("2026-08-04T16:00:00.000Z");
     vi.useFakeTimers();
     vi.setSystemTime(now);
@@ -3614,11 +3625,13 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    const status = screen.getByRole("status", { name: /receiving response/i });
-    expect(status).toHaveTextContent("Still with you, working with care · 25s elapsed");
-    expect(status).not.toHaveTextContent("characters received");
-    expect(status).not.toHaveTextContent("updated");
-    expect(status).toHaveAttribute("data-description-on-hover", "true");
+    expect(screen.queryByTestId("agent-chat-response-status")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("agent-chat-response-handoff")).not.toBeInTheDocument();
+    const assistantProps = chatMessageBubbleMock.mock.calls.at(-1)?.[0] as {
+      isStreaming?: boolean;
+      showStreamingStatus?: boolean;
+    };
+    expect(assistantProps).toMatchObject({ isStreaming: true, showStreamingStatus: true });
   });
 
   it("reassures users when the first response update takes longer", () => {
@@ -3988,12 +4001,17 @@ describe("AgentChatPanel", () => {
     expect(assistantRow?.message?.progress).toBeUndefined();
     expect(assistantRow?.message?.reasoning?.text).toBe("Comparing deployment metadata");
     expect(assistantRow?.message?.toolCalls).toHaveLength(1);
+    expect(assistantRow?.showStreamingStatus).toBe(false);
     const progress = screen.getByTestId("agent-assistant-progress");
     expect(screen.getByTestId("agent-chat-response-status")).toContainElement(progress);
     expect(progress).toHaveAttribute("data-progress-state", "active");
     const status = within(progress).getByRole("status", { name: "Working" });
     expect(status).toHaveTextContent("Checking the deployment target");
     expect(status).toHaveAttribute("data-appearance", "inline");
+    expect(chatThinkingIndicatorMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      description: "just started",
+      descriptionOnHover: false,
+    }));
     expect(screen.queryByRole("status", { name: /starting response/i })).not.toBeInTheDocument();
   });
 
@@ -4076,6 +4094,36 @@ describe("AgentChatPanel", () => {
     expect(screen.getByTestId("agent-assistant-progress")).toBe(progress);
     expect(progress).toHaveTextContent(latestCommentary);
     expect(progress).not.toHaveTextContent(firstCommentary);
+  });
+
+  it("projects malformed streamed Markdown into a clean commentary status", () => {
+    const source = "Previous update.\n- ** Deliberately firing two [same-block searches](https://example.com) to re-test the `429` reproduction in `src/**/test.ts`:";
+    const expected = "Deliberately firing two same-block searches to re-test the 429 reproduction in src/**/test.ts:";
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [
+          { role: "user", content: "Reproduce the rate limit" },
+          {
+            role: "assistant",
+            content: "",
+            progress: { text: source, state: "active", revisions: [source] },
+          },
+        ],
+      }),
+      isSelectedRunning: true,
+    });
+
+    const progress = screen.getByTestId("agent-assistant-progress");
+    expect(within(progress).getByRole("status", { name: "Working" })).toHaveTextContent(expected);
+    expect(progress).not.toHaveTextContent("** Deliberately");
+    expect(progress).not.toHaveTextContent("[same-block searches]");
+    expect(chatThinkingIndicatorMock).toHaveBeenLastCalledWith(expect.objectContaining({ label: expected }));
   });
 
   it("keeps settled commentary on the assistant row after the reply completes", () => {

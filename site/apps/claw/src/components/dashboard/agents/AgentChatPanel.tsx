@@ -104,9 +104,30 @@ const MemoizedChatThinkingIndicator = React.memo(ChatThinkingIndicator);
 interface ActiveResponseStatusPresentation {
   label: string;
   description: string;
+  elapsed: string;
   ariaLabel: string;
   appearance?: "pill" | "inline";
   commentary?: boolean;
+}
+
+function commentaryStatusPlainText(text: string): string {
+  const codeSpans: string[] = [];
+  let plain = text.replace(/(`+)([^`\n]*?)\1/g, (_match, _delimiter, code: string) => {
+    const index = codeSpans.push(code) - 1;
+    return `\uE000${index}\uE001`;
+  });
+  plain = plain
+    .replace(/!\[([^\]]*)\]\((?:\\.|[^)])*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\((?:\\.|[^)])*\)/g, "$1")
+    .replace(/(\*\*\*|\*\*|___|__|~~)(.*?)\1/g, "$2")
+    .replace(/(^|[\s([{])([*_])(?=\S)(.*?\S)\2(?=$|[\s.,!?;:)\]}])/g, "$1$3")
+    .replace(/^(?:(?:#{1,6}|>|[-+*]|\d+[.)])\s+)+/, "")
+    .replace(/^\[[ xX]\]\s+/, "")
+    .replace(/^(?:\*{2,3}|_{2,3}|~~)\s*/, "")
+    .replace(/\s*(?:\*{2,3}|_{2,3}|~~)$/, "")
+    .replace(/\\([\\`*_[\]{}()#+.!~>-])/g, "$1")
+    .replace(/\uE000(\d+)\uE001/g, (_match, index: string) => codeSpans[Number(index)] ?? "");
+  return plain.replace(/\s+/g, " ").trim();
 }
 
 function latestCommentaryStatusText(text: string): string {
@@ -116,18 +137,19 @@ function latestCommentaryStatusText(text: string): string {
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .at(-1) ?? "";
-  if (!latestLine || !COMMENTARY_SENTENCE_SEGMENTER) {
-    if (!latestLine) return "";
+  const plainLine = commentaryStatusPlainText(latestLine);
+  if (!plainLine || !COMMENTARY_SENTENCE_SEGMENTER) {
+    if (!plainLine) return "";
     let latestStart = 0;
-    for (const match of latestLine.matchAll(/[.!?](?:["')\]]*)\s+|[。！？]+(?:["')\]]*)\s*/gu)) {
+    for (const match of plainLine.matchAll(/[.!?](?:["')\]]*)\s+|[。！？]+(?:["')\]]*)\s*/gu)) {
       const nextStart = (match.index ?? 0) + match[0].length;
-      if (nextStart < latestLine.length) latestStart = nextStart;
+      if (nextStart < plainLine.length) latestStart = nextStart;
     }
-    return latestLine.slice(latestStart).trim() || latestLine;
+    return plainLine.slice(latestStart).trim() || plainLine;
   }
 
-  let latestSentence = latestLine;
-  for (const part of COMMENTARY_SENTENCE_SEGMENTER.segment(latestLine)) {
+  let latestSentence = plainLine;
+  for (const part of COMMENTARY_SENTENCE_SEGMENTER.segment(plainLine)) {
     const sentence = part.segment.trim();
     if (sentence) latestSentence = sentence;
   }
@@ -164,7 +186,7 @@ function activeResponseStatusPresentation(
   messages: ChatMessage[],
   now: number,
   fallbackStartedAt: number,
-): ActiveResponseStatusPresentation {
+): ActiveResponseStatusPresentation | null {
   let userIndex = -1;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     if (messages[index]?.role === "user") {
@@ -192,6 +214,7 @@ function activeResponseStatusPresentation(
     return {
       label: activeCommentary,
       description,
+      elapsed,
       ariaLabel: "Working",
       appearance: "inline",
       commentary: true,
@@ -202,22 +225,20 @@ function activeResponseStatusPresentation(
     return {
       label: "Using tools",
       description,
+      elapsed,
       ariaLabel: "Using tools. The response is still active.",
     };
   }
 
   if (responseContent.trim()) {
-    return {
-      label: "Receiving response",
-      description,
-      ariaLabel: "Receiving response. The response is still active.",
-    };
+    return null;
   }
 
   if (completedTools > 0) {
     return {
       label: "Preparing answer",
       description,
+      elapsed,
       ariaLabel: "Preparing answer. Tool work is complete and the response is still active.",
       appearance: "inline",
     };
@@ -227,6 +248,7 @@ function activeResponseStatusPresentation(
     return {
       label: now - startedAt >= 15_000 ? "Still working through your request" : "Working through your request",
       description,
+      elapsed,
       ariaLabel: "Working through your request. The response is still active.",
     };
   }
@@ -235,6 +257,7 @@ function activeResponseStatusPresentation(
   return {
     label: waitingLonger ? "Still working" : "Starting response",
     description,
+    elapsed,
     ariaLabel: waitingLonger
       ? "Still working. The response is active."
       : "Starting response. Waiting for the first update.",
@@ -263,13 +286,15 @@ function ActiveResponseStatus({ messages }: { messages: ChatMessage[] }) {
   }, []);
 
   const status = activeResponseStatusPresentation(messages, now, fallbackStartedAt);
+  if (!status) return null;
+  const inline = status.appearance === "inline";
   const indicator = (
     <MemoizedChatThinkingIndicator
       variant="v2"
       label={status.label}
-      description={status.description}
+      description={inline ? status.elapsed : status.description}
       ariaLabel={status.ariaLabel}
-      descriptionOnHover
+      descriptionOnHover={!inline}
       appearance={status.appearance}
     />
   );
@@ -799,6 +824,10 @@ export function AgentChatPanel({
   const [fileMentionSelectedIndex, setFileMentionSelectedIndex] = React.useState(0);
   const activeSessionSending = chat.activeSessionSending ?? chat.sending;
   const activeSessionAborting = chat.activeSessionAborting ?? chat.aborting;
+  const responseStatusOwnsActivity = activeSessionSending &&
+    !activeSessionAborting &&
+    !currentTurnHasActiveReasoning(chat.messages) &&
+    activeResponseStatusPresentation(chat.messages, 0, 0) !== null;
   const responseCommentaryIndex = activeSessionSending
     ? latestCurrentTurnCommentary(chat.messages)?.index ?? -1
     : -1;
@@ -1512,6 +1541,7 @@ export function AgentChatPanel({
                     themeVariant="v2"
                     streamingVariant="v2"
                     isStreaming={rowIsStreaming}
+                    showStreamingStatus={!responseStatusOwnsActivity}
                     agentName={selectedAgentDisplayName}
                     agentMeta={selectedAgent.meta}
                     agentAvatarUrl={selectedAgentAvatarUrl}
@@ -1594,7 +1624,7 @@ export function AgentChatPanel({
             if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
-            if (currentTurnHasActiveReasoning(chat.messages)) return null;
+            if (!responseStatusOwnsActivity) return null;
             return <ActiveResponseStatus messages={chat.messages} />;
           })()}
 

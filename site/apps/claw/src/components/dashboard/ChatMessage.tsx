@@ -31,6 +31,7 @@ import {
 } from "@/lib/chat-media";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
+import { PulsingDotIndicator } from "@/components/dashboard/PulsingDotIndicator";
 import { AudioPlayer } from "@/components/dashboard/chat/AudioPlayer";
 import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
 import { getToolCallClass } from "@/components/dashboard/chat/bubbleStyles";
@@ -495,6 +496,7 @@ interface ChatMessageProps {
   themeVariant?: ThemeVariant;
   streamingVariant?: StreamingVariant;
   isStreaming?: boolean;
+  showStreamingStatus?: boolean;
   agentName?: string;
   agentMeta?: AgentMeta | null;
   agentAvatarUrl?: string | null;
@@ -849,25 +851,21 @@ function UserMessageAvatar({
   );
 }
 
-function StreamingStatusDot() {
-  return (
-    <motion.span
-      aria-label="streaming"
-      className="block h-[7px] w-[7px] rounded-full bg-primary"
-      animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.6, 1, 0.6] }}
-      transition={{ repeat: Infinity, duration: 1.1, ease: "easeInOut" }}
-    />
-  );
-}
-
 function StreamingStatusAnchor({ active }: { active: boolean }) {
   if (!active) return null;
 
   return (
     <div className="pointer-events-none absolute bottom-0 left-0 flex h-4 items-center pl-0.5">
-      <StreamingStatusDot />
+      <PulsingDotIndicator aria-label="streaming" />
     </div>
   );
+}
+
+function hasRenderableStreamingMarkdown(text: string): boolean {
+  return /(?:^|\n)\s{0,3}(?:#{1,6}\s|>\s|[-+*]\s|\d+[.)]\s|`{3,}|~{3,})/.test(text) ||
+    /(\*\*\*|\*\*|___|__|~~|\*|_)(?=\S)[^\n]*?\S\1/.test(text) ||
+    /(`+)(?=\S)[^`\n]*\1/.test(text) ||
+    /!?\[[^\]\n]+\]\([^\n)]*\)/.test(text);
 }
 
 function FailedReplyRetryButton({
@@ -1246,6 +1244,7 @@ export function ChatMessageBubble({
   themeVariant = "off",
   streamingVariant = "off",
   isStreaming = false,
+  showStreamingStatus = true,
   agentName,
   agentMeta,
   agentAvatarUrl,
@@ -1317,7 +1316,8 @@ export function ChatMessageBubble({
   const showV1Name = nameVariant === "v1";
   const showV2Name = nameVariant === "v2";
   const effectiveName = isUser ? (senderName ?? "You") : (agentName ?? "Agent");
-  const showStreamingDot = isStreaming && !isUser && !message.progress?.text && !message.reasoning?.text;
+  const isStreamingContent = isStreaming && !isUser && !message.progress?.text && !message.reasoning?.text;
+  const showStreamingDot = isStreamingContent && showStreamingStatus;
   const rawEffectiveContent = isDuplicateToolResultJson(message)
     ? ""
     : isIncompleteReply
@@ -1399,10 +1399,11 @@ export function ChatMessageBubble({
   )
     ? ""
     : sanitizedContentMediaText;
-  const contentDirectoryListing = !showStreamingDot && !isUser && displayContent
+  const contentDirectoryListing = !isStreamingContent && !isUser && displayContent
     ? parseDirectoryVisualization(displayContent)
     : null;
   const hasToolCalls = (message.toolCalls?.length ?? 0) > 0;
+  const renderStreamingAsPlainText = isStreamingContent && !hasRenderableStreamingMarkdown(displayContent);
   const toolCallTranscript = stackToolCalls ? (
     <ToolCallStackDisclosure
       toolCalls={message.toolCalls ?? []}
@@ -1784,7 +1785,7 @@ export function ChatMessageBubble({
                 entries={contentDirectoryListing.entries}
                 truncated={contentDirectoryListing.truncated}
               />
-            ) : showStreamingDot && displayContent ? (
+            ) : renderStreamingAsPlainText && displayContent ? (
               <div
                 data-chat-streaming-text="true"
                 data-testid={hasToolCalls ? "agent-assistant-commentary" : undefined}
@@ -1797,6 +1798,7 @@ export function ChatMessageBubble({
                 <MarkdownContent
                   content={displayContent}
                   typewriter={false}
+                  isStreaming={isStreamingContent}
                   className={hasToolCalls ? "relative mb-2 max-w-[70ch] text-[13px] leading-5 text-text-secondary" : "relative"}
                   onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
                 />
@@ -1842,8 +1844,8 @@ export function ChatMessageBubble({
           </div>
         )}
 
-        <TimestampDisplay timestamp={message.timestamp} variant={timestampVariant} placement="inside" isUser={isUser} />
-        <TimestampDisplay timestamp={message.timestamp} variant={timestampVariant} placement="outside" isUser={isUser} />
+        <TimestampDisplay timestamp={isStreaming ? undefined : message.timestamp} variant={timestampVariant} placement="inside" isUser={isUser} />
+        <TimestampDisplay timestamp={isStreaming ? undefined : message.timestamp} variant={timestampVariant} placement="outside" isUser={isUser} />
       </div>
     </motion.div>
   );
@@ -1893,7 +1895,7 @@ export function ChatThinkingIndicator({
           : "relative flex max-w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-primary/20 bg-surface-low/60 px-4 py-2.5 backdrop-blur-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"}
       >
         {inline ? (
-          <span aria-hidden="true" className="h-px w-4 shrink-0 bg-primary/60" />
+          <PulsingDotIndicator className="shrink-0" />
         ) : (
           <motion.div
             aria-hidden
@@ -1903,18 +1905,20 @@ export function ChatThinkingIndicator({
             style={{ width: "60%" }}
           />
         )}
-        <span className="min-w-0">
-          <span className={`block font-medium text-text-secondary ${inline ? "text-[13px]" : "text-xs"}`}>{label}</span>
+        <span className={inline ? "flex min-w-0 items-baseline gap-1.5" : "min-w-0"}>
+          <span className={`${inline ? "min-w-0 truncate text-[13px]" : "block text-xs"} font-medium text-text-secondary`}>{label}</span>
           {description && !descriptionOnHover ? (
             <span
               aria-hidden="true"
-              className="mt-0.5 block text-[10px] leading-4 text-text-muted"
+              className={inline
+                ? "shrink-0 text-[11px] leading-4 text-text-muted"
+                : "mt-0.5 block text-[10px] leading-4 text-text-muted"}
             >
-              {description}
+              {inline ? `· ${description}` : description}
             </span>
           ) : null}
         </span>
-        <span aria-hidden="true" className="flex shrink-0 items-center gap-1">
+        {!inline ? <span aria-hidden="true" className="flex shrink-0 items-center gap-1">
           <motion.span
             className="w-1.5 h-1.5 rounded-full bg-primary"
             animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
@@ -1930,7 +1934,7 @@ export function ChatThinkingIndicator({
             animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
             transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.36 }}
           />
-        </span>
+        </span> : null}
       </div>
     </motion.div>
   );

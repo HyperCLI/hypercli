@@ -27,6 +27,7 @@ function expectBoundedMediaRead(readFileBytes: unknown, path: string) {
   });
 }
 import { parseDirectoryVisualization } from "./chat/DirectoryVisualization";
+import { formatTime } from "./chat/helpers";
 
 vi.mock("@/lib/api", () => ({
   getStoredToken: vi.fn(() => null),
@@ -70,23 +71,27 @@ describe("ChatMessageBubble", () => {
     expect(status).not.toHaveAccessibleName(/25s/);
   });
 
-  it("renders an inline response handoff without detached pill chrome", () => {
+  it("renders one activity dot, label, and elapsed time in the inline response handoff", () => {
     render(
       <ChatThinkingIndicator
         label="Preparing answer"
-        description="Still with you, working with care"
+        description="25s elapsed"
         ariaLabel="Preparing answer. The response is still active."
-        descriptionOnHover
         appearance="inline"
       />,
     );
 
     const status = screen.getByRole("status", { name: "Preparing answer. The response is still active." });
-    const surface = status.querySelector("[tabindex='0']");
+    const surface = status.firstElementChild;
+    const label = screen.getByText("Preparing answer");
+    const elapsed = screen.getByText("· 25s elapsed");
     expect(status).toHaveAttribute("data-appearance", "inline");
     expect(surface).toHaveClass("min-h-8", "py-1");
     expect(surface).not.toHaveClass("rounded-2xl", "border", "bg-surface-low/60", "backdrop-blur-sm");
-    expect(surface?.querySelector(".h-px")).toBeInTheDocument();
+    expect(label.parentElement).toContainElement(elapsed);
+    expect(label.parentElement).toHaveClass("flex", "items-baseline");
+    expect(surface?.querySelector(".h-px")).not.toBeInTheDocument();
+    expect(surface?.querySelectorAll(".rounded-full.bg-primary")).toHaveLength(1);
   });
 
   afterEach(() => {
@@ -225,7 +230,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText(content)).toHaveAttribute("data-chat-streaming-text", "true");
   });
 
-  it("renders streaming Markdown as lightweight text and formats it after completion", () => {
+  it("formats complete Markdown as soon as its streaming syntax closes", () => {
     const partialContent = "Working on **important text";
     const completeContent = `${partialContent}**`;
     const { container, rerender } = render(
@@ -239,13 +244,40 @@ describe("ChatMessageBubble", () => {
     expect(container.querySelector("strong")).not.toBeInTheDocument();
     expect(container).toHaveTextContent("**");
 
-    rerender(
-      <ChatMessageBubble message={{ role: "assistant", content: completeContent }} />,
-    );
+    rerender(<ChatMessageBubble message={{ role: "assistant", content: completeContent }} isStreaming />);
 
     expect(container.querySelector("[data-chat-streaming-text='true']")).not.toBeInTheDocument();
     expect(container.querySelector("strong")).toHaveTextContent("important text");
     expect(container).not.toHaveTextContent("**");
+
+    rerender(<ChatMessageBubble message={{ role: "assistant", content: completeContent }} />);
+    expect(container.querySelector("strong")).toHaveTextContent("important text");
+  });
+
+  it("defers the wall-clock timestamp until the streamed assistant row settles", () => {
+    const timestamp = new Date("2026-08-27T06:50:00.000Z").getTime();
+    const formatted = formatTime(timestamp);
+    const message = { role: "assistant" as const, content: "Preparing the answer", timestamp };
+    const { rerender } = render(
+      <ChatMessageBubble message={message} isStreaming timestampVariant="v2" />,
+    );
+
+    expect(screen.queryByText(formatted)).not.toBeInTheDocument();
+    rerender(<ChatMessageBubble message={message} timestampVariant="v2" />);
+    expect(screen.getByText(formatted)).toBeInTheDocument();
+  });
+
+  it("lets an owning response status suppress the duplicate message activity dot", () => {
+    render(
+      <ChatMessageBubble
+        message={{ role: "assistant", content: "Preparing the answer" }}
+        isStreaming
+        showStreamingStatus={false}
+      />,
+    );
+
+    expect(screen.getByText("Preparing the answer")).toBeInTheDocument();
+    expect(screen.queryByLabelText("streaming")).not.toBeInTheDocument();
   });
 
   it("keeps exact sentence-boundary whitespace from streaming through completed rendering", () => {
