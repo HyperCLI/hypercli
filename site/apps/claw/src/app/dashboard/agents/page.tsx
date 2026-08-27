@@ -293,7 +293,7 @@ import {
   isDashboardReleaseSurfaceAvailable,
   normalizeDashboardReleaseSearchParams,
 } from "@/lib/dashboard-release-boundary";
-import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { prepareOpenClawStarterFiles, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { markDashboardPerformance, measureDashboardPerformance } from "@/lib/agent-dashboard-performance";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
@@ -4226,6 +4226,11 @@ function AgentsPageContent() {
       setWorkspaceCreationOpen(true);
       return null;
     }
+    const principalId = privatePrincipalRef.current;
+    if (!principalId) {
+      requestAuthentication({ kind: "launch" });
+      return null;
+    }
     const generation = agentDataGenerationRef.current;
     try {
       if (agentCreationBlockedReason) throw new Error(agentCreationBlockedReason);
@@ -4239,6 +4244,9 @@ function AgentsPageContent() {
       if (knowledgeCollection && knowledgeCollection.role !== "admin") {
         throw new Error("Collection admin access is required to assign this agent.");
       }
+      const starterFiles = agentType === "hermes"
+        ? files
+        : await prepareOpenClawStarterFiles(files);
       setError(null);
       const token = await getToken();
       if (generation !== agentDataGenerationRef.current) return null;
@@ -4266,7 +4274,7 @@ function AgentsPageContent() {
           ...buildOpenClawLaunchOptions({
             desktopEnabled: enableDesktop,
             customImage,
-            skipBootstrap: files.length > 0,
+            skipBootstrap: starterFiles.length > 0,
             memoryIndex: enableMemoryIndex
               ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
               : null,
@@ -4290,6 +4298,13 @@ function AgentsPageContent() {
           }
         }
         const startCreatedAgent = async (agentId: string) => {
+          if (
+            !pageActiveRef.current
+            || generation !== agentDataGenerationRef.current
+            || privatePrincipalRef.current !== principalId
+          ) {
+            throw new Error("Workspace setup was cancelled before launch. The agent remains stopped.");
+          }
           const runningAgent = await startAgent(token, agentId, (accepted) => {
             if (generation === agentDataGenerationRef.current) {
               applyAgentMutationResult(accepted);
@@ -4300,22 +4315,26 @@ function AgentsPageContent() {
           if (generation === agentDataGenerationRef.current) applyAgentMutationResult(runningAgent);
         };
         cancelledStartAgentIdsRef.current.delete(created.id);
-        // Starter files can only be written once the deployment's pod answers,
-        // so staging runs alongside the start instead of gating it. Files that
-        // never land are a warning, never a failed launch.
-        let starterFileWarning: string | null = null;
         try {
-          if (files.length > 0 && agentType !== "hermes") {
-            const staged = await stageAgentStarterFilesAndStart({
+          if (agentType !== "hermes") {
+            await stageAgentStarterFilesAndStart({
               agentId: created.id,
-              files,
+              files: starterFiles,
               writeFileBytes: (agentId, path, content) => (
                 agentClient.fileWriteBytes(agentId, path, content)
               ),
+              readFileBytes: (agentId, path) => (
+                agentClient.fileReadBytes(agentId, path)
+              ),
               startAgent: startCreatedAgent,
+              shouldAbort: () => (
+                !pageActiveRef.current
+                || generation !== agentDataGenerationRef.current
+                || privatePrincipalRef.current !== principalId
+              ),
             });
-            starterFileWarning = describeStarterFileFailures(staged.failures) || null;
           } else {
+            if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return null;
             await startCreatedAgent(created.id);
           }
         } catch (startError) {
@@ -4335,7 +4354,6 @@ function AgentsPageContent() {
         setMainTab("chat");
         setMobileShowChat(true);
         completeJourneyForEvent("agent-created");
-        if (starterFileWarning) setError(starterFileWarning);
         return created.id;
       }
       await fetchAgents({ force: true });

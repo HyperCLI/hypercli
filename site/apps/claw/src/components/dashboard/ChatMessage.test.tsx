@@ -121,6 +121,14 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByAltText("Profile avatar")).toHaveAttribute("src", profileAvatarUrl);
   });
 
+  it("exposes stable transcript hooks for user and assistant messages", () => {
+    const { rerender } = render(<ChatMessageBubble message={{ role: "assistant", content: "Ready" }} />);
+
+    expect(screen.getByTestId("agent-chat-message-assistant")).toHaveTextContent("Ready");
+    rerender(<ChatMessageBubble message={{ role: "user", content: "Continue" }} />);
+    expect(screen.getByTestId("agent-chat-message-user")).toHaveTextContent("Continue");
+  });
+
   it("renders hydrated provider thoughts separately without tool-call sentinels", () => {
     const message = normalizeHistoryMessage({
       role: "assistant",

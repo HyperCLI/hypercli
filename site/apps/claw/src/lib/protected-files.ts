@@ -7,9 +7,11 @@
 export const PROTECTED_FILES = [
   "AGENTS.MD",
   "BOOTSTRAP.MD",
+  "IDENTITY.MD",
   "SOUL.MD",
   "HEARTBEAT.MD",
   "MEMORY.MD",
+  "USER.MD",
 ] as const;
 
 const PROTECTED_SET = new Set(PROTECTED_FILES.map((n) => n.toUpperCase()));

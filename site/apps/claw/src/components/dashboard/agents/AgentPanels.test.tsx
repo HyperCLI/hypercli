@@ -10,8 +10,23 @@ const clipboardMocks = vi.hoisted(() => ({
   writeClipboardText: vi.fn(async () => true),
 }));
 
-vi.mock("./FirstAgentSetupWizard", () => ({
-  FirstAgentSetupWizard: ({ onCreateAgent, onClose }: {
+vi.mock("./FirstAgentSetupWizard", () => {
+  const starterFiles = () => ["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "BOOTSTRAP.md"]
+    .map((name) => {
+      const content = `# ${name}\n\n${name} content`;
+      return {
+        name,
+        size: content.length,
+        type: "text/markdown",
+        arrayBuffer: async () => new TextEncoder().encode(content).buffer as ArrayBuffer,
+      };
+    });
+  const unreadableStarterFiles = () => starterFiles().map((file, index) => index === 0
+    ? { ...file, arrayBuffer: async () => { throw new Error("browser file read failed"); } }
+    : file);
+
+  return {
+    FirstAgentSetupWizard: ({ onCreateAgent, onClose }: {
     onCreateAgent: (params: {
       name: string;
       iconIndex: number;
@@ -36,7 +51,7 @@ vi.mock("./FirstAgentSetupWizard", () => ({
           name: "Created Agent",
           iconIndex: 0,
           size: "small",
-          files: [],
+          files: starterFiles(),
           enableDesktop: false,
           knowledgeCollectionId: "knowledge-collection-1",
         }); }}
@@ -49,21 +64,30 @@ vi.mock("./FirstAgentSetupWizard", () => ({
           name: "Created Agent",
           iconIndex: 0,
           size: "small",
-          files: [{
-            name: "AGENTS.md",
-            size: 8,
-            type: "text/markdown",
-            arrayBuffer: async () => new TextEncoder().encode("# Agent\n").buffer as ArrayBuffer,
-          }],
+          files: starterFiles(),
           enableDesktop: false,
           knowledgeCollectionId: null,
         }); }}
       >
         Finish setup with starter files
       </button>
+      <button
+        type="button"
+        onClick={() => { void onCreateAgent({
+          name: "Unreadable Agent",
+          iconIndex: 0,
+          size: "small",
+          files: unreadableStarterFiles(),
+          enableDesktop: false,
+          knowledgeCollectionId: null,
+        }); }}
+      >
+        Finish setup with unreadable files
+      </button>
     </div>
-  ),
-}));
+    ),
+  };
+});
 
 vi.mock("@hypercli/shared-ui", () => ({
   Button: ({ children, asChild, ...props }: ComponentProps<"button"> & { asChild?: boolean }) => (
@@ -121,11 +145,17 @@ const agentClientMocks = vi.hoisted(() => ({
   waitForCreatedAgentStopped: vi.fn(async (client: { waitForState: (...args: unknown[]) => Promise<unknown> }, created: { id: string }) => (
     client.waitForState(created.id, ["STOPPED"])
   )),
-  createAgentClient: vi.fn(() => ({
-    fileWriteBytes: vi.fn(async () => undefined),
-    waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
-    start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
-  })),
+  createAgentClient: vi.fn(() => {
+    const files = new Map<string, Uint8Array>();
+    return {
+      fileWriteBytes: vi.fn(async (_agentId: string, path: string, content: ArrayBuffer) => {
+        files.set(path, new Uint8Array(content).slice());
+      }),
+      fileReadBytes: vi.fn(async (_agentId: string, path: string) => files.get(path)?.slice() ?? new Uint8Array()),
+      waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
+      start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
+    };
+  }),
 }));
 
 vi.mock("@hypercli.com/sdk/browser", () => ({
@@ -184,6 +214,18 @@ vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
 
 import { AgentDesktopEmptyState, AgentEmptyState, AgentList, AgentScheduledEmptyState, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
 
+function createInMemoryAgentClient() {
+  const files = new Map<string, Uint8Array>();
+  return {
+    fileWriteBytes: vi.fn(async (_agentId: string, path: string, content: ArrayBuffer) => {
+      files.set(path, new Uint8Array(content).slice());
+    }),
+    fileReadBytes: vi.fn(async (_agentId: string, path: string) => files.get(path)?.slice() ?? new Uint8Array()),
+    waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
+    start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
+  };
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -220,11 +262,7 @@ beforeEach(() => {
     avatarUrl: null,
     s3Key: null,
   });
-  agentClientMocks.createAgentClient.mockReturnValue({
-    fileWriteBytes: vi.fn(async () => undefined),
-    waitForState: vi.fn(async () => ({ id: "created-agent", state: "STOPPED" })),
-    start: vi.fn(async () => ({ state: "RUNNING", waitRunning: vi.fn(async () => undefined) })),
-  });
+  agentClientMocks.createAgentClient.mockReturnValue(createInMemoryAgentClient());
 });
 
 const agent: Agent = {
@@ -776,15 +814,20 @@ describe("AgentList", () => {
     expect(onCreateAgent).toHaveBeenCalledOnce();
   });
 
-  it("waits for stopped storage, starts once, and preseeds alongside the start", async () => {
+  it("waits for stopped storage, verifies the complete preseed, then starts once", async () => {
     const operations: string[] = [];
+    const storedFiles = new Map<string, Uint8Array>();
     const createOpenClawAgent = vi.fn(async (_token: string, _options?: Record<string, unknown>) => {
       operations.push("create-creating");
       return { id: "created-agent", state: "CREATING" };
     });
-    const fileWriteBytes = vi.fn(async () => {
-      operations.push("preseed");
-      return undefined;
+    const fileWriteBytes = vi.fn(async (_agentId: string, path: string, content: ArrayBuffer) => {
+      operations.push(`write:${path}`);
+      storedFiles.set(path, new Uint8Array(content).slice());
+    });
+    const fileReadBytes = vi.fn(async (_agentId: string, path: string) => {
+      operations.push(`read:${path}`);
+      return storedFiles.get(path)?.slice() ?? new Uint8Array();
     });
     const waitForState = vi.fn(async () => {
       operations.push("wait-stopped");
@@ -793,7 +836,12 @@ describe("AgentList", () => {
     agentClientMocks.startAgent.mockImplementation(async () => {
       operations.push("start");
     });
-    agentClientMocks.createAgentClient.mockReturnValue({ fileWriteBytes, waitForState });
+    agentClientMocks.createAgentClient.mockReturnValue({
+      fileWriteBytes,
+      fileReadBytes,
+      waitForState,
+      start: vi.fn(),
+    });
     const fetchAgents = vi.fn(async () => {
       operations.push("refresh");
       return true;
@@ -817,13 +865,59 @@ describe("AgentList", () => {
       ".openclaw/workspace/AGENTS.md",
       expect.anything(),
     );
+    expect(fileWriteBytes.mock.calls.map((call) => call[1])).toEqual([
+      ".openclaw/openclaw.json",
+      ".openclaw/workspace/AGENTS.md",
+      ".openclaw/workspace/SOUL.md",
+      ".openclaw/workspace/IDENTITY.md",
+      ".openclaw/workspace/USER.md",
+      ".openclaw/workspace/BOOTSTRAP.md",
+    ]);
+    expect(fileReadBytes.mock.calls.map((call) => call[1])).toEqual(
+      fileWriteBytes.mock.calls.map((call) => call[1]),
+    );
     expect(fileWriteBytes.mock.calls[0]).toHaveLength(3);
     expect(waitForState).toHaveBeenCalledWith("created-agent", ["STOPPED"]);
     expect(agentClientMocks.startAgent).toHaveBeenCalledWith(expect.any(String), "created-agent");
     expect(agentClientMocks.startAgent).toHaveBeenCalledOnce();
-    // The workspace write route only answers once the deployment's pod is
-    // ready, so the preseed runs alongside the start rather than gating it.
-    expect(operations).toEqual(["create-creating", "wait-stopped", "refresh", "refresh", "start", "preseed", "refresh"]);
+    expect(operations).toEqual([
+      "create-creating",
+      "wait-stopped",
+      "refresh",
+      "write:.openclaw/openclaw.json",
+      "read:.openclaw/openclaw.json",
+      "write:.openclaw/workspace/AGENTS.md",
+      "read:.openclaw/workspace/AGENTS.md",
+      "write:.openclaw/workspace/SOUL.md",
+      "read:.openclaw/workspace/SOUL.md",
+      "write:.openclaw/workspace/IDENTITY.md",
+      "read:.openclaw/workspace/IDENTITY.md",
+      "write:.openclaw/workspace/USER.md",
+      "read:.openclaw/workspace/USER.md",
+      "write:.openclaw/workspace/BOOTSTRAP.md",
+      "read:.openclaw/workspace/BOOTSTRAP.md",
+      "refresh",
+      "start",
+      "refresh",
+    ]);
+  });
+
+  it("does not create an Agent when a canonical workspace file cannot be read", async () => {
+    const createOpenClawAgent = vi.fn(async () => ({ id: "should-not-exist" }));
+    const setError = vi.fn();
+    renderAgentList({
+      sidebarCollapsed: false,
+      createOpenClawAgent,
+      setError,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finish setup with unreadable files" }));
+
+    await waitFor(() => expect(setError).toHaveBeenCalledWith(
+      expect.stringContaining("AGENTS.md could not be read as UTF-8 Markdown: browser file read failed"),
+    ));
+    expect(createOpenClawAgent).not.toHaveBeenCalled();
   });
 
   it("associates a created agent before selecting it", async () => {

@@ -154,6 +154,8 @@ export function buildOpenClawLaunchOptions({
           config: {
             agents: {
               defaults: {
+                // Keep OpenClaw from replacing the pack Claw stages before START.
+                // A pre-seeded BOOTSTRAP.md remains active on the first turn.
                 skipBootstrap: true,
               },
             },

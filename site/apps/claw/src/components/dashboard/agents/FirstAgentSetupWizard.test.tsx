@@ -415,6 +415,19 @@ describe("FirstAgentSetupWizard", () => {
     await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(2));
     expect(onGenerateBootstrap.mock.calls[1]?.[0]).toBe("SOUL.md");
 
+    await act(async () => {
+      resolvers["SOUL.md"]?.({
+        name: "SOUL.md",
+        content: "# SOUL.md\n\nGenerated while the plan step was open.",
+      });
+    });
+    await waitFor(() => expect(onGenerateBootstrap).toHaveBeenCalledTimes(3));
+    expect(onGenerateBootstrap.mock.calls.map(([name]) => name)).toEqual([
+      "AGENTS.md",
+      "SOUL.md",
+      "USER.md",
+    ]);
+
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("heading", { name: /approach the work/ })).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Workspace files" })).not.toBeInTheDocument();
@@ -920,13 +933,21 @@ describe("FirstAgentSetupWizard", () => {
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledOnce());
     const files = onCreateAgent.mock.calls[0]?.[0].files ?? [];
     vi.stubGlobal("File", OriginalFile);
-    expect(files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
+    expect(files.map((file) => file.name)).toEqual([
+      "AGENTS.md",
+      "SOUL.md",
+      "IDENTITY.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+    ]);
     expect(fileContents.get("AGENTS.md"))
       .toContain("Research a market. Investigate an industry, competitors, and opportunities.");
     expect(fileContents.get("SOUL.md"))
       .toContain("Research a market. Investigate an industry, competitors, and opportunities.");
     expect(fileContents.get("SOUL.md"))
       .toContain("Be observant, skeptical, and relentless about finding the truth.");
+    expect(fileContents.get("IDENTITY.md")).toContain("- **Name:**");
+    expect(fileContents.get("BOOTSTRAP.md")).toContain("delete `BOOTSTRAP.md`");
   });
 
   it("keeps a saved draft inside the main setup shell before resuming", async () => {
@@ -1445,7 +1466,13 @@ describe("FirstAgentSetupWizard", () => {
       size: "medium",
     }));
     expect(createParams?.iconIndex).toBe(14);
-    expect(createParams?.files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
+    expect(createParams?.files.map((file) => file.name)).toEqual([
+      "AGENTS.md",
+      "SOUL.md",
+      "IDENTITY.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+    ]);
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
     getRandomValuesSpy.mockRestore();
   });

@@ -24,7 +24,7 @@ import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { createAgentClient, createBrowserHyperCLIClient, createHermesAgentDeployment, startAgent, waitForCreatedAgentStopped } from "@/lib/agent-client";
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
-import { describeStarterFileFailures, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
+import { prepareOpenClawStarterFiles, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { buildHermesLaunchOptions, getHermesDefaultImage } from "@/lib/hermes-launch";
 import { isHermesAgentRuntime } from "@/lib/agent-runtime";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
@@ -2924,6 +2924,15 @@ export function AgentList({
 }: AgentListProps) {
   const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
+  const activeRef = React.useRef(true);
+  const rosterOrderScopeRef = React.useRef(rosterOrderScope);
+  rosterOrderScopeRef.current = rosterOrderScope;
+  React.useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
   const effectiveCreationDisabledReason = rosterLoading
     ? "Agent roster is still loading."
     : agentCreationDisabledReason;
@@ -2987,8 +2996,13 @@ export function AgentList({
   }, [isDesktopViewport, openAgentLauncher, renderMobileNavigation, rosterLoading, sidebarCreatorSignal]);
 
   const createAgentFromLauncher = React.useCallback(async ({ name, handle = null, iconIndex, size, agentType = "openclaw", files, enableDesktop, enableMemoryIndex = false, customImage = null, knowledgeCollectionId }: AgentCreationSetupCreateParams) => {
+    const creationScope = rosterOrderScope;
+    const shouldAbort = () => !activeRef.current || rosterOrderScopeRef.current !== creationScope;
     try {
       if (effectiveCreationDisabledReason) throw new Error(effectiveCreationDisabledReason);
+      const starterFiles = agentType === "hermes"
+        ? files
+        : await prepareOpenClawStarterFiles(files);
       const token = await getToken();
       const created = agentType === "hermes"
         ? await createHermesAgentDeployment(token, {
@@ -3006,7 +3020,7 @@ export function AgentList({
           ...buildOpenClawLaunchOptions({
             desktopEnabled: enableDesktop,
             customImage,
-            skipBootstrap: files.length > 0,
+            skipBootstrap: starterFiles.length > 0,
             memoryIndex: enableMemoryIndex
               ? { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }
               : null,
@@ -3030,24 +3044,27 @@ export function AgentList({
           }
         }
         const startCreatedAgent = async (agentId: string) => {
+          if (shouldAbort()) {
+            throw new Error("Workspace setup was cancelled before launch. The agent remains stopped.");
+          }
           void Promise.resolve(fetchAgents()).catch(() => undefined);
           await startAgent(token, agentId);
         };
-        // The workspace write route only answers once the pod is ready, so the
-        // starter files are staged alongside the start; a file that never lands
-        // is reported afterwards instead of stranding a created Agent.
-        let starterFileWarning: string | null = null;
-        if (files.length > 0 && agentType !== "hermes") {
-          const staged = await stageAgentStarterFilesAndStart({
+        if (agentType !== "hermes") {
+          await stageAgentStarterFilesAndStart({
             agentId: createdId,
-            files,
+            files: starterFiles,
             writeFileBytes: (agentId, path, content) => (
               agentClient.fileWriteBytes(agentId, path, content)
             ),
+            readFileBytes: (agentId, path) => (
+              agentClient.fileReadBytes(agentId, path)
+            ),
             startAgent: startCreatedAgent,
+            shouldAbort,
           });
-          starterFileWarning = describeStarterFileFailures(staged.failures) || null;
         } else {
+          if (shouldAbort()) return null;
           await startCreatedAgent(createdId);
         }
         const agentsRefreshed = await fetchAgents();
@@ -3057,7 +3074,6 @@ export function AgentList({
         setSelectedAgentId(createdId);
         setMobileShowChat(true);
         setShowAgentLauncher(false);
-        if (starterFileWarning) setError(starterFileWarning);
       } else {
         await fetchAgents();
       }
@@ -3066,7 +3082,7 @@ export function AgentList({
       setError(err instanceof Error ? err.message : "Failed to create agent");
       return null;
     }
-  }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, knowledgeHubAvailable, setError, setMobileShowChat, setSelectedAgentId]);
+  }, [associateCreatedAgent, createOpenClawAgent, effectiveCreationDisabledReason, fetchAgents, getToken, knowledgeHubAvailable, rosterOrderScope, setError, setMobileShowChat, setSelectedAgentId]);
 
   const createAgentAndCloseLauncher = React.useCallback(async (params: AgentCreationSetupCreateParams) => {
     const createdId = await (onCreateAgent ?? createAgentFromLauncher)(params);

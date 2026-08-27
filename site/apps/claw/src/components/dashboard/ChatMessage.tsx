@@ -1435,6 +1435,7 @@ export function ChatMessageBubble({
 
   return (
     <motion.div
+      data-testid={isUser ? "agent-chat-message-user" : "agent-chat-message-assistant"}
       className={`group flex min-w-0 max-w-full ${isUser ? "justify-end" : "justify-start"} items-start gap-2`}
       {...getEntranceProps(animationVariant, isUser)}
     >

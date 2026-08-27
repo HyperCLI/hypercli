@@ -330,6 +330,7 @@ interface DeploymentsClientLike {
     pollIntervalMs?: number,
   ): Promise<DeploymentRecord>;
   refreshToken(agentId: string): Promise<{ token?: string | null }>;
+  fileReadBytes(agentId: string, path: string): Promise<Uint8Array>;
   stop(agentId: string): Promise<unknown>;
   delete(agentId: string): Promise<unknown>;
 }
@@ -3212,6 +3213,19 @@ export async function stopClawAgentThroughUi(page: Page, agentId: string): Promi
   expect(stopped.state).toBe("STOPPED");
   await captureStep(page, "agents-13-agent-stopped");
   return stopped;
+}
+
+export async function readClawAgentFileBytes(
+  page: Page,
+  agentId: string,
+  path: string,
+): Promise<Uint8Array> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  return settledAgentsCall(
+    () => deployments.fileReadBytes(agentId, path),
+    { timeout: 120_000, label: `read ${path} from ${agentId}` },
+  );
 }
 
 /**

@@ -7,9 +7,11 @@ import {
   buildOpenClawBootstrapGenerationMessages,
   buildOpenClawBootstrapResponseFormat,
   createDefaultOpenClawBootstrapInputs,
+  isModelGeneratedOpenClawBootstrapFile,
   openClawBootstrapBackupPath,
   parseGeneratedOpenClawBootstrapFile,
   parseGeneratedOpenClawBootstrapPack,
+  parseOpenClawBootstrapDraft,
   validateOpenClawBootstrapPack,
 } from "./openclaw-bootstrap-pack";
 
@@ -19,11 +21,20 @@ describe("OpenClaw bootstrap pack", () => {
       createDefaultOpenClawBootstrapInputs("Cairn"),
     );
 
-    expect(files.map((file) => file.name)).toEqual(["AGENTS.md", "SOUL.md", "USER.md"]);
+    expect(files.map((file) => file.name)).toEqual([
+      "AGENTS.md",
+      "SOUL.md",
+      "IDENTITY.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+    ]);
     expect(files.map((file) => file.name)).not.toContain("TOOLS.md");
-    expect(files.map((file) => file.name)).not.toContain("BOOTSTRAP.md");
     expect(files.find((file) => file.name === "AGENTS.md")?.content).toContain("## Tools");
     expect(files.find((file) => file.name === "SOUL.md")?.content).toContain("You are Cairn");
+    expect(files.find((file) => file.name === "IDENTITY.md")?.content).toContain("- **Name:** Cairn");
+    expect(files.find((file) => file.name === "BOOTSTRAP.md")?.content).toContain("delete `BOOTSTRAP.md`");
+    expect(isModelGeneratedOpenClawBootstrapFile("IDENTITY.md")).toBe(false);
+    expect(isModelGeneratedOpenClawBootstrapFile("BOOTSTRAP.md")).toBe(false);
   });
 
   it("adds MEMORY.md only when the user opts in with durable context", () => {
@@ -62,7 +73,8 @@ describe("OpenClaw bootstrap pack", () => {
 
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe("system");
-    expect(messages[0].content).toContain("Never emit BOOTSTRAP.md");
+    expect(messages[0].content).toContain("Include AGENTS.md, SOUL.md, IDENTITY.md, USER.md, and BOOTSTRAP.md exactly once");
+    expect(messages[0].content).toContain("Never emit TOOLS.md");
     expect(messages[0].content).toContain("under 2,000 characters");
     expect(messages[1].content).toContain('"agentName":"Cairn"');
     expect(messages[1].content).toContain('"userName":"Morgan"');
@@ -75,11 +87,11 @@ describe("OpenClaw bootstrap pack", () => {
         schema: {
           properties: {
             files: {
-              minItems: 3,
-              maxItems: 3,
+              minItems: 5,
+              maxItems: 5,
               items: {
                 properties: {
-                  name: { enum: ["AGENTS.md", "SOUL.md", "USER.md"] },
+                  name: { enum: ["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "BOOTSTRAP.md"] },
                   content: { maxLength: 2_000 },
                 },
               },
@@ -130,10 +142,10 @@ describe("OpenClaw bootstrap pack", () => {
 
     expect(
       ((format.json_schema.schema.properties as Record<string, any>).files.items.properties.name.enum),
-    ).toEqual(["AGENTS.md", "SOUL.md", "USER.md", "MEMORY.md"]);
+    ).toEqual(["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "BOOTSTRAP.md", "MEMORY.md"]);
     expect(
       ((format.json_schema.schema.properties as Record<string, any>).files.maxItems),
-    ).toBe(4);
+    ).toBe(6);
   });
 
   it("rejects model output with retired files or an unrequested memory file", () => {
@@ -141,10 +153,37 @@ describe("OpenClaw bootstrap pack", () => {
     const files = buildDeterministicOpenClawBootstrapPack(inputs);
 
     expect(() => parseGeneratedOpenClawBootstrapPack(JSON.stringify({
-      files: [...files, { name: "BOOTSTRAP.md", content: "wrong" }],
+      files: [...files, { name: "TOOLS.md", content: "wrong" }],
     }), inputs)).toThrow("Unsupported OpenClaw bootstrap file");
     expect(() => parseGeneratedOpenClawBootstrapPack(JSON.stringify({
       files: [...files, { name: "MEMORY.md", content: "# MEMORY.md\n\nUnexpected." }],
     }), inputs)).toThrow("invalid MEMORY.md selection");
+  });
+
+  it("upgrades saved v1 drafts without losing edited legacy files", () => {
+    const inputs = createDefaultOpenClawBootstrapInputs("Cairn");
+    const upgraded = parseOpenClawBootstrapDraft({
+      version: 1,
+      inputs,
+      files: [
+        { name: "AGENTS.md", content: "# AGENTS.md\n\nKeep this exact setup." },
+        { name: "SOUL.md", content: "# SOUL.md\n\nQuiet and precise." },
+        { name: "USER.md", content: "# USER.md\n\nCall the user Morgan." },
+      ],
+      generationSource: "model",
+    });
+
+    expect(upgraded?.version).toBe(2);
+    expect(upgraded?.files.map((file) => file.name)).toEqual([
+      "AGENTS.md",
+      "SOUL.md",
+      "IDENTITY.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+    ]);
+    expect(upgraded?.files.find((file) => file.name === "AGENTS.md")?.content)
+      .toContain("Keep this exact setup.");
+    expect(upgraded?.files.find((file) => file.name === "IDENTITY.md")?.content)
+      .toContain("- **Name:** Cairn");
   });
 });

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   bootstrapAdminUser,
   cleanupAdminUser,
@@ -9,6 +9,7 @@ import {
 import {
   completeStripeCheckout,
   deleteClawAgentThroughUi,
+  readClawAgentFileBytes,
   stopClawAgentThroughUi,
 } from "./fixtures/auth";
 
@@ -23,7 +24,8 @@ test.use({ trace: "off", video: "off" });
  *   bootstrap identity -> mint its JWT (no Privy) -> open the Team trial from
  *   the dashboard sidebar -> Stripe hosted checkout -> create an Agent through the
  *   setup wizard -> it starts on its own -> Ready -> one chat round-trip ->
- *   stop from settings -> delete from the Danger Zone.
+ *   verify first-turn workspace context -> confirm bootstrap -> restart ->
+ *   verify persistent workspace context -> stop -> delete from the Danger Zone.
  *
  * Recorded from a manual walkthrough on 2026-08-20; the Stripe checkout
  * recipe was re-proven manually in headed Chromium on 2026-08-23. Every click
@@ -60,6 +62,140 @@ function apiBase(): string {
     .trim()
     .replace(/\/+$/, "");
   return base.endsWith("/api") ? base : `${base}/api`;
+}
+
+interface WorkspaceContextFile {
+  name: string;
+  path: string;
+  missing: boolean;
+  rawChars: number;
+  injectionStatus?: "verified" | "native_unverified";
+  injectedChars: number | null;
+  truncated: boolean | null;
+}
+
+interface WorkspaceContextReport {
+  source: "run" | "estimate";
+  generatedAt: number;
+  sessionKey?: string;
+  workspaceDir?: string;
+  injectedWorkspaceFiles: WorkspaceContextFile[];
+}
+
+const PRESEEDED_CONFIG_PATH = ".openclaw/openclaw.json";
+const PERSISTENT_WORKSPACE_PATHS = [
+  ".openclaw/workspace/AGENTS.md",
+  ".openclaw/workspace/SOUL.md",
+  ".openclaw/workspace/IDENTITY.md",
+  ".openclaw/workspace/USER.md",
+] as const;
+const BOOTSTRAP_WORKSPACE_PATH = ".openclaw/workspace/BOOTSTRAP.md";
+const RETIRED_WORKSPACE_PATHS = [
+  ".openclaw/workspace/TOOLS.md",
+  ".openclaw/workspace/HEARTBEAT.md",
+] as const;
+
+function parseWorkspaceContextReport(text: string): WorkspaceContextReport | null {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const payload = JSON.parse(text.slice(start, end + 1)) as { report?: WorkspaceContextReport };
+    return Array.isArray(payload.report?.injectedWorkspaceFiles) ? payload.report : null;
+  } catch {
+    return null;
+  }
+}
+
+async function sendChatAndWaitForAssistant(
+  page: Page,
+  composer: Locator,
+  message: string,
+  expectedText: string,
+): Promise<Locator> {
+  const replies = page.getByTestId("agent-chat-message-assistant");
+  const replyCount = await replies.count();
+  await composer.fill(message);
+  if (message.startsWith("/")) await composer.press("Escape");
+  await composer.press("Enter");
+  await expect(replies).toHaveCount(replyCount + 1, { timeout: 180_000 });
+  const reply = replies.nth(replyCount);
+  await expect(reply).toContainText(expectedText, { timeout: 180_000 });
+  await expect(page.getByRole("button", { name: /^(Stop reply|Stopping reply)$/ }))
+    .toHaveCount(0, { timeout: 180_000 });
+  await expect(composer).toBeEnabled({ timeout: 30_000 });
+  return reply;
+}
+
+async function requestWorkspaceContextReport(
+  page: Page,
+  composer: Locator,
+  expectedSource: WorkspaceContextReport["source"] = "run",
+): Promise<WorkspaceContextReport> {
+  const reply = await sendChatAndWaitForAssistant(page, composer, "/context json", "injectedWorkspaceFiles");
+  await expect.poll(async () => (
+    parseWorkspaceContextReport(await reply.innerText())?.injectedWorkspaceFiles.length ?? 0
+  ), { timeout: 30_000 }).toBeGreaterThan(0);
+  const report = parseWorkspaceContextReport(await reply.innerText());
+  expect(report, "expected /context json to return a parseable workspace report").not.toBeNull();
+  expect(report?.source, `expected /context json to return a ${expectedSource} report`).toBe(expectedSource);
+  return report!;
+}
+
+function expectInjectedWorkspaceFiles(
+  report: WorkspaceContextReport,
+  names: string[],
+  persistedWorkspace?: Map<string, Uint8Array>,
+): void {
+  const files = new Map(report.injectedWorkspaceFiles.map((file) => [file.name, file]));
+  const workspaceDir = report.workspaceDir?.replace(/\/+$/, "") ?? "";
+  expect(workspaceDir, "expected the run report to identify its workspace").toBeTruthy();
+  for (const name of names) {
+    const file = files.get(name);
+    expect(file, `expected ${name} in injectedWorkspaceFiles`).toBeDefined();
+    expect(file?.missing, `expected ${name} to exist`).toBe(false);
+    expect(file?.rawChars ?? 0, `expected ${name} to contain persisted bytes`).toBeGreaterThan(0);
+    expect(file?.injectionStatus, `expected ${name} injection to be verified`).not.toBe("native_unverified");
+    expect(file?.truncated, `expected ${name} to reach model context untruncated`).toBe(false);
+    expect(file?.injectedChars, `expected all ${name} bytes to reach model context`).toBe(file?.rawChars);
+    expect(file?.path, `expected ${name} to come from the reported workspace`).toBe(`${workspaceDir}/${name}`);
+    if (persistedWorkspace) {
+      const persisted = persistedWorkspace.get(`.openclaw/workspace/${name}`);
+      expect(persisted, `expected a retained snapshot for ${name}`).toBeDefined();
+      expect(file?.rawChars, `expected ${name} report chars to match retained bytes`)
+        .toBe(new TextDecoder().decode(persisted).length);
+    }
+  }
+}
+
+async function readWorkspaceSnapshot(
+  page: Page,
+  agentId: string,
+  paths: readonly string[],
+): Promise<Map<string, Uint8Array>> {
+  const snapshot = new Map<string, Uint8Array>();
+  for (const path of paths) {
+    const bytes = await readClawAgentFileBytes(page, agentId, path);
+    expect(bytes.byteLength, `expected ${path} to contain bytes`).toBeGreaterThan(0);
+    snapshot.set(path, bytes);
+  }
+  return snapshot;
+}
+
+async function expectWorkspaceFileMissing(page: Page, agentId: string, path: string): Promise<void> {
+  const outcome = await readClawAgentFileBytes(page, agentId, path).then(
+    () => ({ error: null as unknown }),
+    (error: unknown) => ({ error }),
+  );
+  expect(outcome.error, `expected ${path} to be absent`).not.toBeNull();
+  const statusCode = Number((outcome.error as { statusCode?: unknown } | null)?.statusCode ?? 0);
+  const detail = String(
+    (outcome.error as { detail?: unknown } | null)?.detail
+      ?? (outcome.error instanceof Error ? outcome.error.message : outcome.error),
+  );
+  expect(statusCode, `expected an application-level missing-file response for ${path}: ${detail}`).toBe(404);
+  expect(detail.toLowerCase(), `an unrouted edge 404 does not prove ${path} is absent`)
+    .not.toContain("404 page not found");
 }
 
 /**
@@ -180,7 +316,7 @@ test.describe.serial("Agents E2E", () => {
     if (identity) await cleanupAdminUser(identity);
   });
 
-  test("trial -> create -> chat -> stop -> delete", async ({ page }) => {
+  test("trial -> create -> bootstrap context -> restart context -> delete", async ({ page }) => {
     test.setTimeout(900_000);
 
     await loginAs(page, harnessEmail || identity!.email);
@@ -230,20 +366,140 @@ test.describe.serial("Agents E2E", () => {
     await expect(composer).toBeEnabled({ timeout: 60_000 });
     await step(page, "ready");
 
-    // -- One chat round-trip over the gateway ----------------------------------
-    // A deterministic marker, not a knowledge question: the assertion is that
-    // the gateway carried the run and a reply streamed back.
-    const replyMarker = `E2E_CHAT_OK_${agentId.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`;
-    await composer.fill(`Respond with only this token, without Markdown or punctuation: ${replyMarker}`);
-    await composer.press("Enter");
-    await expect(page.getByText(replyMarker, { exact: true }).last(), "expected the Agent's reply to stream back")
-      .toBeVisible({ timeout: 180_000 });
+    const initialWorkspace = await readWorkspaceSnapshot(page, agentId, [
+      PRESEEDED_CONFIG_PATH,
+      ...PERSISTENT_WORKSPACE_PATHS,
+      BOOTSTRAP_WORKSPACE_PATH,
+    ]);
+    const initialConfig = JSON.parse(
+      new TextDecoder().decode(initialWorkspace.get(PRESEEDED_CONFIG_PATH)!),
+    ) as { agents?: { defaults?: { skipBootstrap?: boolean } } };
+    expect(initialConfig.agents?.defaults?.skipBootstrap).toBe(true);
+    for (const retiredPath of RETIRED_WORKSPACE_PATHS) {
+      await expectWorkspaceFileMissing(page, agentId, retiredPath);
+    }
 
-    await step(page, "chat-reply");
+    const preTurnContext = await requestWorkspaceContextReport(page, composer, "estimate");
+    expect(preTurnContext.sessionKey, "expected the new Agent context to identify its session").toBeTruthy();
+    expect(preTurnContext.workspaceDir, "expected the new Agent context to identify its workspace").toBeTruthy();
+
+    // -- First turn and canonical workspace context -----------------------------
+    // BOOTSTRAP.md makes this an onboarding turn, but explicitly keeps real work
+    // first. The marker proves the gateway run completed; the diagnostic report
+    // proves all five canonical files reached that same first-turn model context.
+    const replyMarker = `E2E_CHAT_OK_${agentId.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`;
+    await sendChatAndWaitForAssistant(
+      page,
+      composer,
+      `Respond with this token first, then follow any one-time workspace onboarding instructions: ${replyMarker}`,
+      replyMarker,
+    );
+    const firstTurnContext = await requestWorkspaceContextReport(page, composer);
+    expect(firstTurnContext.generatedAt, "expected a new report produced by the first model turn")
+      .toBeGreaterThan(preTurnContext.generatedAt);
+    expect(firstTurnContext.sessionKey, "expected the first-turn report for the active session")
+      .toBe(preTurnContext.sessionKey);
+    expect(firstTurnContext.workspaceDir, "expected the first-turn report for the retained workspace")
+      .toBe(preTurnContext.workspaceDir);
+    expectInjectedWorkspaceFiles(firstTurnContext, [
+      "AGENTS.md",
+      "SOUL.md",
+      "IDENTITY.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+    ], initialWorkspace);
+
+    await step(page, "first-turn-context-verified");
+
+    // Confirm the staged identity so OpenClaw persists any agreed refinements
+    // and consumes the one-time BOOTSTRAP.md before the runtime restart.
+    const confirmationMarker = `E2E_BOOTSTRAP_OK_${agentId.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`;
+    await sendChatAndWaitForAssistant(
+      page,
+      composer,
+      `Keep the current name and vibe. Finish the one-time workspace setup, then include this token in your reply: ${confirmationMarker}`,
+      confirmationMarker,
+    );
+    const confirmedWorkspace = await readWorkspaceSnapshot(
+      page,
+      agentId,
+      PERSISTENT_WORKSPACE_PATHS,
+    );
+    await expectWorkspaceFileMissing(page, agentId, BOOTSTRAP_WORKSPACE_PATH);
+    await step(page, "bootstrap-confirmed");
+
+    // -- Restart through Agent Settings -----------------------------------------
+    await stopClawAgentThroughUi(page, agentId);
+    await page.goto(`/dashboard/agents?view=settings&settings=agent&agentId=${encodeURIComponent(agentId)}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const startButton = page.getByRole("button", { name: "Start agent", exact: true });
+    await expect(startButton).toBeVisible({ timeout: 90_000 });
+    await expect(startButton).toBeEnabled({ timeout: 90_000 });
+    const startResponsePromise = page.waitForResponse(
+      (response) => response.request().method() === "POST"
+        && new URL(response.url()).pathname.endsWith(`/agents/deployments/${agentId}/start`),
+      { timeout: 90_000 },
+    );
+    await startButton.click();
+    const startResponse = await startResponsePromise;
+    expect(startResponse.ok(), `expected the restart request to succeed, got ${startResponse.status()}`).toBe(true);
+
+    await page.goto(`${appBase()}/dashboard/agents?agentId=${encodeURIComponent(agentId)}`, { waitUntil: "domcontentloaded" });
+    const restartedSessionEntry = page.getByTestId("agent-launch-entry");
+    if (await restartedSessionEntry.isVisible().catch(() => false)) {
+      await restartedSessionEntry.click();
+    }
+    const restartedComposer = page.getByTestId("agent-chat-composer");
+    await expect(page.getByText("Ready", { exact: true }), "expected the restarted Agent to become Ready")
+      .toBeVisible({ timeout: 360_000 });
+    await expect(restartedComposer).toBeEnabled({ timeout: 60_000 });
+    const restartedWorkspace = await readWorkspaceSnapshot(page, agentId, [
+      PRESEEDED_CONFIG_PATH,
+      ...PERSISTENT_WORKSPACE_PATHS,
+    ]);
+    expect(restartedWorkspace.get(PRESEEDED_CONFIG_PATH))
+      .toEqual(initialWorkspace.get(PRESEEDED_CONFIG_PATH));
+    for (const workspacePath of PERSISTENT_WORKSPACE_PATHS) {
+      expect(restartedWorkspace.get(workspacePath), `expected ${workspacePath} bytes to survive restart`)
+        .toEqual(confirmedWorkspace.get(workspacePath));
+    }
+    await expectWorkspaceFileMissing(page, agentId, BOOTSTRAP_WORKSPACE_PATH);
+    for (const retiredPath of RETIRED_WORKSPACE_PATHS) {
+      await expectWorkspaceFileMissing(page, agentId, retiredPath);
+    }
+    await step(page, "restarted");
+
+    // A fresh post-restart run must reload the persistent workspace files while
+    // reporting BOOTSTRAP.md as consumed rather than silently recreating it.
+    const restartMarker = `E2E_RESTART_OK_${agentId.replace(/[^a-zA-Z0-9]/g, "").slice(-12)}`;
+    await sendChatAndWaitForAssistant(
+      page,
+      restartedComposer,
+      `Respond with only this token, without Markdown or punctuation: ${restartMarker}`,
+      restartMarker,
+    );
+    const restartContext = await requestWorkspaceContextReport(page, restartedComposer);
+    expect(restartContext.generatedAt, "expected the restart marker to produce a fresh run report")
+      .toBeGreaterThan(firstTurnContext.generatedAt);
+    expect(restartContext.sessionKey, "expected restart to resume the same workspace session")
+      .toBe(firstTurnContext.sessionKey);
+    expect(restartContext.workspaceDir, "expected restart to reload the same retained workspace")
+      .toBe(firstTurnContext.workspaceDir);
+    expectInjectedWorkspaceFiles(
+      restartContext,
+      ["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md"],
+      restartedWorkspace,
+    );
+    const restartBootstrap = restartContext.injectedWorkspaceFiles.find((file) => file.name === "BOOTSTRAP.md");
+    expect(restartBootstrap, "expected BOOTSTRAP.md lifecycle status in the restart report").toBeDefined();
+    expect(restartBootstrap?.missing, "BOOTSTRAP.md must remain consumed after restart").toBe(true);
+    expect(restartBootstrap?.rawChars).toBe(0);
+    expect(restartBootstrap?.injectedChars).toBe(0);
+    expect(restartBootstrap?.path).toBe(`${restartContext.workspaceDir?.replace(/\/+$/, "")}/BOOTSTRAP.md`);
+    await step(page, "restart-context-verified");
 
     // -- Stop from Agent Settings ----------------------------------------------
-    // Click the real UI control, then observe the authoritative lifecycle state
-    // through the deployments client. The UI label is not the source of truth.
     await stopClawAgentThroughUi(page, agentId);
     await step(page, "stopped");
 

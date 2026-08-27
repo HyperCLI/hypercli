@@ -47,6 +47,7 @@ import {
 import {
   buildDeterministicOpenClawBootstrapPack,
   createOpenClawBootstrapDraft,
+  isModelGeneratedOpenClawBootstrapFile,
   type OpenClawBootstrapDraft,
   type OpenClawBootstrapFile,
   type OpenClawBootstrapFileName,
@@ -988,7 +989,9 @@ export function FirstAgentSetupWizard({
     bootstrapGenerationRunRef.current = runId;
     const inputs = { ...rawInputs, agentName: workspaceAgentName };
     const fallbackFiles = buildDeterministicOpenClawBootstrapPack(inputs);
-    const names = fallbackFiles.map((file) => file.name);
+    const names = fallbackFiles
+      .map((file) => file.name)
+      .filter(isModelGeneratedOpenClawBootstrapFile);
 
     setBootstrapDraft({
       version: bootstrapDraft.version,
