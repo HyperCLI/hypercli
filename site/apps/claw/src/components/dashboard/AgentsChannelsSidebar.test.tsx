@@ -380,7 +380,7 @@ describe("AgentsChannelsSidebar", () => {
     expect(time).toHaveClass("text-text-secondary");
     expect(time).not.toHaveClass("text-text-muted/75");
     expect(activity).toHaveClass("h-2", "w-2");
-    expect(activity?.previousElementSibling).toContainElement(name);
+    expect(activity?.previousElementSibling).toContainElement(name as HTMLElement | null);
     expect(status?.nextElementSibling).toHaveClass("leading-3", "group-hover/row:opacity-0");
     expect(status?.nextElementSibling).not.toHaveClass("group-hover/row:hidden");
   });

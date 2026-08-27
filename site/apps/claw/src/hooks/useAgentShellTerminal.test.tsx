@@ -366,7 +366,7 @@ describe("useAgentShellTerminal", () => {
       runAnimationFrames();
       requestAnimationFrameSpy.mockClear();
 
-      shell.rerender({ visible: false, status: "connected" });
+      shell.rerender({ isVisible: false, shellStatus: "connected" });
       act(() => resizeCallback?.([], {} as ResizeObserver));
       expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
     } finally {

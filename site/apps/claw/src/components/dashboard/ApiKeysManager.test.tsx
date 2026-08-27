@@ -34,7 +34,7 @@ describe("ApiKeysManager", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete (navigator as Navigator & { clipboard?: Clipboard }).clipboard;
+    delete (navigator as unknown as { clipboard?: Clipboard }).clipboard;
   });
 
   it("shows and copies the one-time API key returned by the create endpoint", async () => {

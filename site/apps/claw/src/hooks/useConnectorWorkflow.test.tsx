@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
-import type { GatewayEphemeralChatOptions } from "@hypercli.com/sdk/openclaw/gateway";
+import type { GatewayAbortSignal, GatewayEphemeralChatOptions } from "@hypercli.com/sdk/openclaw/gateway";
 
 import {
   buildPreloadedConnectorWorkflow,
@@ -175,7 +175,7 @@ describe("useConnectorWorkflow", () => {
   });
   it("caches a validated workflow for the current runtime", async () => {
     const connectorsProvider = provider();
-    const runEphemeralPrompt = vi.fn(async (prompt: string) => {
+    const runEphemeralPrompt = vi.fn(async (prompt: string, _options?: GatewayEphemeralChatOptions) => {
       const fingerprint = Array.from(prompt.matchAll(/"runtimeFingerprint":"([^"]+)"/g)).at(-1)?.[1];
       return JSON.stringify({
         schema: CONNECTOR_WORKFLOW_SCHEMA_ID,
@@ -277,8 +277,10 @@ describe("useConnectorWorkflow", () => {
     );
     first.unmount();
 
-    const replacementProvider = channelProvider(new Set(["slack"]));
-    replacementProvider.runtime = { provider: "openclaw", version: "9.9.9", capabilities: ["changed"] };
+    const replacementProvider = {
+      ...channelProvider(new Set(["slack"])),
+      runtime: { provider: "openclaw", version: "9.9.9", capabilities: ["changed"] },
+    };
     const second = renderHook(() => useConnectorWorkflow({
       provider: replacementProvider,
       scopeKey: "agent:persisted",
@@ -417,7 +419,7 @@ describe("useConnectorWorkflow", () => {
   });
 
   it("rejects a single response without structured links instead of requesting a correction", async () => {
-    const runEphemeralPrompt = vi.fn(async (prompt: string) => {
+    const runEphemeralPrompt = vi.fn(async (prompt: string, _options?: GatewayEphemeralChatOptions) => {
       const fingerprint = Array.from(prompt.matchAll(/"runtimeFingerprint":"([^"]+)"/g)).at(-1)?.[1];
       return JSON.stringify({
         schema: CONNECTOR_WORKFLOW_SCHEMA_ID,
@@ -491,7 +493,7 @@ describe("useConnectorWorkflow", () => {
   });
 
   it("rejects a malformed single response without retrying automatically", async () => {
-    const runEphemeralPrompt = vi.fn(async () => "not json");
+    const runEphemeralPrompt = vi.fn(async (_prompt: string, _options?: GatewayEphemeralChatOptions) => "not json");
     const { result } = renderHook(() => useConnectorWorkflow({
       provider: provider(),
       scopeKey: "agent:test",
@@ -506,7 +508,7 @@ describe("useConnectorWorkflow", () => {
 
   it("starts one new one-shot request only after an explicit manual retry", async () => {
     let call = 0;
-    const runEphemeralPrompt = vi.fn(async (prompt: string) => {
+    const runEphemeralPrompt = vi.fn(async (prompt: string, _options?: GatewayEphemeralChatOptions) => {
       call += 1;
       return call === 1 ? "not json" : workflowResponse(prompt);
     });
@@ -587,7 +589,7 @@ describe("useConnectorWorkflow", () => {
   it("starts demanded guidance without cancelling unrelated active preloads", async () => {
     const connectorsProvider = channelProvider();
     const pending = new Map<string, () => void>();
-    const signals = new Map<string, AbortSignal | undefined>();
+    const signals = new Map<string, GatewayAbortSignal | undefined>();
     const runEphemeralPrompt = vi.fn((prompt: string, options?: GatewayEphemeralChatOptions) => new Promise<string>((resolve) => {
       const connectorId = prompt.match(/Plan a (github|telegram|discord|slack|whatsapp) connector/)?.[1] ?? "telegram";
       signals.set(connectorId, options?.signal);
@@ -689,7 +691,7 @@ describe("useConnectorWorkflow", () => {
   it("starts fresh preload work immediately after the provider reconnects", async () => {
     const firstProvider = channelProvider();
     const secondProvider = channelProvider();
-    const firstSignals: AbortSignal[] = [];
+    const firstSignals: GatewayAbortSignal[] = [];
     let call = 0;
     const runEphemeralPrompt = vi.fn((prompt: string, options?: GatewayEphemeralChatOptions) => {
       call += 1;

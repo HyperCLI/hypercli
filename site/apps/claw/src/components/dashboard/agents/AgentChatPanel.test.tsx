@@ -2,11 +2,11 @@ import { createRef, useState, type ComponentProps } from "react";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
-import type { AgentSkillsProvider } from "@hypercli.com/sdk/skills";
 
 import { buildSdkAgent } from "@/test/factories";
 import { renderWithClient } from "@/test/utils";
 import { OPENCLAW_EMPTY_REPLY_NOTICE } from "@/lib/openclaw-chat";
+import type { ConnectorWorkflow } from "@/lib/connector-workflow";
 import { toAgentViewModel } from "./agentViewModel";
 import { RETURNING_AGENT_SALUTATIONS } from "./AgentEmptyHistory";
 import {
@@ -1731,7 +1731,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         configSchema: schemaWith("channels.telegram"),
-        generateConnectorWorkflow: vi.fn(async () => ({
+        generateConnectorWorkflow: vi.fn(async (): Promise<ConnectorWorkflow> => ({
           schema: "hypercli.connector-workflow.v1",
           connectorId: "telegram",
           runtimeFingerprint: "openclaw:test",
@@ -1970,7 +1970,7 @@ describe("AgentChatPanel", () => {
           configure: vi.fn(async () => ({})),
           startSetup: vi.fn(async () => ({})),
         } as any,
-        generateConnectorWorkflow: vi.fn(async () => ({
+        generateConnectorWorkflow: vi.fn(async (): Promise<ConnectorWorkflow> => ({
           schema: "hypercli.connector-workflow.v1",
           connectorId: "telegram",
           runtimeFingerprint: "openclaw:test",
@@ -2906,7 +2906,7 @@ describe("AgentChatPanel", () => {
     const skillsProvider = {
       ...buildChat().skillsProvider,
       search,
-    } satisfies AgentSkillsProvider;
+    } as unknown as ChatSession["skillsProvider"];
     const handleSendChat = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
@@ -2939,7 +2939,7 @@ describe("AgentChatPanel", () => {
       ...buildChat().skillsProvider,
       install,
       list,
-    } satisfies AgentSkillsProvider;
+    } as unknown as ChatSession["skillsProvider"];
     renderAgentChatPanel({
       chat: buildChat({
         status: "connected",

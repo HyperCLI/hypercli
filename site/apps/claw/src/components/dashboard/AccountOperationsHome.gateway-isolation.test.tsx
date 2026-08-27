@@ -23,7 +23,7 @@ describe("AccountOperationsHome gateway isolation", () => {
     renderWithClient(
       <AccountOperationsHome
         sdkAgents={sdkAgents}
-        agents={sdkAgents.map(toAgentViewModel)}
+        agents={sdkAgents.map((agent) => toAgentViewModel(agent))}
         workspaces={[]}
         spaceAccessClient={null}
         onOpenAgent={onOpenAgent}

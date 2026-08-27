@@ -9,6 +9,7 @@ import { AgentCreationSetupWizard } from "./AgentCreationSetupWizard";
 const catalogPlans = [
   {
     id: "team-launch",
+    canonicalId: null,
     name: "Team Launch",
     price: 49,
     priceUsd: 49,
@@ -63,7 +64,7 @@ const tieredCatalogPlans = [
     slotGrants: { large: 1 },
     meta: { subtitle: "Pro launch capacity" },
   },
-] as HyperAgentPlan[];
+] as unknown as HyperAgentPlan[];
 
 function renderLaunchableWizard(onCreateAgent = vi.fn(async () => "agent-1")) {
   renderWithClient(

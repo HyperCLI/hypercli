@@ -120,6 +120,9 @@ const agent: Agent = {
   created_at: "2026-05-05T00:00:00Z",
   updated_at: "2026-05-05T00:00:00Z",
   launchEpoch: 0,
+  isLaunchable: true,
+  archived_at: null,
+  clusterId: null,
   meta: null,
 };
 
@@ -156,8 +159,8 @@ function renderCollectionCreationDialog() {
 }
 
 function expectSessionBefore(firstName: string, secondName: string): void {
-  const first = screen.getByRole("button", { name: firstName, exact: true });
-  const second = screen.getByRole("button", { name: secondName, exact: true });
+  const first = screen.getByRole("button", { name: firstName });
+  const second = screen.getByRole("button", { name: secondName });
   expect(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
 }
 
@@ -579,21 +582,21 @@ describe("AgentWorkspaceSidebar", () => {
 
     expectSessionBefore("Recent chat", "Old chat");
     fireEvent.click(screen.getByRole("button", { name: "Session options for Old chat" }));
-    fireEvent.click(screen.getByRole("button", { name: "Pin", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
     expect(onSetSessionPinned).toHaveBeenCalledWith("session-old", true);
 
     view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={["session-old"]} />);
     expectSessionBefore("Old chat", "Recent chat");
     expect(screen.getByText("Old chat - Pinned session")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Old chat", exact: true }).closest("[data-session-pinned]"))
+    expect(screen.getByRole("button", { name: "Old chat" }).closest("[data-session-pinned]"))
       .toHaveAttribute("data-session-pinned", "true");
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for Old chat" }));
-    fireEvent.click(screen.getByRole("button", { name: "Unpin", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Unpin" }));
     expect(onSetSessionPinned).toHaveBeenLastCalledWith("session-old", false);
     view.rerender(<AgentWorkspaceSidebar {...props} pinnedSessionKeys={[]} />);
     expect(screen.queryByText("Old chat - Pinned session")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Old chat", exact: true }).closest("[data-session-pinned]"))
+    expect(screen.getByRole("button", { name: "Old chat" }).closest("[data-session-pinned]"))
       .toHaveAttribute("data-session-pinned", "false");
     expectSessionBefore("Recent chat", "Old chat");
     await waitFor(() => expect(document.querySelector("[data-session-unpin-animation]")).not.toBeInTheDocument());
@@ -629,7 +632,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     expectSessionBefore("Alpha", "Recent");
     fireEvent.click(screen.getByRole("button", { name: "Session options for Alpha" }));
-    expect(screen.getByRole("button", { name: "Unpin", exact: true })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Unpin" })).toBeEnabled();
   });
 
   it("keeps pinned sessions visible before the recent-session limit", () => {
@@ -651,7 +654,7 @@ describe("AgentWorkspaceSidebar", () => {
     });
 
     expectSessionBefore("Old pinned chat", "Chat 0");
-    expect(screen.getByRole("button", { name: "Old pinned chat", exact: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Old pinned chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
   });
 
@@ -940,7 +943,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for Telegram DM" }));
 
-    const pinButton = screen.getByRole("button", { name: "Pin", exact: true });
+    const pinButton = screen.getByRole("button", { name: "Pin" });
     expect(pinButton).toBeEnabled();
     fireEvent.click(pinButton);
     expect(onSetSessionPinned).toHaveBeenCalledWith("telegram:489595440", true);

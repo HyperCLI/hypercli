@@ -280,6 +280,8 @@ describe("AgentScheduledPanel", () => {
         id: "job-1",
         schedule: "0 9 * * 1-5",
         command: "Summarize engineering updates.",
+        prompt: "Summarize engineering updates.",
+        description: "Summarize engineering updates.",
         enabled: true,
       }],
       onRefresh: vi.fn(async () => { throw new Error("Cron list failed"); }),

@@ -15,7 +15,7 @@ vi.mock("framer-motion", () => ({
 
 describe("FilesUploadZone", () => {
   it("uploads file bytes without decoding binary documents as text", async () => {
-    const onUpload = vi.fn(async () => undefined);
+    const onUpload = vi.fn(async (_path: string, _content: Uint8Array) => undefined);
     const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00, 0xff]);
     const file = new File([bytes], "book.epub", { type: "application/epub+zip" });
 
@@ -47,7 +47,7 @@ describe("FilesUploadZone", () => {
   });
 
   it("traverses dropped folders instead of trying to read the directory as a file", async () => {
-    const onUpload = vi.fn(async () => undefined);
+    const onUpload = vi.fn(async (_path: string, _content: Uint8Array) => undefined);
     const onCreateDirectory = vi.fn(async () => undefined);
     const file = new File([new Uint8Array([1, 2, 3])], "photo.png", { type: "image/png" });
     const fileEntry = {
@@ -149,7 +149,7 @@ describe("FilesUploadZone", () => {
   });
 
   it("snapshots every top-level drop entry before asynchronous traversal", async () => {
-    const onUpload = vi.fn(async () => undefined);
+    const onUpload = vi.fn(async (_path: string, _content: Uint8Array) => undefined);
     const firstFile = new File(["first"], "first.txt", { type: "text/plain" });
     const secondFile = new File(["second"], "second.txt", { type: "text/plain" });
     const firstFileEntry = {

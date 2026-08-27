@@ -99,7 +99,7 @@ describe("ChatMessageBubble", () => {
     vi.mocked(getStoredToken).mockReturnValue(null);
     vi.mocked(createAgentClient).mockReturnValue({
       fileReadBytes: vi.fn(),
-    } as ReturnType<typeof createAgentClient>);
+    } as unknown as ReturnType<typeof createAgentClient>);
     if (originalCreateObjectURL) {
       Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
     } else {
@@ -426,7 +426,7 @@ describe("ChatMessageBubble", () => {
     const fileReadBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
     vi.mocked(createAgentClient).mockReturnValue({
       fileReadBytes,
-    } as ReturnType<typeof createAgentClient>);
+    } as unknown as ReturnType<typeof createAgentClient>);
 
     render(
       <ChatMessageBubble
@@ -833,7 +833,7 @@ describe("ChatMessageBubble", () => {
   });
 
   it("creates SVG workspace previews with the image MIME type", async () => {
-    const createObjectURL = vi.fn(() => "blob:generated-svg");
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:generated-svg");
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
       value: createObjectURL,
@@ -1112,7 +1112,7 @@ describe("ChatMessageBubble", () => {
   });
 
   it("renders workspace audio file attachments with the chat audio player", async () => {
-    const createObjectURL = vi.fn(() => "blob:voice-attachment");
+    const createObjectURL = vi.fn((_blob: Blob) => "blob:voice-attachment");
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
       value: createObjectURL,
@@ -1458,7 +1458,7 @@ describe("ChatMessageBubble", () => {
     });
     vi.mocked(createAgentClient).mockReturnValue({
       fileReadBytes: vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71])),
-    } as ReturnType<typeof createAgentClient>);
+    } as unknown as ReturnType<typeof createAgentClient>);
 
     render(
       <ChatMessageBubble
@@ -1574,7 +1574,7 @@ describe("ChatMessageBubble", () => {
     });
     vi.mocked(createAgentClient).mockReturnValue({
       fileReadBytes: vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71])),
-    } as ReturnType<typeof createAgentClient>);
+    } as unknown as ReturnType<typeof createAgentClient>);
     const file = {
       name: "bosquejo.png",
       path: "/home/node/.openclaw/workspace/bosquejo.png",

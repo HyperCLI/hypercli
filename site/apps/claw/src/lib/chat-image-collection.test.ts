@@ -94,7 +94,7 @@ describe("chat image collections", () => {
   it("removes completed writes when the target becomes inactive", async () => {
     let active = true;
     const writtenPaths: string[] = [];
-    const deleteFile = vi.fn(async () => undefined);
+    const deleteFile = vi.fn(async (_path: string) => undefined);
     const result = await uploadChatImageCollection({
       files: Array.from({ length: 10 }, (_, index) => image(`image-${index + 1}.png`)),
       collectionId: "cancelled-test",

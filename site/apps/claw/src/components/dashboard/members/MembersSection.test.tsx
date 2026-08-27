@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { WorkspaceAccessEntry, WorkspaceGrant } from "@hypercli.com/sdk/workspaces";
+
 const workspace = {
   id: "workspace-1",
   name: "Team Knowledge",
@@ -154,8 +156,8 @@ const accountAgents = [
 ];
 
 function adminSnapshot(
-  entries = activeEntries,
-  grants = allGrants,
+  entries: WorkspaceAccessEntry[] = activeEntries,
+  grants: WorkspaceGrant[] = allGrants,
   targetWorkspace = workspace,
 ) {
   return {

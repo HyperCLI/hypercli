@@ -80,8 +80,12 @@ describe("useAgentDashboardDesktopViewport", () => {
         },
         media: query,
         onchange: null,
-        addEventListener: (_type: string, listener: () => void) => listeners.get(query)?.add(listener),
-        removeEventListener: (_type: string, listener: () => void) => listeners.get(query)?.delete(listener),
+        addEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+          listeners.get(query)?.add(listener as () => void);
+        },
+        removeEventListener: (_type: string, listener: EventListenerOrEventListenerObject) => {
+          listeners.get(query)?.delete(listener as () => void);
+        },
         addListener: vi.fn(),
         removeListener: vi.fn(),
         dispatchEvent: vi.fn(),

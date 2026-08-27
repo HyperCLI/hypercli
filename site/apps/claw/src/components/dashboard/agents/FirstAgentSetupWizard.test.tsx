@@ -37,6 +37,7 @@ import {
 const catalogPlans = [
   {
     id: "team-launch",
+    canonicalId: null,
     name: "Team Launch",
     price: 49,
     priceUsd: 49,
@@ -100,7 +101,7 @@ const proAndFiveAiuCatalogPlans = [
     slotGrants: { large: 1 },
     meta: { subtitle: "Pro launch capacity" },
   },
-] as HyperAgentPlan[];
+] as unknown as HyperAgentPlan[];
 
 function getPlanCardAction(name: string): HTMLElement {
   return screen.getAllByRole("button", { name })[0];

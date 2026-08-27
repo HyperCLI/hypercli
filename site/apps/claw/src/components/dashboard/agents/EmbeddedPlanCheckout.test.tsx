@@ -103,7 +103,7 @@ describe("EmbeddedPlanCheckout", () => {
         onSuccess={onSuccess}
         onComplete={vi.fn()}
         onProcessingChange={onProcessingChange}
-        firstAgentSetup={{ setupId: "setup-1", workspaceId: "workspace-1", size: "large" }}
+        firstAgentSetup={{ setupId: "setup-1", workspaceId: "workspace-1", knowledgeCollectionId: null, size: "large" }}
       />,
     );
 

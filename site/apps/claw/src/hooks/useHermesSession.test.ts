@@ -252,7 +252,7 @@ describe("useHermesSession (AgentGatewaySession adapter)", () => {
 
     rerender({ enabled: false });
 
-    expect(connectSignal?.aborted).toBe(true);
+    expect((connectSignal as AbortSignal | null)?.aborted).toBe(true);
     await waitFor(() => expect(result.current.connected).toBe(false));
     expect(result.current.error).toBeNull();
   });

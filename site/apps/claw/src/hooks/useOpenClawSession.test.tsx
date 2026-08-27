@@ -332,7 +332,7 @@ describe("useOpenClawSession", () => {
       { role: "assistant", content: "Recovered after sequence gap", timestamp: 123 },
     ]);
 
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     expect(gatewayOptions?.onGap).toEqual(expect.any(Function));
@@ -379,7 +379,7 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.historyPhase).toBe("ready"));
     const initialHistoryCalls = gateway.chatHistory.mock.calls.length;
     gateway.chatHistory.mockResolvedValue([]);
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => gatewayOptions?.onGap?.({ expected: 4, received: 6 }));
@@ -426,7 +426,7 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
     const initialHistoryCalls = gateway.chatHistoryResult.mock.calls.length;
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     active = false;
@@ -459,7 +459,7 @@ describe("useOpenClawSession", () => {
     const initialSessionCalls = gateway.sessionsList.mock.calls.length;
     const gapSessions = deferred<unknown[]>();
     gateway.sessionsList.mockImplementation(() => gapSessions.promise);
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => {
@@ -507,7 +507,7 @@ describe("useOpenClawSession", () => {
     gateway.sessionsList.mockImplementation(() => gapSessions.promise);
     gateway.chatHistoryResult.mockImplementation(() => gapHistory.promise);
     const initialHistoryCalls = gateway.chatHistoryResult.mock.calls.length;
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => gatewayOptions?.onGap?.({ expected: 4, received: 6 }));
@@ -600,7 +600,7 @@ describe("useOpenClawSession", () => {
       { key: "visible", gatewaySessionKey: "gateway-new", title: "Visible", updatedAt: 2 },
     ]);
 
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => {
@@ -653,7 +653,7 @@ describe("useOpenClawSession", () => {
 
     const gapSessions = deferred<unknown[]>();
     gateway.sessionsList.mockReturnValue(gapSessions.promise);
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => gatewayOptions?.onGap?.({ expected: 10, received: 12 }));
@@ -707,7 +707,7 @@ describe("useOpenClawSession", () => {
       { key: "visible", gatewaySessionKey: "gateway-new", title: "Visible", updatedAt: 2 },
     ]);
 
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => {
@@ -744,7 +744,7 @@ describe("useOpenClawSession", () => {
       { key: "main", title: "Recovered session", updatedAt: 2 },
     ]);
 
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => {
@@ -787,7 +787,7 @@ describe("useOpenClawSession", () => {
       void result.current.refreshSessions();
     });
     await waitFor(() => expect(gateway.sessionsList.mock.calls).toHaveLength(initialSessionCalls + 1));
-    const gatewayOptions = agent.gateway.mock.calls[0]?.[0] as {
+    const gatewayOptions = (agent.gateway.mock.calls[0] as [unknown?] | undefined)?.[0] as {
       onGap?: (info: { expected: number; received: number }) => void;
     } | undefined;
     act(() => {
@@ -7265,7 +7265,7 @@ describe("useOpenClawSession", () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main" }]);
-    const reset = deferred<void>();
+    const reset = deferred<string>();
     gateway.sessionsReset.mockReturnValueOnce(reset.promise);
     const agent = {
       id: "deploy-123",
@@ -9607,7 +9607,6 @@ describe("useOpenClawSession", () => {
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
-      acquireConnectedGateway: acquireConnectedGatewayFixture,
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(),
       acquireConnectedGateway: vi.fn(async () => {

@@ -79,7 +79,6 @@ function buildAgentMainPanelProps(overrides: Partial<ComponentProps<typeof Agent
     isDesktopViewport: true,
     mobileShowChat: true,
     selectedAgent,
-    isSelectedTransitioning: false,
     isSelectedRunning: selectedAgent?.state === "RUNNING",
     burstAgentId: null,
     onBurstComplete: vi.fn(),
@@ -624,7 +623,6 @@ describe("AgentMainPanel", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPING" }));
     renderAgentMainPanel({
       selectedAgent,
-      isSelectedTransitioning: true,
       isSelectedRunning: false,
       currentPanel: "files",
       stoppedTabLabel: "Files",
@@ -645,7 +643,6 @@ describe("AgentMainPanel", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
-      isSelectedTransitioning: true,
       isSelectedRunning: false,
       currentPanel: "chat",
       panelContent: <div>Chat-owned boot state</div>,
@@ -660,7 +657,6 @@ describe("AgentMainPanel", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
-      isSelectedTransitioning: true,
       isSelectedRunning: false,
       currentPanel: "files",
       stoppedTabLabel: "Files",
@@ -676,7 +672,6 @@ describe("AgentMainPanel", () => {
     const onStop = vi.fn();
     renderAgentMainPanel({
       selectedAgent,
-      isSelectedTransitioning: true,
       isSelectedRunning: false,
       currentPanel: "files",
       stoppedTabLabel: "Files",
@@ -692,7 +687,6 @@ describe("AgentMainPanel", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
-      isSelectedTransitioning: false,
       isSelectedRunning: false,
       currentPanel: "files",
       stoppedTabLabel: "Files",
@@ -708,7 +702,6 @@ describe("AgentMainPanel", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "CREATING" }));
     renderAgentMainPanel({
       selectedAgent,
-      isSelectedTransitioning: false,
       isSelectedRunning: false,
       currentPanel: "scheduled",
       stoppedTabLabel: "Scheduled",
