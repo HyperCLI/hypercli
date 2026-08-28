@@ -739,7 +739,6 @@ fn default_runtime_scopes() -> Vec<String> {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct CompleteDeploymentLaunchConfig {
-    pub config: BTreeMap<String, Value>,
     pub image: Option<String>,
     pub env: BTreeMap<String, String>,
     pub secrets: BTreeMap<String, String>,
@@ -763,7 +762,6 @@ pub struct CompleteDeploymentLaunchConfig {
 impl Default for CompleteDeploymentLaunchConfig {
     fn default() -> Self {
         Self {
-            config: BTreeMap::new(),
             image: None,
             env: BTreeMap::new(),
             secrets: BTreeMap::new(),
@@ -2191,9 +2189,11 @@ mod tests {
         let generic = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         let generic_json = serde_json::to_value(&generic).unwrap();
         assert_eq!(generic_json["restart"], false);
+        assert!(generic_json.get("config").is_none());
         let generic_start = StartDeploymentRequest::new(generic.launch_config.clone());
         let generic_start_json = serde_json::to_value(&generic_start).unwrap();
         assert_eq!(generic_start_json["launch_config"]["restart"], false);
+        assert!(generic_start_json["launch_config"].get("config").is_none());
 
         let mut buzz_request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         buzz_request.restart = true;
@@ -2209,8 +2209,9 @@ mod tests {
         assert!(!round_trip.restart);
 
         let start = StartDeploymentRequest::new(buzz_request.launch_config);
-        let start_round_trip: StartDeploymentRequest =
-            serde_json::from_value(serde_json::to_value(&start).unwrap()).unwrap();
+        let start_json = serde_json::to_value(&start).unwrap();
+        assert!(start_json["launch_config"].get("config").is_none());
+        let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_json).unwrap();
         assert!(!start_round_trip.restart);
     }
 

@@ -4340,7 +4340,6 @@ mod tests {
         // Exactly what hydrate_managed_agent returns to an owner: the full
         // persisted contract minus the two redacted keys.
         let mut launch = serde_json::json!({
-            "config": {},
             "image": "ghcr.io/example/agent:1",
             "env": {"EDITOR": "nvim"},
             "routes": {},
@@ -4425,7 +4424,6 @@ mod tests {
             .match_body(Matcher::JsonString(
                 serde_json::json!({
                     "launch_config": {
-                        "config": {},
                         "image": "ghcr.io/example/agent:1",
                         "env": {"EDITOR": "nvim"},
                         "secrets": {"API_TOKEN": "recovered-token"},
@@ -4569,7 +4567,7 @@ mod tests {
         let mut server = Server::new();
         let _projection = mock_projection(
             &mut server,
-            stored_projection(serde_json::json!({"-config": null})),
+            stored_projection(serde_json::json!({"-env": null})),
         );
         let _secrets = mock_secrets(&mut server, 4);
 
@@ -4579,7 +4577,7 @@ mod tests {
             .expect("stored_launch_config must fail")
             .to_string();
         assert!(error.contains("deployment-1"), "{error}");
-        assert!(error.contains("config"), "{error}");
+        assert!(error.contains("env"), "{error}");
     }
 
     #[test]
