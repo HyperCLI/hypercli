@@ -1031,31 +1031,38 @@ export async function loginWithPrivy(
   const primaryAuthButton = page
     .getByRole("button", { name: /^(sign in|get started)$/i })
     .first();
-  const response = await page.goto(getEnv("TEST_BASE_URL"), { waitUntil: "domcontentloaded" });
-  if (response?.status() === 404) {
-    throw new Error(`Target ${response.url()} returned a 404 for the Claw app`);
-  }
-
+  const accountLinksButton = page.getByRole("button", { name: "Account links" }).first();
+  const accountSignInButton = page.getByRole("menuitem", { name: /^sign in$/i }).first();
   const sharedLoginButton = page.getByRole("button", { name: /login with privy/i }).first();
-  const loginButtonVisible = await sharedLoginButton
-    .waitFor({ state: "visible", timeout: 10_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (!loginButtonVisible) {
-    await expect(primaryAuthButton).toBeVisible({ timeout: 30_000 });
-    await captureStep(page, "01-home");
-    await primaryAuthButton.click();
-  }
-
-  await expect(sharedLoginButton).toBeVisible({ timeout: 15_000 });
-  await captureStep(page, "02-login-shell-open");
-  await sharedLoginButton.click();
-
   const emailInput = page
     .locator(
       '#privy-modal-content input[type="email"], #privy-modal-content input[name="email"], #privy-modal-content input[autocomplete="email"], input[type="email"], input[name="email"], input[autocomplete="email"]'
     )
     .first();
+  const response = await page.goto(getEnv("TEST_BASE_URL"), { waitUntil: "domcontentloaded" });
+  if (response?.status() === 404) {
+    throw new Error(`Target ${response.url()} returned a 404 for the Claw app`);
+  }
+
+  await expect(
+    sharedLoginButton.or(primaryAuthButton).or(accountLinksButton).first()
+  ).toBeVisible({ timeout: 30_000 });
+  if (!(await sharedLoginButton.isVisible())) {
+    await captureStep(page, "01-home");
+    if (await accountLinksButton.isVisible()) {
+      await accountLinksButton.click();
+      await expect(accountSignInButton).toBeVisible({ timeout: 10_000 });
+      await accountSignInButton.click();
+    } else {
+      await primaryAuthButton.click();
+    }
+    await expect(sharedLoginButton.or(emailInput).first()).toBeVisible({ timeout: 15_000 });
+  }
+
+  if (await sharedLoginButton.isVisible()) {
+    await captureStep(page, "02-login-shell-open");
+    await sharedLoginButton.click();
+  }
   await expect(emailInput).toBeVisible({ timeout: 20_000 });
   await captureStep(page, "03-privy-modal-open");
 
