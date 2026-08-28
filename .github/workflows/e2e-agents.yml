@@ -23,7 +23,7 @@ jobs:
             spec: tests/claw/agents-hermes-e2e.spec.ts
     name: e2e-${{ matrix.lane }}
     concurrency:
-      group: hypercli-frontend-e2e-agents
+      group: hypercli-frontend-e2e-agents-${{ matrix.lane }}
       cancel-in-progress: false
     defaults:
       run:
