@@ -1,8 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
 import { writeFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
+import { readPendingPlanCheckout, writePendingPlanCheckout } from "@/lib/plan-checkout-state";
 import PlansPage from "./PlansPage";
 
 const mocks = vi.hoisted(() => {
@@ -20,6 +21,8 @@ const mocks = vi.hoisted(() => {
 
   return {
     getToken: vi.fn(),
+    authUserId: "user-1",
+    identityAuthenticated: true,
     unstableTokenGetter: false,
     createHyperAgentClient: vi.fn(() => hyperAgent),
     createAgentClient: vi.fn(() => agentClient),
@@ -31,7 +34,8 @@ const mocks = vi.hoisted(() => {
 vi.mock("@/hooks/useAgentAuth", () => ({
   useAgentAuth: () => ({
     getToken: mocks.unstableTokenGetter ? () => mocks.getToken() : mocks.getToken,
-    user: { id: "user-1" },
+    isIdentityAuthenticated: mocks.identityAuthenticated,
+    user: { id: mocks.authUserId },
   }),
 }));
 
@@ -90,6 +94,8 @@ describe("PlansPage", () => {
     window.sessionStorage.clear();
     vi.clearAllMocks();
     vi.useRealTimers();
+    mocks.authUserId = "user-1";
+    mocks.identityAuthenticated = true;
     mocks.unstableTokenGetter = false;
     mocks.getToken.mockResolvedValue("token");
     mocks.hyperAgent.currentPlan.mockResolvedValue({
@@ -110,6 +116,49 @@ describe("PlansPage", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("waits for the returning checkout principal to hydrate", async () => {
+    window.history.replaceState(null, "", "/plans?checkout=cancelled&checkout_attempt=attempt-1");
+    writePendingPlanCheckout({
+      principalId: "did:privy:user-1",
+      planId: "catalog-pro",
+      planName: "Catalog Pro",
+      ownedCount: 0,
+      startedAt: 1,
+      checkoutAttemptId: "attempt-1",
+    });
+    mocks.authUserId = "orchestra-user-1";
+    mocks.identityAuthenticated = false;
+    mocks.hyperAgent.plans.mockResolvedValue([]);
+
+    const view = renderWithClient(<PlansPage />);
+
+    expect(new URL(window.location.href).searchParams.get("checkout")).toBe("cancelled");
+    mocks.authUserId = "did:privy:user-1";
+    mocks.identityAuthenticated = true;
+    view.rerender(<PlansPage />);
+
+    await waitFor(() => expect(new URL(window.location.href).searchParams.has("checkout")).toBe(false));
+    expect(readPendingPlanCheckout("did:privy:user-1")).toBeNull();
+  });
+
+  it("releases an unmatched checkout return when identity hydration times out", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/plans?checkout=success&session_id=cs_unknown");
+    mocks.authUserId = "orchestra-user-1";
+    mocks.identityAuthenticated = false;
+    mocks.hyperAgent.plans.mockResolvedValue([]);
+
+    renderWithClient(<PlansPage />);
+    expect(new URL(window.location.href).searchParams.get("checkout")).toBe("success");
+
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+      await Promise.resolve();
+    });
+
+    expect(new URL(window.location.href).searchParams.has("checkout")).toBe(false);
   });
 
   it("renders purchase cards from the SDK plan catalog", async () => {

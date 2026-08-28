@@ -79,6 +79,37 @@ describe("EmbeddedPlanCheckout", () => {
     expect(onProcessingChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("persists the callback attempt when Stripe returns a different backend attempt", async () => {
+    mocks.hyperAgent.createStripeCheckout.mockResolvedValue({
+      checkoutUrl: `${window.location.href}#embedded-stripe-checkout`,
+      checkoutSessionId: "cs_embedded_checkout",
+      checkoutAttemptId: "attempt-from-backend",
+    });
+    renderWithClient(
+      <EmbeddedPlanCheckout
+        plan={plan}
+        principalId="user-1"
+        baselineGrantedSlots={{ large: 0 }}
+        getToken={vi.fn().mockResolvedValue("token")}
+        onSuccess={vi.fn()}
+        onComplete={vi.fn()}
+        firstAgentSetup={{ setupId: "setup-1", workspaceId: "workspace-1", knowledgeCollectionId: null, size: "large" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Card" }));
+
+    await waitFor(() => expect(readPendingPlanCheckout("user-1")).toMatchObject({
+      checkoutSessionId: "cs_embedded_checkout",
+      checkoutAttemptId: expect.any(String),
+    }));
+    const [request] = mocks.hyperAgent.createStripeCheckout.mock.calls[0];
+    const callbackAttempt = new URL(request.successUrl).searchParams.get("checkout_attempt");
+    expect(callbackAttempt).toBeTruthy();
+    expect(readPendingPlanCheckout("user-1")?.checkoutAttemptId).toBe(callbackAttempt);
+    expect(readPendingPlanCheckout("user-1")?.checkoutAttemptId).not.toBe("attempt-from-backend");
+  });
+
   it("connects a Base wallet and reconciles successful USDC payment", async () => {
     Object.defineProperty(window, "ethereum", {
       configurable: true,

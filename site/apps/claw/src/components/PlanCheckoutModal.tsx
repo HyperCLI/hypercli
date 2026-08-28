@@ -231,7 +231,7 @@ export function PlanCheckoutModal({
       );
       if (!canContinue()) return;
       persistPendingCheckout(
-        data.checkoutAttemptId ?? checkoutAttemptId,
+        checkoutAttemptId,
         data.checkoutSessionId,
       );
       if (!canContinue()) return;

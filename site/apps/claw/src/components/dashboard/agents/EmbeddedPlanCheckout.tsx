@@ -268,7 +268,7 @@ export function EmbeddedPlanCheckout({
       if (!canContinue()) return;
       writePendingCheckout(
         undefined,
-        data.checkoutAttemptId ?? checkoutAttemptId,
+        checkoutAttemptId,
         data.checkoutSessionId,
       );
       if (!canContinue()) return;

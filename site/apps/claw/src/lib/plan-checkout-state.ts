@@ -156,8 +156,8 @@ export async function createTeamTrialCheckoutState(
   },
 ): Promise<{ checkout: TrialCheckoutResponse; pending: PendingPlanCheckout }> {
   const checkout = await client.startTrial(request);
-  const checkoutAttemptId = checkout.checkoutAttemptId?.trim()
-    || options.checkoutAttemptId?.trim()
+  const checkoutAttemptId = options.checkoutAttemptId?.trim()
+    || checkout.checkoutAttemptId?.trim()
     || null;
   const bundle = compactBundle(options.catalogProduct?.bundle);
   const checkoutPlan = {
@@ -323,22 +323,19 @@ function pendingMatchesCorrelation(
 ): boolean {
   const sessionId = correlation?.sessionId?.trim() || null;
   const attemptId = correlation?.attemptId?.trim() || null;
+  if (sessionId && pending.checkoutSessionId) {
+    return pending.checkoutSessionId === sessionId;
+  }
+  if (attemptId && pending.checkoutAttemptId) {
+    return pending.checkoutAttemptId === attemptId;
+  }
   if (
     sessionId
     && !attemptId
     && !pending.checkoutSessionId
     && !pending.checkoutAttemptId
   ) return true;
-  let matched = !sessionId && !attemptId;
-  if (sessionId && pending.checkoutSessionId) {
-    if (pending.checkoutSessionId !== sessionId) return false;
-    matched = true;
-  }
-  if (attemptId && pending.checkoutAttemptId) {
-    if (pending.checkoutAttemptId !== attemptId) return false;
-    matched = true;
-  }
-  return matched;
+  return !sessionId && !attemptId;
 }
 
 function readReturnedPendingPlanCheckout(principalId: string): PendingPlanCheckout | null {

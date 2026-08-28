@@ -348,6 +348,9 @@ const AGENT_CLEANUP_CONFLICT_COOLDOWN_MS = 30_000;
 const CHAT_UPLOAD_DRAIN_WAIT_MS = 1_500;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 const AGENT_DASHBOARD_ENRICHMENT_TIMEOUT_MS = 10_000;
+const CHECKOUT_IDENTITY_HYDRATION_WAIT_MS = 15_000;
+const CHECKOUT_RETURN_REFLECTION_ATTEMPTS = 20;
+const CHECKOUT_RETURN_REFLECTION_TIMEOUT_MS = 60_000;
 const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 const KNOWLEDGE_HUB_SURFACE_CONTROLS_ID = "knowledge-hub-surface-controls";
 
@@ -1327,6 +1330,7 @@ function AgentsPageContent() {
   const pendingSlotReleasesRef = useRef<PendingSlotReleaseMap>(new Map());
   const tokenUsageRefreshSchedulerRef = useRef<TokenUsageRefreshScheduler | null>(null);
   const checkoutReturnHandledRef = useRef(false);
+  const checkoutReturnReflectionWindowRef = useRef<{ key: string; deadline: number } | null>(null);
   const trialClaimPrincipalRef = useRef<string | null>(null);
   const agentDataGenerationRef = useRef(0);
   const agentMutationVersionsRef = useRef<Map<string, number>>(new Map());
@@ -1824,6 +1828,7 @@ function AgentsPageContent() {
     if (!nextPrincipal || (previousPrincipal && nextPrincipal)) setPendingAuthIntent(null);
     setAgentsLoading(true);
     checkoutReturnHandledRef.current = false;
+    checkoutReturnReflectionWindowRef.current = null;
     dispatchBillingReflection({ type: "DISMISS" });
   }, [clearAgentAvatarOverrides, isAuthenticated, user?.id]);
 
@@ -2576,6 +2581,15 @@ function AgentsPageContent() {
       attemptId: checkoutReturn.attemptId,
     });
     if (!pending) {
+      if (!isIdentityAuthenticated) {
+        const timeout = window.setTimeout(() => {
+          if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
+          checkoutReturnHandledRef.current = true;
+          clearStripeCheckoutReturnState();
+          finishCheckoutReturnRecovery();
+        }, CHECKOUT_IDENTITY_HYDRATION_WAIT_MS);
+        return () => window.clearTimeout(timeout);
+      }
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
       finishCheckoutReturnRecovery();
@@ -2633,12 +2647,21 @@ function AgentsPageContent() {
     });
 
     const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const reflectionKey = `${principalId}:${pending.returnSessionId ?? checkoutReturn.sessionId ?? checkoutReturn.attemptId ?? pending.startedAt}`;
+    if (checkoutReturnReflectionWindowRef.current?.key !== reflectionKey) {
+      checkoutReturnReflectionWindowRef.current = {
+        key: reflectionKey,
+        deadline: Date.now() + CHECKOUT_RETURN_REFLECTION_TIMEOUT_MS,
+      };
+    }
+    const reflectionDeadline = checkoutReturnReflectionWindowRef.current.deadline;
 
     void (async () => {
       const reflectedAgents = agentDataPrincipalId === principalId ? sdkAgents : [];
       let reflectionStatus = getCheckoutLaunchReflectionStatus(null, pending, null, reflectedAgents);
 
-      for (let attempt = 0; attempt < 6; attempt += 1) {
+      for (let attempt = 0; attempt < CHECKOUT_RETURN_REFLECTION_ATTEMPTS; attempt += 1) {
+        if (Date.now() >= reflectionDeadline) break;
         const refreshed = await refreshAgentEnrichment({ force: true });
         if (!active) return;
 
@@ -2652,8 +2675,10 @@ function AgentsPageContent() {
           break;
         }
 
-        if (attempt < 5) {
-          await wait(attempt < 2 ? 1500 : 3000);
+        if (attempt < CHECKOUT_RETURN_REFLECTION_ATTEMPTS - 1) {
+          const remaining = reflectionDeadline - Date.now();
+          if (remaining <= 0) break;
+          await wait(Math.min(attempt < 2 ? 1500 : 3000, remaining));
           if (!active) return;
         }
       }
@@ -2671,12 +2696,15 @@ function AgentsPageContent() {
 
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
+      if (checkoutReturnReflectionWindowRef.current?.key === reflectionKey) {
+        checkoutReturnReflectionWindowRef.current = null;
+      }
     })();
 
     return () => {
       active = false;
     };
-  }, [accountSettingsSection, agentDataPrincipalId, authLoading, billingDataError, billingDataPrincipalId, dashboardView, handleReflectedCheckout, isAuthenticated, refreshAgentEnrichment, sdkAgents, user?.id]);
+  }, [accountSettingsSection, agentDataPrincipalId, authLoading, billingDataError, billingDataPrincipalId, dashboardView, handleReflectedCheckout, isAuthenticated, isIdentityAuthenticated, refreshAgentEnrichment, sdkAgents, user?.id]);
 
   useEffect(() => {
     const principalId = user?.id ?? null;

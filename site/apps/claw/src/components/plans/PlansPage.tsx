@@ -111,6 +111,7 @@ type CatalogPlan = HyperAgentPlan & {
 
 const CORE_PLAN_FETCH_TIMEOUT_MS = 15_000;
 const SUMMARY_PLAN_FETCH_TIMEOUT_MS = 4_000;
+const CHECKOUT_IDENTITY_HYDRATION_WAIT_MS = 15_000;
 
 function readFirstAgentSetupIntentId(): string | null {
   if (typeof window === "undefined") return null;
@@ -279,7 +280,7 @@ function PlanIcon({ name, className = "h-5 w-5" }: { name: string; className?: s
 }
 
 export default function PlansPage() {
-  const { getToken, user } = useAgentAuth();
+  const { getToken, isIdentityAuthenticated, user } = useAgentAuth();
   const firstAgentSetupDraft = useFirstAgentSetupDraft();
   const requestedFirstAgentSetupId = readFirstAgentSetupIntentId();
   const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
@@ -456,6 +457,14 @@ export default function PlansPage() {
       attemptId: checkoutReturn.attemptId,
     });
     if (!pending) {
+      if (!isIdentityAuthenticated) {
+        const timeout = window.setTimeout(() => {
+          if (activePrincipalRef.current !== principalId) return;
+          checkoutReturnHandledRef.current = true;
+          clearStripeCheckoutReturnState();
+        }, CHECKOUT_IDENTITY_HYDRATION_WAIT_MS);
+        return () => window.clearTimeout(timeout);
+      }
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
       return;
@@ -557,7 +566,7 @@ export default function PlansPage() {
     return () => {
       active = false;
     };
-  }, [billingError, billingReadyPrincipalId, refreshPlan, user?.id]);
+  }, [billingError, billingReadyPrincipalId, isIdentityAuthenticated, refreshPlan, user?.id]);
 
   useEffect(() => {
     if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;

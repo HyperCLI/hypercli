@@ -36,4 +36,26 @@ describe("dashboard agent plan catalog", () => {
     expect(pageSource).toContain("firstAgentSetup={upgradeCheckoutFirstAgentSetup ?? undefined}");
     expect(pageSource).toContain('openPlansPage("first-agent-setup")');
   });
+
+  it("waits for the checkout principal to hydrate before discarding a return", () => {
+    const returnStart = pageSource.indexOf("const checkoutReturn = readStripeCheckoutReturnState()");
+    const returnEnd = pageSource.indexOf("if (checkoutReturn.status === \"cancelled\")", returnStart);
+    const returnSource = pageSource.slice(returnStart, returnEnd);
+
+    expect(returnStart).toBeGreaterThan(-1);
+    expect(returnSource).toContain("if (!isIdentityAuthenticated) {");
+    expect(returnSource).toContain("CHECKOUT_IDENTITY_HYDRATION_WAIT_MS");
+    expect(returnSource.indexOf("if (!isIdentityAuthenticated) {")).toBeLessThan(
+      returnSource.indexOf("clearStripeCheckoutReturnState()"),
+    );
+  });
+
+  it("keeps reflection automatic through normal webhook propagation", () => {
+    expect(pageSource).toContain("const CHECKOUT_IDENTITY_HYDRATION_WAIT_MS = 15_000");
+    expect(pageSource).toContain("const CHECKOUT_RETURN_REFLECTION_ATTEMPTS = 20");
+    expect(pageSource).toContain("const CHECKOUT_RETURN_REFLECTION_TIMEOUT_MS = 60_000");
+    expect(pageSource).toContain(
+      "attempt < CHECKOUT_RETURN_REFLECTION_ATTEMPTS; attempt += 1",
+    );
+  });
 });

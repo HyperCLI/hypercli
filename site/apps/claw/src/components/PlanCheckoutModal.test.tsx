@@ -91,11 +91,11 @@ describe("PlanCheckoutModal", () => {
     await waitFor(() => expect(mocks.hyperAgent.createStripeCheckout).toHaveBeenCalledOnce());
   });
 
-  it("persists the Stripe session and attempt used by its return URLs", async () => {
+  it("persists the callback attempt when Stripe returns a different backend attempt", async () => {
     mocks.hyperAgent.createStripeCheckout.mockResolvedValue({
       checkoutUrl: `${window.location.href}#stripe-checkout`,
       checkoutSessionId: "cs_checkout_123",
-      checkoutAttemptId: null,
+      checkoutAttemptId: "attempt-from-backend",
     });
     renderWithClient(
       <PlanCheckoutModal
@@ -125,6 +125,7 @@ describe("PlanCheckoutModal", () => {
     expect(successAttempt).toBeTruthy();
     expect(cancelAttempt).toBe(successAttempt);
     expect(readPendingPlanCheckout("user-1")?.checkoutAttemptId).toBe(successAttempt);
+    expect(readPendingPlanCheckout("user-1")?.checkoutAttemptId).not.toBe("attempt-from-backend");
   });
 
   it("correlates a fallback checkout with the saved agent setup", async () => {

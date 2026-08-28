@@ -509,11 +509,11 @@ test("resumes the saved draft launcher when checkout is cancelled", async ({ pag
   const pageErrors = trackPageErrors(page);
   const backend = await installMockBackend(page);
   await plantSession(page, {
-    pending: pendingCheckout(),
+    pending: pendingCheckout({ checkoutAttemptId: "attempt-cancelled" }),
     draft: firstAgentDraft(),
   });
 
-  await page.goto("/dashboard/agents?checkout=cancelled", { waitUntil: "domcontentloaded" });
+  await page.goto("/dashboard/agents?checkout=cancelled&checkout_attempt=attempt-cancelled", { waitUntil: "domcontentloaded" });
 
   await expect(page.getByText(CANCELLED_BANNER, { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY)).toBeNull();
@@ -551,12 +551,22 @@ test("creates from the durable checkout draft when the returning tab has no sess
   const pageErrors = trackPageErrors(page);
   const backend = await installMockBackend(page);
   await plantSession(page, {
-    pending: pendingCheckout(),
+    pending: pendingCheckout({
+      checkoutSessionId: "cs_replacement_tab",
+      checkoutAttemptId: "attempt-from-backend",
+    }),
     checkoutDraft: firstAgentDraft(),
   });
 
-  await page.goto("/dashboard/agents?checkout=success&session_id=cs_replacement_tab", { waitUntil: "domcontentloaded" });
+  await page.goto(
+    "/dashboard/agents?checkout=success&session_id=cs_replacement_tab&checkout_attempt=attempt-from-callback",
+    { waitUntil: "domcontentloaded" },
+  );
 
+  await expect.poll(
+    () => page.evaluate((key) => window.localStorage.getItem(key), PENDING_CHECKOUT_KEY),
+    { timeout: 30_000 },
+  ).toContain('"returnSessionId":"cs_replacement_tab"');
   await expect.poll(() => backend.counters.createCount, { timeout: 45_000 }).toBe(1);
   await expect.poll(() => backend.counters.startCount, { timeout: 45_000 }).toBe(1);
   expect(await page.evaluate((key) => window.sessionStorage.getItem(key), FIRST_AGENT_DRAFT_KEY)).toBeNull();

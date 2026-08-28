@@ -148,7 +148,7 @@ describe("plan checkout state", () => {
     });
   });
 
-  it("keeps concurrent checkout attempts isolated for the same account", () => {
+  it("keeps concurrent checkout attempts isolated by authoritative Stripe session", () => {
     const first = {
       principalId: "user-1",
       planId: "solo",
@@ -179,7 +179,14 @@ describe("plan checkout state", () => {
     expect(readPendingPlanCheckout("user-1", {
       sessionId: "cs_1",
       attemptId: "attempt-2",
+    })).toMatchObject(first);
+    expect(readPendingPlanCheckout("user-1", {
+      sessionId: "cs_unknown",
+      attemptId: "attempt-1",
     })).toBeNull();
+    expect(readPendingPlanCheckout("user-1", {
+      attemptId: "attempt-1",
+    })).toMatchObject(first);
 
     const returned = markPendingPlanCheckoutReturned("user-1", "cs_1", "attempt-1");
     expect(returned).toMatchObject({ ...first, returnSessionId: "cs_1" });
@@ -253,7 +260,7 @@ describe("plan checkout state", () => {
     expect(result.pending).not.toHaveProperty("baselineGrantedSlots");
   });
 
-  it("uses already-loaded Team catalog data only to enrich pending checkout state", async () => {
+  it("keeps the Team trial callback attempt when the backend returns a different attempt", async () => {
     const client = {
       startTrial: vi.fn().mockResolvedValue({
         checkoutUrl: "https://checkout.stripe.com/trial",
@@ -284,7 +291,7 @@ describe("plan checkout state", () => {
       planName: "Team Display Name",
       bundle: { medium: 3 },
       baselineGrantedSlots: { medium: 1 },
-      checkoutAttemptId: "attempt-original",
+      checkoutAttemptId: "attempt-trial",
       checkoutSessionId: "cs_trial",
     });
   });
