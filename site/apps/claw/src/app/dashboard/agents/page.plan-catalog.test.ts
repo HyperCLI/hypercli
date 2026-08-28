@@ -27,4 +27,13 @@ describe("dashboard agent plan catalog", () => {
     expect(featuresSource).toContain("tokens/day");
     expect(featuresSource).not.toContain("tokens / day");
   });
+
+  it("keeps fallback checkout correlated with the open agent setup", () => {
+    expect(pageSource).toContain(
+      'openUpgradeCatalog(planId, { origin: "first-agent-setup" })',
+    );
+    expect(pageSource).toContain("setUpgradeCheckoutFirstAgentSetup(firstAgentSetup ?? null)");
+    expect(pageSource).toContain("firstAgentSetup={upgradeCheckoutFirstAgentSetup ?? undefined}");
+    expect(pageSource).toContain('openPlansPage("first-agent-setup")');
+  });
 });

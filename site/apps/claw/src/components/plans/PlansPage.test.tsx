@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
+import { writeFirstAgentSetupDraft } from "@/hooks/useFirstAgentSetupDraft";
 import PlansPage from "./PlansPage";
 
 const mocks = vi.hoisted(() => {
@@ -40,10 +41,16 @@ vi.mock("@/lib/agent-client", () => ({
 }));
 
 vi.mock("@/components/PlanCheckoutModal", () => ({
-  PlanCheckoutModal: ({ isOpen, plan }: { isOpen: boolean; plan: { id: string; bundle?: Record<string, number> } }) =>
+  PlanCheckoutModal: ({ isOpen, plan, checkoutReturnHref, firstAgentSetup }: {
+    isOpen: boolean;
+    plan: { id: string; bundle?: Record<string, number> };
+    checkoutReturnHref?: string;
+    firstAgentSetup?: { setupId: string; agentSize: string };
+  }) =>
     isOpen ? (
       <div role="dialog">
         Checkout {plan.id} {plan.bundle ? `with bundle ${JSON.stringify(plan.bundle)}` : "without bundle"}
+        {firstAgentSetup ? ` for setup ${firstAgentSetup.setupId} size ${firstAgentSetup.agentSize} return ${checkoutReturnHref}` : " generic"}
       </div>
     ) : null,
 }));
@@ -78,6 +85,9 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
 
 describe("PlansPage", () => {
   beforeEach(() => {
+    window.history.replaceState(null, "", "/plans");
+    window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.clearAllMocks();
     vi.useRealTimers();
     mocks.unstableTokenGetter = false;
@@ -135,6 +145,50 @@ describe("PlansPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /purchase/i }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Checkout catalog-pro without bundle");
+    expect(screen.getByRole("dialog")).toHaveTextContent("generic");
+  });
+
+  it("carries an explicit agent-setup handoff into plan checkout", async () => {
+    window.history.replaceState(null, "", "/plans?intent=first-agent-setup&setup=setup-1");
+    writeFirstAgentSetupDraft({
+      setupId: "setup-1",
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+      knowledgeCollectionId: "collection-1",
+      name: "plans-checkout-agent",
+      displayName: "Plans Checkout Agent",
+      description: "",
+      size: null,
+      iconIndex: 2,
+      category: "Ops",
+      plan: null,
+      enableDesktop: false,
+      enableMemoryIndex: false,
+      enableCustomImage: false,
+      customImage: "",
+    });
+    mocks.hyperAgent.plans.mockResolvedValue([{
+      id: "catalog-pro",
+      name: "Catalog Pro",
+      price: 123,
+      priceUsd: 123,
+      aiu: 5,
+      agents: 1,
+      features: [],
+      models: [],
+      highlighted: true,
+      limits: { tpd: 123_000_000, tpm: 0, burstTpm: 456_000, rpm: 789 },
+      tpmLimit: 0,
+      rpmLimit: 789,
+      bundle: { large: 1 },
+    }]);
+
+    renderWithClient(<PlansPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Purchase" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent(
+      "Checkout catalog-pro with bundle {\"large\":1} for setup setup-1 size large return /dashboard/agents",
+    );
   });
 
   it("does not invent a slot bundle when the backend catalog omits one", async () => {

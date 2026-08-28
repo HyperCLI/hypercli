@@ -8,6 +8,7 @@ import {
   preserveFirstAgentSetupDraftForCheckout,
   readFirstAgentSetupCheckoutDraft,
   readFirstAgentSetupDraft,
+  resolveFirstAgentSetupCheckoutDraft,
   updateFirstAgentSetupDraftPlan,
   writeFirstAgentSetupDraft,
 } from "./useFirstAgentSetupDraft";
@@ -149,6 +150,49 @@ describe("first agent setup draft", () => {
 
     clearFirstAgentSetupCheckoutDraft("user-1", "setup-1");
     expect(readFirstAgentSetupCheckoutDraft("user-1", "setup-1")).toBeNull();
+  });
+
+  it("prefers the checkout snapshot over an unrelated live setup", () => {
+    writeFirstAgentSetupDraft({
+      setupId: "setup-paid",
+      principalId: "user-1",
+      knowledgeCollectionId: null,
+      name: "paid-agent",
+      displayName: "Paid Agent",
+      description: "",
+      size: "large",
+      iconIndex: 3,
+      category: "Ops",
+      plan: "pro",
+      enableDesktop: false,
+      enableMemoryIndex: false,
+      enableCustomImage: false,
+      customImage: "",
+    });
+    expect(preserveFirstAgentSetupDraftForCheckout("user-1", "setup-paid")).toBe(true);
+
+    writeFirstAgentSetupDraft({
+      setupId: "setup-new",
+      principalId: "user-1",
+      knowledgeCollectionId: null,
+      name: "new-agent",
+      displayName: "New Agent",
+      description: "",
+      size: "small",
+      iconIndex: 4,
+      category: "General",
+      plan: "basic",
+      enableDesktop: false,
+      enableMemoryIndex: false,
+      enableCustomImage: false,
+      customImage: "",
+    });
+
+    expect(resolveFirstAgentSetupCheckoutDraft("user-1", "setup-paid")).toMatchObject({
+      setupId: "setup-paid",
+      name: "paid-agent",
+      size: "large",
+    });
   });
 
   it("normalizes the saved agent type and defaults legacy drafts to openclaw", () => {

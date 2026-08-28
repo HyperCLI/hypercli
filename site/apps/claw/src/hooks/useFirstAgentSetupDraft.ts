@@ -189,6 +189,20 @@ export function readFirstAgentSetupCheckoutDraft(
   }
 }
 
+export function resolveFirstAgentSetupCheckoutDraft(
+  principalId: string,
+  setupId: string,
+  liveDraft: FirstAgentSetupDraft | null = readFirstAgentSetupDraft(),
+): FirstAgentSetupDraft | null {
+  const checkoutDraft = readFirstAgentSetupCheckoutDraft(principalId, setupId);
+  if (checkoutDraft) return checkoutDraft;
+  if (
+    liveDraft?.setupId !== setupId
+    || (liveDraft.principalId && liveDraft.principalId !== principalId)
+  ) return null;
+  return liveDraft;
+}
+
 export function clearFirstAgentSetupCheckoutDraft(principalId: string, setupId: string): void {
   if (typeof window === "undefined") return;
   try {

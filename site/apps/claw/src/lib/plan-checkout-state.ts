@@ -497,8 +497,9 @@ export function createPlanCheckoutAttemptId(): string {
 export function buildStripeCheckoutReturnUrl(
   status: "success" | "cancelled",
   attemptId?: string | null,
+  returnHref?: string | null,
 ): string {
-  const current = new URL(window.location.href);
+  const current = new URL(returnHref?.trim() || window.location.href, window.location.origin);
   const params = new URLSearchParams(current.search);
   params.delete("checkout");
   params.delete("session_id");

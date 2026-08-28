@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  buildStripeCheckoutReturnUrl,
   catalogPlanOffersTeamTrial,
   checkoutReflectedInSummary,
   clearPendingPlanCheckout,
@@ -345,6 +346,26 @@ describe("plan checkout state", () => {
       sessionId: "cs_123",
       attemptId: null,
     });
+  });
+
+  it("can return an agent-setup checkout to the dashboard", () => {
+    const successUrl = new URL(buildStripeCheckoutReturnUrl(
+      "success",
+      "attempt-1",
+      "/dashboard/agents",
+    ));
+    const cancelUrl = new URL(buildStripeCheckoutReturnUrl(
+      "cancelled",
+      "attempt-1",
+      "/dashboard/agents",
+    ));
+
+    expect(successUrl.pathname).toBe("/dashboard/agents");
+    expect(successUrl.searchParams.get("checkout")).toBe("success");
+    expect(successUrl.searchParams.get("checkout_attempt")).toBe("attempt-1");
+    expect(successUrl.searchParams.get("session_id")).toBe("{CHECKOUT_SESSION_ID}");
+    expect(cancelUrl.pathname).toBe("/dashboard/agents");
+    expect(cancelUrl.searchParams.get("checkout")).toBe("cancelled");
   });
 
   it("counts owned plans from nested direct entitlement summaries", () => {

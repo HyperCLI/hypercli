@@ -19,8 +19,13 @@ import {
   X,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
+import {
+  updateFirstAgentSetupDraftPlan,
+  useFirstAgentSetupDraft,
+} from "@/hooks/useFirstAgentSetupDraft";
 import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
+import { isDashboardReleaseSurfaceAvailable } from "@/lib/dashboard-release-boundary";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { ActivateCodeModal } from "@/components/ActivateCodeModal";
 import { formatTokens } from "@/lib/format";
@@ -35,6 +40,7 @@ import {
   markPendingPlanCheckoutReturned,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
+  type FirstAgentTrialCheckoutContext,
   type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 import { bundleKey, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
@@ -105,6 +111,33 @@ type CatalogPlan = HyperAgentPlan & {
 
 const CORE_PLAN_FETCH_TIMEOUT_MS = 15_000;
 const SUMMARY_PLAN_FETCH_TIMEOUT_MS = 4_000;
+
+function readFirstAgentSetupIntentId(): string | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("intent") !== "first-agent-setup") return null;
+  return params.get("setup")?.trim() || null;
+}
+
+function primaryLaunchTier(bundle: Record<string, number> | null | undefined): string | null {
+  return ["large", "medium", "small", "free"].find((tier) => Number(bundle?.[tier] || 0) > 0) ?? null;
+}
+
+function firstAgentCheckoutRecoveryHref(pending: PendingPlanCheckout): string {
+  const params = new URLSearchParams({
+    checkout: "success",
+    session_id: pending.returnSessionId ?? "",
+  });
+  if (pending.checkoutAttemptId) params.set("checkout_attempt", pending.checkoutAttemptId);
+  return `/dashboard/agents?${params.toString()}`;
+}
+
+function isFirstAgentSetupCheckout(pending: PendingPlanCheckout | null | undefined): boolean {
+  return (
+    pending?.flow === "first-agent-setup"
+    || pending?.flow === "first-agent-trial"
+  ) && Boolean(pending.setupId && pending.agentSize);
+}
 
 function normalizeBundle(value: unknown): SlotBundle {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -247,6 +280,9 @@ function PlanIcon({ name, className = "h-5 w-5" }: { name: string; className?: s
 
 export default function PlansPage() {
   const { getToken, user } = useAgentAuth();
+  const firstAgentSetupDraft = useFirstAgentSetupDraft();
+  const requestedFirstAgentSetupId = readFirstAgentSetupIntentId();
+  const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
   const getTokenRef = useRef(getToken);
   const activePrincipalRef = useRef(user?.id ?? null);
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
@@ -268,6 +304,24 @@ export default function PlansPage() {
   const checkoutReturnHandledRef = useRef(false);
   const planRequestRef = useRef(0);
   const checkoutBaselineGrantedSlots = useMemo(() => getGrantedLaunchSlotsByTier(summary), [summary]);
+  const firstAgentSetupIntentMatchesDraft = Boolean(
+    requestedFirstAgentSetupId
+    && firstAgentSetupDraft?.setupId === requestedFirstAgentSetupId
+    && (!firstAgentSetupDraft.principalId || firstAgentSetupDraft.principalId === user?.id),
+  );
+  const checkoutFirstAgentSetup = useMemo<FirstAgentTrialCheckoutContext | undefined>(() => {
+    if (!checkoutPlan || !firstAgentSetupIntentMatchesDraft || !firstAgentSetupDraft) return undefined;
+    const agentSize = primaryLaunchTier(checkoutPlan.bundle);
+    if (!agentSize) return undefined;
+    return {
+      setupId: firstAgentSetupDraft.setupId,
+      ...(knowledgeHubAvailable && firstAgentSetupDraft.workspaceId
+        ? { workspaceId: firstAgentSetupDraft.workspaceId }
+        : {}),
+      knowledgeCollectionId: knowledgeHubAvailable ? firstAgentSetupDraft.knowledgeCollectionId : null,
+      agentSize,
+    };
+  }, [checkoutPlan, firstAgentSetupDraft, firstAgentSetupIntentMatchesDraft, knowledgeHubAvailable]);
 
   useEffect(() => {
     getTokenRef.current = getToken;
@@ -407,6 +461,12 @@ export default function PlansPage() {
       return;
     }
 
+    if (isFirstAgentSetupCheckout(pending)) {
+      checkoutReturnHandledRef.current = true;
+      window.location.replace(`/dashboard/agents${window.location.search}${window.location.hash}`);
+      return;
+    }
+
     if (checkoutReturn.status === "cancelled") {
       checkoutReturnHandledRef.current = true;
       clearPendingPlanCheckout(principalId, pending);
@@ -509,6 +569,10 @@ export default function PlansPage() {
     if (loading || !user?.id || readStripeCheckoutReturnState()) return;
     const pending = readPendingPlanCheckout(user.id);
     if (!pending?.returnSessionId) return;
+    if (isFirstAgentSetupCheckout(pending)) {
+      window.location.replace(firstAgentCheckoutRecoveryHref(pending));
+      return;
+    }
     const reflectionStatus = getCheckoutReflectionStatus(summary, pending);
     if (reflectionStatus === "ready") {
       clearPendingPlanCheckout(user.id, pending);
@@ -1090,6 +1154,9 @@ export default function PlansPage() {
                       return;
                     }
                     if (product.id === "free") return;
+                    if (firstAgentSetupIntentMatchesDraft) {
+                      updateFirstAgentSetupDraftPlan(product.id, primaryLaunchTier(checkoutBundle));
+                    }
                     setCheckoutPlan({
                       id: product.id,
                       name: product.name,
@@ -1134,8 +1201,21 @@ export default function PlansPage() {
           }
           isOpen={!!checkoutPlan}
           onClose={() => setCheckoutPlan(null)}
-          onSuccess={(pending) => { void refreshCheckoutEntitlements(pending); }}
+          onSuccess={(pending) => {
+            if (
+              checkoutFirstAgentSetup
+              && pending.flow === "first-agent-setup"
+              && pending.setupId === checkoutFirstAgentSetup.setupId
+              && pending.returnSessionId
+            ) {
+              window.location.assign(firstAgentCheckoutRecoveryHref(pending));
+              return;
+            }
+            void refreshCheckoutEntitlements(pending);
+          }}
           getToken={getToken}
+          checkoutReturnHref={checkoutFirstAgentSetup ? "/dashboard/agents" : undefined}
+          firstAgentSetup={checkoutFirstAgentSetup}
         />
       )}
 

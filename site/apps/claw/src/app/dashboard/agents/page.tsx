@@ -93,7 +93,8 @@ import { TeamTrialActivationDialog, type TeamTrialFeatureId } from "@/components
 import {
   clearFirstAgentSetupCheckoutDraft,
   clearFirstAgentSetupDraft,
-  readFirstAgentSetupCheckoutDraft,
+  preserveFirstAgentSetupDraftForCheckout,
+  resolveFirstAgentSetupCheckoutDraft,
   updateFirstAgentSetupDraftPlan,
   useFirstAgentSetupDraft,
 } from "@/hooks/useFirstAgentSetupDraft";
@@ -482,8 +483,10 @@ interface UpgradeCheckoutPlan {
   };
 }
 
+type UpgradeCatalogOrigin = "general" | "first-agent-setup";
+
 type AgentAuthIntent =
-  | { kind: "checkout"; plan: UpgradeCheckoutPlan; presentation?: "modal" | "embedded" }
+  | { kind: "checkout"; plan: UpgradeCheckoutPlan; firstAgentSetup?: FirstAgentTrialCheckoutContext; presentation?: "modal" | "embedded" }
   | { kind: "trial"; firstAgentSetup?: FirstAgentTrialCheckoutContext; presentation?: "activation-dialog" | "direct" }
   | { kind: "launch" }
   | { kind: "workspace" }
@@ -1258,8 +1261,10 @@ function AgentsPageContent() {
   const [billingDataError, setBillingDataError] = useState<string | null>(null);
   const [dailyTokenUsage, setDailyTokenUsage] = useState<number | null>(null);
   const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
+  const [upgradeCatalogOrigin, setUpgradeCatalogOrigin] = useState<UpgradeCatalogOrigin>("general");
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
+  const [upgradeCheckoutFirstAgentSetup, setUpgradeCheckoutFirstAgentSetup] = useState<FirstAgentTrialCheckoutContext | null>(null);
   const [embeddedCheckoutPlan, setEmbeddedCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
   const [embeddedCheckoutProcessing, setEmbeddedCheckoutProcessing] = useState(false);
   const [paidFirstAgentCheckout, setPaidFirstAgentCheckout] = useState<PendingPlanCheckout | null>(null);
@@ -1296,7 +1301,7 @@ function AgentsPageContent() {
     billingDataPrincipalId !== user?.id,
   );
   const checkoutRecoveryDialogVisible = checkoutRecoveryDialogOpen || checkoutAuthRecoveryOpen;
-  const agentLauncherSuspended = upgradeCatalogOpen || Boolean(upgradeCheckoutPlan) || checkoutRecoveryDialogVisible;
+  const agentLauncherSuspended = upgradeCatalogOpen || upgradeCatalogLoading || Boolean(upgradeCheckoutPlan) || checkoutRecoveryDialogVisible;
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const deploymentsRef = useRef<Deployments | null>(null);
   const deploymentRefreshSchedulerRef = useRef<DeploymentRefreshScheduler | null>(null);
@@ -1590,6 +1595,8 @@ function AgentsPageContent() {
     setEmbeddedCheckoutPlan(null);
     setEmbeddedCheckoutProcessing(false);
     setUpgradeCatalogLoading(false);
+    setUpgradeCatalogOrigin("general");
+    setUpgradeCheckoutFirstAgentSetup(null);
     setAgentLauncherOpen(false);
     window.setTimeout(() => mobileNavigationTriggerRef.current?.focus(), 0);
   }, [setAgentLauncherOpen]);
@@ -1797,10 +1804,12 @@ function AgentsPageContent() {
     setTierSelection(null);
     setPendingAgentDelete(null);
     setUpgradeCheckoutPlan(null);
+    setUpgradeCheckoutFirstAgentSetup(null);
     setEmbeddedCheckoutPlan(null);
     setEmbeddedCheckoutProcessing(false);
     embeddedCheckoutSelectionRequestRef.current += 1;
     setUpgradeCatalogOpen(false);
+    setUpgradeCatalogOrigin("general");
     setUpgradeCatalogLoading(false);
     setWorkspaceCreationOpen(false);
     setAgentOnboardingOverlay(null);
@@ -1832,6 +1841,8 @@ function AgentsPageContent() {
       setCheckoutRecoveryDialogOpen(false);
       setPendingAuthIntent(null);
       if (intent.kind === "checkout") {
+        setUpgradeCheckoutFirstAgentSetup(intent.firstAgentSetup ?? null);
+        setUpgradeCatalogOrigin(intent.firstAgentSetup ? "first-agent-setup" : "general");
         if (intent.presentation === "embedded") {
           showAgentCreationFlow();
           setEmbeddedCheckoutPlan(intent.plan);
@@ -2389,7 +2400,12 @@ function AgentsPageContent() {
     });
   }, [agentDataPrincipalId, fetchAgents, handleReflectedCheckout, refreshAgentEnrichment, sdkAgents, user?.id]);
 
-  const openUpgradeCatalog = useCallback(async (preferredPlanId?: string) => {
+  const openUpgradeCatalog = useCallback(async (
+    preferredPlanId?: string,
+    options?: { origin?: UpgradeCatalogOrigin },
+  ) => {
+    setUpgradeCatalogOrigin(options?.origin ?? "general");
+    setUpgradeCheckoutFirstAgentSetup(null);
     if (preferredPlanId === "free") {
       if (!isAuthenticated) {
         requestAuthentication({ kind: "launch" });
@@ -2882,6 +2898,9 @@ function AgentsPageContent() {
         },
       );
       if (!pageActiveRef.current || privatePrincipalRef.current !== principalId) return;
+      if (firstAgentSetup) {
+        preserveFirstAgentSetupDraftForCheckout(principalId, firstAgentSetup.setupId);
+      }
       writePendingPlanCheckout(pending);
       setLauncherPreferredPlanId(TEAM_TRIAL_PLAN_ID);
       setLauncherSelectedCatalogPlanId(TEAM_TRIAL_PLAN_ID);
@@ -2997,13 +3016,20 @@ function AgentsPageContent() {
   const selectUpgradeProduct = useCallback(async (product: UpgradeDisplayProduct) => {
     const generation = agentDataGenerationRef.current;
     const checkoutPlan = toUpgradeCheckoutPlan(product);
+    const firstAgentSetup = upgradeCatalogOrigin === "first-agent-setup"
+      ? buildFirstAgentTrialCheckoutContext(primaryLaunchTier(product.bundle))
+      : undefined;
     setEmbeddedCheckoutPlan(null);
     setLauncherPreferredPlanId(product.id);
     setLauncherSelectedCatalogPlanId(product.id);
     updateFirstAgentSetupDraftPlan(product.id, primaryLaunchTier(product.bundle));
     setUpgradeCatalogOpen(false);
     if (!isAuthenticated) {
-      requestAuthentication({ kind: "checkout", plan: checkoutPlan });
+      requestAuthentication({
+        kind: "checkout",
+        plan: checkoutPlan,
+        ...(firstAgentSetup ? { firstAgentSetup } : {}),
+      });
       return;
     }
     setUpgradeCatalogLoading(true);
@@ -3015,8 +3041,9 @@ function AgentsPageContent() {
       setUpgradeCatalogOpen(true);
       return;
     }
+    setUpgradeCheckoutFirstAgentSetup(firstAgentSetup ?? null);
     setUpgradeCheckoutPlan(checkoutPlan);
-  }, [fetchAgents, isAuthenticated, requestAuthentication]);
+  }, [buildFirstAgentTrialCheckoutContext, fetchAgents, isAuthenticated, requestAuthentication, upgradeCatalogOrigin]);
 
   const selectEmbeddedUpgradeProduct = useCallback(async (product: UpgradeDisplayProduct) => {
     const generation = agentDataGenerationRef.current;
@@ -3024,6 +3051,8 @@ function AgentsPageContent() {
     embeddedCheckoutSelectionRequestRef.current = selectionRequestId;
     const checkoutPlan = toUpgradeCheckoutPlan(product);
     setUpgradeCheckoutPlan(null);
+    setUpgradeCheckoutFirstAgentSetup(null);
+    setUpgradeCatalogOrigin("general");
     setPaidFirstAgentCheckout(null);
     setEmbeddedCheckoutProcessing(false);
     setUpgradeCatalogError(null);
@@ -4536,9 +4565,12 @@ function AgentsPageContent() {
     if (!isFirstAgentSetupCheckout(pending) || !principalId || pending.principalId !== principalId) return;
 
     const timeout = window.setTimeout(async () => {
-      const draft = firstAgentSetupDraft
-        ?? readFirstAgentSetupCheckoutDraft(principalId, pending.setupId);
-      if (!draft || draft.setupId !== pending.setupId || (draft.principalId && draft.principalId !== principalId)) {
+      const draft = resolveFirstAgentSetupCheckoutDraft(
+        principalId,
+        pending.setupId,
+        firstAgentSetupDraft,
+      );
+      if (!draft) {
         clearFirstAgentSetupCheckoutDraft(principalId, pending.setupId);
         clearPendingPlanCheckout(principalId, pending);
         setPaidFirstAgentCheckout(null);
@@ -6088,6 +6120,19 @@ function AgentsPageContent() {
       router.push(href);
     })();
   };
+  const openPlansPage = (origin: UpgradeCatalogOrigin = "general") => {
+    const principalId = user?.id ?? null;
+    const draftMatchesPrincipal = !firstAgentSetupDraft?.principalId
+      || firstAgentSetupDraft.principalId === principalId;
+    const href = origin === "first-agent-setup" && firstAgentSetupDraft && draftMatchesPrincipal
+      ? `/plans?${new URLSearchParams({
+          intent: "first-agent-setup",
+          setup: firstAgentSetupDraft.setupId,
+        }).toString()}`
+      : "/plans";
+    if (isAuthenticated) leaveAgentsPage(href);
+    else requestAuthentication({ kind: "navigate", href });
+  };
   const openKnowledgeHubSurface = (collectionId: string | null) => {
     if (!knowledgeHubAvailable) return;
     const targetHref = buildKnowledgeHubHref({
@@ -6990,13 +7035,14 @@ function AgentsPageContent() {
         error={upgradeCatalogError}
         onClose={() => {
           setUpgradeCatalogOpen(false);
+          setUpgradeCatalogOrigin("general");
         }}
-        onOpenPlans={() => {
-          if (isAuthenticated) leaveAgentsPage("/plans");
-          else requestAuthentication({ kind: "navigate", href: "/plans" });
-        }}
+        onOpenPlans={() => openPlansPage(upgradeCatalogOrigin)}
         onSelectPlan={selectUpgradeProduct}
-        onStartTrial={() => beginTeamTrial()}
+        onStartTrial={(product) => {
+          if (upgradeCatalogOrigin === "first-agent-setup") beginEmbeddedTeamTrial(product);
+          else beginTeamTrial();
+        }}
         trialAvailable={canStartTeamTrial}
         trialCheckoutPending={trialCheckoutPending}
       />
@@ -7011,9 +7057,12 @@ function AgentsPageContent() {
           isOpen={Boolean(upgradeCheckoutPlan)}
           onClose={() => {
             setUpgradeCheckoutPlan(null);
+            setUpgradeCheckoutFirstAgentSetup(null);
+            setUpgradeCatalogOrigin("general");
           }}
           onSuccess={(pending) => { void refreshCheckoutEntitlements(pending); }}
           getToken={getToken}
+          firstAgentSetup={upgradeCheckoutFirstAgentSetup ?? undefined}
         />
       )}
 
@@ -7302,10 +7351,7 @@ function AgentsPageContent() {
                     error={upgradeCatalogError ?? billingDataError}
                     onSelectPlan={selectEmbeddedUpgradeProduct}
                     onStartTrial={beginEmbeddedTeamTrial}
-                    onOpenPlans={() => {
-                      if (isAuthenticated) leaveAgentsPage("/plans");
-                      else requestAuthentication({ kind: "navigate", href: "/plans" });
-                    }}
+                    onOpenPlans={() => openPlansPage("first-agent-setup")}
                     trialAvailable={canStartTeamTrial}
                     trialCheckoutPending={trialCheckoutPending}
                   />
@@ -7365,7 +7411,7 @@ function AgentsPageContent() {
                 catalogPlans={catalogPlans}
                 pendingSlotReleases={pendingSlotReleases}
                 onOpenPlanCatalog={(planId) => {
-                  return openUpgradeCatalog(planId);
+                  return openUpgradeCatalog(planId, { origin: "first-agent-setup" });
                 }}
                 onGenerateBootstrap={generateOpenClawBootstrap}
                 onCreateAgent={createAgentFromLauncher}

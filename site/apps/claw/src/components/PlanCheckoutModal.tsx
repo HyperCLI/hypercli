@@ -5,10 +5,12 @@ import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
+import { preserveFirstAgentSetupDraftForCheckout } from "@/hooks/useFirstAgentSetupDraft";
 import {
   buildStripeCheckoutReturnUrl,
   createPlanCheckoutAttemptId,
   writePendingPlanCheckout,
+  type FirstAgentTrialCheckoutContext,
   type PendingPlanCheckout,
 } from "@/lib/plan-checkout-state";
 import { createWalletClient, custom, type WalletClient } from "viem";
@@ -130,6 +132,8 @@ interface PlanCheckoutModalProps {
   onClose: () => void;
   onSuccess: (pending: PendingPlanCheckout) => void;
   getToken: () => Promise<string>;
+  checkoutReturnHref?: string;
+  firstAgentSetup?: FirstAgentTrialCheckoutContext;
 }
 
 type PaymentMethod = "card" | "crypto";
@@ -148,6 +152,8 @@ export function PlanCheckoutModal({
   onClose,
   onSuccess,
   getToken,
+  checkoutReturnHref,
+  firstAgentSetup,
 }: PlanCheckoutModalProps) {
   const [method, setMethod] = useState<PaymentMethod>("card");
   const [processing, setProcessing] = useState(false);
@@ -176,6 +182,36 @@ export function PlanCheckoutModal({
     onClose();
   };
 
+  const persistPendingCheckout = (
+    checkoutAttemptId: string,
+    checkoutSessionId?: string | null,
+  ): PendingPlanCheckout => {
+    if (firstAgentSetup) {
+      preserveFirstAgentSetupDraftForCheckout(principalId, firstAgentSetup.setupId);
+    }
+    const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
+    const pending = {
+      principalId,
+      planId: plan.id,
+      planName: plan.name,
+      ownedCount,
+      startedAt: Date.now(),
+      checkoutAttemptId,
+      ...(checkoutSessionId ? { checkoutSessionId } : {}),
+      ...(planBundle ? { bundle: planBundle } : {}),
+      baselineGrantedSlots,
+      ...(firstAgentSetup ? {
+        flow: "first-agent-setup" as const,
+        setupId: firstAgentSetup.setupId,
+        ...(firstAgentSetup.workspaceId ? { workspaceId: firstAgentSetup.workspaceId } : {}),
+        knowledgeCollectionId: firstAgentSetup.knowledgeCollectionId ?? null,
+        agentSize: firstAgentSetup.agentSize,
+      } : {}),
+    } satisfies PendingPlanCheckout;
+    writePendingPlanCheckout(pending);
+    return pending;
+  };
+
   const handleCard = async () => {
     setProcessing(true);
     setError(null);
@@ -184,28 +220,20 @@ export function PlanCheckoutModal({
       const token = await getToken();
       if (!canContinue()) return;
       const hyperAgent = createHyperAgentClient(token);
-      const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
       const checkoutAttemptId = createPlanCheckoutAttemptId();
       const data = await hyperAgent.createStripeCheckout(
         {
           quantity: 1,
-          successUrl: buildStripeCheckoutReturnUrl("success", checkoutAttemptId),
-          cancelUrl: buildStripeCheckoutReturnUrl("cancelled", checkoutAttemptId),
+          successUrl: buildStripeCheckoutReturnUrl("success", checkoutAttemptId, checkoutReturnHref),
+          cancelUrl: buildStripeCheckoutReturnUrl("cancelled", checkoutAttemptId, checkoutReturnHref),
         },
         plan.id,
       );
       if (!canContinue()) return;
-      writePendingPlanCheckout({
-        principalId,
-        planId: plan.id,
-        planName: plan.name,
-        ownedCount,
-        startedAt: Date.now(),
-        checkoutAttemptId: data.checkoutAttemptId ?? checkoutAttemptId,
-        ...(data.checkoutSessionId ? { checkoutSessionId: data.checkoutSessionId } : {}),
-        ...(planBundle ? { bundle: planBundle } : {}),
-        baselineGrantedSlots,
-      });
+      persistPendingCheckout(
+        data.checkoutAttemptId ?? checkoutAttemptId,
+        data.checkoutSessionId,
+      );
       if (!canContinue()) return;
       window.location.href = data.checkoutUrl;
     } catch {
@@ -247,19 +275,8 @@ export function PlanCheckoutModal({
       const hyperAgent = createHyperAgentClient(token);
       const wallet = await connectWallet();
       if (!canContinue()) return;
-      const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
       const checkoutAttemptId = createPlanCheckoutAttemptId();
-      pendingCheckout = {
-        principalId,
-        planId: plan.id,
-        planName: plan.name,
-        ownedCount,
-        startedAt: Date.now(),
-        checkoutAttemptId,
-        ...(planBundle ? { bundle: planBundle } : {}),
-        baselineGrantedSlots,
-      };
-      writePendingPlanCheckout(pendingCheckout);
+      pendingCheckout = persistPendingCheckout(checkoutAttemptId);
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
         quantity: 1,
         signer: walletClientToX402Signer(wallet.client),

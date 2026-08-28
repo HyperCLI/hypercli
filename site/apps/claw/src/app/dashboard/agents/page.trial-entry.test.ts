@@ -104,6 +104,19 @@ describe("dashboard Team trial entry", () => {
     expect(helper).toContain("setTrialActivationContext");
   });
 
+  it("snapshots first-agent setup before leaving for trial checkout", () => {
+    const start = pageSource.indexOf("const startTrial");
+    const end = pageSource.indexOf("const beginTeamTrial", start);
+    const startTrial = pageSource.slice(start, end);
+
+    expect(startTrial).toContain(
+      "preserveFirstAgentSetupDraftForCheckout(principalId, firstAgentSetup.setupId)",
+    );
+    expect(startTrial.indexOf("preserveFirstAgentSetupDraftForCheckout")).toBeLessThan(
+      startTrial.indexOf("writePendingPlanCheckout(pending)"),
+    );
+  });
+
   it("resumes the agent creation flow after a reflected checkout", () => {
     const reflectedStart = pageSource.indexOf("const handleReflectedCheckout");
     const reflectedEnd = pageSource.indexOf("const refreshCheckoutEntitlements", reflectedStart);

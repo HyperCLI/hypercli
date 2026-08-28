@@ -3,6 +3,10 @@ import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
+import {
+  readFirstAgentSetupCheckoutDraft,
+  writeFirstAgentSetupDraft,
+} from "@/hooks/useFirstAgentSetupDraft";
 import { readPendingPlanCheckout } from "@/lib/plan-checkout-state";
 import { PlanCheckoutModal } from "./PlanCheckoutModal";
 
@@ -25,6 +29,7 @@ vi.mock("@/lib/agent-client", () => ({
 describe("PlanCheckoutModal", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    window.sessionStorage.clear();
     vi.clearAllMocks();
     mocks.hyperAgent.createStripeCheckout.mockRejectedValue(new Error("stop before redirect"));
     mocks.hyperAgent.purchaseViaX402WithSigner.mockResolvedValue({});
@@ -120,6 +125,72 @@ describe("PlanCheckoutModal", () => {
     expect(successAttempt).toBeTruthy();
     expect(cancelAttempt).toBe(successAttempt);
     expect(readPendingPlanCheckout("user-1")?.checkoutAttemptId).toBe(successAttempt);
+  });
+
+  it("correlates a fallback checkout with the saved agent setup", async () => {
+    writeFirstAgentSetupDraft({
+      setupId: "setup-1",
+      principalId: "user-1",
+      workspaceId: "workspace-1",
+      knowledgeCollectionId: "collection-1",
+      name: "checkout-agent",
+      displayName: "Checkout Agent",
+      description: "Resume automatically after payment.",
+      size: "large",
+      iconIndex: 6,
+      category: "Ops",
+      plan: "catalog-pro",
+      enableDesktop: false,
+      enableMemoryIndex: true,
+      enableCustomImage: false,
+      customImage: "",
+    });
+    mocks.hyperAgent.createStripeCheckout.mockResolvedValue({
+      checkoutUrl: `${window.location.href}#first-agent-checkout`,
+      checkoutSessionId: "cs_first_agent",
+    });
+
+    renderWithClient(
+      <PlanCheckoutModal
+        plan={{
+          id: "catalog-pro",
+          name: "Catalog Pro",
+          price: 123,
+          bundle: { large: 1 },
+          limits: { tpd: 123_000_000, burstTpm: 456_000, rpm: 789 },
+        }}
+        isOpen
+        principalId="user-1"
+        onClose={vi.fn()}
+        onSuccess={vi.fn()}
+        getToken={vi.fn().mockResolvedValue("token")}
+        checkoutReturnHref="/dashboard/agents"
+        firstAgentSetup={{
+          setupId: "setup-1",
+          workspaceId: "workspace-1",
+          knowledgeCollectionId: "collection-1",
+          agentSize: "large",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Pay $123 with Card" }));
+
+    await waitFor(() => expect(readPendingPlanCheckout("user-1")).toMatchObject({
+      flow: "first-agent-setup",
+      setupId: "setup-1",
+      workspaceId: "workspace-1",
+      knowledgeCollectionId: "collection-1",
+      agentSize: "large",
+      checkoutSessionId: "cs_first_agent",
+    }));
+    expect(readFirstAgentSetupCheckoutDraft("user-1", "setup-1")).toMatchObject({
+      setupId: "setup-1",
+      name: "checkout-agent",
+    });
+    const request = mocks.hyperAgent.createStripeCheckout.mock.calls[0]?.[0];
+    expect(new URL(request.successUrl).pathname).toBe("/dashboard/agents");
+    expect(new URL(request.cancelUrl).pathname).toBe("/dashboard/agents");
   });
 
   it("starts entitlement reconciliation immediately after x402 succeeds", async () => {
