@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
@@ -171,6 +172,7 @@ export function AgentMainPanel({
   onStop,
   onReconnect,
 }: AgentMainPanelProps) {
+  const reducedMotion = useReducedMotion();
   const selectedAgentState = selectedAgent?.state ?? null;
   const launchLifecycleAction = resolveAgentLaunchLifecycleAction(selectedAgent);
   const selectedAgentDisplayName = selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent";
@@ -459,6 +461,11 @@ export function AgentMainPanel({
       </div>
     </div>
   ) : null;
+  const anonymousPreviewKey = showAgentlessDesktopPreview
+    ? "desktop"
+    : currentPanel === "files" || currentPanel === "integrations" || currentPanel === "skills" || currentPanel === "scheduled"
+      ? currentPanel
+      : "chat";
 
   return (
     <div className={`min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
@@ -468,40 +475,69 @@ export function AgentMainPanel({
           <div className="relative z-20 flex min-h-0 min-w-0 flex-1 bg-background">{launcherContent}</div>
         </div>
       ) : !selectedAgent && showAgentlessSectionPreviews ? (
-        <div className="flex-1 min-h-0">
-          {showAgentlessDesktopPreview ? (
-            <AgentDesktopEmptyState
-              onCreate={onCreate}
-              onLaunchAction={onCreate}
-              launchLabel="Launch agent"
-            />
-          ) : currentPanel === "files" ? (
-            <AgentFilesEmptyState
-              onCreate={onCreate}
-              onLaunchAction={onCreate}
-              launchLabel="Launch agent"
-            />
-          ) : currentPanel === "integrations" ? (
-            <AgentIntegrationsEmptyState
-              onCreate={onCreate}
-              onLaunchAction={onCreate}
-              launchLabel="Launch agent"
-            />
-          ) : currentPanel === "skills" ? (
-            <AgentSkillsEmptyState
-              onCreate={onCreate}
-              onLaunchAction={onCreate}
-              launchLabel="Launch agent"
-            />
-          ) : currentPanel === "scheduled" ? (
-            <AgentScheduledEmptyState />
-          ) : (
-            <AgentEmptyState
-              onCreate={onCreate}
-              onLaunchAction={onCreate}
-              launchLabel="Launch agent"
-            />
-          )}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <AnimatePresence initial={false}>
+            <motion.div
+              key={anonymousPreviewKey}
+              data-slot="agent-anonymous-preview-transition"
+              data-preview={anonymousPreviewKey}
+              initial={reducedMotion ? false : { opacity: 0 }}
+              animate={{
+                opacity: 1,
+                transition: {
+                  duration: reducedMotion ? 0 : 0.18,
+                  ease: [0.16, 1, 0.3, 1],
+                },
+              }}
+              exit={{
+                opacity: reducedMotion ? 1 : 0,
+                transition: {
+                  duration: reducedMotion ? 0 : 0.12,
+                  ease: "linear",
+                },
+              }}
+              className="absolute inset-0 flex min-h-0 min-w-0"
+            >
+              {showAgentlessDesktopPreview ? (
+                <AgentDesktopEmptyState
+                  onCreate={onCreate}
+                  onLaunchAction={onCreate}
+                  launchLabel="Launch agent"
+                  anonymousPreview
+                />
+              ) : currentPanel === "files" ? (
+                <AgentFilesEmptyState
+                  onCreate={onCreate}
+                  onLaunchAction={onCreate}
+                  launchLabel="Launch agent"
+                  anonymousPreview
+                />
+              ) : currentPanel === "integrations" ? (
+                <AgentIntegrationsEmptyState
+                  onCreate={onCreate}
+                  onLaunchAction={onCreate}
+                  launchLabel="Launch agent"
+                  anonymousPreview
+                />
+              ) : currentPanel === "skills" ? (
+                <AgentSkillsEmptyState
+                  onCreate={onCreate}
+                  onLaunchAction={onCreate}
+                  launchLabel="Launch agent"
+                  anonymousPreview
+                />
+              ) : currentPanel === "scheduled" ? (
+                <AgentScheduledEmptyState anonymousPreview />
+              ) : (
+                <AgentEmptyState
+                  onCreate={onCreate}
+                  onLaunchAction={onCreate}
+                  launchLabel="Launch agent"
+                  anonymousPreview
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       ) : !selectedAgent && (currentPanel === "knowledge-hub" || currentPanel === "knowledge" || currentPanel === "members") ? (
         <>

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
@@ -42,6 +42,19 @@ const planResponse = {
   }],
 };
 
+async function expectTrialFeature(page: Page, featureNumber: number) {
+  const dialog = page.getByTestId("team-trial-activation-dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: `Show feature ${featureNumber}` })).toHaveAttribute("aria-current", "step");
+  return dialog;
+}
+
+async function closeTrialFeature(page: Page, featureNumber: number) {
+  const dialog = await expectTrialFeature(page, featureNumber);
+  await dialog.getByRole("button", { name: "Close free trial offer" }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
 test("rotates agent sections and requires sign in before creation", async ({ page }) => {
   const forbiddenRequests: string[] = [];
   page.on("request", (request) => {
@@ -71,15 +84,22 @@ test("rotates agent sections and requires sign in before creation", async ({ pag
   await expect(page.locator(".agent-desktop-navigation")).toHaveAttribute("data-expanded-section", "workspace");
 
   await expect(page.getByRole("heading", { name: "Your files, working for you" })).toBeVisible({ timeout: 12_000 });
+  await page.getByRole("button", { name: "Files", exact: true }).click();
+  await closeTrialFeature(page, 6);
+  await expect(page.getByRole("heading", { name: "Your files, working for you" })).toBeVisible();
   await page.getByRole("button", { name: "Integrations", exact: true }).click();
+  await closeTrialFeature(page, 1);
   await expect(page.getByRole("heading", { name: "Your stack, unified" })).toBeVisible();
   await page.waitForTimeout(15_500);
   await expect(page.getByRole("heading", { name: "Your stack, unified" })).toBeVisible();
   await page.getByRole("button", { name: "Skills", exact: true }).click();
+  await closeTrialFeature(page, 2);
   await expect(page.getByRole("heading", { name: "Your expertise, reusable" })).toBeVisible();
   await page.getByRole("button", { name: "Scheduled", exact: true }).click();
+  await closeTrialFeature(page, 3);
   await expect(page.getByTestId("agent-scheduled-empty-state")).toBeVisible();
   await page.getByRole("button", { name: "Desktop", exact: true }).click();
+  await closeTrialFeature(page, 4);
   const desktopPreview = page.getByTestId("agent-desktop-empty-state");
   await expect(desktopPreview).toBeVisible();
   await desktopPreview.getByRole("button", { name: "Launch agent", exact: true }).click();
@@ -144,7 +164,8 @@ test("shows the rotating preview without opening the tour", async ({ page }) => 
 
   await page.goto("/dashboard/agents?plan=pro");
   await expect(page.getByRole("dialog", { name: "A quick tour of your agent workspace" })).toHaveCount(0);
-  const chatPreview = page.getByRole("heading", { name: "Your business, one chat" }).locator("xpath=..");
+  const chatPreview = page.getByTestId("agent-launch-empty-state");
+  await expect(chatPreview.getByRole("heading", { name: "Your business, one chat" })).toBeVisible();
   await expect(chatPreview).toBeVisible();
   await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
   await chatPreview.getByRole("button", { name: "Launch agent" }).click();
@@ -211,7 +232,8 @@ test("keeps a saved draft private until authentication", async ({ page }) => {
 
   await page.goto("/dashboard/agents");
 
-  const chatPreview = page.getByRole("heading", { name: "Your business, one chat" }).locator("xpath=..");
+  const chatPreview = page.getByTestId("agent-launch-empty-state");
+  await expect(chatPreview.getByRole("heading", { name: "Your business, one chat" })).toBeVisible();
   await expect(chatPreview).toBeVisible();
   await expect(page.locator("[data-agent-launch-surface]")).toHaveCount(0);
   await expect(page.locator('[data-slot="saved-agent-draft-summary"]')).toHaveCount(0);

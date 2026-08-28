@@ -59,6 +59,51 @@ describe("dashboard Team trial entry", () => {
     expect(pageSource).toContain("onStartTrial={() => beginTeamTrial()}");
   });
 
+  it("opens the trial activation dialog directly for anonymous feature navigation", () => {
+    const helperStart = pageSource.indexOf("const openAnonymousTrialPreview");
+    const helperEnd = pageSource.indexOf("const openFilesFromNavigation", helperStart);
+    const helper = pageSource.slice(helperStart, helperEnd);
+
+    expect(helperStart).toBeGreaterThan(-1);
+    expect(helper).toContain("if (!anonymousAgentPreviewMode) return");
+    expect(helper).toContain("setAnonymousPreviewSelectionMade(true)");
+    expect(helper).toContain("setTrialActivationOpen(true)");
+  });
+
+  it.each([
+    ["openFilesFromNavigation", "files"],
+    ["openIntegrationsFromNavigation", "integrations"],
+    ["openSkillsFromNavigation", "skills"],
+    ["openScheduledFromNavigation", "scheduled"],
+    ["openDesktopPreviewFromNavigation", "desktop"],
+  ] as const)("maps %s to the %s trial feature", (handlerName, feature) => {
+    const handlerStart = pageSource.indexOf(`const ${handlerName}`);
+    const handlerEnd = pageSource.indexOf("\n  };", handlerStart);
+    const handler = pageSource.slice(handlerStart, handlerEnd);
+
+    expect(handlerStart).toBeGreaterThan(-1);
+    expect(handler).toContain(`openAnonymousTrialPreview("${feature}")`);
+  });
+
+  it("continues anonymous activation directly after authentication", () => {
+    const dialogStart = pageSource.indexOf("<TeamTrialActivationDialog");
+    const dialogEnd = pageSource.indexOf("/>", dialogStart);
+    const dialog = pageSource.slice(dialogStart, dialogEnd);
+
+    expect(dialog).toContain("if (!isAuthenticated)");
+    expect(dialog).toContain("setTrialActivationOpen(false)");
+    expect(dialog).toContain('beginTeamTrial(firstAgentSetup, { presentation: "direct" })');
+  });
+
+  it("preserves a saved first-agent draft when feature navigation starts a trial", () => {
+    const helperStart = pageSource.indexOf("const openAnonymousTrialPreview");
+    const helperEnd = pageSource.indexOf("const openFilesFromNavigation", helperStart);
+    const helper = pageSource.slice(helperStart, helperEnd);
+
+    expect(helper).toContain("buildFirstAgentTrialCheckoutContext(agentSize)");
+    expect(helper).toContain("setTrialActivationContext");
+  });
+
   it("resumes the agent creation flow after a reflected checkout", () => {
     const reflectedStart = pageSource.indexOf("const handleReflectedCheckout");
     const reflectedEnd = pageSource.indexOf("const refreshCheckoutEntitlements", reflectedStart);

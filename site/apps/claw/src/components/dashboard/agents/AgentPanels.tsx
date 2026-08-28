@@ -3020,7 +3020,53 @@ type AgentLaunchActionProps = {
   launchBlocked?: boolean;
   launchBlockedReason?: string | null;
   onLaunchAction?: () => void;
+  anonymousPreview?: boolean;
 };
+
+const ANONYMOUS_AGENT_PREVIEWS = {
+  chat: {
+    description: "One conversation that reaches Slack, email, docs, and your CRM — and acts on what it finds.",
+    image: {
+      src: "/images/team-trial/feature-image-01.png",
+      alt: "Agent summarizing a customer renewal call and highlighting risk",
+    },
+  },
+  files: {
+    description: "Ask in plain language. Your agent reads thousands of documents and returns the answer, not a folder.",
+    image: {
+      src: "/images/team-trial/feature-image-02.png",
+      alt: "Chat composer attaching a vendor contract PDF",
+    },
+  },
+  integrations: {
+    description: "One request, every tool. Your agent pulls the data, updates the records, and closes the loop.",
+    image: {
+      src: "/images/team-trial/feature-image-03.png",
+      alt: "Connected Gmail, HubSpot, Linear, and Slack workflow",
+    },
+  },
+  skills: {
+    description: "Package a workflow once. Anyone on the team runs it with a single command.",
+    image: {
+      src: "/images/team-trial/feature-image-04.png",
+      alt: "Agent skills catalog with active and available skills",
+    },
+  },
+  scheduled: {
+    description: "Reports, monitors, and follow-ups run on their own — and land where your team already works.",
+    image: {
+      src: "/images/team-trial/feature-image-05.png",
+      alt: "Recurring weekday standup automation schedule",
+    },
+  },
+  desktop: {
+    description: "No API, no problem. Your agent works inside browser tools the same way your team does.",
+    image: {
+      src: "/images/team-trial/feature-image-06.png",
+      alt: "Remote desktop opening inside a HyperCLI browser tab",
+    },
+  },
+} as const;
 
 export function LaunchFirstAgentEmptyState({
   onCreate,
@@ -3155,6 +3201,7 @@ export function AgentEmptyState({
   launchBlocked,
   launchBlockedReason,
   onLaunchAction,
+  anonymousPreview = false,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
 
@@ -3186,8 +3233,11 @@ export function AgentEmptyState({
     <LaunchAgentCenteredEmptyStateContent
       icon={MessageSquare}
       title="Your business, one chat"
-      description="Talk to your entire business like it is one system. Your agent understands your context, remembers your workflows, and takes action across your stack."
+      description={anonymousPreview
+        ? ANONYMOUS_AGENT_PREVIEWS.chat.description
+        : "Talk to your entire business like it is one system. Your agent understands your context, remembers your workflows, and takes action across your stack."}
       examples={examples}
+      previewImage={anonymousPreview ? ANONYMOUS_AGENT_PREVIEWS.chat.image : undefined}
       cardMinHeightClass="md:min-h-[118px]"
       launchLabel={launchLabel}
       launchingLabel={launchingLabel}
@@ -3213,6 +3263,7 @@ export function AgentFilesEmptyState({
   launchBlocked,
   launchBlockedReason,
   onLaunchAction,
+  anonymousPreview = false,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
 
@@ -3237,12 +3288,15 @@ export function AgentFilesEmptyState({
     <LaunchAgentCenteredEmptyStateContent
       icon={FolderOpen}
       title="Your files, working for you"
-      description="Your documents become usable intelligence. Your agent can search, understand, compare, summarize, and execute against your files instead of treating them like static uploads."
+      description={anonymousPreview
+        ? ANONYMOUS_AGENT_PREVIEWS.files.description
+        : "Your documents become usable intelligence. Your agent can search, understand, compare, summarize, and execute against your files instead of treating them like static uploads."}
       examples={[
         "Search thousands of files using natural language instead of folder structures",
         "Compare contracts, proposals, reports, or spreadsheets in seconds",
         "Extract insights, summaries, action items, and data from PDFs, docs, and presentations automatically",
       ]}
+      previewImage={anonymousPreview ? ANONYMOUS_AGENT_PREVIEWS.files.image : undefined}
       launchLabel={launchLabel}
       launchingLabel={launchingLabel}
       launching={launching}
@@ -3265,6 +3319,7 @@ function LaunchAgentCenteredEmptyStateContent({
   launchBlocked = false,
   launchBlockedReason,
   cardMinHeightClass = "md:min-h-[102px]",
+  previewImage,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
@@ -3277,6 +3332,10 @@ function LaunchAgentCenteredEmptyStateContent({
   launchBlocked?: boolean;
   launchBlockedReason?: string | null;
   cardMinHeightClass?: "md:min-h-[102px]" | "md:min-h-[118px]";
+  previewImage?: {
+    src: string;
+    alt: string;
+  };
 }) {
   const launchButtonLabel = launching ? launchingLabel : launchLabel;
   const launchDisabled = launching || launchBlocked;
@@ -3294,6 +3353,7 @@ function LaunchAgentCenteredEmptyStateContent({
       onAction={onLaunch}
       cardMinHeightClass={cardMinHeightClass}
       testId="agent-launch-empty-state"
+      previewImage={previewImage}
     />
   );
 }
@@ -3312,6 +3372,7 @@ export function AgentIntegrationsEmptyState({
   launchBlocked,
   launchBlockedReason,
   onLaunchAction,
+  anonymousPreview = false,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
 
@@ -3336,12 +3397,15 @@ export function AgentIntegrationsEmptyState({
     <LaunchAgentCenteredEmptyStateContent
       icon={Blocks}
       title="Your stack, unified"
-      description="Connect the tools you already use. Unlike standalone LLMs, your agent works inside your real workflows - pulling from CRMs, Slack, email, databases, and internal systems in real time."
+      description={anonymousPreview
+        ? ANONYMOUS_AGENT_PREVIEWS.integrations.description
+        : "Connect the tools you already use. Unlike standalone LLMs, your agent works inside your real workflows - pulling from CRMs, Slack, email, databases, and internal systems in real time."}
       examples={[
         "Pull live data from tools like HubSpot, Salesforce, Gmail, Slack, Notion, or databases",
         "Update records, create tickets, send emails, and sync workflows without switching apps",
         "Build cross-platform automations that work across your existing stack",
       ]}
+      previewImage={anonymousPreview ? ANONYMOUS_AGENT_PREVIEWS.integrations.image : undefined}
       launchLabel={launchLabel}
       launchingLabel={launchingLabel}
       launching={launching}
@@ -3366,6 +3430,7 @@ export function AgentSkillsEmptyState({
   launchBlocked,
   launchBlockedReason,
   onLaunchAction,
+  anonymousPreview = false,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
 
@@ -3390,12 +3455,15 @@ export function AgentSkillsEmptyState({
     <LaunchAgentCenteredEmptyStateContent
       icon={Codepen}
       title="Your expertise, reusable"
-      description="Turn repeatable work into reusable intelligence. Skills let your team package expertise, workflows, and automations so anyone can execute high-level tasks instantly."
+      description={anonymousPreview
+        ? ANONYMOUS_AGENT_PREVIEWS.skills.description
+        : "Turn repeatable work into reusable intelligence. Skills let your team package expertise, workflows, and automations so anyone can execute high-level tasks instantly."}
       examples={[
         "Save repeatable workflows as reusable AI-powered playbooks",
         "Let anyone on your team execute expert-level tasks with one command",
         "Standardize onboarding, reporting, sales research, QA, support, and operations workflows",
       ]}
+      previewImage={anonymousPreview ? ANONYMOUS_AGENT_PREVIEWS.skills.image : undefined}
       launchLabel={launchLabel}
       launchingLabel={launchingLabel}
       launching={launching}
@@ -3406,22 +3474,25 @@ export function AgentSkillsEmptyState({
   );
 }
 
-export function AgentScheduledEmptyState() {
+export function AgentScheduledEmptyState({ anonymousPreview = false }: { anonymousPreview?: boolean } = {}) {
   return (
     <AgentFeatureEmptyState
       icon={CalendarClock}
-      title="Scheduled work is coming soon"
-      description="We're reviewing scheduled workflows before release. Soon, your agent will be able to run recurring and one-off tasks without waiting for another prompt."
+      title={anonymousPreview ? "Your work, on autopilot" : "Scheduled work is coming soon"}
+      description={anonymousPreview
+        ? ANONYMOUS_AGENT_PREVIEWS.scheduled.description
+        : "We're reviewing scheduled workflows before release. Soon, your agent will be able to run recurring and one-off tasks without waiting for another prompt."}
       examples={[
         "Run recurring research, reporting, and follow-up work on a dependable schedule",
         "Send each task to the right conversation with the context it needs",
         "Review upcoming runs and adjust schedules as priorities change",
       ]}
-      actionLabel="Coming soon"
+      actionLabel={anonymousPreview ? "Launch agent" : "Coming soon"}
       actionDisabled
       actionDisabledReason="Scheduled workflows are under review."
       onAction={() => undefined}
       testId="agent-scheduled-empty-state"
+      previewImage={anonymousPreview ? ANONYMOUS_AGENT_PREVIEWS.scheduled.image : undefined}
     />
   );
 }
@@ -3436,6 +3507,7 @@ export function AgentDesktopEmptyState({
   launchBlocked,
   launchBlockedReason,
   onLaunchAction,
+  anonymousPreview = false,
 }: AgentEmptyStateProps & AgentLaunchActionProps & {
   desktopEnabled?: boolean;
   settingsHref?: string;
@@ -3451,7 +3523,9 @@ export function AgentDesktopEmptyState({
     <AgentFeatureEmptyState
       icon={Monitor}
       title="Your agent's desktop"
-      description="The tools your team lives in don't all have APIs. With desktop and browser access, your agent works inside them anyway, filling forms, pulling reports, and clicking through the same interfaces your people do."
+      description={anonymousPreview
+        ? ANONYMOUS_AGENT_PREVIEWS.desktop.description
+        : "The tools your team lives in don't all have APIs. With desktop and browser access, your agent works inside them anyway, filling forms, pulling reports, and clicking through the same interfaces your people do."}
       examples={[
         "Connect to any web-based tool, even legacy or partner systems with no API",
         "Automate multi-step browser workflows from start to finish",
@@ -3464,6 +3538,7 @@ export function AgentDesktopEmptyState({
       actionDisabledReason={launchBlockedReason}
       onAction={onLaunchAction ?? onCreate}
       testId="agent-desktop-empty-state"
+      previewImage={anonymousPreview ? ANONYMOUS_AGENT_PREVIEWS.desktop.image : undefined}
     />
   );
 }

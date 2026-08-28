@@ -89,7 +89,7 @@ import { PlanComparisonModal } from "@/components/dashboard/agents/PlanCompariso
 import { AgentCreationSetupWizard, type AgentCreationSetupCreateParams } from "@/components/dashboard/agents/AgentCreationSetupWizard";
 import { EmbeddedPlanCheckout } from "@/components/dashboard/agents/EmbeddedPlanCheckout";
 import { AgentDashboardTour } from "@/components/dashboard/agents/AgentDashboardTour";
-import { TeamTrialActivationDialog } from "@/components/trial/TeamTrialActivationDialog";
+import { TeamTrialActivationDialog, type TeamTrialFeatureId } from "@/components/trial/TeamTrialActivationDialog";
 import {
   clearFirstAgentSetupCheckoutDraft,
   clearFirstAgentSetupDraft,
@@ -1254,6 +1254,7 @@ function AgentsPageContent() {
   const [trialCheckoutPending, setTrialCheckoutPending] = useState(false);
   const [trialActivationOpen, setTrialActivationOpen] = useState(false);
   const [trialActivationContext, setTrialActivationContext] = useState<FirstAgentTrialCheckoutContext | null>(null);
+  const [trialActivationFeature, setTrialActivationFeature] = useState<TeamTrialFeatureId>("integrations");
   const [trialClock, setTrialClock] = useState(() => Date.now());
   const [trialSummaryObservedAt, setTrialSummaryObservedAt] = useState(() => Date.now());
   const [billingReflectionState, dispatchBillingReflection] = useReducer(
@@ -2808,6 +2809,7 @@ function AgentsPageContent() {
     }
     setUpgradeCatalogOpen(false);
     setTrialActivationContext(null);
+    setTrialActivationFeature("integrations");
     setTrialActivationOpen(true);
     return false;
   }, [billingDataError, hasBillingHistory, productUseAccess]);
@@ -2896,6 +2898,28 @@ function AgentsPageContent() {
     });
   }, [activeTrial, isAuthenticated, requestAuthentication, trialCheckoutPending]);
 
+  const buildFirstAgentTrialCheckoutContext = useCallback((
+    agentSize: string | null | undefined,
+  ): FirstAgentTrialCheckoutContext | undefined => {
+    if (!agentSize || !firstAgentSetupDraft) return undefined;
+    const principalId = user?.id ?? null;
+    const draftMatchesPrincipal = !firstAgentSetupDraft.principalId
+      || firstAgentSetupDraft.principalId === principalId;
+    const draftMatchesWorkspace = !knowledgeHubAvailable
+      || !firstAgentSetupDraft.workspaceId
+      || firstAgentSetupDraft.workspaceId === selectedWorkspaceId;
+    if (!draftMatchesPrincipal || !draftMatchesWorkspace) return undefined;
+    const workspaceId = knowledgeHubAvailable
+      ? firstAgentSetupDraft.workspaceId ?? selectedWorkspaceId
+      : null;
+    return {
+      setupId: firstAgentSetupDraft.setupId,
+      ...(workspaceId ? { workspaceId } : {}),
+      knowledgeCollectionId: knowledgeHubAvailable ? firstAgentSetupDraft.knowledgeCollectionId : null,
+      agentSize,
+    };
+  }, [firstAgentSetupDraft, knowledgeHubAvailable, selectedWorkspaceId, user?.id]);
+
   useEffect(() => {
     if (pendingAuthIntent?.kind !== "trial" || authLoading || !isAuthenticated || !user?.id) return;
     const timeout = window.setTimeout(() => {
@@ -2920,6 +2944,7 @@ function AgentsPageContent() {
       }
       setUpgradeCatalogOpen(false);
       setTrialActivationContext(intent.firstAgentSetup ?? null);
+      setTrialActivationFeature("integrations");
       setTrialActivationOpen(true);
     }, 0);
     return () => window.clearTimeout(timeout);
@@ -2932,28 +2957,9 @@ function AgentsPageContent() {
     setLauncherSelectedCatalogPlanId(product.id);
     setUpgradeCatalogError(null);
 
-    const principalId = user?.id ?? null;
-    const draftMatchesPrincipal = !firstAgentSetupDraft?.principalId
-      || firstAgentSetupDraft.principalId === principalId;
-    const draftMatchesWorkspace = !knowledgeHubAvailable
-      || !firstAgentSetupDraft?.workspaceId
-      || firstAgentSetupDraft.workspaceId === selectedWorkspaceId;
-    const setupWorkspaceId = knowledgeHubAvailable
-      ? firstAgentSetupDraft?.workspaceId ?? selectedWorkspaceId
-      : null;
-    const firstAgentSetup: FirstAgentTrialCheckoutContext | undefined = agentSize
-      && firstAgentSetupDraft
-      && draftMatchesPrincipal
-      && draftMatchesWorkspace
-      ? {
-          setupId: firstAgentSetupDraft.setupId,
-          ...(setupWorkspaceId ? { workspaceId: setupWorkspaceId } : {}),
-          knowledgeCollectionId: knowledgeHubAvailable ? firstAgentSetupDraft.knowledgeCollectionId : null,
-          agentSize,
-        }
-      : undefined;
+    const firstAgentSetup = buildFirstAgentTrialCheckoutContext(agentSize);
     beginTeamTrial(firstAgentSetup, { presentation: "direct" });
-  }, [beginTeamTrial, firstAgentSetupDraft, knowledgeHubAvailable, selectedWorkspaceId, user?.id]);
+  }, [beginTeamTrial, buildFirstAgentTrialCheckoutContext]);
 
   const embeddedFirstAgentSetup = (() => {
     if (!embeddedCheckoutPlan || !firstAgentSetupDraft || !user?.id) return undefined;
@@ -6100,28 +6106,33 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     closeMobileNavigation();
   };
-  const markAnonymousPreviewSelection = () => {
-    if (anonymousAgentPreviewMode) setAnonymousPreviewSelectionMade(true);
+  const openAnonymousTrialPreview = (feature: TeamTrialFeatureId) => {
+    if (!anonymousAgentPreviewMode) return;
+    const agentSize = teamTrialProduct ? primaryLaunchTier(teamTrialProduct.bundle) : null;
+    setAnonymousPreviewSelectionMade(true);
+    setTrialActivationContext(buildFirstAgentTrialCheckoutContext(agentSize) ?? null);
+    setTrialActivationFeature(feature);
+    setTrialActivationOpen(true);
   };
   const openFilesFromNavigation = () => {
-    markAnonymousPreviewSelection();
     openFilesTab();
+    openAnonymousTrialPreview("files");
   };
   const openIntegrationsFromNavigation = () => {
-    markAnonymousPreviewSelection();
     openIntegrationsTab();
+    openAnonymousTrialPreview("integrations");
   };
   const openSkillsFromNavigation = () => {
-    markAnonymousPreviewSelection();
     openSkillsTab();
+    openAnonymousTrialPreview("skills");
   };
   const openScheduledFromNavigation = () => {
-    markAnonymousPreviewSelection();
     openScheduledTab();
+    openAnonymousTrialPreview("scheduled");
   };
   const openDesktopPreviewFromNavigation = () => {
-    markAnonymousPreviewSelection();
     openDesktopPreview();
+    openAnonymousTrialPreview("desktop");
   };
   const openLogsTab = () => {
     openAgentSurfaceRoute("logs");
@@ -6834,16 +6845,25 @@ function AgentsPageContent() {
       <TeamTrialActivationDialog
         open={trialActivationOpen}
         checkoutPending={trialCheckoutPending}
+        initialFeature={trialActivationFeature}
         onOpenChange={(open) => {
           if (trialCheckoutPending) return;
           setTrialActivationOpen(open);
           if (!open) {
             setTrialActivationContext(null);
+            setTrialActivationFeature("integrations");
           }
         }}
         onStartTrial={() => {
           if (trialCheckoutPending) return;
           const firstAgentSetup = trialActivationContext ?? undefined;
+          if (!isAuthenticated) {
+            setTrialActivationOpen(false);
+            setTrialActivationContext(null);
+            setTrialActivationFeature("integrations");
+            beginTeamTrial(firstAgentSetup, { presentation: "direct" });
+            return;
+          }
           void startTrial(firstAgentSetup);
         }}
       />

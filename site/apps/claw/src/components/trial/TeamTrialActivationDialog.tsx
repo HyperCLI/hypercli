@@ -18,36 +18,49 @@ import {
 
 const CAROUSEL_INTERVAL_MS = 4_500;
 
+export type TeamTrialFeatureId = "chat" | "files" | "integrations" | "skills" | "scheduled" | "desktop";
+
 const TRIAL_FEATURES = [
   {
+    id: "integrations",
     src: "/images/team-trial/feature-image-03.png",
     alt: "Connected Gmail, HubSpot, Linear, and Slack workflow",
   },
   {
+    id: "skills",
     src: "/images/team-trial/feature-image-04.png",
     alt: "Agent skills catalog with active and available skills",
   },
   {
+    id: "scheduled",
     src: "/images/team-trial/feature-image-05.png",
     alt: "Recurring weekday standup automation schedule",
   },
   {
+    id: "desktop",
     src: "/images/team-trial/feature-image-06.png",
     alt: "Remote desktop opening inside a HyperCLI browser tab",
   },
   {
+    id: "chat",
     src: "/images/team-trial/feature-image-01.png",
     alt: "Agent summarizing a customer renewal call and highlighting risk",
   },
   {
+    id: "files",
     src: "/images/team-trial/feature-image-02.png",
     alt: "Chat composer attaching a vendor contract PDF",
   },
-] as const;
+] as const satisfies ReadonlyArray<{ id: TeamTrialFeatureId; src: string; alt: string }>;
+
+function featureIndex(featureId: TeamTrialFeatureId): number {
+  return TRIAL_FEATURES.findIndex((feature) => feature.id === featureId);
+}
 
 export interface TeamTrialActivationDialogProps {
   open: boolean;
   checkoutPending?: boolean;
+  initialFeature?: TeamTrialFeatureId;
   onOpenChange: (open: boolean) => void;
   onStartTrial: () => void;
 }
@@ -55,11 +68,13 @@ export interface TeamTrialActivationDialogProps {
 export function TeamTrialActivationDialog({
   open,
   checkoutPending = false,
+  initialFeature = "integrations",
   onOpenChange,
   onStartTrial,
 }: TeamTrialActivationDialogProps) {
   const [api, setApi] = useState<CarouselApi>();
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const initialFeatureIndex = featureIndex(initialFeature);
+  const [selectedIndex, setSelectedIndex] = useState(initialFeatureIndex);
   const [userPaused, setUserPaused] = useState(false);
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
@@ -79,6 +94,11 @@ export function TeamTrialActivationDialog({
       api.off("reInit", syncSelection);
     };
   }, [api]);
+
+  useEffect(() => {
+    if (!open || !api) return;
+    api.scrollTo(initialFeatureIndex);
+  }, [api, initialFeatureIndex, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -131,7 +151,7 @@ export function TeamTrialActivationDialog({
         >
           <Carousel
             setApi={setApi}
-            opts={{ loop: true, align: "start" }}
+            opts={{ loop: true, align: "start", startIndex: initialFeatureIndex }}
             className="h-full [&_[data-slot=carousel-content]]:h-full"
             aria-label="Trial features"
           >

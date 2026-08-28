@@ -21,6 +21,7 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     creationDisabledReason?: string | null;
     onCreateWorkspace?: () => void;
     onOpenMembers?: () => void;
+    anonymousPreview?: boolean;
   };
   const emptyStateButton = (regionLabel: string, defaultButtonLabel: string) => {
     function EmptyStateButton({
@@ -35,10 +36,11 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
       creationDisabledReason,
       onCreateWorkspace,
       onOpenMembers,
+      anonymousPreview,
     }: EmptyStateMockProps) {
       const workspaceSetupRequired = Boolean(onCreateWorkspace);
       return (
-        <section aria-label={regionLabel}>
+        <section aria-label={regionLabel} data-anonymous-preview={anonymousPreview || undefined}>
           {workspaceName ? <p>Welcome to your {workspaceName}</p> : null}
           <button
             type="button"
@@ -61,9 +63,9 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     AgentEmptyState: emptyStateButton("Chat empty state", "Create new agent"),
     AgentFilesEmptyState: emptyStateButton("Files empty state", "Launch files agent"),
     AgentIntegrationsEmptyState: emptyStateButton("Integrations empty state", "Launch integrations agent"),
-    AgentScheduledEmptyState: () => (
-      <section aria-label="Scheduled empty state">
-        <button type="button" disabled>Coming soon</button>
+    AgentScheduledEmptyState: ({ anonymousPreview }: { anonymousPreview?: boolean }) => (
+      <section aria-label="Scheduled empty state" data-anonymous-preview={anonymousPreview || undefined}>
+        <button type="button" disabled>{anonymousPreview ? "Launch agent" : "Coming soon"}</button>
       </section>
     ),
     AgentSkillsEmptyState: emptyStateButton("Skills empty state", "Launch skills agent"),
@@ -344,10 +346,34 @@ describe("AgentMainPanel", () => {
     });
 
     const preview = screen.getByRole("region", { name: "Chat empty state" });
+    expect(preview).toHaveAttribute("data-anonymous-preview", "true");
     expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
     expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
     fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
     expect(onCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps both anonymous preview cards mounted during the crossfade", () => {
+    const view = renderAgentMainPanel({
+      selectedAgent: null,
+      showAgentlessSectionPreviews: true,
+      currentPanel: "chat",
+    });
+
+    expect(document.querySelector('[data-slot="agent-anonymous-preview-transition"]')).toHaveAttribute("data-preview", "chat");
+
+    view.rerender(
+      <AgentMainPanel
+        {...buildAgentMainPanelProps({
+          selectedAgent: null,
+          showAgentlessSectionPreviews: true,
+          currentPanel: "files",
+        })}
+      />,
+    );
+
+    const transitioningCards = Array.from(document.querySelectorAll('[data-slot="agent-anonymous-preview-transition"]'));
+    expect(transitioningCards.map((card) => card.getAttribute("data-preview"))).toEqual(expect.arrayContaining(["chat", "files"]));
   });
 
   it.each([
@@ -366,13 +392,14 @@ describe("AgentMainPanel", () => {
     });
 
     const preview = screen.getByRole("region", { name: regionName });
+    expect(preview).toHaveAttribute("data-anonymous-preview", "true");
     expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
     expect(screen.queryByText("Loading agents")).not.toBeInTheDocument();
     fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
     expect(onCreate).toHaveBeenCalledOnce();
   });
 
-  it("shows Schedule as a non-interactive coming-soon preview", () => {
+  it("shows Schedule as a disabled anonymous preview", () => {
     const onCreate = vi.fn();
     renderAgentMainPanel({
       selectedAgent: null,
@@ -383,8 +410,8 @@ describe("AgentMainPanel", () => {
     });
 
     const preview = screen.getByRole("region", { name: "Scheduled empty state" });
-    expect(within(preview).getByRole("button", { name: "Coming soon" })).toBeDisabled();
-    expect(within(preview).queryByRole("button", { name: "Launch agent" })).not.toBeInTheDocument();
+    expect(preview).toHaveAttribute("data-anonymous-preview", "true");
+    expect(within(preview).getByRole("button", { name: "Launch agent" })).toBeDisabled();
     expect(onCreate).not.toHaveBeenCalled();
   });
 
@@ -399,6 +426,7 @@ describe("AgentMainPanel", () => {
     });
 
     const preview = screen.getByRole("region", { name: "Desktop empty state" });
+    expect(preview).toHaveAttribute("data-anonymous-preview", "true");
     expect(screen.queryByRole("region", { name: "First agent empty state" })).not.toBeInTheDocument();
     fireEvent.click(within(preview).getByRole("button", { name: "Launch agent" }));
     expect(onCreate).toHaveBeenCalledOnce();

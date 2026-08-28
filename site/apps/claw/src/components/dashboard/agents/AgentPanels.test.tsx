@@ -215,7 +215,7 @@ vi.mock("@/lib/dashboard-release-boundary", async (importOriginal) => {
   };
 });
 
-import { AgentDesktopEmptyState, AgentEmptyState, AgentList, AgentScheduledEmptyState, AgentSettingsPanel, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
+import { AgentDesktopEmptyState, AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentList, AgentScheduledEmptyState, AgentSettingsPanel, AgentSkillsEmptyState, ErrorBanner, LaunchFirstAgentEmptyState } from "./AgentPanels";
 
 function createInMemoryAgentClient() {
   const files = new Map<string, Uint8Array>();
@@ -558,6 +558,92 @@ describe("AgentEmptyState", () => {
     expect(screen.getByText(/Ask questions across Slack/).parentElement).toHaveClass("min-h-16", "items-center", "text-[13px]", "text-left", "md:flex-col", "md:min-h-[118px]");
     expect(screen.getByRole("button", { name: "Launch agent" })).toHaveClass("h-12", "md:h-10");
     expect(screen.getByTestId("agent-launch-entry")).toHaveAccessibleName("Launch agent");
+  });
+});
+
+describe("anonymous agent previews", () => {
+  const previews: Array<{
+    title: string;
+    description: string;
+    imageAlt: string;
+    imageSrc: string;
+    disabled: boolean;
+    renderPreview: (onLaunchAction: () => void) => ReactNode;
+  }> = [
+    {
+      title: "Your business, one chat",
+      description: "One conversation that reaches Slack, email, docs, and your CRM — and acts on what it finds.",
+      imageAlt: "Agent summarizing a customer renewal call and highlighting risk",
+      imageSrc: "/images/team-trial/feature-image-01.png",
+      disabled: false,
+      renderPreview: (onLaunchAction: () => void) => (
+        <AgentEmptyState onCreate={vi.fn()} onLaunchAction={onLaunchAction} launchLabel="Launch agent" anonymousPreview />
+      ),
+    },
+    {
+      title: "Your files, working for you",
+      description: "Ask in plain language. Your agent reads thousands of documents and returns the answer, not a folder.",
+      imageAlt: "Chat composer attaching a vendor contract PDF",
+      imageSrc: "/images/team-trial/feature-image-02.png",
+      disabled: false,
+      renderPreview: (onLaunchAction: () => void) => (
+        <AgentFilesEmptyState onCreate={vi.fn()} onLaunchAction={onLaunchAction} launchLabel="Launch agent" anonymousPreview />
+      ),
+    },
+    {
+      title: "Your stack, unified",
+      description: "One request, every tool. Your agent pulls the data, updates the records, and closes the loop.",
+      imageAlt: "Connected Gmail, HubSpot, Linear, and Slack workflow",
+      imageSrc: "/images/team-trial/feature-image-03.png",
+      disabled: false,
+      renderPreview: (onLaunchAction: () => void) => (
+        <AgentIntegrationsEmptyState onCreate={vi.fn()} onLaunchAction={onLaunchAction} launchLabel="Launch agent" anonymousPreview />
+      ),
+    },
+    {
+      title: "Your expertise, reusable",
+      description: "Package a workflow once. Anyone on the team runs it with a single command.",
+      imageAlt: "Agent skills catalog with active and available skills",
+      imageSrc: "/images/team-trial/feature-image-04.png",
+      disabled: false,
+      renderPreview: (onLaunchAction: () => void) => (
+        <AgentSkillsEmptyState onCreate={vi.fn()} onLaunchAction={onLaunchAction} launchLabel="Launch agent" anonymousPreview />
+      ),
+    },
+    {
+      title: "Your work, on autopilot",
+      description: "Reports, monitors, and follow-ups run on their own — and land where your team already works.",
+      imageAlt: "Recurring weekday standup automation schedule",
+      imageSrc: "/images/team-trial/feature-image-05.png",
+      disabled: true,
+      renderPreview: () => <AgentScheduledEmptyState anonymousPreview />,
+    },
+    {
+      title: "Your agent's desktop",
+      description: "No API, no problem. Your agent works inside browser tools the same way your team does.",
+      imageAlt: "Remote desktop opening inside a HyperCLI browser tab",
+      imageSrc: "/images/team-trial/feature-image-06.png",
+      disabled: false,
+      renderPreview: (onLaunchAction: () => void) => (
+        <AgentDesktopEmptyState onCreate={vi.fn()} onLaunchAction={onLaunchAction} launchLabel="Launch agent" anonymousPreview />
+      ),
+    },
+  ];
+
+  it.each(previews)("renders $title as an image-led card", ({ title, description, imageAlt, imageSrc, disabled, renderPreview }) => {
+    const onLaunchAction = vi.fn();
+    render(renderPreview(onLaunchAction));
+
+    const preview = document.querySelector('[data-slot="agent-anonymous-feature-preview"]');
+    expect(preview).toHaveClass("aspect-[1.1]", "rounded-[3.08cqw]");
+    expect(screen.getByRole("heading", { name: title })).toBeInTheDocument();
+    expect(screen.getByText(description)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: imageAlt })).toHaveAttribute("src", imageSrc);
+
+    const launchButton = screen.getByRole("button", { name: "Launch agent" });
+    expect(launchButton).toHaveProperty("disabled", disabled);
+    fireEvent.click(launchButton);
+    expect(onLaunchAction).toHaveBeenCalledTimes(disabled ? 0 : 1);
   });
 });
 

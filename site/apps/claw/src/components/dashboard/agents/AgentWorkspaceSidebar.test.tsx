@@ -1731,6 +1731,9 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText("Daily tokens")).not.toBeInTheDocument();
     expect(screen.queryByText("-- / --")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /upgrade/i })).not.toBeInTheDocument();
+    const trialPanel = screen.getByTestId("agent-token-usage-panel");
+    expect(trialPanel.parentElement).toHaveClass("agent-workspace-usage");
+    expect(trialPanel).not.toHaveClass("border", "bg-surface-low");
 
     fireEvent.click(screen.getByRole("button", { name: "Start free trial" }));
     expect(onStartTrial).toHaveBeenCalledTimes(1);
@@ -1886,10 +1889,14 @@ describe("AgentWorkspaceSidebar", () => {
       canStartTrial: true,
       renderMobile: true,
       isDesktopViewport: false,
+      embeddedInNavigation: true,
       onStartTrial,
     });
 
     const action = screen.getByRole("button", { name: "Start free trial" });
+    const trialPanel = screen.getByTestId("agent-token-usage-panel");
+    expect(trialPanel.parentElement).toHaveClass("agent-workspace-usage");
+    expect(trialPanel).not.toHaveClass("border", "bg-surface-low");
     fireEvent.click(action);
     expect(onStartTrial).toHaveBeenCalledOnce();
   });

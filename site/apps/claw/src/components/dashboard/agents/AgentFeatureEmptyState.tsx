@@ -1,6 +1,7 @@
 "use client";
 
 import type { ComponentType, ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, Loader2 } from "lucide-react";
@@ -21,6 +22,62 @@ interface AgentFeatureEmptyStateProps {
   actionDisabledReason?: string | null;
   cardMinHeightClass?: string;
   testId?: string;
+  previewImage?: {
+    src: string;
+    alt: string;
+  };
+}
+
+function FeatureAction({
+  actionLabel,
+  actionHref,
+  actionIcon,
+  actionPending,
+  actionDisabled,
+  actionDisabledReason,
+  onAction,
+  className,
+  showDefaultIcon = true,
+}: Pick<AgentFeatureEmptyStateProps,
+  | "actionLabel"
+  | "actionHref"
+  | "actionIcon"
+  | "actionPending"
+  | "actionDisabled"
+  | "actionDisabledReason"
+  | "onAction"
+> & {
+  className: string;
+  showDefaultIcon?: boolean;
+}) {
+  const disabled = actionPending || actionDisabled;
+  const icon = actionPending
+    ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
+    : actionIcon ?? (showDefaultIcon ? <ArrowRight className="h-4 w-4" /> : null);
+
+  return (
+    <TooltipHint label={disabled ? actionDisabledReason ?? actionLabel : actionLabel} disabled={disabled}>
+      {actionHref && !disabled ? (
+        <Link href={actionHref} data-testid="agent-launch-entry" className={className}>
+          {actionLabel}
+          {icon}
+        </Link>
+      ) : (
+        <motion.button
+          whileHover={disabled ? undefined : { y: -1 }}
+          whileTap={disabled ? undefined : { scale: 0.98 }}
+          type="button"
+          data-testid="agent-launch-entry"
+          onClick={onAction}
+          disabled={disabled}
+          className={className}
+        >
+          {actionLabel}
+          {icon}
+        </motion.button>
+      )}
+    </TooltipHint>
+  );
 }
 
 export function AgentFeatureEmptyState({
@@ -37,9 +94,60 @@ export function AgentFeatureEmptyState({
   actionDisabledReason,
   cardMinHeightClass = "md:min-h-[102px]",
   testId = "agent-feature-empty-state",
+  previewImage,
 }: AgentFeatureEmptyStateProps) {
-  const disabled = actionPending || actionDisabled;
-  const actionClassName = "inline-flex h-12 max-w-full items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-5 text-[14px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background md:h-10 md:px-4";
+  if (previewImage) {
+    return (
+      <div
+        data-testid={testId}
+        className="claw-scroll-region h-full min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-background"
+      >
+        <div className="flex min-h-full w-full items-center justify-center px-4 pb-[max(1.5rem,var(--claw-safe-area-bottom-effective,0px))] pt-6 sm:px-8 sm:pb-[max(2rem,var(--claw-safe-area-bottom-effective,0px))] sm:pt-8">
+          <div className="w-full max-w-[650px] [container-type:inline-size]">
+            <article
+              data-slot="agent-anonymous-feature-preview"
+              className="grid aspect-[1.1] w-full overflow-hidden rounded-[3.08cqw] border border-[#303036] bg-[#18181b] shadow-[0_3.4cqw_10.8cqw_rgba(0,0,0,0.32)] [grid-template-rows:61.8%_38.2%]"
+            >
+              <div className="relative min-h-0 overflow-hidden bg-[#d9828d]">
+                <Image
+                  src={previewImage.src}
+                  alt={previewImage.alt}
+                  fill
+                  priority
+                  unoptimized
+                  sizes="(max-width: 767px) calc(100vw - 2rem), 650px"
+                  className="select-none object-cover"
+                />
+              </div>
+
+              <div className="flex min-h-0 flex-col bg-[#18181b] px-[3.7cqw] pb-[3.4cqw] pt-[3.4cqw] text-left">
+                <h1 className="text-balance text-[4.3cqw] font-medium leading-[1.16] tracking-[-0.03em] text-[#f7f7f8]">
+                  {title}
+                </h1>
+                <p className="mt-[1.85cqw] text-pretty text-[3.05cqw] leading-[1.45] text-[#81818a]">
+                  {description}
+                </p>
+
+                <div className="mt-auto self-end">
+                  <FeatureAction
+                    actionLabel={actionLabel}
+                    actionHref={actionHref}
+                    actionIcon={actionIcon}
+                    actionPending={actionPending}
+                    actionDisabled={actionDisabled}
+                    actionDisabledReason={actionDisabledReason}
+                    onAction={onAction}
+                    showDefaultIcon={false}
+                    className="inline-flex h-[7.7cqw] max-w-full items-center justify-center gap-2 rounded-[1.85cqw] bg-[#5f86f7] px-[3.7cqw] text-[3.05cqw] font-medium text-[#101b3d] transition-colors hover:bg-[#7396fa] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9bb3ff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#18181b] disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -76,33 +184,18 @@ export function AgentFeatureEmptyState({
           </div>
 
           <div className="mt-7 max-w-full md:mt-9">
-            <TooltipHint label={disabled ? actionDisabledReason ?? actionLabel : actionLabel} disabled={disabled}>
-              {actionHref && !disabled ? (
-                <Link
-                  href={actionHref}
-                  data-testid="agent-launch-entry"
-                  className={actionClassName}
-                >
-                  {actionLabel}
-                  {actionIcon ?? <ArrowRight className="h-4 w-4" />}
-                </Link>
-              ) : (
-                <motion.button
-                  whileHover={{ y: -1 }}
-                  whileTap={{ scale: 0.98 }}
-                  type="button"
-                  data-testid="agent-launch-entry"
-                  onClick={onAction}
-                  disabled={disabled}
-                  className={`${actionClassName} disabled:opacity-70 ${
-                    actionPending ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
-                  }`}
-                >
-                  {actionLabel}
-                  {actionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : actionIcon ?? <ArrowRight className="h-4 w-4" />}
-                </motion.button>
-              )}
-            </TooltipHint>
+            <FeatureAction
+              actionLabel={actionLabel}
+              actionHref={actionHref}
+              actionIcon={actionIcon}
+              actionPending={actionPending}
+              actionDisabled={actionDisabled}
+              actionDisabledReason={actionDisabledReason}
+              onAction={onAction}
+              className={`inline-flex h-12 max-w-full items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-5 text-[14px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background md:h-10 md:px-4 disabled:opacity-70 ${
+                actionPending ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+              }`}
+            />
           </div>
         </div>
       </div>

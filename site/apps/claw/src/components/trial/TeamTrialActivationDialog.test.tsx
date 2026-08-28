@@ -122,6 +122,26 @@ describe("TeamTrialActivationDialog", () => {
     );
   });
 
+  it.each([
+    ["integrations", 1],
+    ["skills", 2],
+    ["scheduled", 3],
+    ["desktop", 4],
+    ["chat", 5],
+    ["files", 6],
+  ] as const)("opens the %s feature on its matching slide", (initialFeature, featureNumber) => {
+    render(
+      <TeamTrialActivationDialog
+        open
+        initialFeature={initialFeature}
+        onOpenChange={vi.fn()}
+        onStartTrial={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: `Show feature ${featureNumber}` })).toHaveAttribute("aria-current", "step");
+  });
+
   it("replaces a failed slide image without exposing neighboring media", () => {
     render(
       <TeamTrialActivationDialog

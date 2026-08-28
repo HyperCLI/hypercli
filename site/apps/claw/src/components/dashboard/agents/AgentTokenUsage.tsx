@@ -151,7 +151,6 @@ export function AgentTokenUsage({
   if (trialOfferVisible) {
     return (
       <div
-        className={`rounded-[14px] border border-border bg-surface-low ${renderMobile ? "p-4" : "p-3"}`}
         data-testid="agent-token-usage-panel"
         data-token-usage-state={usage.state}
       >
