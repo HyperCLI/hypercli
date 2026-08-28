@@ -8,7 +8,20 @@ import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { AgentChannelSummary } from "@hypercli.com/sdk/channels";
 import { HostedSlackLaunchEnv } from "@hypercli.com/sdk/channels";
-import { Button, Input, Switch, writeClipboardText } from "@hypercli/shared-ui";
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogUI,
+  Button,
+  Input,
+  Switch,
+  writeClipboardText,
+} from "@hypercli/shared-ui";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { isAgentDeletable, isAgentOffline, isAgentStartable, isAgentStoppable, isAgentTransitionalState } from "@/app/dashboard/agents/types";
@@ -73,9 +86,11 @@ interface AgentSettingsPanelProps {
   onArchiveAgent?: () => void;
   onRestoreAgent?: () => void;
   onDeleteAgent?: () => void;
+  onEnableDesktopAndRestart?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<Agent>;
   onLogout?: () => void | Promise<void>;
   agentStarting?: boolean;
   agentStopping?: boolean;
+  agentRestarting?: boolean;
   agentArchiving?: boolean;
   agentRestoring?: boolean;
   agentDeleting?: boolean;
@@ -512,6 +527,19 @@ function getDesktopEnabled(agent: Agent | null): boolean {
   return hasDesktopRoute || Boolean(agent?.hasDesktop);
 }
 
+function hasReachedDesktopActivationSnapshot(
+  agent: Agent | null,
+  snapshot: Pick<Agent, "id" | "launchEpoch" | "updated_at">,
+): boolean {
+  if (!agent || agent.id !== snapshot.id) return true;
+  if (agent.launchEpoch !== snapshot.launchEpoch) return agent.launchEpoch > snapshot.launchEpoch;
+  const incomingUpdatedAt = Date.parse(agent.updated_at ?? "");
+  const activatedUpdatedAt = Date.parse(snapshot.updated_at ?? "");
+  if (!Number.isFinite(activatedUpdatedAt)) return true;
+  if (!Number.isFinite(incomingUpdatedAt)) return true;
+  return incomingUpdatedAt >= activatedUpdatedAt;
+}
+
 function getSlackEnabled(agent: Agent | null): boolean {
   return HostedSlackLaunchEnv.isEnabled(launchConfigEnv(agent));
 }
@@ -786,6 +814,57 @@ function AgentGeneralSettingsContent({
   );
 }
 
+function DesktopActivationDialog({
+  open,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <AlertDialogUI
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onCancel();
+      }}
+    >
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] gap-0 overflow-hidden rounded-3xl border-border bg-background p-0 shadow-[0_28px_90px_rgba(0,0,0,0.55)] sm:max-w-lg">
+        <AlertDialogCancel
+          aria-label="Close Desktop activation confirmation"
+          className="absolute right-4 top-4 size-8 rounded-lg border-0 bg-transparent p-0 text-text-muted shadow-none hover:bg-surface-high hover:text-foreground"
+        >
+          <X className="size-4" aria-hidden="true" />
+          <span className="sr-only">Close</span>
+        </AlertDialogCancel>
+        <div className="px-6 pb-7 pt-6 pr-14 sm:px-7 sm:pb-8 sm:pt-7 sm:pr-16">
+          <AlertDialogHeader className="gap-0 text-left">
+            <AlertDialogTitle className="text-xl font-semibold leading-7 tracking-[-0.02em] text-foreground sm:text-2xl">
+              Enable Desktop access?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="mt-3 text-sm leading-6 text-text-secondary sm:text-base">
+              Desktop access requires your agent to restart before it becomes available.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+        </div>
+        <AlertDialogFooter className="flex-row justify-end gap-2 border-t border-border bg-surface-low/50 px-5 py-4 sm:px-7">
+          <AlertDialogCancel className="h-10 flex-1 rounded-xl px-4 sm:flex-none">
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            data-testid="desktop-activation-confirm"
+            onClick={onConfirm}
+            className="h-10 flex-1 rounded-xl px-5 font-semibold sm:flex-none"
+          >
+            Enable and Restart
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialogUI>
+  );
+}
+
 function AgentSectionSettingsContent({
   agent,
   agentName,
@@ -828,6 +907,7 @@ function AgentSectionSettingsContent({
   onDeleteAgent,
   agentStarting,
   agentStopping,
+  agentRestarting,
   agentArchiving,
   agentRestoring,
   agentDeleting,
@@ -875,6 +955,7 @@ function AgentSectionSettingsContent({
   onDeleteAgent?: () => void;
   agentStarting?: boolean;
   agentStopping?: boolean;
+  agentRestarting?: boolean;
   agentArchiving?: boolean;
   agentRestoring?: boolean;
   agentDeleting?: boolean;
@@ -896,9 +977,12 @@ function AgentSectionSettingsContent({
   const archiving = Boolean(agentArchiving || agent.state === "ARCHIVING");
   const restoring = Boolean(agentRestoring || agent.state === "RESTORING");
   const stopping = Boolean(agentStopping || agent.state === "STOPPING");
+  const restarting = Boolean(agentRestarting);
   const starting = Boolean(agentStarting || (isAgentTransitionalState(agent.state) && !stopping));
-  const lifecycleBusy = Boolean(agentStarting || agentStopping || agentArchiving || agentRestoring || isAgentTransitionalState(agent.state));
-  const lifecycleDescription = archiving
+  const lifecycleBusy = Boolean(restarting || agentStarting || agentStopping || agentArchiving || agentRestoring || isAgentTransitionalState(agent.state));
+  const lifecycleDescription = restarting
+    ? "Agent is restarting"
+    : archiving
     ? "Agent is archiving"
     : restoring
       ? "Agent is restoring files"
@@ -922,11 +1006,26 @@ function AgentSectionSettingsContent({
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 text-left sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-6xl">
         <div className="mb-7 flex min-h-[72px] items-center justify-between gap-4 rounded-xl border border-border bg-surface-low p-4">
+          {restarting ? (
+            <span role="status" className="sr-only">Enabling Desktop access. Agent restarting.</span>
+          ) : null}
           <div className="min-w-0">
             <p className="text-sm font-semibold leading-5 text-foreground">Agent runtime</p>
             <p className="mt-1 text-sm leading-5 text-text-muted">{lifecycleDescription}</p>
           </div>
-          {archiving ? (
+          {restarting ? (
+            <button
+              type="button"
+              aria-label="Restarting agent"
+              aria-busy="true"
+              data-testid="agent-restart"
+              disabled
+              className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
+            >
+              Restarting...
+              <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            </button>
+          ) : archiving ? (
             <button
               type="button"
               aria-label="Archiving agent"
@@ -1111,6 +1210,8 @@ function AgentSectionSettingsContent({
               <Switch
                 checked={desktopEnabled}
                 onCheckedChange={onDesktopEnabledChange}
+                disabled={restarting}
+                aria-busy={restarting || undefined}
                 aria-label="Enable desktop route"
               />
             </div>
@@ -1480,9 +1581,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onArchiveAgent,
     onRestoreAgent,
     onDeleteAgent,
+    onEnableDesktopAndRestart,
     onLogout,
     agentStarting = false,
     agentStopping = false,
+    agentRestarting = false,
     agentArchiving = false,
     agentRestoring = false,
     agentDeleting = false,
@@ -1546,12 +1649,16 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentSettingsError, setAgentSettingsError] = React.useState<string | null>(null);
   const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
   const [confirmImageChange, setConfirmImageChange] = React.useState(false);
+  const [confirmDesktopActivation, setConfirmDesktopActivation] = React.useState(false);
+  const [desktopActivationPending, setDesktopActivationPending] = React.useState(false);
   const objectUrlsRef = React.useRef<string[]>([]);
   const profileLoadRequestRef = React.useRef(0);
   const profileAvatarMutationUserIdRef = React.useRef<string | null>(null);
   const profileAuthUserIdRef = React.useRef(user?.id ?? null);
   const syncedAgentSettingsIdRef = React.useRef(agent?.id ?? null);
   const syncedAgentAvatarRef = React.useRef(agentSettingsAvatar(agent));
+  const desktopActivationRequestRef = React.useRef(false);
+  const desktopActivationSnapshotRef = React.useRef<Pick<Agent, "id" | "launchEpoch" | "updated_at"> | null>(null);
   const authUserId = user?.id ?? null;
   const authProfileName = profileNameFromUser(user);
   const authProfileAvatar = profileAvatarFromUser(user);
@@ -1623,6 +1730,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     const nextAgentId = agent?.id ?? null;
     const agentChanged = syncedAgentSettingsIdRef.current !== nextAgentId;
     syncedAgentSettingsIdRef.current = nextAgentId;
+    if (agentChanged) {
+      desktopActivationRequestRef.current = false;
+      desktopActivationSnapshotRef.current = null;
+    }
     const nextName = agentSettingsName(agent);
     const nextDisplayName = agentSettingsDisplayName(agent);
     const nextHandle = agentSettingsHandle(agent);
@@ -1652,8 +1763,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setSavedAdditionalEnvDraft(nextAdditionalEnv);
     setManagedHyperEnvDraft((current) => agentChanged || current === savedManagedHyperEnvDraft ? nextManagedHyperEnv : current);
     setSavedManagedHyperEnvDraft(nextManagedHyperEnv);
-    setDesktopEnabledDraft((current) => agentChanged || current === savedDesktopEnabled ? nextDesktopEnabled : current);
-    setSavedDesktopEnabled(nextDesktopEnabled);
+    const activationSnapshot = desktopActivationSnapshotRef.current;
+    const reachedActivationSnapshot = !activationSnapshot || hasReachedDesktopActivationSnapshot(agent, activationSnapshot);
+    if (!desktopActivationPending && reachedActivationSnapshot) {
+      desktopActivationSnapshotRef.current = null;
+      setDesktopEnabledDraft((current) => agentChanged || current === savedDesktopEnabled ? nextDesktopEnabled : current);
+      setSavedDesktopEnabled(nextDesktopEnabled);
+    }
     setSlackEnabledDraft((current) => agentChanged || current === savedSlackEnabled ? nextSlackEnabled : current);
     setSavedSlackEnabled(nextSlackEnabled);
     setWorkspacesSyncDraft((current) => (
@@ -1671,8 +1787,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       setAgentSettingsError(null);
       setAgentSettingsSuccess(null);
       setConfirmImageChange(false);
+      setConfirmDesktopActivation(false);
+      setDesktopActivationPending(false);
     }
-  }, [agent, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedManagedHyperEnvDraft, savedSlackEnabled, savedWorkspacesSyncDraft]);
+  }, [agent, desktopActivationPending, savedAdditionalEnvDraft, savedAgentAvatar, savedAgentDisplayName, savedAgentHandle, savedAgentImage, savedAgentName, savedDesktopEnabled, savedManagedHyperEnvDraft, savedSlackEnabled, savedWorkspacesSyncDraft]);
 
   React.useEffect(() => {
     const nextModel = getOpenClawDefaultModel(openclawConfig);
@@ -1722,6 +1840,8 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const memoryIndexChanged = !memoryIndexSettingsEqual(memoryIndexDraft, savedMemoryIndexDraft);
   const agentChanged = agentProfileChanged || agentLaunchChanged || modelChanged || memoryIndexChanged;
   const hasSettingsChanges = profileChanged || agentChanged;
+  const desktopRestarting = desktopActivationPending || agentRestarting;
+  const settingsMutationPending = profileSaving || desktopRestarting;
   const configuredChannelIds = React.useMemo(() => Array.from(new Set(
     reportedChannels
       .filter((channel) => channel.configured)
@@ -2047,6 +2167,77 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     workspacesSyncDraft,
   ]);
 
+  const handleDesktopEnabledChange = React.useCallback((enabled: boolean) => {
+    if (
+      !enabled
+      || savedDesktopEnabled
+      || agent?.state !== "RUNNING"
+      || !onEnableDesktopAndRestart
+    ) {
+      setDesktopEnabledDraft(enabled);
+      return;
+    }
+    if (desktopRestarting) return;
+    if (onRequestProductUse && !onRequestProductUse()) return;
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
+    setConfirmDesktopActivation(true);
+  }, [agent?.state, desktopRestarting, onEnableDesktopAndRestart, onRequestProductUse, savedDesktopEnabled]);
+
+  const enableDesktopAndRestart = React.useCallback(async () => {
+    if (!agent || !onEnableDesktopAndRestart || desktopActivationRequestRef.current) return;
+
+    const image = savedAgentImage.trim();
+    if (!image) {
+      setConfirmDesktopActivation(false);
+      setAgentSettingsError("Docker image is required before Desktop access can be enabled.");
+      return;
+    }
+
+    desktopActivationRequestRef.current = true;
+    setConfirmDesktopActivation(false);
+    setDesktopActivationPending(true);
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
+    try {
+      const launchConfig = buildUpdatedLaunchConfig(
+        agent,
+        image,
+        savedAdditionalEnvDraft,
+        savedManagedHyperEnvDraft,
+        true,
+        savedSlackEnabled,
+        savedWorkspacesSyncDraft,
+        false,
+      );
+      const restartedAgent = await onEnableDesktopAndRestart(agent.id, launchConfig);
+      if (!getDesktopEnabled(restartedAgent)) {
+        throw new Error("The agent restarted, but Desktop access did not become available.");
+      }
+      desktopActivationSnapshotRef.current = {
+        id: restartedAgent.id,
+        launchEpoch: restartedAgent.launchEpoch,
+        updated_at: restartedAgent.updated_at,
+      };
+      setDesktopEnabledDraft(true);
+      setSavedDesktopEnabled(true);
+      setAgentSettingsSuccess("Desktop access enabled.");
+    } catch (error) {
+      setAgentSettingsError(error instanceof Error ? error.message : "Desktop access could not be enabled.");
+    } finally {
+      desktopActivationRequestRef.current = false;
+      setDesktopActivationPending(false);
+    }
+  }, [
+    agent,
+    onEnableDesktopAndRestart,
+    savedAdditionalEnvDraft,
+    savedAgentImage,
+    savedManagedHyperEnvDraft,
+    savedSlackEnabled,
+    savedWorkspacesSyncDraft,
+  ]);
+
   const handleAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -2171,7 +2362,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             managedHyperEnvDraft={managedHyperEnvDraft}
             onManagedHyperEnvChange={setManagedHyperEnvDraft}
             desktopEnabled={desktopEnabledDraft}
-            onDesktopEnabledChange={setDesktopEnabledDraft}
+            onDesktopEnabledChange={handleDesktopEnabledChange}
             slackEnabled={slackEnabledDraft}
             onSlackEnabledChange={setSlackEnabledDraft}
             workspacesSync={workspacesSyncDraft}
@@ -2191,6 +2382,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onDeleteAgent={onDeleteAgent}
             agentStarting={agentStarting}
             agentStopping={agentStopping}
+            agentRestarting={desktopRestarting}
             agentArchiving={agentArchiving}
             agentRestoring={agentRestoring}
             agentDeleting={agentDeleting}
@@ -2217,7 +2409,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             <button
               type="button"
               onClick={discardProfileChanges}
-              disabled={!hasSettingsChanges || profileSaving}
+              disabled={!hasSettingsChanges || settingsMutationPending}
               className="h-9 rounded-lg border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-50"
             >
               Discard
@@ -2225,7 +2417,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             <button
               type="button"
               onClick={() => { void saveProfileChanges(); }}
-              disabled={!hasSettingsChanges || profileSaving}
+              disabled={!hasSettingsChanges || settingsMutationPending}
               className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--button-primary)] px-3.5 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {profileSaving ? "Saving..." : "Save changes"}
@@ -2233,6 +2425,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           </div>
         </footer>
       </div>
+      <DesktopActivationDialog
+        open={confirmDesktopActivation}
+        onCancel={() => setConfirmDesktopActivation(false)}
+        onConfirm={() => { void enableDesktopAndRestart(); }}
+      />
       <ConfirmDialog
         open={confirmImageChange}
         title="Remove channels and change image?"

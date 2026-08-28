@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeferredValue, useState, type Ref } from "react";
-import { Archive, Loader2, Trash2 } from "lucide-react";
+import { Archive, LayoutGrid, List, Loader2, Trash2 } from "lucide-react";
 import {
   Alert,
   AlertDescription,
@@ -125,7 +125,7 @@ export function SettingsAgentSelector({
       className="h-full overflow-y-auto bg-background px-4 py-6 text-left text-foreground sm:px-6 lg:px-8"
     >
       <div className="mx-auto flex min-h-full w-full max-w-[96rem] flex-col">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-3">
           <Input
             ref={filterInputRef}
             type="search"
@@ -134,7 +134,7 @@ export function SettingsAgentSelector({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             disabled={waitingForAgents}
-            className="h-11 w-full max-w-lg rounded-xl bg-background px-4 text-base md:text-sm"
+            className="h-11 min-w-0 flex-1 max-w-lg rounded-xl bg-background px-4 text-base md:text-sm"
           />
           <ToggleGroup
             type="single"
@@ -142,16 +142,25 @@ export function SettingsAgentSelector({
             onValueChange={(value) => {
               if (value === "grid" || value === "rows") setLayout(value);
             }}
-            variant="outline"
-            size="lg"
+            size="sm"
             aria-label="Agent layout"
-            className="w-full sm:w-auto"
+            className="h-9 w-fit shrink-0 rounded-lg border border-border bg-surface-low/50 p-0.5 shadow-none"
           >
-            <ToggleGroupItem value="grid" aria-label="Grid view" className="flex-1 px-4 sm:flex-none">
-              Grid
+            <ToggleGroupItem
+              value="grid"
+              aria-label="Grid view"
+              title="Grid view"
+              className="size-8 flex-none rounded-md border-0 px-0 text-text-muted hover:bg-surface-high/70 hover:text-foreground data-[state=on]:bg-surface-high data-[state=on]:text-foreground first:rounded-md last:rounded-md"
+            >
+              <LayoutGrid className="size-3.5" aria-hidden="true" />
             </ToggleGroupItem>
-            <ToggleGroupItem value="rows" aria-label="Rows view" className="flex-1 px-4 sm:flex-none">
-              Rows
+            <ToggleGroupItem
+              value="rows"
+              aria-label="Rows view"
+              title="Rows view"
+              className="size-8 flex-none rounded-md border-0 px-0 text-text-muted hover:bg-surface-high/70 hover:text-foreground data-[state=on]:bg-surface-high data-[state=on]:text-foreground first:rounded-md last:rounded-md"
+            >
+              <List className="size-3.5" aria-hidden="true" />
             </ToggleGroupItem>
           </ToggleGroup>
         </div>

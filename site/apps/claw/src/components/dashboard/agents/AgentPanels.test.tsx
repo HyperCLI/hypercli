@@ -89,7 +89,8 @@ vi.mock("./FirstAgentSetupWizard", () => {
   };
 });
 
-vi.mock("@hypercli/shared-ui", () => ({
+vi.mock("@hypercli/shared-ui", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@hypercli/shared-ui")>()),
   Button: ({ children, asChild, ...props }: ComponentProps<"button"> & { asChild?: boolean }) => (
     asChild ? <>{children}</> : <button {...props}>{children}</button>
   ),
@@ -99,12 +100,17 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
   ThemeSelector: () => <div>Theme</div>,
-  Switch: ({ checked, onCheckedChange, "aria-label": ariaLabel }: {
+  Switch: ({ checked, onCheckedChange, ...props }: ComponentProps<"button"> & {
     checked: boolean;
     onCheckedChange: (checked: boolean) => void;
-    "aria-label"?: string;
   }) => (
-    <button type="button" role="switch" aria-label={ariaLabel} aria-checked={checked} onClick={() => onCheckedChange(!checked)} />
+    <button
+      {...props}
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onCheckedChange(!checked)}
+    />
   ),
   ConfirmDialog: ({
     open,
@@ -2445,6 +2451,160 @@ describe("AgentSettingsPanel", () => {
     expect(restoreButton).toHaveTextContent("Restoring...");
     expect(screen.getByText("Agent is restoring files")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Stop agent" })).not.toBeInTheDocument();
+  });
+
+  it("confirms Desktop activation and shows one restarting lifecycle action", async () => {
+    let finishRestart: (() => void) | null = null;
+    const activatedAgent: Agent = {
+      ...agent,
+      launchEpoch: 1,
+      updated_at: "2026-05-05T00:01:00Z",
+      launchConfig: {
+        ...agent.launchConfig,
+        env: {
+          ...(agent.launchConfig?.env as Record<string, string>),
+          OPENCLAW_DESKTOP_ENABLED: "1",
+        },
+        routes: {
+          ...(agent.launchConfig?.routes as Record<string, unknown>),
+          desktop: { port: 3000, auth: true, prefix: "desktop" },
+        },
+      },
+    };
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    const onEnableDesktopAndRestart = vi.fn(() => new Promise<Agent>((resolve) => {
+      finishRestart = () => resolve(activatedAgent);
+    }));
+    const { props, rerender } = renderAgentSettingsPanel({ onEnableDesktopAndRestart, onUpdateAgentLaunchConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const desktopSwitch = screen.getByRole("switch", { name: "Enable desktop route" });
+    expect(desktopSwitch).not.toBeChecked();
+
+    fireEvent.click(desktopSwitch);
+    expect(screen.getByRole("alertdialog", { name: "Enable Desktop access?" })).toBeInTheDocument();
+    expect(screen.getByText("Desktop access requires your agent to restart before it becomes available.")).toBeInTheDocument();
+    expect(desktopSwitch).not.toBeChecked();
+    expect(onEnableDesktopAndRestart).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alertdialog", { name: "Enable Desktop access?" })).not.toBeInTheDocument();
+    expect(desktopSwitch).not.toBeChecked();
+
+    fireEvent.click(desktopSwitch);
+    const confirmButton = screen.getByRole("button", { name: "Enable and Restart" });
+    act(() => {
+      confirmButton.click();
+      confirmButton.click();
+    });
+
+    await waitFor(() => expect(onEnableDesktopAndRestart).toHaveBeenCalledOnce());
+    expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
+    expect(onEnableDesktopAndRestart).toHaveBeenCalledWith("agent-1", expect.objectContaining({
+      env: expect.objectContaining({ OPENCLAW_DESKTOP_ENABLED: "1" }),
+      routes: expect.objectContaining({
+        desktop: { port: 3000, auth: true, prefix: "desktop" },
+      }),
+    }));
+    const restartingButton = screen.getByRole("button", { name: "Restarting agent" });
+    expect(restartingButton).toBeDisabled();
+    expect(restartingButton).toHaveAttribute("aria-busy", "true");
+    expect(restartingButton).toHaveTextContent("Restarting...");
+    expect(screen.getByText("Agent is restarting")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Enabling Desktop access. Agent restarting.");
+    expect(screen.queryByRole("button", { name: "Stop agent" })).not.toBeInTheDocument();
+    expect(desktopSwitch).toBeDisabled();
+    expect(desktopSwitch).not.toBeChecked();
+
+    await act(async () => finishRestart?.());
+
+    await waitFor(() => expect(desktopSwitch).toBeChecked());
+    expect(screen.getByText("Desktop access enabled.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restarting agent" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+
+    rerender(<AgentSettingsPanel {...props} agent={{
+      ...agent,
+      launchEpoch: 2,
+      updated_at: "2026-05-05T00:02:00Z",
+    }} />);
+
+    await waitFor(() => expect(desktopSwitch).not.toBeChecked());
+  });
+
+  it("does not report Desktop activation when the restarted snapshot remains disabled", async () => {
+    const onEnableDesktopAndRestart = vi.fn(async (): Promise<Agent> => ({
+      ...agent,
+      launchEpoch: 1,
+      updated_at: "2026-05-05T00:01:00Z",
+    }));
+    renderAgentSettingsPanel({ onEnableDesktopAndRestart });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const desktopSwitch = screen.getByRole("switch", { name: "Enable desktop route" });
+    fireEvent.click(desktopSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Enable and Restart" }));
+
+    expect(await screen.findByText("The agent restarted, but Desktop access did not become available.")).toBeInTheDocument();
+    expect(desktopSwitch).not.toBeChecked();
+    expect(screen.queryByText("Desktop access enabled.")).not.toBeInTheDocument();
+  });
+
+  it("reflects persisted Desktop config when restart fails after the update", async () => {
+    const desktopEnabledAgent: Agent = {
+      ...agent,
+      state: "STOPPED",
+      updated_at: "2026-05-05T00:01:00Z",
+      launchConfig: {
+        ...agent.launchConfig,
+        env: {
+          ...(agent.launchConfig?.env as Record<string, string>),
+          OPENCLAW_DESKTOP_ENABLED: "1",
+        },
+        routes: {
+          ...(agent.launchConfig?.routes as Record<string, unknown>),
+          desktop: { port: 3000, auth: true, prefix: "desktop" },
+        },
+      },
+    };
+    let rerenderPanel!: ReturnType<typeof renderAgentSettingsPanel>["rerender"];
+    let panelProps!: ComponentProps<typeof AgentSettingsPanel>;
+    const onEnableDesktopAndRestart = vi.fn(async (): Promise<Agent> => {
+      rerenderPanel(<AgentSettingsPanel {...panelProps} agent={desktopEnabledAgent} />);
+      throw new Error("Desktop access was enabled, but the agent could not restart.");
+    });
+    const rendered = renderAgentSettingsPanel({ onEnableDesktopAndRestart });
+    rerenderPanel = rendered.rerender;
+    panelProps = rendered.props;
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const desktopSwitch = screen.getByRole("switch", { name: "Enable desktop route" });
+    fireEvent.click(desktopSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Enable and Restart" }));
+
+    expect(await screen.findByText("Desktop access was enabled, but the agent could not restart.")).toBeInTheDocument();
+    await waitFor(() => expect(desktopSwitch).toBeChecked());
+  });
+
+  it("keeps stopped-agent Desktop changes in the normal save flow", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    const onEnableDesktopAndRestart = vi.fn(async (): Promise<Agent> => agent);
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "STOPPED" },
+      onEnableDesktopAndRestart,
+      onUpdateAgentLaunchConfig,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const desktopSwitch = screen.getByRole("switch", { name: "Enable desktop route" });
+    fireEvent.click(desktopSwitch);
+
+    expect(screen.queryByRole("alertdialog", { name: "Enable Desktop access?" })).not.toBeInTheDocument();
+    expect(desktopSwitch).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onUpdateAgentLaunchConfig).toHaveBeenCalledOnce());
+    expect(onEnableDesktopAndRestart).not.toHaveBeenCalled();
   });
 
   it("saves desktop and workspace launch settings as managed config", async () => {

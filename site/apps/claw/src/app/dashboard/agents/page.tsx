@@ -1294,8 +1294,10 @@ function AgentsPageContent() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [restartingId, setRestartingId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const desktopRestartOperationRef = useRef<object | null>(null);
   const launchLifecycleActionIdsRef = useRef<Set<string>>(new Set());
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
   const [recentlyStoppedIds, setRecentlyStoppedIds] = useState<Set<string>>(new Set());
@@ -1770,6 +1772,8 @@ function AgentsPageContent() {
     setDeletingId(null);
     setStartingId(null);
     setStoppingId(null);
+    setRestartingId(null);
+    desktopRestartOperationRef.current = null;
     setArchivingId(null);
     setRestoringId(null);
     setOpeningDesktopId(null);
@@ -4864,6 +4868,97 @@ function AgentsPageContent() {
     [handleResizeAndStart, selectedAgent, selectedAgentStartGuidance],
   );
 
+  const handleEnableDesktopAndRestart = async (
+    agentId: string,
+    launchConfig: Record<string, unknown>,
+  ) => {
+    const generation = agentDataGenerationRef.current;
+    const restartOperation = {};
+    let launchConfigUpdated = false;
+    desktopRestartOperationRef.current = restartOperation;
+    setRestartingId(agentId);
+    setError(null);
+
+    const assertRestartActive = () => {
+      if (generation !== agentDataGenerationRef.current) {
+        throw new Error("Account changed during Desktop activation.");
+      }
+      if (deletingAgentIdsRef.current.has(agentId)) {
+        throw new Error("The agent is being deleted.");
+      }
+    };
+
+    try {
+      if (agentId === selectedAgentId) {
+        await endTemporaryChatBeforeSelectionRef.current();
+        assertRestartActive();
+      }
+
+      const restartedAgent = await runAgentMutation(agentId, async () => {
+        assertRestartActive();
+        const token = await getToken();
+        assertRestartActive();
+        const client = createAgentClient(token);
+        const currentAgent = await client.get(agentId);
+        assertRestartActive();
+        applyAgentMutationResult(currentAgent);
+        if (currentAgent.state.toUpperCase() !== "RUNNING") {
+          throw new Error("The agent must be running to enable Desktop access immediately.");
+        }
+
+        const updatedAgent = await client.update(agentId, { launchConfig });
+        launchConfigUpdated = true;
+        assertRestartActive();
+        applyAgentMutationResult(updatedAgent);
+
+        const stoppedAgent = await stopAgent(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+          }
+        });
+        assertRestartActive();
+        applyAgentMutationResult(stoppedAgent);
+        invalidateAgentCapacity();
+        if (stoppedAgent.state.toUpperCase() !== "STOPPED") {
+          throw new Error(`The agent reached ${stoppedAgent.state.toLowerCase()} instead of stopping.`);
+        }
+
+        const acceptedAgent = await requestAgentStart(token, agentId, (accepted) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(accepted);
+            invalidateAgentCapacity();
+          }
+        }, (observed) => {
+          if (generation === agentDataGenerationRef.current && !deletingAgentIdsRef.current.has(agentId)) {
+            applyAgentMutationResult(observed);
+          }
+        });
+        assertRestartActive();
+        return waitForAgentRunning(acceptedAgent);
+      });
+
+      assertRestartActive();
+      applyAgentMutationResult(restartedAgent);
+      invalidateAgentCapacity();
+      return toAgentViewModel(restartedAgent);
+    } catch (restartError) {
+      const detail = restartError instanceof Error ? restartError.message : "The agent could not restart.";
+      const message = launchConfigUpdated
+        ? isAgentCleanupConflictError(restartError)
+          ? "Desktop access was enabled, but the agent is still finishing shutdown. Start it again shortly."
+          : `Desktop access was enabled, but the agent could not restart. ${detail}`
+        : detail;
+      if (isAgentCleanupConflictError(restartError)) markAgentCleanupCooldown(agentId);
+      if (generation === agentDataGenerationRef.current) setError(message);
+      throw new Error(message);
+    } finally {
+      if (desktopRestartOperationRef.current === restartOperation) {
+        desktopRestartOperationRef.current = null;
+        setRestartingId((current) => current === agentId ? null : current);
+      }
+    }
+  };
+
   const handleStop = async (agentId: string) => {
     const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
     const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
@@ -6487,9 +6582,11 @@ function AgentsPageContent() {
         setPendingAgentDelete({ id: selectedAgent.id, name: agentDisplayLabel(selectedAgent) });
       }
     },
+    onEnableDesktopAndRestart: handleEnableDesktopAndRestart,
     onLogout: logout,
     agentStarting: selectedAgentStarting,
     agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
+    agentRestarting: Boolean(selectedAgent && restartingId === selectedAgent.id),
     agentArchiving: Boolean(selectedAgent && archivingId === selectedAgent.id),
     agentRestoring: Boolean(selectedAgent && restoringId === selectedAgent.id),
     agentDeleting: Boolean(selectedAgent && deletingId === selectedAgent.id),
