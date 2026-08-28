@@ -587,8 +587,11 @@ def _inject_openclaw_gateway_token(
 ) -> tuple[dict[str, Any], dict[str, Any], str | None]:
     env_map: dict[str, Any] = dict(env or {})
     secret_map: dict[str, Any] = dict(secret_env or {})
-    if "OPENCLAW_GATEWAY_TOKEN" in env_map:
-        raise ValueError("OPENCLAW_GATEWAY_TOKEN must be supplied through secrets or gateway_token")
+    env_secret_keys = sorted(OPENCLAW_SECRET_ONLY_ENV_KEYS.intersection(env_map.keys()))
+    if env_secret_keys:
+        raise ValueError(
+            ", ".join(env_secret_keys) + " must be supplied through secrets, not env"
+        )
     stored_token = str(secret_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
     explicit_token = str(gateway_token).strip() if gateway_token is not None else ""
     if gateway_token is not None and not explicit_token:
@@ -601,22 +604,6 @@ def _inject_openclaw_gateway_token(
     if effective_token:
         secret_map["OPENCLAW_GATEWAY_TOKEN"] = effective_token
     return env_map, secret_map, effective_token or None
-
-
-def _build_openclaw_runtime_config(
-    config: dict | None,
-    heartbeat: dict | None,
-) -> dict:
-    prepared = copy.deepcopy(config or {})
-    if heartbeat:
-        agents_config = dict(prepared.get("agents") or {})
-        defaults_config = dict(agents_config.get("defaults") or {})
-        heartbeat_config = dict(defaults_config.get("heartbeat") or {})
-        heartbeat_config.update(dict(heartbeat))
-        defaults_config["heartbeat"] = heartbeat_config
-        agents_config["defaults"] = defaults_config
-        prepared["agents"] = agents_config
-    return prepared
 
 
 def _resolve_openclaw_routes(
@@ -814,9 +801,18 @@ def _default_agents_ws_url(api_base: str) -> str:
 
 
 MAX_SYNC_OWNER_ID = 4_294_967_294
+OPENCLAW_SECRET_ONLY_ENV_KEYS = frozenset(
+    {
+        "OPENCLAW_GATEWAY_TOKEN",
+        "SLACK_BOT_TOKEN",
+        "SLACK_APP_TOKEN",
+        "SLACK_USER_TOKEN",
+        "SLACK_SIGNING_SECRET",
+        "SLACK_RELAY_AUTH_TOKEN",
+    }
+)
 REQUIRED_START_LAUNCH_CONFIG_KEYS = frozenset(
     {
-        "config",
         "image",
         "env",
         "secrets",
@@ -899,7 +895,6 @@ def _build_agent_launch(
         )
 
     complete_launch: dict[str, Any] = {
-        "config": prepared_config,
         "image": image,
         "env": env_map,
         "secrets": secret_map or {},
@@ -2908,19 +2903,13 @@ class OpenClawAgent(Agent):
         *,
         account_id: str | None = None,
     ) -> dict:
-        def mutate(config: dict) -> None:
-            channels = config.setdefault("channels", {})
-            current = dict(channels.get(channel_id) or {})
-            if account_id:
-                accounts = dict(current.get("accounts") or {})
-                current_account = dict(accounts.get(account_id) or {})
-                accounts[account_id] = _deep_merge_config(current_account, channel_config)
-                current["accounts"] = accounts
-                channels[channel_id] = current
-                return
-            channels[channel_id] = _deep_merge_config(current, channel_config)
-
-        config = await self._config_with_mutation(mutate)
+        if account_id:
+            await self.config_patch({"channels": {channel_id: {"accounts": {account_id: None}}}})
+            await self.config_patch({"channels": {channel_id: {"accounts": {account_id: channel_config}}}})
+        else:
+            await self.config_patch({"channels": {channel_id: None}})
+            await self.config_patch({"channels": {channel_id: channel_config}})
+        config = await self.config_get()
         channel = (config.get("channels") or {}).get(channel_id) or {}
         if account_id:
             return (channel.get("accounts") or {}).get(account_id) or {}
@@ -3546,7 +3535,6 @@ class Deployments:
         name: str = None,
         handle: str = None,
         size: str = None,
-        config: dict = None,
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
@@ -3563,7 +3551,6 @@ class Deployments:
         registry_auth: dict = None,
         runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
-        heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
@@ -3598,7 +3585,6 @@ class Deployments:
             handle=handle,
             size=size,
             runtime=runtime,
-            config=_build_openclaw_runtime_config(config, heartbeat),
             tags=tags,
             env=effective_env,
             secrets=secret_map,
@@ -3630,7 +3616,6 @@ class Deployments:
         name: str = None,
         handle: str = None,
         size: str = None,
-        config: dict = None,
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
@@ -3710,7 +3695,6 @@ class Deployments:
         name: str = None,
         handle: str = None,
         size: str = None,
-        config: dict = None,
         tags: list[str] = None,
         env: dict = None,
         secrets: dict = None,
@@ -3727,7 +3711,6 @@ class Deployments:
         registry_auth: dict = None,
         runtime_scopes: list[str] | None = None,
         gateway_token: str = None,
-        heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
@@ -3741,7 +3724,6 @@ class Deployments:
             name=name,
             handle=handle,
             size=size,
-            config=config,
             tags=tags,
             env=effective_env,
             secrets=secrets,
@@ -3760,7 +3742,6 @@ class Deployments:
                 list(DEFAULT_AGENT_RUNTIME_SCOPES) if runtime_scopes is None else runtime_scopes
             ),
             gateway_token=gateway_token,
-            heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
             openclaw_routes=openclaw_routes,
@@ -4054,9 +4035,9 @@ class Deployments:
     ) -> dict:
         """Attach an agent to the hosted HyperCLI Slack relay.
 
-        The relay verifies the caller's Slack install and persists the OpenClaw
-        Slack relay launch config on the backend. Running agents still need a
-        restart before OpenClaw reads the updated channel config.
+        The relay verifies the caller's Slack install and persists the hosted
+        Slack launch env on the backend. Running agents still need a restart
+        before OpenClaw reads the boot-time relay settings.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id_or_name)
         relay_base = _normalize_slack_relay_base_url(relay_base_url)
@@ -4077,7 +4058,10 @@ class Deployments:
             except Exception:
                 detail = resp.text
             raise APIError(resp.status_code, detail)
-        return resp.json()
+        result = resp.json()
+        if isinstance(result, dict):
+            result.pop("config", None)
+        return result
 
     def list_slack_directory_conversations(
         self,
@@ -4454,11 +4438,11 @@ class Deployments:
         prior Agent snapshot or asks the Backend to inherit omitted fields.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        body: dict[str, Any] = {
-            "launch_config": _copy_complete_launch_config(
-                self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
-            )
-        }
+        prepared = _copy_complete_launch_config(
+            self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
+        )
+        prepared.pop("config", None)
+        body: dict[str, Any] = {"launch_config": prepared}
         if dry_run:
             body["dry_run"] = True
         data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
@@ -4517,6 +4501,7 @@ class Deployments:
             self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
         )
         prepared = _repair_openclaw_start_launch_config(prepared, desktop=_desktop)
+        prepared.pop("config", None)
         effective_env, effective_secrets, effective_gateway_token = _inject_openclaw_gateway_token(
             prepared.get("env"),
             prepared.get("secrets"),

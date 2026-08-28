@@ -3,7 +3,7 @@
 import React from "react";
 import { AlertTriangle, ArrowRight, Cable, Loader2, MessageSquare, Plus, RefreshCw } from "lucide-react";
 import { getSlackInstallStatus, startSlackOAuth, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import { configureHostedSlackRelayChannel, type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
+import { type AgentChannel, type AgentChannelSummary, type AgentChannelsProvider, type AgentChannelsSnapshot } from "@hypercli.com/sdk/channels";
 import type { AgentConnectorDescriptor, AgentConnectorsProvider } from "@hypercli.com/sdk/connectors";
 import { Button, CatalogFilterButton, CatalogFilterGroup, CatalogHeader } from "@hypercli/shared-ui";
 
@@ -52,6 +52,7 @@ interface IntegrationsDirectoryPanelProps {
   agentId?: string | null;
   agentName?: string | null;
   agentPublicUrl?: string | null;
+  agentLaunchConfig?: unknown;
   gatewaySession: AgentGatewaySession;
   channelsProvider: AgentChannelsProvider | null;
   reportedChannels?: AgentChannelSummary[];
@@ -65,6 +66,16 @@ interface IntegrationsDirectoryPanelProps {
   onChannelProbe: () => Promise<Record<string, unknown>>;
   onOpenShell: () => void;
   onRequestProductUse?: () => boolean;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hostedSlackRelayEnabledFromLaunchConfig(launchConfig: unknown): boolean {
+  if (!isRecord(launchConfig) || !isRecord(launchConfig.env)) return false;
+  const value = String(launchConfig.env.HYPER_SLACK_APP_ENABLED ?? "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
 interface IntegrationTile {
@@ -445,6 +456,7 @@ export function IntegrationsDirectoryPanel({
   agentId,
   agentName,
   agentPublicUrl,
+  agentLaunchConfig,
   gatewaySession,
   channelsProvider,
   reportedChannels = [],
@@ -601,6 +613,7 @@ export function IntegrationsDirectoryPanel({
     } satisfies IntegrationTile;
   }, [selectedChannelId, tiles]);
   const selectedIsSlackRelaySetup = selectedChannelId === "slack" && Boolean(SLACK_RELAY_BASE_URL);
+  const hostedSlackRelayEnabled = hostedSlackRelayEnabledFromLaunchConfig(agentLaunchConfig);
 
   const prepareSlackSupport = React.useCallback(async () => {
     if (onRequestProductUse && !onRequestProductUse()) return;
@@ -697,36 +710,34 @@ export function IntegrationsDirectoryPanel({
       dispatchSlackRelay({ type: "configure-error", error: "Agent identity is unavailable." });
       return;
     }
-    if (!channelsProvider?.configure) {
-      dispatchSlackRelay({ type: "configure-error", error: "Agent gateway configuration is unavailable." });
-      return;
-    }
     const operationId = slackRelayOperationRef.current + 1;
     slackRelayOperationRef.current = operationId;
     dispatchSlackRelay({ type: "configure-start" });
     try {
-      const result = await configureHostedSlackRelayChannel({
-        relayBaseUrl: SLACK_RELAY_BASE_URL,
-        token: await getToken(),
-        agentId,
-        channelsProvider,
-        checkInstallStatus: getSlackInstallStatus,
-      });
+      const status = await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: await getToken() });
+      if (!status.connected) throw new Error("Connect Slack before using the hosted app.");
       if (slackRelayOperationRef.current !== operationId) return;
+      if (!hostedSlackRelayEnabled) {
+        dispatchSlackRelay({
+          type: "configure-error",
+          error: "Enable hosted Slack in agent settings so the runtime starts with relay env.",
+        });
+        return;
+      }
       dispatchSlackRelay({
         type: "configure-success",
-        installStatus: result.status,
+        installStatus: status,
       });
       if (onRefreshChannels) await onRefreshChannels(true);
       else await refreshIntegrations();
     } catch {
       if (slackRelayOperationRef.current !== operationId) return;
-      dispatchSlackRelay({ type: "configure-error", error: "Slack is authorized but was not attached to this agent. Retry attaching it." });
+      dispatchSlackRelay({ type: "configure-error", error: "Slack is authorized but was not attached to this agent. Enable hosted Slack in agent settings so the runtime starts with relay env." });
     }
   }, [
     agentId,
-    channelsProvider,
     getToken,
+    hostedSlackRelayEnabled,
     onRefreshChannels,
     refreshIntegrations,
   ]);
@@ -885,6 +896,7 @@ export function IntegrationsDirectoryPanel({
               }}
               onOpenPairing={selectedTile.id === "whatsapp" ? onOpenShell : undefined}
               slackPublicBaseUrl={selectedTile.id === "slack" ? agentPublicUrl ?? undefined : undefined}
+              hostedSlackRelayEnabled={selectedTile.id === "slack" ? hostedSlackRelayEnabled : false}
               onRequestProductUse={onRequestProductUse}
             />
           </div>

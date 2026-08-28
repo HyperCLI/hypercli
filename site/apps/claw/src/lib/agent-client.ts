@@ -5,11 +5,9 @@ import { Deployments, getSlackInstallStatus } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { WorkspacesAPI } from "@hypercli.com/sdk/workspaces";
 import { API_BASE_URL, PRODUCT_API_BASE_URL, SLACK_RELAY_BASE_URL } from "./api";
-import { debugFlow } from "./debug-flow";
 import { generateAgentName, isGeneratedAgentName } from "./agent-name";
 import { getHermesDefaultImage } from "./hermes-launch";
 import {
-  controlUiAllowedOriginsFromLaunchConfig,
   currentControlUiOrigin,
   parseControlUiAllowedOrigins,
 } from "./control-ui-origin";
@@ -46,7 +44,6 @@ const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
 const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 const HERMES_CORS_ORIGINS_ENV = "API_SERVER_CORS_ORIGINS";
 const REQUIRED_START_LAUNCH_KEYS = [
-  "config",
   "image",
   "env",
   "routes",
@@ -103,18 +100,7 @@ function cloneStoredStartLaunchConfig(agent: SdkAgent, runtimeLabel: string): Ag
 
 function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string): AgentLaunchConfig {
   const launchConfig = cloneStoredStartLaunchConfig(agent, "OpenClaw") as unknown as Record<string, unknown>;
-  // Hosted contract: nested OpenClaw config never replays into START. Agents
-  // created while the frontend coupled starter files to a partial
-  // { agents: { defaults: ... } } config carry that partial shape in their
-  // stored launch config, and replaying it materializes an openclaw.json that
-  // blocks gateway startup (missing gateway.mode). The image owns config.
-  if (isRecord(launchConfig.config)) {
-    debugFlow("agent-client", "dropping stored nested OpenClaw config from start replay", {
-      agentId: agent.id ?? null,
-      keys: Object.keys(launchConfig.config).slice(0, 8),
-    });
-  }
-  launchConfig.config = {};
+  delete launchConfig.config;
   launchConfig.env = {
     ...(isRecord(launchConfig.env) ? launchConfig.env : {}),
     [CONTROL_UI_ALLOWED_ORIGIN_ENV]: controlUiOrigin,
@@ -317,41 +303,6 @@ function configuredUiOriginLock(): boolean {
   return true;
 }
 
-function configAllowedOrigins(config: unknown): string[] {
-  return controlUiAllowedOriginsFromLaunchConfig({ config });
-}
-
-function stripConfigAllowedOrigins(config: unknown): Record<string, unknown> {
-  const next = isRecord(config) ? cloneRecord(config) : {};
-  if (!isRecord(next.gateway)) return next;
-
-  const gateway = cloneRecord(next.gateway);
-  if (!isRecord(gateway.controlUi)) return next;
-
-  const controlUi = cloneRecord(gateway.controlUi);
-  delete controlUi.allowedOrigins;
-
-  if (Object.keys(controlUi).length > 0) {
-    gateway.controlUi = controlUi;
-  } else {
-    delete gateway.controlUi;
-  }
-
-  if (Object.keys(gateway).length > 0) {
-    next.gateway = gateway;
-  } else {
-    delete next.gateway;
-  }
-
-  return next;
-}
-
-function hasSelfHostedSlackConfig(slack: Record<string, unknown>): boolean {
-  const mode = typeof slack.mode === "string" ? slack.mode : "";
-  if (mode === "socket" || mode === "http") return true;
-  return ["appToken", "signingSecret", "userToken"].some((field) => slack[field] !== undefined);
-}
-
 /**
  * Express hosted Slack intent and let the SDK own the launch contract.
  *
@@ -364,21 +315,8 @@ function hasSelfHostedSlackConfig(slack: Record<string, unknown>): boolean {
  */
 function withHostedSlackRelayConfig<T extends FrontendOpenClawCreateOptions>(options: T): T {
   if (!SLACK_RELAY_BASE_URL) return options;
-  const config = isRecord(options.config) ? cloneRecord(options.config) : {};
-  const channels = isRecord(config.channels) ? cloneRecord(config.channels) : {};
-  const existingSlack = isRecord(channels.slack) ? cloneRecord(channels.slack) : {};
-  if (hasSelfHostedSlackConfig(existingSlack)) return options;
-
-  channels.slack = {
-    ...existingSlack,
-    groupPolicy: existingSlack.groupPolicy ?? "open",
-    replyToMode: existingSlack.replyToMode ?? "all",
-    replyToModeByChatType: isRecord(existingSlack.replyToModeByChatType) ? existingSlack.replyToModeByChatType : { direct: "off" },
-  };
-  config.channels = channels;
   return {
     ...options,
-    config,
     slack: { relayBaseUrl: SLACK_RELAY_BASE_URL },
   } as T;
 }
@@ -399,14 +337,12 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions>
   const origin = currentUiOrigin();
   const env = { ...(options.env ?? {}) };
   const configuredOrigins = configuredUiOrigins();
-  const config = stripConfigAllowedOrigins(options.config);
   const controlUiOriginLock = configuredUiOriginLock();
 
   if (!controlUiOriginLock) {
     delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
     return {
       ...options,
-      config,
       env,
       controlUiOriginLock,
     } as T;
@@ -416,7 +352,6 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions>
     delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
     return {
       ...options,
-      config,
       env,
       controlUiOriginLock,
     } as T;
@@ -424,21 +359,13 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions>
 
   const origins = [
     ...parseControlUiAllowedOrigins(env[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
-    ...configAllowedOrigins(options.config),
     ...configuredOrigins,
     ...(origin ? [origin] : []),
   ].filter((value, index, list) => list.indexOf(value) === index);
-  delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
-
-  const gateway = isRecord(config.gateway) ? cloneRecord(config.gateway) : {};
-  const controlUi = isRecord(gateway.controlUi) ? cloneRecord(gateway.controlUi) : {};
-  controlUi.allowedOrigins = origins;
-  gateway.controlUi = controlUi;
-  config.gateway = gateway;
+  env[CONTROL_UI_ALLOWED_ORIGIN_ENV] = origins[0] ?? "";
 
   return {
     ...options,
-    config,
     env,
     controlUiOriginLock,
   } as T;
@@ -541,21 +468,16 @@ export async function ensureRecoveredOpenClawLaunchConfig(
   agent: SdkAgent,
 ): Promise<SdkAgent> {
   if (!SLACK_RELAY_BASE_URL) return agent;
-  const config = isRecord(agent.launchConfig?.config) ? agent.launchConfig.config : {};
-  const channels = isRecord(config.channels) ? config.channels : {};
-  const slack = isRecord(channels.slack) ? channels.slack : {};
-  const pendingHostedSlackIntent = Object.keys(slack).length > 0 && !hasSelfHostedSlackConfig(slack);
+  const launchEnv = isRecord(agent.launchConfig?.env) ? agent.launchConfig.env : {};
+  const pendingHostedSlackIntent = ENABLED_ENV_VALUES.has(String(launchEnv.HYPER_SLACK_APP_ENABLED ?? "").trim().toLowerCase());
+  if (!pendingHostedSlackIntent) return agent;
   let status: Awaited<ReturnType<typeof getSlackInstallStatus>>;
   try {
     status = await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: apiKey });
   } catch (cause) {
-    if (pendingHostedSlackIntent) {
-      throw new Error("Hosted Slack setup could not be confirmed. The agent remains stopped.", { cause });
-    }
-    console.warn("Could not check hosted Slack install status during recovery.", cause);
-    return agent;
+    throw new Error("Hosted Slack setup could not be confirmed. The agent remains stopped.", { cause });
   }
-  if (!status.connected || hasSelfHostedSlackConfig(slack)) return agent;
+  if (!status.connected) return agent;
   return agentClient.ensureOpenClawHostedSlack(agent.id, SLACK_RELAY_BASE_URL);
 }
 

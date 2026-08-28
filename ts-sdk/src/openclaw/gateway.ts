@@ -1506,7 +1506,7 @@ function makeId(): string {
 
 function channelConfigPatch(
   channelId: string,
-  config: Record<string, unknown>,
+  config: Record<string, unknown> | null,
   accountId?: string,
   defaultAccount = false,
 ): Record<string, unknown> {
@@ -4575,10 +4575,12 @@ export class GatewayClient {
   }
 
   async configureSlackSocket(config: OpenClawSlackSocketConfiguration, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("slack", null, accountId));
     await this.configPatch(channelConfigPatch("slack", { ...config, mode: "socket" }, accountId));
   }
 
   async configureSlackHttp(config: OpenClawSlackHttpConfiguration, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("slack", null, accountId));
     await this.configPatch(channelConfigPatch("slack", { ...config, mode: "http" }, accountId));
   }
 
@@ -4587,6 +4589,7 @@ export class GatewayClient {
     accountId?: string,
   ): Promise<void> {
     if ("relay" in options) {
+      await this.configPatch(channelConfigPatch("slack", null, accountId));
       await this.configPatch(channelConfigPatch("slack", {
         ...options,
         enterpriseOrgInstall: false,
@@ -4608,14 +4611,17 @@ export class GatewayClient {
         gatewayId: options.gatewayId,
       },
     };
+    await this.configPatch(channelConfigPatch("slack", null, options.accountId, Boolean(options.accountId)));
     await this.configPatch(channelConfigPatch("slack", relayConfig, options.accountId, Boolean(options.accountId)));
   }
 
   async configureTelegram(config: OpenClawTelegramConfigPatch, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("telegram", null, accountId));
     await this.configPatch(channelConfigPatch("telegram", config, accountId));
   }
 
   async configureWhatsapp(config: OpenClawWhatsAppConfigPatch, accountId?: string): Promise<void> {
+    await this.configPatch(channelConfigPatch("whatsapp", null, accountId));
     await this.configPatch(channelConfigPatch("whatsapp", config, accountId));
   }
 

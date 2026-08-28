@@ -7619,6 +7619,7 @@ function AgentsPageContent() {
               agentId={selectedAgent?.id ?? selectedAgentId}
               agentName={selectedAgent ? agentDisplayLabel(selectedAgent) : "Agent"}
               agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
+              agentLaunchConfig={selectedAgent?.launchConfig}
               gatewaySession={gatewayChat}
               channelsProvider={chat.channelsProvider}
               reportedChannels={chat.reportedChannels}

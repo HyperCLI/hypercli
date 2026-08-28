@@ -823,7 +823,6 @@ describe("agent-client", () => {
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
       controlUiOriginLock: true,
-      config: {},
       env: {
         FOO: "bar",
       },
@@ -855,15 +854,6 @@ describe("agent-client", () => {
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
       env: { FOO: "bar" },
       slack: { relayBaseUrl: "https://api.hypercli.com" },
-      config: {
-        channels: {
-          slack: {
-            groupPolicy: "open",
-            replyToMode: "all",
-            replyToModeByChatType: { direct: "off" },
-          },
-        },
-      },
     }));
     const slackCreateOptions = deploymentsInstance.createOpenClaw.mock.calls[0]?.[0] ?? {};
     for (const key of Object.keys(slackCreateOptions.env ?? {})) {
@@ -871,7 +861,7 @@ describe("agent-client", () => {
     }
   });
 
-  it("completes SDK-owned hosted Slack config before a recovered Agent starts", async () => {
+  it("ignores empty legacy launch config during recovery", async () => {
     getSlackInstallStatus.mockResolvedValue({
       connected: true,
       teamId: "T123",
@@ -880,22 +870,17 @@ describe("agent-client", () => {
       updatedAt: "2026-07-19T12:00:00Z",
     });
     const recovered = { id: "agent-123", state: "STOPPED", launchConfig: { config: {} } };
-    const finalized = { ...recovered, launchConfig: { config: { channels: { slack: { mode: "relay" } } } } };
-    deploymentsInstance.ensureOpenClawHostedSlack.mockResolvedValue(finalized);
 
     await expect(ensureRecoveredOpenClawLaunchConfig(
       "hyper_api_test",
       deploymentsInstance as never,
       recovered as never,
-    )).resolves.toBe(finalized);
+    )).resolves.toBe(recovered);
 
-    expect(deploymentsInstance.ensureOpenClawHostedSlack).toHaveBeenCalledWith(
-      "agent-123",
-      "https://api.hypercli.com",
-    );
+    expect(deploymentsInstance.ensureOpenClawHostedSlack).not.toHaveBeenCalled();
   });
 
-  it("leaves a recovered Agent stopped when pending hosted Slack intent cannot be confirmed", async () => {
+  it("ignores stale nested Slack launch config during recovery", async () => {
     getSlackInstallStatus.mockRejectedValue(new Error("relay unavailable"));
     const recovered = {
       id: "agent-123",
@@ -916,7 +901,8 @@ describe("agent-client", () => {
       "hyper_api_test",
       deploymentsInstance as never,
       recovered as never,
-    )).rejects.toThrow("Hosted Slack setup could not be confirmed. The agent remains stopped.");
+    )).resolves.toBe(recovered);
+    expect(getSlackInstallStatus).not.toHaveBeenCalled();
 
     expect(deploymentsInstance.ensureOpenClawHostedSlack).not.toHaveBeenCalled();
   });
@@ -970,7 +956,6 @@ describe("agent-client", () => {
 
     expect(deploymentsInstance.createOpenClawPro).toHaveBeenCalledWith(expect.objectContaining({
       controlUiOriginLock: true,
-      config: {},
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
       env: { OPENCLAW_DESKTOP_ENABLED: "1" },
       openClawRoutes: { includeDesktop: true },
@@ -1151,24 +1136,20 @@ describe("agent-client", () => {
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
       controlUiOriginLock: true,
-      config: {
-        gateway: {
-          controlUi: {
-            allowedOrigins: [
-              "https://old.hypercli.com",
-              "https://claw.hypercli.com",
-              "https://feat.hypercli.com",
-              "http://localhost:4003",
-              currentOrigin,
-            ],
-            requirePairing: true,
-          },
-        },
-      },
       env: {
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://old.hypercli.com",
         FOO: "bar",
       },
     }));
+    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0].config).toEqual({
+      gateway: {
+        controlUi: {
+          allowedOrigins: ["https://claw.hypercli.com"],
+          requirePairing: true,
+        },
+      },
+    });
+    expect(currentOrigin).toBeTruthy();
   });
 
   it("disables the control UI origin lock when configured off", async () => {
@@ -1196,6 +1177,7 @@ describe("agent-client", () => {
       config: {
         gateway: {
           controlUi: {
+            allowedOrigins: ["https://claw.hypercli.com"],
             requirePairing: true,
           },
         },

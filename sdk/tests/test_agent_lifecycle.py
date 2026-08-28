@@ -83,6 +83,7 @@ def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
                 "connected": True,
                 "agent_id": "11111111-1111-4111-8111-111111111111",
                 "gateway_id": "agent:11111111-1111-4111-8111-111111111111",
+                "config": {"channels": {"slack": {"mode": "relay"}}},
                 "restart_required": True,
             }
 
@@ -110,6 +111,7 @@ def test_attach_slack_relay_agent_resolves_name_and_posts_to_relay(monkeypatch):
     )
 
     assert result["connected"] is True
+    assert "config" not in result
     assert calls == [
         (
             "https://api.hypercli.com/slack/agents/11111111-1111-4111-8111-111111111111/relay",

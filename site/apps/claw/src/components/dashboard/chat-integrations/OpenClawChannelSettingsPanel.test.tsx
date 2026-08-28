@@ -270,6 +270,31 @@ describe("OpenClawChannelSettingsPanel", () => {
     }));
   });
 
+  it("blocks manual Slack channel writes while hosted relay launch env owns Slack", async () => {
+    const provider = channelsProvider({
+      enabled: true,
+      mode: "relay",
+      dmPolicy: "allowlist",
+      allowFrom: ["U0123456789"],
+    });
+    render(
+      <OpenClawChannelSettingsPanel
+        channelId="slack"
+        channel={groupedChannel("slack", { mode: "relay" })}
+        provider={provider}
+        runtime={runtime}
+        connected
+        hostedSlackRelayEnabled
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/hosted slack relay is enabled/i);
+    expect(screen.getByRole("button", { name: "Save settings" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Remove configuration" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(provider.update).not.toHaveBeenCalled();
+  });
+
   it("validates Slack token prefixes and stable channel IDs", async () => {
     const provider = channelsProvider({ enabled: true, mode: "socket" });
     render(<OpenClawChannelSettingsPanel channelId="slack" channel={groupedChannel("slack", { mode: "socket" })} provider={provider} runtime={runtime} connected />);

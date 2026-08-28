@@ -749,117 +749,6 @@ def test_agent_from_dict_hydrates_new_api_fields_without_image_url_fallback():
     assert legacy.is_launchable is False
 
 
-@pytest.mark.asyncio
-async def test_openclaw_agent_configure_slack_relay_uses_gateway_id(monkeypatch):
-    agent = OpenClawAgent(
-        id="11111111-1111-1111-1111-111111111111",
-        user_id="user-456",
-        state="running",
-        gateway_id="agent:11111111-1111-1111-1111-111111111111",
-    )
-    seen = []
-
-    class FakeGateway:
-        async def configure_slack_relay(self, **kwargs):
-            seen.append(kwargs)
-            return {"ok": True}
-
-    class FakeConnect:
-        async def __aenter__(self):
-            return FakeGateway()
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-    monkeypatch.setattr(agent, "connect", lambda **_kwargs: FakeConnect())
-
-    result = await agent.configure_slack_relay(url="wss://api.dev.hypercli.com/slack/ws")
-
-    assert result == {"ok": True}
-    assert seen == [
-        {
-            "url": "wss://api.dev.hypercli.com/slack/ws",
-            "gateway_id": "agent:11111111-1111-1111-1111-111111111111",
-            "auth_token_env": "HYPER_AGENTS_API_KEY",
-            "account_id": None,
-            "bot_token": None,
-            "config": None,
-        }
-    ]
-
-
-@pytest.mark.asyncio
-async def test_openclaw_agent_configure_slack_socket_delegates(monkeypatch):
-    agent = OpenClawAgent(
-        id="11111111-1111-1111-1111-111111111111",
-        user_id="user-456",
-        state="running",
-    )
-    seen = []
-
-    class FakeGateway:
-        async def configure_slack_socket(self, **kwargs):
-            seen.append(kwargs)
-            return {"ok": True}
-
-    class FakeConnect:
-        async def __aenter__(self):
-            return FakeGateway()
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-    monkeypatch.setattr(agent, "connect", lambda **_kwargs: FakeConnect())
-
-    result = await agent.configure_slack_socket(
-        bot_token="xoxb-test",
-        app_token="xapp-test",
-        socket_mode={"serverPingTimeout": 30},
-        account_id="work",
-        config={"requireMention": True},
-    )
-
-    assert result == {"ok": True}
-    assert seen == [
-        {
-            "bot_token": "xoxb-test",
-            "app_token": "xapp-test",
-            "socket_mode": {"serverPingTimeout": 30},
-            "account_id": "work",
-            "config": {"requireMention": True},
-        }
-    ]
-
-
-@pytest.mark.asyncio
-async def test_openclaw_agent_configure_whatsapp_delegates(monkeypatch):
-    agent = OpenClawAgent(
-        id="11111111-1111-1111-1111-111111111111",
-        user_id="user-456",
-        state="running",
-    )
-    seen = []
-
-    class FakeGateway:
-        async def configure_whatsapp(self, config=None, *, account_id=None):
-            seen.append((config, account_id))
-            return {"ok": True}
-
-    class FakeConnect:
-        async def __aenter__(self):
-            return FakeGateway()
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return None
-
-    monkeypatch.setattr(agent, "connect", lambda **_kwargs: FakeConnect())
-
-    result = await agent.configure_whatsapp({"replyToMode": "all"}, account_id="personal")
-
-    assert result == {"ok": True}
-    assert seen == [({"replyToMode": "all"}, "personal")]
-
-
 @pytest.mark.parametrize(
     "failed_state",
     ["STOPPED", "ARCHIVED", "DELETED", "FAILED"],
@@ -1381,107 +1270,6 @@ async def test_openclaw_agent_wait_ready_uses_gateway_client():
     assert closed == [True]
 
 
-@pytest.mark.asyncio
-async def test_openclaw_agent_helper_methods_mutate_config():
-    agent = OpenClawAgent(
-        id="agent-helpers",
-        user_id="user-456",
-        state="running",
-        gateway_url="wss://openclaw-test.hypercli.com",
-        gateway_token="gw123",
-        jwt_token="jwt123",
-    )
-
-    base_config = {
-        "models": {
-            "providers": {
-                "hyperclaw": {
-                    "api": "anthropic-messages",
-                    "baseUrl": "https://api.example",
-                    "models": [{"id": "kimi-k2.5", "name": "Kimi K2.5"}],
-                }
-            }
-        },
-        "agents": {"defaults": {}},
-    }
-    applied: list[dict] = []
-
-    async def fake_config_get(**kwargs):
-        return copy.deepcopy(base_config)
-
-    async def fake_config_apply(config: dict, **kwargs):
-        applied.append(copy.deepcopy(config))
-        return config
-
-    agent.config_get = fake_config_get  # type: ignore[method-assign]
-    agent.config_apply = fake_config_apply  # type: ignore[method-assign]
-
-    provider = await agent.provider_upsert(
-        "moonshot",
-        api="anthropic-messages",
-        base_url="https://moonshot.example",
-        api_key="moonshot-key",
-        models=[{"id": "kimi-k2.5", "name": "Kimi K2.5", "reasoning": True}],
-    )
-    assert provider["baseUrl"] == "https://moonshot.example"
-
-    model = await agent.model_upsert(
-        "moonshot",
-        "kimi-k2.5",
-        name="Kimi K2.5",
-        reasoning=True,
-        context_window=262144,
-    )
-    assert model["contextWindow"] == 262144
-
-    primary = await agent.set_default_model("moonshot", "kimi-k2.5")
-    assert primary == "moonshot/kimi-k2.5"
-
-    memory_search = await agent.set_memory_search(
-        provider="embeddings",
-        model="qwen3-embedding",
-        base_url="https://embed.example",
-        api_key="embed-key",
-    )
-    assert memory_search["remote"]["baseUrl"] == "https://embed.example"
-
-    telegram = await agent.telegram_upsert(
-        {
-            "botToken": "telegram-token",
-            "allowFrom": ["123456"],
-        }
-    )
-    assert telegram["botToken"] == "telegram-token"
-
-    slack = await agent.slack_upsert(
-        {
-            "botToken": "xoxb-test",
-            "channels": {"C123": {"enabled": True, "users": ["U123"]}},
-        },
-        account_id="work",
-    )
-    assert slack["botToken"] == "xoxb-test"
-
-    discord = await agent.discord_upsert(
-        {
-            "token": "discord-token",
-            "guilds": {"G123": {"enabled": True}},
-        }
-    )
-    assert discord["token"] == "discord-token"
-
-    assert len(applied) == 7
-    assert applied[0]["models"]["providers"]["moonshot"]["apiKey"] == "moonshot-key"
-    assert applied[1]["models"]["providers"]["moonshot"]["models"][0]["reasoning"] is True
-    assert applied[2]["agents"]["defaults"]["model"]["primary"] == "moonshot/kimi-k2.5"
-    assert applied[3]["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "embed-key"
-    assert applied[4]["channels"]["telegram"]["allowFrom"] == ["123456"]
-    assert applied[5]["channels"]["slack"]["accounts"]["work"]["channels"]["C123"]["users"] == [
-        "U123"
-    ]
-    assert applied[6]["channels"]["discord"]["guilds"]["G123"]["enabled"] is True
-
-
 def test_bound_agent_methods_delegate_to_agents(tmp_path):
     local_source = tmp_path / "source.txt"
     local_source.write_text("hello")
@@ -1882,7 +1670,7 @@ def test_create_openclaw_can_disable_workspaces_sync(agents_client):
         assert "HYPER_WORKSPACES_SYNC_READY_ONLY" not in posted_json["env"]
 
 
-def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
+def test_create_openclaw_omits_runtime_config(agents_client):
     with (
         patch("httpx.Client") as mock_client_class,
         patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
@@ -1900,16 +1688,10 @@ def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        agents_client.create_openclaw(
-            name="test-agent",
-            heartbeat={"every": "1h", "target": "last"},
-        )
+        agents_client.create_openclaw(name="test-agent")
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["config"]["agents"]["defaults"]["heartbeat"] == {
-            "every": "1h",
-            "target": "last",
-        }
+        assert "config" not in posted_json
 
 
 @pytest.fixture

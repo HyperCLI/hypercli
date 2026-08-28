@@ -182,13 +182,7 @@ function whatsAppChannelEnabled(config: Record<string, unknown> | null): boolean
   return whatsapp?.enabled === true;
 }
 
-const OPENCLAW_CONFIG_MANAGED_MESSAGE = "OpenClaw config is read-only in hosted mode. It is managed by the runtime image.";
 const WHATSAPP_SETUP_MANAGED_MESSAGE = "WhatsApp setup is unavailable here. Channel configuration is managed by the runtime image.";
-
-function rejectOpenClawConfigWrite(): Promise<never> {
-  debugFlow("config", "write blocked: managed by the runtime image");
-  return Promise.reject(new Error(OPENCLAW_CONFIG_MANAGED_MESSAGE));
-}
 
 function rejectWhatsAppSetup(): Promise<never> {
   debugFlow("whatsapp", "setup blocked: managed by the runtime image");
@@ -3769,7 +3763,7 @@ export function useOpenClawSession(
       pairing: {
         webLoginStart: (loginOptions) => gateway.webLoginStart(loginOptions),
         webLoginWait: (waitOptions) => gateway.webLoginWait(waitOptions),
-        activate: rejectOpenClawConfigWrite,
+        activate: () => gateway.configPatch({ channels: { whatsapp: { enabled: true } } }),
       },
     });
     const configureChannel = async () => {
@@ -3783,7 +3777,7 @@ export function useOpenClawSession(
       };
       publishProgress({ ...baseEvent, status: "running" });
       try {
-        await rejectOpenClawConfigWrite();
+        await gateway.configPatch({ channels: { whatsapp: { enabled: true } } });
         channelConfigured = true;
         publishProgress({ ...baseEvent, status: "succeeded" });
       } catch (cause) {
@@ -3873,7 +3867,7 @@ export function useOpenClawSession(
       channelsStatus: async (probe, timeoutMs, channel) => await channelsStatus(probe, timeoutMs, channel) as ChannelsStatusResult,
       channelsLogout: (channel, accountId) => gateway.channelsLogout(channel, accountId),
       configGet: () => gateway.configGet(),
-      configPatch: rejectOpenClawConfigWrite,
+      configPatch: (patch) => gateway.configPatch(patch),
     }) : null,
     [channelsStatus, gateway],
   );
@@ -4574,10 +4568,9 @@ export function useOpenClawSession(
 
   const connectorRuntime = useMemo<AgentRuntimeDescriptor>(() => {
     const launchImage = safeRuntimeImage(agent?.launchConfig?.image);
-    // OpenClaw config writes are blocked in hosted mode (managed by the
-    // runtime image), so the descriptor must not advertise config.patch.
     const capabilities = [
       ...(typeof gateway?.channelsStatus === "function" ? ["channels.status"] : []),
+      ...(typeof gateway?.configPatch === "function" ? ["config.patch"] : []),
       ...(typeof gateway?.runEphemeralChat === "function" ? ["ephemeral.chat"] : []),
     ];
     return {
@@ -4625,7 +4618,7 @@ export function useOpenClawSession(
 
   const connectorsProvider = useMemo(() => gateway ? new OpenClawConnectorsProvider({
     channelsStatus,
-    configPatch: rejectOpenClawConfigWrite,
+    configPatch: (patch) => gateway.configPatch(patch),
     integrationsStatus,
     integrationsAuthStart,
     integrationsAuthStatus,

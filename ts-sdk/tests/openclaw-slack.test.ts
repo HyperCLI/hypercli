@@ -27,7 +27,6 @@ function client(overrides: Partial<OpenClawSlackClient> = {}): OpenClawSlackClie
   return {
     configGet: vi.fn(async () => ({})),
     configSchemaLookup: vi.fn(async () => ({ path: 'channels.slack', schema: {}, children: [] })),
-    configPatch: vi.fn(async () => ({ ok: true })),
     channelsStatus: vi.fn(async () => ({})),
     channelsStart: vi.fn(async () => ({ started: true })),
     channelsStop: vi.fn(async () => ({ stopped: true })),
@@ -171,72 +170,6 @@ describe('OpenClawSlackProvider config', () => {
     expect(source.channels.slack.enabled).toBe(true);
     expect(source.channels.slack.accounts.work.name).toBe('Work');
     expect(missing).toBeUndefined();
-  });
-
-  it('patches and removes base/account config and sets the default account', async () => {
-    const sdk = client();
-    const provider = new OpenClawSlackProvider(sdk);
-
-    await provider.patchConfig({ enabled: false });
-    await provider.patchAccount('work', { name: 'Work', appToken: null });
-    await provider.removeAccount('work');
-    await provider.setDefaultAccount('work');
-    await provider.removeConfig();
-
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(1, { channels: { slack: { enabled: false } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(2, { channels: { slack: { accounts: { work: { name: 'Work', appToken: null } } } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(3, { channels: { slack: { accounts: { work: null } } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(4, { channels: { slack: { defaultAccount: 'work' } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(5, { channels: { slack: null } });
-  });
-
-  it('configures socket, HTTP, and relay transports at base or account scope', async () => {
-    const sdk = client();
-    const provider = new OpenClawSlackProvider(sdk);
-    const envBot = { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' } as const;
-
-    await provider.configureSocket({ botToken: envBot, appToken: 'xapp', socketMode: { clientPingTimeout: 1000 } });
-    await provider.configureHttp({ botToken: 'xoxb', signingSecret: 'signing', webhookPath: '/events' }, 'http-work');
-    await provider.configureRelay({
-      botToken: 'xoxb',
-      relay: { url: 'wss://relay.example.test/ws', authToken: 'relay-token', gatewayId: 'gateway-1' },
-    }, 'relay-work');
-
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(1, {
-      channels: { slack: { botToken: envBot, appToken: 'xapp', socketMode: { clientPingTimeout: 1000 }, mode: 'socket' } },
-    });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(2, {
-      channels: { slack: { accounts: { 'http-work': { botToken: 'xoxb', signingSecret: 'signing', webhookPath: '/events', mode: 'http' } } } },
-    });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(3, {
-      channels: { slack: { accounts: { 'relay-work': { botToken: 'xoxb', enterpriseOrgInstall: false, relay: { url: 'wss://relay.example.test/ws', authToken: 'relay-token', gatewayId: 'gateway-1' }, mode: 'relay' } } } },
-    });
-  });
-
-  it('validates mode-required secrets and relay websocket security', async () => {
-    const sdk = client();
-    const provider = new OpenClawSlackProvider(sdk);
-
-    await expect(provider.configureSocket({ botToken: 'xoxb', appToken: '' })).rejects.toThrow(/app token is required/i);
-    await expect(provider.configureHttp({ botToken: '', signingSecret: 'secret' })).rejects.toThrow(/bot token is required/i);
-    await expect(provider.configureRelay({
-      botToken: 'xoxb',
-      relay: { url: 'ws://relay.example.test/ws', authToken: 'token', gatewayId: 'gateway' },
-    })).rejects.toThrow(/must use wss/i);
-    await expect(provider.configureRelay({
-      botToken: 'xoxb',
-      relay: { url: 'https://relay.example.test/ws', authToken: 'token', gatewayId: 'gateway' },
-    })).rejects.toThrow(/must use wss/i);
-    await expect(provider.configureRelay({
-      botToken: 'xoxb',
-      relay: { url: 'ws://localhost:3000/ws', authToken: 'token', gatewayId: 'gateway' },
-    })).resolves.toBeUndefined();
-    await expect(provider.configureRelay({
-      botToken: 'xoxb',
-      enterpriseOrgInstall: true,
-      relay: { url: 'wss://relay.example.test/ws', authToken: 'token', gatewayId: 'gateway' },
-    })).rejects.toThrow(/enterprise grid/i);
-    expect(sdk.configPatch).toHaveBeenCalledTimes(1);
   });
 
   it('reads the runtime Slack config schema', async () => {

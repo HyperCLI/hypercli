@@ -19,7 +19,6 @@ const runtime: AgentRuntimeDescriptor = {
 function client(overrides: Partial<OpenClawConnectorsClient> = {}): OpenClawConnectorsClient {
   return {
     channelsStatus: vi.fn(async () => ({ channels: {} })),
-    configPatch: vi.fn(async () => ({ ok: true })),
     integrationsStatus: vi.fn(async () => ({ integrations: {} })),
     integrationsAuthStart: vi.fn(async () => ({})),
     integrationsAuthStatus: vi.fn(async () => ({ status: 'pending' })),
@@ -100,25 +99,6 @@ describe('OpenClawConnectorsProvider', () => {
     ]);
   });
 
-  it('does not request managed integration status for a scoped config channel', async () => {
-    const sdk = client({
-      channelsStatus: vi.fn(async () => ({
-        channels: {
-          telegram: { configured: false },
-          discord: { configured: true, running: true },
-        },
-      })),
-      integrationsStatus: vi.fn(async () => {
-        throw new Error('unknown method: integrations.status');
-      }),
-    });
-
-    await expect(new OpenClawConnectorsProvider(sdk, runtime).list({ connectorId: 'telegram' })).resolves.toEqual([
-      expect.objectContaining({ connectorId: 'telegram', setupModes: ['config'] }),
-    ]);
-    expect(sdk.integrationsStatus).not.toHaveBeenCalled();
-  });
-
   it('scopes managed integration status to the requested connector', async () => {
     const sdk = client({
       channelsStatus: vi.fn(async () => ({ channels: {} })),
@@ -190,36 +170,18 @@ describe('OpenClawConnectorsProvider', () => {
     });
   });
 
-  it('prefers config setup for Telegram and delegates channel configuration', async () => {
-    const sdk = client();
-    const provider = new OpenClawConnectorsProvider(sdk, runtime);
-
-    await expect(provider.startSetup({ connectorId: 'telegram' })).resolves.toEqual({
-      connectorId: 'telegram',
-      mode: 'config',
-      provenance: runtime,
-    });
-    await provider.configure('telegram', { enabled: true, botToken: 'secret' }, 'work');
-
-    expect(sdk.integrationsAuthStart).not.toHaveBeenCalled();
-    expect(sdk.configPatch).toHaveBeenCalledWith({
-      channels: {
-        telegram: { accounts: { work: { enabled: true, botToken: 'secret' } } },
-      },
-    });
-  });
-
-  it('uses runtime-reported setup modes for other connectors', async () => {
+  it('starts config setup for config-only connectors without managed auth', async () => {
     const sdk = client({
       channelsStatus: vi.fn(async () => ({ channels: { discord: { configured: false } } })),
     });
     const provider = new OpenClawConnectorsProvider(sdk, runtime);
 
-    await expect(provider.startSetup({ connectorId: 'discord' })).resolves.toEqual({
-      connectorId: 'discord',
-      mode: 'config',
-      provenance: runtime,
-    });
+    await expect(provider.startSetup({ connectorId: 'discord', mode: 'config' } as never))
+      .resolves.toEqual({
+        connectorId: 'discord',
+        mode: 'config',
+        provenance: runtime,
+      });
     expect(sdk.integrationsAuthStart).not.toHaveBeenCalled();
   });
 

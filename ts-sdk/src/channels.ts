@@ -155,32 +155,6 @@ export interface HostedSlackRelayChannelConfig {
   allowFrom?: string[];
 }
 
-export interface HostedSlackRelayConfigPatch {
-  [key: string]: unknown;
-  messages: {
-    statusReactions: {
-      enabled: true;
-    };
-  };
-  channels: {
-    slack: HostedSlackRelayChannelConfig;
-  };
-}
-
-export interface ConfigureHostedSlackRelayChannelOptions extends HostedSlackRelayChannelConfigOptions {
-  token: string;
-  checkInstallStatus: (options: SlackInstallStatusCheckOptions) => Promise<SlackInstallStatusLike>;
-  apply?: (config: HostedSlackRelayChannelConfig) => Promise<void>;
-  applyPatch?: (patch: HostedSlackRelayConfigPatch) => Promise<void>;
-  channelsProvider?: Pick<AgentChannelsProvider, 'configure' | 'patchConfig'> | null;
-}
-
-export interface ConfigureHostedSlackRelayChannelResult {
-  status: SlackInstallStatusLike;
-  config: HostedSlackRelayChannelConfig;
-  patch: HostedSlackRelayConfigPatch;
-}
-
 export function normalizeSlackRelayBaseUrl(relayBaseUrl: string): string {
   const normalized = relayBaseUrl.trim();
   if (!normalized) throw new Error('Slack relay base URL is required');
@@ -388,43 +362,4 @@ export function buildHostedSlackRelayChannelConfig(options: HostedSlackRelayChan
     config.allowFrom = [installerUserId];
   }
   return config;
-}
-
-export function buildHostedSlackRelayConfigPatch(config: HostedSlackRelayChannelConfig): HostedSlackRelayConfigPatch {
-  return {
-    messages: {
-      statusReactions: {
-        enabled: true,
-      },
-    },
-    channels: {
-      slack: config,
-    },
-  };
-}
-
-export async function configureHostedSlackRelayChannel(
-  options: ConfigureHostedSlackRelayChannelOptions,
-): Promise<ConfigureHostedSlackRelayChannelResult> {
-  const relayBaseUrl = normalizeSlackRelayBaseUrl(options.relayBaseUrl);
-  const status = await options.checkInstallStatus({
-    relayBaseUrl,
-    token: options.token,
-  });
-  if (!status.connected) throw new Error('Connect Slack before using the hosted app.');
-
-  const config = buildHostedSlackRelayChannelConfig({ ...options, relayBaseUrl, installerUserId: status.installerUserId });
-  const patch = buildHostedSlackRelayConfigPatch(config);
-  if (options.applyPatch) {
-    await options.applyPatch(patch);
-  } else if (options.apply) {
-    await options.apply(config);
-  } else if (options.channelsProvider?.patchConfig) {
-    await options.channelsProvider.patchConfig(patch);
-  } else if (options.channelsProvider?.configure) {
-    await options.channelsProvider.configure('slack', config);
-  } else {
-    throw new Error('Slack relay configuration target is required');
-  }
-  return { status, config, patch };
 }

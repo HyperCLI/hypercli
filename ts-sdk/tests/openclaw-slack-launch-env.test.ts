@@ -131,12 +131,7 @@ describe('hosted Slack launch env', () => {
       HYPER_SLACK_GATEWAY_ID: `agent:${AGENT_ID}`,
     });
     expect(patchedEnv.HYPER_WORKSPACES_BOOT_SYNC).toBe('1');
-    const patchedSlack = patch.mock.calls[0]?.[1]?.launch_config?.config?.channels?.slack;
-    expect(patchedSlack).toMatchObject({
-      enabled: true,
-      mode: 'relay',
-      relay: { url: RELAY_WS, gatewayId: `agent:${AGENT_ID}` },
-    });
+    expect(patch.mock.calls[0]?.[1]?.launch_config).not.toHaveProperty('config');
     expect(agent.launchConfig?.env).toMatchObject({ HYPER_SLACK_GATEWAY_ID: `agent:${AGENT_ID}` });
   });
 
@@ -179,10 +174,7 @@ describe('hosted Slack launch env', () => {
       HYPER_SLACK_API_URL: RELAY_API,
       HYPER_SLACK_GATEWAY_ID: `agent:${AGENT_ID}`,
     });
-    expect(recovered.launchConfig?.config?.channels?.slack).toMatchObject({
-      enabled: true,
-      mode: 'relay',
-    });
+    expect(recovered.launchConfig).not.toHaveProperty('config');
   });
 
   it('createOpenClaw refuses an explicitly partial Slack env', async () => {

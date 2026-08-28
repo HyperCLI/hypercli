@@ -794,13 +794,6 @@ export default function DevAgentSetupAgentsPage() {
     chat.setInput(buildTeamFirstPrompt(teamSetupSummary, selectedAgentDisplayName));
   }, [chat, selectedAgentDisplayName, teamSetupSummary]);
 
-  // Dev-only escape hatch: write straight to the connected gateway client.
-  // The hosted session surface intentionally no longer exposes config/file writes.
-  const devGatewayWriteConfig = useCallback(async (patch: Record<string, unknown>) => {
-    const gateway = chat.gateway;
-    if (!gateway) throw new Error("Gateway unavailable.");
-    await gateway.configPatch(patch);
-  }, [chat.gateway]);
   const devGatewayWriteFile = useCallback(async (name: string, content: string) => {
     const gateway = chat.gateway;
     if (!gateway) throw new Error("Gateway unavailable.");
@@ -815,14 +808,6 @@ export default function DevAgentSetupAgentsPage() {
       for (const file of buildTeamStarterFiles(teamSetupSummary)) {
         await devGatewayWriteFile(file.name, file.content);
       }
-      await devGatewayWriteConfig({
-        setup: {
-          source: "dev-agent-setup",
-          plan: "team",
-          team: teamSetupSummary,
-          retriedFromWorkspace: true,
-        },
-      });
       setTeamSetupSafeWriteWarning(null);
       window.sessionStorage.removeItem("dev-agent-setup-safe-write-warning");
     } catch (err) {
@@ -832,7 +817,7 @@ export default function DevAgentSetupAgentsPage() {
     } finally {
       setRetryingTeamContext(false);
     }
-  }, [chat, devGatewayWriteConfig, devGatewayWriteFile, teamSetupSummary]);
+  }, [chat, devGatewayWriteFile, teamSetupSummary]);
 
   const teamSetupActions = useMemo(() => {
     if (!teamSetupSummary) return [];
@@ -2414,6 +2399,7 @@ export default function DevAgentSetupAgentsPage() {
                 agentId={selectedAgent?.id ?? selectedAgentId}
                 agentName={selectedAgentDisplayName ?? "Agent"}
                 agentPublicUrl={selectedOpenClawAgent?.publicUrl ?? (selectedAgent?.hostname ? `https://${selectedAgent.hostname}` : null)}
+                agentLaunchConfig={selectedAgent?.launchConfig}
                 gatewaySession={gatewayChat}
                 channelsProvider={chat.channelsProvider}
                 reportedChannels={chat.reportedChannels}
@@ -2423,7 +2409,6 @@ export default function DevAgentSetupAgentsPage() {
                 onRefreshChannels={chat.refreshReportedChannels}
                 config={chat.config as Record<string, unknown> | null}
                 connected={chat.connected}
-                onSaveConfig={async (patch) => { await devGatewayWriteConfig(patch); }}
                 onChannelProbe={async () => chat.channelsStatus(true)}
                 onOpenShell={() => setMainTab("shell")}
               />
@@ -2498,7 +2483,6 @@ export default function DevAgentSetupAgentsPage() {
                   if (!updatedAgent || generation !== agentDataGenerationRef.current || deletingAgentIdsRef.current.has(agentId)) return;
                   applyAgentMutationResult(updatedAgent);
                 }}
-                onSaveOpenClawConfig={async (patch) => { await devGatewayWriteConfig(patch); }}
               />
             ) : mainTab === "logs" ? (
               <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />

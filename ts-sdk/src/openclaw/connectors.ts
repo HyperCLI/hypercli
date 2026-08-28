@@ -269,6 +269,8 @@ export class OpenClawConnectorsProvider implements AgentConnectorsProvider {
 
   async configure(connectorId: string, config: Record<string, unknown>, accountId?: string): Promise<void> {
     const connectorConfig = accountId ? { accounts: { [accountId]: config } } : config;
+    const connectorDelete = accountId ? { accounts: { [accountId]: null } } : null;
+    await this.client.configPatch({ channels: { [connectorId]: connectorDelete } });
     await this.client.configPatch({ channels: { [connectorId]: connectorConfig } });
   }
 

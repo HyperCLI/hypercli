@@ -508,6 +508,52 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByRole("group", { name: "Workspace files" })).not.toBeInTheDocument();
   });
 
+  it("skips onboarding with static bootstrap defaults and no enrichment call", async () => {
+    const onCreateAgent = vi.fn(async () => null);
+    const onGenerateBootstrap = vi.fn(async (name: OpenClawBootstrapFileName) => ({
+      name,
+      content: `# ${name}\n\nGenerated content should not be used.`,
+    }));
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        onGenerateBootstrap={onGenerateBootstrap}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-1",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    enterValidAgentName("Static Defaults");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    await waitForPackInputsAgentName("Static Defaults");
+    fireEvent.click(screen.getByRole("button", { name: "Skip setup" }));
+
+    expect(screen.getByRole("heading", { name: "Choose your plan" })).toBeInTheDocument();
+    expect(onGenerateBootstrap).not.toHaveBeenCalled();
+
+    fireEvent.click(getPlanFooterAction("Launch agent"));
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledTimes(1));
+    const files = onCreateAgent.mock.calls[0]?.[0].files as File[];
+    expect(files.map((file) => file.name)).toEqual([
+      "AGENTS.md",
+      "BOOTSTRAP.md",
+    ]);
+  });
+
   it("saves anonymous identity changes for a later launch", async () => {
     renderWithClient(
       <FirstAgentSetupWizard

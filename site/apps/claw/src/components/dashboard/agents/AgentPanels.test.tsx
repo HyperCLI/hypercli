@@ -425,7 +425,6 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
     openclawModels: [
       { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", providerId: "google", providerName: "Google" },
     ],
-    onSaveOpenClawConfig: vi.fn(async () => undefined),
     onLogout: vi.fn(),
     onDeleteAgent: vi.fn(),
     ...overrides,
@@ -2184,8 +2183,6 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
         image: "ghcr.io/hypercli/hypercli-openclaw:custom",
-        // Nested runtime config is image-owned; settings never echoes it back.
-        config: {},
         env: {
           OPENCLAW_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
@@ -2298,11 +2295,9 @@ describe("AgentSettingsPanel", () => {
     expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
   });
 
-  it("removes configured channels before saving a changed Docker image", async () => {
-    const onSaveOpenClawConfig = vi.fn(async () => undefined);
+  it("saves a changed Docker image without writing runtime channel config", async () => {
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
     renderAgentSettingsPanel({
-      onSaveOpenClawConfig,
       onUpdateAgentLaunchConfig,
       reportedChannelsReady: true,
       reportedChannels: [
@@ -2319,18 +2314,14 @@ describe("AgentSettingsPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Remove channels and change image?" })).toBeInTheDocument();
     expect(screen.getByText(/permanently removing setup for Telegram/i)).toBeInTheDocument();
-    expect(onSaveOpenClawConfig).not.toHaveBeenCalled();
     expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove channels and save" }));
 
     await waitFor(() => {
-      expect(onSaveOpenClawConfig).toHaveBeenCalledWith({ channels: null });
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledTimes(1);
     });
-    expect(onSaveOpenClawConfig.mock.invocationCallOrder[0]).toBeLessThan(
-      onUpdateAgentLaunchConfig.mock.invocationCallOrder[0],
-    );
+    expect(onUpdateAgentLaunchConfig.mock.calls[0]?.[1]).not.toHaveProperty("config");
   });
 
   it("blocks Docker image changes until the live channel preflight succeeds", () => {
@@ -2347,9 +2338,9 @@ describe("AgentSettingsPanel", () => {
     expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
   });
 
-  it("lists OpenClaw models and saves the selected default model through config patch", async () => {
-    const onSaveOpenClawConfig = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({ onSaveOpenClawConfig });
+  it("lists OpenClaw models without exposing runtime model writes", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     const modelSelect = screen.getByRole("combobox", { name: "Default model" });
@@ -2358,22 +2349,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("option", { name: "GPT-5 Mini (OpenAI)" })).toHaveValue("openai/gpt-5-mini");
     expect(screen.getByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" })).toHaveValue("anthropic/claude-sonnet-4-5");
     expect(screen.getByRole("option", { name: "Gemini 2.5 Pro (Google)" })).toHaveValue("google/gemini-2.5-pro");
-
-    fireEvent.change(modelSelect, { target: { value: "google/gemini-2.5-pro" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-    await waitFor(() => {
-      expect(onSaveOpenClawConfig).toHaveBeenCalledWith({
-        agents: {
-          defaults: {
-            model: {
-              primary: "google/gemini-2.5-pro",
-            },
-          },
-        },
-      });
-    });
-    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+    expect(modelSelect).toBeDisabled();
   });
 
   it("renders a blocked stopped runtime as startable instead of starting", () => {
@@ -2764,10 +2740,9 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("heading", { name: "Memory index" })).toBeInTheDocument();
   });
 
-  it("saves memory index settings through an OpenClaw config patch and syncs launch env", async () => {
-    const onSaveOpenClawConfig = vi.fn(async () => undefined);
+  it("saves memory index settings through launch env only", async () => {
     const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({ onSaveOpenClawConfig, onUpdateAgentLaunchConfig });
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
 
     fireEvent.click(screen.getByRole("button", { name: "Index" }));
     fireEvent.click(screen.getByRole("switch", { name: "Sync on session start" }));
@@ -2781,28 +2756,9 @@ describe("AgentSettingsPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    await waitFor(() => {
-      expect(onSaveOpenClawConfig).toHaveBeenCalledWith({
-        agents: {
-          defaults: {
-            memorySearch: {
-              enabled: true,
-              sync: {
-                onSessionStart: true,
-                onSearch: true,
-                watch: true,
-                watchDebounceMs: 60000,
-                intervalMinutes: 120,
-              },
-            },
-          },
-        },
-      });
-    });
+    await waitFor(() => expect(onUpdateAgentLaunchConfig).toHaveBeenCalledTimes(1));
     expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
-      // Nested runtime config is image-owned; settings never echoes it back.
-      config: {},
       env: {
         OPENCLAW_DESKTOP_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",
@@ -2827,16 +2783,13 @@ describe("AgentSettingsPanel", () => {
     });
   });
 
-  it("blocks memory index saves when launch config updates are unavailable", async () => {
-    const onSaveOpenClawConfig = vi.fn(async () => undefined);
-    renderAgentSettingsPanel({ onSaveOpenClawConfig, onUpdateAgentLaunchConfig: undefined });
+  it("disables memory index edits when launch config updates are unavailable", async () => {
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig: undefined });
 
     fireEvent.click(screen.getByRole("button", { name: "Index" }));
-    fireEvent.click(screen.getByRole("switch", { name: "Watch memory files" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByText("Runtime launch updates are unavailable.")).toBeInTheDocument();
-    expect(onSaveOpenClawConfig).not.toHaveBeenCalled();
+    expect(screen.getByRole("switch", { name: "Watch memory files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
   });
 });
 

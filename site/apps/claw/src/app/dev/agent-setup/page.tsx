@@ -46,7 +46,6 @@ import {
 } from "@/lib/agent-client";
 import { buildOpenClawLaunchOptions } from "@/lib/openclaw-launch";
 import { OPENCLAW_WORKSPACE_PREFIX } from "@/lib/openclaw-config";
-import type { OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 
 type StageId =
   | "plan"
@@ -542,10 +541,6 @@ function buildTeamSetupFiles(
   ];
 }
 
-function canUseGateway(agent: unknown): agent is SdkOpenClawAgent {
-  return Boolean(agent && typeof (agent as { waitReady?: unknown }).waitReady === "function");
-}
-
 export default function DevAgentSetupPage() {
   const router = useRouter();
   const { getToken } = useAgentAuth();
@@ -743,39 +738,6 @@ export default function DevAgentSetupPage() {
     );
   };
 
-  const patchTeamStarterConfig = async (token: string, agentId: string) => {
-    if (!isTeamPlanActive) return;
-    const agentClient = createAgentClient(token);
-    const runningAgent = await agentClient.waitRunning(agentId, 75_000, 3_000);
-    if (!canUseGateway(runningAgent)) {
-      throw new Error("The agent was started, but its workspace gateway was not ready for setup configuration.");
-    }
-    await runningAgent.waitReady(60_000, { probe: "config", retryIntervalMs: 3_000 });
-    const gateway = await runningAgent.connect({ clientId: "openclaw-control-ui", clientMode: "ui" });
-    try {
-      await gateway.configPatch({
-        setup: {
-          source: "dev-agent-setup",
-          plan: "team",
-          team: buildTeamSummary(
-            teamOnboardingState,
-            activeAgentForSetup,
-            connectedService ? getService(connectedService).name : null,
-          ),
-          channelDraft: connectedService
-            ? {
-                service: connectedService,
-                status: "preview",
-                noSecretsWritten: true,
-              }
-            : null,
-        },
-      });
-    } finally {
-      gateway.close();
-    }
-  };
-
   const activatePlan = (planId: PlanId) => {
     setActivatingPlanId(planId);
     setCreatedSetupAgentId(null);
@@ -970,17 +932,6 @@ export default function DevAgentSetupPage() {
 
         await startAgent(token, finalAgentId);
 
-        if (isTeamPlanActive) {
-          try {
-            await patchTeamStarterConfig(token, finalAgentId);
-          } catch (configErr) {
-            const warning = configErr instanceof Error
-              ? configErr.message
-              : "The agent was started, but setup configuration could not be applied yet.";
-            setTeamSafeWriteWarning(warning);
-            window.sessionStorage.setItem("dev-agent-setup-safe-write-warning", warning);
-          }
-        }
       }
 
       window.sessionStorage.setItem("dev-agent-setup-agent-name", agentToCreate.name);

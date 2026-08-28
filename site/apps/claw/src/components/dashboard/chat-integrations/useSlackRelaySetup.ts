@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { getSlackInstallStatus, startSlackOAuth, type SlackInstallStatus } from "@hypercli.com/sdk/agents";
-import { configureHostedSlackRelayChannel, type AgentChannelsProvider } from "@hypercli.com/sdk/channels";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { SLACK_APP_HANDLE, SLACK_RELAY_BASE_URL } from "@/lib/api";
@@ -73,13 +72,11 @@ function reducer(state: SlackRelayState, action: SlackRelayAction): SlackRelaySt
 export function useSlackRelaySetup({
   enabled,
   agentId,
-  channelsProvider,
   onEnsureSlackSupport,
   onRefreshChannels,
 }: {
   enabled: boolean;
   agentId?: string | null;
-  channelsProvider?: AgentChannelsProvider | null;
   onEnsureSlackSupport?: () => Promise<unknown>;
   onRefreshChannels?: (probe?: boolean) => Promise<unknown>;
 }): SlackRelaySetupOptions {
@@ -122,29 +119,20 @@ export function useSlackRelaySetup({
       dispatch({ type: "configure-error", error: "Agent identity is unavailable." });
       return;
     }
-    if (!channelsProvider?.configure) {
-      dispatch({ type: "configure-error", error: "Agent gateway configuration is unavailable." });
-      return;
-    }
     const operationId = operationRef.current + 1;
     operationRef.current = operationId;
     dispatch({ type: "configure-start" });
     try {
-      const result = await configureHostedSlackRelayChannel({
-        relayBaseUrl: SLACK_RELAY_BASE_URL,
-        token: await getToken(),
-        agentId,
-        channelsProvider,
-        checkInstallStatus: getSlackInstallStatus,
-      });
+      const status = await getSlackInstallStatus({ relayBaseUrl: SLACK_RELAY_BASE_URL, token: await getToken() });
+      if (!status.connected) throw new Error("Connect Slack before using the hosted app.");
       if (operationRef.current !== operationId) return;
-      dispatch({ type: "configure-success", installStatus: result.status });
+      dispatch({ type: "configure-error", error: "Enable hosted Slack in agent settings so the runtime starts with relay env." });
       await onRefreshChannels?.(true);
     } catch {
       if (operationRef.current !== operationId) return;
-      dispatch({ type: "configure-error", error: "Slack is authorized but was not attached to this agent. Retry attaching it." });
+      dispatch({ type: "configure-error", error: "Slack is authorized but was not attached to this agent. Enable hosted Slack in agent settings so the runtime starts with relay env." });
     }
-  }, [agentId, channelsProvider, getToken, onRefreshChannels]);
+  }, [agentId, getToken, onRefreshChannels]);
 
   const startOAuth = useCallback(async () => {
     const operationId = operationRef.current + 1;

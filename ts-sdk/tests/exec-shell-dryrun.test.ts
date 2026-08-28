@@ -591,258 +591,6 @@ describe('HyperClaw agents SDK', () => {
     expect(gateway.gatewayToken).toBe('gw-jwtless');
   });
 
-  it('OpenClawAgent config helpers mutate OpenClaw config through configApply', async () => {
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-helpers',
-      user_id: 'user-1',
-      state: 'running',
-      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
-      gateway_token: 'gw-helpers',
-      jwt_token: 'jwt-helpers',
-    });
-    const baseConfig = {
-      models: {
-        providers: {
-          hyperclaw: {
-            api: 'anthropic-messages',
-            baseUrl: 'https://api.example',
-            models: [{ id: 'kimi-k2.5', name: 'Kimi K2.5' }],
-          },
-        },
-      },
-      agents: { defaults: {} },
-    };
-    const applied: Array<Record<string, any>> = [];
-    vi.spyOn(agent, 'configGet').mockImplementation(async () => structuredClone(baseConfig));
-    vi.spyOn(agent, 'configApply').mockImplementation(async (config) => {
-      applied.push(structuredClone(config));
-    });
-
-    const provider = await agent.providerUpsert('moonshot', {
-      api: 'anthropic-messages',
-      baseUrl: 'https://moonshot.example',
-      apiKey: { source: 'env', provider: 'default', id: 'MOONSHOT_API_KEY' },
-      auth: 'api-key',
-      authHeader: true,
-      headers: {
-        'x-provider': 'moonshot',
-      },
-      injectNumCtxForOpenAICompat: true,
-      models: [{ id: 'kimi-k2.5', name: 'Kimi K2.5', reasoning: true, input: ['text'] }],
-    });
-    expect(provider.baseUrl).toBe('https://moonshot.example');
-    expect(provider.auth).toBe('api-key');
-    expect(provider.authHeader).toBe(true);
-    expect(provider.injectNumCtxForOpenAICompat).toBe(true);
-    expect(provider.headers).toEqual({ 'x-provider': 'moonshot' });
-
-    const model = await agent.modelUpsert('moonshot', 'kimi-k2.5', {
-      name: 'Kimi K2.5',
-      reasoning: true,
-      contextWindow: 262144,
-    });
-    expect(model.contextWindow).toBe(262144);
-
-    const primary = await agent.setDefaultModel('moonshot', 'kimi-k2.5');
-    expect(primary).toBe('moonshot/kimi-k2.5');
-
-    const memorySearch = await agent.setMemorySearch({
-      provider: 'embeddings',
-      model: 'qwen3-embedding',
-      baseUrl: 'https://embed.example',
-      apiKey: 'embed-key',
-    });
-    expect(memorySearch.remote.baseUrl).toBe('https://embed.example');
-
-    const telegram = await agent.telegramUpsert({
-      botToken: 'telegram-token',
-      allowFrom: ['123456'],
-    });
-    expect(telegram.botToken).toBe('telegram-token');
-
-    const slack = await agent.slackUpsert({
-      botToken: 'xoxb-test',
-      channels: { C123: { enabled: true, users: ['U123'] } },
-    }, { accountId: 'work' });
-    expect(slack.botToken).toBe('xoxb-test');
-
-    const discord = await agent.discordUpsert({
-      token: 'discord-token',
-      guilds: { G123: { enabled: true } },
-    });
-    expect(discord.token).toBe('discord-token');
-
-    expect(applied).toHaveLength(7);
-    expect(applied[0]?.models?.providers?.moonshot?.apiKey).toEqual({
-      source: 'env',
-      provider: 'default',
-      id: 'MOONSHOT_API_KEY',
-    });
-    expect(applied[1]?.models?.providers?.moonshot?.models?.[0]?.reasoning).toBe(true);
-    expect(applied[2]?.agents?.defaults?.model?.primary).toBe('moonshot/kimi-k2.5');
-    expect(applied[3]?.agents?.defaults?.memorySearch?.remote?.apiKey).toBe('embed-key');
-    expect(applied[4]?.channels?.telegram?.allowFrom).toEqual(['123456']);
-    expect(applied[5]?.channels?.slack?.accounts?.work?.channels?.C123?.users).toEqual(['U123']);
-    expect(applied[6]?.channels?.discord?.guilds?.G123?.enabled).toBe(true);
-  });
-
-  it('providerUpsert matches the gateway provider config shape for anthropic, openai, and google providers', async () => {
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-provider-matrix',
-      user_id: 'user-1',
-      state: 'running',
-      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
-      gateway_token: 'gw-provider-matrix',
-      jwt_token: 'jwt-provider-matrix',
-    });
-    const baseConfig = {
-      models: {
-        providers: {},
-      },
-      agents: { defaults: {} },
-    };
-    const applied: Array<Record<string, any>> = [];
-    vi.spyOn(agent, 'configGet').mockImplementation(async () => structuredClone(baseConfig));
-    vi.spyOn(agent, 'configApply').mockImplementation(async (config) => {
-      applied.push(structuredClone(config));
-    });
-
-    await agent.providerUpsert('anthropic', {
-      api: 'anthropic-messages',
-      baseUrl: 'https://api.anthropic.com/v1',
-      apiKey: { source: 'env', provider: 'default', id: 'ANTHROPIC_API_KEY' },
-      auth: 'api-key',
-      headers: { 'anthropic-version': '2023-06-01' },
-      models: [
-        {
-          id: 'claude-sonnet-4-5',
-          name: 'Claude Sonnet 4.5',
-          reasoning: true,
-          input: ['text', 'image'],
-          contextWindow: 200000,
-          maxTokens: 64000,
-        },
-      ],
-    });
-
-    await agent.providerUpsert('openai', {
-      api: 'openai-responses',
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: { source: 'env', provider: 'default', id: 'OPENAI_API_KEY' },
-      auth: 'api-key',
-      authHeader: true,
-      injectNumCtxForOpenAICompat: true,
-      models: [
-        {
-          id: 'gpt-5.4',
-          name: 'GPT-5.4',
-          reasoning: true,
-          input: ['text', 'image'],
-          contextWindow: 400000,
-          maxTokens: 128000,
-          compat: {
-            supportsTools: true,
-            thinkingFormat: 'openrouter',
-          },
-        },
-      ],
-    });
-
-    await agent.providerUpsert('google', {
-      api: 'google-generative-ai',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      apiKey: { source: 'env', provider: 'default', id: 'GOOGLE_API_KEY' },
-      auth: 'api-key',
-      headers: { 'x-goog-api-client': 'hypercli-test' },
-      models: [
-        {
-          id: 'gemini-2.5-pro',
-          name: 'Gemini 2.5 Pro',
-          reasoning: true,
-          input: ['text', 'image'],
-          contextWindow: 1048576,
-          maxTokens: 65536,
-        },
-      ],
-    });
-
-    expect(applied).toHaveLength(3);
-    expect(applied[0]).toMatchObject({
-      models: {
-        providers: {
-          anthropic: {
-            api: 'anthropic-messages',
-            baseUrl: 'https://api.anthropic.com/v1',
-            apiKey: { source: 'env', provider: 'default', id: 'ANTHROPIC_API_KEY' },
-            auth: 'api-key',
-            headers: { 'anthropic-version': '2023-06-01' },
-            models: [
-              {
-                id: 'claude-sonnet-4-5',
-                name: 'Claude Sonnet 4.5',
-                reasoning: true,
-                input: ['text', 'image'],
-                contextWindow: 200000,
-                maxTokens: 64000,
-              },
-            ],
-          },
-        },
-      },
-    });
-    expect(applied[1]).toMatchObject({
-      models: {
-        providers: {
-          openai: {
-            api: 'openai-responses',
-            baseUrl: 'https://api.openai.com/v1',
-            apiKey: { source: 'env', provider: 'default', id: 'OPENAI_API_KEY' },
-            auth: 'api-key',
-            authHeader: true,
-            injectNumCtxForOpenAICompat: true,
-            models: [
-              {
-                id: 'gpt-5.4',
-                name: 'GPT-5.4',
-                reasoning: true,
-                input: ['text', 'image'],
-                contextWindow: 400000,
-                maxTokens: 128000,
-                compat: {
-                  supportsTools: true,
-                  thinkingFormat: 'openrouter',
-                },
-              },
-            ],
-          },
-        },
-      },
-    });
-    expect(applied[2]).toMatchObject({
-      models: {
-        providers: {
-          google: {
-            api: 'google-generative-ai',
-            baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-            apiKey: { source: 'env', provider: 'default', id: 'GOOGLE_API_KEY' },
-            auth: 'api-key',
-            headers: { 'x-goog-api-client': 'hypercli-test' },
-            models: [
-              {
-                id: 'gemini-2.5-pro',
-                name: 'Gemini 2.5 Pro',
-                reasoning: true,
-                input: ['text', 'image'],
-                contextWindow: 1048576,
-                maxTokens: 65536,
-              },
-            ],
-          },
-        },
-      },
-    });
-  });
-
   it('OpenClawAgent waitReady delegates to GatewayClient.waitReady', async () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-ready',
@@ -872,7 +620,7 @@ describe('HyperClaw agents SDK', () => {
     expect(close).not.toHaveBeenCalled();
   });
 
-  it('OpenClawAgent gateway helper wrappers delegate to the GatewayClient surface', async () => {
+  it('OpenClawAgent runtime helper wrappers delegate to the GatewayClient surface', async () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-gateway-helpers',
       user_id: 'user-1',
@@ -883,7 +631,6 @@ describe('HyperClaw agents SDK', () => {
     });
 
     const close = vi.fn();
-    const configPatch = vi.fn().mockResolvedValue(undefined);
     const modelsList = vi.fn().mockResolvedValue([{ id: 'kimi-k2.5' }]);
     const agentsList = vi.fn().mockResolvedValue([{ id: 'workspace-agent' }]);
     const filesList = vi.fn().mockResolvedValue([{ name: 'README.md' }]);
@@ -900,7 +647,6 @@ describe('HyperClaw agents SDK', () => {
 
     const gatewayClient = {
       close,
-      configPatch,
       modelsList,
       agentsList,
       filesList,
@@ -916,9 +662,6 @@ describe('HyperClaw agents SDK', () => {
       client: gatewayClient,
       release,
     } as any);
-
-    await agent.configPatch({ gateway: { mode: 'local' } });
-    expect(configPatch).toHaveBeenCalledWith({ gateway: { mode: 'local' } });
 
     await expect(agent.modelsList()).resolves.toEqual([{ id: 'kimi-k2.5' }]);
 
@@ -972,7 +715,7 @@ describe('HyperClaw agents SDK', () => {
 
     await expect(agent.cronList()).resolves.toEqual([{ id: 'job-1' }]);
     expect(cronList).toHaveBeenCalledTimes(1);
-    expect(release).toHaveBeenCalledTimes(11);
+    expect(release).toHaveBeenCalledTimes(10);
     expect(close).not.toHaveBeenCalled();
   });
 

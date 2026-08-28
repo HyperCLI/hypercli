@@ -259,8 +259,6 @@ coalesced; refresh REST for authority.
 
 Use `createOpenClawPro(...)` or `startOpenClawPro(...)` for the desktop/browser image. It selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
-`heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat: { every: '1h', target: 'last' }`.
-
 Automatic memory indexing is off by default. Opt in with `memoryIndex: { onSessionStart: true, onSearch: true, watch: true, watchDebounceMs: 30000, intervalMinutes: 0 }`.
 
 ### Managed Coding Agents and Buzz ACP

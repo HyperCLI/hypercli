@@ -7,6 +7,7 @@
 import {
   OPENCLAW_BOOTSTRAP_OPTIONAL_FILES,
   OPENCLAW_BOOTSTRAP_REQUIRED_FILES,
+  OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES,
   type OpenClawBootstrapFile,
   type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
@@ -82,6 +83,21 @@ export function assembleOpenClawBootstrapPack(
     ...(inputs.includeMemory && inputs.memoryNotes ? OPENCLAW_BOOTSTRAP_OPTIONAL_FILES : []),
   ];
   return names.map((name) => ({
+    name,
+    content: name === "BOOTSTRAP.md" ? BOOTSTRAP_TEMPLATES[name] : interpolateBootstrapTemplate(BOOTSTRAP_TEMPLATES[name], tokens),
+  }));
+}
+
+/**
+ * Assemble the minimal native-bootstrap pack for users who skip creation
+ * onboarding. It writes only files that are not completion evidence, so
+ * OpenClaw performs its own first-run onboarding before creating profile files.
+ */
+export function assembleOpenClawStagedDefaultBootstrapPack(
+  inputs: OpenClawBootstrapInputs,
+): OpenClawBootstrapFile[] {
+  const tokens = buildTemplateTokens(inputs);
+  return OPENCLAW_BOOTSTRAP_STAGED_REQUIRED_FILES.map((name) => ({
     name,
     content: name === "BOOTSTRAP.md" ? BOOTSTRAP_TEMPLATES[name] : interpolateBootstrapTemplate(BOOTSTRAP_TEMPLATES[name], tokens),
   }));

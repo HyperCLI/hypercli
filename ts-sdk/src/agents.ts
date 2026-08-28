@@ -73,7 +73,6 @@ import type {
   OpenClawWhatsAppConfigPatch,
 } from './openclaw/channels.js';
 import {
-  buildHostedSlackRelayChannelConfig,
   HOSTED_SLACK_GATEWAY_ID_ENV,
   HOSTED_SLACK_LAUNCH_ENV_KEYS,
   HostedSlackLaunchEnv,
@@ -709,7 +708,6 @@ export interface AttachSlackRelayAgentResult {
   connected: boolean;
   agentId: string;
   gatewayId: string;
-  config: Record<string, unknown>;
   restartRequired: boolean;
   teamId?: string | null;
   teamName?: string | null;
@@ -818,7 +816,7 @@ export interface RegistryAuth {
 
 /** Complete Backend START replacement contract. */
 export interface AgentLaunchConfig {
-  config: Record<string, any>;
+  config?: Record<string, any>;
   image: string | null;
   env: Record<string, string>;
   secrets: Record<string, string>;
@@ -838,7 +836,6 @@ export interface AgentLaunchConfig {
 }
 
 const REQUIRED_START_LAUNCH_CONFIG_KEYS: ReadonlyArray<keyof AgentLaunchConfig> = [
-  'config',
   'image',
   'env',
   'secrets',
@@ -853,6 +850,22 @@ const REQUIRED_START_LAUNCH_CONFIG_KEYS: ReadonlyArray<keyof AgentLaunchConfig> 
   'registry_auth',
   'runtime_scopes',
 ];
+
+const OPENCLAW_SECRET_ONLY_ENV_KEYS = [
+  'OPENCLAW_GATEWAY_TOKEN',
+  'SLACK_BOT_TOKEN',
+  'SLACK_APP_TOKEN',
+  'SLACK_USER_TOKEN',
+  'SLACK_SIGNING_SECRET',
+  'SLACK_RELAY_AUTH_TOKEN',
+] as const;
+
+function rejectOpenClawSecretOnlyEnv(env: Record<string, unknown>, noun = 'env'): void {
+  const matches = OPENCLAW_SECRET_ONLY_ENV_KEYS.filter((key) => Object.prototype.hasOwnProperty.call(env, key));
+  if (matches.length > 0) {
+    throw new Error(`${matches.join(', ')} must be supplied through secrets, not ${noun}`);
+  }
+}
 
 function cloneCompleteLaunchConfig(value: AgentLaunchConfig): AgentLaunchConfig {
   if (!isPlainRecord(value)) throw new Error('launchConfig must be a complete object');
@@ -1091,7 +1104,7 @@ export interface OpenClawSlackOptions {
   gatewayId?: string | null;
 }
 
-export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
+export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'config'> {
   gatewayToken?: string | null;
   /**
    * Enable hosted Slack. Pass `true` (or relay overrides) to state the intent;
@@ -1100,7 +1113,6 @@ export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
    */
   slack?: OpenClawSlackOptions | boolean | null;
   openClawRoutes?: OpenClawRouteOptions | null;
-  heartbeat?: OpenClawHeartbeatConfig | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
   controlUiOriginLock?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
@@ -1108,7 +1120,7 @@ export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
 }
 
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
-  launchConfig: AgentLaunchConfig;
+  launchConfig: Omit<AgentLaunchConfig, 'config'>;
   gatewayToken?: string | null;
 }
 
@@ -2175,7 +2187,6 @@ export function buildAgentConfig(
   }
 
   const prepared: AgentLaunchConfig = {
-    config: preparedConfig,
     image: options.image ?? null,
     env,
     secrets,
@@ -2190,6 +2201,7 @@ export function buildAgentConfig(
     registry_auth: registryAuth,
     runtime_scopes: [...(options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES)],
   };
+  if (Object.keys(preparedConfig).length > 0) prepared.config = preparedConfig;
   if (options.cors !== undefined) prepared.cors = options.cors === null ? null : structuredClone(options.cors);
   if (options.syncInclude !== undefined) {
     if (options.syncInclude !== null && options.syncInclude.length === 0) {
@@ -2212,7 +2224,7 @@ function buildAgentCreateConfig(
 ): Record<string, any> {
   const complete = buildAgentConfig(config, options).config;
   const prepared: Record<string, any> = {};
-  if (Object.keys(complete.config).length > 0) prepared.config = complete.config;
+  if (complete.config && Object.keys(complete.config).length > 0) prepared.config = complete.config;
   if (Object.keys(complete.env).length > 0) prepared.env = complete.env;
   if (Object.keys(complete.secrets).length > 0) prepared.secrets = complete.secrets;
   if (options.routes !== undefined && options.routes !== null) prepared.routes = complete.routes;
@@ -2368,48 +2380,18 @@ function resolveHostedSlackRelayBaseUrl(
   return normalizeSlackRelayBaseUrl(candidate);
 }
 
-/** Merge the hosted Slack relay channel into an OpenClaw runtime config. */
-function withHostedSlackRelayChannelConfig(
-  config: unknown,
-  options: { relayBaseUrl: string; gatewayId: string },
-): Record<string, any> {
-  const next: Record<string, any> = isPlainRecord(config) ? { ...config } : {};
-  const built = buildHostedSlackRelayChannelConfig(options);
-  const channels: Record<string, any> = isPlainRecord(next.channels) ? { ...next.channels } : {};
-  const existingSlack: Record<string, any> = isPlainRecord(channels.slack) ? channels.slack : {};
-  const existingRelay: Record<string, any> = isPlainRecord(existingSlack.relay) ? existingSlack.relay : {};
-  channels.slack = {
-    ...existingSlack,
-    ...built,
-    relay: { ...existingRelay, ...built.relay },
-  };
-  next.channels = channels;
-  const messages: Record<string, any> = isPlainRecord(next.messages) ? { ...next.messages } : {};
-  const statusReactions: Record<string, any> = isPlainRecord(messages.statusReactions)
-    ? { ...messages.statusReactions }
-    : {};
-  messages.statusReactions = { ...statusReactions, enabled: true };
-  next.messages = messages;
-  return next;
-}
-
 function prepareOpenClawLaunch(
   options: OpenClawCreateAgentOptions,
   generateGatewayToken: true,
   defaultSlackRelayBaseUrl?: string | null,
 ): {
-  config: Record<string, any>;
   env: Record<string, string>;
   secrets: Record<string, string>;
   gatewayToken: string | null;
   slack: PreparedHostedSlack;
 } {
   const env = { ...(options.env ?? {}) };
-  if (Object.prototype.hasOwnProperty.call(env, 'OPENCLAW_GATEWAY_TOKEN')) {
-    throw new Error(
-      'OPENCLAW_GATEWAY_TOKEN is a Secret; pass it through secrets or gatewayToken, not env',
-    );
-  }
+  rejectOpenClawSecretOnlyEnv(env);
   const secrets = { ...(options.secrets ?? {}) };
   const explicitGatewayToken = options.gatewayToken?.trim() || null;
   const secretGatewayToken = secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
@@ -2428,19 +2410,6 @@ function prepareOpenClawLaunch(
     if (controlUiOrigin) env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
   }
 
-  const config = structuredClone(options.config ?? {});
-  if (options.heartbeat) {
-    const agentsConfig = isPlainRecord(config.agents) ? { ...config.agents } : {};
-    const defaultsConfig = isPlainRecord(agentsConfig.defaults)
-      ? { ...agentsConfig.defaults }
-      : {};
-    const heartbeatConfig = isPlainRecord(defaultsConfig.heartbeat)
-      ? { ...defaultsConfig.heartbeat }
-      : {};
-    defaultsConfig.heartbeat = { ...heartbeatConfig, ...options.heartbeat };
-    agentsConfig.defaults = defaultsConfig;
-    config.agents = agentsConfig;
-  }
   const slackOption = normalizeHostedSlackOption(options.slack);
   for (const key of HOSTED_SLACK_LAUNCH_ENV_KEYS) {
     if (Object.prototype.hasOwnProperty.call(secrets, key)) {
@@ -2483,7 +2452,7 @@ function prepareOpenClawLaunch(
       gatewayId: env[HOSTED_SLACK_GATEWAY_ID_ENV]?.trim() || null,
     };
   }
-  return { config, env, secrets, gatewayToken, slack };
+  return { env, secrets, gatewayToken, slack };
 }
 
 export async function startSlackOAuth(options: SlackOAuthStartOptions): Promise<SlackOAuthStartResult> {
@@ -2655,7 +2624,6 @@ export async function attachSlackRelayAgent(options: AttachSlackRelayAgentOption
     connected: payload.connected === true,
     agentId: agentIdValue,
     gatewayId: gatewayIdValue,
-    config: payload.config && typeof payload.config === 'object' && !Array.isArray(payload.config) ? payload.config as Record<string, unknown> : {},
     restartRequired: payload.restart_required !== false,
     teamId: typeof payload.team_id === 'string' ? payload.team_id : null,
     teamName: typeof payload.team_name === 'string' ? payload.team_name : null,
@@ -4799,9 +4767,9 @@ export class Deployments {
     const effectiveOptions: CreateAgentOptions = {
       ...options,
       runtime: options.runtime ?? 'openclaw',
-      config: prepared.config,
       secrets: prepared.secrets,
     };
+    delete (effectiveOptions as { config?: unknown }).config;
     delete (effectiveOptions as { slack?: unknown }).slack;
     effectiveOptions.env = {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
@@ -4864,7 +4832,7 @@ export class Deployments {
       ...(isPlainRecord(launchConfig.env) ? launchConfig.env : {}),
       ...HostedSlackLaunchEnv.build({ relayBaseUrl, gatewayId }),
     };
-    launchConfig.config = withHostedSlackRelayChannelConfig(launchConfig.config, { relayBaseUrl, gatewayId });
+    delete launchConfig.config;
     const updated = await this.update(ready.id, { launchConfig });
     const storedEnv: Record<string, string | undefined> = isPlainRecord(updated.launchConfig?.env)
       ? updated.launchConfig.env as Record<string, string | undefined>
@@ -5694,6 +5662,7 @@ export class Deployments {
         ),
       )
       : await this.storedLaunchConfig(agentId, { registryAuth: options?.registryAuth });
+    delete (launchConfig as { config?: unknown }).config;
     const body: Record<string, any> = { launch_config: launchConfig };
     if (options?.dryRun) body.dry_run = true;
     const data = await this.agentHttp.post<AgentHydrationData>(
@@ -5720,9 +5689,7 @@ export class Deployments {
       ),
       desktop,
     );
-    if (Object.prototype.hasOwnProperty.call(launchConfig.env, 'OPENCLAW_GATEWAY_TOKEN')) {
-      throw new Error('OPENCLAW_GATEWAY_TOKEN must be supplied through launchConfig.secrets or gatewayToken');
-    }
+    rejectOpenClawSecretOnlyEnv(launchConfig.env, 'launchConfig.env');
     const explicitToken = options.gatewayToken?.trim() || null;
     const configuredToken = launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
     if (options.gatewayToken !== undefined && options.gatewayToken !== null && !explicitToken) {
@@ -5737,6 +5704,7 @@ export class Deployments {
     // the Backend's own derivation from the Agent id, known here.
     HostedSlackLaunchEnv.repairForAgent(launchConfig.env, { agentId });
     HostedSlackLaunchEnv.assertComplete(launchConfig.env, 'startOpenClaw launch env');
+    delete (launchConfig as { config?: unknown }).config;
     const agent = await this.start(agentId, {
       launchConfig,
       dryRun: options.dryRun,

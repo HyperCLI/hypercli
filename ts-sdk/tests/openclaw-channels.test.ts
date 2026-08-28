@@ -7,13 +7,9 @@ import {
   type OpenClawChannelsClient,
 } from '../src/openclaw/channels.js';
 import {
-  buildHostedSlackRelayConfigPatch,
-  buildHostedSlackRelayChannelConfig,
   buildSlackRelayApiUrl,
   buildSlackRelayWebSocketUrl,
-  configureHostedSlackRelayChannel,
   normalizeSlackRelayBaseUrl,
-  type AgentChannelsProvider,
 } from '../src/channels.js';
 
 function client(overrides: Partial<OpenClawChannelsClient> = {}): OpenClawChannelsClient {
@@ -28,115 +24,18 @@ function client(overrides: Partial<OpenClawChannelsClient> = {}): OpenClawChanne
     })),
     channelsLogout: vi.fn(async () => ({ ok: true })),
     configGet: vi.fn(async () => ({})),
-    configPatch: vi.fn(async () => ({ ok: true })),
     ...overrides,
   };
 }
 
 describe('hosted Slack relay channel helpers', () => {
-  it('builds hosted Slack relay config from relay base URL and agent id', () => {
+  it('builds hosted Slack relay URLs from relay base URL', () => {
     expect(normalizeSlackRelayBaseUrl('https://api.agents.hypercli.com/')).toBe('https://api.hypercli.com');
     expect(normalizeSlackRelayBaseUrl('https://api.agents.dev.hypercli.com/')).toBe('https://api.dev.hypercli.com');
     expect(buildSlackRelayWebSocketUrl('https://api.agents.dev.hypercli.com/')).toBe('wss://api.dev.hypercli.com/slack/ws');
     expect(buildSlackRelayWebSocketUrl('http://localhost:8000/base')).toBe('ws://localhost:8000/slack/ws');
     expect(buildSlackRelayApiUrl('https://api.agents.dev.hypercli.com/')).toBe('https://api.dev.hypercli.com/slack/api/');
     expect(buildSlackRelayApiUrl('http://localhost:8000/base')).toBe('http://localhost:8000/slack/api/');
-    expect(buildHostedSlackRelayChannelConfig({
-      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
-      agentId: 'agent-123',
-    })).toEqual({
-      enabled: true,
-      mode: 'relay',
-      botToken: { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' },
-      relay: {
-        url: 'wss://api.dev.hypercli.com/slack/ws',
-        authToken: { source: 'env', provider: 'default', id: 'HYPER_AGENTS_API_KEY' },
-        gatewayId: 'agent:agent-123',
-      },
-    });
-    const installerConfig = buildHostedSlackRelayChannelConfig({
-      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
-      agentId: 'agent-123',
-      installerUserId: 'UINSTALLER',
-    });
-    expect(installerConfig.dmPolicy).toBe('allowlist');
-    expect(installerConfig.allowFrom).toEqual(['UINSTALLER']);
-    expect(buildHostedSlackRelayConfigPatch(installerConfig)).toEqual({
-      messages: { statusReactions: { enabled: true } },
-      channels: { slack: installerConfig },
-    });
-  });
-
-  it('patches hosted Slack relay and status reactions after verifying the install', async () => {
-    const provider: Pick<AgentChannelsProvider, 'configure' | 'patchConfig'> = {
-      configure: vi.fn(async () => undefined),
-      patchConfig: vi.fn(async () => undefined),
-    };
-    const checkInstallStatus = vi.fn(async () => ({
-      connected: true,
-      teamId: 'T123',
-      teamName: 'Test Workspace',
-      botUserId: 'U123',
-      installerUserId: 'UINSTALLER',
-    }));
-
-    const result = await configureHostedSlackRelayChannel({
-      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
-      token: 'app-jwt',
-      agentId: 'agent-123',
-      channelsProvider: provider,
-      checkInstallStatus,
-    });
-
-    expect(result.status.connected).toBe(true);
-    expect(result.config.dmPolicy).toBe('allowlist');
-    expect(result.patch.messages.statusReactions.enabled).toBe(true);
-    expect(checkInstallStatus).toHaveBeenCalledWith({
-      relayBaseUrl: 'https://api.dev.hypercli.com',
-      token: 'app-jwt',
-    });
-    expect(provider.patchConfig).toHaveBeenCalledWith({
-      messages: { statusReactions: { enabled: true } },
-      channels: {
-        slack: {
-          enabled: true,
-          mode: 'relay',
-          botToken: { source: 'env', provider: 'default', id: 'SLACK_BOT_TOKEN' },
-          relay: {
-            url: 'wss://api.dev.hypercli.com/slack/ws',
-            authToken: { source: 'env', provider: 'default', id: 'HYPER_AGENTS_API_KEY' },
-            gatewayId: 'agent:agent-123',
-          },
-          dmPolicy: 'allowlist',
-          allowFrom: ['UINSTALLER'],
-        },
-      },
-    });
-    expect(provider.configure).not.toHaveBeenCalled();
-  });
-
-  it('falls back to channel-only configure for older providers', async () => {
-    const provider: Pick<AgentChannelsProvider, 'configure'> = {
-      configure: vi.fn(async () => undefined),
-    };
-    const checkInstallStatus = vi.fn(async () => ({
-      connected: true,
-      installerUserId: 'UINSTALLER',
-    }));
-
-    await configureHostedSlackRelayChannel({
-      relayBaseUrl: 'https://api.agents.dev.hypercli.com/',
-      token: 'app-jwt',
-      agentId: 'agent-123',
-      channelsProvider: provider,
-      checkInstallStatus,
-    });
-
-    expect(provider.configure).toHaveBeenCalledWith('slack', expect.objectContaining({
-      mode: 'relay',
-      dmPolicy: 'allowlist',
-      allowFrom: ['UINSTALLER'],
-    }));
   });
 });
 
@@ -351,7 +250,7 @@ describe('OpenClawChannelsProvider', () => {
     ]);
   });
 
-  it('delegates probe, configuration, logout, and destructive removal separately', async () => {
+  it('delegates probe and logout separately without config writes', async () => {
     const sdk = client({
       channelsStatus: vi.fn(async () => ({ channels: { telegram: { configured: false } } })),
     });
@@ -360,22 +259,11 @@ describe('OpenClawChannelsProvider', () => {
     await expect(provider.list({ probe: true, timeoutMs: 2500 })).resolves.toEqual([
       expect.objectContaining({ channelId: 'telegram' }),
     ]);
-    await provider.configure?.('telegram', { enabled: true, botToken: 'secret' });
-    await provider.configure?.('slack', { enabled: true }, 'work');
-    await provider.configureTelegram({ dmPolicy: 'allowlist', allowFrom: ['123'] });
-    await provider.configureWhatsapp({ enabled: true }, 'default');
     await provider.logout?.('telegram');
-    await provider.removeConfig?.('slack', 'work');
-    await provider.removeConfig?.('telegram');
 
     expect(sdk.channelsStatus).toHaveBeenCalledWith(true, 2500);
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(1, { channels: { telegram: { enabled: true, botToken: 'secret' } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(2, { channels: { slack: { accounts: { work: { enabled: true } } } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(3, { channels: { telegram: { dmPolicy: 'allowlist', allowFrom: ['123'] } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(4, { channels: { whatsapp: { accounts: { default: { enabled: true } } } } });
     expect(sdk.channelsLogout).toHaveBeenCalledWith('telegram', undefined);
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(5, { channels: { slack: { accounts: { work: null } } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(6, { channels: { telegram: null } });
+    expect(provider.capabilities).toMatchObject({ logout: true, probe: true });
   });
 
   it('supports channel-scoped grouped reads', async () => {
@@ -398,7 +286,7 @@ describe('OpenClawChannelsProvider', () => {
     expect(sdk.channelsStatus).toHaveBeenCalledWith(true, 1500, 'telegram');
   });
 
-  it('reads cloned channel and account config and applies update patches', async () => {
+  it('reads cloned channel and account config', async () => {
     const config = {
       channels: {
         telegram: {
@@ -432,11 +320,6 @@ describe('OpenClawChannelsProvider', () => {
     });
     expect(defaultAccount.accountId).toBeUndefined();
 
-    await provider.update({ channelId: 'telegram', patch: { enabled: false } });
-    await provider.update({ channelId: 'telegram', accountId: 'work', patch: { enabled: false } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(1, { channels: { telegram: { enabled: false } } });
-    expect(sdk.configPatch).toHaveBeenNthCalledWith(2, {
-      channels: { telegram: { accounts: { work: { enabled: false } } } },
-    });
+    expect('update' in provider).toBe(true);
   });
 });

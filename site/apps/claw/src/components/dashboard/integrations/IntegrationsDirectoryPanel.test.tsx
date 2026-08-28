@@ -648,7 +648,7 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(sdkMocks.getSlackInstallStatus).toHaveBeenCalledTimes(1);
   });
 
-  it("configures Slack relay when the hosted app is connected", async () => {
+  it("confirms hosted Slack relay when launch env owns Slack", async () => {
     sdkMocks.getSlackInstallStatus.mockResolvedValue({
       connected: true,
       teamId: "T123",
@@ -670,6 +670,7 @@ describe("IntegrationsDirectoryPanel", () => {
       reportedChannels: [],
       reportedChannelSnapshot: { observedAt: 1, channels: [] },
       reportedChannelsReady: true,
+      agentLaunchConfig: { env: { HYPER_SLACK_APP_ENABLED: "1" } },
       onRefreshChannels,
     });
 
@@ -677,26 +678,10 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(await screen.findByText(/^Connected to Test Workspace\./)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Attach agent" }));
 
-    await waitFor(() => expect(patchConfig).toHaveBeenCalledWith({
-      messages: { statusReactions: { enabled: true } },
-      channels: {
-        slack: {
-          enabled: true,
-          mode: "relay",
-          botToken: { source: "env", provider: "default", id: "SLACK_BOT_TOKEN" },
-          relay: {
-            url: "wss://api.dev.hypercli.com/slack/ws",
-            authToken: { source: "env", provider: "default", id: "HYPER_AGENTS_API_KEY" },
-            gatewayId: "agent:agent-1",
-          },
-          dmPolicy: "allowlist",
-          allowFrom: ["UINSTALLER"],
-        },
-      },
-    }));
+    await waitFor(() => expect(onRefreshChannels).toHaveBeenCalledWith(true));
+    expect(patchConfig).not.toHaveBeenCalled();
     expect(configure).not.toHaveBeenCalled();
     expect(ensureSlackSupport).not.toHaveBeenCalled();
-    expect(onRefreshChannels).toHaveBeenCalledWith(true);
   });
 
   it("keeps saved Slack accounts behind the self-hosted flow when runtime status is unavailable", async () => {

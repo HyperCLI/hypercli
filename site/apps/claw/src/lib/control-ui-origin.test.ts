@@ -14,7 +14,7 @@ describe("control UI origin normalization", () => {
       .toEqual(["https://one.example", "https://two.example"]);
   });
 
-  it("reads and deduplicates env and config origins from launch config", () => {
+  it("reads and deduplicates env origins from launch config", () => {
     expect(controlUiAllowedOriginsFromLaunchConfig({
       env: {
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://env.example/path",
@@ -26,7 +26,7 @@ describe("control UI origin normalization", () => {
           },
         },
       },
-    })).toEqual(["https://env.example", "https://config.example"]);
+    })).toEqual(["https://env.example"]);
   });
 
   it("drops malformed or untrusted origins instead of reflecting them", () => {

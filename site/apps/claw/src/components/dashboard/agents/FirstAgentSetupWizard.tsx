@@ -55,7 +55,10 @@ import {
   type OpenClawBootstrapFileName,
   type OpenClawBootstrapInputs,
 } from "@/lib/openclaw-bootstrap-pack";
-import { assembleOpenClawBootstrapPack } from "@/lib/bootstrap-templates";
+import {
+  assembleOpenClawBootstrapPack,
+  assembleOpenClawStagedDefaultBootstrapPack,
+} from "@/lib/bootstrap-templates";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
 import { OpenClawBootstrapStep, type OpenClawBootstrapStage } from "./OpenClawBootstrapStep";
@@ -1070,6 +1073,22 @@ export function FirstAgentSetupWizard({
     setBootstrapDraft(nextDraft);
   }, []);
 
+  const useDefaultBootstrapPack = React.useCallback((): OpenClawBootstrapDraft => {
+    bootstrapGenerationRunRef.current += 1;
+    const inputs = normalizeOpenClawBootstrapInputs(
+      { ...bootstrapDraft.inputs, agentName: workspaceAgentName },
+      workspaceAgentName,
+    );
+    const nextDraft: OpenClawBootstrapDraft = {
+      version: bootstrapDraft.version,
+      inputs,
+      files: assembleOpenClawStagedDefaultBootstrapPack(inputs),
+      generationSource: "deterministic",
+    };
+    setBootstrapDraft(nextDraft);
+    return nextDraft;
+  }, [bootstrapDraft.inputs, bootstrapDraft.version, workspaceAgentName]);
+
   React.useEffect(() => {
     if (previousFocusStageRef.current === focusStage) return;
     previousFocusStageRef.current = focusStage;
@@ -1238,7 +1257,7 @@ export function FirstAgentSetupWizard({
     setPlanComparisonOpen(true);
   };
 
-  const saveDraftAndCreate = async (planId = selectedPlanId) => {
+  const saveDraftAndCreate = async (planId = selectedPlanId, launchBootstrapDraft = bootstrapDraft) => {
     if (creating) return;
     debugFlow("setup-wizard", "saveDraftAndCreate: entry", { planId });
     const plan = displayedPlanOptions.find((option) => option.id === planId) ?? selectedPlan;
@@ -1294,7 +1313,7 @@ export function FirstAgentSetupWizard({
         name: deploymentName,
         size: plan.size,
         agentType,
-        filesCount: agentType === "hermes" ? 0 : bootstrapDraft.files.length,
+        filesCount: agentType === "hermes" ? 0 : launchBootstrapDraft.files.length,
         knowledgeCollectionId: effectiveKnowledgeCollectionId,
       });
       const createdId = await onCreateAgent({
@@ -1304,7 +1323,7 @@ export function FirstAgentSetupWizard({
         iconIndex: creationIconIndex,
         size: plan.size,
         agentType,
-        files: agentType === "hermes" ? [] : bootstrapDraft.files.map((file) => (
+        files: agentType === "hermes" ? [] : launchBootstrapDraft.files.map((file) => (
           new File([file.content], file.name, { type: "text/markdown" })
         )),
         enableDesktop,
@@ -1327,30 +1346,35 @@ export function FirstAgentSetupWizard({
     }
   };
 
-  const handlePlanAction = (planId = selectedPlan?.id) => {
+  const handlePlanAction = (planId = selectedPlan?.id, launchBootstrapDraft = bootstrapDraft) => {
     if (!planId || creating) return;
     const plan = displayedPlanOptions.find((option) => option.id === planId);
     if (!plan || plan.disabled) return;
     // Fails closed: never start a create with an unassembled starter pack.
-    if (agentType !== "hermes" && bootstrapDraft.files.length === 0) {
+    if (agentType !== "hermes" && launchBootstrapDraft.files.length === 0) {
       dispatchWizard({ type: "CREATE_FAILED", message: bootstrapPackError ?? "Workspace files are still being prepared. Try again in a moment." });
       return;
     }
     dispatchWizard({ type: "SELECT_PLAN", planId });
-    void saveDraftAndCreate(planId);
+    void saveDraftAndCreate(planId, launchBootstrapDraft);
   };
 
-  const handleWorkspaceAction = () => {
+  const handleWorkspaceAction = (launchBootstrapDraft = bootstrapDraft) => {
     if (!directCapacityFlow) {
       goToStep(2);
       return;
     }
     if (!capacityReady || creating || openingCapacity) return;
     if (availableLaunchPlan) {
-      handlePlanAction(availableLaunchPlan.id);
+      handlePlanAction(availableLaunchPlan.id, launchBootstrapDraft);
       return;
     }
     void openCapacityCatalog();
+  };
+
+  const skipWorkspaceSetup = () => {
+    const defaultDraft = useDefaultBootstrapPack();
+    handleWorkspaceAction(defaultDraft);
   };
 
   const workspaceActionLabel = !directCapacityFlow
@@ -1921,6 +1945,15 @@ export function FirstAgentSetupWizard({
                 Back
               </WizardButton>
               {largePresentation ? null : <WizardMomentum stage={workspaceStage} />}
+              {workspaceStage === "objective" ? (
+                <WizardButton
+                  large={largeButtons}
+                  variant="secondary"
+                  onClick={skipWorkspaceSetup}
+                >
+                  Skip setup
+                </WizardButton>
+              ) : null}
               <WizardButton
                 large={largeButtons}
                 testId={workspaceStage === "objective" ? "agent-setup-continue-objective" : "agent-setup-continue-personality"}

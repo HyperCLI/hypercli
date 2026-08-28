@@ -32,7 +32,7 @@ function calcPaddedLen(len: number): number {
 function _encryptForTest(
   conversationKey: Uint8Array,
   plaintext: string,
-  nonce: Uint8Array = secp256k1.utils.randomSecretKey(),
+  nonce: Uint8Array = secp256k1.utils.randomPrivateKey(),
 ): string {
   const encoded = utf8ToBytes(plaintext);
   const prefix = new Uint8Array(2);

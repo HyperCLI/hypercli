@@ -412,7 +412,7 @@ def _with_query_token(url: str, token: str | None) -> str:
 
 def _channel_config_patch(
     channel_id: str,
-    config: dict[str, Any],
+    config: dict[str, Any] | None,
     account_id: str | None = None,
     default_account: bool = False,
 ) -> dict[str, Any]:
@@ -426,6 +426,19 @@ def _channel_config_patch(
             }
         }
     }
+
+
+async def _replace_channel_config(
+    client: "GatewayClient",
+    channel_id: str,
+    config: dict[str, Any],
+    account_id: str | None = None,
+    default_account: bool = False,
+) -> dict:
+    await client.config_patch(_channel_config_patch(channel_id, None, account_id))
+    return await client.config_patch(
+        _channel_config_patch(channel_id, config, account_id, default_account)
+    )
 
 
 @dataclass
@@ -1569,8 +1582,8 @@ class GatewayClient:
         }
         if bot_token is not None:
             relay_config["botToken"] = bot_token
-        return await self.config_patch(
-            _channel_config_patch("slack", relay_config, account_id, bool(account_id))
+        return await _replace_channel_config(
+            self, "slack", relay_config, account_id, bool(account_id)
         )
 
     async def configure_slack_http(
@@ -1590,7 +1603,7 @@ class GatewayClient:
         }
         if webhook_path is not None:
             http_config["webhookPath"] = webhook_path
-        return await self.config_patch(_channel_config_patch("slack", http_config, account_id))
+        return await _replace_channel_config(self, "slack", http_config, account_id)
 
     async def configure_slack_socket(
         self,
@@ -1609,7 +1622,7 @@ class GatewayClient:
         }
         if socket_mode is not None:
             socket_config["socketMode"] = socket_mode
-        return await self.config_patch(_channel_config_patch("slack", socket_config, account_id))
+        return await _replace_channel_config(self, "slack", socket_config, account_id)
 
     async def configure_telegram(
         self,
@@ -1617,7 +1630,7 @@ class GatewayClient:
         *,
         account_id: str | None = None,
     ) -> dict:
-        return await self.config_patch(_channel_config_patch("telegram", config or {}, account_id))
+        return await _replace_channel_config(self, "telegram", config or {}, account_id)
 
     async def configure_whatsapp(
         self,
@@ -1626,8 +1639,8 @@ class GatewayClient:
         account_id: str | None = None,
     ) -> dict:
         whatsapp_config = {"enabled": True, **(config or {})}
-        return await self.config_patch(
-            _channel_config_patch("whatsapp", whatsapp_config, account_id, bool(account_id))
+        return await _replace_channel_config(
+            self, "whatsapp", whatsapp_config, account_id, bool(account_id)
         )
 
     async def status(self) -> dict:

@@ -407,6 +407,10 @@ export class OpenClawChannelsProvider implements AgentChannelsProvider {
     const channelConfig = request.accountId
       ? { accounts: { [request.accountId]: request.patch } }
       : request.patch;
+    const channelDelete = request.accountId
+      ? { accounts: { [request.accountId]: null } }
+      : null;
+    await this.client.configPatch({ channels: { [request.channelId]: channelDelete } });
     await this.client.configPatch({ channels: { [request.channelId]: channelConfig } });
   }
 

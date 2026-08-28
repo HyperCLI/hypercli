@@ -54,6 +54,7 @@ export interface OpenClawChannelSettingsPanelProps {
   onRefresh?: () => Promise<void> | void;
   onOpenPairing?: () => void;
   slackPublicBaseUrl?: string;
+  hostedSlackRelayEnabled?: boolean;
   onRequestProductUse?: () => boolean;
 }
 
@@ -202,6 +203,7 @@ export function OpenClawChannelSettingsPanel({
   onRefresh,
   onOpenPairing,
   slackPublicBaseUrl,
+  hostedSlackRelayEnabled = false,
   onRequestProductUse,
 }: OpenClawChannelSettingsPanelProps) {
   const operations = provider as OptionalProviderOperations;
@@ -246,6 +248,7 @@ export function OpenClawChannelSettingsPanel({
     : reportedTelegramPrivacyMode;
   const loading = canReadConfig && loadedScope !== readScope;
   const busy = operation !== null;
+  const slackManualConfigBlocked = channelId === "slack" && hostedSlackRelayEnabled;
   const style = {
     "--channel-accent": "var(--selection-accent)",
     "--channel-accent-foreground": "var(--selection-accent-foreground)",
@@ -296,6 +299,7 @@ export function OpenClawChannelSettingsPanel({
 
   const validate = (): string | null => {
     if (!connected) return "Reconnect the workspace before changing integration settings.";
+    if (slackManualConfigBlocked) return "Hosted Slack relay is enabled in launch settings. Disable it before editing Slack channel settings here.";
     if (!canUpdate) return "This agent cannot update integration settings.";
     if ((form.replaceBotToken && !form.botToken.trim())
       || (channelId === "slack" && form.slackMode === "socket" && form.replaceAppToken && !form.appToken.trim())
@@ -843,6 +847,11 @@ export function OpenClawChannelSettingsPanel({
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Reconnect the workspace before changing integration settings.
           </div>
         ) : null}
+        {slackManualConfigBlocked ? (
+          <div role="alert" className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Hosted Slack relay is enabled in launch settings. Slack channel config is owned by startup for this agent.
+          </div>
+        ) : null}
         {!canReadConfig ? <div role="alert" className="rounded-xl border border-warning/30 bg-warning/10 px-3.5 py-3 text-xs text-warning">This agent cannot read integration settings.</div> : null}
         {error ? (
           <div className="rounded-xl border border-warning/35 bg-warning/10 px-3.5 py-3 text-xs text-warning">
@@ -971,9 +980,9 @@ export function OpenClawChannelSettingsPanel({
 
         <footer className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface-low p-3.5">
           <div className="min-w-0">
-            <button type="button" className={CAUTION_BUTTON} disabled={!connected || !canRemove || busy} onClick={() => setConfirmingRemove(true)}><Trash2 className="h-3.5 w-3.5" /> Remove configuration</button>
+            <button type="button" className={CAUTION_BUTTON} disabled={!connected || !canRemove || busy || slackManualConfigBlocked} onClick={() => setConfirmingRemove(true)}><Trash2 className="h-3.5 w-3.5" /> Remove configuration</button>
           </div>
-          <button type="button" className={PRIMARY_BUTTON} disabled={!connected || !canUpdate || loading || busy} onClick={() => void save()}>
+          <button type="button" className={PRIMARY_BUTTON} disabled={!connected || !canUpdate || loading || busy || slackManualConfigBlocked} onClick={() => void save()}>
             {operation === "save" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save settings
           </button>
         </footer>

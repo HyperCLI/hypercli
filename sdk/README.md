@@ -228,8 +228,6 @@ when the transition failed, and `message` is human-readable context.
 
 Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/browser image. It selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `OPENCLAW_DESKTOP_ENABLED=1`.
 
-`heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat={"every": "1h", "target": "last"}`.
-
 Automatic memory indexing is off by default. Opt in with `memory_index={"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0}`.
 
 ## Hosted Coding Agents

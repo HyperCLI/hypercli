@@ -113,7 +113,7 @@ export function decodeBuzzSecret(nsecOrHex: string | Uint8Array): Uint8Array {
   } else {
     throw new Error('secret key must be an nsec/hex string or raw bytes');
   }
-  if (bytes.length !== 32 || !secp256k1.utils.isValidSecretKey(bytes)) {
+  if (bytes.length !== 32 || !secp256k1.utils.isValidPrivateKey(bytes)) {
     throw new Error('secret key must be a valid 32-byte secp256k1 scalar');
   }
   return bytes;

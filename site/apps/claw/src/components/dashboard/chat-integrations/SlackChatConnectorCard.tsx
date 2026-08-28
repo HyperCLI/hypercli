@@ -55,7 +55,6 @@ function UncontrolledSlackChatConnectorCard({
   const slackRelaySetup = useSlackRelaySetup({
     enabled: true,
     agentId,
-    channelsProvider: cardProps.channelsProvider,
     onEnsureSlackSupport,
     onRefreshChannels,
   });

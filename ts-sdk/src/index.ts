@@ -410,15 +410,10 @@ export {
   type SlackInstallStatusCheckOptions,
   type HostedSlackRelayChannelConfigOptions,
   type HostedSlackRelayChannelConfig,
-  type HostedSlackRelayConfigPatch,
-  type ConfigureHostedSlackRelayChannelOptions,
-  type ConfigureHostedSlackRelayChannelResult,
   normalizeSlackRelayBaseUrl,
   buildSlackRelayApiUrl,
   buildSlackRelayWebSocketUrl,
   buildHostedSlackRelayChannelConfig,
-  buildHostedSlackRelayConfigPatch,
-  configureHostedSlackRelayChannel,
 } from './channels.js';
 
 export {

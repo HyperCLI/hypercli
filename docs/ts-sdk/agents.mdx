@@ -333,10 +333,6 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   is rendered through `workspacesSync` typed helper options and
   `HYPER_WORKSPACES_*` environment variables; there is no public
   `launch_config.workspacesSync` field
-- `heartbeat`
-  maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
-
-Omit `heartbeat` to keep upstream OpenClaw defaults. Pass values like `heartbeat: { every: "1h", target: "last" }` only when you intentionally want to tune upstream heartbeat behavior.
 
 Memory search is configured by default, but automatic indexing is off unless you opt in. Use `memoryIndex` on `createOpenClaw(...)`, `createOpenClawPro(...)`, `startOpenClaw(...)`, or `startOpenClawPro(...)`:
 

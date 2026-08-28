@@ -2318,7 +2318,6 @@ describe('Agents SDK', () => {
         connected: true,
         agent_id: 'agent-123',
         gateway_id: 'agent:agent-123',
-        config: { enabled: true, mode: 'relay' },
         restart_required: true,
         team_id: 'T123',
         team_name: 'Test Workspace',
@@ -2338,7 +2337,6 @@ describe('Agents SDK', () => {
       connected: true,
       agentId: 'agent-123',
       gatewayId: 'agent:agent-123',
-      config: { enabled: true, mode: 'relay' },
       restartRequired: true,
       teamId: 'T123',
       teamName: 'Test Workspace',
@@ -2465,7 +2463,6 @@ describe('Agents SDK', () => {
         connected: true,
         agent_id: '11111111-1111-4111-8111-111111111111',
         gateway_id: 'agent:11111111-1111-4111-8111-111111111111',
-        config: { enabled: true, mode: 'relay' },
         restart_required: true,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -2580,57 +2577,6 @@ describe('Agents SDK', () => {
     expect(legacy.avatarUrl).toBeNull();
     expect(legacy.managed).toBe(false);
     expect(legacy.isLaunchable).toBe(false);
-  });
-
-  it('configures Slack relay through the gateway helper', async () => {
-    const agent = OpenClawAgent.fromDict({
-      id: '11111111-1111-1111-1111-111111111111',
-      user_id: 'user-456',
-      state: 'running',
-      routes: { openclaw: { port: 18789 } },
-      gateway_id: 'agent:11111111-1111-1111-1111-111111111111',
-      gateway_token: 'gw-token',
-    } as any);
-    const client = { configureSlackRelay: vi.fn(async () => undefined), close: vi.fn() };
-    const release = vi.fn();
-    vi.spyOn(agent, 'acquireConnectedGateway').mockResolvedValue({ client, release } as any);
-
-    await agent.configureSlackRelay({ url: 'wss://api.dev.hypercli.com/slack/ws' });
-
-    expect(client.configureSlackRelay).toHaveBeenCalledWith({
-      url: 'wss://api.dev.hypercli.com/slack/ws',
-      gatewayId: 'agent:11111111-1111-1111-1111-111111111111',
-    });
-    expect(release).toHaveBeenCalledOnce();
-    expect(client.close).not.toHaveBeenCalled();
-  });
-
-  it('configures channel integrations through connected gateway helpers', async () => {
-    const agent = OpenClawAgent.fromDict({
-      id: 'agent-123',
-      user_id: 'user-456',
-      state: 'running',
-      routes: { openclaw: { port: 18789 } },
-      gateway_token: 'gw-token',
-    } as any);
-    const client = {
-      configureSlackSocket: vi.fn(async () => undefined),
-      configureTelegram: vi.fn(async () => undefined),
-      configureWhatsapp: vi.fn(async () => undefined),
-      close: vi.fn(),
-    };
-    const release = vi.fn();
-    vi.spyOn(agent, 'acquireConnectedGateway').mockResolvedValue({ client, release } as any);
-
-    await agent.configureSlackSocket({ botToken: 'xoxb-token', appToken: 'xapp-token' }, { accountId: 'work' });
-    await agent.configureTelegram({ enabled: true, dmPolicy: 'allowlist', allowFrom: ['123'] });
-    await agent.configureWhatsapp({ enabled: true }, { accountId: 'default' });
-
-    expect(client.configureSlackSocket).toHaveBeenCalledWith({ botToken: 'xoxb-token', appToken: 'xapp-token' }, 'work');
-    expect(client.configureTelegram).toHaveBeenCalledWith({ enabled: true, dmPolicy: 'allowlist', allowFrom: ['123'] }, undefined);
-    expect(client.configureWhatsapp).toHaveBeenCalledWith({ enabled: true }, 'default');
-    expect(release).toHaveBeenCalledTimes(3);
-    expect(client.close).not.toHaveBeenCalled();
   });
 
   it('builds browser desktop auth URLs with query-preserving redirects', () => {

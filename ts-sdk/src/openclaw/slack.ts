@@ -1263,8 +1263,14 @@ export class OpenClawSlackProvider {
   }
 
   private async patchTransport(config: OpenClawSlackAccountConfig, accountId?: string): Promise<void> {
-    if (accountId === undefined) await this.patchConfig(config);
-    else await this.patchAccount(accountId, config);
+    if (accountId === undefined) {
+      await this.removeConfig();
+      await this.patchConfig(config);
+    } else {
+      const id = requiredString(accountId, 'Slack account id');
+      await this.removeAccount(id);
+      await this.patchAccount(id, config);
+    }
   }
 
   private async readStatus(probe: boolean, accountId?: string, timeoutMs?: number): Promise<OpenClawSlackAccountStatus | undefined> {

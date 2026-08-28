@@ -1489,7 +1489,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("does not activate WhatsApp during pairing; config is managed by the runtime image", async () => {
+  it("activates WhatsApp through gateway config before pairing", async () => {
     const gateway = buildGateway();
     gateway.configGet.mockResolvedValue({
       plugins: { allow: ["brave"] },
@@ -1515,10 +1515,14 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
 
     await act(async () => {
-      await expect(result.current.whatsAppPairingStart()).rejects.toThrow(/managed by the runtime image/);
+      await expect(result.current.whatsAppPairingStart()).resolves.toMatchObject({
+        connected: false,
+        message: "Scan QR",
+        qrDataUrl: "data:image/png;base64,cXI=",
+      });
     });
 
-    expect(gateway.configPatch).not.toHaveBeenCalled();
+    expect(gateway.configPatch).toHaveBeenCalledWith({ channels: { whatsapp: { enabled: true } } });
     expect(agent.exec.mock.calls.map(([command]) => command)).toEqual([["openclaw", "plugins", "list", "--json"]]);
     unmount();
   });
@@ -1715,11 +1719,9 @@ describe("useOpenClawSession", () => {
       image: "ghcr.io/hypercli/openclaw@sha256:exact",
     }));
     expect(result.current.connectorsProvider).not.toBeNull();
+    expect(result.current.connectorsProvider?.configure).toEqual(expect.any(Function));
 
     await act(async () => {
-      await expect(
-        result.current.connectorsProvider?.configure("telegram", { enabled: true, dmPolicy: "allowlist" }),
-      ).rejects.toThrow(/read-only in hosted mode/);
       await result.current.connectorsProvider?.approveAuthorization?.({
         connectorId: "telegram",
         protocol: "short-code",
@@ -2257,7 +2259,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps the channel inventory untouched when a hosted config write is rejected", async () => {
+  it("exposes channel configuration without mutating inventory until called", async () => {
     const gateway = buildGateway();
     gateway.channelsStatus.mockResolvedValue({ channels: { telegram: { configured: true, running: true } } });
     const agent = {
@@ -2273,12 +2275,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.reportedChannels).toEqual([
       expect.objectContaining({ channelId: "telegram", configured: true, running: true }),
     ]);
-
-    await act(async () => {
-      await expect(
-        result.current.channelsProvider?.configure("telegram", { enabled: true }),
-      ).rejects.toThrow(/read-only in hosted mode/);
-    });
+    expect(result.current.channelsProvider?.configure).toEqual(expect.any(Function));
 
     expect(gateway.configPatch).not.toHaveBeenCalled();
     expect(result.current.reportedChannelsReady).toBe(true);
@@ -9663,16 +9660,12 @@ describe("useOpenClawSession", () => {
       waitForGatewayContext: vi.fn(async () => undefined),
       gateway: vi.fn(() => gateway),
       launchConfig: {
-        config: {
-          gateway: {
-            controlUi: {
-              allowedOrigins: [
-                "https://agents.hypercli.com/path",
-                "https://agents.feat.hypercli.com",
-                "https://agents.hypercli.com/duplicate",
-              ],
-            },
-          },
+        env: {
+          OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: [
+            "https://agents.hypercli.com/path",
+            "https://agents.feat.hypercli.com",
+            "https://agents.hypercli.com/duplicate",
+          ].join(","),
         },
       },
     };

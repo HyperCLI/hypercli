@@ -47,13 +47,9 @@ export function parseControlUiAllowedOrigins(value: unknown): string[] {
 export function controlUiAllowedOriginsFromLaunchConfig(launchConfig: unknown): string[] {
   if (!isRecord(launchConfig)) return [];
   const env = isRecord(launchConfig.env) ? launchConfig.env : null;
-  const config = isRecord(launchConfig.config) ? launchConfig.config : null;
-  const gateway = isRecord(config?.gateway) ? config.gateway : null;
-  const controlUi = isRecord(gateway?.controlUi) ? gateway.controlUi : null;
 
   return Array.from(new Set([
     ...parseControlUiAllowedOrigins(env?.[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
-    ...parseControlUiAllowedOrigins(controlUi?.allowedOrigins),
   ]));
 }
 

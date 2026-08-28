@@ -49,7 +49,6 @@ import {
 import { agentAvatar, agentProfileImageUrl } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
 import {
-  buildOpenClawDefaultModelPatch,
   getOpenClawDefaultModel,
   normalizeOpenClawModelOptions,
   type OpenClawModelOption,
@@ -103,7 +102,6 @@ interface AgentSettingsPanelProps {
   onUploadAgentAvatar?: (agentId: string, file: File) => Promise<string>;
   onDeleteAgentAvatar?: (agentId: string) => Promise<void>;
   onUpdateAgentLaunchConfig?: (agentId: string, launchConfig: Record<string, unknown>) => Promise<void>;
-  onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   onRequestProductUse?: () => boolean;
   isDesktopViewport?: boolean;
 }
@@ -281,10 +279,16 @@ const MANAGED_LAUNCH_ENV_PREFIXES = [
   "LAGOON_",
   "REEF_",
 ];
-const SECRET_ONLY_LAUNCH_ENV_KEYS = new Set(["OPENCLAW_GATEWAY_TOKEN"]);
+const SECRET_ONLY_LAUNCH_ENV_KEYS = new Set([
+  "OPENCLAW_GATEWAY_TOKEN",
+  "SLACK_BOT_TOKEN",
+  "SLACK_APP_TOKEN",
+  "SLACK_USER_TOKEN",
+  "SLACK_SIGNING_SECRET",
+  "SLACK_RELAY_AUTH_TOKEN",
+]);
 
 const PUBLIC_CANONICAL_LAUNCH_CONFIG_KEYS = new Set([
-  "config",
   "image",
   "env",
   "routes",
@@ -318,7 +322,7 @@ function editableLaunchConfigFromAgent(agent: Agent): Record<string, unknown> {
   );
   if (isRecord(canonical.env)) {
     const env = { ...canonical.env };
-    delete env[OPENCLAW_GATEWAY_TOKEN_ENV];
+    for (const key of SECRET_ONLY_LAUNCH_ENV_KEYS) delete env[key];
     canonical.env = env;
   }
   return canonical;
@@ -409,6 +413,9 @@ function parseAdditionalEnvText(value: string): Record<string, string> {
     if (RESERVED_SLACK_LAUNCH_ENV_KEYS.has(key)) {
       throw new Error(`${key} is managed by the Slack setting and cannot be edited here.`);
     }
+    if (SECRET_ONLY_LAUNCH_ENV_KEYS.has(key)) {
+      throw new Error(`${key} is a secret and cannot be edited as plain launch env.`);
+    }
     if (isManagedLaunchEnvKey(key)) {
       throw new Error(`${key} is managed by HyperCLI and cannot be edited here.`);
     }
@@ -430,10 +437,8 @@ function buildUpdatedLaunchConfig(
 ): Record<string, unknown> {
   const launchConfig = editableLaunchConfigFromAgent(agent);
   if (image) launchConfig.image = image;
-  // OpenClaw nested runtime config is image-owned. Never echo a stored
-  // (possibly partial) config back into the launch contract from settings.
   if (!isHermesAgentRuntime(agent.runtime)) {
-    launchConfig.config = {};
+    delete launchConfig.config;
   }
   if (isHermesAgentRuntime(agent.runtime)) {
     // Hermes launch configs carry no OpenClaw routes/env; only the image and
@@ -580,25 +585,6 @@ function memoryIndexSettingsEqual(left: MemoryIndexSettings, right: MemoryIndexS
     && left.watch === right.watch
     && left.watchDebounceMs === right.watchDebounceMs
     && left.intervalMinutes === right.intervalMinutes;
-}
-
-function buildMemoryIndexPatch(settings: MemoryIndexSettings): Record<string, unknown> {
-  return {
-    agents: {
-      defaults: {
-        memorySearch: {
-          enabled: settings.enabled,
-          sync: {
-            onSessionStart: settings.onSessionStart,
-            onSearch: settings.onSearch,
-            watch: settings.watch,
-            watchDebounceMs: settings.watchDebounceMs,
-            intervalMinutes: settings.intervalMinutes,
-          },
-        },
-      },
-    },
-  };
 }
 
 function initialsFromName(name: string): string {
@@ -1598,7 +1584,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUploadAgentAvatar,
     onDeleteAgentAvatar,
     onUpdateAgentLaunchConfig,
-    onSaveOpenClawConfig,
     onRequestProductUse,
     isDesktopViewport = true,
   } = props;
@@ -1942,16 +1927,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
-    if (modelChanged && !onSaveOpenClawConfig) {
-      setAgentSettingsError("Model updates are unavailable until the agent gateway is connected.");
-      return;
-    }
-
-    if (memoryIndexChanged && !onSaveOpenClawConfig) {
-      setAgentSettingsError("Index updates are unavailable until the agent gateway is connected.");
-      return;
-    }
-
     if (!hermesRuntime && agentImageChanged && !reportedChannelsReady) {
       setAgentSettingsError("Connect the agent and wait for its channels to load before changing the Docker image.");
       return;
@@ -1962,15 +1937,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
       return;
     }
 
-    if (agentImageChanged && configuredChannelIds.length > 0 && !onSaveOpenClawConfig) {
-      setAgentSettingsError("Channel setup cannot be removed until the agent gateway is connected.");
-      return;
-    }
-
     const productUseSettingsChanged = backendProfileChanged
       || Boolean(agentAvatarFile)
       || agentLaunchChanged
-      || modelChanged
       || memoryIndexChanged;
     if (productUseSettingsChanged && onRequestProductUse && !onRequestProductUse()) return;
 
@@ -2054,11 +2023,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
-      if (agentImageChanged && configuredChannelIds.length > 0 && onSaveOpenClawConfig) {
-        savingSection = "agent";
-        await onSaveOpenClawConfig({ channels: null });
-      }
-
       if ((agentImageChanged || additionalEnvChanged || managedHyperEnvChanged || desktopChanged || slackChanged || workspacesSyncChanged || memoryIndexChanged) && onUpdateAgentLaunchConfig) {
         savingSection = "agent";
         await onUpdateAgentLaunchConfig(agent.id, buildUpdatedLaunchConfig(
@@ -2083,22 +2047,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           : workspacesSyncSettingsFromManagedEnv(managedHyperEnvDraft, workspacesSyncDraft);
         setWorkspacesSyncDraft(savedWorkspacesSync);
         setSavedWorkspacesSyncDraft(savedWorkspacesSync);
+        if (memoryIndexChanged) setSavedMemoryIndexDraft(memoryIndexDraft);
         setAgentSettingsSuccess("Agent settings updated.");
         setConfirmImageChange(false);
-      }
-
-      if (modelChanged && onSaveOpenClawConfig) {
-        savingSection = "agent";
-        await onSaveOpenClawConfig(buildOpenClawDefaultModelPatch(modelDraft));
-        setSavedModelDraft(modelDraft);
-        setAgentSettingsSuccess("Agent settings updated.");
-      }
-
-      if (memoryIndexChanged && onSaveOpenClawConfig) {
-        savingSection = "agent";
-        await onSaveOpenClawConfig(buildMemoryIndexPatch(memoryIndexDraft));
-        setSavedMemoryIndexDraft(memoryIndexDraft);
-        setAgentSettingsSuccess("Agent settings updated.");
       }
 
       setSavedArchiveDraft(archiveDraft);
@@ -2147,7 +2098,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onUploadAgentAvatar,
     onDeleteAgentAvatar,
     onRequestProductUse,
-    onSaveOpenClawConfig,
     profileAvatar,
     profileAvatarChanged,
     profileAvatarFile,
@@ -2368,7 +2318,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onWorkspacesSyncChange={setWorkspacesSyncDraft}
             modelDraft={modelDraft}
             modelOptions={modelOptions}
-            modelSelectionDisabled={!onSaveOpenClawConfig}
+            modelSelectionDisabled
             onModelChange={setModelDraft}
             archiveDraft={archiveDraft}
             onArchiveChange={setArchiveDraft}
@@ -2394,7 +2344,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onSettingsChange={setMemoryIndexDraft}
             error={agentSettingsError}
             success={agentSettingsSuccess}
-            disabled={!onSaveOpenClawConfig}
+            disabled={!onUpdateAgentLaunchConfig}
           />
         ) : activeSettingsSection === "usage" ? (
           <AgentUsageSettingsContent />
