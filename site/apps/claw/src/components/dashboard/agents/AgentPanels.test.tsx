@@ -1182,7 +1182,7 @@ describe("AgentList", () => {
     const props = renderAgentList({ sidebarCreatorSignal: 1 });
 
     expect(await screen.findByText("First agent setup wizard")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /select test agent/i }));
+    fireEvent.click(screen.getByRole("button", { name: /select test agent/i, hidden: true }));
 
     await waitFor(() => expect(screen.queryByText("First agent setup wizard")).not.toBeInTheDocument());
     expect(props.setSelectedAgentId).toHaveBeenCalledWith("agent-1");
@@ -1267,12 +1267,12 @@ describe("AgentList", () => {
     expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
     const overlay = screen.getByTestId("agent-launcher-overlay");
     expect(screen.getByTestId("agent-launcher-dialog")).toHaveClass(
-      "h-[min(712px,calc(100dvh-1rem))]",
-      "w-[calc(100vw-1rem)]",
-      "max-w-[1200px]",
-      "sm:h-[min(852px,calc(100dvh-1rem))]",
+      "h-[calc(100dvh-0.75rem)]",
+      "w-[calc(100%-0.75rem)]",
+      "max-w-none",
+      "sm:h-[calc(100dvh-2rem)]",
     );
-    expect(overlay).toHaveClass("p-2");
+    expect(overlay).toHaveClass("bg-black/85", "backdrop-blur-[2px]");
     expect(document.body).toContainElement(overlay);
     expect(document.querySelector(".agents-roster-shell")).not.toContainElement(overlay);
   });

@@ -66,7 +66,7 @@ describe("OpenClawBootstrapStep", () => {
     });
 
     view.rerender(<Harness stage="personality" />);
-    expect(screen.getByRole("heading", { name: "How should Tern approach the work?" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "How should it approach the work?" })).toBeInTheDocument();
     expect(screen.getByLabelText("Working style")).toHaveAttribute("maxlength", "300");
 
     fireEvent.click(screen.getByRole("button", { name: /^The Operator/ }));
@@ -76,10 +76,14 @@ describe("OpenClawBootstrapStep", () => {
     await waitFor(() => expect(latestDraft!.files.find((file) => file.name === "SOUL.md")?.content)
       .toContain("Be a relentless operator who moves fast, challenges my assumptions, and does not need much hand-holding."));
 
-    const optionalContext = screen.getByText("Personal and work context").closest("details");
-    expect(optionalContext).not.toHaveAttribute("open");
-    fireEvent.click(optionalContext!.querySelector("summary")!);
-    expect(optionalContext).toHaveAttribute("open");
+    const contextSwitch = screen.getByRole("switch", { name: "Enable personal and work context" });
+    expect(contextSwitch).toHaveAttribute("aria-checked", "false");
+    expect(screen.queryByLabelText("Preferred name")).not.toBeInTheDocument();
+    fireEvent.click(contextSwitch);
+    expect(contextSwitch).toHaveAttribute("aria-checked", "true");
+    const aboutYou = screen.getByText("About you").closest("details");
+    expect(aboutYou).not.toHaveAttribute("open");
+    fireEvent.click(aboutYou!.querySelector("summary")!);
     expect(screen.getByLabelText("Preferred name")).toBeInTheDocument();
   });
 });

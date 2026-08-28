@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
@@ -153,9 +153,9 @@ function getPlanCard(name: string): HTMLElement {
 }
 
 function openAdvancedSettings() {
-  const details = screen.getByText("Advanced").closest("details");
+  const details = screen.getByTestId("agent-setup-advanced-settings");
   if (!details?.hasAttribute("open")) {
-    fireEvent.click(details!.querySelector("summary")!);
+    fireEvent.click(screen.getByTestId("agent-setup-advanced-toggle"));
   }
 }
 
@@ -163,6 +163,70 @@ describe("AgentCreationSetupWizard", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod";
     process.env.NEXT_PUBLIC_OPENCLAW_PRO_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:pro-prod";
+  });
+
+  it("bounds the embedded launcher inside the workspace instead of portaling a dialog", () => {
+    const view = renderWithClient(
+      <AgentCreationSetupWizard
+        size="embedded"
+        onClose={vi.fn()}
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(view.container.querySelector('[data-slot="agent-creation-workspace"]')).toHaveClass(
+      "p-3",
+      "sm:p-4",
+      "lg:p-5",
+    );
+    expect(screen.getByTestId("agent-setup-advanced-settings")).not.toHaveAttribute("open");
+  });
+
+  it("keeps the modal open while agent creation is in progress", async () => {
+    const onClose = vi.fn();
+    let finishCreation: (agentId: string | null) => void = () => undefined;
+    const onCreateAgent = vi.fn(() => new Promise<string | null>((resolve) => {
+      finishCreation = resolve;
+    }));
+
+    renderWithClient(
+      <AgentCreationSetupWizard
+        onClose={onClose}
+        onCreateAgent={onCreateAgent}
+        budget={{
+          slots: { medium: { granted: 1, used: 0, available: 1 } },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [{
+            id: "sub-1",
+            planId: "team-launch",
+            planName: "Team Launch",
+            slotGrants: { medium: 1 },
+            quantity: 1,
+          }],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    goToPlanStep();
+    await waitFor(() => expect(screen.getByTestId("agent-setup-wizard")).toHaveAttribute("data-pack-ready", "true"));
+    fireEvent.click(screen.getByTestId("agent-setup-launch"));
+    expect(await screen.findByText("Creating agent")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => finishCreation(null));
+    await waitFor(() => expect(screen.queryByText("Creating agent")).not.toBeInTheDocument());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("marks desktop, memory indexing, and custom image as Pro features", () => {

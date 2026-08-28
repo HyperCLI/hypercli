@@ -629,7 +629,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByText("Advanced workflows and analytics")).not.toBeInTheDocument();
   });
 
-  it("opens plan comparison from the choose plan step", () => {
+  it("opens plan comparison from the choose plan step and restores focus when it closes", async () => {
     renderWithClient(
       <FirstAgentSetupWizard
         onCreateAgent={vi.fn(async () => null)}
@@ -640,9 +640,11 @@ describe("FirstAgentSetupWizard", () => {
     );
 
     goToPlanStep();
-    fireEvent.click(screen.getByRole("button", { name: "Compare plans" }));
+    const comparePlans = screen.getByRole("button", { name: "Compare plans" });
+    comparePlans.focus();
+    fireEvent.click(comparePlans);
 
-    const dialog = screen.getByRole("dialog", { name: "Plan comparison" });
+    const dialog = screen.getByRole("dialog", { name: "Compare plans" });
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByText("Team Launch")).toBeInTheDocument();
     expect(within(dialog).getByText("Price")).toBeInTheDocument();
@@ -650,7 +652,8 @@ describe("FirstAgentSetupWizard", () => {
     expect(within(dialog).getByText("250K/day")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Close plan comparison" }));
-    expect(screen.queryByRole("dialog", { name: "Plan comparison" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Compare plans" })).not.toBeInTheDocument();
+    await waitFor(() => expect(comparePlans).toHaveFocus());
   });
 
   it("calls the close handler from the header and identity footer", () => {
@@ -752,6 +755,9 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByRole("heading", { name: "Give it room to run" })).toBeInTheDocument();
     expect(screen.getByText("Choose the capacity that fits the work ahead. You can scale it up anytime.")).toBeInTheDocument();
     expect(screen.getByText("Embedded capacity catalog")).toBeInTheDocument();
+    const capacityScrollBody = view.container.querySelector('[data-slot="agent-setup-scroll-body"]');
+    expect(capacityScrollBody).toHaveClass("overflow-x-hidden", "overflow-y-auto");
+    expect(capacityScrollBody).toContainElement(screen.getByText("Embedded capacity catalog"));
     expect(screen.getByRole("progressbar", { name: "Agent setup progress" })).toHaveAttribute("aria-valuenow", "92");
     expect(view.container.querySelector("section")).toHaveClass("h-full", "max-h-[680px]", "sm:max-h-[820px]", "max-w-[1168px]");
     expect(screen.queryByRole("heading", { name: "Choose your plan" })).not.toBeInTheDocument();
@@ -1353,7 +1359,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByRole("heading", { name: "5 AIU" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Compare plans" }));
-    const dialog = screen.getByRole("dialog", { name: "Plan comparison" });
+    const dialog = screen.getByRole("dialog", { name: "Compare plans" });
     expect(within(dialog).getByText("Pro")).toBeInTheDocument();
     expect(within(dialog).queryByText("5 AIU")).not.toBeInTheDocument();
   });

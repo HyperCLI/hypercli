@@ -242,6 +242,21 @@
   }
 }
 
+@media (max-height: 59.375rem) {
+  .agent-setup-modal-scroll-body {
+    padding-block: 1rem !important;
+  }
+
+  .openclaw-context-card {
+    margin-top: 0.9375rem !important;
+    padding: 1.25rem !important;
+  }
+
+  .openclaw-example-divider {
+    margin-block: 1.25rem !important;
+  }
+}
+
 /* Highlight flash for newly-arrived activity / tool-call rows.
  * Kicks off with a soft accent tint and a left accent bar, then fades to
  * transparent over 5s. Uses background-color (not border) to avoid layout

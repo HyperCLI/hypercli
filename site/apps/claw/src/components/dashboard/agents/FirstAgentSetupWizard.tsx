@@ -120,7 +120,9 @@ interface FirstAgentSetupWizardProps {
   draftWorkspaceId?: string | null;
   knowledgeCollections?: KnowledgeCollectionOption[];
   knowledgeCollectionsLoading?: boolean;
-  size?: "default" | "embedded" | "inline" | "large";
+  onCreatingChange?: (creating: boolean) => void;
+  size?: "default" | "embedded" | "inline" | "large" | "modal";
+  suspended?: boolean;
 }
 
 type WizardStepId = "identity" | "workspace" | "plan";
@@ -643,6 +645,7 @@ function agentUrlSlug(name: string): string {
 }
 
 function WizardButton({
+  ariaLabel,
   children,
   disabled = false,
   busy = false,
@@ -651,17 +654,19 @@ function WizardButton({
   testId,
   variant = "primary",
 }: {
+  ariaLabel?: string;
   children: React.ReactNode;
   disabled?: boolean;
   busy?: boolean;
   large?: boolean;
-  onClick: () => void;
+  onClick: React.MouseEventHandler<HTMLButtonElement>;
   testId?: string;
   variant?: "primary" | "secondary";
 }) {
   return (
     <button
       type="button"
+      aria-label={ariaLabel}
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
@@ -859,7 +864,9 @@ export function FirstAgentSetupWizard({
   draftWorkspaceId = null,
   knowledgeCollections = [],
   knowledgeCollectionsLoading = false,
+  onCreatingChange,
   size = "default",
+  suspended = false,
 }: FirstAgentSetupWizardProps) {
   const hermesLauncherAvailable = isDashboardReleaseSurfaceAvailable("hermes-launcher");
   const knowledgeHubAvailable = isDashboardReleaseSurfaceAvailable("knowledge-hub");
@@ -922,6 +929,7 @@ export function FirstAgentSetupWizard({
   );
   const { stepIndex, selectedPlanId, creating, createError } = wizardState;
   const [planComparisonOpen, setPlanComparisonOpen] = React.useState(false);
+  const planComparisonTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   const [openingCapacity, setOpeningCapacity] = React.useState(false);
   const appliedInitialPlanIdRef = React.useRef<string | null>(null);
   const resumedDraftCapacityHandledRef = React.useRef(false);
@@ -944,25 +952,30 @@ export function FirstAgentSetupWizard({
   }, [planOptions, requiresProPlan]);
 
   const currentStep = steps[stepIndex];
-  const largePresentation = size === "large";
+  const modalPresentation = size === "modal";
+  const largePresentation = size === "large" || modalPresentation;
   const embeddedPresentation = size === "embedded";
   const inlinePresentation = size === "inline";
   const widePresentation = embeddedPresentation || inlinePresentation || largePresentation;
+  const largeButtons = largePresentation && !modalPresentation;
   const selectedPlan = displayedPlanOptions.find((plan) => plan.id === selectedPlanId) ?? displayedPlanOptions[0];
   const hasEmbeddedCapacityContent = Boolean(capacityContent);
   const directCapacityFlow = skipPlanSelection && Boolean(hasEmbeddedCapacityContent || onOpenPlanCatalog);
   const embeddedCapacityStep = currentStep === "plan" && directCapacityFlow && hasEmbeddedCapacityContent;
   const embeddedCheckoutStep = embeddedCapacityStep && checkoutActive && Boolean(checkoutContent);
-  const currentCopy = draftResumeOpen && restoredDraft
+  const stepSpecificCopy = draftResumeOpen && restoredDraft
     ? {
         title: "Your agent has a head start.",
         subtitle: "Review what is saved, then continue setting it up without leaving this window.",
       }
     : embeddedCheckoutStep
     ? { title: "Make it official", subtitle: "Choose how you'd like to pay. Your setup stays right here." }
-    : embeddedCapacityStep
+      : embeddedCapacityStep
       ? { title: "Give it room to run", subtitle: "Choose the capacity that fits the work ahead. You can scale it up anytime." }
       : stepCopy[currentStep];
+  const currentCopy = modalPresentation
+    ? { title: "Create agent", subtitle: "" }
+    : stepSpecificCopy;
   const focusStage = draftResumeOpen
     ? "resume"
     : embeddedCheckoutStep
@@ -1220,6 +1233,11 @@ export function FirstAgentSetupWizard({
     dispatchWizard({ type: "GO_TO_STEP", stepIndex: nextStep, maxStepIndex: steps.length - 1 });
   };
 
+  const openPlanComparison = (event: React.MouseEvent<HTMLButtonElement>) => {
+    planComparisonTriggerRef.current = event.currentTarget;
+    setPlanComparisonOpen(true);
+  };
+
   const saveDraftAndCreate = async (planId = selectedPlanId) => {
     if (creating) return;
     debugFlow("setup-wizard", "saveDraftAndCreate: entry", { planId });
@@ -1347,6 +1365,10 @@ export function FirstAgentSetupWizard({
             ? "Launch agent"
             : "Next step";
 
+  React.useEffect(() => {
+    onCreatingChange?.(creating);
+  }, [creating, onCreatingChange]);
+
   if (creating) {
     return (
       <div
@@ -1375,17 +1397,21 @@ export function FirstAgentSetupWizard({
         data-agent-launch-surface={embeddedPresentation || inlinePresentation || undefined}
         data-presentation={embeddedPresentation ? "embedded" : undefined}
         data-pack-ready={bootstrapPackReady}
-        initial={embeddedPresentation || inlinePresentation ? false : { opacity: 0, y: 10 }}
-        animate={embeddedPresentation || inlinePresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
-        transition={{ duration: embeddedPresentation || inlinePresentation ? 0 : 0.2 }}
+        initial={embeddedPresentation || inlinePresentation || modalPresentation ? false : { opacity: 0, y: 10 }}
+        animate={embeddedPresentation || inlinePresentation || modalPresentation ? { opacity: 1, y: 0, scale: 1 } : { opacity: 1, y: 0 }}
+        transition={{ duration: embeddedPresentation || inlinePresentation || modalPresentation ? 0 : 0.2 }}
         className={cx(
           "relative flex min-h-0 w-full min-w-0 flex-col overflow-hidden border border-border text-foreground",
-          embeddedPresentation
+          modalPresentation
+            ? "h-full max-h-none max-w-none rounded-none border-0 bg-background-secondary shadow-none"
+            : embeddedPresentation
             ? "border-0 bg-background shadow-none"
             : inlinePresentation
             ? "bg-surface-low shadow-[0_24px_80px_rgb(0_0_0_/_0.3)]"
             : "elevation-shadow-strong bg-background",
-          largePresentation
+          modalPresentation
+            ? "h-full max-h-none max-w-none rounded-none"
+            : largePresentation
             ? "h-full max-h-[910px] max-w-[1168px] rounded-[26px]"
             : embeddedPresentation
               ? "h-full max-h-none max-w-none rounded-none"
@@ -1396,27 +1422,28 @@ export function FirstAgentSetupWizard({
       >
         {inlinePresentation ? <div aria-hidden="true" className="absolute inset-x-0 top-0 z-10 h-px bg-[linear-gradient(90deg,transparent,rgb(var(--selection-accent-rgb)_/_0.9),transparent)]" /> : null}
         <header data-slot="agent-setup-header" className={cx(
-          "relative flex-shrink-0 border-b border-border",
-          largePresentation ? "px-5 py-4 sm:px-8 sm:py-7" : "min-h-[82px] px-5 py-3 sm:px-6",
+          "relative flex-shrink-0 border-border",
+          modalPresentation ? "min-h-[88px] px-6 py-6 sm:min-h-[104px] sm:px-7 sm:py-7" : "border-b",
+          !modalPresentation && (largePresentation ? "px-5 py-4 sm:px-8 sm:py-7" : "min-h-[82px] px-5 py-3 sm:px-6"),
         )}>
           <div className={cx(
             "min-w-0",
-            onClose && (largePresentation ? "pr-16" : "pr-10"),
-            !draftResumeOpen && currentStep === "plan" && (
+            onClose && (modalPresentation ? "pr-12 sm:pr-16" : largePresentation ? "pr-16" : "pr-10"),
+            !modalPresentation && !draftResumeOpen && currentStep === "plan" && (
               onClose ? "sm:pr-[240px]" : "sm:pr-[190px]"
             ),
           )}>
             <h2 ref={headingRef} tabIndex={-1} className={cx(
               "font-medium leading-tight text-foreground",
-              largePresentation ? "text-[24px] sm:text-[36px]" : "text-[20px] sm:text-[22px]",
-              !draftResumeOpen && currentStep === "plan" && (onClose ? "pr-[92px] sm:pr-0" : "pr-[72px] sm:pr-0"),
+              modalPresentation ? "text-[26px] tracking-[-0.025em] sm:text-[32px]" : largePresentation ? "text-[24px] sm:text-[36px]" : "text-[20px] sm:text-[22px]",
+              !modalPresentation && !draftResumeOpen && currentStep === "plan" && (onClose ? "pr-[92px] sm:pr-0" : "pr-[72px] sm:pr-0"),
             )} id="first-agent-setup-title">{currentCopy.title}</h2>
-            <p className={cx(
+            {currentCopy.subtitle ? <p className={cx(
               "text-text-muted",
               largePresentation ? "mt-2 text-[13px] leading-5 sm:mt-5 sm:text-[22px] sm:leading-7" : "mt-1 text-[12px] leading-5 sm:text-[13px]",
-            )}>{currentCopy.subtitle}</p>
+            )}>{currentCopy.subtitle}</p> : null}
           </div>
-          {!draftResumeOpen && currentStep === "plan" && !embeddedCheckoutStep && (
+          {!modalPresentation && !draftResumeOpen && currentStep === "plan" && !embeddedCheckoutStep && (
             <div className={cx(
               "absolute top-3 flex items-center justify-end gap-2",
               largePresentation
@@ -1426,7 +1453,7 @@ export function FirstAgentSetupWizard({
               <button
                 type="button"
                 aria-label="Compare plans"
-                onClick={() => setPlanComparisonOpen(true)}
+                onClick={openPlanComparison}
                 className={cx(
                   "inline-flex shrink-0 items-center justify-center whitespace-nowrap border border-border bg-surface-low font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high",
                   largePresentation ? "h-12 rounded-[13px] px-5 text-[16px]" : "h-8 rounded-[9px] px-2.5 text-[12px] sm:h-9 sm:rounded-[10px] sm:px-3.5 sm:text-[14px]",
@@ -1445,7 +1472,9 @@ export function FirstAgentSetupWizard({
               disabled={checkoutProcessing}
               className={cx(
                 "absolute z-10 flex items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/45 disabled:cursor-wait disabled:opacity-45",
-                largePresentation ? "right-8 top-7 h-12 w-12" : "right-4 top-3 h-8 w-8 sm:right-5",
+                modalPresentation
+                  ? "right-4 top-5 h-10 w-10 border-0 bg-transparent sm:right-6 sm:top-6"
+                  : largePresentation ? "right-8 top-7 h-12 w-12" : "right-4 top-3 h-8 w-8 sm:right-5",
               )}
             >
               <X className={largePresentation ? "h-5 w-5" : "h-4 w-4"} />
@@ -1526,7 +1555,10 @@ export function FirstAgentSetupWizard({
               </div>
             </div>
 
-            <footer data-slot="agent-setup-footer" className="relative flex h-[72px] flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low px-5 sm:px-6">
+            <footer data-slot="agent-setup-footer" className={cx(
+              "relative flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low",
+              modalPresentation ? "h-20 px-3 sm:px-6" : "h-[72px] px-5 sm:px-6",
+            )}>
               <WizardButton variant="secondary" onClick={onStartFresh}>Start fresh</WizardButton>
               <WizardMomentum stage="resume" />
               <WizardButton onClick={() => setDraftResumeOpen(false)}>
@@ -1541,15 +1573,20 @@ export function FirstAgentSetupWizard({
           <>
             <div className={cx(
               "flex min-h-0 flex-1 flex-col overflow-y-auto",
-              largePresentation ? "px-[clamp(1.25rem,2.7vw,2rem)] py-[clamp(1.25rem,4vw,3rem)]" : "px-5 py-4 sm:px-6",
+              modalPresentation
+                ? "px-5 py-8 sm:px-8 sm:py-10 lg:px-12"
+                : largePresentation ? "px-[clamp(1.25rem,2.7vw,2rem)] py-[clamp(1.25rem,4vw,3rem)]" : "px-5 py-4 sm:px-6",
             )} data-slot="agent-setup-scroll-body">
               {/* Center vertically when the content fits; on short viewports the
                   auto margins collapse so the step overflows from the top and
                   stays scrollable instead of clipping the footer. */}
-              <div className={cx("mx-auto my-auto w-full", (embeddedPresentation || inlinePresentation) && "max-w-[660px]")}>
+              <div className={cx(
+                "mx-auto my-auto w-full",
+                modalPresentation ? "max-w-[768px]" : (embeddedPresentation || inlinePresentation) && "max-w-[660px]",
+              )}>
                 <span className={cx(
                   "block font-semibold leading-none text-foreground",
-                  largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
+                  modalPresentation ? "mb-3 text-[16px]" : largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
                 )}>Agent type</span>
                 <div
                   role="group"
@@ -1586,7 +1623,7 @@ export function FirstAgentSetupWizard({
                         onClick={() => handleAgentTypeChange(option.type)}
                         className={cx(
                           "flex items-start border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/40 disabled:cursor-not-allowed",
-                          largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5",
+                          modalPresentation ? "min-h-[82px] gap-3 rounded-[14px] px-4 py-4" : largePresentation ? "gap-3 rounded-[14px] px-4 py-4" : "gap-2 rounded-[10px] px-3 py-2.5",
                           option.disabled
                             ? "border-border bg-surface-low/60"
                             : selected
@@ -1623,7 +1660,7 @@ export function FirstAgentSetupWizard({
 
                 <label htmlFor="first-agent-name" className={cx(
                   "block font-semibold leading-none text-foreground",
-                  largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] mt-[clamp(1.5rem,4vw,3rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 mt-4 text-[13px]",
+                  modalPresentation ? "mb-3 mt-7 text-[16px]" : largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] mt-[clamp(1.5rem,4vw,3rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 mt-4 text-[13px]",
                 )}>Agent name</label>
                 <input
                   id="first-agent-name"
@@ -1633,7 +1670,7 @@ export function FirstAgentSetupWizard({
                   maxLength={64}
                   pattern="[A-Za-z0-9 ]+"
                   value={agentName}
-                  placeholder="e.g. Research Assistant"
+                  placeholder={modalPresentation ? "John's Agent" : "e.g. Research Assistant"}
                   aria-invalid={Boolean(agentNameError)}
                   aria-describedby={agentNameError ? agentNameErrorId : undefined}
                   onChange={(event) => {
@@ -1642,21 +1679,21 @@ export function FirstAgentSetupWizard({
                   }}
                   className={cx(
                     "w-full border border-border bg-surface-low text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong",
-                    largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] px-[clamp(1rem,1.7vw,1.25rem)] text-[clamp(1rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] px-3 text-[14px]",
+                    modalPresentation ? "h-14 rounded-[14px] px-4 text-[17px]" : largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] px-[clamp(1rem,1.7vw,1.25rem)] text-[clamp(1rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] px-3 text-[14px]",
                   )}
                 />
                 {agentNameError ? (
                   <p id={agentNameErrorId} role="alert" className={cx("text-destructive", largePresentation ? "mt-2 text-[13px]" : "mt-1.5 text-[11px]")}>{agentNameError}</p>
                 ) : null}
 
-                <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
+                <div className={modalPresentation ? "mt-7" : largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
                   <span className={cx(
                     "block font-semibold leading-none text-foreground",
                     largePresentation ? "mb-[clamp(0.75rem,1.7vw,1.25rem)] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "mb-1.5 text-[13px]",
                   )}>Agent URL</span>
                   <div className={cx(
                     "flex overflow-hidden border border-border bg-surface-low text-text-muted",
-                    largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] text-[13px]",
+                     modalPresentation ? "h-14 rounded-[14px] text-[17px]" : largePresentation ? "h-[clamp(3rem,5.4vw,4rem)] rounded-[18px] text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "h-10 rounded-[10px] text-[13px]",
                   )}>
                     <span className={cx(
                       "flex shrink-0 items-center justify-center border-r border-border text-foreground",
@@ -1669,7 +1706,7 @@ export function FirstAgentSetupWizard({
                   </div>
                 </div>
 
-                {knowledgeHubAvailable ? <div className={largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
+                {knowledgeHubAvailable ? <div className={modalPresentation ? "mt-7" : largePresentation ? "mt-[clamp(1.5rem,4vw,3rem)]" : "mt-4"}>
                   <label htmlFor="first-agent-knowledge-collection" className={cx("block font-semibold leading-tight text-foreground", largePresentation ? "text-[clamp(0.9375rem,1.7vw,1.25rem)]" : "text-[13px]")}>Initial Collection</label>
                   <div className={cx("relative", largePresentation ? "mt-3" : "mt-2")}>
                     <select
@@ -1704,15 +1741,16 @@ export function FirstAgentSetupWizard({
                   onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
                   className={cx(
                     "group overflow-hidden border border-border bg-surface-high",
-                    largePresentation ? "mt-[clamp(2rem,3.4vw,2.5rem)] rounded-[18px]" : "mt-4 rounded-[11px]",
+                    modalPresentation ? "mt-7 rounded-[16px]" : largePresentation ? "mt-[clamp(2rem,3.4vw,2.5rem)] rounded-[18px]" : "mt-4 rounded-[11px]",
                   )}
                 >
                   <summary id="agent-setup-advanced-toggle" data-testid="agent-setup-advanced-toggle" className={cx(
                     "flex cursor-pointer list-none items-center outline-none transition-colors hover:bg-surface-low focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-selection-accent/40 [&::-webkit-details-marker]:hidden",
-                    largePresentation ? "gap-[clamp(0.75rem,1.35vw,1rem)] px-[clamp(1.25rem,2vw,1.5rem)] py-[clamp(1.25rem,2vw,1.5rem)]" : "gap-2.5 px-3.5 py-3",
+                    modalPresentation ? "gap-3 px-5 py-4" : largePresentation ? "gap-[clamp(0.75rem,1.35vw,1rem)] px-[clamp(1.25rem,2vw,1.5rem)] py-[clamp(1.25rem,2vw,1.5rem)]" : "gap-2.5 px-3.5 py-3",
                   )}>
-                    <Settings2 className={cx("shrink-0 text-foreground", largePresentation ? "h-[clamp(1.25rem,2.4vw,1.75rem)] w-[clamp(1.25rem,2.4vw,1.75rem)]" : "h-4.5 w-4.5")} />
-                    <span className={cx("min-w-0 flex-1 font-semibold text-foreground", largePresentation ? "text-[clamp(1.0625rem,1.9vw,1.375rem)]" : "text-[13px]")}>Advanced</span>
+                    {!modalPresentation ? <Settings2 className={cx("shrink-0 text-foreground", largePresentation ? "h-[clamp(1.25rem,2.4vw,1.75rem)] w-[clamp(1.25rem,2.4vw,1.75rem)]" : "h-4.5 w-4.5")} /> : null}
+                    <span className={cx("min-w-0 font-semibold text-foreground", modalPresentation ? "text-[17px]" : largePresentation ? "text-[clamp(1.0625rem,1.9vw,1.375rem)]" : "text-[13px]")}>{modalPresentation ? "Container" : "Advanced"}</span>
+                    {modalPresentation ? <span className="mr-auto rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-text-secondary">Optional</span> : <span className="flex-1" />}
                     <ChevronDown className={cx("shrink-0 text-text-muted transition-transform duration-200 group-open:rotate-180", largePresentation ? "h-[clamp(1.25rem,2vw,1.5rem)] w-[clamp(1.25rem,2vw,1.5rem)]" : "h-4 w-4")} />
                   </summary>
 
@@ -1790,9 +1828,9 @@ export function FirstAgentSetupWizard({
             <footer data-slot="agent-setup-footer" className={cx(
               "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
               onClose ? "justify-between" : "justify-end",
-              largePresentation ? "h-[clamp(5.125rem,10vw,7.375rem)] px-[clamp(1.25rem,2.7vw,2rem)]" : "h-[72px] px-5 sm:px-6",
+              modalPresentation ? "h-20 px-3 sm:px-6" : largePresentation ? "h-[clamp(5.125rem,10vw,7.375rem)] px-[clamp(1.25rem,2.7vw,2rem)]" : "h-[72px] px-5 sm:px-6",
             )}>
-              {onClose ? <WizardButton large={largePresentation} variant="secondary" onClick={onClose}>Cancel</WizardButton> : null}
+              {onClose ? <WizardButton large={largeButtons} variant="secondary" onClick={onClose}>{modalPresentation ? "Back" : "Cancel"}</WizardButton> : null}
               {largePresentation ? null : <WizardMomentum stage="identity" />}
               <WizardButton testId="agent-setup-continue-identity" onClick={() => {
                 const validationError = validateAgentName(agentName);
@@ -1814,7 +1852,7 @@ export function FirstAgentSetupWizard({
                 }
                 setWorkspaceStage("objective");
                 goToStep(1);
-              }} large={largePresentation}>Continue</WizardButton>
+              }} large={largeButtons}>Continue</WizardButton>
             </footer>
           </>
         )}
@@ -1825,7 +1863,14 @@ export function FirstAgentSetupWizard({
               data-slot="agent-setup-scroll-body"
               className={cx(
                 "min-h-0 flex-1 overflow-x-hidden overflow-y-auto",
-                largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : inlinePresentation ? "px-5 py-3 sm:px-6" : "px-5 py-4 sm:px-6",
+                modalPresentation && "agent-setup-modal-scroll-body",
+                modalPresentation
+                  ? "px-5 py-5 sm:px-8 sm:py-7"
+                  : largePresentation
+                    ? "px-5 py-5 sm:px-8 sm:py-7"
+                    : inlinePresentation
+                      ? "px-5 py-3 sm:px-6"
+                      : "px-5 py-4 sm:px-6",
               )}
             >
               {createError && (
@@ -1854,14 +1899,15 @@ export function FirstAgentSetupWizard({
                 stage={workspaceStage}
                 onChange={handleBootstrapDraftChange}
                 wide={widePresentation}
+                modal={modalPresentation}
               />
             </div>
             <footer data-slot="agent-setup-footer" className={cx(
               "relative flex flex-shrink-0 items-center justify-between gap-2 border-t border-border bg-surface-low",
-              largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+              modalPresentation ? "h-20 px-3 sm:px-6" : largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
             )}>
               <WizardButton
-                large={largePresentation}
+                large={largeButtons}
                 variant="secondary"
                 onClick={() => {
                   if (workspaceStage === "personality") {
@@ -1871,12 +1917,12 @@ export function FirstAgentSetupWizard({
                   goToStep(0);
                 }}
               >
-                <ChevronLeft className="mr-2 h-4 w-4" />
+                {!modalPresentation ? <ChevronLeft className="mr-2 h-4 w-4" /> : null}
                 Back
               </WizardButton>
               {largePresentation ? null : <WizardMomentum stage={workspaceStage} />}
               <WizardButton
-                large={largePresentation}
+                large={largeButtons}
                 testId={workspaceStage === "objective" ? "agent-setup-continue-objective" : "agent-setup-continue-personality"}
                 disabled={workspaceStage === "personality" && directCapacityFlow && (!capacityReady || creating || openingCapacity)}
                 busy={workspaceStage === "personality" && directCapacityFlow && (creating || openingCapacity)}
@@ -1896,16 +1942,19 @@ export function FirstAgentSetupWizard({
 
         {!draftResumeOpen && currentStep === "plan" && (embeddedCapacityStep ? (
           <>
-            <div className="flex min-h-0 flex-1">
+            <div
+              className="flex min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+              data-slot="agent-setup-scroll-body"
+            >
               {embeddedCheckoutStep ? checkoutContent : capacityContent}
             </div>
             <footer data-slot="agent-setup-footer" className={cx(
               "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
-              largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+              modalPresentation ? "h-20 px-3 sm:px-6" : largePresentation ? "h-[82px] px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
             )}>
               <div className="flex min-w-0 flex-1 justify-start">
                 <WizardButton
-                  large={largePresentation}
+                  large={largeButtons}
                   variant="secondary"
                   disabled={checkoutProcessing}
                   onClick={() => {
@@ -1916,7 +1965,7 @@ export function FirstAgentSetupWizard({
                     goToStep(agentType === "hermes" ? 0 : 1);
                   }}
                 >
-                  <ChevronLeft className="mr-2 h-4 w-4" />
+                  {!modalPresentation ? <ChevronLeft className="mr-2 h-4 w-4" /> : null}
                   Back
                 </WizardButton>
               </div>
@@ -1924,7 +1973,7 @@ export function FirstAgentSetupWizard({
               <div aria-hidden="true" className="min-w-0 flex-1" />
               {!embeddedCheckoutStep && availableLaunchPlan ? (
                 <WizardButton
-                  large={largePresentation}
+                  large={largeButtons}
                   testId="agent-setup-launch"
                   disabled={!capacityReady || creating || openingCapacity}
                   busy={creating || openingCapacity}
@@ -1932,12 +1981,24 @@ export function FirstAgentSetupWizard({
                 >
                   {workspaceActionLabel}
                 </WizardButton>
+              ) : !embeddedCheckoutStep ? (
+                <WizardButton large={largeButtons} onClick={openPlanComparison}>
+                  Compare plans
+                </WizardButton>
               ) : null}
             </footer>
           </>
         ) : (
           <>
-            <div data-slot="agent-setup-scroll-body" className={cx("min-h-0 flex-1 overflow-y-auto", largePresentation ? "px-5 py-5 sm:px-8 sm:py-7" : "px-5 py-5 sm:px-6 lg:px-7")}>
+            <div data-slot="agent-setup-scroll-body" className={cx(
+              "min-h-0 flex-1 overflow-y-auto",
+              modalPresentation && "agent-setup-modal-scroll-body",
+              modalPresentation
+                ? "px-5 py-5 sm:px-8 sm:py-7"
+                : largePresentation
+                  ? "px-5 py-5 sm:px-8 sm:py-7"
+                  : "px-5 py-5 sm:px-6 lg:px-7",
+            )}>
               {createError && <LaunchCapacityFallback error={createError} onOpenPlanCatalog={onOpenPlanCatalog} />}
               <div role="group" aria-label="Available plans" className={cx(
                 "grid min-h-0",
@@ -1991,7 +2052,7 @@ export function FirstAgentSetupWizard({
                           {plan.disabled ? plan.cta : plan.description}
                         </span>
                       </span>
-                      <span className="flex max-w-[94px] shrink-0 flex-col items-end text-right">
+                      <span className={cx("max-w-[94px] shrink-0 flex-col items-end text-right", plan.price ? "flex" : "hidden sm:flex")}>
                         {plan.oldPrice ? <span className="text-[10px] leading-none text-text-muted line-through">{plan.oldPrice}</span> : null}
                         {plan.price ? (
                           <>
@@ -2044,10 +2105,10 @@ export function FirstAgentSetupWizard({
           </div>
           <footer data-slot="agent-setup-footer" className={cx(
             "relative flex flex-shrink-0 items-center gap-2 border-t border-border bg-surface-low",
-            largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
+            modalPresentation ? "h-20 justify-between px-3 sm:px-6" : largePresentation ? "h-[82px] justify-between px-5 sm:h-[104px] sm:px-8" : "h-[72px] px-5 sm:px-6",
           )}>
-            <WizardButton large={largePresentation} variant="secondary" onClick={() => goToStep(agentType === "hermes" ? 0 : 1)}>
-              <ChevronLeft className="mr-2 h-4 w-4" />
+            <WizardButton large={largeButtons} variant="secondary" onClick={() => goToStep(agentType === "hermes" ? 0 : 1)}>
+              {!modalPresentation ? <ChevronLeft className="mr-2 h-4 w-4" /> : null}
               Back
             </WizardButton>
             {largePresentation ? null : <WizardMomentum stage="capacity" />}
@@ -2069,23 +2130,41 @@ export function FirstAgentSetupWizard({
                 )}
               </div>
             ) : null}
-            <WizardButton
-              large={largePresentation}
-              testId="agent-setup-launch"
-              disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled) || (agentType !== "hermes" && !bootstrapPackReady)}
-              busy={creating || selectedPlanIsReleasing}
-              onClick={() => handlePlanAction()}
-            >
-              {creating ? "Creating..." : selectedPlan?.cta ?? "Continue"}
-            </WizardButton>
+            {modalPresentation ? (
+              <div className="flex items-center gap-2">
+                <WizardButton ariaLabel="Compare plans" variant="secondary" onClick={openPlanComparison}>
+                  <span className="sm:hidden">Plans</span>
+                  <span className="max-sm:hidden">Compare plans</span>
+                </WizardButton>
+                <WizardButton
+                  testId="agent-setup-launch"
+                  disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled) || (agentType !== "hermes" && !bootstrapPackReady)}
+                  busy={creating || selectedPlanIsReleasing}
+                  onClick={() => handlePlanAction()}
+                >
+                  {creating ? "Creating..." : selectedPlan?.cta ?? "Continue"}
+                </WizardButton>
+              </div>
+            ) : (
+              <WizardButton
+                large={largeButtons}
+                testId="agent-setup-launch"
+                disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled) || (agentType !== "hermes" && !bootstrapPackReady)}
+                busy={creating || selectedPlanIsReleasing}
+                onClick={() => handlePlanAction()}
+              >
+                {creating ? "Creating..." : selectedPlan?.cta ?? "Continue"}
+              </WizardButton>
+            )}
           </footer>
           </>
         ))}
       </motion.section>
       <PlanComparisonModal
-        open={planComparisonOpen}
+        open={planComparisonOpen && !suspended}
         onClose={() => setPlanComparisonOpen(false)}
         catalogPlans={catalogPlans}
+        returnFocusRef={planComparisonTriggerRef}
       />
     </div>
   );

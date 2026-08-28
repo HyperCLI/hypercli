@@ -457,6 +457,8 @@ interface UpgradeDisplayProduct {
   description?: string;
   features: string[];
   highlighted: boolean;
+  maxAgentSize?: HyperAgentPlan["maxAgentSize"];
+  agentResources?: HyperAgentPlan["agentResources"];
   limits: {
     tpd: number;
     burstTpm: number;
@@ -469,6 +471,10 @@ interface UpgradeCheckoutPlan {
   name: string;
   bundle?: Record<string, number>;
   price: number;
+  description?: string;
+  features?: string[];
+  maxAgentSize?: HyperAgentPlan["maxAgentSize"];
+  agentResources?: HyperAgentPlan["agentResources"];
   limits: {
     tpd: number;
     burstTpm: number;
@@ -563,6 +569,8 @@ function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayPro
         description: catalogPlan.meta?.subtitle ?? undefined,
         features: plan.features ?? [],
         highlighted: Boolean(plan.highlighted),
+        maxAgentSize: plan.maxAgentSize,
+        agentResources: plan.agentResources,
         limits: {
           tpd: finiteNumber(limits.tpd),
           burstTpm: finiteNumber(limits.burstTpm ?? (limits as { burst_tpm?: number }).burst_tpm),
@@ -579,6 +587,10 @@ function toUpgradeCheckoutPlan(product: UpgradeDisplayProduct): UpgradeCheckoutP
     name: product.name,
     bundle: Object.keys(bundle).length > 0 ? bundle : undefined,
     price: product.price,
+    description: product.description,
+    features: product.features,
+    maxAgentSize: product.maxAgentSize,
+    agentResources: product.agentResources,
     limits: product.limits,
   };
 }
@@ -627,11 +639,11 @@ function describeUpgradeProduct(product: UpgradeDisplayProduct): string {
 function upgradeProductFeatures(product: UpgradeDisplayProduct): string[] {
   const bundleLabel = formatBundle(product.bundle);
   return uniqueFeatureList([
-    `${formatTokens(product.limits.tpd)} tokens / day`,
-    product.limits.burstTpm > 0 ? `Up to ${formatTokens(product.limits.burstTpm)} TPM` : null,
-    product.limits.rpm > 0 ? `${formatTokens(product.limits.rpm)} RPM` : null,
     bundleLabel,
     ...product.features,
+    `${formatTokens(product.limits.tpd)} tokens/day`,
+    product.limits.burstTpm > 0 ? `Up to ${formatTokens(product.limits.burstTpm)} TPM` : null,
+    product.limits.rpm > 0 ? `${formatTokens(product.limits.rpm)} RPM` : null,
   ].filter((feature): feature is string => Boolean(feature))).slice(0, 7);
 }
 
@@ -797,7 +809,10 @@ function UpgradePlanCatalogContent({
   embedded?: boolean;
 }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto p-5" data-slot="capacity-catalog-content">
+    <div
+      className={`min-h-0 flex-1 px-6 pb-6 ${embedded ? "overflow-visible" : "overflow-y-auto"}`}
+      data-slot="capacity-catalog-content"
+    >
       {loading ? (
         <div className="flex min-h-[220px] items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
@@ -827,9 +842,7 @@ function UpgradePlanCatalogContent({
       ) : (
         <div
           data-slot={embedded ? "embedded-plan-card-grid" : undefined}
-          className={embedded
-            ? "flex min-h-full flex-wrap content-center justify-evenly gap-3"
-            : "flex flex-wrap justify-evenly gap-3"}
+          className="mx-auto grid min-h-full w-full max-w-[1550px] content-center overflow-hidden rounded-[20px] border border-border bg-background p-2 md:grid-cols-2 xl:grid-cols-3"
         >
           {products.map((product) => {
             const ownedCount = ownedCounts[product.id] ?? 0;
@@ -844,34 +857,36 @@ function UpgradePlanCatalogContent({
               <div
                 key={product.id}
                 data-slot={embedded ? "embedded-plan-card" : undefined}
-                className="relative flex min-h-[302px] w-full max-w-[300px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong"
+                className={`relative flex min-h-[520px] w-full flex-col rounded-[18px] p-6 text-left transition-colors sm:p-8 ${product.highlighted ? "bg-background-secondary" : "bg-transparent hover:bg-surface-low/45"}`}
               >
                 {(product.highlighted || trialOffer) && (
-                  <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)]">
+                  <span className="absolute right-6 top-7 rounded-full bg-selection-accent/20 px-3 py-1 text-[12px] font-medium leading-none text-selection-accent sm:right-8 sm:top-9">
                     {trialOffer ? "7 days free" : "Most Popular"}
                   </span>
                 )}
 
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-border bg-surface-high text-foreground">
+                <div className="flex min-h-12 items-center gap-3 pr-24">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-border bg-surface-high text-foreground">
                     <ProductIcon className="h-4 w-4" />
                   </span>
-                  <h3 className="truncate text-[18px] font-semibold leading-none text-foreground">{product.name}</h3>
-                  {ownedCount > 0 && (
-                    <span className="ml-auto shrink-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2 py-0.5 text-[11px] font-medium text-[var(--selection-accent)]">
-                      You own {ownedCount}
-                    </span>
-                  )}
                 </div>
 
-                <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-text-muted">
+                <div className="mt-6 flex min-w-0 items-center gap-2">
+                  <h3 className="truncate text-[26px] font-semibold leading-none tracking-[-0.025em] text-foreground">{product.name}</h3>
+                  {ownedCount > 0 ? (
+                    <span className="shrink-0 rounded-full border border-selection-accent/30 bg-selection-accent/10 px-2 py-0.5 text-[11px] font-medium text-selection-accent">You own {ownedCount}</span>
+                  ) : null}
+                </div>
+
+                <p className="mt-4 min-h-[48px] text-[16px] leading-6 text-text-muted">
                   {describeUpgradeProduct(product)}
                 </p>
 
-                <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
-                  <span className="text-[28px] font-bold leading-none text-foreground">${product.price}</span>
-                  <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-text-secondary">
-                    {trialOffer ? "USD/month after trial" : "USD/month per plan"}
+                <div className="mt-5 flex min-h-[58px] items-end gap-3">
+                  <span className="text-[48px] font-bold leading-none tracking-[-0.04em] text-foreground">${product.price}</span>
+                  <span className="pb-1 text-[15px] font-medium leading-5 text-foreground">
+                    USD/month
+                    <span className="block text-[13px] font-normal text-text-muted">{trialOffer ? "after trial" : "per plan"}</span>
                   </span>
                 </div>
 
@@ -882,7 +897,7 @@ function UpgradePlanCatalogContent({
                     else onSelectPlan(product);
                   }}
                   disabled={trialCheckoutPending}
-                  className={`mt-3 flex h-8 w-full items-center justify-center rounded-[8px] px-3 text-[13px] font-medium leading-tight transition-colors ${
+                  className={`mt-6 flex h-12 w-full items-center justify-center rounded-[12px] px-4 text-[16px] font-medium leading-tight transition-colors ${
                     product.highlighted || trialOffer
                       ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
                       : "border border-border bg-surface-high text-foreground hover:bg-surface-medium"
@@ -890,13 +905,14 @@ function UpgradePlanCatalogContent({
                 >
                   {trialOffer
                     ? trialCheckoutPending ? "Starting trial..." : "Start free trial"
-                    : ownedCount > 0 ? "Add another" : product.highlighted ? `Upgrade to ${product.name}` : "Select plan"}
+                    : ownedCount > 0 ? `Add another ${product.name}` : `Select ${product.name}`}
                 </button>
 
-                <div className="mt-5 space-y-2.5">
+                <p className="mt-8 text-[15px] text-text-muted">Includes:</p>
+                <div className="mt-4 space-y-4">
                   {featureRows.map((feature, featureIndex) => (
-                    <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-text-secondary">
-                      <Check className="mt-px h-4 w-4 shrink-0 text-text-muted" />
+                    <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-3 text-[15px] leading-5 text-foreground">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
                       <span>{feature}</span>
                     </div>
                   ))}
@@ -7268,6 +7284,7 @@ function AgentsPageContent() {
               <AgentCreationSetupWizard
                 key={agentLauncherGeneration}
                 size="embedded"
+                suspended={agentLauncherSuspended}
                 saveDraftAsYouGo={!isAuthenticated}
                 skipPlanSelection
                 capacityReady={!agentsLoading && (!isAuthenticated || Boolean(user?.id && billingDataPrincipalId === user.id))}

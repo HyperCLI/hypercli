@@ -62,10 +62,10 @@ describe("EmbeddedPlanCheckout", () => {
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1x Large agent slot")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Card, Stripe checkout" })).toHaveAttribute("aria-pressed", "true");
-    expect(view.container.querySelector('[data-slot="embedded-checkout-content"]')).toHaveClass("flex", "flex-col");
-    expect(view.container.querySelector('[data-slot="embedded-checkout-layout"]')).toHaveClass("m-auto", "shrink-0");
-    expect(view.container.querySelector('[data-slot="embedded-checkout-plan-summary"]')).not.toHaveClass("border", "rounded-[16px]", "bg-background");
-    fireEvent.click(screen.getByRole("button", { name: "Continue with card" }));
+    expect(view.container.querySelector('[data-slot="embedded-checkout-content"]')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-slot="embedded-checkout-layout"]')).toBeInTheDocument();
+    expect(view.container.querySelector('[data-slot="embedded-checkout-plan-summary"]')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Continue with Card" }));
 
     await waitFor(() => expect(mocks.hyperAgent.createStripeCheckout).toHaveBeenCalledTimes(1));
     const [request, planId] = mocks.hyperAgent.createStripeCheckout.mock.calls[0];
@@ -107,8 +107,8 @@ describe("EmbeddedPlanCheckout", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "USDC, Base via x402" }));
-    fireEvent.click(screen.getByRole("button", { name: "Connect wallet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Wallet, Base via USDC" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect Wallet" }));
     fireEvent.click(await screen.findByRole("button", { name: "Pay $80 USDC" }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledOnce());
@@ -158,8 +158,8 @@ describe("EmbeddedPlanCheckout", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "USDC, Base via x402" }));
-    const connectWallet = screen.queryByRole("button", { name: "Connect wallet" });
+    fireEvent.click(screen.getByRole("button", { name: "Wallet, Base via USDC" }));
+    const connectWallet = screen.queryByRole("button", { name: "Connect Wallet" });
     if (connectWallet) fireEvent.click(connectWallet);
     fireEvent.click(await screen.findByRole("button", { name: "Pay $80 USDC" }));
     await waitFor(() => expect(mocks.hyperAgent.purchaseViaX402WithSigner).toHaveBeenCalledOnce());

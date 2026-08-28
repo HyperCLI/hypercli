@@ -1,18 +1,17 @@
 "use client";
 
 import React from "react";
-import { createPortal } from "react-dom";
 import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import {
   Check,
   CreditCard,
   Cpu,
-  ListChecks,
   Package,
   Server,
   X,
   Zap,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 
@@ -36,6 +35,7 @@ interface PlanComparisonModalProps {
   open: boolean;
   onClose: () => void;
   catalogPlans?: HyperAgentPlan[] | null;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 function catalogPrice(plan: HyperAgentPlan | null | undefined): number | null {
@@ -64,6 +64,18 @@ function textValue(value: unknown): string {
 function agentSizeLabel(plan: HyperAgentPlan): string {
   if (!plan.maxAgentSize) return "-";
   return plan.maxAgentSize.charAt(0).toUpperCase() + plan.maxAgentSize.slice(1);
+}
+
+function agentSlotsLabel(plan: HyperAgentPlan): string {
+  const granted = Object.values(plan.slotGrants ?? {}).reduce((total, count) => total + Number(count || 0), 0);
+  return textValue(granted > 0 ? granted : plan.agents);
+}
+
+function memoryPerAgentLabel(plan: HyperAgentPlan): string {
+  const resources = plan.agentResources;
+  if (!resources || resources.maxAgents <= 0 || resources.totalMemory <= 0) return "-";
+  const memory = resources.totalMemory / resources.maxAgents;
+  return `${Number.isInteger(memory) ? memory : memory.toFixed(1)} GB`;
 }
 
 function planSortValue(plan: HyperAgentPlan): number {
@@ -107,10 +119,18 @@ function uniqueFeatures(plans: ComparisonPlan[]): string[] {
   return features;
 }
 
+function sharedFeatures(plans: ComparisonPlan[]): string[] {
+  if (plans.length === 0) return [];
+  const candidates = plans[0].plan.features ?? [];
+  return candidates.filter((feature) => plans.every(({ plan }) => (
+    (plan.features ?? []).some((candidate) => candidate.trim().toLowerCase() === feature.trim().toLowerCase())
+  )));
+}
+
 function valueCell(value: string | boolean) {
   if (typeof value === "boolean") {
     return value ? (
-      <Check className="h-4 w-4 text-[var(--selection-accent)]" aria-label="Included" />
+      <Check className="h-4 w-4 text-success" aria-label="Included" />
     ) : (
       <X className="h-4 w-4 text-text-muted/55" aria-label="Not included" />
     );
@@ -118,20 +138,11 @@ function valueCell(value: string | boolean) {
   return <span className="text-[14px] leading-snug text-foreground">{value}</span>;
 }
 
-export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanComparisonModalProps) {
-  React.useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose, open]);
-
-  if (!open || typeof document === "undefined") return null;
-
+export function PlanComparisonModal({ open, onClose, catalogPlans, returnFocusRef }: PlanComparisonModalProps) {
   const comparisonPlans = visibleCatalogPlans(catalogPlans);
-  const featureRows = uniqueFeatures(comparisonPlans);
+  const includedInEveryPlan = sharedFeatures(comparisonPlans);
+  const sharedFeatureNames = new Set(includedInEveryPlan.map((feature) => feature.trim().toLowerCase()));
+  const featureRows = uniqueFeatures(comparisonPlans).filter((feature) => !sharedFeatureNames.has(feature.trim().toLowerCase()));
 
   const rows: ComparisonRow[] = [
     {
@@ -142,37 +153,32 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
     {
       label: "Agent slots",
       icon: Cpu,
-      values: rowValues(comparisonPlans, (plan) => textValue(plan.agents)),
+      values: rowValues(comparisonPlans, agentSlotsLabel),
     },
     {
-      label: "Largest agent",
+      label: "Agent size",
       icon: Package,
       values: rowValues(comparisonPlans, agentSizeLabel),
     },
     {
-      label: "Daily tokens",
+      label: "Memory per agent",
+      icon: Server,
+      values: rowValues(comparisonPlans, memoryPerAgentLabel),
+    },
+    {
+      label: "Daily token pool",
       icon: Zap,
       values: rowValues(comparisonPlans, (plan) => limitLabel(plan.limits?.tpd, "/day")),
     },
     {
-      label: "TPM",
-      icon: Zap,
-      values: rowValues(comparisonPlans, (plan) => limitLabel(plan.limits?.tpm)),
-    },
-    {
-      label: "Burst TPM",
+      label: "Burst capacity",
       icon: Zap,
       values: rowValues(comparisonPlans, (plan) => limitLabel(plan.limits?.burstTpm)),
     },
     {
-      label: "RPM",
+      label: "Requests per minute",
       icon: Server,
       values: rowValues(comparisonPlans, (plan) => limitLabel(plan.limits?.rpm)),
-    },
-    {
-      label: "Models",
-      icon: ListChecks,
-      values: rowValues(comparisonPlans, (plan) => (plan.models?.length ? plan.models.join(", ") : "-")),
     },
     ...featureRows.map((feature): ComparisonRow => ({
       label: feature,
@@ -182,77 +188,101 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
       ),
     })),
   ];
-  const columnTemplate = `220px repeat(${Math.max(comparisonPlans.length, 1)}, minmax(180px, 1fr))`;
+  const planColumnCount = Math.max(comparisonPlans.length, 1);
+  const comparisonMinWidth = 240 + planColumnCount * 180;
+  const columnTemplate = `240px repeat(${planColumnCount}, minmax(180px, 1fr))`;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Plan comparison"
-        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-background-secondary text-foreground shadow-[0_24px_70px_rgb(0_0_0_/_0.35)]"
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
+      <DialogContent
+        closeLabel="Close plan comparison"
+        onCloseAutoFocus={(event) => {
+          const returnTarget = returnFocusRef?.current;
+          if (!returnTarget?.isConnected) return;
+          event.preventDefault();
+          if (!returnTarget.closest('[aria-hidden="true"]')) returnTarget.focus();
+        }}
+        overlayClassName="z-[10008] bg-black/85 backdrop-blur-[2px]"
+        className="z-[10009] flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[900px] flex-col gap-0 overflow-hidden rounded-[14px] border-border bg-background-secondary p-0 text-foreground shadow-[0_24px_70px_rgb(0_0_0_/_0.5)] sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-[900px]"
       >
-        <button
-          type="button"
-          aria-label="Close plan comparison"
-          onClick={onClose}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-[8px] text-text-muted transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.12)] hover:text-[var(--selection-accent)]"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <header className="shrink-0 px-4 pb-4 pt-4 pr-12">
+          <DialogTitle className="text-[18px] font-medium leading-tight tracking-[-0.015em] text-foreground">Compare plans</DialogTitle>
+          <DialogDescription className="mt-1 text-[14px] leading-5 text-text-muted">
+            See how capacity, performance, and features scale across each plan.
+          </DialogDescription>
+        </header>
 
-        <div className="min-h-0 flex-1 overflow-auto p-5 pt-12 sm:p-6 sm:pt-12">
+        <div className="min-h-0 flex-1 overflow-auto px-4 pb-4">
           {comparisonPlans.length === 0 ? (
             <div className="rounded-[12px] border border-border bg-surface-low px-5 py-4 text-[14px] text-text-secondary">
               Plan comparison is unavailable right now.
             </div>
           ) : (
-            <div className="min-w-[760px] overflow-hidden rounded-[14px] border border-[rgb(var(--selection-accent-rgb)_/_0.16)] bg-surface-low shadow-[inset_0_1px_0_rgb(255_255_255_/_0.03)]">
-              <div className="grid border-b border-[rgb(var(--selection-accent-rgb)_/_0.18)] bg-surface-high" style={{ gridTemplateColumns: columnTemplate }}>
-                <div className="px-6 py-7" />
-                {comparisonPlans.map((plan) => (
-                  <div key={plan.id} className="flex items-center gap-3 px-6 py-7">
-                    <span className="text-[18px] font-semibold leading-none text-foreground">
-                      {plan.name}
-                    </span>
-                    {plan.plan.highlighted && (
-                      <span className="rounded-full bg-[var(--selection-accent)] px-2 py-1 text-[12px] font-semibold leading-none text-[var(--selection-accent-foreground)]">
-                        Popular
+            <>
+              <div
+                className="overflow-hidden rounded-[14px] border border-border bg-surface-low"
+                style={{ minWidth: `${comparisonMinWidth}px` }}
+              >
+                <div className="grid border-b border-border bg-surface-low" style={{ gridTemplateColumns: columnTemplate }}>
+                  <div className="px-6 py-4" />
+                  {comparisonPlans.map((plan) => (
+                    <div key={plan.id} className="flex min-w-0 items-center gap-2 px-6 py-4">
+                      <span className="min-w-0 truncate text-[16px] font-semibold leading-none text-foreground">
+                        {plan.name}
                       </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {rows.map((row, rowIndex) => {
-                const Icon = row.icon;
-                const rowBackground = rowIndex % 2 === 0 ? "bg-surface-high/45" : "bg-surface-low";
-                return (
-                  <div
-                    key={row.label}
-                    className={`grid min-h-[52px] ${rowBackground}`}
-                    style={{ gridTemplateColumns: columnTemplate }}
-                  >
-                    <div className="flex items-center gap-3 px-6 py-4 text-[14px] text-foreground">
-                      <Icon className="h-4 w-4 text-[var(--selection-accent)]" />
-                      <span>{row.label}</span>
+                      {plan.plan.highlighted && (
+                        <span className="shrink-0 whitespace-nowrap rounded-full bg-selection-accent/20 px-2 py-1 text-[10px] font-semibold leading-none text-selection-accent">
+                          Most Popular
+                        </span>
+                      )}
                     </div>
-                    {comparisonPlans.map((plan) => (
-                      <div key={`${row.label}-${plan.id}`} className="flex items-center px-6 py-4">
-                        {valueCell(row.values[plan.id] ?? "-")}
+                  ))}
+                </div>
+
+                {rows.map((row, rowIndex) => {
+                  const Icon = row.icon;
+                  const rowBackground = rowIndex % 2 === 0 ? "bg-surface-high/45" : "bg-background/35";
+                  return (
+                    <div
+                      key={row.label}
+                      className={`grid min-h-10 ${rowBackground}`}
+                      style={{ gridTemplateColumns: columnTemplate }}
+                    >
+                      <div className="flex min-w-0 items-center gap-2.5 px-6 py-2.5 text-[13px] text-foreground">
+                        <Icon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                        <span className="min-w-0 break-words">{row.label}</span>
                       </div>
+                      {comparisonPlans.map((plan) => (
+                        <div key={`${row.label}-${plan.id}`} className="flex min-w-0 items-center px-6 py-2.5">
+                          {valueCell(row.values[plan.id] ?? "-")}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+              <section
+                className="mt-4 rounded-[12px] border border-border bg-background/35 p-4"
+                style={{ minWidth: `${comparisonMinWidth}px` }}
+              >
+                <h3 className="text-[14px] font-semibold text-foreground">Included in every plan</h3>
+                {includedInEveryPlan.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {includedInEveryPlan.map((feature) => (
+                      <span key={feature} className="inline-flex items-center gap-1.5 rounded-full bg-selection-accent/20 px-2.5 py-0.5 text-[12px] font-medium text-selection-accent">
+                        <Check className="h-3 w-3" aria-hidden="true" />
+                        {feature}
+                      </span>
                     ))}
                   </div>
-                );
-              })}
-            </div>
+                ) : (
+                  <p className="mt-2 text-[13px] text-text-muted">No shared plan features are reported in the current catalog.</p>
+                )}
+              </section>
+            </>
           )}
         </div>
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }

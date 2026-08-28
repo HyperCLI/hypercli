@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import React from "react";
-import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Archive, ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, Copy, FolderOpen, House, KeyRound, LibraryBig, Loader2, LogOut, MessageSquare, Monitor, PanelRight, Plus, Play, RotateCcw, Send, Sparkles, Square, UsersRound, X } from "lucide-react";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
@@ -3148,42 +3147,20 @@ export function AgentList({
             />
           </motion.div>
         )}
-      {typeof document !== "undefined" ? createPortal(
-        <AnimatePresence>
-          {showAgentLauncher && (
-            <motion.div
-              data-testid="agent-launcher-overlay"
-              aria-hidden={agentLauncherSuspended || undefined}
-              className={`fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-2 backdrop-blur-sm ${agentLauncherSuspended ? "invisible pointer-events-none" : ""}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.16 }}
-            >
-              <motion.div
-                data-testid="agent-launcher-dialog"
-                initial={{ opacity: 0, scale: 0.98, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.98, y: 8 }}
-                transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                className="relative h-[min(712px,calc(100dvh-1rem))] w-[calc(100vw-1rem)] max-w-[1200px] sm:h-[min(852px,calc(100dvh-1rem))] sm:max-w-[1200px]"
-              >
-                <AgentCreationSetupWizard
-                  size="inline"
-                  onClose={() => setShowAgentLauncher(false)}
-                  initialPlanId={preferredPlanId}
-                  budget={budget}
-                  subscriptionSummary={subscriptionSummary}
-                  catalogPlans={catalogPlans}
-                  pendingSlotReleases={pendingSlotReleases}
-                  onOpenPlanCatalog={onOpenPlanCatalog}
-                  onCreateAgent={createAgentAndCloseLauncher}
-                />
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body,
+      {showAgentLauncher ? (
+        <AgentCreationSetupWizard
+          dialogTestId="agent-launcher-dialog"
+          overlayTestId="agent-launcher-overlay"
+          suspended={agentLauncherSuspended}
+          onClose={() => setShowAgentLauncher(false)}
+          initialPlanId={preferredPlanId}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          pendingSlotReleases={pendingSlotReleases}
+          onOpenPlanCatalog={onOpenPlanCatalog}
+          onCreateAgent={createAgentAndCloseLauncher}
+        />
       ) : null}
     </motion.div>
   );
