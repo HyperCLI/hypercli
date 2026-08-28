@@ -358,7 +358,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "HYPER_WORKSPACES_SYNC_WORKSPACE": "fixture-workspace"
             },
             "command": common["command"].clone(),
-            "config": {},
             "entrypoint": [],
             "routes": {},
             "image": image,
@@ -509,6 +508,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             String::from_utf8_lossy(&output.stderr)
         );
         let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_ne!(response["ok"], false, "{runtime}: response: {response}");
         assert_eq!(response["agent_id"], format!("dry-run-{runtime}"));
         capacity.assert();
         let trace = fs::read_to_string(trace_file).unwrap();
