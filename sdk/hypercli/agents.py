@@ -3656,7 +3656,6 @@ class Deployments:
             handle=handle,
             size=size,
             runtime="hermes-agent",
-            config=config,
             tags=tags,
             env=effective_env,
             secrets=effective_secrets,
