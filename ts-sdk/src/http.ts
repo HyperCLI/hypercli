@@ -202,7 +202,11 @@ export async function responseAPIError(
   if (text) {
     try {
       const payload = JSON.parse(text) as { detail?: unknown };
-      if (payload.detail !== undefined && payload.detail !== null) detail = String(payload.detail);
+      if (payload.detail !== undefined && payload.detail !== null) {
+        detail = typeof payload.detail === 'string'
+          ? payload.detail
+          : JSON.stringify(payload.detail);
+      }
     } catch {
       // Plain-text error bodies are valid API responses.
     }
