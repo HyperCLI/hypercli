@@ -907,7 +907,7 @@ describe("agent-client", () => {
     expect(deploymentsInstance.ensureOpenClawHostedSlack).not.toHaveBeenCalled();
   });
 
-  it("does not replace explicit self-hosted Slack launch config", async () => {
+  it("adds hosted Slack relay intent without carrying nested launch config", async () => {
     getSlackInstallStatus.mockResolvedValue({
       connected: true,
       teamId: "T123",
@@ -917,32 +917,13 @@ describe("agent-client", () => {
     });
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
 
-    await createOpenClawAgent("hyper_api_test", {
-      config: {
-        channels: {
-          slack: {
-            enabled: true,
-            mode: "socket",
-            botToken: "xoxb-custom",
-            appToken: "xapp-custom",
-          },
-        },
-      },
-    });
+    await createOpenClawAgent("hyper_api_test");
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
-      config: {
-        channels: {
-          slack: {
-            enabled: true,
-            mode: "socket",
-            botToken: "xoxb-custom",
-            appToken: "xapp-custom",
-          },
-        },
-      },
       env: {},
+      slack: { relayBaseUrl: "https://api.hypercli.com" },
     }));
+    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0]).not.toHaveProperty("config");
   });
 
   it("creates OpenClaw pro agents when desktop is enabled", async () => {
@@ -1120,14 +1101,6 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
 
     await createOpenClawAgent("hyper_api_test", {
-      config: {
-        gateway: {
-          controlUi: {
-            allowedOrigins: ["https://claw.hypercli.com"],
-            requirePairing: true,
-          },
-        },
-      },
       env: {
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://old.hypercli.com",
         FOO: "bar",
@@ -1141,14 +1114,7 @@ describe("agent-client", () => {
         FOO: "bar",
       },
     }));
-    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0].config).toEqual({
-      gateway: {
-        controlUi: {
-          allowedOrigins: ["https://claw.hypercli.com"],
-          requirePairing: true,
-        },
-      },
-    });
+    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0]).not.toHaveProperty("config");
     expect(currentOrigin).toBeTruthy();
   });
 
@@ -1158,14 +1124,6 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
 
     await createOpenClawAgent("hyper_api_test", {
-      config: {
-        gateway: {
-          controlUi: {
-            allowedOrigins: ["https://claw.hypercli.com"],
-            requirePairing: true,
-          },
-        },
-      },
       env: {
         OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://old.hypercli.com",
         FOO: "bar",
@@ -1174,18 +1132,11 @@ describe("agent-client", () => {
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
       controlUiOriginLock: false,
-      config: {
-        gateway: {
-          controlUi: {
-            allowedOrigins: ["https://claw.hypercli.com"],
-            requirePairing: true,
-          },
-        },
-      },
       env: {
         FOO: "bar",
       },
     }));
+    expect(deploymentsInstance.createOpenClaw.mock.calls[0]?.[0]).not.toHaveProperty("config");
   });
 
 });

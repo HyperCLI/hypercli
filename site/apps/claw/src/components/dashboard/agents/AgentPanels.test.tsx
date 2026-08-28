@@ -2321,7 +2321,11 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledTimes(1);
     });
-    expect(onUpdateAgentLaunchConfig.mock.calls[0]?.[1]).not.toHaveProperty("config");
+    const calls = (onUpdateAgentLaunchConfig as unknown as {
+      mock: { calls: Array<[unknown, Record<string, unknown>]> };
+    }).mock.calls;
+    const submittedLaunchConfig = calls[0]?.[1] ?? {};
+    expect(submittedLaunchConfig).not.toHaveProperty("config");
   });
 
   it("blocks Docker image changes until the live channel preflight succeeds", () => {

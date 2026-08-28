@@ -547,7 +547,12 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(getPlanFooterAction("Launch agent"));
     await waitFor(() => expect(onCreateAgent).toHaveBeenCalledTimes(1));
-    const files = onCreateAgent.mock.calls[0]?.[0].files as File[];
+    const calls = (onCreateAgent as unknown as {
+      mock: { calls: Array<[{ files: File[] }]> };
+    }).mock.calls;
+    const createOptions = calls[0]?.[0];
+    expect(createOptions).toBeDefined();
+    const files = createOptions?.files ?? [];
     expect(files.map((file) => file.name)).toEqual([
       "AGENTS.md",
       "BOOTSTRAP.md",

@@ -2010,7 +2010,7 @@ export function FirstAgentSetupWizard({
                   testId="agent-setup-launch"
                   disabled={!capacityReady || creating || openingCapacity}
                   busy={creating || openingCapacity}
-                  onClick={handleWorkspaceAction}
+                  onClick={() => handleWorkspaceAction()}
                 >
                   {workspaceActionLabel}
                 </WizardButton>
