@@ -1,40 +1,47 @@
+import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  redirect: vi.fn(),
+  replace: vi.fn(),
+  searchParams: new URLSearchParams(),
 }));
 
 vi.mock("next/navigation", () => ({
-  redirect: mocks.redirect,
+  useRouter: () => ({ replace: mocks.replace }),
+  useSearchParams: () => mocks.searchParams,
 }));
 
 import Home from "./page";
 
 describe("Claw root page", () => {
   beforeEach(() => {
-    mocks.redirect.mockReset();
+    mocks.replace.mockReset();
+    mocks.searchParams = new URLSearchParams();
   });
 
   it("redirects to the agents dashboard", async () => {
-    await Home({
-      searchParams: Promise.resolve({}),
-    });
+    render(<Home />);
 
-    expect(mocks.redirect).toHaveBeenCalledOnce();
-    expect(mocks.redirect).toHaveBeenCalledWith("/dashboard/agents");
+    await waitFor(() => {
+      expect(mocks.replace).toHaveBeenCalledOnce();
+    });
+    expect(mocks.replace).toHaveBeenCalledWith("/dashboard/agents");
   });
 
   it("preserves incoming handoff parameters", async () => {
-    await Home({
-      searchParams: Promise.resolve({
-        intent: "trial",
-        plan: "team",
-        tag: ["one", "two"],
-      }),
-    });
+    mocks.searchParams = new URLSearchParams([
+      ["intent", "trial"],
+      ["plan", "team"],
+      ["tag", "one"],
+      ["tag", "two"],
+    ]);
 
-    expect(mocks.redirect).toHaveBeenCalledWith(
-      "/dashboard/agents?intent=trial&plan=team&tag=one&tag=two",
-    );
+    render(<Home />);
+
+    await waitFor(() => {
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/dashboard/agents?intent=trial&plan=team&tag=one&tag=two",
+      );
+    });
   });
 });

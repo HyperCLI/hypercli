@@ -1,14 +1,11 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-import {
-  buildDashboardAgentsRedirectHref,
-  type DashboardSearchParams,
-} from "@/lib/dashboard-route";
+import { DashboardAgentsRedirect } from "@/components/dashboard/DashboardViewRedirect";
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<DashboardSearchParams>;
-}) {
-  return redirect(buildDashboardAgentsRedirectHref(await searchParams));
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardAgentsRedirect />
+    </Suspense>
+  );
 }

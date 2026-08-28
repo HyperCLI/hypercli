@@ -11,7 +11,6 @@ import {
 
 type RequiredEnvKey =
   | "TEST_BASE_URL"
-  | "TEST_HOSTNAME"
   | "TEST_EMAIL"
   | "TEST_IMAP_HOST"
   | "TEST_IMAP_USER"
@@ -1034,7 +1033,7 @@ export async function loginWithPrivy(
     .first();
   const response = await page.goto(getEnv("TEST_BASE_URL"), { waitUntil: "domcontentloaded" });
   if (response?.status() === 404) {
-    throw new Error(`Target ${getEnv("TEST_HOSTNAME")} returned a 404 for the Claw app`);
+    throw new Error(`Target ${response.url()} returned a 404 for the Claw app`);
   }
 
   const sharedLoginButton = page.getByRole("button", { name: /login with privy/i }).first();
