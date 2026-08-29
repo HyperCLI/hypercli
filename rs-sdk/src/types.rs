@@ -407,6 +407,7 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
     "BUZZ_ACP_REQUIRE_REPLY",
+    "BUZZ_AGENT_REQUIRE_REPLY",
     "CLAUDE_CODE_EXECUTABLE",
     "BUZZ_ACP_SESSION_TITLE",
     "BUZZ_ACP_SYSTEM_PROMPT",
@@ -607,6 +608,13 @@ impl BuzzLaunchConfig {
             request
                 .env
                 .insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
+            request
+                .env
+                .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
+        } else {
+            request
+                .env
+                .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "0".to_owned());
         }
         insert_nonempty(
             &mut request.env,
@@ -1949,6 +1957,13 @@ mod tests {
             );
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], contract["agent_args"]);
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], contract["mcp_command"]);
+            for (key, value) in golden["common_env"].as_object().unwrap() {
+                assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
+            }
+            let expected_env = contract["env"].as_object().unwrap();
+            for (key, value) in expected_env {
+                assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
+            }
             if contract.get("sync_include").is_some() {
                 assert_eq!(
                     serde_json::to_value(&request.sync_include).unwrap(),

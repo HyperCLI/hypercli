@@ -366,6 +366,10 @@ def test_typed_buzz_launch_matches_shared_cross_language_golden(method_name, run
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == expected_runtime["agent_command"]
     assert posted["env"]["BUZZ_ACP_AGENT_ARGS"] == expected_runtime["agent_args"]
     assert posted["env"]["BUZZ_ACP_MCP_COMMAND"] == expected_runtime["mcp_command"]
+    for key, value in _BUZZ_GOLDEN["common_env"].items():
+        assert posted["env"][key] == value
+    for key, value in expected_runtime["env"].items():
+        assert posted["env"][key] == value
     assert posted["env"].get("CLAUDE_CODE_EXECUTABLE") == expected_runtime[
         "claude_code_executable"
     ]

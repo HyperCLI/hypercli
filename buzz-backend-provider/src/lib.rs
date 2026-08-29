@@ -952,6 +952,7 @@ fn build_launch_request_with_inference_base(
         env.insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
     }
     env.insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
+    env.insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
     env.entry("HYPER_WORKSPACES_DIR".to_owned())
         .or_insert_with(|| "/home/node/shared".to_owned());
@@ -1043,6 +1044,7 @@ const AUTHORITATIVE_ENV_KEYS: &[&str] = &[
     "BUZZ_ACP_DISPLAY_NAME",
     "BUZZ_ACP_TEXT_MENTIONS",
     "BUZZ_ACP_REQUIRE_REPLY",
+    "BUZZ_AGENT_REQUIRE_REPLY",
     // The introspection listen address is provider-owned: a caller-supplied
     // value (in either env tier) must never survive into the launch.
     "HYPER_ACP_WS_LISTEN",
@@ -2336,6 +2338,7 @@ mod tests {
                 ("BUZZ_ACP_DISPLAY_NAME".to_owned(), "Wrong".to_owned()),
                 ("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "false".to_owned()),
                 ("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "false".to_owned()),
+                ("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "0".to_owned()),
                 (
                     "cLaUdE_cOdE_eXeCuTaBlE".to_owned(),
                     "/tmp/not-claude".to_owned(),
@@ -2380,6 +2383,7 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
             assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
+            assert_eq!(request.env["BUZZ_AGENT_REQUIRE_REPLY"], "1");
             if runtime == CodingRuntime::ClaudeCode {
                 assert_eq!(
                     request.env["CLAUDE_CODE_EXECUTABLE"],

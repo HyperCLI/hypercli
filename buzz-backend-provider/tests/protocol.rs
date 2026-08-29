@@ -391,6 +391,12 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             expected["env"]["BUZZ_AGENT_PROVIDER"] = serde_json::json!("anthropic");
             expected["env"]["ANTHROPIC_BASE_URL"] = serde_json::json!(server.url());
         }
+        for (key, value) in golden["common_env"].as_object().unwrap() {
+            expected["env"][key] = value.clone();
+        }
+        for (key, value) in contract["env"].as_object().unwrap() {
+            expected["env"][key] = value.clone();
+        }
         if runtime == "opencode" {
             // opencode advertises `<provider>/<model>`; a bare id never
             // matches, so the model switch silently no-ops.

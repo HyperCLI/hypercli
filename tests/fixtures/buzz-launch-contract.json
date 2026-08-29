@@ -17,6 +17,9 @@
     "sync_uid": 1000,
     "sync_gid": 1000
   },
+  "common_env": {
+    "BUZZ_AGENT_REQUIRE_REPLY": "1"
+  },
   "runtimes": {
     "buzz-agent": {
       "sync_exclude": [],
@@ -25,7 +28,8 @@
       "agent_command": "/usr/local/bin/buzz-agent",
       "agent_args": "",
       "mcp_command": "/usr/local/bin/buzz-dev-mcp",
-      "claude_code_executable": null
+      "claude_code_executable": null,
+      "env": {}
     },
     "opencode": {
       "sync_include": [
@@ -39,7 +43,8 @@
       "agent_command": "/usr/local/bin/opencode",
       "agent_args": "acp",
       "mcp_command": "",
-      "claude_code_executable": null
+      "claude_code_executable": null,
+      "env": {}
     },
     "codex": {
       "sync_include": [".codex"],
@@ -48,7 +53,8 @@
       "agent_command": "/usr/local/bin/codex-acp",
       "agent_args": "",
       "mcp_command": "/usr/local/bin/buzz-dev-mcp",
-      "claude_code_executable": null
+      "claude_code_executable": null,
+      "env": {}
     },
     "claude-code": {
       "sync_include": [".claude", ".claude.json"],
@@ -57,7 +63,8 @@
       "agent_command": "/usr/local/bin/claude-agent-acp",
       "agent_args": "",
       "mcp_command": "",
-      "claude_code_executable": "/usr/local/bin/claude"
+      "claude_code_executable": "/usr/local/bin/claude",
+      "env": {}
     },
     "goose": {
       "sync_include": [".goose"],
@@ -66,7 +73,8 @@
       "agent_command": "/usr/local/bin/goose",
       "agent_args": "acp",
       "mcp_command": "",
-      "claude_code_executable": null
+      "claude_code_executable": null,
+      "env": {}
     },
     "kimi-code": {
       "sync_include": [".kimi-code"],
@@ -75,7 +83,8 @@
       "agent_command": "/usr/local/bin/kimi",
       "agent_args": "acp",
       "mcp_command": "",
-      "claude_code_executable": null
+      "claude_code_executable": null,
+      "env": {}
     }
   }
 }

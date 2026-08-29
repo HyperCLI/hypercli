@@ -292,6 +292,7 @@ BUZZ_RESERVED_ENV_KEYS = frozenset(
         "BUZZ_ACP_DISPLAY_NAME",
         "BUZZ_ACP_TEXT_MENTIONS",
         "BUZZ_ACP_REQUIRE_REPLY",
+        "BUZZ_AGENT_REQUIRE_REPLY",
         "CLAUDE_CODE_EXECUTABLE",
         "BUZZ_ACP_SESSION_TITLE",
         "BUZZ_ACP_SYSTEM_PROMPT",
@@ -387,6 +388,9 @@ class BuzzLaunchConfig:
             env["BUZZ_ACP_TEXT_MENTIONS"] = "true"
         if self.require_reply:
             env["BUZZ_ACP_REQUIRE_REPLY"] = "true"
+            env["BUZZ_AGENT_REQUIRE_REPLY"] = "1"
+        else:
+            env["BUZZ_AGENT_REQUIRE_REPLY"] = "0"
         if self.rust_log:
             env["RUST_LOG"] = self.rust_log
         return env

@@ -44,12 +44,14 @@ const buzzGolden = JSON.parse(readFileSync(
 )) as {
   runtime_scopes: string[];
   common: Record<string, unknown>;
+  common_env: Record<string, string>;
   runtimes: Record<string, {
     sync_include: string[];
     image: string;
     agent_command: string;
     agent_args: string;
     mcp_command: string;
+    env: Record<string, string>;
   }>;
 };
 
@@ -340,9 +342,15 @@ describe('coding agents', () => {
     expect(payload.env.BUZZ_ACP_AGENT_COMMAND).toBe(expectedRuntime.agent_command);
     expect(payload.env.BUZZ_ACP_AGENT_ARGS).toBe(expectedRuntime.agent_args);
     expect(payload.env.BUZZ_ACP_MCP_COMMAND).toBe(expectedRuntime.mcp_command);
+    for (const [key, value] of Object.entries(buzzGolden.common_env)) {
+      expect(payload.env[key]).toBe(value);
+    }
     expect(payload.env.CLAUDE_CODE_EXECUTABLE ?? null).toBe(
       expectedRuntime.claude_code_executable,
     );
+    for (const [key, value] of Object.entries(expectedRuntime.env)) {
+      expect(payload.env[key]).toBe(value);
+    }
     expect(payload.env.BUZZ_PRIVATE_KEY).toBeUndefined();
     expect(payload.env.NOSTR_PRIVATE_KEY).toBeUndefined();
     expect(payload.secrets).toEqual({

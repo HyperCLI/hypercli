@@ -222,6 +222,7 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_DISPLAY_NAME',
   'BUZZ_ACP_TEXT_MENTIONS',
   'BUZZ_ACP_REQUIRE_REPLY',
+  'BUZZ_AGENT_REQUIRE_REPLY',
   'CLAUDE_CODE_EXECUTABLE',
   'BUZZ_ACP_SESSION_TITLE',
   'BUZZ_ACP_SYSTEM_PROMPT',
@@ -1235,7 +1236,12 @@ function buildBuzzLaunchEnv(
     if (value) env[key] = value;
   }
   if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
-  if (buzz.requireReply !== false) env.BUZZ_ACP_REQUIRE_REPLY = 'true';
+  if (buzz.requireReply !== false) {
+    env.BUZZ_ACP_REQUIRE_REPLY = 'true';
+    env.BUZZ_AGENT_REQUIRE_REPLY = '1';
+  } else {
+    env.BUZZ_AGENT_REQUIRE_REPLY = '0';
+  }
   return env;
 }
 
