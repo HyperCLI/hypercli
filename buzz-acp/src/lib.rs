@@ -32,8 +32,8 @@ use buzz_core::observer::{
 };
 use clap::Parser;
 use config::{
-    AuthAgentArgs, AuthMethodsArgs, AuthTagArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
-    MultipleEventHandling, RespondTo, SubscribeMode,
+    AuthAgentArgs, AuthMethodsArgs, AuthTagArgs, AuthenticateArgs, CliArgs, Config, DedupMode,
+    ModelsArgs, MultipleEventHandling, RespondTo, SubscribeMode,
 };
 use filter::SubscriptionRule;
 use futures_util::FutureExt;
@@ -57,8 +57,8 @@ use uuid::Uuid;
 ///
 /// **Constraint**: subcommand must be argv[1] — flags before the subcommand
 /// name (e.g., `buzz-acp --verbose models`) are not supported.
-fn is_subcommand(name: &str) -> bool {
-    std::env::args().nth(1).map(|a| a == name).unwrap_or(false)
+fn is_subcommand(args: &[String], name: &str) -> bool {
+    args.get(1).map(|a| a == name).unwrap_or(false)
 }
 
 /// Timeout for lightweight helper subcommands (spawn + initialize + model/method probes).
@@ -1319,19 +1319,31 @@ mod inactivity_tests {
 
 pub fn run() -> Result<()> {
     config::propagate_legacy_env_vars();
-    tokio_main()
+    run_with_args(std::env::args())
 }
 
-#[tokio::main]
-async fn tokio_main() -> Result<()> {
+pub fn run_with_args<I, S>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    config::propagate_legacy_env_vars();
+    let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(tokio_main(args))
+}
+
+async fn tokio_main(args: Vec<String>) -> Result<()> {
     // Install the ring crypto provider for rustls (required for wss:// connections).
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("failed to install rustls crypto provider");
-    if is_subcommand("models") {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    if is_subcommand(&args, "models") {
         // Strip the subcommand token so clap doesn't reject it as a positional.
         // Keeps argv[0] (binary name) and passes everything after the subcommand.
-        let filtered: Vec<String> = std::env::args()
+        let filtered: Vec<String> = args
+            .iter()
+            .cloned()
             .enumerate()
             .filter(|(i, _)| *i != 1)
             .map(|(_, a)| a)
@@ -1340,8 +1352,10 @@ async fn tokio_main() -> Result<()> {
         return run_models(args).await;
     }
 
-    if is_subcommand("auth-methods") {
-        let filtered: Vec<String> = std::env::args()
+    if is_subcommand(&args, "auth-methods") {
+        let filtered: Vec<String> = args
+            .iter()
+            .cloned()
             .enumerate()
             .filter(|(i, _)| *i != 1)
             .map(|(_, a)| a)
@@ -1350,8 +1364,10 @@ async fn tokio_main() -> Result<()> {
         return run_auth_methods(args).await;
     }
 
-    if is_subcommand("authenticate") {
-        let filtered: Vec<String> = std::env::args()
+    if is_subcommand(&args, "authenticate") {
+        let filtered: Vec<String> = args
+            .iter()
+            .cloned()
             .enumerate()
             .filter(|(i, _)| *i != 1)
             .map(|(_, a)| a)
@@ -1360,8 +1376,10 @@ async fn tokio_main() -> Result<()> {
         return run_authenticate(args).await;
     }
 
-    if is_subcommand("auth-tag") {
-        let filtered: Vec<String> = std::env::args()
+    if is_subcommand(&args, "auth-tag") {
+        let filtered: Vec<String> = args
+            .iter()
+            .cloned()
             .enumerate()
             .filter(|(i, _)| *i != 1)
             .map(|(_, a)| a)
@@ -1378,7 +1396,9 @@ async fn tokio_main() -> Result<()> {
         .compact()
         .init();
 
-    let mut config = Config::from_cli().map_err(|e| anyhow::anyhow!("configuration error: {e}"))?;
+    let parsed_args = CliArgs::parse_from(&args);
+    let mut config =
+        Config::from_args(parsed_args).map_err(|e| anyhow::anyhow!("configuration error: {e}"))?;
 
     // ── Setup-mode early branch ───────────────────────────────────────────────
     //

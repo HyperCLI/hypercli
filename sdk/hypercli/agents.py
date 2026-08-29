@@ -3875,7 +3875,11 @@ class Deployments:
             env=effective_env,
             secrets=effective_secrets,
             routes={} if routes is None else routes,
-            command=(["/usr/local/bin/hypercli-acp"] if buzz_enabled or buzz is not None else command),
+            command=(
+                ["/usr/local/bin/hypercli-acp", "buzz"]
+                if buzz_enabled or buzz is not None
+                else command
+            ),
             entrypoint=entrypoint,
             image=image
             or (

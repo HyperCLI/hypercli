@@ -930,14 +930,6 @@ pub fn propagate_legacy_env_vars() {
 }
 
 impl Config {
-    pub fn from_cli() -> Result<Self, ConfigError> {
-        // Legacy env-var propagation is intentionally NOT done here.
-        // Call `propagate_legacy_env_vars()` before the tokio runtime starts
-        // (in the sync `fn main()` wrapper) — see Rust 2024 edition safety.
-        let args = CliArgs::parse();
-        Self::from_args(args)
-    }
-
     /// Build a `Config` from already-parsed `CliArgs`. Separated from `from_cli()` so
     /// tests can construct `CliArgs` via `CliArgs::try_parse_from` and exercise the full
     /// validation path without going through process args.

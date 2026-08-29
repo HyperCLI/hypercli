@@ -514,7 +514,7 @@ impl BuzzLaunchConfig {
         // slot without baking a stale tier into a client-side contract.
         request.size = None;
         request.mark_buzz_deployment(None);
-        request.command = vec!["/usr/local/bin/hypercli-acp".to_owned()];
+        request.command = vec!["/usr/local/bin/hypercli-acp".to_owned(), "buzz".to_owned()];
         if request.image.is_none() {
             request.image = request.runtime.default_buzz_image().map(str::to_owned);
         }
@@ -1626,7 +1626,7 @@ mod tests {
 
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
-        assert_eq!(request.command, vec!["/usr/local/bin/hypercli-acp"]);
+        assert_eq!(request.command, vec!["/usr/local/bin/hypercli-acp", "buzz"]);
         assert!(!request.restart);
         assert_eq!(
             request.runtime_scopes,
@@ -1915,7 +1915,7 @@ mod tests {
             "env": {"SAFE": "visible"},
             "registry_auth": {"password": "registry-secret"},
             "secrets": {"API_TOKEN": "must-not-hydrate"},
-            "command": ["/usr/local/bin/hypercli-acp"]
+            "command": ["/usr/local/bin/hypercli-acp", "buzz"]
         }))
         .unwrap();
 

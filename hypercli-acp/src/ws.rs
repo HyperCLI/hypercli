@@ -8,7 +8,10 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
+use http::Request;
 use tokio::sync::mpsc;
+use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
+use url::Url;
 
 use crate::core::CoreState;
 use crate::types::{
@@ -24,6 +27,75 @@ pub async fn serve(addr: SocketAddr, core: Arc<CoreState>) -> anyhow::Result<()>
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, router(core)).await?;
     Ok(())
+}
+
+pub async fn connect_callback(url: Url, core: Arc<CoreState>) -> anyhow::Result<()> {
+    let request = callback_request(url)?;
+    let (socket, _response) = tokio_tungstenite::connect_async(request).await?;
+    let (mut writer, mut reader) = socket.split();
+    let (out_tx, mut out_rx) = mpsc::channel::<ServerMessage>(64);
+
+    let write_task = tokio::spawn(async move {
+        while let Some(message) = out_rx.recv().await {
+            let Ok(text) = serde_json::to_string(&message) else {
+                continue;
+            };
+            if writer
+                .send(TungsteniteMessage::Text(text.into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    let activity_task = spawn_activity_forwarder(core.clone(), out_tx.clone());
+
+    while let Some(message) = reader.next().await {
+        let message = message?;
+        let TungsteniteMessage::Text(text) = message else {
+            continue;
+        };
+        match serde_json::from_str::<ClientMessage>(&text) {
+            Ok(message) => {
+                if out_tx
+                    .send(handle_client_message(&core, message).await)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            Err(err) => {
+                let _ = out_tx
+                    .send(ServerMessage::Error {
+                        request_id: None,
+                        error: ProtocolErrorBody {
+                            code: "bad_message".to_string(),
+                            message: err.to_string(),
+                            retryable: false,
+                        },
+                    })
+                    .await;
+            }
+        }
+    }
+
+    activity_task.abort();
+    drop(out_tx);
+    let _ = write_task.await;
+    Ok(())
+}
+
+pub fn callback_request(url: Url) -> anyhow::Result<Request<()>> {
+    let mut request = Request::builder().uri(url.as_str());
+    if let Ok(api_key) = std::env::var("HYPER_AGENTS_API_KEY") {
+        if !api_key.is_empty() {
+            request = request.header(http::header::AUTHORIZATION, format!("Bearer {api_key}"));
+        }
+    }
+    Ok(request.body(())?)
 }
 
 async fn ws_upgrade(
@@ -64,41 +136,7 @@ async fn handle_socket(core: Arc<CoreState>, socket: WebSocket) {
         }
     });
 
-    let activity_task = tokio::spawn({
-        let core = core.clone();
-        let out_tx = out_tx.clone();
-        async move {
-            let sub = core.activity().subscribe().await;
-            for frame in sub.replay {
-                if out_tx
-                    .send(ServerMessage::TurnActivity(frame))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-            }
-            if out_tx
-                .send(ServerMessage::ActivityReplayEnd {
-                    next_seq: sub.next_seq,
-                })
-                .await
-                .is_err()
-            {
-                return;
-            }
-            let mut live = sub.live;
-            while let Ok(frame) = live.recv().await {
-                if out_tx
-                    .send(ServerMessage::TurnActivity(frame))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        }
-    });
+    let activity_task = spawn_activity_forwarder(core.clone(), out_tx.clone());
 
     while let Some(Ok(message)) = reader.next().await {
         let WsMessage::Text(text) = message else {
@@ -132,6 +170,43 @@ async fn handle_socket(core: Arc<CoreState>, socket: WebSocket) {
     activity_task.abort();
     drop(out_tx);
     let _ = write_task.await;
+}
+
+fn spawn_activity_forwarder(
+    core: Arc<CoreState>,
+    out_tx: mpsc::Sender<ServerMessage>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let sub = core.activity().subscribe().await;
+        for frame in sub.replay {
+            if out_tx
+                .send(ServerMessage::TurnActivity(frame))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+        if out_tx
+            .send(ServerMessage::ActivityReplayEnd {
+                next_seq: sub.next_seq,
+            })
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let mut live = sub.live;
+        while let Ok(frame) = live.recv().await {
+            if out_tx
+                .send(ServerMessage::TurnActivity(frame))
+                .await
+                .is_err()
+            {
+                return;
+            }
+        }
+    })
 }
 
 pub async fn handle_client_message(core: &CoreState, message: ClientMessage) -> ServerMessage {
@@ -236,6 +311,21 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn callback_request_uses_bearer_platform_key_when_present() {
+        std::env::set_var("HYPER_AGENTS_API_KEY", "runtime-key");
+        let request = callback_request(Url::parse("wss://api.example.com/acp/ws").unwrap())
+            .expect("callback request");
+        assert_eq!(
+            request
+                .headers()
+                .get(http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer runtime-key")
+        );
+        std::env::remove_var("HYPER_AGENTS_API_KEY");
     }
 
     #[tokio::test]

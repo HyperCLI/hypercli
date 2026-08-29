@@ -794,7 +794,7 @@ fn build_launch_request_with_inference_base(
         .or_else(|| Some(runtime.default_image().to_owned()));
     request.mark_buzz_deployment(Some(public_key));
 
-    request.command = vec!["/usr/local/bin/hypercli-acp".to_owned()];
+    request.command = vec!["/usr/local/bin/hypercli-acp".to_owned(), "buzz".to_owned()];
     request.sync_root = Some("/home/node".to_owned());
     request.sync_include = request
         .runtime
@@ -2370,7 +2370,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
-            assert_eq!(request.command, ["/usr/local/bin/hypercli-acp"]);
+            assert_eq!(request.command, ["/usr/local/bin/hypercli-acp", "buzz"]);
             assert_eq!(
                 request.runtime_scopes,
                 BUZZ_RUNTIME_SCOPES.map(str::to_owned)
@@ -2641,7 +2641,7 @@ mod tests {
                 serde_json::json!({
                     "handle": handle,
                     "runtime": "opencode",
-                    "command": ["/usr/local/bin/hypercli-acp"],
+                    "command": ["/usr/local/bin/hypercli-acp", "buzz"],
                     "restart": false,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                     "tags": ["app=buzz", format!("buzz_agent={TEST_PUBLIC_HEX}")],
@@ -2866,7 +2866,7 @@ mod tests {
                 serde_json::json!({"launch_config":{
                     "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                     "restart": false,
-                    "command": ["/usr/local/bin/hypercli-acp"],
+                    "command": ["/usr/local/bin/hypercli-acp", "buzz"],
                     "sync_root": "/home/node",
                     "sync_uid": 1000,
                     "sync_gid": 1000,
@@ -3147,7 +3147,7 @@ mod tests {
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{
                     "restart": false,
-                    "command": ["/usr/local/bin/hypercli-acp"],
+                    "command": ["/usr/local/bin/hypercli-acp", "buzz"],
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES
                 }})
                 .to_string(),

@@ -5052,7 +5052,7 @@ export class Deployments {
       routes: hyperAcpWsToken !== null ? withHyperAcpRoutes(options.routes) : (options.routes ?? {}),
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/hypercli-acp']
+        ? ['/usr/local/bin/hypercli-acp', 'buzz']
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,
