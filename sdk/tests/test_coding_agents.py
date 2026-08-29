@@ -321,7 +321,7 @@ def test_buzz_coding_agent_uses_specialized_default_image(
     getattr(deployments, method_name)(buzz_enabled=True)
 
     assert posted["image"] == buzz_image
-    assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["command"] == ["/usr/local/bin/hypercli-acp"]
 
 
 @pytest.mark.parametrize(
@@ -433,7 +433,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
         },
     )
 
-    assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["command"] == ["/usr/local/bin/hypercli-acp"]
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["restart"] is False
     assert "entrypoint" not in posted
@@ -443,7 +443,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert posted["secrets"]["NOSTR_PRIVATE_KEY"] == agent_nsec
     assert (
         posted["env"]["RUST_LOG"]
-        == "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+        == "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
     assert "OPENCLAW_GATEWAY_TOKEN" not in posted["env"]
 
@@ -491,7 +491,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["routes"] == {}
-    assert posted["command"] == ["/usr/local/bin/buzz-acp"]
+    assert posted["command"] == ["/usr/local/bin/hypercli-acp"]
     assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
@@ -536,7 +536,7 @@ def test_typed_buzz_launch_uses_safe_default_acp_logging():
 
     assert (
         posted["env"]["RUST_LOG"]
-        == "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+        == "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
     assert posted["restart"] is False
 
@@ -617,7 +617,7 @@ def test_codex_auth_methods_merge_acp_and_native_device_login():
     assert methods[1].command == ("codex", "login", "--device-auth")
     command = agent._deployments.exec.call_args.args[1]
     assert command == [
-        "buzz-acp",
+        "hypercli-acp",
         "auth-methods",
         "--agent-command",
         "codex-acp",
@@ -694,7 +694,7 @@ async def test_adapter_owned_login_uses_buzz_acp_authenticate():
     assert session.verification_url == "https://auth.example/device"
     assert session.user_code == "ACP-1234"
     assert socket.sent[0].startswith(
-        "buzz-acp authenticate --agent-command opencode "
+        "hypercli-acp authenticate --agent-command opencode "
         "--agent-args acp --method-id oauth;"
     )
     await session.cancel()

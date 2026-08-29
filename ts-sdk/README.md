@@ -326,14 +326,14 @@ continues to override either default.
 
 Buzz launches keep `/home/node` as the persistent Files API and credential
 root, reserve `/home/node/shared` for Workspace projections, and run
-`buzz-acp` from the specialized `/home/node/.buzz` nest. The image reconciles
+`hypercli-acp` from the specialized `/home/node/.buzz` nest. The image reconciles
 the nest after the home mount. OpenCode and Codex consume its canonical
 `AGENTS.md`; Claude Code receives `CLAUDE.md -> AGENTS.md`.
-`base_prompt.md` remains compiled into `buzz-acp`.
+`base_prompt.md` remains compiled into `hypercli-acp`.
 
 The typed `buzz` renderer writes timeout and response-policy values but does not
 duplicate the stock Desktop provider's validation; invalid combinations are
-rejected later by `buzz-acp`. The Desktop provider also maps structured Goose
+rejected later by `hypercli-acp`. The Desktop provider also maps structured Goose
 model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct TypeScript SDK
 callers must set any Goose-specific environment themselves.
 

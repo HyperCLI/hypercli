@@ -296,14 +296,14 @@ agent = client.deployments.create_opencode(
 The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
 runtime. Do not copy an account API key into the launch environment.
 
-The SDK selects `/usr/local/bin/buzz-acp`, the runtime-specific child ACP
+The SDK selects `/usr/local/bin/hypercli-acp`, the runtime-specific child ACP
 command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
 observation, and persistent `/home/node` settings. `/home/node/shared`
 remains reserved for Workspace projections; the specialized image reconciles
 the Buzz nest after the home mount and runs the harness from
 `/home/node/.buzz`. OpenCode and Codex read its canonical `AGENTS.md`, while
 Claude Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` stays compiled
-into `buzz-acp`. Buzz-reserved environment keys are rendered from the typed
+into `hypercli-acp`. Buzz-reserved environment keys are rendered from the typed
 object after caller environment values.
 `buzz_enabled=True` remains as a deprecated raw-environment compatibility path.
 Typed and compatibility Buzz launches select the matching `hypercli-buzz`
@@ -316,7 +316,7 @@ continues to override either default.
 
 Direct `BuzzLaunchConfig` renders timeout and response-policy values but does
 not duplicate the stock Desktop provider's validation; invalid combinations
-are rejected later by `buzz-acp`. The Desktop provider also maps structured
+are rejected later by `hypercli-acp`. The Desktop provider also maps structured
 Goose model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct Python
 SDK callers must set any Goose-specific environment themselves.
 

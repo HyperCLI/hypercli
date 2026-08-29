@@ -1925,7 +1925,7 @@ function randomHexToken(bytes: number): string {
  * only: any non-empty trimmed string is honored verbatim (opaque — the
  * prefix is NOT enforced on input); SDK output is always in-format.
  *
- * Rotation: rotate via Deployments.setSecret, but buzz-acp reads the env once
+ * Rotation: rotate via Deployments.setSecret, but hypercli-acp reads the env once
  * at boot — a rotated token applies to new WS clients only after the agent
  * restarts.
  */
@@ -3056,13 +3056,13 @@ type RuntimeAuthConfig = {
 const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   'buzz-agent': {
     agentCommand: ['buzz-agent'],
-    statusCommand: ['buzz-acp', 'models', '--agent-command', 'buzz-agent', '--json'],
+    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'buzz-agent', '--json'],
     logoutCommand: null,
     nativeMethods: [],
   },
   opencode: {
     agentCommand: ['opencode', 'acp'],
-    statusCommand: ['buzz-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
+    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
     logoutCommand: ['opencode', 'auth', 'logout'],
     nativeMethods: [],
   },
@@ -3091,13 +3091,13 @@ const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   },
   goose: {
     agentCommand: ['goose', 'acp'],
-    statusCommand: ['buzz-acp', 'models', '--agent-command', 'goose', '--agent-args', 'acp', '--json'],
+    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'goose', '--agent-args', 'acp', '--json'],
     logoutCommand: null,
     nativeMethods: [],
   },
   'kimi-code': {
     agentCommand: ['kimi', 'acp'],
-    statusCommand: ['buzz-acp', 'models', '--agent-command', 'kimi', '--agent-args', 'acp', '--json'],
+    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'kimi', '--agent-args', 'acp', '--json'],
     logoutCommand: null,
     nativeMethods: [],
   },
@@ -3278,7 +3278,7 @@ export class RuntimeAuthClient {
 
   async methods(): Promise<RuntimeAuthMethod[]> {
     const [agentCommand, ...agentArgs] = this.config.agentCommand;
-    const command = ['buzz-acp', 'auth-methods', '--agent-command', agentCommand];
+    const command = ['hypercli-acp', 'auth-methods', '--agent-command', agentCommand];
     if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
     command.push('--json');
     const result = await this.agent.exec(command);
@@ -3351,7 +3351,7 @@ export class RuntimeAuthClient {
     let command = [...method.command];
     if (!command.length) {
       const [agentCommand, ...agentArgs] = this.config.agentCommand;
-      command = ['buzz-acp', 'authenticate', '--agent-command', agentCommand];
+      command = ['hypercli-acp', 'authenticate', '--agent-command', agentCommand];
       if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
       command.push('--method-id', method.id);
     }
@@ -5052,7 +5052,7 @@ export class Deployments {
       routes: hyperAcpWsToken !== null ? withHyperAcpRoutes(options.routes) : (options.routes ?? {}),
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/buzz-acp']
+        ? ['/usr/local/bin/hypercli-acp']
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,

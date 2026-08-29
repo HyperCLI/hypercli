@@ -2,7 +2,7 @@
  * Buzz-activity transport: subscribe to a Buzz-backed agent's observer
  * telemetry directly from its Nostr relay.
  *
- * Buzz-backed HyperCLI deployments run `buzz-acp`, which publishes observer
+ * Buzz-backed HyperCLI deployments run `hypercli-acp`, which publishes observer
  * frames as kind-24200 events signed by the agent key, with the content
  * NIP-44-v2-encrypted to the owner pubkey. The SDK subscribes to the relay
  * over a plain WebSocket and decrypts locally; no backend round-trips are
@@ -239,7 +239,7 @@ export function resolveBuzzOwnerFromEnv(env: Record<string, unknown>): BuzzEnvCo
   if (!relayUrl) {
     throw new Error(
       'Agent is not Buzz-backed: launchConfig env has no BUZZ_RELAY_URL; ' +
-        'observer activity is only published by Buzz deployments running buzz-acp',
+        'observer activity is only published by Buzz deployments running hypercli-acp',
     );
   }
   const authTag = readEnvString(env, 'BUZZ_AUTH_TAG');
@@ -601,7 +601,7 @@ type BuzzRouteDeploymentsClient = Pick<Deployments, 'get' | 'secret'>;
 
 /**
  * Deployment env/secret that provisions the app-level introspection token.
- * buzz-acp binds via HYPER_ACP_WS_LISTEN: when the token is set it accepts
+ * hypercli-acp binds via HYPER_ACP_WS_LISTEN: when the token is set it accepts
  * any bind address (the SDK provisions `0.0.0.0:7799` for edge forwarding);
  * with the token unset it is loopback-only (desktop-local) and no auth
  * frames are exchanged at all. With a token, auth is either a Bearer header

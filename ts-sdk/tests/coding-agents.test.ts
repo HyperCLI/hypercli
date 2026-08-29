@@ -269,7 +269,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       image: DEFAULT_BUZZ_CODEX_IMAGE,
-      command: ['/usr/local/bin/buzz-acp'],
+      command: ['/usr/local/bin/hypercli-acp'],
       restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
@@ -303,7 +303,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
       image,
-      command: ['/usr/local/bin/buzz-acp'],
+      command: ['/usr/local/bin/hypercli-acp'],
     });
   });
 
@@ -416,7 +416,7 @@ describe('coding agents', () => {
       size: 'large',
       image: DEFAULT_BUZZ_OPENCODE_IMAGE,
       routes: {},
-      command: ['/usr/local/bin/buzz-acp'],
+      command: ['/usr/local/bin/hypercli-acp'],
       restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
@@ -613,7 +613,7 @@ describe('coding agents', () => {
     await expect(agent.auth.logout('anthropic')).resolves.toMatchObject({ authenticated: false });
     expect(exec.mock.calls.map(([command]) => command)).toEqual([
       ['opencode', 'auth', 'logout', 'anthropic'],
-      ['buzz-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
+      ['hypercli-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
     ]);
   });
 

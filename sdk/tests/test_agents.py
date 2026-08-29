@@ -1934,7 +1934,7 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
 
         launch_config = build_agent_config(
             image="ghcr.io/hypercli/hypercli-buzz-opencode:latest",
-            command=["/usr/local/bin/buzz-acp"],
+            command=["/usr/local/bin/hypercli-acp"],
             routes={},
             restart=False,
             runtime_scopes=["models:*"],
@@ -1943,7 +1943,7 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
 
         posted_json = mock_client.post.call_args[1]["json"]["launch_config"]
         assert posted_json["image"] == "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
-        assert posted_json["command"] == ["/usr/local/bin/buzz-acp"]
+        assert posted_json["command"] == ["/usr/local/bin/hypercli-acp"]
         assert posted_json["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
         assert posted_json["restart"] is False
         assert posted_json["runtime_scopes"] == ["models:*"]
@@ -2932,7 +2932,7 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
             "runtime": "opencode",
             "launch_config": {
                 "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
-                "command": ["/usr/local/bin/buzz-acp"],
+                "command": ["/usr/local/bin/hypercli-acp"],
                 "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
                 "restart": False,
             },
@@ -2950,7 +2950,7 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
 
         assert agent.launch_config == {
             "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
-            "command": ["/usr/local/bin/buzz-acp"],
+            "command": ["/usr/local/bin/hypercli-acp"],
             "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
             "restart": False,
         }

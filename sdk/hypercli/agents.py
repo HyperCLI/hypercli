@@ -279,7 +279,7 @@ _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
     "goose": ("/usr/local/bin/goose", ["acp"], ""),
     "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
 }
-DEFAULT_BUZZ_RUST_LOG = "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+DEFAULT_BUZZ_RUST_LOG = "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
     {
         "BUZZ_PRIVATE_KEY",
@@ -1551,7 +1551,7 @@ class RuntimeAuthClient:
         "buzz-agent": {
             "agent": ("buzz-agent",),
             "status": (
-                "buzz-acp",
+                "hypercli-acp",
                 "models",
                 "--agent-command",
                 "buzz-agent",
@@ -1562,7 +1562,7 @@ class RuntimeAuthClient:
         "opencode": {
             "agent": ("opencode", "acp"),
             "status": (
-                "buzz-acp",
+                "hypercli-acp",
                 "models",
                 "--agent-command",
                 "opencode",
@@ -1614,7 +1614,7 @@ class RuntimeAuthClient:
         "goose": {
             "agent": ("goose", "acp"),
             "status": (
-                "buzz-acp",
+                "hypercli-acp",
                 "models",
                 "--agent-command",
                 "goose",
@@ -1627,7 +1627,7 @@ class RuntimeAuthClient:
         "kimi-code": {
             "agent": ("kimi", "acp"),
             "status": (
-                "buzz-acp",
+                "hypercli-acp",
                 "models",
                 "--agent-command",
                 "kimi",
@@ -1654,7 +1654,7 @@ class RuntimeAuthClient:
 
     def methods(self) -> list[RuntimeAuthMethod]:
         agent_command = tuple(self._config["agent"])
-        argv = ["buzz-acp", "auth-methods", "--agent-command", agent_command[0]]
+        argv = ["hypercli-acp", "auth-methods", "--agent-command", agent_command[0]]
         if len(agent_command) > 1:
             argv.extend(["--agent-args", ",".join(agent_command[1:])])
         argv.append("--json")
@@ -1783,7 +1783,7 @@ class RuntimeAuthClient:
         else:
             agent_command = tuple(self._config["agent"])
             command = [
-                "buzz-acp",
+                "hypercli-acp",
                 "authenticate",
                 "--agent-command",
                 agent_command[0],
@@ -3875,7 +3875,7 @@ class Deployments:
             env=effective_env,
             secrets=effective_secrets,
             routes={} if routes is None else routes,
-            command=(["/usr/local/bin/buzz-acp"] if buzz_enabled or buzz is not None else command),
+            command=(["/usr/local/bin/hypercli-acp"] if buzz_enabled or buzz is not None else command),
             entrypoint=entrypoint,
             image=image
             or (
