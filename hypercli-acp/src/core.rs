@@ -307,16 +307,16 @@ impl CoreState {
                         .await;
                 }
 
-                let terminal = terminal_record(
-                    &queued,
-                    Some(session_id),
+                let terminal = terminal_record(TerminalRecordInput {
+                    queued: &queued,
+                    session_id: Some(session_id),
                     started_at,
                     completed_at,
                     reply_status,
-                    Some(stop_reason),
-                    None,
+                    stop_reason: Some(stop_reason),
+                    error: None,
                     usage,
-                );
+                });
                 self.record_trace_turn_terminal(&terminal, "completed")
                     .await;
                 self.emit_activity(ActivityFrame {
@@ -337,24 +337,24 @@ impl CoreState {
                     RuntimeError::Cancelled => ErrorClass::Cancelled,
                     RuntimeError::Unavailable(_) | RuntimeError::Failed(_) => ErrorClass::Runtime,
                 };
-                let terminal = terminal_record(
-                    &queued,
-                    existing_session_id,
+                let terminal = terminal_record(TerminalRecordInput {
+                    queued: &queued,
+                    session_id: existing_session_id,
                     started_at,
                     completed_at,
-                    ReplyStatus::NotAttempted,
-                    Some(match class {
+                    reply_status: ReplyStatus::NotAttempted,
+                    stop_reason: Some(match class {
                         ErrorClass::Cancelled => StopReason::Cancelled,
                         _ => StopReason::RuntimeError,
                     }),
-                    Some(TurnError {
+                    error: Some(TurnError {
                         code: "runtime_error".to_string(),
                         class,
                         message: err.to_string(),
                         retryable: class == ErrorClass::Runtime,
                     }),
-                    None,
-                );
+                    usage: None,
+                });
                 self.record_trace_turn_terminal(&terminal, "failed").await;
                 self.emit_activity(ActivityFrame {
                     seq: 0,
@@ -651,8 +651,8 @@ impl CoreState {
     }
 }
 
-fn terminal_record(
-    queued: &QueuedTurn,
+struct TerminalRecordInput<'a> {
+    queued: &'a QueuedTurn,
     session_id: Option<String>,
     started_at: DateTime<Utc>,
     completed_at: DateTime<Utc>,
@@ -660,7 +660,20 @@ fn terminal_record(
     stop_reason: Option<StopReason>,
     error: Option<TurnError>,
     usage: Option<TurnUsage>,
-) -> TurnTerminal {
+}
+
+fn terminal_record(input: TerminalRecordInput<'_>) -> TurnTerminal {
+    let TerminalRecordInput {
+        queued,
+        session_id,
+        started_at,
+        completed_at,
+        reply_status,
+        stop_reason,
+        error,
+        usage,
+    } = input;
+
     TurnTerminal {
         turn_id: queued.turn_id.clone(),
         conversation_key: queued.turn.conversation_key.clone(),

@@ -441,7 +441,7 @@ pub enum ClientMessage {
         client: ClientInfo,
     },
     #[serde(rename = "turn.submit")]
-    TurnSubmit(NormalizedTurn),
+    TurnSubmit(Box<NormalizedTurn>),
     #[serde(rename = "turn.cancel")]
     TurnCancel {
         request_id: Option<String>,

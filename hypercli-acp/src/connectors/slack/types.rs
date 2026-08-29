@@ -12,7 +12,7 @@ pub enum RelayFrame {
     },
     SlackEvent {
         delivery_id: String,
-        payload: SlackEventPayload,
+        payload: Box<SlackEventPayload>,
         #[serde(default)]
         route: Option<SlackRoute>,
     },

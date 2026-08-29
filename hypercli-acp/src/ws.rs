@@ -221,7 +221,7 @@ pub async fn handle_client_message(core: &CoreState, message: ClientMessage) -> 
             },
         },
         ClientMessage::TurnSubmit(turn) => {
-            ServerMessage::TurnAccepted(core.submit_turn(turn).await)
+            ServerMessage::TurnAccepted(core.submit_turn(*turn).await)
         }
         ClientMessage::TurnCancel {
             request_id,
@@ -333,7 +333,7 @@ mod tests {
         let core = CoreState::new(Arc::new(StubRuntime));
         let response = handle_client_message(
             &core,
-            ClientMessage::TurnSubmit(NormalizedTurn {
+            ClientMessage::TurnSubmit(Box::new(NormalizedTurn {
                 turn_id: None,
                 request_id: Some("req_1".to_string()),
                 idempotency_key: "idem_1".to_string(),
@@ -352,7 +352,7 @@ mod tests {
                 reply_target: ReplyTarget::None,
                 context: TurnContext::default(),
                 require_reply: None,
-            }),
+            })),
         )
         .await;
 

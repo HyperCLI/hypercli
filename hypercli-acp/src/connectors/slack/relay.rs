@@ -164,7 +164,7 @@ pub async fn handle_relay_frame(
         return Ok(None);
     };
 
-    let turn = normalize_turn(&delivery_id, payload)?;
+    let turn = normalize_turn(&delivery_id, *payload)?;
     match dedupe.check_and_reserve(&turn.logical_dedupe_key) {
         LogicalDedupeDecision::DuplicateAccepted => {
             host.emit_slack_activity(SlackActivity {
@@ -312,7 +312,7 @@ mod tests {
     fn slack_event(delivery_id: &str, event_id: Option<&str>) -> RelayFrame {
         RelayFrame::SlackEvent {
             delivery_id: delivery_id.to_owned(),
-            payload: SlackEventPayload {
+            payload: Box::new(SlackEventPayload {
                 team_id: Some("T1".to_owned()),
                 enterprise_id: None,
                 event_id: event_id.map(ToOwned::to_owned),
@@ -334,7 +334,7 @@ mod tests {
                     files: None,
                     attachments: None,
                 },
-            },
+            }),
             route: None,
         }
     }
