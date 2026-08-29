@@ -21,8 +21,18 @@ struct Args {
     trace_db: PathBuf,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    if should_run_hosted_buzz_mode() {
+        return hypercli_buzz_acp::run();
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run_platform_host())
+}
+
+async fn run_platform_host() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
     let trace = TraceStore::open(&args.trace_db)?;
@@ -41,4 +51,20 @@ async fn main() -> anyhow::Result<()> {
     }
     tracing::info!(bind = %args.bind, "starting hypercli-acp");
     ws::serve(args.bind, core).await
+}
+
+fn should_run_hosted_buzz_mode() -> bool {
+    let mut args = std::env::args();
+    let _argv0 = args.next();
+    if matches!(
+        args.next().as_deref(),
+        Some("models" | "auth-methods" | "authenticate" | "auth-tag")
+    ) {
+        return true;
+    }
+
+    std::env::var_os("BUZZ_RELAY_URL").is_some()
+        || std::env::var_os("BUZZ_PRIVATE_KEY").is_some()
+        || std::env::var_os("NOSTR_PRIVATE_KEY").is_some()
+        || std::env::var_os("BUZZ_ACP_SETUP_PAYLOAD").is_some()
 }

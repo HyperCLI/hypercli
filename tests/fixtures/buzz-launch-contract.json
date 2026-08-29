@@ -10,7 +10,7 @@
   ],
   "common": {
     "size": "large",
-    "command": ["/usr/local/bin/buzz-acp"],
+    "command": ["/usr/local/bin/hypercli-acp"],
     "routes": {},
     "restart": false,
     "sync_root": "/home/node",

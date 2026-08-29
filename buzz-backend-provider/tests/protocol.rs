@@ -169,7 +169,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
                 "runtime": "goose",
                 "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
-                "command": ["/usr/local/bin/buzz-acp"],
+                "command": ["/usr/local/bin/hypercli-acp"],
                 "restart": false,
                 "runtime_scopes": [
                     "agents:none",
@@ -204,7 +204,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "GOOSE_MODEL": "fixture-model",
                     "GOOSE_PROVIDER": "fixture-provider",
                     "USER_KEY": "launch-value",
-                    "RUST_LOG": "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+                    "RUST_LOG": "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
                 }
             })
             .to_string(),

@@ -80,7 +80,7 @@ rejects secret-looking provider config; Buzz supplies the agent identity
 separately in the deploy request. Buzz launches explicitly set
 `restart: false`, including when the provider starts an existing stopped
 deployment, so an accepted `!shutdown` does not automatically relaunch
-`buzz-acp`.
+`hypercli-acp`.
 
 For portable launches, `launch.policy_env` is the default tier and
 `launch.env` wins over it; legacy top-level launch fields are ignored. The
@@ -163,7 +163,7 @@ Stock Buzz Desktop v0.5.2 invokes backend providers only for `info` and
 `deploy`; there is no provider stop or undeploy request. Desktop's Shutdown
 action sends a best-effort owner-authored, agent-mentioned `!shutdown` channel
 message. Without a shared channel it errors. If delivered and accepted, stock
-`buzz-acp` exits. New provider launches set `restart: false`, so the hosted
+`hypercli-acp` exits. New provider launches set `restart: false`, so the hosted
 terminal-state observer can clean the namespace, mark the deployment
 `stopped`, and release its slot. Desktop receives no acknowledgement and does
 not reconcile its local deployed record. Use authenticated HyperCLI lifecycle
@@ -194,7 +194,8 @@ Workspace projections and preserves an explicit caller environment value. The
 Buzz-specialized image entrypoint reconciles the standard nest after mount and
 runs the harness from `/home/node/.buzz`; OpenCode and Codex use its canonical
 `AGENTS.md`, and Claude Code creates `CLAUDE.md -> AGENTS.md`.
-`base_prompt.md` remains compiled into `buzz-acp`.
+`base_prompt.md` remains compiled into the Buzz-compatible path inside
+`hypercli-acp`.
 
 Interactive Codex and Claude login is not part of the one-shot provider
 protocol. Hosted OpenCode can infer through its injected provider configuration

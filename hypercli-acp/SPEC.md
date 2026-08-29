@@ -9,8 +9,10 @@ owns the stable platform protocol, runs ACP-compatible agent runtimes such as
 OpenCode, and exposes connector adapters for Slack, web, Buzz, and future
 surfaces.
 
-The long-term plan is to port the reusable parts of `buzz-acp` into this
-package, then retire `buzz-acp` as a separate runtime harness.
+For migration, `hypercli-acp` also owns the hosted Buzz-compatible startup
+path. When launched with Buzz relay environment or Buzz management subcommands,
+it runs the proven `hypercli_buzz_acp` implementation behind the `hypercli-acp`
+binary name; otherwise it starts the platform `/ws` host.
 
 ## Goals
 
@@ -858,8 +860,9 @@ Deferred Slack features:
 
 ### Buzz
 
-Buzz connector preserves existing `buzz-acp` behavior while the core is being
-ported.
+Buzz-compatible hosted startup is served by `hypercli-acp` directly. The
+connector-facing core still preserves the existing Buzz behavior while the
+generic implementation is being ported.
 
 - Convert Buzz relay events into `turn.submit`.
 - Preserve owner/sibling author gating.
@@ -947,7 +950,8 @@ Phase 4:
 Phase 5:
 
 - Move scheduled-turn submission to `/ws`.
-- Retire `buzz-acp` once Buzz connector parity is reached.
+- Retire the separate `buzz-acp` binary once hosted startup and test coverage
+  only require `hypercli-acp`.
 
 ## Open Questions
 

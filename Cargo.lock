@@ -1129,6 +1129,7 @@ dependencies = [
  "clap",
  "futures-util",
  "http",
+ "hypercli-buzz-acp",
  "reqwest 0.12.28",
  "rusqlite",
  "serde",

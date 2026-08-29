@@ -794,7 +794,7 @@ fn build_launch_request_with_inference_base(
         .or_else(|| Some(runtime.default_image().to_owned()));
     request.mark_buzz_deployment(Some(public_key));
 
-    request.command = vec!["/usr/local/bin/buzz-acp".to_owned()];
+    request.command = vec!["/usr/local/bin/hypercli-acp".to_owned()];
     request.sync_root = Some("/home/node".to_owned());
     request.sync_include = request
         .runtime
@@ -816,7 +816,7 @@ fn build_launch_request_with_inference_base(
         ("BUZZ_ACP_DEDUP".to_owned(), "queue".to_owned()),
         (
             "RUST_LOG".to_owned(),
-            "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off".to_owned(),
+            "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off".to_owned(),
         ),
     ]);
     let launch_args = if let Some(launch) = agent.launch.as_ref() {
@@ -972,7 +972,7 @@ fn build_launch_request_with_inference_base(
     // strip so caller-supplied values can never survive.
     if options.buzz_activity {
         env.insert("HYPER_ACP_WS_LISTEN".to_owned(), "0.0.0.0:7799".to_owned());
-        // buzz-acp's session-log sqlite path inside the pod harness state dir.
+        // hypercli-acp's session-log sqlite path inside the pod harness state dir.
         env.insert(
             "HYPER_ACP_LOG".to_owned(),
             "/home/node/.coding-agent/hyper-acp.db".to_owned(),
@@ -1190,7 +1190,7 @@ const HYPERCLI_ANTHROPIC_BASE_URL: &str = "https://api.hypercli.com";
 /// * `opencode` names models `<provider>/<model>`; a bare id never matches
 ///   its advertised options, so the model switch silently no-ops.
 /// * `claude-code`, `codex`, and `kimi` take no provider from Buzz at all;
-///   `hypercli-buzz-acp` derives their native child env at spawn time from
+///   `hypercli-acp` derives their native child env at spawn time from
 ///   Lagoon's short-lived `HYPER_*` environment.
 ///
 /// User-supplied values always win: nothing here overwrites an explicit
@@ -2370,7 +2370,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
-            assert_eq!(request.command, ["/usr/local/bin/buzz-acp"]);
+            assert_eq!(request.command, ["/usr/local/bin/hypercli-acp"]);
             assert_eq!(
                 request.runtime_scopes,
                 BUZZ_RUNTIME_SCOPES.map(str::to_owned)
@@ -2402,7 +2402,7 @@ mod tests {
             );
             assert_eq!(
                 request.env["RUST_LOG"],
-                "buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+                "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
             );
         }
     }
@@ -2641,7 +2641,7 @@ mod tests {
                 serde_json::json!({
                     "handle": handle,
                     "runtime": "opencode",
-                    "command": ["/usr/local/bin/buzz-acp"],
+                    "command": ["/usr/local/bin/hypercli-acp"],
                     "restart": false,
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                     "tags": ["app=buzz", format!("buzz_agent={TEST_PUBLIC_HEX}")],
@@ -2866,7 +2866,7 @@ mod tests {
                 serde_json::json!({"launch_config":{
                     "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                     "restart": false,
-                    "command": ["/usr/local/bin/buzz-acp"],
+                    "command": ["/usr/local/bin/hypercli-acp"],
                     "sync_root": "/home/node",
                     "sync_uid": 1000,
                     "sync_gid": 1000,
@@ -3147,7 +3147,7 @@ mod tests {
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{
                     "restart": false,
-                    "command": ["/usr/local/bin/buzz-acp"],
+                    "command": ["/usr/local/bin/hypercli-acp"],
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES
                 }})
                 .to_string(),
