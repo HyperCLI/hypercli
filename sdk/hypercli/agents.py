@@ -108,6 +108,9 @@ OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
 OPENCLAW_CRON_ENV_DEFAULTS = {
     "OPENCLAW_CRON_ENABLED": "1",
 }
+HERMES_CRON_ENV_DEFAULTS = {
+    "HERMES_CRON_ENABLED": "1",
+}
 DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
     "shared/**",
     ".openclaw/npm/**/node_modules/**",
@@ -679,6 +682,18 @@ def build_openclaw_cron_env(enabled: bool | None = None) -> dict[str, str]:
     env = dict(OPENCLAW_CRON_ENV_DEFAULTS)
     if enabled is not None:
         env["OPENCLAW_CRON_ENABLED"] = _env_bool(enabled)
+    return env
+
+
+def build_hermes_cron_env(enabled: bool | None = None) -> dict[str, str]:
+    """Build Hermes cron environment variables.
+
+    Hosted Hermes launch helpers default cron on. Pass False to disable it for
+    the next boot, or override ``HERMES_CRON_ENABLED`` directly in env.
+    """
+    env = dict(HERMES_CRON_ENV_DEFAULTS)
+    if enabled is not None:
+        env["HERMES_CRON_ENABLED"] = _env_bool(enabled)
     return env
 
 
@@ -3660,6 +3675,7 @@ class Deployments:
         dry_run: bool = False,
         hermes_routes: dict | None = None,
         hermes_route_options: dict | None = None,
+        cron_enabled: bool | None = None,
     ) -> HermesAgent:
         """Create a first-class Hermes Agent runtime."""
         effective_env, effective_secrets, effective_key = _inject_hermes_api_server_key(
@@ -3672,6 +3688,10 @@ class Deployments:
             cors_origins,
             cors,
         )
+        effective_env = {
+            **build_hermes_cron_env(cron_enabled),
+            **effective_env,
+        }
         agent = self.create(
             name=name,
             handle=handle,
@@ -4478,6 +4498,7 @@ class Deployments:
         launch_config: dict,
         *,
         api_server_key: str = None,
+        cron_enabled: bool | None = None,
         dry_run: bool = False,
     ) -> HermesAgent:
         """Start Hermes without silently rotating its application gateway key."""
@@ -4499,6 +4520,11 @@ class Deployments:
             )
             prepared["env"] = effective_env
             prepared["secrets"] = effective_secrets
+        if cron_enabled is not None:
+            prepared["env"] = {
+                **dict(prepared.get("env") or {}),
+                **build_hermes_cron_env(cron_enabled),
+            }
         agent = self.start(
             resolved_agent_id,
             prepared,

@@ -2243,7 +2243,7 @@ describe("AgentSettingsPanel", () => {
     renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    const cronSwitch = screen.getByRole("switch", { name: "Enable OpenClaw cron" });
+    const cronSwitch = screen.getByRole("switch", { name: "Enable cron" });
     expect(cronSwitch).not.toBeChecked();
 
     fireEvent.click(cronSwitch);
@@ -2275,7 +2275,7 @@ describe("AgentSettingsPanel", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByRole("switch", { name: "Enable OpenClaw cron" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable cron" })).toBeChecked();
 
     fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image" }), {
       target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
@@ -2304,7 +2304,7 @@ describe("AgentSettingsPanel", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    const cronSwitch = screen.getByRole("switch", { name: "Enable OpenClaw cron" });
+    const cronSwitch = screen.getByRole("switch", { name: "Enable cron" });
     expect(cronSwitch).toBeChecked();
 
     fireEvent.click(cronSwitch);
@@ -2317,6 +2317,50 @@ describe("AgentSettingsPanel", () => {
         }),
       }));
     });
+  });
+
+  it("saves Hermes cron launch setting without OpenClaw env", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async (
+      _agentId: string,
+      _launchConfig: Record<string, unknown>,
+    ) => undefined);
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        runtime: "hermes-agent",
+        hasDesktop: false,
+        launchConfig: {
+          image: "ghcr.io/hypercli/hypercli-hermes-agent:latest",
+          env: {
+            HERMES_CRON_ENABLED: "1",
+            CUSTOM_FLAG: "kept",
+          },
+          routes: {
+            hermes: { port: 8642, auth: false, prefix: "" },
+          },
+          sync_root: "/home/hermes",
+          sync_uid: 10000,
+          sync_gid: 10000,
+        },
+      },
+      onUpdateAgentLaunchConfig,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const cronSwitch = screen.getByRole("switch", { name: "Enable cron" });
+    expect(cronSwitch).toBeChecked();
+    expect(screen.queryByRole("switch", { name: "Enable desktop route" })).not.toBeInTheDocument();
+
+    fireEvent.click(cronSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onUpdateAgentLaunchConfig).toHaveBeenCalledOnce());
+    const savedLaunchConfig = onUpdateAgentLaunchConfig.mock.calls[0]?.[1] as { env?: Record<string, string> };
+    expect(savedLaunchConfig?.env).toEqual({
+      HERMES_CRON_ENABLED: "0",
+      CUSTOM_FLAG: "kept",
+    });
+    expect(savedLaunchConfig?.env).not.toHaveProperty("OPENCLAW_CRON_ENABLED");
   });
 
   it("hides and removes hosted Slack environment values when Slack is disabled", async () => {
@@ -2802,11 +2846,11 @@ describe("AgentSettingsPanel", () => {
     const { rerender, props } = renderAgentSettingsPanel({ agent: initialAgent });
 
     fireEvent.click(screen.getByRole("button", { name: "Agent" }));
-    expect(screen.getByRole("switch", { name: "Enable OpenClaw cron" })).not.toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable cron" })).not.toBeChecked();
 
     rerender(<AgentSettingsPanel {...props} agent={refreshedAgent} />);
 
-    expect(screen.getByRole("switch", { name: "Enable OpenClaw cron" })).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Enable cron" })).toBeChecked();
   });
 
   it("keeps the desktop toggle disabled when saved env disables a stale desktop route", () => {

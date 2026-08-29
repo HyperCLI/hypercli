@@ -255,6 +255,9 @@ export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
 export const OPENCLAW_CRON_ENV_DEFAULTS = {
   OPENCLAW_CRON_ENABLED: '1',
 } as const;
+export const HERMES_CRON_ENV_DEFAULTS = {
+  HERMES_CRON_ENABLED: '1',
+} as const;
 const DEFAULT_OPENCLAW_SYNC_EXCLUDE = [
   'shared/**',
   '.openclaw/npm/**/node_modules/**',
@@ -1141,12 +1144,16 @@ export interface HermesAgentCreateOptions extends CreateAgentOptions {
   apiServerKey?: string | null;
   /** Browser origins allowed to call the Hermes API; mapped to API_SERVER_CORS_ORIGINS. */
   corsOrigins?: string[] | null;
+  /** Enable Hermes automatic cron dispatch for this launch. Defaults to true on create. */
+  cronEnabled?: boolean | null;
 }
 
 export interface HermesAgentStartOptions extends StartAgentOptions {
   launchConfig: AgentLaunchConfig;
   /** Caller-known inbound Hermes API credential; never recovered from Backend state. */
   apiServerKey?: string | null;
+  /** Enable or disable Hermes automatic cron dispatch for this start. Omitted preserves launch env. */
+  cronEnabled?: boolean | null;
 }
 
 export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runtime'> {
@@ -2711,6 +2718,13 @@ export function buildOpenClawCronEnv(enabled: boolean | null = null): Record<str
   return {
     ...OPENCLAW_CRON_ENV_DEFAULTS,
     ...(enabled !== null ? { OPENCLAW_CRON_ENABLED: envBool(enabled) } : {}),
+  };
+}
+
+export function buildHermesCronEnv(enabled: boolean | null = null): Record<string, string> {
+  return {
+    ...HERMES_CRON_ENV_DEFAULTS,
+    ...(enabled !== null ? { HERMES_CRON_ENABLED: envBool(enabled) } : {}),
   };
 }
 
@@ -4868,7 +4882,10 @@ export class Deployments {
 
   async createHermesAgent(options: HermesAgentCreateOptions = {}): Promise<HermesAgent> {
     const apiServerKey = resolveHermesApiServerKey(options.apiServerKey, options.env, options.secrets);
-    const env: Record<string, string> = { ...(options.env ?? {}) };
+    const env: Record<string, string> = {
+      ...buildHermesCronEnv(options.cronEnabled ?? null),
+      ...(options.env ?? {}),
+    };
     delete env.API_SERVER_KEY;
     const corsOrigins = [
       ...(env.API_SERVER_CORS_ORIGINS ?? '').split(','),
@@ -5752,6 +5769,9 @@ export class Deployments {
     if (apiServerKey) {
       delete launchConfig.env.API_SERVER_KEY;
       launchConfig.secrets.API_SERVER_KEY = apiServerKey;
+    }
+    if (options.cronEnabled !== undefined && options.cronEnabled !== null) {
+      launchConfig.env.HERMES_CRON_ENABLED = envBool(options.cronEnabled);
     }
     const agent = await this.start(agentId, {
       launchConfig,

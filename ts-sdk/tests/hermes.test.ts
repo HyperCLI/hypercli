@@ -6,6 +6,7 @@ import {
   HermesAgent,
   Deployments,
   buildAgentConfig,
+  buildHermesCronEnv,
 } from '../src/agents.js';
 import { HermesApiClient } from '../src/hermes/gateway.js';
 import type { HTTPClient } from '../src/http.js';
@@ -54,7 +55,7 @@ describe('Hermes deployment lifecycle', () => {
     expect(body.sync_gid).toBe(10000);
     expect(body.routes).toEqual({ hermes: { port: 8642, auth: false, prefix: '' } });
     expect(body.runtime_scopes).toEqual(DEFAULT_AGENT_RUNTIME_SCOPES);
-    expect(body.env).toBeUndefined();
+    expect(body.env).toEqual({ HERMES_CRON_ENABLED: '1' });
     expect(body.secrets.API_SERVER_KEY).toMatch(/^[0-9a-f]{64}$/);
     expect(agent).toBeInstanceOf(HermesAgent);
     expect(agent.apiServerKey).toBe(body.secrets.API_SERVER_KEY);
@@ -62,6 +63,11 @@ describe('Hermes deployment lifecycle', () => {
     expect(agent.apiUrl).toBe('https://hermes-agent.example.test');
     expect(agent.openaiBaseUrl).toBe('https://hermes-agent.example.test/v1');
     expect(agent.api).toBeInstanceOf(HermesApiClient);
+  });
+
+  it('builds Hermes cron env default-on', () => {
+    expect(buildHermesCronEnv()).toEqual({ HERMES_CRON_ENABLED: '1' });
+    expect(buildHermesCronEnv(false)).toEqual({ HERMES_CRON_ENABLED: '0' });
   });
 
   it('maps corsOrigins onto API_SERVER_CORS_ORIGINS env, merging any env value', async () => {
@@ -80,6 +86,7 @@ describe('Hermes deployment lifecycle', () => {
 
     const body = post.mock.calls[0][1] as { env: Record<string, string>; cors: { allowed_origins: string[] } };
     expect(body.env.API_SERVER_CORS_ORIGINS).toBe('https://claw.hypercli.com,http://127.0.0.1:4003');
+    expect(body.env.HERMES_CRON_ENABLED).toBe('1');
     expect(body.cors.allowed_origins).toEqual(['https://claw.hypercli.com', 'http://127.0.0.1:4003']);
   });
 
@@ -101,6 +108,24 @@ describe('Hermes deployment lifecycle', () => {
     expect(post.mock.calls[0][1]).toEqual({ launch_config: launchConfig });
   });
 
+  it('can override Hermes cron on start without materializing it by default', async () => {
+    const post = vi.fn().mockResolvedValue(deployment());
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const id = '11111111-1111-4111-8111-111111111111';
+    const launchConfig = buildAgentConfig({}, { env: { CUSTOM_FLAG: '1' } }).config;
+
+    await deployments.startHermesAgent(id, { launchConfig, cronEnabled: false });
+
+    expect(post.mock.calls[0][1].launch_config.env).toEqual({
+      CUSTOM_FLAG: '1',
+      HERMES_CRON_ENABLED: '0',
+    });
+  });
+
   it('treats explicit server-key length as opaque application policy', async () => {
     const post = vi.fn().mockResolvedValue(deployment());
     const deployments = new Deployments(
@@ -112,7 +137,7 @@ describe('Hermes deployment lifecycle', () => {
 
     const agent = await deployments.createHermesAgent({ apiServerKey: explicit });
 
-    expect(post.mock.calls[0][1]).not.toHaveProperty('env');
+    expect(post.mock.calls[0][1].env).toEqual({ HERMES_CRON_ENABLED: '1' });
     expect(post.mock.calls[0][1].secrets.API_SERVER_KEY).toBe(explicit);
     expect(agent.apiServerKey).toBe(explicit);
   });
@@ -131,7 +156,7 @@ describe('Hermes deployment lifecycle', () => {
       secrets: { CUSTOM_TOKEN: 'secret' },
     });
 
-    expect(post.mock.calls[0][1]).not.toHaveProperty('env');
+    expect(post.mock.calls[0][1].env).toEqual({ HERMES_CRON_ENABLED: '1' });
     expect(post.mock.calls[0][1].secrets).toEqual({ API_SERVER_KEY: legacy, CUSTOM_TOKEN: 'secret' });
     expect(agent.apiServerKey).toBe(legacy);
     await expect(deployments.createHermesAgent({

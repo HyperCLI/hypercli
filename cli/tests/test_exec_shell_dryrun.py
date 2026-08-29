@@ -618,7 +618,7 @@ def test_agents_create_hermes_uses_first_class_runtime(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["image"] == DEFAULT_HERMES_AGENT_IMAGE
-    assert captured["env"] is None
+    assert captured["env"] == {"HERMES_CRON_ENABLED": "1"}
     assert captured["api_server_key"] is None
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
@@ -631,12 +631,48 @@ def test_agents_create_hermes_rejects_openclaw_only_flags(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["agents", "create", "--runtime", "hermes-agent", "--dry-run", "--desktop", "--cron"],
+        ["agents", "create", "--runtime", "hermes-agent", "--dry-run", "--desktop"],
     )
 
     assert result.exit_code != 0
     assert "Hermes Agent does not support OpenClaw-only" in result.stderr
-    assert "options: desktop, cron" in result.stderr
+    assert "options: desktop" in result.stderr
+
+
+def test_agents_create_hermes_accepts_no_cron(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_hermes_agent(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-hermes-dryrun",
+                name="agent-hermes-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                api_url="https://hermes-demo.hypercli.app",
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        [
+            "agents",
+            "create",
+            "--runtime",
+            "hermes-agent",
+            "--dry-run",
+            "--no-cron",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["env"] == {"HERMES_CRON_ENABLED": "0"}
+    assert captured["cron_enabled"] is False
 
 
 def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_policy(monkeypatch):

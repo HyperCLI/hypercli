@@ -36,7 +36,7 @@ import { createAgentClient, createBrowserHyperCLIClient, createHermesAgentDeploy
 import { displayNameFromAgentHandle, normalizeAgentHandle } from "@/lib/agent-profile-updates";
 import { prepareOpenClawStarterFiles, stageAgentStarterFilesAndStart } from "@/lib/agent-starter-files";
 import { debugFlow } from "@/lib/debug-flow";
-import { buildHermesLaunchOptions, getHermesDefaultImage } from "@/lib/hermes-launch";
+import { buildHermesCronEnv, buildHermesLaunchOptions, getHermesDefaultImage } from "@/lib/hermes-launch";
 import { isHermesAgentRuntime } from "@/lib/agent-runtime";
 import { useAgentRosterOrder } from "@/hooks/useAgentRosterOrder";
 import { useAgentRosterShowOffline } from "@/hooks/useAgentRosterShowOffline";
@@ -255,6 +255,7 @@ const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "HYPER_WORKSPACES_DIR",
   "HYPER_WORKSPACES_SYNC_READY_ONLY",
   "HYPER_WORKSPACES_SYNC_WORKSPACE",
+  "HERMES_CRON_ENABLED",
   "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN",
   "OPENCLAW_BRAVE_PLUGIN_PACKAGE",
   "OPENCLAW_CONFIG_PATH",
@@ -444,14 +445,19 @@ function buildUpdatedLaunchConfig(
     delete launchConfig.config;
   }
   if (isHermesAgentRuntime(agent.runtime)) {
-    // Hermes launch configs carry no OpenClaw routes/env; only the image and
-    // the user's additional env are editable. Managed platform keys survive.
-    launchConfig.env = {
-      ...Object.fromEntries(
-        Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
-      ),
-      ...parseAdditionalEnvText(additionalEnvText),
+    const preservedEnv = Object.fromEntries(
+      Object.entries(launchConfigEnv(agent)).filter(([key]) => isManagedLaunchEnvKey(key)),
+    );
+    const additionalEnv = parseAdditionalEnvText(additionalEnvText);
+    delete additionalEnv.HERMES_CRON_ENABLED;
+    const launchEnv: Record<string, string> = {
+      ...preservedEnv,
+      ...additionalEnv,
     };
+    if (cronChanged || preservedEnv.HERMES_CRON_ENABLED !== undefined) {
+      launchEnv.HERMES_CRON_ENABLED = buildHermesCronEnv(cronEnabled).HERMES_CRON_ENABLED;
+    }
+    launchConfig.env = launchEnv;
     return launchConfig;
   }
   const routes = isRecord(launchConfig.routes) ? { ...launchConfig.routes } : {};
@@ -538,7 +544,11 @@ function getDesktopEnabled(agent: Agent | null): boolean {
 }
 
 function getCronEnabled(agent: Agent | null): boolean {
-  return envBooleanFromString(launchConfigEnv(agent).OPENCLAW_CRON_ENABLED, true);
+  const env = launchConfigEnv(agent);
+  if (isHermesAgentRuntime(agent?.runtime)) {
+    return envBooleanFromString(env.HERMES_CRON_ENABLED, true);
+  }
+  return envBooleanFromString(env.OPENCLAW_CRON_ENABLED, true);
 }
 
 function hasReachedDesktopActivationSnapshot(
@@ -1203,7 +1213,6 @@ function AgentSectionSettingsContent({
           </AgentProfileSettingsRow>
 
           {!hermesRuntime ? (
-          <>
           <AgentProfileSettingsRow id="agent-desktop-setting" label="Desktop" description="Expose the protected browser desktop route when the agent starts.">
             <div className="flex h-9 items-center justify-end">
               <Switch
@@ -1215,17 +1224,20 @@ function AgentSectionSettingsContent({
               />
             </div>
           </AgentProfileSettingsRow>
+          ) : null}
 
-          <AgentProfileSettingsRow label="Cron" description="Run scheduled OpenClaw jobs when the agent starts.">
+          <AgentProfileSettingsRow label="Cron" description="Run scheduled jobs when the agent starts.">
             <div className="flex h-9 items-center justify-end">
               <Switch
                 checked={cronEnabled}
                 onCheckedChange={onCronEnabledChange}
-                aria-label="Enable OpenClaw cron"
+                aria-label="Enable cron"
               />
             </div>
           </AgentProfileSettingsRow>
 
+          {!hermesRuntime ? (
+          <>
           <AgentProfileSettingsRow label="Slack" description="Enable Slack for this agent when it starts.">
             <div className="flex h-9 items-center justify-end">
               <Switch

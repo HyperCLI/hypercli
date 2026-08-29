@@ -11,6 +11,7 @@ from hypercli.agents import (
     HermesAgent,
     build_agent_config,
     build_hermes_agent_routes,
+    build_hermes_cron_env,
 )
 from hypercli.hermes import HermesApiClient, HermesAPIError
 from hypercli.http import HTTPClient
@@ -70,7 +71,7 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert body["sync_uid"] == 10000
     assert body["sync_gid"] == 10000
     assert body["routes"] == {"hermes": {"port": 8642, "auth": False, "prefix": ""}}
-    assert "env" not in body
+    assert body["env"] == {"HERMES_CRON_ENABLED": "1"}
     assert body["secrets"] == {
         "API_SERVER_KEY": "h" * 43,
         "CUSTOM_TOKEN": "create-secret",
@@ -80,6 +81,11 @@ def test_create_hermes_agent_injects_isolated_contract(deployments: Deployments)
     assert agent.api_url == "https://hermes.example.test"
     assert agent.openai_base_url == "https://hermes.example.test/v1"
     assert agent.launch_config is None
+
+
+def test_build_hermes_cron_env_defaults_on() -> None:
+    assert build_hermes_cron_env() == {"HERMES_CRON_ENABLED": "1"}
+    assert build_hermes_cron_env(False) == {"HERMES_CRON_ENABLED": "0"}
 
 
 def test_create_hermes_agent_maps_cors_origins_to_env_and_route_cors(
@@ -105,6 +111,7 @@ def test_create_hermes_agent_maps_cors_origins_to_env_and_route_cors(
     assert body["env"]["API_SERVER_CORS_ORIGINS"] == (
         "https://claw.hypercli.com,http://127.0.0.1:4003"
     )
+    assert body["env"]["HERMES_CRON_ENABLED"] == "1"
     assert body["cors"] == {
         "allowed_origins": ["https://claw.hypercli.com", "http://127.0.0.1:4003"]
     }
@@ -133,6 +140,24 @@ def test_start_hermes_agent_does_not_rotate_api_server_key(deployments: Deployme
     assert agent.api_server_key is None
 
 
+def test_start_hermes_agent_can_override_cron(deployments: Deployments) -> None:
+    with patch("httpx.Client") as client_class:
+        client = MagicMock()
+        client.post.return_value = _mock_response(_deployment_payload())
+        client.__enter__.return_value = client
+        client.__exit__.return_value = False
+        client_class.return_value = client
+
+        launch_config = build_agent_config(env={"CUSTOM_FLAG": "1"})
+        deployments.start_hermes_agent("agent-123", launch_config, cron_enabled=False)
+
+    body = client.post.call_args.kwargs["json"]
+    assert body["launch_config"]["env"] == {
+        "CUSTOM_FLAG": "1",
+        "HERMES_CRON_ENABLED": "0",
+    }
+
+
 def test_hermes_helper_moves_legacy_public_api_key_to_secrets(
     deployments: Deployments,
 ) -> None:
@@ -149,7 +174,7 @@ def test_hermes_helper_moves_legacy_public_api_key_to_secrets(
         )
 
     body = client.post.call_args.kwargs["json"]
-    assert "env" not in body
+    assert body["env"] == {"HERMES_CRON_ENABLED": "1"}
     assert body["secrets"] == {
         "API_SERVER_KEY": "k" * 43,
         "CUSTOM_TOKEN": "secret",

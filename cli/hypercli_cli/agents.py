@@ -19,6 +19,7 @@ from hypercli.agents import (
     Deployments,
     HermesAgent,
     OpenClawAgent,
+    build_hermes_cron_env,
     build_openclaw_cron_env,
     build_openclaw_memory_index_env,
 )
@@ -195,6 +196,20 @@ def _apply_openclaw_cron_env(
         env_dict.update(build_openclaw_cron_env(cron))
     elif default is not None:
         env_dict.setdefault("OPENCLAW_CRON_ENABLED", build_openclaw_cron_env(default)["OPENCLAW_CRON_ENABLED"])
+    return env_dict
+
+
+def _apply_hermes_cron_env(
+    env: dict | None,
+    cron: bool | None,
+    *,
+    default: bool | None = True,
+) -> dict:
+    env_dict = dict(env or {})
+    if cron is not None:
+        env_dict.update(build_hermes_cron_env(cron))
+    elif default is not None:
+        env_dict.setdefault("HERMES_CRON_ENABLED", build_hermes_cron_env(default)["HERMES_CRON_ENABLED"])
     return env_dict
 
 
@@ -557,7 +572,7 @@ def create(
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
-    cron: bool | None = typer.Option(None, "--cron/--no-cron", help="Enable or disable OpenClaw cron when the agent starts"),
+    cron: bool | None = typer.Option(None, "--cron/--no-cron", help="Enable or disable runtime cron when the agent starts"),
     memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
     index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
     index_on_search: bool | None = typer.Option(None, "--index-on-search/--no-index-on-search", help="Sync the memory index when memory search runs"),
@@ -594,7 +609,6 @@ def create(
     if runtime == "hermes-agent":
         _reject_hermes_openclaw_options(
             desktop=desktop,
-            cron=cron,
             memory_search=memory_search,
             index_on_session_start=index_on_session_start,
             index_on_search=index_on_search,
@@ -604,7 +618,7 @@ def create(
             gateway_token=gateway_token,
         )
         desktop_enabled = False
-        effective_env = env_dict
+        effective_env = _apply_hermes_cron_env(env_dict, cron)
         memory_index = None
     else:
         if api_server_key is not None:
@@ -645,6 +659,7 @@ def create(
                 **common,
                 image=_default_hermes_agent_image(image),
                 api_server_key=api_server_key,
+                cron_enabled=cron,
             )
         else:
             create_func = agents.create_openclaw_pro if desktop_enabled else agents.create_openclaw
@@ -915,7 +930,7 @@ def start(
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
-    cron: bool | None = typer.Option(None, "--cron/--no-cron", help="Enable or disable OpenClaw cron when the agent starts"),
+    cron: bool | None = typer.Option(None, "--cron/--no-cron", help="Enable or disable runtime cron when the agent starts"),
     memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
     index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
     index_on_search: bool | None = typer.Option(None, "--index-on-search/--no-index-on-search", help="Sync the memory index when memory search runs"),
@@ -1046,7 +1061,6 @@ def start(
     if is_hermes:
         _reject_hermes_openclaw_options(
             desktop=desktop,
-            cron=cron,
             memory_search=memory_search,
             index_on_session_start=index_on_session_start,
             index_on_search=index_on_search,
@@ -1056,7 +1070,7 @@ def start(
             gateway_token=gateway_token,
         )
         desktop_enabled = False
-        effective_env = merged_env
+        effective_env = _apply_hermes_cron_env(merged_env, cron, default=None)
         effective_image = _default_hermes_agent_image(image, saved_launch_fields)
     else:
         if api_server_key is not None:
@@ -1129,6 +1143,7 @@ def start(
                 requested_agent_id if requested_agent_id == "self" else agent_id,
                 hermes_launch_config,
                 api_server_key=effective_api_server_key,
+                cron_enabled=cron,
                 dry_run=dry_run,
             )
         else:
