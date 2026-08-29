@@ -32,9 +32,10 @@ pub use hermes::{
 };
 pub use keys::{issue_api_key_from_jwt, IssueApiKeyError, IssueApiKeyFromJwtOptions};
 pub use openclaw::{
-    OpenClawLaunchConfig, AGENT_RUNTIME_SCOPES, OPENCLAW_DESKTOP_ENABLED_ENV,
-    OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX, OPENCLAW_GATEWAY_PORT, OPENCLAW_IMAGE,
-    OPENCLAW_PRO_IMAGE, OPENCLAW_SYNC_EXCLUDE, OPENCLAW_SYNC_ROOT,
+    OpenClawLaunchConfig, AGENT_RUNTIME_SCOPES, OPENCLAW_CRON_ENABLED_ENV,
+    OPENCLAW_DESKTOP_ENABLED_ENV, OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX,
+    OPENCLAW_GATEWAY_PORT, OPENCLAW_IMAGE, OPENCLAW_PRO_IMAGE, OPENCLAW_SYNC_EXCLUDE,
+    OPENCLAW_SYNC_ROOT,
 };
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginChallenge, RuntimeLoginResult,

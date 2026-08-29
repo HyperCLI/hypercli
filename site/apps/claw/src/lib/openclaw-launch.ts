@@ -20,6 +20,7 @@ export type OpenClawWorkspacesSyncOptions = {
 };
 
 type OpenClawLaunchOptions = Pick<OpenClawCreateAgentOptions, "image" | "env" | "openClawRoutes"> & {
+  cronEnabled: boolean;
   memoryIndex: OpenClawMemoryIndexOptions | null;
   workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null;
 };
@@ -37,6 +38,10 @@ const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_BOOT_SYNC: "1",
   HYPER_WORKSPACES_DIR: "/home/node/shared",
   HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
+};
+
+const OPENCLAW_CRON_ENV_DEFAULTS = {
+  OPENCLAW_CRON_ENABLED: "1",
 };
 
 function envValue(name: string): string | undefined {
@@ -107,6 +112,13 @@ export function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOpti
   return env;
 }
 
+export function buildOpenClawCronEnv(enabled: boolean | null = null): Record<string, string> {
+  return {
+    ...OPENCLAW_CRON_ENV_DEFAULTS,
+    ...(enabled !== null ? { OPENCLAW_CRON_ENABLED: envBool(enabled) } : {}),
+  };
+}
+
 export function buildOpenClawWorkspacesSyncEnv(workspacesSync: OpenClawWorkspacesSyncOptions | boolean | null = null): Record<string, string> {
   if (workspacesSync === false) return { HYPER_WORKSPACES_BOOT_SYNC: "0" };
   const options = typeof workspacesSync === "object" && workspacesSync !== null ? workspacesSync : {};
@@ -126,11 +138,13 @@ export function buildOpenClawWorkspacesSyncEnv(workspacesSync: OpenClawWorkspace
 
 export function buildOpenClawLaunchOptions({
   desktopEnabled,
+  cronEnabled = true,
   customImage,
   memoryIndex,
   workspacesSync,
 }: {
   desktopEnabled: boolean;
+  cronEnabled?: boolean | null;
   customImage?: string | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
@@ -150,9 +164,11 @@ export function buildOpenClawLaunchOptions({
     env: {
       ...(hyperApiBase ? { HYPER_API_BASE: hyperApiBase } : {}),
       ...buildOpenClawWorkspacesSyncEnv(workspacesSync ?? null),
+      ...buildOpenClawCronEnv(cronEnabled ?? true),
       ...buildOpenClawMemoryIndexEnv(memoryIndex ?? null),
       OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
     },
+    cronEnabled: cronEnabled ?? true,
     memoryIndex: memoryIndex ?? null,
     workspacesSync: workspacesSync ?? null,
     openClawRoutes: {

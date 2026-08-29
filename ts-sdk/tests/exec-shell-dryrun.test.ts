@@ -13,6 +13,7 @@ import {
   OpenClawAgent,
   OpenClawProAgent,
   buildAgentConfig,
+  buildOpenClawCronEnv,
   buildOpenClawRoutes,
 } from '../src/agents.js';
 import { APIError } from '../src/errors.js';
@@ -218,6 +219,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+        OPENCLAW_CRON_ENABLED: '1',
       }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
@@ -289,6 +291,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_BOOT_SYNC: '1',
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+        OPENCLAW_CRON_ENABLED: '1',
         OPENCLAW_DESKTOP_ENABLED: '1',
       }),
       routes: {
@@ -334,6 +337,34 @@ describe('HyperClaw agents SDK', () => {
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH: '1',
         OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS: '60000',
         OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES: '120',
+      }),
+    }), { retries: 1 });
+  });
+
+  it('createOpenClaw accepts cron launch options', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    expect(buildOpenClawCronEnv()).toEqual({ OPENCLAW_CRON_ENABLED: '1' });
+    expect(buildOpenClawCronEnv(true)).toEqual({ OPENCLAW_CRON_ENABLED: '1' });
+
+    await deployments.createOpenClaw({
+      name: 'test-agent',
+      dryRun: true,
+      cronEnabled: false,
+    });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      env: expect.objectContaining({
+        OPENCLAW_CRON_ENABLED: '0',
       }),
     }), { retries: 1 });
   });

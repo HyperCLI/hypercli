@@ -38,6 +38,7 @@ from hypercli.agents import (
     _copy_complete_launch_config,
     agent_config_has_desktop,
     build_agent_config,
+    build_openclaw_cron_env,
     build_openclaw_routes,
     flatten_launch_config,
     launch_config_has_desktop,
@@ -1398,6 +1399,12 @@ def test_build_openclaw_routes_keeps_gateway_canonical_and_allows_desktop():
     }
 
 
+def test_build_openclaw_cron_env_defaults_enabled():
+    assert build_openclaw_cron_env() == {"OPENCLAW_CRON_ENABLED": "1"}
+    assert build_openclaw_cron_env(True) == {"OPENCLAW_CRON_ENABLED": "1"}
+    assert build_openclaw_cron_env(False) == {"OPENCLAW_CRON_ENABLED": "0"}
+
+
 def test_create_openclaw_defaults_routes_when_omitted(agents_client):
     with (
         patch("httpx.Client") as mock_client_class,
@@ -1426,6 +1433,7 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
+        assert posted_json["env"]["OPENCLAW_CRON_ENABLED"] == "1"
         assert posted_json["sync_exclude"] == list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
         assert posted_json["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
@@ -1491,6 +1499,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
         assert posted_json["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
         assert posted_json["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
+        assert posted_json["env"]["OPENCLAW_CRON_ENABLED"] == "1"
         assert posted_json["sync_exclude"] == list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
         assert posted_json["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
         assert "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START" not in posted_json["env"]
@@ -1601,6 +1610,30 @@ def test_create_openclaw_accepts_memory_index_options(agents_client):
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH"] == "1"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_WATCH_DEBOUNCE_MS"] == "60000"
         assert posted_json["env"]["OPENCLAW_MEMORY_SEARCH_SYNC_INTERVAL_MINUTES"] == "120"
+
+
+def test_create_openclaw_accepts_cron_enabled(agents_client):
+    with (
+        patch("httpx.Client") as mock_client_class,
+        patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"),
+    ):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(name="test-agent", cron_enabled=False)
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["env"]["OPENCLAW_CRON_ENABLED"] == "0"
 
 
 def test_create_openclaw_accepts_workspaces_sync_options(agents_client):

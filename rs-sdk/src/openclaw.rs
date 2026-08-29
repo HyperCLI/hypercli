@@ -19,6 +19,7 @@ pub const OPENCLAW_GATEWAY_PORT: u16 = 18789;
 pub const OPENCLAW_DESKTOP_PORT: u16 = 3000;
 pub const OPENCLAW_DESKTOP_PREFIX: &str = "desktop";
 pub const OPENCLAW_DESKTOP_ENABLED_ENV: &str = "OPENCLAW_DESKTOP_ENABLED";
+pub const OPENCLAW_CRON_ENABLED_ENV: &str = "OPENCLAW_CRON_ENABLED";
 
 /// Runtime scopes granted to a hosted agent's scoped runtime key. Matches
 /// `DEFAULT_AGENT_RUNTIME_SCOPES` in the TypeScript SDK.
@@ -53,6 +54,7 @@ pub const OPENCLAW_SYNC_EXCLUDE: [&str; 9] = [
 #[derive(Clone, Debug, Default)]
 pub struct OpenClawLaunchConfig {
     pub desktop: bool,
+    pub cron_enabled: Option<bool>,
 }
 
 impl OpenClawLaunchConfig {
@@ -61,7 +63,15 @@ impl OpenClawLaunchConfig {
     }
 
     pub fn desktop() -> Self {
-        Self { desktop: true }
+        Self {
+            desktop: true,
+            cron_enabled: None,
+        }
+    }
+
+    pub fn with_cron_enabled(mut self, enabled: bool) -> Self {
+        self.cron_enabled = Some(enabled);
+        self
     }
 
     /// OpenClaw gateway route, plus the desktop route when enabled. Matches
@@ -118,6 +128,16 @@ impl OpenClawLaunchConfig {
                 .entry(OPENCLAW_DESKTOP_ENABLED_ENV.to_owned())
                 .or_insert_with(|| "1".to_owned());
         }
+        request
+            .env
+            .entry(OPENCLAW_CRON_ENABLED_ENV.to_owned())
+            .or_insert_with(|| {
+                if self.cron_enabled.unwrap_or(true) {
+                    "1".to_owned()
+                } else {
+                    "0".to_owned()
+                }
+            });
         self.ensure_routes(&mut request.routes);
         if request.sync_root.is_none() {
             request.sync_root = Some(OPENCLAW_SYNC_ROOT.to_owned());
@@ -147,6 +167,16 @@ impl OpenClawLaunchConfig {
                 .entry(OPENCLAW_DESKTOP_ENABLED_ENV.to_owned())
                 .or_insert_with(|| "1".to_owned());
         }
+        if let Some(cron_enabled) = self.cron_enabled {
+            request.launch_config.env.insert(
+                OPENCLAW_CRON_ENABLED_ENV.to_owned(),
+                if cron_enabled {
+                    "1".to_owned()
+                } else {
+                    "0".to_owned()
+                },
+            );
+        }
     }
 }
 
@@ -162,7 +192,11 @@ impl CreateDeploymentRequest {
         });
         request.name = name;
         request.size = size;
-        OpenClawLaunchConfig { desktop }.apply_to_create(&mut request);
+        OpenClawLaunchConfig {
+            desktop,
+            cron_enabled: None,
+        }
+        .apply_to_create(&mut request);
         request
     }
 }
@@ -191,6 +225,13 @@ mod tests {
         assert!(!gateway.auth);
         assert!(!request.routes.contains_key("desktop"));
         assert!(!request.env.contains_key(OPENCLAW_DESKTOP_ENABLED_ENV));
+        assert_eq!(
+            request
+                .env
+                .get(OPENCLAW_CRON_ENABLED_ENV)
+                .map(String::as_str),
+            Some("1")
+        );
         assert_eq!(request.runtime_scopes.len(), AGENT_RUNTIME_SCOPES.len());
     }
 
@@ -217,6 +258,23 @@ mod tests {
         let request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw).with_defaults();
         assert_eq!(request.image.as_deref(), Some("custom/image:tag"));
         assert!(request.sync_exclude.is_none());
+    }
+
+    #[test]
+    fn openclaw_create_can_disable_cron() {
+        let mut request = CreateDeploymentRequest::new(ManagedRuntime::Openclaw);
+
+        OpenClawLaunchConfig::new()
+            .with_cron_enabled(false)
+            .apply_to_create(&mut request);
+
+        assert_eq!(
+            request
+                .env
+                .get(OPENCLAW_CRON_ENABLED_ENV)
+                .map(String::as_str),
+            Some("0")
+        );
     }
 
     #[test]
@@ -281,6 +339,32 @@ mod tests {
                 .expect("custom route")
                 .port,
             8080
+        );
+        assert!(!request
+            .launch_config
+            .env
+            .contains_key(OPENCLAW_CRON_ENABLED_ENV));
+    }
+
+    #[test]
+    fn start_request_can_explicitly_set_cron() {
+        let mut request = StartDeploymentRequest::new(Default::default());
+        request
+            .launch_config
+            .env
+            .insert(OPENCLAW_CRON_ENABLED_ENV.to_owned(), "1".to_owned());
+
+        OpenClawLaunchConfig::new()
+            .with_cron_enabled(false)
+            .apply_to_start(&mut request);
+
+        assert_eq!(
+            request
+                .launch_config
+                .env
+                .get(OPENCLAW_CRON_ENABLED_ENV)
+                .map(String::as_str),
+            Some("0")
         );
     }
 

@@ -298,6 +298,7 @@ const agent: Agent = {
     image: "ghcr.io/hypercli/hypercli-openclaw:prod",
     env: {
       OPENCLAW_DESKTOP_ENABLED: "0",
+      OPENCLAW_CRON_ENABLED: "0",
       HYPER_API_BASE: "https://api.hypercli.com",
       HYPER_WORKSPACES_BOOT_SYNC: "1",
       HYPER_WORKSPACES_DIR: "/home/node/shared",
@@ -2184,6 +2185,7 @@ describe("AgentSettingsPanel", () => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
         image: "ghcr.io/hypercli/hypercli-openclaw:custom",
         env: {
+          OPENCLAW_CRON_ENABLED: "0",
           OPENCLAW_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -2231,6 +2233,87 @@ describe("AgentSettingsPanel", () => {
           // Without this the pod dies at boot: the entrypoint hard-throws on a
           // truthy HYPER_SLACK_APP_ENABLED with no gateway id.
           HYPER_SLACK_GATEWAY_ID: "agent:agent-1",
+        }),
+      }));
+    });
+  });
+
+  it("saves OpenClaw cron launch setting", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentLaunchConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const cronSwitch = screen.getByRole("switch", { name: "Enable OpenClaw cron" });
+    expect(cronSwitch).not.toBeChecked();
+
+    fireEvent.click(cronSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
+        env: expect.objectContaining({
+          OPENCLAW_CRON_ENABLED: "1",
+        }),
+      }));
+    });
+  });
+
+  it("does not materialize missing cron env when saving unrelated launch settings", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    const { OPENCLAW_CRON_ENABLED: _cronEnabled, ...envWithoutCron } = agent.launchConfig?.env as Record<string, string>;
+
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        launchConfig: {
+          ...agent.launchConfig,
+          env: envWithoutCron,
+        },
+      },
+      onUpdateAgentLaunchConfig,
+      reportedChannelsReady: true,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("switch", { name: "Enable OpenClaw cron" })).toBeChecked();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent Docker image" }), {
+      target: { value: "ghcr.io/hypercli/hypercli-openclaw:custom" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onUpdateAgentLaunchConfig).toHaveBeenCalledOnce());
+    const calls = onUpdateAgentLaunchConfig.mock.calls as unknown as Array<[string, { env?: Record<string, string> }]>;
+    const savedLaunchConfig = calls[0]?.[1];
+    expect(savedLaunchConfig?.env).not.toHaveProperty("OPENCLAW_CRON_ENABLED");
+  });
+
+  it("writes cron env when toggling from a missing saved value", async () => {
+    const onUpdateAgentLaunchConfig = vi.fn(async () => undefined);
+    const { OPENCLAW_CRON_ENABLED: _cronEnabled, ...envWithoutCron } = agent.launchConfig?.env as Record<string, string>;
+
+    renderAgentSettingsPanel({
+      agent: {
+        ...agent,
+        launchConfig: {
+          ...agent.launchConfig,
+          env: envWithoutCron,
+        },
+      },
+      onUpdateAgentLaunchConfig,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const cronSwitch = screen.getByRole("switch", { name: "Enable OpenClaw cron" });
+    expect(cronSwitch).toBeChecked();
+
+    fireEvent.click(cronSwitch);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
+        env: expect.objectContaining({
+          OPENCLAW_CRON_ENABLED: "0",
         }),
       }));
     });
@@ -2481,7 +2564,10 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => expect(onEnableDesktopAndRestart).toHaveBeenCalledOnce());
     expect(onUpdateAgentLaunchConfig).not.toHaveBeenCalled();
     expect(onEnableDesktopAndRestart).toHaveBeenCalledWith("agent-1", expect.objectContaining({
-      env: expect.objectContaining({ OPENCLAW_DESKTOP_ENABLED: "1" }),
+      env: expect.objectContaining({
+        OPENCLAW_CRON_ENABLED: "0",
+        OPENCLAW_DESKTOP_ENABLED: "1",
+      }),
       routes: expect.objectContaining({
         desktop: { port: 3000, auth: true, prefix: "desktop" },
       }),
@@ -2603,6 +2689,7 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
         env: expect.objectContaining({
+          OPENCLAW_CRON_ENABLED: "0",
           OPENCLAW_DESKTOP_ENABLED: "1",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
           HYPER_WORKSPACES_DIR: "/home/node/shared",
@@ -2646,6 +2733,7 @@ describe("AgentSettingsPanel", () => {
     await waitFor(() => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
         env: expect.objectContaining({
+          OPENCLAW_CRON_ENABLED: "0",
           OPENCLAW_DESKTOP_ENABLED: "0",
         }),
         routes: {
@@ -2688,6 +2776,37 @@ describe("AgentSettingsPanel", () => {
     rerender(<AgentSettingsPanel {...props} agent={refreshedAgent} />);
 
     expect(screen.getByRole("switch", { name: "Enable desktop route" })).toBeChecked();
+  });
+
+  it("rehydrates the cron toggle from saved launch env after refresh", () => {
+    const initialAgent = {
+      ...agent,
+      launchConfig: {
+        ...agent.launchConfig,
+        env: {
+          ...(agent.launchConfig?.env as Record<string, string>),
+          OPENCLAW_CRON_ENABLED: "0",
+        },
+      },
+    };
+    const refreshedAgent = {
+      ...initialAgent,
+      launchConfig: {
+        ...initialAgent.launchConfig,
+        env: {
+          ...(initialAgent.launchConfig?.env as Record<string, string>),
+          OPENCLAW_CRON_ENABLED: "1",
+        },
+      },
+    };
+    const { rerender, props } = renderAgentSettingsPanel({ agent: initialAgent });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("switch", { name: "Enable OpenClaw cron" })).not.toBeChecked();
+
+    rerender(<AgentSettingsPanel {...props} agent={refreshedAgent} />);
+
+    expect(screen.getByRole("switch", { name: "Enable OpenClaw cron" })).toBeChecked();
   });
 
   it("keeps the desktop toggle disabled when saved env disables a stale desktop route", () => {
@@ -2765,6 +2884,7 @@ describe("AgentSettingsPanel", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
         OPENCLAW_DESKTOP_ENABLED: "0",
+        OPENCLAW_CRON_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/shared",

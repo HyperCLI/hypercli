@@ -19,6 +19,7 @@ from hypercli.agents import (
     Deployments,
     HermesAgent,
     OpenClawAgent,
+    build_openclaw_cron_env,
     build_openclaw_memory_index_env,
 )
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
@@ -181,6 +182,20 @@ def _build_memory_index_options(
     if options:
         build_openclaw_memory_index_env(options)
     return options or None
+
+
+def _apply_openclaw_cron_env(
+    env: dict | None,
+    cron: bool | None,
+    *,
+    default: bool | None = True,
+) -> dict:
+    env_dict = dict(env or {})
+    if cron is not None:
+        env_dict.update(build_openclaw_cron_env(cron))
+    elif default is not None:
+        env_dict.setdefault("OPENCLAW_CRON_ENABLED", build_openclaw_cron_env(default)["OPENCLAW_CRON_ENABLED"])
+    return env_dict
 
 
 @app.callback()
@@ -542,6 +557,7 @@ def create(
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
+    cron: bool | None = typer.Option(None, "--cron/--no-cron", help="Enable or disable OpenClaw cron when the agent starts"),
     memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
     index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
     index_on_search: bool | None = typer.Option(None, "--index-on-search/--no-index-on-search", help="Sync the memory index when memory search runs"),
@@ -578,6 +594,7 @@ def create(
     if runtime == "hermes-agent":
         _reject_hermes_openclaw_options(
             desktop=desktop,
+            cron=cron,
             memory_search=memory_search,
             index_on_session_start=index_on_session_start,
             index_on_search=index_on_search,
@@ -597,6 +614,7 @@ def create(
             )
         desktop_enabled = _desktop_enabled_from_launch(desktop, env_dict)
         effective_env = _openclaw_env_with_desktop(env_dict, desktop_enabled, force=desktop is not None)
+        effective_env = _apply_openclaw_cron_env(effective_env, cron)
         memory_index = _build_memory_index_options(
             memory_search=memory_search,
             index_on_session_start=index_on_session_start,
@@ -635,6 +653,7 @@ def create(
                 image=_default_openclaw_pro_image(image) if desktop_enabled else _default_openclaw_image(image),
                 gateway_token=gateway_token,
                 openclaw_route_options={"include_desktop": desktop_enabled},
+                cron_enabled=cron,
                 memory_index=memory_index,
             )
     except Exception as e:
@@ -896,6 +915,7 @@ def start(
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
     image: str = typer.Option(None, "--image", help="Override the managed runtime image"),
     desktop: bool | None = typer.Option(None, "--desktop/--no-desktop", help="Use the pro desktop/browser image and protected noVNC route"),
+    cron: bool | None = typer.Option(None, "--cron/--no-cron", help="Enable or disable OpenClaw cron when the agent starts"),
     memory_search: bool | None = typer.Option(None, "--memory-search/--no-memory-search", help="Enable or disable OpenClaw memory search"),
     index_on_session_start: bool | None = typer.Option(None, "--index-on-session-start/--no-index-on-session-start", help="Sync the memory index when a session starts"),
     index_on_search: bool | None = typer.Option(None, "--index-on-search/--no-index-on-search", help="Sync the memory index when memory search runs"),
@@ -934,6 +954,7 @@ def start(
             "entrypoint": entrypoint,
             "image": image,
             "desktop": desktop,
+            "cron": cron,
             "memory_search": memory_search,
             "index_on_session_start": index_on_session_start,
             "index_on_search": index_on_search,
@@ -1025,6 +1046,7 @@ def start(
     if is_hermes:
         _reject_hermes_openclaw_options(
             desktop=desktop,
+            cron=cron,
             memory_search=memory_search,
             index_on_session_start=index_on_session_start,
             index_on_search=index_on_search,
@@ -1044,6 +1066,7 @@ def start(
             )
         desktop_enabled = _desktop_enabled_from_launch(desktop, merged_env, saved_launch_fields)
         effective_env = _openclaw_env_with_desktop(merged_env, desktop_enabled, force=desktop is not None)
+        effective_env = _apply_openclaw_cron_env(effective_env, cron, default=None)
         effective_image = (
             _default_openclaw_pro_image(image, saved_launch_fields)
             if desktop_enabled

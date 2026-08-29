@@ -252,6 +252,9 @@ export const OPENCLAW_WORKSPACES_SYNC_ENV_DEFAULTS = {
   HYPER_WORKSPACES_DIR: '/home/node/shared',
   HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
 } as const;
+export const OPENCLAW_CRON_ENV_DEFAULTS = {
+  OPENCLAW_CRON_ENABLED: '1',
+} as const;
 const DEFAULT_OPENCLAW_SYNC_EXCLUDE = [
   'shared/**',
   '.openclaw/npm/**/node_modules/**',
@@ -1116,6 +1119,7 @@ export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'co
   openClawRoutes?: OpenClawRouteOptions | null;
   /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
   controlUiOriginLock?: boolean | null;
+  cronEnabled?: boolean | null;
   memoryIndex?: OpenClawMemoryIndexOptions | null;
   workspacesSync?: OpenClawWorkspacesSyncOptions | boolean | null;
 }
@@ -2701,6 +2705,13 @@ export function buildOpenClawMemoryIndexEnv(memoryIndex: OpenClawMemoryIndexOpti
     );
   }
   return env;
+}
+
+export function buildOpenClawCronEnv(enabled: boolean | null = null): Record<string, string> {
+  return {
+    ...OPENCLAW_CRON_ENV_DEFAULTS,
+    ...(enabled !== null ? { OPENCLAW_CRON_ENABLED: envBool(enabled) } : {}),
+  };
 }
 
 export function buildOpenClawWorkspacesSyncEnv(
@@ -4779,6 +4790,7 @@ export class Deployments {
     delete (effectiveOptions as { slack?: unknown }).slack;
     effectiveOptions.env = {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
+      ...buildOpenClawCronEnv(options.cronEnabled ?? null),
       ...buildOpenClawMemoryIndexEnv(options.memoryIndex),
       ...prepared.env,
     };

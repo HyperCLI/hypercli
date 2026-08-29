@@ -346,6 +346,8 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "0"
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
+    assert captured["cron_enabled"] is None
     assert captured["openclaw_route_options"] == {"include_desktop": False}
     assert "start" not in captured
     assert "Desktop:  disabled" in result.stdout
@@ -393,6 +395,7 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["openclaw_route_options"] == {"include_desktop": True}
     assert captured["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
     assert "https://desktop-demo.hypercli.app" in result.stdout
@@ -424,7 +427,46 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
 
     assert result.exit_code == 0
     assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "True"
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["openclaw_route_options"] == {"include_desktop": True}
+
+
+def test_agents_create_respects_openclaw_cron_env_and_flag(monkeypatch):
+    captured = {}
+
+    class FakeDeployments:
+        def create_openclaw(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id="agent-dryrun",
+                name="agent-dryrun",
+                cpu=2,
+                memory=2,
+                state="validated",
+                vnc_url=None,
+                dry_run=True,
+                shell_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        ["agents", "create", "--dry-run", "--env", "OPENCLAW_CRON_ENABLED=1"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
+    assert captured["cron_enabled"] is None
+
+    result = runner.invoke(
+        app,
+        ["agents", "create", "--dry-run", "--env", "OPENCLAW_CRON_ENABLED=1", "--no-cron"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "0"
+    assert captured["cron_enabled"] is False
 
 
 def test_agents_create_accepts_memory_index_flags(monkeypatch):
@@ -589,12 +631,12 @@ def test_agents_create_hermes_rejects_openclaw_only_flags(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["agents", "create", "--runtime", "hermes-agent", "--dry-run", "--desktop"],
+        ["agents", "create", "--runtime", "hermes-agent", "--dry-run", "--desktop", "--cron"],
     )
 
     assert result.exit_code != 0
     assert "Hermes Agent does not support OpenClaw-only" in result.stderr
-    assert "options: desktop" in result.stderr
+    assert "options: desktop, cron" in result.stderr
 
 
 def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_policy(monkeypatch):
@@ -610,6 +652,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
                     "HYPER_WORKSPACES_BOOT_SYNC": "1",
                     "HYPER_WORKSPACES_DIR": "/home/node/shared",
                     "OPENCLAW_DESKTOP_ENABLED": "0",
+                    "OPENCLAW_CRON_ENABLED": "1",
                 },
                 "image": "git.nedos.co/hypercli/hypercli-openclaw:untested",
                 "routes": {"openclaw": {"port": 4096, "auth": True, "prefix": ""}},
@@ -649,6 +692,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert captured["config"] == {"agents": {"defaults": {"mode": "normal"}}}
     assert captured["env"]["HYPER_WORKSPACES_BOOT_SYNC"] == "1"
     assert captured["env"]["HYPER_WORKSPACES_DIR"] == "/home/node/shared"
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["env"]["HYPER_WORKSPACES_SYNC_WORKSPACE"] == "docs"
     assert captured["image"] == "git.nedos.co/hypercli/hypercli-openclaw:untested"
     assert captured["routes"] == {"openclaw": {"port": 4096, "auth": True, "prefix": ""}}
@@ -795,6 +839,44 @@ def test_agents_start_omits_policy_to_inherit_saved_selective_policy(monkeypatch
     assert result.exit_code == 0
     assert "sync_include" not in captured
     assert "sync_exclude" not in captured
+
+
+def test_agents_start_can_override_openclaw_cron(monkeypatch):
+    captured = {}
+    agent_id = "agent-123456789"
+
+    class FakeDeployments:
+        def get(self, agent_ref):
+            assert agent_ref == agent_id
+            return SimpleNamespace(
+                id=agent_id,
+                gateway_token=None,
+                launch_config={
+                    "env": {
+                        "OPENCLAW_DESKTOP_ENABLED": "0",
+                        "OPENCLAW_CRON_ENABLED": "1",
+                    },
+                },
+            )
+
+        def start_openclaw(self, agent_id_arg, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                id=agent_id_arg,
+                dry_run=True,
+                vnc_url=None,
+            )
+
+    monkeypatch.setattr("hypercli_cli.agents._load_state", dict)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(
+        app,
+        ["agents", "start", agent_id, "--dry-run", "--no-cron"],
+    )
+
+    assert result.exit_code == 0
+    assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "0"
 
 
 def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):

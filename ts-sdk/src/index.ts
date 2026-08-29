@@ -251,6 +251,7 @@ export {
   buildAgentConfig,
   buildBrowserDesktopUrl,
   buildOpenClawMemoryIndexEnv,
+  buildOpenClawCronEnv,
   buildOpenClawWorkspacesSyncEnv,
   buildOpenClawRoutes,
   buildHermesAgentRoutes,

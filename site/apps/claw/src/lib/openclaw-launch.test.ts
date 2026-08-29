@@ -16,8 +16,10 @@ describe("buildOpenClawLaunchOptions", () => {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
+        OPENCLAW_CRON_ENABLED: "1",
         OPENCLAW_DESKTOP_ENABLED: "0",
       },
+      cronEnabled: true,
       memoryIndex: null,
       workspacesSync: null,
       openClawRoutes: { includeDesktop: false },
@@ -31,8 +33,10 @@ describe("buildOpenClawLaunchOptions", () => {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
+        OPENCLAW_CRON_ENABLED: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
+      cronEnabled: true,
       memoryIndex: null,
       workspacesSync: null,
       openClawRoutes: { includeDesktop: true },
@@ -53,9 +57,22 @@ describe("buildOpenClawLaunchOptions", () => {
         HYPER_WORKSPACES_BOOT_SYNC: "1",
         HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
+        OPENCLAW_CRON_ENABLED: "1",
         OPENCLAW_DESKTOP_ENABLED: "1",
       },
       openClawRoutes: { includeDesktop: true },
+    });
+  });
+
+  it("can disable cron for launched agents", () => {
+    expect(buildOpenClawLaunchOptions({
+      desktopEnabled: false,
+      cronEnabled: false,
+    })).toMatchObject({
+      cronEnabled: false,
+      env: {
+        OPENCLAW_CRON_ENABLED: "0",
+      },
     });
   });
 

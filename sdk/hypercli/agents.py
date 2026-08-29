@@ -105,6 +105,9 @@ OPENCLAW_WORKSPACES_ENV_DEFAULTS = {
     "HYPER_WORKSPACES_DIR": "/home/node/shared",
     "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
 }
+OPENCLAW_CRON_ENV_DEFAULTS = {
+    "OPENCLAW_CRON_ENABLED": "1",
+}
 DEFAULT_OPENCLAW_SYNC_EXCLUDE = (
     "shared/**",
     ".openclaw/npm/**/node_modules/**",
@@ -664,6 +667,18 @@ def build_openclaw_memory_index_env(memory_index: dict | None = None) -> dict[st
             "interval_minutes",
             memory_index["interval_minutes"],
         )
+    return env
+
+
+def build_openclaw_cron_env(enabled: bool | None = None) -> dict[str, str]:
+    """Build OpenClaw cron environment variables.
+
+    Hosted OpenClaw launch helpers default cron on. Pass False to disable it for
+    the next boot, or override ``OPENCLAW_CRON_ENABLED`` directly in env.
+    """
+    env = dict(OPENCLAW_CRON_ENV_DEFAULTS)
+    if enabled is not None:
+        env["OPENCLAW_CRON_ENABLED"] = _env_bool(enabled)
     return env
 
 
@@ -3559,6 +3574,7 @@ class Deployments:
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
+        cron_enabled: bool | None = None,
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
         runtime: ManagedAgentRuntime = "openclaw",
@@ -3581,6 +3597,7 @@ class Deployments:
         )
         effective_env = {
             **build_openclaw_workspaces_sync_env(workspaces_sync),
+            **build_openclaw_cron_env(cron_enabled),
             **build_openclaw_memory_index_env(memory_index),
             **effective_env,
         }
@@ -3718,6 +3735,7 @@ class Deployments:
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
+        cron_enabled: bool | None = None,
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
@@ -3749,6 +3767,7 @@ class Deployments:
             dry_run=dry_run,
             openclaw_routes=openclaw_routes,
             openclaw_route_options=effective_route_options,
+            cron_enabled=cron_enabled,
             memory_index=memory_index,
             workspaces_sync=workspaces_sync,
             runtime="openclaw-pro",
