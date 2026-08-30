@@ -76,21 +76,21 @@ async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
     let mut command = Command::new("sh");
     command.arg(&child_script);
     command.stdin(Stdio::piped()).stdout(Stdio::piped());
-    let (observer, mut observed) = observer();
+    let (frame_observer, mut observed_frames) = frame_observer();
     outbound_ws::run_with_client_frame_source_and_observer(
         ws_url,
         command,
         None,
         Arc::new(PluginRegistry::new()),
         None,
-        Some(observer),
+        Some(frame_observer),
     )
     .await
     .unwrap();
 
     assert_eq!(server.await.unwrap(), AGENT_FRAMES);
     assert_eq!(read_jsonl(&child_input_path), CLIENT_FRAMES);
-    assert_observed_frames(&mut observed).await;
+    assert_observed_frames(&mut observed_frames);
 }
 
 #[tokio::test]
@@ -186,7 +186,7 @@ fn split_lines(text: &str) -> Vec<String> {
     text.lines().map(str::to_owned).collect()
 }
 
-fn observer() -> (
+fn frame_observer() -> (
     AcpFrameObserver,
     tokio::sync::mpsc::Receiver<ObservedAcpFrame>,
 ) {
@@ -194,7 +194,7 @@ fn observer() -> (
     (AcpFrameObserver::new(tx), rx)
 }
 
-async fn assert_observed_frames(observed: &mut tokio::sync::mpsc::Receiver<ObservedAcpFrame>) {
+fn assert_observed_frames(observed: &mut tokio::sync::mpsc::Receiver<ObservedAcpFrame>) {
     let mut frames = Vec::new();
     while let Ok(frame) = observed.try_recv() {
         frames.push(frame);
