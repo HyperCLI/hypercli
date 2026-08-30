@@ -19,7 +19,7 @@
   },
   "common_env": {
     "BUZZ_AGENT_REQUIRE_REPLY": "1",
-    "BUZZ_ACP_RELAY_OBSERVER": "false",
+    "BUZZ_ACP_RELAY_OBSERVER": "true",
     "HYPER_ACP_WS_URL": "wss://api.agents.hypercli.com/ws",
     "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp"
   },

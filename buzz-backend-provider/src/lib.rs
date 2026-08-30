@@ -968,7 +968,7 @@ fn build_launch_request_with_inference_base(
     }
     env.insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
     env.insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
-    env.insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "false".to_owned());
+    env.insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
     env.insert(
         "HYPER_ACP_WS_URL".to_owned(),
         hyper_acp_ws_url_from_api_base(inference_api_base),
@@ -1741,7 +1741,7 @@ mod tests {
     }
 
     #[test]
-    fn buzz_launch_uses_raw_outbound_hyper_acp_without_observer_route() {
+    fn buzz_launch_uses_raw_outbound_hyper_acp_with_relay_observer() {
         let request = build_launch_request(
             test_agent(),
             TEST_PUBLIC_HEX,
@@ -1759,10 +1759,7 @@ mod tests {
             request.launch_config.env["HYPER_ACP_AGENT_COMMAND"],
             HYPER_ACP_BUZZ_PLUGIN_COMMAND
         );
-        assert_eq!(
-            request.launch_config.env["BUZZ_ACP_RELAY_OBSERVER"],
-            "false"
-        );
+        assert_eq!(request.launch_config.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
         assert!(!request
             .launch_config
             .env
@@ -2305,7 +2302,7 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], args);
             assert_eq!(request.env["BUZZ_ACP_MCP_COMMAND"], mcp);
             assert_eq!(request.env["BUZZ_ACP_LAZY_POOL"], "false");
-            assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "false");
+            assert_eq!(request.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
             assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
             assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
@@ -2581,7 +2578,7 @@ mod tests {
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "",
                     "BUZZ_ACP_LAZY_POOL": "true",
-                    "BUZZ_ACP_RELAY_OBSERVER": "false",
+                    "BUZZ_ACP_RELAY_OBSERVER": "true",
                     "HYPER_ACP_WS_URL": hyper_acp_ws_url,
                     "HYPER_ACP_AGENT_COMMAND": HYPER_ACP_BUZZ_PLUGIN_COMMAND,
                     "BUZZ_ACP_SESSION_TITLE": "Fizz",

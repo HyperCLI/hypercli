@@ -195,7 +195,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "",
                     "BUZZ_ACP_LAZY_POOL": "true",
-                    "BUZZ_ACP_RELAY_OBSERVER": "false",
+                    "BUZZ_ACP_RELAY_OBSERVER": "true",
                     "HYPER_ACP_WS_URL": hyper_acp_ws_url,
                     "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                     "BUZZ_ACP_DISPLAY_NAME": "Fixture Agent",
@@ -344,7 +344,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "BUZZ_ACP_AGENT_ARGS": child_args,
                 "BUZZ_ACP_MCP_COMMAND": mcp_command,
                 "BUZZ_ACP_LAZY_POOL": "true",
-                "BUZZ_ACP_RELAY_OBSERVER": "false",
+                "BUZZ_ACP_RELAY_OBSERVER": "true",
                 "HYPER_ACP_WS_URL": hyper_acp_ws_url,
                 "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                 "BUZZ_ACP_DISPLAY_NAME": "Fizz",
@@ -596,7 +596,7 @@ fn dry_run_with_buzz_activity_uses_raw_outbound_tunnel_without_route() {
             "env": {
                 "HYPER_ACP_WS_URL": hyper_acp_ws_url,
                 "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
-                "BUZZ_ACP_RELAY_OBSERVER": "false"
+                "BUZZ_ACP_RELAY_OBSERVER": "true"
             },
             "secrets": {
                 "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
