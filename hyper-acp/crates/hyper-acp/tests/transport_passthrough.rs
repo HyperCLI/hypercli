@@ -60,12 +60,14 @@ async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
         }
 
         let mut received = Vec::new();
-        for _ in AGENT_FRAMES {
+        while received.len() < AGENT_FRAMES.len() {
             let Some(message) = socket.next().await else {
                 panic!("missing agent frame");
             };
             match message.unwrap() {
                 Message::Text(text) => received.push(text.to_string()),
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                Message::Pong(_) => {}
                 other => panic!("unexpected websocket message {other:?}"),
             }
         }
