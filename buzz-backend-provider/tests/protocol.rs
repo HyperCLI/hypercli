@@ -256,7 +256,8 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "id":"fixture-deployment",
                 "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                 "runtime":"goose",
-                "state":"starting"
+                "state":"starting",
+                "launch_epoch":1
             })
             .to_string(),
         )
@@ -271,7 +272,8 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "id":"fixture-deployment",
                 "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                 "runtime":"goose",
-                "state":"running"
+                "state":"running",
+                "launch_epoch":1
             })
             .to_string(),
         )

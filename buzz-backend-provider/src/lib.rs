@@ -409,9 +409,16 @@ fn deploy_with_readiness(
     let (existing, mut capacity) = find_existing_with_capacity(client, &handle, &public_key)?;
     if let Some(existing) = existing {
         apply_existing_size_parallelism(&mut request, &existing, size_based_parallelism);
-        if let Some(deployment) = reconcile_existing(client, existing, &request)? {
-            let deployment =
-                wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
+        if let Some((deployment, minimum_launch_epoch)) =
+            reconcile_existing(client, existing, &request)?
+        {
+            let deployment = wait_until_running(
+                client,
+                deployment,
+                minimum_launch_epoch,
+                readiness_timeout,
+                poll_interval,
+            )?;
             return Ok(DeployResponse {
                 ok: true,
                 agent_id: deployment.id,
@@ -431,12 +438,18 @@ fn deploy_with_readiness(
             Ok(deployment) => {
                 let deployment =
                     wait_until_stopped(client, deployment, readiness_timeout, poll_interval)?;
+                let minimum_launch_epoch = deployment.launch_epoch.saturating_add(1);
                 let start = bound_hyper_acp_start_request(&request, &deployment.id);
                 let deployment = client
                     .start_deployment(&deployment.id, &start)
                     .map_err(ProviderError::HyperCli)?;
-                let deployment =
-                    wait_until_running(client, deployment, readiness_timeout, poll_interval)?;
+                let deployment = wait_until_running(
+                    client,
+                    deployment,
+                    minimum_launch_epoch,
+                    readiness_timeout,
+                    poll_interval,
+                )?;
                 return Ok(DeployResponse {
                     ok: true,
                     agent_id: deployment.id,
@@ -449,9 +462,16 @@ fn deploy_with_readiness(
                     find_existing_with_capacity(client, &handle, &public_key)?;
                 let existing = existing.ok_or(ProviderError::MissingConflictingDeployment)?;
                 apply_existing_size_parallelism(&mut request, &existing, size_based_parallelism);
-                if let Some(existing) = reconcile_existing(client, existing, &request)? {
-                    let existing =
-                        wait_until_running(client, existing, readiness_timeout, poll_interval)?;
+                if let Some((existing, minimum_launch_epoch)) =
+                    reconcile_existing(client, existing, &request)?
+                {
+                    let existing = wait_until_running(
+                        client,
+                        existing,
+                        minimum_launch_epoch,
+                        readiness_timeout,
+                        poll_interval,
+                    )?;
                     return Ok(DeployResponse {
                         ok: true,
                         agent_id: existing.id,
@@ -469,9 +489,16 @@ fn deploy_with_readiness(
                         &existing,
                         size_based_parallelism,
                     );
-                    if let Some(existing) = reconcile_existing(client, existing, &request)? {
-                        let existing =
-                            wait_until_running(client, existing, readiness_timeout, poll_interval)?;
+                    if let Some((existing, minimum_launch_epoch)) =
+                        reconcile_existing(client, existing, &request)?
+                    {
+                        let existing = wait_until_running(
+                            client,
+                            existing,
+                            minimum_launch_epoch,
+                            readiness_timeout,
+                            poll_interval,
+                        )?;
                         return Ok(DeployResponse {
                             ok: true,
                             agent_id: existing.id,
@@ -593,7 +620,7 @@ fn reconcile_existing(
     client: &HyperCliClient,
     deployment: Deployment,
     create: &CreateDeploymentRequest,
-) -> Result<Option<Deployment>, ProviderError> {
+) -> Result<Option<(Deployment, u64)>, ProviderError> {
     let stopped = deployment.state.eq_ignore_ascii_case("stopped");
     let runtime_matches =
         deployment.runtime.is_none() || deployment.runtime == Some(create.runtime);
@@ -631,13 +658,16 @@ fn restart_if_stopped(
     client: &HyperCliClient,
     deployment: Deployment,
     create: &CreateDeploymentRequest,
-) -> Result<Deployment, ProviderError> {
+) -> Result<(Deployment, u64), ProviderError> {
+    let minimum_launch_epoch = deployment.launch_epoch;
     if !deployment.state.eq_ignore_ascii_case("stopped") {
-        return Ok(deployment);
+        return Ok((deployment, minimum_launch_epoch));
     }
+    let minimum_launch_epoch = deployment.launch_epoch.saturating_add(1);
     let start = bound_hyper_acp_start_request(create, &deployment.id);
     client
         .start_deployment(&deployment.id, &start)
+        .map(|deployment| (deployment, minimum_launch_epoch))
         .map_err(ProviderError::HyperCli)
 }
 
@@ -658,10 +688,10 @@ fn bound_hyper_acp_start_request(
 fn wait_until_running(
     client: &HyperCliClient,
     mut deployment: Deployment,
+    minimum_launch_epoch: u64,
     timeout: Duration,
     poll_interval: Duration,
 ) -> Result<Deployment, ProviderError> {
-    let accepted_launch_epoch = deployment.launch_epoch;
     let started = Instant::now();
     loop {
         // A launch receipt is the authority for this readiness wait. The
@@ -669,7 +699,7 @@ fn wait_until_running(
         // being reconciled; it must not make this newer launch fail or appear
         // ready.
         let state = deployment.state.trim().to_ascii_lowercase();
-        if deployment.launch_epoch >= accepted_launch_epoch {
+        if deployment.launch_epoch >= minimum_launch_epoch {
             match state.as_str() {
                 "running" => return Ok(deployment),
                 "creating" | "restoring" | "starting" => {}
@@ -2622,7 +2652,8 @@ mod tests {
                 serde_json::json!({
                     "id":"deployment-1",
                     "runtime":"opencode",
-                    "state":"starting"
+                    "state":"starting",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -2631,7 +2662,9 @@ mod tests {
             .mock("GET", "/agents/deployments/deployment-1")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"running"}"#)
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"running","launch_epoch":1}"#,
+            )
             .create();
 
         let response = deploy(
@@ -2722,14 +2755,18 @@ mod tests {
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"deployment-medium","runtime":"opencode","state":"starting"}"#)
+            .with_body(
+                r#"{"id":"deployment-medium","runtime":"opencode","state":"starting","launch_epoch":1}"#,
+            )
             .expect(1)
             .create();
         let ready = server
             .mock("GET", "/agents/deployments/deployment-medium")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"deployment-medium","runtime":"opencode","state":"running"}"#)
+            .with_body(
+                r#"{"id":"deployment-medium","runtime":"opencode","state":"running","launch_epoch":1}"#,
+            )
             .expect(1)
             .create();
 
@@ -2817,7 +2854,8 @@ mod tests {
                     "id":"existing",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"creating"
+                    "state":"creating",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -2831,7 +2869,8 @@ mod tests {
                     "id":"existing",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"running"
+                    "state":"running",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -2870,9 +2909,11 @@ mod tests {
         let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         create.sync_exclude = Some(Vec::new());
 
-        let restarted = restart_if_stopped(&client(&server), deployment, &create).unwrap();
+        let (restarted, minimum_launch_epoch) =
+            restart_if_stopped(&client(&server), deployment, &create).unwrap();
 
         assert_eq!(restarted.id, "existing");
+        assert_eq!(minimum_launch_epoch, 1);
         restart.assert();
     }
 
@@ -2898,9 +2939,11 @@ mod tests {
         let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         create.sync_include = Some(vec![".config/opencode".to_owned()]);
 
-        let restarted = restart_if_stopped(&client(&server), deployment, &create).unwrap();
+        let (restarted, minimum_launch_epoch) =
+            restart_if_stopped(&client(&server), deployment, &create).unwrap();
 
         assert_eq!(restarted.id, "existing");
+        assert_eq!(minimum_launch_epoch, 1);
         restart.assert();
     }
 
@@ -2970,13 +3013,17 @@ mod tests {
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"new-runtime","runtime":"opencode","state":"starting"}"#)
+            .with_body(
+                r#"{"id":"new-runtime","runtime":"opencode","state":"starting","launch_epoch":1}"#,
+            )
             .create();
         let ready = server
             .mock("GET", "/agents/deployments/new-runtime")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(r#"{"id":"new-runtime","runtime":"opencode","state":"running"}"#)
+            .with_body(
+                r#"{"id":"new-runtime","runtime":"opencode","state":"running","launch_epoch":1}"#,
+            )
             .create();
 
         let response = deploy(
@@ -3081,7 +3128,8 @@ mod tests {
                     "id":"existing",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"creating"
+                    "state":"creating",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -3096,7 +3144,8 @@ mod tests {
                     "id":"existing",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"running"
+                    "state":"running",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -3181,7 +3230,8 @@ mod tests {
                     "id":"shared",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"running"
+                    "state":"running",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -3196,7 +3246,8 @@ mod tests {
                     "id":"shared",
                     "handle":format!("buzz-{}", &TEST_PUBLIC_HEX[..48]),
                     "runtime":"opencode",
-                    "state":"running"
+                    "state":"running",
+                    "launch_epoch":1
                 })
                 .to_string(),
             )
@@ -3417,6 +3468,7 @@ mod tests {
         let ready = wait_until_running(
             &client(&server),
             initial,
+            0,
             Duration::from_secs(1),
             Duration::ZERO,
         )
@@ -3462,6 +3514,7 @@ mod tests {
         let ready = wait_until_running(
             &client(&server),
             readiness_deployment("starting", 7),
+            7,
             Duration::from_secs(1),
             Duration::ZERO,
         )
@@ -3470,6 +3523,42 @@ mod tests {
         assert_eq!(ready.launch_epoch, 7);
         older_stopped.assert();
         older_running.assert();
+        running.assert();
+    }
+
+    #[test]
+    fn readiness_wait_ignores_stale_start_response_before_requested_epoch() {
+        let mut server = Server::new();
+        let starting = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"starting","launch_epoch":8}"#,
+            )
+            .expect(1)
+            .create();
+        let running = server
+            .mock("GET", "/agents/deployments/deployment-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"id":"deployment-1","runtime":"opencode","state":"running","launch_epoch":8}"#,
+            )
+            .expect(1)
+            .create();
+
+        let ready = wait_until_running(
+            &client(&server),
+            readiness_deployment("stopped", 7),
+            8,
+            Duration::from_secs(1),
+            Duration::ZERO,
+        )
+        .unwrap();
+
+        assert_eq!(ready.launch_epoch, 8);
+        starting.assert();
         running.assert();
     }
 
@@ -3489,6 +3578,7 @@ mod tests {
         let error = wait_until_running(
             &client(&server),
             readiness_deployment("starting", 7),
+            7,
             Duration::from_secs(1),
             Duration::ZERO,
         )
@@ -3524,6 +3614,7 @@ mod tests {
             let ready = wait_until_running(
                 &client(&server),
                 readiness_deployment("starting", 7),
+                7,
                 Duration::from_secs(1),
                 Duration::ZERO,
             )
@@ -3562,6 +3653,7 @@ mod tests {
             let error = wait_until_running(
                 &client(&server),
                 deployment,
+                0,
                 Duration::from_secs(1),
                 Duration::ZERO,
             )
@@ -3602,9 +3694,14 @@ mod tests {
             ..Default::default()
         };
 
-        let error =
-            wait_until_running(&client(&server), deployment, Duration::ZERO, Duration::ZERO)
-                .unwrap_err();
+        let error = wait_until_running(
+            &client(&server),
+            deployment,
+            0,
+            Duration::ZERO,
+            Duration::ZERO,
+        )
+        .unwrap_err();
 
         assert!(matches!(
             &error,
