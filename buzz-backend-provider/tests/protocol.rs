@@ -561,6 +561,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         for key in ["MODEL_API_KEY", "BUZZ_AUTH_TAG"] {
             expected["env"][key] = serde_json::json!("<redacted>");
         }
+        expected["env"]["BUZZ_ACP_RELAY_OBSERVER"] = serde_json::json!("true");
         expected["secrets"] = serde_json::json!("<redacted>");
         expected["registry_auth"] = serde_json::json!("<redacted>");
         assert_eq!(
