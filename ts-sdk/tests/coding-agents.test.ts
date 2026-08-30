@@ -120,28 +120,15 @@ describe('coding agents', () => {
       restart: false,
       runtime_scopes: DEFAULT_AGENT_RUNTIME_SCOPES,
     }), { retries: 1 });
-    // The 'buzz-agent' default image is itself a Buzz image, so hyper-acp
-    // introspection provisioning is on by default for it (and only it).
     const expectedEnv: Record<string, string> = {
       HYPER_WORKSPACES_BOOT_SYNC: '1',
       HYPER_WORKSPACES_DIR: '/home/node/shared',
       HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
-      ...(runtime === 'buzz-agent'
-        ? { HYPER_ACP_WS_LISTEN: '0.0.0.0:7799', HYPER_ACP_LOG: '/home/node/.coding-agent/hyper-acp.db' }
-        : {}),
     };
     expect(post.mock.calls[0][1].env).toEqual(expectedEnv);
-    expect(post.mock.calls[0][1].routes).toEqual(
-      runtime === 'buzz-agent' ? { 'hyper-acp': { port: 7799, auth: false } } : {},
-    );
-    if (runtime === 'buzz-agent') {
-      expect(post.mock.calls[0][1].secrets?.HYPER_ACP_WS_TOKEN).toMatch(/^hyper_acp_[0-9a-f]{64}$/);
-      expect(post.mock.calls[0][1].env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-      expect(agent.hyperAcpWsToken).toBe(post.mock.calls[0][1].secrets.HYPER_ACP_WS_TOKEN);
-    } else {
-      expect(post.mock.calls[0][1].secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-      expect(agent.hyperAcpWsToken).toBeNull();
-    }
+    expect(post.mock.calls[0][1].routes).toEqual({});
+    expect(post.mock.calls[0][1].secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
+    expect(agent.hyperAcpWsToken).toBeNull();
     if (syncInclude === undefined) {
       expect(post.mock.calls[0][1]).not.toHaveProperty('sync_include');
     } else {
@@ -269,12 +256,15 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       image: DEFAULT_BUZZ_CODEX_IMAGE,
-      command: ['/usr/local/bin/hypercli-acp', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp'],
       restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'buzz',
         RUST_LOG: DEFAULT_BUZZ_RUST_LOG,
+        HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
+        HYPER_ACP_AGENT_COMMAND: '/usr/local/lib/hyper-acp/plugins/buzz-acp',
+        BUZZ_ACP_RELAY_OBSERVER: 'false',
       },
     });
     await expect(deployments.createCodex({
@@ -303,7 +293,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
       image,
-      command: ['/usr/local/bin/hypercli-acp', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp'],
     });
   });
 
@@ -343,7 +333,9 @@ describe('coding agents', () => {
     expect(payload.env.BUZZ_ACP_AGENT_ARGS).toBe(expectedRuntime.agent_args);
     expect(payload.env.BUZZ_ACP_MCP_COMMAND).toBe(expectedRuntime.mcp_command);
     for (const [key, value] of Object.entries(buzzGolden.common_env)) {
-      expect(payload.env[key]).toBe(value);
+      expect(payload.env[key]).toBe(
+        key === 'HYPER_ACP_WS_URL' ? 'wss://api.test.hypercli.com/ws' : value,
+      );
     }
     expect(payload.env.CLAUDE_CODE_EXECUTABLE ?? null).toBe(
       expectedRuntime.claude_code_executable,
@@ -416,7 +408,7 @@ describe('coding agents', () => {
       size: 'large',
       image: DEFAULT_BUZZ_OPENCODE_IMAGE,
       routes: {},
-      command: ['/usr/local/bin/hypercli-acp', 'buzz'],
+      command: ['/usr/local/bin/hyper-acp'],
       restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
@@ -427,7 +419,9 @@ describe('coding agents', () => {
         BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
         BUZZ_ACP_AGENTS: '3',
         BUZZ_ACP_LAZY_POOL: 'true',
-        BUZZ_ACP_RELAY_OBSERVER: 'true',
+        BUZZ_ACP_RELAY_OBSERVER: 'false',
+        HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
+        HYPER_ACP_AGENT_COMMAND: '/usr/local/lib/hyper-acp/plugins/buzz-acp',
         BUZZ_ACP_REQUIRE_REPLY: 'true',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
@@ -461,7 +455,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1].env.RUST_LOG).toBe(DEFAULT_BUZZ_RUST_LOG);
     expect(post.mock.calls[0][1].restart).toBe(false);
-    expect(DEFAULT_BUZZ_RUST_LOG).toBe('buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off');
+    expect(DEFAULT_BUZZ_RUST_LOG).toBe('hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off');
   });
 
   it('forces typed Buzz launches to keep restart disabled', async () => {
@@ -613,7 +607,7 @@ describe('coding agents', () => {
     await expect(agent.auth.logout('anthropic')).resolves.toMatchObject({ authenticated: false });
     expect(exec.mock.calls.map(([command]) => command)).toEqual([
       ['opencode', 'auth', 'logout', 'anthropic'],
-      ['hypercli-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
+      ['hyper-acp', 'plugin', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
     ]);
   });
 
@@ -693,10 +687,7 @@ describe('coding agents', () => {
   });
 });
 
-describe('buzz hyper-acp introspection provisioning', () => {
-  const TOKEN_PATTERN = /^hyper_acp_[0-9a-f]{64}$/;
-  const CANONICAL_ROUTE = { port: 7799, auth: false };
-
+describe('buzz hyper-acp raw outbound launch', () => {
   function provisionDeployments(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' = 'buzz-agent') {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
@@ -707,56 +698,54 @@ describe('buzz hyper-acp introspection provisioning', () => {
     return { post, deployments };
   }
 
-  it('provisions the canonical route, env pair, and a formatted secret on a buzz image', async () => {
+  it('runs hyper-acp with raw outbound ws and the copied Buzz ACP plugin child', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
     const agent = await deployments.createBuzzAgent({
       routes: { custom: { port: 9000, auth: true } },
+      buzzEnabled: true,
     });
     const payload = post.mock.calls[0][1];
-    expect(payload.routes['hyper-acp']).toEqual(CANONICAL_ROUTE);
-    // Caller routes survive the merge.
+    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp']);
     expect(payload.routes.custom).toEqual({ port: 9000, auth: true });
-    expect(payload.env.HYPER_ACP_WS_LISTEN).toBe('0.0.0.0:7799');
-    expect(payload.env.HYPER_ACP_LOG).toBe('/home/node/.coding-agent/hyper-acp.db');
-    expect(payload.secrets.HYPER_ACP_WS_TOKEN).toMatch(TOKEN_PATTERN);
-    // The token is a Secret, never env; the creation result retains it.
+    expect(payload.routes).not.toHaveProperty('hyper-acp');
+    expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
+    expect(payload.env.HYPER_ACP_AGENT_COMMAND).toBe('/usr/local/lib/hyper-acp/plugins/buzz-acp');
+    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('false');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-    expect(agent.hyperAcpWsToken).toBe(payload.secrets.HYPER_ACP_WS_TOKEN);
+    expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
+    expect(agent.hyperAcpWsToken).toBeNull();
   });
 
-  it('generates a distinct token per launch', async () => {
-    const { post, deployments } = provisionDeployments('buzz-agent');
-    await deployments.createBuzzAgent();
-    await deployments.createBuzzAgent();
-    const first = post.mock.calls[0][1].secrets.HYPER_ACP_WS_TOKEN;
-    const second = post.mock.calls[1][1].secrets.HYPER_ACP_WS_TOKEN;
-    expect(first).toMatch(TOKEN_PATTERN);
-    expect(second).toMatch(TOKEN_PATTERN);
-    expect(first).not.toBe(second);
-  });
-
-  it('overwrites caller-supplied HYPER_ACP_WS_LISTEN/HYPER_ACP_LOG authoritatively', async () => {
+  it('strips caller-supplied observer env and child command overrides', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
     await deployments.createBuzzAgent({
-      env: { HYPER_ACP_WS_LISTEN: '127.0.0.1:1', HYPER_ACP_LOG: '/tmp/caller.db' },
+      buzzEnabled: true,
+      env: {
+        HYPER_ACP_WS_LISTEN: '127.0.0.1:1',
+        HYPER_ACP_LOG: '/tmp/caller.db',
+        HYPER_ACP_WS_TOKEN: 'leak',
+        HYPER_ACP_WS_URL: 'ws://caller.invalid/ws',
+        HYPER_ACP_AGENT_COMMAND: '/tmp/not-buzz-acp',
+        BUZZ_ACP_RELAY_OBSERVER: 'true',
+      },
     });
-    expect(post.mock.calls[0][1].env.HYPER_ACP_WS_LISTEN).toBe('0.0.0.0:7799');
-    expect(post.mock.calls[0][1].env.HYPER_ACP_LOG).toBe('/home/node/.coding-agent/hyper-acp.db');
+    const payload = post.mock.calls[0][1];
+    expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
+    expect(payload.env.HYPER_ACP_AGENT_COMMAND).toBe('/usr/local/lib/hyper-acp/plugins/buzz-acp');
+    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('false');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
   });
 
-  it('overwrites a caller hyper-acp route entry with the canonical shape', async () => {
+  it('deprecated buzzActivity flag does not reenable the observer route', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
-    await deployments.createBuzzAgent({
-      routes: { 'hyper-acp': { port: 1, auth: true, prefix: 'forged' } },
-    });
-    expect(post.mock.calls[0][1].routes['hyper-acp']).toEqual(CANONICAL_ROUTE);
-  });
-
-  it('buzzActivity: false on a buzz image skips route, env, and secret entirely', async () => {
-    const { post, deployments } = provisionDeployments('buzz-agent');
-    const agent = await deployments.createBuzzAgent({ buzzActivity: false });
+    const agent = await deployments.createBuzzAgent({ buzzEnabled: true, buzzActivity: true });
     const payload = post.mock.calls[0][1];
     expect(payload.routes ?? {}).not.toHaveProperty('hyper-acp');
+    expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
@@ -771,85 +760,6 @@ describe('buzz hyper-acp introspection provisioning', () => {
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-    expect(agent.hyperAcpWsToken).toBeNull();
-  });
-
-  it('throws on explicit buzzActivity or hyperAcpWsToken with a non-buzz image', async () => {
-    const { deployments } = provisionDeployments('codex');
-    await expect(deployments.createCodex({ buzzActivity: true }))
-      .rejects.toThrow('buzzActivity requires a buzz image');
-    await expect(deployments.createCodex({ hyperAcpWsToken: 'hyper_acp_x' }))
-      .rejects.toThrow('hyperAcpWsToken requires a buzz image');
-    await expect(deployments.createCodex({
-      image: DEFAULT_BUZZ_CODEX_IMAGE, // a buzz image resolves even without the buzz flag
-      hyperAcpWsToken: 'hyper_acp_x',
-    })).resolves.toBeTruthy();
-  });
-
-  it('honors an explicit token verbatim and retains it, without prefix enforcement', async () => {
-    const { post, deployments } = provisionDeployments('buzz-agent');
-    const agent = await deployments.createBuzzAgent({ hyperAcpWsToken: '  my-opaque-token  ' });
-    expect(post.mock.calls[0][1].secrets.HYPER_ACP_WS_TOKEN).toBe('my-opaque-token');
-    expect(agent.hyperAcpWsToken).toBe('my-opaque-token');
-  });
-
-  it('rejects a blank hyperAcpWsToken', async () => {
-    const { deployments } = provisionDeployments('buzz-agent');
-    await expect(deployments.createBuzzAgent({ hyperAcpWsToken: '   ' }))
-      .rejects.toThrow('hyperAcpWsToken must not be blank');
-    await expect(deployments.createBuzzAgent({ buzzActivity: false, hyperAcpWsToken: 'x' }))
-      .rejects.toThrow('hyperAcpWsToken cannot be combined with buzzActivity: false');
-  });
-
-  it('rejects a conflicting secrets.HYPER_ACP_WS_TOKEN but accepts equal values', async () => {
-    const { post, deployments } = provisionDeployments('buzz-agent');
-    await expect(deployments.createBuzzAgent({
-      hyperAcpWsToken: 'token-a',
-      secrets: { HYPER_ACP_WS_TOKEN: 'token-b' },
-    })).rejects.toThrow('hyperAcpWsToken conflicts with secrets.HYPER_ACP_WS_TOKEN');
-    const agent = await deployments.createBuzzAgent({
-      hyperAcpWsToken: 'token-a',
-      secrets: { HYPER_ACP_WS_TOKEN: 'token-a' },
-    });
-    // The conflicting call threw client-side; the accepted call is the only POST.
-    expect(post.mock.calls[0][1].secrets.HYPER_ACP_WS_TOKEN).toBe('token-a');
-    expect(agent.hyperAcpWsToken).toBe('token-a');
-  });
-
-  it('rejects env-injected HYPER_ACP_WS_TOKEN on any image', async () => {
-    const { deployments } = provisionDeployments('buzz-agent');
-    await expect(deployments.createBuzzAgent({ env: { HYPER_ACP_WS_TOKEN: 'leak' } }))
-      .rejects.toThrow('HYPER_ACP_WS_TOKEN is a Secret');
-    await expect(deployments.createCodex({ env: { HYPER_ACP_WS_TOKEN: 'leak' } }))
-      .rejects.toThrow('HYPER_ACP_WS_TOKEN is a Secret');
-  });
-
-  it('respects a secrets-supplied token verbatim without regeneration', async () => {
-    const { post, deployments } = provisionDeployments('buzz-agent');
-    const agent = await deployments.createBuzzAgent({
-      secrets: { HYPER_ACP_WS_TOKEN: 'hyper_acp_fromsecrets' },
-    });
-    expect(post.mock.calls[0][1].secrets.HYPER_ACP_WS_TOKEN).toBe('hyper_acp_fromsecrets');
-    expect(agent.hyperAcpWsToken).toBe('hyper_acp_fromsecrets');
-  });
-
-  it('never recovers the token from backend hydration (fresh get carries null)', async () => {
-    const get = vi.fn().mockResolvedValue({
-      ...response('buzz-agent'),
-      launch_config: {
-        env: {},
-        // Even if the backend leaked a value back, hydration must not pick it up.
-        secrets: { HYPER_ACP_WS_TOKEN: 'hyper_acp_shouldnotsurface' },
-      },
-      routes: { 'hyper-acp': CANONICAL_ROUTE },
-    });
-    const deployments = new Deployments(
-      { get } as unknown as HTTPClient,
-      'hyper_api_test',
-      'https://api.test.hypercli.com/agents',
-    );
-    const agent = await deployments.get('agent-1');
-    expect(agent).toBeInstanceOf(BuzzAgent);
     expect(agent.hyperAcpWsToken).toBeNull();
   });
 });

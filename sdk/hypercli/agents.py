@@ -279,7 +279,8 @@ _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
     "goose": ("/usr/local/bin/goose", ["acp"], ""),
     "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
 }
-DEFAULT_BUZZ_RUST_LOG = "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+DEFAULT_BUZZ_RUST_LOG = "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
+HYPER_ACP_BUZZ_PLUGIN_COMMAND = "/usr/local/lib/hyper-acp/plugins/buzz-acp"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
     {
         "BUZZ_PRIVATE_KEY",
@@ -312,6 +313,12 @@ BUZZ_RESERVED_ENV_KEYS = frozenset(
         "BUZZ_ACP_DEDUP",
         "BUZZ_ACP_SETUP_PAYLOAD",
         "BUZZ_MANAGED_AGENT",
+        "HYPER_ACP_WS_URL",
+        "HYPER_ACP_AGENT_COMMAND",
+        "HYPER_ACP_AGENT_ARGS",
+        "HYPER_ACP_WS_LISTEN",
+        "HYPER_ACP_LOG",
+        "HYPER_ACP_WS_TOKEN",
         # No longer minted by the SDK; kept listed so caller-supplied values are stripped.
         "BUZZ_MANAGED_AGENT_START_NONCE",
     }
@@ -363,7 +370,7 @@ class BuzzLaunchConfig:
             "BUZZ_ACP_AGENT_ARGS": ",".join(default_args),
             "BUZZ_ACP_MCP_COMMAND": default_mcp,
             "BUZZ_ACP_LAZY_POOL": "true",
-            "BUZZ_ACP_RELAY_OBSERVER": "true",
+            "BUZZ_ACP_RELAY_OBSERVER": "false",
             "BUZZ_ACP_AGENTS": str(self.parallelism),
             "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
             "BUZZ_ACP_DEDUP": "queue",
@@ -832,6 +839,25 @@ def _default_agents_ws_url(api_base: str) -> str:
     }:
         return DEV_AGENTS_WS_URL
     return _normalize_agents_ws_url(raw)
+
+
+def _default_hyper_acp_ws_url(api_base: str) -> str:
+    raw = _normalize_agents_api_base(api_base)
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    host = parsed.netloc.lower()
+    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+        return AGENTS_WS_URL
+    if host in {
+        "api.agents.dev.hypercli.com",
+        "api.dev.hypercli.com",
+        "api.dev.hyperclaw.app",
+        "dev-api.hyperclaw.app",
+    }:
+        return DEV_AGENTS_WS_URL
+    base = raw.rstrip("/")
+    if base.endswith("/agents"):
+        base = base[: -len("/agents")]
+    return _normalize_agents_ws_url(base)
 
 
 MAX_SYNC_OWNER_ID = 4_294_967_294
@@ -1551,7 +1577,8 @@ class RuntimeAuthClient:
         "buzz-agent": {
             "agent": ("buzz-agent",),
             "status": (
-                "hypercli-acp",
+                "hyper-acp",
+                "plugin",
                 "models",
                 "--agent-command",
                 "buzz-agent",
@@ -1562,7 +1589,8 @@ class RuntimeAuthClient:
         "opencode": {
             "agent": ("opencode", "acp"),
             "status": (
-                "hypercli-acp",
+                "hyper-acp",
+                "plugin",
                 "models",
                 "--agent-command",
                 "opencode",
@@ -1614,7 +1642,8 @@ class RuntimeAuthClient:
         "goose": {
             "agent": ("goose", "acp"),
             "status": (
-                "hypercli-acp",
+                "hyper-acp",
+                "plugin",
                 "models",
                 "--agent-command",
                 "goose",
@@ -1627,7 +1656,8 @@ class RuntimeAuthClient:
         "kimi-code": {
             "agent": ("kimi", "acp"),
             "status": (
-                "hypercli-acp",
+                "hyper-acp",
+                "plugin",
                 "models",
                 "--agent-command",
                 "kimi",
@@ -1654,7 +1684,7 @@ class RuntimeAuthClient:
 
     def methods(self) -> list[RuntimeAuthMethod]:
         agent_command = tuple(self._config["agent"])
-        argv = ["hypercli-acp", "auth-methods", "--agent-command", agent_command[0]]
+        argv = ["hyper-acp", "plugin", "auth-methods", "--agent-command", agent_command[0]]
         if len(agent_command) > 1:
             argv.extend(["--agent-args", ",".join(agent_command[1:])])
         argv.append("--json")
@@ -1783,7 +1813,8 @@ class RuntimeAuthClient:
         else:
             agent_command = tuple(self._config["agent"])
             command = [
-                "hypercli-acp",
+                "hyper-acp",
+                "plugin",
                 "authenticate",
                 "--agent-command",
                 agent_command[0],
@@ -3854,6 +3885,17 @@ class Deployments:
             effective_secrets.update(buzz.secrets())
         if buzz_launch:
             effective_env.setdefault("RUST_LOG", DEFAULT_BUZZ_RUST_LOG)
+            for key in (
+                "HYPER_ACP_WS_LISTEN",
+                "HYPER_ACP_LOG",
+                "HYPER_ACP_WS_TOKEN",
+                "HYPER_ACP_AGENT_ARGS",
+            ):
+                effective_env.pop(key, None)
+            effective_secrets.pop("HYPER_ACP_WS_TOKEN", None)
+            effective_env["HYPER_ACP_WS_URL"] = _default_hyper_acp_ws_url(self._api_base)
+            effective_env["HYPER_ACP_AGENT_COMMAND"] = HYPER_ACP_BUZZ_PLUGIN_COMMAND
+            effective_env["BUZZ_ACP_RELAY_OBSERVER"] = "false"
         (
             effective_sync_include,
             effective_sync_exclude,
@@ -3876,7 +3918,7 @@ class Deployments:
             secrets=effective_secrets,
             routes={} if routes is None else routes,
             command=(
-                ["/usr/local/bin/hypercli-acp", "buzz"]
+                ["/usr/local/bin/hyper-acp"]
                 if buzz_enabled or buzz is not None
                 else command
             ),

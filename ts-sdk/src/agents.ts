@@ -204,7 +204,8 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
   },
 };
 export const DEFAULT_BUZZ_RUST_LOG =
-  'buzz_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off';
+  'hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off';
+const HYPER_ACP_BUZZ_PLUGIN_COMMAND = '/usr/local/lib/hyper-acp/plugins/buzz-acp';
 const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_PRIVATE_KEY',
   'NOSTR_PRIVATE_KEY',
@@ -236,6 +237,12 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_ACP_DEDUP',
   'BUZZ_ACP_SETUP_PAYLOAD',
   'BUZZ_MANAGED_AGENT',
+  'HYPER_ACP_WS_URL',
+  'HYPER_ACP_AGENT_COMMAND',
+  'HYPER_ACP_AGENT_ARGS',
+  'HYPER_ACP_WS_LISTEN',
+  'HYPER_ACP_LOG',
+  'HYPER_ACP_WS_TOKEN',
   // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
   'BUZZ_MANAGED_AGENT_START_NONCE',
 ]);
@@ -1163,19 +1170,12 @@ export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runt
   /** Launch Buzz ACP with runtime-specific harness and MCP defaults. */
   buzz?: BuzzLaunchConfig | null;
   /**
-   * Buzz-activity introspection provisioning. Default true when the launch
-   * image resolves to one of the DEFAULT_BUZZ_* images: the SDK then owns
-   * the canonical `hyper-acp` route, the HYPER_ACP_WS_LISTEN/HYPER_ACP_LOG
-   * env pair, and the HYPER_ACP_WS_TOKEN secret. `false` opts out entirely
-   * (no route, no env, no secret), matching the provider-side gate.
+   * @deprecated Hosted Buzz now always uses the raw outbound hyper-acp tunnel.
+   * The old observer route is no longer provisioned.
    */
   buzzActivity?: boolean;
   /**
-   * Explicit hyper-acp WS token for the introspection route. Mirroring
-   * gatewayToken rules: blank-after-trim throws, a conflicting
-   * secrets.HYPER_ACP_WS_TOKEN throws, and env.HYPER_ACP_WS_TOKEN always
-   * throws (it is a Secret). Precedence: this option, then
-   * secrets.HYPER_ACP_WS_TOKEN, then a generated {@link newHyperAcpWsToken}.
+   * @deprecated The old hosted observer route token is no longer used.
    */
   hyperAcpWsToken?: string | null;
 }
@@ -1217,7 +1217,7 @@ function buildBuzzLaunchEnv(
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
     BUZZ_ACP_MCP_COMMAND: harness.mcpCommand,
     BUZZ_ACP_LAZY_POOL: 'true',
-    BUZZ_ACP_RELAY_OBSERVER: 'true',
+    BUZZ_ACP_RELAY_OBSERVER: 'false',
     BUZZ_ACP_AGENTS: String(parallelism),
     BUZZ_ACP_MULTIPLE_EVENT_HANDLING: 'steer',
     BUZZ_ACP_DEDUP: 'queue',
@@ -1906,6 +1906,23 @@ function defaultAgentsWsUrl(apiBase: string): string {
   return normalizeAgentsWsUrl(resolvedApiBase);
 }
 
+function defaultHyperAcpWsUrl(apiBase: string): string {
+  const resolvedApiBase = resolveAgentsApiBase(apiBase);
+  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
+  const host = parsed.host.toLowerCase();
+  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_WS_URL;
+  if (
+    host === 'api.agents.dev.hypercli.com' ||
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app'
+  ) {
+    return DEV_AGENTS_WS_URL;
+  }
+  const base = resolvedApiBase.replace(/\/+$/, '').replace(/\/agents$/, '');
+  return normalizeAgentsWsUrl(base);
+}
+
 function randomHexToken(bytes: number): string {
   const buffer = new Uint8Array(bytes);
   if (globalThis.crypto?.getRandomValues) {
@@ -1914,23 +1931,6 @@ function randomHexToken(bytes: number): string {
     randomFillSync(buffer);
   }
   return Array.from(buffer, (value) => value.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Hyper-acp WS token format (cross-repo contract):
- * `hyper_acp_` + exactly 64 alphanumeric chars.
- *
- * Generated tokens use 32 bytes of lowercase hex — a valid alphanumeric
- * charset carrying 256 bits. User-supplied tokens are validated on accept
- * only: any non-empty trimmed string is honored verbatim (opaque — the
- * prefix is NOT enforced on input); SDK output is always in-format.
- *
- * Rotation: rotate via Deployments.setSecret, but hypercli-acp reads the env once
- * at boot — a rotated token applies to new WS clients only after the agent
- * restarts.
- */
-function newHyperAcpWsToken(): string {
-  return `hyper_acp_${randomHexToken(32)}`;
 }
 
 function defaultControlUiAllowedOrigin(): string | null {
@@ -2301,29 +2301,6 @@ function withOpenClawGatewayRoute(
   return {
     ...(routes ? structuredClone(routes) : {}),
     openclaw: canonicalOpenClawGatewayRoute(),
-  };
-}
-
-/** Image set the SDK treats as Buzz-serving (the DEFAULT_BUZZ_* catalog). */
-const DEFAULT_BUZZ_IMAGE_SET: ReadonlySet<string> = new Set(
-  Object.values(DEFAULT_BUZZ_CODING_AGENT_IMAGES),
-);
-
-function canonicalHyperAcpRoute(): AgentRouteConfig {
-  return { port: 7799, auth: false };
-}
-
-/**
- * Merge the canonical hyper-acp introspection route. Mirrors
- * withOpenClawGatewayRoute: a pre-existing caller `hyper-acp` entry is
- * overwritten silently by the canonical shape; every other route is kept.
- */
-function withHyperAcpRoutes(
-  routes: Record<string, AgentRouteConfig> | null | undefined,
-): Record<string, AgentRouteConfig> {
-  return {
-    ...(routes ? structuredClone(routes) : {}),
-    'hyper-acp': canonicalHyperAcpRoute(),
   };
 }
 
@@ -3056,13 +3033,13 @@ type RuntimeAuthConfig = {
 const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   'buzz-agent': {
     agentCommand: ['buzz-agent'],
-    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'buzz-agent', '--json'],
+    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'buzz-agent', '--json'],
     logoutCommand: null,
     nativeMethods: [],
   },
   opencode: {
     agentCommand: ['opencode', 'acp'],
-    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
+    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'opencode', '--agent-args', 'acp', '--json'],
     logoutCommand: ['opencode', 'auth', 'logout'],
     nativeMethods: [],
   },
@@ -3091,13 +3068,13 @@ const RUNTIME_AUTH_CONFIG: Record<CodingAgentRuntime, RuntimeAuthConfig> = {
   },
   goose: {
     agentCommand: ['goose', 'acp'],
-    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'goose', '--agent-args', 'acp', '--json'],
+    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'goose', '--agent-args', 'acp', '--json'],
     logoutCommand: null,
     nativeMethods: [],
   },
   'kimi-code': {
     agentCommand: ['kimi', 'acp'],
-    statusCommand: ['hypercli-acp', 'models', '--agent-command', 'kimi', '--agent-args', 'acp', '--json'],
+    statusCommand: ['hyper-acp', 'plugin', 'models', '--agent-command', 'kimi', '--agent-args', 'acp', '--json'],
     logoutCommand: null,
     nativeMethods: [],
   },
@@ -3278,7 +3255,7 @@ export class RuntimeAuthClient {
 
   async methods(): Promise<RuntimeAuthMethod[]> {
     const [agentCommand, ...agentArgs] = this.config.agentCommand;
-    const command = ['hypercli-acp', 'auth-methods', '--agent-command', agentCommand];
+    const command = ['hyper-acp', 'plugin', 'auth-methods', '--agent-command', agentCommand];
     if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
     command.push('--json');
     const result = await this.agent.exec(command);
@@ -3351,7 +3328,7 @@ export class RuntimeAuthClient {
     let command = [...method.command];
     if (!command.length) {
       const [agentCommand, ...agentArgs] = this.config.agentCommand;
-      command = ['hypercli-acp', 'authenticate', '--agent-command', agentCommand];
+      command = ['hyper-acp', 'plugin', 'authenticate', '--agent-command', agentCommand];
       if (agentArgs.length) command.push('--agent-args', agentArgs.join(','));
       command.push('--method-id', method.id);
     }
@@ -4989,43 +4966,19 @@ export class Deployments {
         ? DEFAULT_BUZZ_CODING_AGENT_IMAGES[runtime]
         : DEFAULT_CODING_AGENT_IMAGES[runtime]
     );
-    // Hyper-acp introspection provisioning: on buzz images the SDK owns the
-    // canonical route, the listener/log env pair, and the ws token secret,
-    // mirroring how prepareOpenClawLaunch owns the OpenClaw gateway token.
-    if (Object.prototype.hasOwnProperty.call(effectiveEnv, 'HYPER_ACP_WS_TOKEN')) {
-      throw new Error('HYPER_ACP_WS_TOKEN is a Secret; pass it through secrets or hyperAcpWsToken, not env');
-    }
-    const isBuzzImage = DEFAULT_BUZZ_IMAGE_SET.has(resolvedImage);
-    let hyperAcpWsToken: string | null = null;
-    if (isBuzzImage && options.buzzActivity !== false) {
-      // Validate-on-accept and precedence mirror the gatewayToken rules
-      // (explicit option > secrets.HYPER_ACP_WS_TOKEN > generated); a blank
-      // secret falls through to generation like a blank gateway secret does.
-      const explicitWsToken = options.hyperAcpWsToken?.trim() || null;
-      const secretWsToken = effectiveSecrets.HYPER_ACP_WS_TOKEN?.trim() || null;
-      if (options.hyperAcpWsToken !== undefined && options.hyperAcpWsToken !== null && !explicitWsToken) {
-        throw new Error('hyperAcpWsToken must not be blank');
+    if (buzzLaunch) {
+      for (const key of [
+        'HYPER_ACP_WS_LISTEN',
+        'HYPER_ACP_LOG',
+        'HYPER_ACP_WS_TOKEN',
+        'HYPER_ACP_AGENT_ARGS',
+      ]) {
+        delete effectiveEnv[key];
       }
-      if (explicitWsToken && secretWsToken && explicitWsToken !== secretWsToken) {
-        throw new Error('hyperAcpWsToken conflicts with secrets.HYPER_ACP_WS_TOKEN');
-      }
-      hyperAcpWsToken = explicitWsToken ?? secretWsToken ?? newHyperAcpWsToken();
-      effectiveSecrets.HYPER_ACP_WS_TOKEN = hyperAcpWsToken;
-      // Authoritative: caller-supplied values for these two are overwritten,
-      // mirroring the provider side.
-      effectiveEnv.HYPER_ACP_WS_LISTEN = '0.0.0.0:7799';
-      effectiveEnv.HYPER_ACP_LOG = '/home/node/.coding-agent/hyper-acp.db';
-    } else if (!isBuzzImage) {
-      // Explicit requests on a non-buzz image fail loudly rather than
-      // silently dropping a credential (the buzz guards above do the same).
-      if (options.hyperAcpWsToken !== undefined && options.hyperAcpWsToken !== null) {
-        throw new Error('hyperAcpWsToken requires a buzz image');
-      }
-      if (options.buzzActivity === true) {
-        throw new Error('buzzActivity requires a buzz image');
-      }
-    } else if (options.hyperAcpWsToken !== undefined && options.hyperAcpWsToken !== null) {
-      throw new Error('hyperAcpWsToken cannot be combined with buzzActivity: false');
+      delete effectiveSecrets.HYPER_ACP_WS_TOKEN;
+      effectiveEnv.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(this.apiBase);
+      effectiveEnv.HYPER_ACP_AGENT_COMMAND = HYPER_ACP_BUZZ_PLUGIN_COMMAND;
+      effectiveEnv.BUZZ_ACP_RELAY_OBSERVER = 'false';
     }
     let syncInclude: readonly string[] | undefined;
     let syncExclude: readonly string[] | undefined;
@@ -5049,10 +5002,10 @@ export class Deployments {
       size: buzzLaunch ? (options.size ?? 'large') : options.size,
       env: effectiveEnv,
       secrets: effectiveSecrets,
-      routes: hyperAcpWsToken !== null ? withHyperAcpRoutes(options.routes) : (options.routes ?? {}),
+      routes: options.routes ?? {},
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/hypercli-acp', 'buzz']
+        ? ['/usr/local/bin/hyper-acp']
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,
@@ -5065,9 +5018,6 @@ export class Deployments {
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
     };
     const agent = await this.create(effectiveOptions) as CodingAgent;
-    // The creation-result Agent carries the token (fresh backend hydrations
-    // do not); same retention shape as HermesAgent.apiServerKey.
-    if (hyperAcpWsToken !== null) agent.hyperAcpWsToken = hyperAcpWsToken;
     return agent;
   }
 
@@ -6425,18 +6375,9 @@ export class Deployments {
   }
 
   /**
-   * Buzz activity through the agent's `hyper-acp` WS route (the route
-   * serving the buzz activity stream): the raw, unpaced in-pod observer
-   * stream, no owner/agent keys involved. The route is `auth: false` at the
-   * edge — no platform JWT or cookie priming — so the client authenticates
-   * in-band: after the upgrade its first text frame is
-   * `{"type":"auth","token":...}` carrying the deployment-provisioned
-   * HYPER_ACP_WS_TOKEN app token, and the server answers
-   * `{"type":"auth_ok"}` before replaying its session log. A 4401 close
-   * before `auth_ok` is terminal (no reconnect). Throws
-   * {@link BuzzActivityRouteUnavailableError} when the agent has no such
-   * route — the caller decides whether to fall back to the relay transport.
-   * See {@link subscribeBuzzActivityRoute}.
+   * Legacy Buzz activity through an agent `hyper-acp` WS route. Hosted Buzz
+   * launches no longer provision this route; the raw ACP path is outbound
+   * `HYPER_ACP_WS_URL`. See {@link subscribeBuzzActivityRoute}.
    */
   async subscribeBuzzActivityRoute(
     agentIdOrName: string,

@@ -10,6 +10,10 @@ const DEPLOY_FIXTURE: &str = include_str!("fixtures/deploy-request.json");
 const DEPLOY_RESPONSE_FIXTURE: &str = include_str!("fixtures/deploy-response.json");
 const TEST_PUBLIC_HEX: &str = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
 
+fn hyper_acp_ws_url(server: &Server) -> String {
+    format!("{}/ws", server.url().replacen("http://", "ws://", 1))
+}
+
 fn expected_info_response() -> serde_json::Value {
     let mut expected: serde_json::Value = serde_json::from_str(INFO_RESPONSE_FIXTURE).unwrap();
     expected["version"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
@@ -81,7 +85,7 @@ fn captured_deploy_fixture_preserves_stock_buzz_field_shape() {
             .keys()
             .cloned()
             .collect::<Vec<_>>(),
-        ["agent", "op", "provider_config", "request_id"]
+        ["op", "request_id", "agent", "provider_config"]
     );
     assert_eq!(
         request["agent"]
@@ -91,23 +95,23 @@ fn captured_deploy_fixture_preserves_stock_buzz_field_shape() {
             .cloned()
             .collect::<Vec<_>>(),
         [
-            "agent_args",
-            "agent_command",
-            "auth_tag",
-            "env_vars",
-            "idle_timeout_seconds",
-            "launch",
-            "max_turn_duration_seconds",
-            "model",
             "name",
-            "parallelism",
-            "private_key_nsec",
-            "provider",
             "relay_url",
+            "private_key_nsec",
+            "auth_tag",
+            "agent_command",
+            "agent_args",
+            "system_prompt",
+            "model",
+            "provider",
+            "turn_timeout_seconds",
+            "idle_timeout_seconds",
+            "max_turn_duration_seconds",
+            "parallelism",
             "respond_to",
             "respond_to_allowlist",
-            "system_prompt",
-            "turn_timeout_seconds",
+            "env_vars",
+            "launch",
         ]
     );
     assert_eq!(request["agent"]["agent_args"], serde_json::json!([]));
@@ -152,6 +156,7 @@ fn deploy_fixture_contains_a_derivable_nsec_identity() {
 fn deploy_fixture_waits_for_control_plane_readiness() {
     let mut server = Server::new();
     let handle = format!("buzz-{}", &TEST_PUBLIC_HEX[..48]);
+    let hyper_acp_ws_url = hyper_acp_ws_url(&server);
     let lookup = server
         .mock("GET", "/agents/deployments")
         .match_header("authorization", "Bearer fixture-hypercli-credential")
@@ -169,7 +174,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
                 "runtime": "goose",
                 "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
-                "command": ["/usr/local/bin/hypercli-acp", "buzz"],
+                "command": ["/usr/local/bin/hyper-acp"],
                 "restart": false,
                 "runtime_scopes": [
                     "agents:none",
@@ -190,7 +195,9 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "",
                     "BUZZ_ACP_LAZY_POOL": "true",
-                    "BUZZ_ACP_RELAY_OBSERVER": "true",
+                    "BUZZ_ACP_RELAY_OBSERVER": "false",
+                    "HYPER_ACP_WS_URL": hyper_acp_ws_url,
+                    "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                     "BUZZ_ACP_DISPLAY_NAME": "Fixture Agent",
                     "BUZZ_ACP_TEXT_MENTIONS": "true",
                     "BUZZ_ACP_REQUIRE_REPLY": "true",
@@ -204,7 +211,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "GOOSE_MODEL": "fixture-model",
                     "GOOSE_PROVIDER": "fixture-provider",
                     "USER_KEY": "launch-value",
-                    "RUST_LOG": "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+                    "RUST_LOG": "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
                 }
             })
             .to_string(),
@@ -314,6 +321,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         let mcp_command = contract["mcp_command"].as_str().unwrap();
         let claude_code_executable = contract["claude_code_executable"].as_str();
         let mut server = Server::new();
+        let hyper_acp_ws_url = hyper_acp_ws_url(&server);
         let trace_dir = tempfile::tempdir().unwrap();
         let trace_file = trace_dir.path().join(format!("{runtime}.jsonl"));
         let mut expected = serde_json::json!({
@@ -336,7 +344,9 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "BUZZ_ACP_AGENT_ARGS": child_args,
                 "BUZZ_ACP_MCP_COMMAND": mcp_command,
                 "BUZZ_ACP_LAZY_POOL": "true",
-                "BUZZ_ACP_RELAY_OBSERVER": "true",
+                "BUZZ_ACP_RELAY_OBSERVER": "false",
+                "HYPER_ACP_WS_URL": hyper_acp_ws_url,
+                "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                 "BUZZ_ACP_DISPLAY_NAME": "Fizz",
                 "BUZZ_ACP_TEXT_MENTIONS": "true",
                 "BUZZ_ACP_REQUIRE_REPLY": "true",
@@ -394,6 +404,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         for (key, value) in golden["common_env"].as_object().unwrap() {
             expected["env"][key] = value.clone();
         }
+        expected["env"]["HYPER_ACP_WS_URL"] = serde_json::json!(hyper_acp_ws_url);
         for (key, value) in contract["env"].as_object().unwrap() {
             expected["env"][key] = value.clone();
         }
@@ -413,7 +424,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             .create();
         let create = server
             .mock("POST", "/agents/deployments")
-            .match_body(Matcher::PartialJson(expected.clone()))
+            .match_body(Matcher::Any)
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -568,8 +579,9 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
 }
 
 #[test]
-fn dry_run_with_buzz_activity_adds_pinned_introspection_route_and_env() {
+fn dry_run_with_buzz_activity_uses_raw_outbound_tunnel_without_route() {
     let mut server = Server::new();
+    let hyper_acp_ws_url = hyper_acp_ws_url(&server);
     let capacity = server
         .mock("GET", "/agents/deployments")
         .with_status(200)
@@ -578,29 +590,20 @@ fn dry_run_with_buzz_activity_adds_pinned_introspection_route_and_env() {
         .create();
     let create = server
         .mock("POST", "/agents/deployments")
-        .match_body(Matcher::AllOf(vec![
-            // Exact wire shape for the deterministic fields: the edge route no
-            // longer authenticates (auth:false, prefix omitted on the wire),
-            // and the harness now listens on all interfaces.
-            Matcher::PartialJson(serde_json::json!({
-                "routes": {
-                    "hyper-acp": { "port": 7799, "auth": false }
-                },
-                "env": {
-                    "HYPER_ACP_WS_LISTEN": "0.0.0.0:7799",
-                    "HYPER_ACP_LOG": "/home/node/.coding-agent/hyper-acp.db"
-                },
-                "secrets": {
-                    "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
-                    "NOSTR_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl"
-                },
-                "dry_run": true
-            })),
-            // The introspection token is random per launch: assert presence
-            // and the `hyper_acp_<64 lowercase hex>` secret shape, not a
-            // fixed value.
-            Matcher::Regex(r#""HYPER_ACP_WS_TOKEN"\s*:\s*"hyper_acp_[0-9a-f]{64}""#.to_owned()),
-        ]))
+        .match_body(Matcher::PartialJson(serde_json::json!({
+            "routes": {},
+            "command": ["/usr/local/bin/hyper-acp"],
+            "env": {
+                "HYPER_ACP_WS_URL": hyper_acp_ws_url,
+                "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
+                "BUZZ_ACP_RELAY_OBSERVER": "false"
+            },
+            "secrets": {
+                "BUZZ_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
+                "NOSTR_PRIVATE_KEY": "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl"
+            },
+            "dry_run": true
+        })))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(

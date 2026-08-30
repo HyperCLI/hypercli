@@ -81,8 +81,9 @@ on the Mac running Buzz:
 2. Desktop invokes the provider with one JSON request.
 3. The provider uses the local HyperCLI credential to create or find a managed
    deployment.
-4. `/usr/local/bin/buzz-acp` connects outbound to the Buzz relay.
-5. The selected coding runtime communicates with `buzz-acp` over ACP on stdio.
+4. `/usr/local/bin/hyper-acp` connects outbound to the platform ACP websocket.
+5. The copied Buzz ACP plugin relays Buzz messages and communicates with the
+   selected coding runtime over ACP on stdio.
 
 The human owner's Buzz private key remains in Desktop. The generated agent
 private key, owner authorization tag, and merged runtime environment pass

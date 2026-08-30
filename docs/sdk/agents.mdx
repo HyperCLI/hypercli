@@ -438,7 +438,7 @@ A typed Buzz launch:
 
 - leaves size unset for live backend/provider slot selection and sets
   `restart=False`;
-- clears public routes and selects `/usr/local/bin/buzz-acp`;
+- clears public routes and selects `/usr/local/bin/hyper-acp`;
 - derives the selected runtime's ACP child command and Buzz MCP command;
 - selects the matching `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`
   image, with Claude using `hypercli-buzz-claude`;
@@ -448,7 +448,8 @@ A typed Buzz launch:
 
 The nest is reconciled after the persistent home mount. OpenCode and Codex
 consume its canonical `AGENTS.md`, while Claude Code receives
-`CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into `buzz-acp`.
+`CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into the Buzz ACP
+plugin.
 An explicit `image=` overrides the default. `buzz_enabled=True` is the
 deprecated raw-environment compatibility path and cannot be combined with a
 typed `buzz` value or explicit `command`.

@@ -13,7 +13,7 @@ on:
       - "sdk/**"
       - "cli/**"
       - "rs-sdk/**"
-      - "buzz-acp/**"
+      - "hyper-acp/**"
       - "buzz-backend-provider/**"
       - "Cargo.toml"
       - "Cargo.lock"

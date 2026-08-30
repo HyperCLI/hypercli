@@ -519,7 +519,7 @@ pub enum HermesApiError {
     #[error("Hermes returned HTTP {status}: {error}", error = .error.message)]
     Api {
         status: StatusCode,
-        error: HermesOpenAiError,
+        error: Box<HermesOpenAiError>,
     },
     #[error("Hermes returned an invalid response: {0}")]
     InvalidResponse(String),
@@ -561,7 +561,10 @@ async fn decode_error(response: reqwest::Response) -> HermesApiError {
             param: None,
             code: None,
         });
-    HermesApiError::Api { status, error }
+    HermesApiError::Api {
+        status,
+        error: Box::new(error),
+    }
 }
 
 trait IfEmpty {

@@ -36,7 +36,7 @@ one. It must never be used as a real agent identity.
 | Create a provider agent with launch enabled | `deploy` | Persists the Buzz identity first, then stores the returned agent ID. |
 | Play an undeployed provider agent | `deploy` | Rebuilds the request from saved settings. |
 | Add or mention an undeployed provider agent | Conditional `deploy` | Calls Play first only while Buzz has no backend agent ID. |
-| Message an already deployed agent | None | Uses the Buzz relay and running `hypercli-acp` process. |
+| Message an already deployed agent | None | Uses the Buzz relay and running `hyper-acp` process. |
 | Save agent edits or change its model | None | Persists local/relay state; the provider is not notified. |
 | Shutdown, Stop running agents, or sidebar Stop all | None | Sends a signed `!shutdown` relay message when channel resolution succeeds. |
 | Delete an agent or persona | None | Deletes local/relay state and can orphan provider infrastructure. |
@@ -62,7 +62,7 @@ create form probe effect updates the same draft object it depends on, so
 providers must keep `info` cheap and idempotent until Buzz fixes that loop.
 
 The historical provider returned the deployment ID at 16:52:28 UTC. Buzz immediately
-showed the agent as deployed, while `hypercli-acp` connected to the relay at
+showed the agent as deployed, while `hyper-acp` connected to the relay at
 16:54:02 and its ten OpenCode workers became ready at 16:54:17. A provider
 that does not poll readiness can therefore confirm control-plane acceptance
 before harness readiness. The current HyperCLI provider waits for backend
@@ -74,13 +74,13 @@ sending a message, and using Stop running agents produced no provider process
 invocation in the same capture.
 
 Adding the deployed agent to a channel also produced no provider invocation.
-The running `hypercli-acp` process learned about the membership dynamically and
+The running `hyper-acp` process learned about the membership dynamically and
 subscribed to the new channel.
 
 Profile-level Shutdown failed with `agent is not in any channel` even while the
 profile displayed channel memberships. Shutdown from the channel member
 controls did resolve the channel and delivered the signed shutdown command:
-`hypercli-acp` announced offline and exited. HyperCLI remained `RUNNING`, however,
+`hyper-acp` announced offline and exited. HyperCLI remained `RUNNING`, however,
 and Kubernetes immediately restarted the container under its then-current
 restart policy. Neither shutdown path invoked the provider. Stock Buzz process
 shutdown is therefore not equivalent to provider infrastructure stop; current

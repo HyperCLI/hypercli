@@ -1,0 +1,146 @@
+//! Local raw ACP stdio transport.
+
+use crate::plugin::PluginRegistry;
+use crate::trace::{Direction, TraceStore};
+use crate::transport::AcpFrameObserver;
+use anyhow::{Context, Result};
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::mpsc;
+
+/// Run an ACP child process using local newline-delimited stdio.
+///
+/// Every valid ACP JSON-RPC frame read from this process' stdin is forwarded
+/// unchanged to the child. Every valid ACP JSON-RPC frame read from the child is
+/// forwarded unchanged to this process' stdout. Newlines are transport
+/// delimiters and are not part of the ACP JSON-RPC frame.
+///
+/// # Errors
+///
+/// Returns an error when the child process cannot be spawned, a frame is not
+/// JSON-RPC 2.0, or either stdio stream fails.
+pub async fn run(
+    command: Command,
+    trace: Option<TraceStore>,
+    plugins: Arc<PluginRegistry>,
+) -> Result<()> {
+    run_with_client_frame_source_and_observer(command, trace, plugins, None, None).await
+}
+
+/// Run an ACP child over local stdio with plugin-provided client frames.
+///
+/// # Errors
+///
+/// Returns an error when the child process cannot be spawned, a frame is not
+/// JSON-RPC 2.0, or either stdio stream fails.
+pub async fn run_with_client_frame_source(
+    command: Command,
+    trace: Option<TraceStore>,
+    plugins: Arc<PluginRegistry>,
+    client_frames: Option<mpsc::Receiver<String>>,
+) -> Result<()> {
+    run_with_client_frame_source_and_observer(command, trace, plugins, client_frames, None).await
+}
+
+/// Run an ACP child over local stdio with plugin-provided frames and observers.
+///
+/// # Errors
+///
+/// Returns an error when the child process cannot be spawned, a frame is not
+/// JSON-RPC 2.0, either stdio stream fails, or the observer task stops.
+pub async fn run_with_client_frame_source_and_observer(
+    command: Command,
+    trace: Option<TraceStore>,
+    plugins: Arc<PluginRegistry>,
+    client_frames: Option<mpsc::Receiver<String>>,
+    observer: Option<AcpFrameObserver>,
+) -> Result<()> {
+    let mut child = super::spawn_acp_child(command)?;
+    let mut child_stdin = child.stdin.take().context("child stdin unavailable")?;
+    let child_stdout = child.stdout.take().context("child stdout unavailable")?;
+    let (child_write_tx, mut child_write_rx) = mpsc::channel::<String>(256);
+
+    let stdin_to_child = {
+        let trace = trace.clone();
+        let plugins = Arc::clone(&plugins);
+        let child_write_tx = child_write_tx.clone();
+        let observer = observer.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(tokio::io::stdin()).lines();
+            while let Some(line) = lines.next_line().await? {
+                super::observe_frame(Direction::ClientToAgent, &line, trace.as_ref(), &plugins)?;
+                if let Some(observer) = &observer {
+                    observer.observe(Direction::ClientToAgent, &line).await?;
+                }
+                child_write_tx
+                    .send(line)
+                    .await
+                    .context("ACP child writer closed")?;
+            }
+            anyhow::Ok(())
+        })
+    };
+
+    let plugin_to_child = client_frames.map(|mut client_frames| {
+        let trace = trace.clone();
+        let plugins = Arc::clone(&plugins);
+        let child_write_tx = child_write_tx.clone();
+        let observer = observer.clone();
+        tokio::spawn(async move {
+            while let Some(line) = client_frames.recv().await {
+                super::observe_frame(Direction::ClientToAgent, &line, trace.as_ref(), &plugins)?;
+                if let Some(observer) = &observer {
+                    observer.observe(Direction::ClientToAgent, &line).await?;
+                }
+                child_write_tx
+                    .send(line)
+                    .await
+                    .context("ACP child writer closed")?;
+            }
+            anyhow::Ok(())
+        })
+    });
+
+    drop(child_write_tx);
+
+    let child_writer = tokio::spawn(async move {
+        while let Some(line) = child_write_rx.recv().await {
+            child_stdin.write_all(line.as_bytes()).await?;
+            child_stdin.write_all(b"\n").await?;
+        }
+        child_stdin.shutdown().await?;
+        anyhow::Ok(())
+    });
+
+    let stdout_to_client = {
+        let plugins = Arc::clone(&plugins);
+        let observer = observer.clone();
+        tokio::spawn(async move {
+            let mut stdout = tokio::io::stdout();
+            let mut lines = BufReader::new(child_stdout).lines();
+            while let Some(line) = lines.next_line().await? {
+                super::observe_frame(Direction::AgentToClient, &line, trace.as_ref(), &plugins)?;
+                if let Some(observer) = &observer {
+                    observer.observe(Direction::AgentToClient, &line).await?;
+                }
+                stdout.write_all(line.as_bytes()).await?;
+                stdout.write_all(b"\n").await?;
+                stdout.flush().await?;
+            }
+            anyhow::Ok(())
+        })
+    };
+
+    let status = child.wait().await?;
+    stdin_to_child.abort();
+    if let Some(task) = plugin_to_child {
+        task.abort();
+    }
+    child_writer.abort();
+    stdout_to_client.await??;
+    if !status.success() {
+        anyhow::bail!("ACP child exited with {status}");
+    }
+    Ok(())
+}

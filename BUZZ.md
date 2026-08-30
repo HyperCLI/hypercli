@@ -1,127 +1,38 @@
 # BUZZ.md — HyperCLI × Buzz integration
 
 Everything we've learned about how Buzz discovers, launches, and renders
-agents, what we changed in our `buzz-acp` fork, how our provider works, and
-the design options for remote-terminal / local-surface features.
+agents, how the copied Buzz ACP plugin is used by `hyper-acp`, how our provider
+works, and the design options for remote-terminal / local-surface features.
 
-Audience: anyone touching `buzz-acp/`, `buzz-backend-provider/`, or the
-desktop app's Buzz surfaces. Read this before editing any of them.
+Audience: anyone touching `hyper-acp/plugins/buzz-acp/`,
+`buzz-backend-provider/`, or the desktop app's Buzz surfaces. Read this before
+editing any of them.
 
 ---
 
-## 1. Our `buzz-acp` fork — what we changed and why
+## 1. Active ACP layout
 
-**Location:** `~/dev/hypercli/buzz-acp` (crate `hypercli-buzz-acp`, bin
-`buzz-acp`). Vendored from upstream `block/buzz` `crates/buzz-acp`.
+Hosted Buzz launches no longer run the old top-level `buzz-acp` fork or its
+observer websocket. The active container command is `/usr/local/bin/hyper-acp`.
+`hyper-acp` connects outbound to the platform ACP websocket named by
+`HYPER_ACP_WS_URL`, forwards raw ACP JSON-RPC frames, and uses
+`HYPER_ACP_AGENT_COMMAND=/usr/local/lib/hyper-acp/plugins/buzz-acp` to run the
+copied Buzz ACP plugin.
 
-**Pin:** `buzz-acp/Cargo.toml` declares
-`[package.metadata.hypercli] upstream-buzz-ref = 8342dfcc5890b81a269a8ec3db73a8a56f76ce79`
-(upstream tag `desktop-v0.5.5`, 2026-08-04), enforced by
-`buzz-acp/tests/upstream_pin.rs`. Any vendor update must move the pin and the
-test together.
+Source locations:
 
-### Fork history (oldest → newest)
+- Canonical ACP copy: `hyper-acp/`, sourced from
+  `agentclientprotocol/agent-client-protocol`; see `hyper-acp/PROVENANCE.md`.
+- Buzz plugin copy: `hyper-acp/plugins/buzz-acp/`, sourced from
+  `~/dev/buzz-git/crates/buzz-acp`; see
+  `hyper-acp/plugins/buzz-acp/PROVENANCE.md`.
+- HyperCLI launcher/transport wrapper: `hyper-acp/crates/hyper-acp/`.
+- Slack relay plugin: `hyper-acp/plugins/slack-relay/`.
 
-| Commit | Change |
-|---|---|
-| `0fc67401` | **Import + hardening** ("harden hosted Buzz provider and ACP runtime", 2026-08-05). Byte-identical to the pin for 6 files (`base_prompt.md`, `engram_fetch.rs`, `usage.rs`, `queue.rs`, `observer.rs`, `pool_lifecycle.rs`); hardening edits to `acp.rs`, `pool.rs`, `relay.rs`, `filter.rs`, `setup_mode.rs`, `main.rs`, `Cargo.toml`; dropped upstream `tests/pool_lifecycle_state.rs`; added `LICENSE-APACHE` + `tests/upstream_pin.rs`. Also backported the **hosted reply guard** from upstream-adjacent `145aa37f0` (lives only on the `hypercli/hypercli` branch, never merged to upstream main — upstream shipped a *different* reply guard, `081f805d5`, in `crates/buzz-agent`). |
-| `fc97a11b` | **HyperCLI inference injection** (+336 in `acp.rs`) — wires the agent's model traffic through the HyperCLI inference gateway. |
-| `1d2dfb7e` | **Auth tags** in `config.rs`. |
-| `93612ffd` | **Fail-closed model check** — `buzz-acp/src/pool.rs:988` calls `std::process::exit(2)` when a launch-config model (`BUZZ_ACP_MODEL`) is not in the ACP session's advertised catalog. Deliberate: a hosted pod must never silently run the wrong model. |
-| `d8837b45` | **`BUZZ_MODEL_PREFIX`** — `resolve_model_with_prefix` in `config.rs` (flag ~:458, call site ~:1115, fn ~:1509). Bare launch-config models get qualified with the prefix (e.g. `coding-anthropic` → `hypercli/coding-anthropic`). Baked into the agent images as an env var; SDKs stay verbatim. |
-| *(uncommitted)* | **Hyper-ACP surface: durable activity log + WS streaming + app-level auth** — new `src/hyper_acp.rs`. `HYPER_ACP_LOG=/path/to/activity.db` records every observer event of the current boot durably (sqlite WAL, fresh `sessions` row per boot; parents created on open; open failure warns + disables, never crashes). `HYPER_ACP_WS_LISTEN=ip:port` serves the raw observer stream on a WebSocket: **full-session replay from disk** → exactly one `{"type":"replay_end"}` → live `ObserverEvent` JSON frames; `{"type":"replay_gap","dropped":n}` on lag; 5s per-send timeout drops stalled clients quietly. Connect auth via `HYPER_ACP_WS_TOKEN` + optional `HYPER_ACP_CORS_ORIGIN` browser-Origin allowlist (contract below). Bind rule: token set ⇒ any numeric `ip:port` (0.0.0.0 OK — the platform edge route runs **`auth: false`**, so the token IS the boundary); unset ⇒ loopback-only. `[::ffff:127.0.0.1]`-style IPv4-mapped spellings rejected in both modes. Rebrand: this WS surface was previously named "introspection" (envs `BUZZ_ACP_INTROSPECTION_LISTEN`/`BUZZ_ACP_INTROSPECTION_LOG`, flags `--introspection-*`, module `src/introspection.rs`) — all renamed to the `hyper-acp` names below. Migration: the old 500-event in-memory ring is gone — `--introspection-replay`/`BUZZ_ACP_INTROSPECTION_REPLAY` are retired and fail as unknown args; the disk log supersedes them. Both consumers tap `observer.rs`'s emit funnel exactly once, **before** relay pacing/coalescing/elision (`observer.rs` no longer byte-identical to the pin); the observer handle exists when relay observer, listener, **or** log is enabled. One new dep: `rusqlite` (bundled); upstream pin unchanged. |
-
-### Hyper-ACP WS env + handshake contract
-
-Envs (wire names are frozen — `buzz-backend-provider` / `ts-sdk` integration consumes them):
-
-| Env | Flag | Meaning |
-|---|---|---|
-| `HYPER_ACP_WS_LISTEN` | `--hyper-acp-listen` | Numeric `ip:port` of the WS listener; unset/empty disables it. |
-| `HYPER_ACP_LOG` | `--hyper-acp-log` | sqlite file path for the boot-scoped activity log (trimmed; empty = unset). No listener needed — logging works standalone. |
-| `HYPER_ACP_WS_TOKEN` | `--hyper-acp-ws-token` | App-level connect token (trimmed; empty = unset). Set ⇒ any numeric bind allowed + auth required; unset ⇒ no auth at all (desktop local compat) + loopback-only bind. |
-| `HYPER_ACP_CORS_ORIGIN` | `--hyper-acp-cors-origin` | Comma-separated browser `Origin` allowlist (split `,` → trim → drop empties). Unset/empty disables the check. Applies with or without a token. |
-
-Retired: `BUZZ_ACP_INTROSPECTION_REPLAY` / `--introspection-replay` (clap now
-rejects them; replay is unlimited per-session from the disk log).
-
-**Storage:** per boot, `ActivityLog::open` inserts a fresh
-`sessions(id uuid-v4, started_at rfc3339)` row; every observer event lands as
-`events(id AUTOINCREMENT, session_id, line)` under WAL
-(`PRAGMA journal_mode=WAL`, schema + index `idx_events_session(session_id, id)`
-in `hyper_acp.rs`). Emit-side ingestion is 100% non-blocking: a bounded
-tokio mpsc (cap 4096), `try_send` drop-on-full (occasional debug drop count);
-one drain task batches ≤256 lines or 25ms-idle per transaction, warns on the
-1st/8th consecutive db error and keeps draining forever. Shutdown is bounded
-(2s, then abort) and **lossless**: the drain first empties the queued channel
-before exiting — parent dirs are created on open, open/init failure disables
-logging with a `warn`, never a crash.
-
-Bind rule (in `Config::from_args`, warn + disable, never crash): numeric
-`ip:port` only (no hostnames); token set ⇒ any numeric address (`0.0.0.0:7799`
-explicitly OK); token unset ⇒ loopback only (`127.0.0.1`, `[::1]`); non-loopback
-without a token logs the value + that a token is required, then disables.
-IPv4-mapped loopback (`[::ffff:127.0.0.1]`) is rejected in both modes
-(`SocketAddr::from_str` does not normalize; `is_loopback()` is false — fails
-closed).
-
-Per-connection handshake (server HTTP upgrade callback, before WS upgrade):
-
-1. **CORS** (only when the allowlist is non-empty): if the request carries an
-   `Origin` header, its value (trimmed, one trailing `/` removed) must exactly
-   equal one configured entry — else **HTTP 403** with a short plain body and
-   the upgrade fails. Requests **without** an `Origin` header always pass
-   (server-side clients).
-2. **Token** (only when configured):
-   - `Authorization: Bearer <token>` (case-insensitive `Bearer`, exactly one
-     space, case-sensitive token) ⇒ straight to replay, **no** `auth_ok` frame.
-   - Otherwise the WS upgrade completes and the client's **first text frame
-     within 3s** must be exactly JSON `{"type":"auth","token":"<token>"}`. On
-     success the server sends exactly one `{"type":"auth_ok"}` text frame, then
-     replay. Wrong/missing/timeout/non-text/non-object ⇒ the server sends
-     nothing and closes with **WS code 4401, reason `unauthorized`**. A client
-     that only sends a WS `Close` (or nothing) during the auth wait is dropped
-     quietly. A wrong bearer header does not reject the upgrade — the
-     first-frame path is still available on that connection.
-3. Token unset ⇒ no auth frames, period (byte-for-byte old behavior).
-
-**Token rotation (F4):** the server reads `HYPER_ACP_WS_TOKEN` once at boot —
-rotating it via the platform secret (`setSecret`) takes effect for new
-clients only after the agent restarts.
-
-**Crypto redaction (emit boundary):** the WS stream AND the sqlite session
-log must never contain protocol-level crypto material. At startup lib.rs
-collects an exact-substring denylist — the agent nostr secret key in **hex**
-and **nsec bech32** form, the `HYPER_ACP_WS_TOKEN` value, and the
-`BUZZ_AUTH_TAG` env value; entries empty or shorter than 12 chars are
-dropped (no degenerate over-redaction) — into a no-log/no-`Debug`
-`Redactor`. `observer.rs` emit redacts the one serialized line feeding BOTH
-the tap and the log (`[redacted]` replacement), so any payload field any
-future emit site adds is covered. Matching is escaping-aware: a value-form
-entry (the auth tag is a JSON array) is matched BOTH as its canonical JSON
-value form — replaced with a same-shape marker holder (`["[redacted]"]` /
-`{"redacted":true}`) — and as its JSON-string-escaped body form (for
-string-embedded occurrences), so stream and log stay valid JSON in either
-embedding. The encrypted relay path is unchanged: it
-consumes the original `ObserverEvent` object, never the redacted line.
-
-Then the stream contract: **full-session replay** — every recorded event of
-the current boot session, oldest first, paged from sqlite in 256-row chunks
-bounded at connect time (live appends still arrive via broadcast; clients
-dedup the overlap on `(timestamp, seq)`). The snapshot is race-closed: after
-subscribing to the live tap, the server pushes a flush barrier through the
-same fifo drain channel and snapshots the replay upper bound only after the
-drain's ack (bounded — 250ms enqueue + 250ms ack; a saturated channel or
-missed ack proceeds degraded with one debug line) — so any event recorded
-before the subscribe is provably durable and covered by replay instead of
-falling silently between publish and flush → exactly one
-`{"type":"replay_end"}` → live `ObserverEvent` JSON frames; lag ⇒ one
-`{"type":"replay_gap","dropped":n}`; per-send 5s timeout disconnects stalled
-clients (covers `auth_ok` too). No log configured (or db unreadable at
-connect) ⇒ empty replay phase, the marker still fires. The auth wait is
-inside each connection task — it never blocks other connections. Logs carry
-no tokens, no `Origin` values, no frame content (auth failures log a static
-reason at `debug`).
+The old observer websocket used an inbound listener env and bespoke
+auth/replay marker frames. That route is not the hosted platform scheduling
+path. SDK/provider launch code intentionally scrubs the legacy inbound listener
+env from hosted Buzz launches and sets `HYPER_ACP_WS_URL` instead.
 
 ### The exit-2 production crash (resolved)
 
@@ -528,7 +439,7 @@ Two creation paths:
      isn't served is rejected, never silently substituted.
   3. Build the launch via the SDK's `BuzzLaunchConfig.apply_to`
      (`rs-sdk/src/types.rs:473`): sets the runtime's buzz image, command
-     `/usr/local/bin/buzz-acp`, agent command/args per runtime, injects
+     `/usr/local/bin/hyper-acp`, agent command/args per runtime, injects
      `BUZZ_PRIVATE_KEY`/`NOSTR_PRIVATE_KEY` as secrets, `BUZZ_RELAY_URL` +
      `BUZZ_ACP_*` env, clears routes, `sync_root=/home/node`,
      `restart=false` (owner-signed `!shutdown` must not resurrect),

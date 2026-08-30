@@ -29,7 +29,7 @@ Base image (`buzz/base/Dockerfile`): `node:24-bookworm-slim`; builds
 
 Common: USER `node`, WORKDIR `/home/node`, no EXPOSE (outbound-only), tini +
 per-runtime entrypoint, `CMD ["sleep","infinity"]`; hosted launch overrides the
-command with `/usr/local/bin/buzz-acp`. Full HyperCLI source at `/opt/hypercli`
+command with `/usr/local/bin/hyper-acp`. Full HyperCLI source at `/opt/hypercli`
 with the `hyper` CLI pip-installed; nest dirs/skills seeded by
 `hypercli-buzz-init` (only-if-missing, mode 0700) under `/home/node/.buzz`.
 
@@ -37,7 +37,7 @@ Entrypoint chain (hosted launch):
 ```
 tini → hypercli-buzz-<runtime>-entrypoint → hypercli-buzz-init
      → (per-runtime settings mgmt) → hypercli-buzz-entrypoint
-     → exec "$@" → /usr/local/bin/buzz-acp → ACP child (lazy if BUZZ_ACP_LAZY_POOL)
+     → exec "$@" → /usr/local/bin/hyper-acp → ACP child (lazy if BUZZ_ACP_LAZY_POOL)
 ```
 
 Per-runtime entrypoint extras:
@@ -82,7 +82,7 @@ secrets are client-supplied. Rules that ARE server-side:
 
 The buzz launch payload the CI pins (provider/e2e golden contract):
 - `image = ghcr.io/hypercli/hypercli-buzz-<runtime>:<tag>`,
-  `command = ["/usr/local/bin/buzz-acp"]`, `restart = false`,
+  `command = ["/usr/local/bin/hyper-acp"]`, `restart = false`,
   `sync_root = /home/node`, `sync_uid/gid = 1000`, `routes = {}`,
   `runtime_scopes = ["agents:none","files:*","flows:*","models:*","voice:*","web:*","workspaces:*"]`
 - **secrets**: `BUZZ_PRIVATE_KEY`, `NOSTR_PRIVATE_KEY` (agent nsec — never env)

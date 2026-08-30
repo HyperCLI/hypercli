@@ -1,0 +1,31 @@
+[package]
+name = "hyper-acp-slack-relay"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88.0"
+license = "Apache-2.0"
+description = "HyperCLI ACP Slack relay connector ported from OpenClaw Slack relay semantics"
+repository = "https://github.com/HyperCLI/hypercli"
+readme = "README.md"
+keywords = ["acp", "slack", "relay", "hypercli"]
+categories = ["development-tools"]
+
+[lib]
+name = "hyper_acp_slack_relay"
+path = "src/lib.rs"
+
+[dependencies]
+agent-client-protocol-schema = { workspace = true }
+futures-util = { workspace = true }
+regex = "1.11"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = "2"
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+url = { workspace = true }
+uuid = "1"
+
+[lints]
+workspace = true

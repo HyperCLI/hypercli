@@ -194,7 +194,7 @@ the backend's `stopped` state.
 Buzz-specialized images reconcile their nest after mount and run the harness
 from `/home/node/.buzz`. OpenCode and Codex consume its `AGENTS.md`; Claude
 Code receives `CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into
-`hypercli-acp`.
+`hyper-acp`.
 
 For a generic `CreateDeploymentRequest`, whole-root sync is represented by
 omitting both selectors or by `sync_exclude: Some(vec![])`. An explicit empty

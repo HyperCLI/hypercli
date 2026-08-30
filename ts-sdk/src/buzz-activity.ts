@@ -2,7 +2,7 @@
  * Buzz-activity transport: subscribe to a Buzz-backed agent's observer
  * telemetry directly from its Nostr relay.
  *
- * Buzz-backed HyperCLI deployments run `hypercli-acp`, which publishes observer
+ * Buzz-backed HyperCLI deployments run `hyper-acp`, which publishes observer
  * frames as kind-24200 events signed by the agent key, with the content
  * NIP-44-v2-encrypted to the owner pubkey. The SDK subscribes to the relay
  * over a plain WebSocket and decrypts locally; no backend round-trips are
@@ -239,7 +239,7 @@ export function resolveBuzzOwnerFromEnv(env: Record<string, unknown>): BuzzEnvCo
   if (!relayUrl) {
     throw new Error(
       'Agent is not Buzz-backed: launchConfig env has no BUZZ_RELAY_URL; ' +
-        'observer activity is only published by Buzz deployments running hypercli-acp',
+        'observer activity is only published by Buzz deployments running hyper-acp',
     );
   }
   const authTag = readEnvString(env, 'BUZZ_AUTH_TAG');
@@ -545,15 +545,13 @@ export async function subscribeBuzzActivity(
 
 export type { BuzzDeploymentsClient };
 
-// ── Route transport: hyper-acp WS route serving the buzz activity stream, ──
+// ── Legacy route transport: former hyper-acp read-only activity stream. ──
 // ── app-level token auth ──
 
 /**
- * Pinned route name for the hyper-acp introspection listener. Deployments
- * launched with the provider's `buzz_activity` option carry
- * `routes['hyper-acp'] = { port: 7799, auth: false }` — the edge does no
- * auth; the stream is authenticated in-band (see
- * {@link subscribeBuzzActivityRoute}).
+ * Pinned route name for the legacy hyper-acp introspection listener. Current
+ * hosted Buzz launches use raw outbound ACP over `HYPER_ACP_WS_URL` and do not
+ * provision this route.
  */
 export const HYPER_ACP_ROUTE_NAME = 'hyper-acp';
 
@@ -600,14 +598,9 @@ export interface BuzzActivityRouteTarget {
 type BuzzRouteDeploymentsClient = Pick<Deployments, 'get' | 'secret'>;
 
 /**
- * Deployment env/secret that provisions the app-level introspection token.
- * hypercli-acp binds via HYPER_ACP_WS_LISTEN: when the token is set it accepts
- * any bind address (the SDK provisions `0.0.0.0:7799` for edge forwarding);
- * with the token unset it is loopback-only (desktop-local) and no auth
- * frames are exchanged at all. With a token, auth is either a Bearer header
- * presented pre-upgrade OR the client's first text frame in-band
- * (`{"type":"auth","token":...}`, what this SDK sends). Replay history comes
- * from the server's session log at the SDK-pinned HYPER_ACP_LOG path.
+ * Legacy deployment secret for the retired read-only route. Current hosted
+ * Buzz launches do not create this secret; callers should prefer the relay
+ * activity subscription or the raw outbound ACP launch contract.
  */
 const BUZZ_ACTIVITY_WS_TOKEN_SECRET = 'HYPER_ACP_WS_TOKEN';
 
@@ -643,12 +636,10 @@ function openBuzzActivityRouteSocket(wsUrl: string): WebSocket {
 }
 
 /**
- * Subscribe to a Buzz-backed agent's observer stream through the agent's
- * `hyper-acp` WS route (serving the buzz activity stream) — the raw,
- * unpaced, untrimmed in-pod stream (one `ObserverEvent` JSON per frame),
- * preceded by the server's session log (a full-boot-session replay from
- * disk; live frames are unchanged) and exactly one `{"type":"replay_end"}`
- * marker, which maps to `onHistoryEnd`.
+ * Subscribe to a legacy Buzz-backed agent's observer stream through the
+ * agent's `hyper-acp` WS route. Current hosted Buzz launches do not provision
+ * this observer route; the active path uses raw outbound ACP over
+ * `HYPER_ACP_WS_URL`.
  *
  * Auth is app-level and entirely in-band: the route is `auth: false` at the
  * edge, so no platform JWT, cookie priming, or header tricks are involved.

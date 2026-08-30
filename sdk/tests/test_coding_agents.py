@@ -321,7 +321,7 @@ def test_buzz_coding_agent_uses_specialized_default_image(
     getattr(deployments, method_name)(buzz_enabled=True)
 
     assert posted["image"] == buzz_image
-    assert posted["command"] == ["/usr/local/bin/hypercli-acp", "buzz"]
+    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
 
 
 @pytest.mark.parametrize(
@@ -433,7 +433,12 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
         },
     )
 
-    assert posted["command"] == ["/usr/local/bin/hypercli-acp", "buzz"]
+    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
+    assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
+    assert (
+        posted["env"]["HYPER_ACP_AGENT_COMMAND"]
+        == "/usr/local/lib/hyper-acp/plugins/buzz-acp"
+    )
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["restart"] is False
     assert "entrypoint" not in posted
@@ -443,7 +448,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert posted["secrets"]["NOSTR_PRIVATE_KEY"] == agent_nsec
     assert (
         posted["env"]["RUST_LOG"]
-        == "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+        == "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
     assert "OPENCLAW_GATEWAY_TOKEN" not in posted["env"]
 
@@ -491,7 +496,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["routes"] == {}
-    assert posted["command"] == ["/usr/local/bin/hypercli-acp", "buzz"]
+    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
     assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
@@ -501,7 +506,12 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_ACP_MODEL"] == "hypercli/kimi-k2.6-anthropic"
     assert posted["env"]["BUZZ_ACP_AGENTS"] == "3"
     assert posted["env"]["BUZZ_ACP_LAZY_POOL"] == "true"
-    assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "true"
+    assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "false"
+    assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
+    assert (
+        posted["env"]["HYPER_ACP_AGENT_COMMAND"]
+        == "/usr/local/lib/hyper-acp/plugins/buzz-acp"
+    )
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
     assert posted["secrets"] == {
         "BUZZ_PRIVATE_KEY": "nsec1test",
@@ -536,7 +546,7 @@ def test_typed_buzz_launch_uses_safe_default_acp_logging():
 
     assert (
         posted["env"]["RUST_LOG"]
-        == "hypercli_acp=info,hypercli_buzz_acp=info,pool::prompt=info,acp::stream=off"
+        == "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
     )
     assert posted["restart"] is False
 
@@ -617,8 +627,9 @@ def test_codex_auth_methods_merge_acp_and_native_device_login():
     assert methods[1].command == ("codex", "login", "--device-auth")
     command = agent._deployments.exec.call_args.args[1]
     assert command == [
-        "hypercli-acp",
-        "auth-methods",
+        "hyper-acp",
+            "plugin",
+            "auth-methods",
         "--agent-command",
         "codex-acp",
         "--json",
@@ -694,7 +705,7 @@ async def test_adapter_owned_login_uses_buzz_acp_authenticate():
     assert session.verification_url == "https://auth.example/device"
     assert session.user_code == "ACP-1234"
     assert socket.sent[0].startswith(
-        "hypercli-acp authenticate --agent-command opencode "
+        "hyper-acp plugin authenticate --agent-command opencode "
         "--agent-args acp --method-id oauth;"
     )
     await session.cancel()
