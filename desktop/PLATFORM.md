@@ -145,7 +145,7 @@ Presence is kind **20001** (ephemeral, WS-only) with relay-synthesized kind
 
 ## 6. CI contract (two suites exercise the live dev relay)
 
-### A. Platform agent-image CI `hypercli-buzz-acp` job
+### A. Platform agent-image CI `hyper-acp` job
 Matrix over all 6 runtimes; runs `tests/smoke/test_buzz_provider_hypercli_e2e.py`
 and `tests/smoke/test_buzz_provider_live_smoke.py` in the smoke image with
 host-built `buzz-backend-hypercli` plus image-extracted `hyper-acp`, `buzz`,
