@@ -56,7 +56,7 @@ jobs:
         id: build-e2e
         run: |
           rm -rf -- "${GITHUB_WORKSPACE}/.e2e-artifacts/playwright-agents-${{ matrix.lane }}-"*
-          E2E_IMAGE_FAMILY="e2e-agents" \
+          E2E_IMAGE_FAMILY="e2e-agents-${{ matrix.lane }}" \
           PRUNE_BUILD_CACHE=1 \
           IMAGE_TAG="e2e-agents-${{ matrix.lane }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
