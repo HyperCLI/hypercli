@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use std::env;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -17,6 +18,7 @@ use tokio_tungstenite::tungstenite::protocol::Message;
 use url::Url;
 
 const HYPER_AGENTS_API_KEY_ENV: &str = "HYPER_AGENTS_API_KEY";
+const WS_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Run an ACP child process over an outbound `/ws` WebSocket.
 ///
@@ -97,6 +99,33 @@ pub async fn run_with_client_frame_source_and_observer(
     let child_stdout = child.stdout.take().context("child stdout unavailable")?;
 
     let (child_write_tx, mut child_write_rx) = mpsc::channel::<String>(256);
+    let (ws_send_tx, mut ws_send_rx) = mpsc::channel::<Message>(256);
+
+    let ws_writer = tokio::spawn(async move {
+        while let Some(message) = ws_send_rx.recv().await {
+            ws_write.send(message).await?;
+        }
+        ws_write.close().await?;
+        anyhow::Ok(())
+    });
+
+    let ws_keepalive = {
+        let ws_send_tx = ws_send_tx.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(WS_KEEPALIVE_INTERVAL);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                interval.tick().await;
+                if ws_send_tx
+                    .send(Message::Ping(Vec::new().into()))
+                    .await
+                    .is_err()
+                {
+                    return anyhow::Ok(());
+                }
+            }
+        })
+    };
 
     let ws_to_child = {
         let trace = trace.clone();
@@ -169,6 +198,7 @@ pub async fn run_with_client_frame_source_and_observer(
     let child_to_ws = {
         let plugins = Arc::clone(&plugins);
         let observer = observer.clone();
+        let ws_send_tx = ws_send_tx.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(child_stdout).lines();
             while let Some(line) = lines.next_line().await? {
@@ -176,22 +206,29 @@ pub async fn run_with_client_frame_source_and_observer(
                 if let Some(observer) = &observer {
                     observer.observe(Direction::AgentToClient, &line).await?;
                 }
-                ws_write.send(Message::Text(line.into())).await?;
+                ws_send_tx
+                    .send(Message::Text(line.into()))
+                    .await
+                    .context("ACP WebSocket writer closed")?;
             }
-            ws_write.close().await?;
             anyhow::Ok(())
         })
     };
+    drop(ws_send_tx);
 
     tokio::pin!(ws_to_child);
     tokio::pin!(child_to_ws);
     tokio::pin!(child_writer);
+    tokio::pin!(ws_writer);
+    tokio::pin!(ws_keepalive);
     let mut plugin_to_child = plugin_to_child;
 
     tokio::select! {
         biased;
         status = child.wait() => {
             ws_to_child.abort();
+            ws_keepalive.abort();
+            ws_writer.abort();
             if let Some(task) = &plugin_to_child {
                 task.abort();
             }
@@ -207,6 +244,8 @@ pub async fn run_with_client_frame_source_and_observer(
             result??;
             drop(child.kill().await);
             child_to_ws.abort();
+            ws_keepalive.abort();
+            ws_writer.abort();
             if let Some(task) = &plugin_to_child {
                 task.abort();
             }
@@ -216,6 +255,8 @@ pub async fn run_with_client_frame_source_and_observer(
             result??;
             drop(child.kill().await);
             ws_to_child.abort();
+            ws_keepalive.abort();
+            ws_writer.abort();
             if let Some(task) = &plugin_to_child {
                 task.abort();
             }
@@ -226,9 +267,33 @@ pub async fn run_with_client_frame_source_and_observer(
             drop(child.kill().await);
             ws_to_child.abort();
             child_to_ws.abort();
+            ws_keepalive.abort();
+            ws_writer.abort();
             if let Some(task) = &plugin_to_child {
                 task.abort();
             }
+        }
+        result = &mut ws_writer => {
+            result??;
+            drop(child.kill().await);
+            ws_to_child.abort();
+            child_to_ws.abort();
+            ws_keepalive.abort();
+            if let Some(task) = &plugin_to_child {
+                task.abort();
+            }
+            child_writer.abort();
+        }
+        result = &mut ws_keepalive => {
+            result??;
+            drop(child.kill().await);
+            ws_to_child.abort();
+            child_to_ws.abort();
+            ws_writer.abort();
+            if let Some(task) = &plugin_to_child {
+                task.abort();
+            }
+            child_writer.abort();
         }
         result = async {
             match &mut plugin_to_child {
