@@ -2,8 +2,8 @@
 
 How HyperCLI's hosted buzz agent images are built, launched, and verified in
 CI. Companion to `BUZZ.md` (relay protocol + desktop2 integration). Audited
-against the hosted platform contract and `~/dev/hypercli` (buzz-acp,
-buzz-backend-provider, desktop e2e).
+against the hosted platform contract and `~/dev/hypercli` (`hyper-acp`,
+Buzz plugin, buzz-backend-provider, desktop e2e).
 
 ---
 
@@ -22,10 +22,11 @@ No single "buzz image" — a shared base plus six provider images:
 
 Base image (`buzz/base/Dockerfile`): `node:24-bookworm-slim`; builds
 - `sprig` multicall (→ `buzz`, `buzz-dev-mcp`) from upstream `block/buzz` at
-  the exact `upstream-buzz-ref` pinned in `hypercli/buzz-acp/Cargo.toml`
+  the exact source commit recorded in `hypercli/hyper-acp/plugins/buzz-acp/PROVENANCE.md`
   (currently `8342dfcc…`, tag `desktop-v0.5.5`);
-- `buzz-acp` from `HyperCLI/hypercli.git` crate `hypercli-buzz-acp` at a
-  caller-supplied 40-hex `HYPERCLI_REF`.
+- `hyper-acp` from `HyperCLI/hypercli.git`, including the copied Buzz plugin
+  binary under `/usr/local/lib/hyper-acp/plugins/buzz-acp`, at a caller-supplied
+  40-hex `HYPERCLI_REF`.
 
 Common: USER `node`, WORKDIR `/home/node`, no EXPOSE (outbound-only), tini +
 per-runtime entrypoint, `CMD ["sleep","infinity"]`; hosted launch overrides the
@@ -53,7 +54,8 @@ Per-runtime entrypoint extras:
 
 ## 2. Runtime auth (two distinct mechanisms)
 
-1. **Hosted ACP runtime injection** (in buzz-acp, `buzz-acp/src/acp.rs:269-344`):
+1. **Hosted ACP runtime injection** (in the Buzz plugin,
+   `hyper-acp/plugins/buzz-acp/src/acp.rs`):
    only when `HYPERCLI_RUNTIME_INFERENCE=hypercli` exactly AND
    `HYPER_AGENTS_API_KEY`+`HYPER_API_BASE` non-empty, buzz-acp injects
    per-runtime inference env **in-memory at child spawn** (Claude:
@@ -143,13 +145,14 @@ Presence is kind **20001** (ephemeral, WS-only) with relay-synthesized kind
 
 ## 6. CI contract (two suites exercise the live dev relay)
 
-### A. Platform agent-image CI `buzz-e2e` job
+### A. Platform agent-image CI `hypercli-buzz-acp` job
 Matrix over all 6 runtimes; runs `tests/smoke/test_buzz_provider_hypercli_e2e.py`
-in the smoke image with host-built `buzz-backend-hypercli` + image-extracted
-`buzz`/`buzz-acp` binaries bind-mounted in. Recipe:
+and `tests/smoke/test_buzz_provider_live_smoke.py` in the smoke image with
+host-built `buzz-backend-hypercli` plus image-extracted `hyper-acp`, `buzz`,
+and the internal Buzz plugin binary bind-mounted in. Recipe:
 1. Paid smoke user via `BACKEND_API_KEY` bootstrap, plan `pro`.
 2. Agent key minted with pinned `nak key generate` (raw hex); owner attestation
-   via `buzz-acp auth-tag --agent-pubkey <hex>` (owner nsec on stdin).
+   via the image-extracted auth-tag helper (owner nsec on stdin).
 3. Enroll: `buzz channels add-member --channel <id> --pubkey <agent> --role bot`;
    profile via `buzz users set-profile`.
 4. `{"op":"deploy"}` to the provider binary (protocol v1; `info` first).

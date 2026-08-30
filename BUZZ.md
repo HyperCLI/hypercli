@@ -542,8 +542,9 @@ a code bug.
 
 **Ours (`~/dev/hypercli`):**
 
-- Fork: `buzz-acp/` (pin in `Cargo.toml`, guard `tests/upstream_pin.rs`,
-  fail-closed `src/pool.rs:988`, prefix `src/config.rs:1509`)
+- ACP host and Buzz plugin: `hyper-acp/`, with copied Buzz source under
+  `hyper-acp/plugins/buzz-acp/` and provenance in
+  `hyper-acp/plugins/buzz-acp/PROVENANCE.md`
 - Provider: `buzz-backend-provider/` (payload `src/lib.rs:48`, info schema
   `:306`, deploy `:327`, client config `src/main.rs:47`)
 - Install UI: `desktop/src-tauri/src/providers.rs`,

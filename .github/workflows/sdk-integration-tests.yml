@@ -127,8 +127,83 @@ jobs:
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
 
+  hyper-acp-ws:
+    name: HyperCLI ACP WS
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - name: Run focused ACP protocol slice
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            rust:1.95.0-bookworm \
+            cargo test --locked -p hyper-acp --test transport_passthrough
+
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+  hyper-acp-slack:
+    name: HyperCLI ACP Slack
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - name: Run focused ACP Slack slice
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            rust:1.95.0-bookworm \
+            cargo test --locked -p hyper-acp-slack-relay
+
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+  hypercli-buzz-acp:
+    name: HyperCLI Buzz ACP
+    runs-on: self-hosted
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - name: Run focused Buzz ACP slice
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            -w /workspace \
+            rust:1.95.0-bookworm \
+            cargo test --locked -p buzz-acp
+
+      - name: Restore workspace ownership
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
   ts-sdk-integration:
-    needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit]
+    needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit, hyper-acp-ws, hyper-acp-slack, hypercli-buzz-acp]
     runs-on: self-hosted
     timeout-minutes: 20
     defaults:
@@ -229,7 +304,7 @@ jobs:
           fi
 
   python-sdk-integration:
-    needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit]
+    needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit, hyper-acp-ws, hyper-acp-slack, hypercli-buzz-acp]
     runs-on: self-hosted
     timeout-minutes: 35
     defaults:
@@ -328,7 +403,7 @@ jobs:
           fi
 
   cli-integration:
-    needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit]
+    needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit, hyper-acp-ws, hyper-acp-slack, hypercli-buzz-acp]
     runs-on: self-hosted
     timeout-minutes: 20
     defaults:
@@ -427,6 +502,9 @@ jobs:
       - ts-sdk-unit
       - python-sdk-unit
       - rust-sdk-unit
+      - hyper-acp-ws
+      - hyper-acp-slack
+      - hypercli-buzz-acp
       - ts-sdk-integration
       - python-sdk-integration
       - cli-integration
@@ -446,7 +524,7 @@ jobs:
           NOTIFY_URL: ${{ vars.NOTIFY_URL }}
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          if [ "${{ needs.ts-sdk-unit.result }}" = "success" ] && [ "${{ needs.python-sdk-unit.result }}" = "success" ] && [ "${{ needs.rust-sdk-unit.result }}" = "success" ] && [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ] && [ "${{ needs.cli-integration.result }}" = "success" ]; then
+          if [ "${{ needs.ts-sdk-unit.result }}" = "success" ] && [ "${{ needs.python-sdk-unit.result }}" = "success" ] && [ "${{ needs.rust-sdk-unit.result }}" = "success" ] && [ "${{ needs['hyper-acp-ws'].result }}" = "success" ] && [ "${{ needs['hyper-acp-slack'].result }}" = "success" ] && [ "${{ needs['hypercli-buzz-acp'].result }}" = "success" ] && [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ] && [ "${{ needs.cli-integration.result }}" = "success" ]; then
             STATUS="success"
             MESSAGE="SDK, CLI unit, and integration tests passed"
           else
@@ -465,5 +543,5 @@ jobs:
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Fail workflow when SDK jobs fail
-        if: needs.ts-sdk-unit.result != 'success' || needs.python-sdk-unit.result != 'success' || needs.rust-sdk-unit.result != 'success' || needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success' || needs.cli-integration.result != 'success'
+        if: needs.ts-sdk-unit.result != 'success' || needs.python-sdk-unit.result != 'success' || needs.rust-sdk-unit.result != 'success' || needs['hyper-acp-ws'].result != 'success' || needs['hyper-acp-slack'].result != 'success' || needs['hypercli-buzz-acp'].result != 'success' || needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success' || needs.cli-integration.result != 'success'
         run: exit 1

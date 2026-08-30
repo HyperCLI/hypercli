@@ -7,7 +7,7 @@
 //!   202-228 for durable-before-ack semantics.
 //!
 //! HyperCLI deviation: ingress is a local JSONL store under
-//! `.hypercli-acp/slack-relay` by default because this Rust relay runs outside
+//! `.hyper-acp/slack-relay` by default because this Rust relay runs outside
 //! OpenClaw's shared channel queue. `HYPER_ACP_SLACK_DURABLE_LOG` still owns
 //! explicit path selection.
 
@@ -232,7 +232,7 @@ pub fn recover_durable_relay_log(
 pub fn default_durable_log_path(gateway_id: &str, session_id: &str) -> PathBuf {
     std::env::current_dir()
         .unwrap_or_else(|_| std::env::temp_dir())
-        .join(".hypercli-acp")
+        .join(".hyper-acp")
         .join("slack-relay")
         .join(format!(
             "{}-{}.jsonl",
@@ -355,9 +355,9 @@ mod tests {
     }
 
     #[test]
-    fn default_durable_path_uses_hypercli_state_dir() {
+    fn default_durable_path_uses_hyper_acp_state_dir() {
         let path = default_durable_log_path("agent:abc", "sess/1");
-        assert!(path.to_string_lossy().contains(".hypercli-acp/slack-relay"));
+        assert!(path.to_string_lossy().contains(".hyper-acp/slack-relay"));
         assert!(path.to_string_lossy().ends_with("agent_abc-sess_1.jsonl"));
     }
 }

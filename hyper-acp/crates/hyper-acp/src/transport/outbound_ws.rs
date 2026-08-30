@@ -189,6 +189,7 @@ pub async fn run_with_client_frame_source_and_observer(
     let mut plugin_to_child = plugin_to_child;
 
     tokio::select! {
+        biased;
         status = child.wait() => {
             ws_to_child.abort();
             if let Some(task) = &plugin_to_child {
@@ -260,6 +261,7 @@ fn validate_stdio_text_frame(text: &str) -> Result<()> {
     if text.contains('\n') {
         bail!("ACP WebSocket text frames must not contain embedded newlines");
     }
+    crate::frame::RawAcpFrame::parse(text)?;
     Ok(())
 }
 
@@ -283,8 +285,9 @@ mod tests {
     }
 
     #[test]
-    fn embedded_newline_is_rejected_before_stdio_forwarding() {
-        assert!(validate_stdio_text_frame("{}").is_ok());
+    fn outbound_text_frames_must_be_single_json_rpc_frames() {
+        assert!(validate_stdio_text_frame(r#"{"jsonrpc":"2.0","method":"initialized"}"#).is_ok());
+        assert!(validate_stdio_text_frame("{}").is_err());
         assert!(validate_stdio_text_frame("{}\n{}").is_err());
     }
 
