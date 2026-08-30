@@ -10,23 +10,27 @@
     clippy::struct_excessive_bools
 )]
 
-//! HyperCLI ACP Slack relay plugin boundary.
+//! HyperCLI ACP Slack connector.
 //!
-//! This crate keeps Slack relay behavior out of ACP core. It is a semantic
-//! TS-to-Rust port of OpenClaw Slack relay/source behavior where possible, with
-//! thin Rust equivalents for runtime-bound pieces.
+//! This crate keeps Slack behavior out of ACP core. It is a semantic
+//! TS-to-Rust port of OpenClaw Slack behavior where possible, with HyperCLI
+//! relay and direct Slack bot-token transports sharing the same core shapes.
 
 pub mod active;
 pub mod admission;
 pub mod allowlist;
+pub mod client;
 pub mod client_delivery;
 pub mod commands;
+pub mod config_schema;
 pub mod content;
 pub mod dedupe;
 pub mod dm;
 pub mod event;
+pub mod format;
 pub mod history;
 pub mod ingress;
+pub mod limits;
 pub mod manager;
 mod module_map;
 pub mod monitor;
@@ -37,3 +41,12 @@ pub mod reply;
 pub mod routing;
 pub mod send;
 pub mod thread_ts;
+pub mod truncate;
+
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK.lock().unwrap()
+}

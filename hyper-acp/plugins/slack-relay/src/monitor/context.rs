@@ -17,3 +17,53 @@ pub use crate::active::{
 };
 pub use crate::admission::{AllowBotsMode, DmPolicy, GroupPolicy};
 pub use crate::history::SlackContextVisibility;
+
+/// Runtime context facts consumed by OpenClaw-shaped monitor handlers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActiveSlackMonitorContext {
+    /// Logical Slack account id.
+    pub account_id: String,
+    /// ACP session id that receives prompts.
+    pub session_id: String,
+    /// Gateway id used by the relay source.
+    pub gateway_id: String,
+}
+
+impl ActiveSlackMonitorContext {
+    /// Builds context facts from the active relay config.
+    #[must_use]
+    pub fn from_config(config: &ActiveSlackRelayConfig) -> Self {
+        Self {
+            account_id: config.policy.account_id.clone(),
+            session_id: config.session_id.clone(),
+            gateway_id: config.relay.gateway_id.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::relay_source::SlackRelaySourceConfig;
+
+    #[test]
+    fn context_facts_come_from_active_config() {
+        let config = ActiveSlackRelayConfig {
+            relay: SlackRelaySourceConfig {
+                url: "ws://relay".to_owned(),
+                auth_token: "key".to_owned(),
+                gateway_id: "agent:1".to_owned(),
+            },
+            session_id: "sess".to_owned(),
+            policy: ActiveSlackRelayPolicy {
+                account_id: "acct".to_owned(),
+                ..ActiveSlackRelayPolicy::default()
+            },
+            durable_log_path: None,
+        };
+        let context = ActiveSlackMonitorContext::from_config(&config);
+        assert_eq!(context.account_id, "acct");
+        assert_eq!(context.gateway_id, "agent:1");
+        assert_eq!(context.session_id, "sess");
+    }
+}

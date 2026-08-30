@@ -18,6 +18,13 @@ pub struct SlackSlashCommandConfig {
     pub ephemeral: bool,
 }
 
+/// Parsed Slack pairing approval command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlackPairingApprovalCommand {
+    /// Pairing code supplied by the operator.
+    pub code: String,
+}
+
 /// Strips Slack user mentions so command detection can see command text.
 #[must_use]
 pub fn strip_slack_mentions_for_command_detection(text: &str) -> String {
@@ -60,6 +67,24 @@ pub fn slack_slash_command_matches(name: &str, candidate: &str) -> bool {
     normalize_slash_command_name(name) == normalize_slash_command_name(candidate)
 }
 
+/// Parses `/approve slack CODE` or `approve slack CODE`.
+#[must_use]
+pub fn parse_slack_pairing_approval_command(text: &str) -> Option<SlackPairingApprovalCommand> {
+    let stripped = strip_slack_mentions_for_command_detection(text);
+    let mut parts = stripped.split_whitespace();
+    let command = parts.next()?.trim_start_matches('/');
+    if !command.eq_ignore_ascii_case("approve") {
+        return None;
+    }
+    if !parts.next()?.eq_ignore_ascii_case("slack") {
+        return None;
+    }
+    let code = parts.next()?.trim();
+    (!code.is_empty()).then(|| SlackPairingApprovalCommand {
+        code: code.to_owned(),
+    })
+}
+
 fn normalize_slash_command_name(raw: &str) -> String {
     raw.trim_start_matches('/').to_owned()
 }
@@ -80,5 +105,19 @@ mod tests {
     fn slash_command_matches_with_optional_slash() {
         assert!(slack_slash_command_matches("/openclaw", "openclaw"));
         assert!(slack_slash_command_matches("openclaw", "/openclaw"));
+    }
+
+    #[test]
+    fn parses_pairing_approval_command() {
+        assert_eq!(
+            parse_slack_pairing_approval_command("<@UBOT> /approve slack ABC123"),
+            Some(SlackPairingApprovalCommand {
+                code: "ABC123".to_owned()
+            })
+        );
+        assert_eq!(
+            parse_slack_pairing_approval_command("/approve github ABC123"),
+            None
+        );
     }
 }

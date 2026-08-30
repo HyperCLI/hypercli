@@ -134,8 +134,8 @@ pub fn resolve_slack_user_allowed(
 pub fn normalize_slack_slug(raw: &str) -> String {
     let mut out = String::new();
     let mut previous_dash = false;
-    for ch in raw.trim().to_ascii_lowercase().chars() {
-        if ch.is_ascii_alphanumeric() {
+    for ch in raw.trim().to_lowercase().chars() {
+        if ch.is_alphanumeric() {
             out.push(ch);
             previous_dash = false;
         } else if !previous_dash {
@@ -189,6 +189,15 @@ mod tests {
                 false
             )
             .allowed
+        );
+    }
+
+    #[test]
+    fn slug_preserves_non_latin_letters() {
+        assert_eq!(normalize_slack_slug(" 李 雷 "), "李-雷");
+        assert!(
+            resolve_slack_allow_list_match(&["李-雷".to_owned()], Some("U1"), Some("李 雷"), true)
+                .allowed
         );
     }
 

@@ -1,8 +1,8 @@
-# Slack Relay Parity Boundary
+# Slack Connector Parity Boundary
 
-This crate is the active HyperCLI ACP Slack relay plugin boundary. It ports the
-OpenClaw Slack relay semantics that are relevant on the agent/client side of the
-HyperCLI relay:
+This crate is the active HyperCLI ACP Slack connector boundary. It ports the
+OpenClaw Slack connector semantics that are relevant to both the HyperCLI relay
+transport and direct Slack bot-token transport.
 
 ## Module Map
 
@@ -24,14 +24,19 @@ where feasible:
 - `monitor::message_handler::prepare_thread_context` ->
   `monitor/message-handler/prepare-thread-context.ts`
 - `monitor::message_handler::dispatch` -> `monitor/message-handler/dispatch.ts`
+- `client` -> `client.ts` and `client-options.ts`
+- `format` -> `format.ts`
+- `limits` -> `limits.ts`
+- `truncate` -> `truncate.ts`
 - `send` -> `send.ts`
 - `client_delivery` -> `client-delivery.ts`
 
-The facades intentionally re-export the tested implementation helpers rather
-than duplicating logic. Relay-specific websocket frame parsing and ack handling
-remain isolated in `relay_source` and `active`; raw Slack Events API
-normalization lives in `event` so a direct Slack connector can feed the same
-admission/content/history/reply helpers later.
+Relay-specific websocket frame parsing and ack handling remain isolated in
+`relay_source`; direct Slack Events API and Socket Mode parsing lives in
+`monitor::events::direct`. Provider mode selection flows through typed
+config/account/channel shapes in `config_schema` and `monitor::provider`.
+Relay, direct HTTP, and direct socket inputs normalize into a transport-neutral
+accepted-event shape before admission/content/history/reply handling.
 
 - Relay URL conversion, localhost-only plaintext safety, bearer auth,
   websocket connect/reconnect, hello/event parsing, durable-before-ack:
@@ -76,15 +81,27 @@ admission/content/history/reply helpers later.
 - Outbound Slack delivery planning follows OpenClaw's reply delivery shape in
   `openclaw-git/extensions/slack/src/monitor/replies.ts` lines 69-336 and
   delivery metadata/reconciliation markers from
-  `openclaw-git/extensions/slack/src/send.ts` lines 557-618 and 735-854,
-  while staying behind the HyperCLI relay API proxy and
-  `HYPER_AGENTS_API_KEY`.
+  `openclaw-git/extensions/slack/src/send.ts` lines 557-618 and 735-854.
+  The shared planner emits Slack Web API operations that can be sent through
+  either the HyperCLI relay proxy with `HYPER_AGENTS_API_KEY` or direct Slack
+  Web API with `SLACK_BOT_TOKEN`.
+- Direct Slack Web API client setup, token cache-key behavior, and rate-limit
+  surfacing map to `openclaw-git/extensions/slack/src/client.ts`,
+  `client-options.ts`, and `client.web-api.test.ts`.
+- Direct Slack Events API envelope parsing and provider-owned lifecycle input
+  handling map to
+  `openclaw-git/extensions/slack/src/monitor/events.ts` and
+  `monitor/events/messages.ts`; event-family modules route reaction, member,
+  channel, pin, home, agent, interaction, and assistant payloads into explicit
+  system-event/home/assistant/interaction actions before the ACP message prompt
+  path.
 - Active runtime wiring:
-  `hyper-acp/plugins/slack-relay/src/active.rs` connects the relay source to
+  `hyper-acp/plugins/slack-relay/src/active.rs` exports provider surfaces;
+  `monitor::provider` connects relay, direct HTTP, and direct socket sources to
   admission gates, logical Slack dedupe, durable-before-ack recording,
   thread-history unroll, file/message metadata, reply-thread metadata,
-  reconnect backoff, shutdown control, and canonical ACP `session/prompt`
-  JSON-RPC frames.
+  reconnect/backoff or direct lifecycle control, and canonical ACP
+  `session/prompt` JSON-RPC frames.
 
 Parity tests live with each helper module and in `src/active.rs`. The active
 tests cover canonical ACP frame shape, durable-before-dispatch recording,
@@ -95,24 +112,21 @@ thread-history unroll with file-only messages and inherited parent file
 filtering, reply metadata, terminal auth retry stop, and no-ack/no-dispatch on
 durable accept failure.
 
-Intentionally outside this crate:
+Integration boundaries that remain outside this crate:
 
-- Slack OAuth install, request signature verification, static bot token mode,
-  and Slack Events API ingress are owned by `hyperclaw-backend/slack-relay`
-  rather than the ACP client plugin. The runtime plugin authenticates to that
-  relay with `HYPER_AGENTS_API_KEY`.
-- Direct Slack bot-token ownership, reactions, native Block Kit rendering, and
-  message_sent hooks require OpenClaw's plugin SDK runtime and Slack client
-  scopes. The Rust plugin does not invent a separate Slack bot-token client; it
-  builds relay-proxy `chat.postMessage`, `files.getUploadURLExternal`, and
-  `files.completeUploadExternal` request shapes and preserves OpenClaw delivery
-  metadata where the HyperCLI caller supplies a durable delivery queue id.
-- Live Slack thread history fetches require the OpenClaw Slack client path in
-  `monitor/message-handler/prepare-thread-context.ts` lines 176-200 and
-  368-395. The active HyperCLI relay plugin cannot call Slack Web API directly
-  without adding bot-token scope ownership, so it unrolls thread history when
-  the relay payload provides `thread_history`/`threadHistory` and preserves the
-  full payload in ACP metadata.
+- Binding a concrete HTTP listener or Socket Mode websocket client is owned by
+  the embedding binary/service. This crate owns the provider lifecycle over
+  typed HTTP/socket inputs, Slack signing verification, URL verification
+  responses, direct event parsing, and direct bot-token Web API sending.
+- The durable host implementation behind system-event/home/assistant/action
+  queues is owned by the embedding runtime. The Rust event-family modules
+  produce explicit actions for those side effects without embedding OpenClaw's
+  TypeScript plugin SDK.
+- Live Slack thread history and file hydration are executable through direct
+  Slack Web API operations (`conversations.replies`, `files.info`,
+  `users.info`) or relay proxy requests. Relay mode still prefers
+  relay-provided bundled history when present, matching the HyperCLI relay
+  deployment path.
 - Persistent OpenClaw session stores and channel history windows are owned by
   OpenClaw's plugin SDK runtime. The active HyperCLI transport sends canonical
   ACP `session/prompt` frames and leaves long-lived session persistence to the

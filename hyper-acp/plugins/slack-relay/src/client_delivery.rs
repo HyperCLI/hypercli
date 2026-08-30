@@ -1,10 +1,12 @@
 //! OpenClaw `client-delivery.ts` equivalent.
 //!
-//! The Rust side plans and sends relay-proxy Slack delivery requests; the
-//! backend relay owns direct Slack client credentials.
+//! Exposes the shared reply delivery plan and concrete relay/direct client
+//! delivery boundaries.
 
+pub use crate::client::{SlackDirectClientConfig, SlackDirectWebApiClient, SlackWebApiOperation};
 pub use crate::reply::{
-    deliver_slack_reply_payloads, plan_slack_reply_deliveries, SlackRelayHttpSender,
-    SlackReplyDelivery, SlackReplyDeliveryError, SlackReplyDeliveryTarget, SlackReplyPayload,
-    SlackSendResult,
+    deliver_slack_reply_payloads, deliver_slack_reply_payloads_direct, direct_request_for_delivery,
+    plan_slack_reply_deliveries, relay_request_for_operation, SlackDeliveryTransport,
+    SlackRelayHttpSender, SlackReplyDelivery, SlackReplyDeliveryError, SlackReplyDeliveryTarget,
+    SlackReplyPayload, SlackSendResult,
 };

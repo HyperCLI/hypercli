@@ -1,7 +1,8 @@
 # Hyper ACP Slack Relay
 
-Slack relay plugin boundary for HyperCLI ACP. The crate ports OpenClaw Slack
-relay semantics into Rust without adding direct Slack bot-token delivery.
+Slack connector boundary for HyperCLI ACP. The crate ports OpenClaw Slack
+semantics into Rust with both HyperCLI relay transport and direct Slack
+bot-token Web API/Event API boundaries sharing the same core pipeline.
 
 ## Active Runtime
 
