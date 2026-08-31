@@ -3066,28 +3066,43 @@ mod tests {
         var: &str,
         extra_env: &[(String, String)],
     ) -> String {
+        use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
 
         let dir = std::env::temp_dir().join(format!("buzz-acp-env-probe-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create env probe dir");
         let path = dir.join(file_name);
-        std::fs::write(
-            &path,
-            format!("#!/bin/sh\nprintf '%s\\n' \"${{{var}:-<unset>}}\"\n"),
-        )
-        .expect("write env probe script");
+        let mut file = std::fs::File::create(&path).expect("create env probe script");
+        file.write_all(format!("#!/bin/sh\nprintf '%s\\n' \"${{{var}:-<unset>}}\"\n").as_bytes())
+            .expect("write env probe script");
+        file.sync_all().expect("sync env probe script");
+        drop(file);
         let mut permissions = std::fs::metadata(&path).expect("stat probe").permissions();
         permissions.set_mode(0o700);
         std::fs::set_permissions(&path, permissions).expect("chmod probe");
 
-        let mut client = AcpClient::spawn(
-            path.to_str().expect("probe path is UTF-8"),
-            &[],
-            extra_env,
-            false,
-        )
-        .await
-        .expect("spawn env probe script");
+        let command = path.to_str().expect("probe path is UTF-8");
+        let mut last_error = None;
+        let mut client = None;
+        for _ in 0..20 {
+            match AcpClient::spawn(command, &[], extra_env, false).await {
+                Ok(spawned) => {
+                    client = Some(spawned);
+                    break;
+                }
+                Err(AcpError::Io(error)) if error.raw_os_error() == Some(26) => {
+                    last_error = Some(error);
+                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                }
+                Err(error) => panic!("spawn env probe script: {error:?}"),
+            }
+        }
+        let mut client = client.unwrap_or_else(|| {
+            panic!("spawn env probe script after retries: {last_error:?}");
+        });
+        if let Some(error) = last_error {
+            tracing::debug!("env probe script spawn succeeded after transient ETXTBSY: {error}");
+        }
         let observed = client
             .reader
             .next()

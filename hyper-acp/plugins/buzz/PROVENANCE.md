@@ -41,9 +41,9 @@ Deliberate deviations:
 - `src/config.rs` and `src/lib.rs` add the `auth-tag` helper by reusing
   upstream `buzz_sdk::nip_oa::compute_auth_tag`, matching the upstream
   `crates/buzz-sdk/examples/compute_auth_tag.rs` utility.
-- `src/acp.rs` keeps upstream behavior and only hardens the Unix test helper
-  that spawns a fake named adapter by flushing and closing the temporary script
-  before exec, avoiding transient `ETXTBSY` failures on CI filesystems.
+- `src/acp.rs` keeps upstream behavior and only hardens the Unix test helpers
+  that spawn fake adapter/probe scripts by flushing and closing temporary
+  scripts before exec, avoiding transient `ETXTBSY` failures on CI filesystems.
 
 No relay, queue, owner-command, auth/membership, prompt gating, observer,
 setup, usage, or session-pool semantics are intentionally changed from

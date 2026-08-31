@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 const UPSTREAM_HASHES: &[(&str, &str)] = &[
     (
         "src/acp.rs",
-        "52a3959564186a0974da19115a9ddfe5738b60430c0730165c3b87cbcb1ac5ff",
+        "f49694e03805175cc01fd260353af67cfff7452942efda949ce3bff1ec8ab715",
     ),
     (
         "src/base_prompt.md",
