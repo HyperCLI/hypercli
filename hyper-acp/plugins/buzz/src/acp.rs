@@ -3031,6 +3031,7 @@ mod tests {
 
     #[cfg(unix)]
     async fn spawn_named_script(name: &str, script: &str) -> (AcpClient, std::path::PathBuf) {
+        use std::io::Write;
         use std::os::unix::fs::PermissionsExt;
 
         let dir = std::env::temp_dir().join(format!(
@@ -3040,8 +3041,11 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("create temp adapter dir");
         let path = dir.join(name);
-        std::fs::write(&path, format!("#!/usr/bin/env bash\n{script}\n"))
+        let mut file = std::fs::File::create(&path).expect("create fake adapter");
+        file.write_all(format!("#!/usr/bin/env bash\n{script}\n").as_bytes())
             .expect("write fake adapter");
+        file.sync_all().expect("sync fake adapter");
+        drop(file);
         let mut permissions = std::fs::metadata(&path)
             .expect("adapter metadata")
             .permissions();
