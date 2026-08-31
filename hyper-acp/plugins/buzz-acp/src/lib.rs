@@ -1941,6 +1941,7 @@ async fn tokio_main() -> Result<()> {
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buzz_acp=info")),
         )
+        .with_writer(std::io::stderr)
         .compact()
         .init();
 
