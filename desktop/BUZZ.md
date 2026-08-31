@@ -151,10 +151,13 @@ enrollment, channel discovery. The TS SDK deliberately consumes
 `privateKeyNsec`/`authTag` as opaque caller-supplied strings
 (`BuzzLaunchConfig`, agents.ts:1120-1136). Keep this layer in Rust.
 
-## 7. buzz-acp spec (the in-pod harness)
+## 7. Buzz ACP plugin spec (the in-pod harness)
 
-Upstream crate `crates/buzz-acp` (lib `buzz_acp` + bin `buzz-acp`); the fork
-patches it in place. Full env table: `crates/buzz-acp/README.md` +
+Hosted HyperCLI uses `hyper-acp plugin buzz`, which links the copied upstream
+Buzz ACP implementation from `hyper-acp/plugins/buzz` in-process. The
+`hyper-acp/plugins/buzz-acp` package is only a compatibility executable for
+callers that still need the `buzz-acp` binary name; it delegates to the same
+library. Full env table: `hyper-acp/plugins/buzz/README.md` +
 `config.rs:197-504`. Key vars beyond §5: `BUZZ_ACP_SUBSCRIBE` (mentions|all),
 `BUZZ_ACP_CHANNELS`, `BUZZ_ACP_KINDS` (default 9, 46010, 40007),
 `BUZZ_ACP_IDLE_TIMEOUT` (620 s), `BUZZ_ACP_MAX_TURN_DURATION` (7200 s),
@@ -167,31 +170,21 @@ patches it in place. Full env table: `crates/buzz-acp/README.md` +
   buzz-acp itself.
 - Owner control in-band: kind 9 `!shutdown` / `!cancel` / `!rotate` mentioning
   the agent.
-- Fork additions (`hypercli/hypercli`, see `DRIFT.md` there):
-  `BUZZ_ACP_TEXT_MENTIONS` + `BUZZ_ACP_DISPLAY_NAME` (textual @-mentions,
-  omits `#p` filter), `BUZZ_ACP_REQUIRE_REPLY` (reply guard),
-  stricter interactive `buzz-acp authenticate` validation.
-- Fork delta is small (~953 LOC, 23 files, 15 commits on merge-base
-  be95a8a98); **zero changes to `crates/buzz-relay`** — the closed-relay flags
-  are all upstream. Upstream main is ~369 commits ahead of the fork.
+- HyperCLI deviations are documented in
+  `hyper-acp/plugins/buzz/PROVENANCE.md`. They are intentionally limited to
+  plugin entrypoints, stderr tracing, `auth-tag`, and a CI-only test fixture
+  hardening.
 
 ### Lift-ability (extracting buzz-acp standalone)
 
-Verdict: highly liftable. Checklist:
-1. Vendor/extract `buzz-sdk` (`nip_oa::{compute,verify,parse}_auth_tag`,
-   `build_message`, `build_reaction`, `build_agent_observer_frame`,
-   `ThreadRef`). NIP-OA itself is ~100 lines if reimplemented.
-2. Vendor `buzz-core::kind` constants + `verify_event` (kinds: 9, 20002,
-   24200, 39000, 39002, 44100, 44101, 44200, 46010, 40007).
-3. Port fork-only `buzz-core/src/reply_guard.rs` (13 lines).
-4. Drop the declared-but-unused `buzz-persona` dep.
-5. Carry the fork patches (text mentions, reply guard, auth validation) —
-   all env-gated.
-6. No relay coupling: stock NIP-01/42/98/29 + `x-auth-tag`.
-7. Build: `cargo build --release -p buzz-acp`; musl cross-build pattern in
-   benchmarks; no Dockerfile exists for it in either branch.
-8. Watch-out: ACP `protocolVersion: 2` request with v1 auth shapes (DRIFT.md
-   "Known Compatibility Risk") — pin adapter versions.
+Verdict: already lifted. Current maintenance checklist:
+1. Update `hyper-acp/plugins/buzz/PROVENANCE.md` before changing copied Buzz
+   behavior files.
+2. Keep `hyper-acp/plugins/buzz/tests/source_parity.rs` aligned with copied
+   source hashes and documented deviations.
+3. Build hosted images from `hyper-acp plugin buzz`; keep `buzz-acp` as a
+   compat binary only while external callers still rely on that executable
+   name.
 
 ## 8. Open questions / gaps
 
