@@ -15,5 +15,8 @@ and HyperCLI's SDK/provider crates build and test under one lockfile.
 HyperCLI-specific additions are intentionally isolated under:
 
 - `crates/hyper-acp`: the HyperCLI ACP launcher/transport wrapper.
-- `plugins/buzz-acp`: a copied Buzz ACP plugin with its own provenance file.
+- `plugins/buzz`: the Hyper ACP Buzz plugin, ported from upstream Buzz ACP with
+  its own provenance file.
+- `plugins/buzz-acp`: a thin compatibility binary for callers that still expect
+  the `buzz-acp` executable name. It delegates to `plugins/buzz`.
 - `plugins/slack-relay`: the Slack relay plugin.

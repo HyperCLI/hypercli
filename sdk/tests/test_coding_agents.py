@@ -321,7 +321,7 @@ def test_buzz_coding_agent_uses_specialized_default_image(
     getattr(deployments, method_name)(buzz_enabled=True)
 
     assert posted["image"] == buzz_image
-    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
+    assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
 
 
 @pytest.mark.parametrize(
@@ -433,12 +433,9 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
         },
     )
 
-    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
+    assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
-    assert (
-        posted["env"]["HYPER_ACP_AGENT_COMMAND"]
-        == "/usr/local/lib/hyper-acp/plugins/buzz-acp"
-    )
+    assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["restart"] is False
     assert "entrypoint" not in posted
@@ -496,7 +493,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
     assert posted["routes"] == {}
-    assert posted["command"] == ["/usr/local/bin/hyper-acp"]
+    assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
     assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"
@@ -508,10 +505,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_ACP_LAZY_POOL"] == "true"
     assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "false"
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
-    assert (
-        posted["env"]["HYPER_ACP_AGENT_COMMAND"]
-        == "/usr/local/lib/hyper-acp/plugins/buzz-acp"
-    )
+    assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
     assert posted["secrets"] == {
         "BUZZ_PRIVATE_KEY": "nsec1test",

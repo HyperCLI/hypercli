@@ -1,10 +1,11 @@
 # BUZZ.md — HyperCLI × Buzz integration
 
 Everything we've learned about how Buzz discovers, launches, and renders
-agents, how the copied Buzz ACP plugin is used by `hyper-acp`, how our provider
+agents, how the copied Buzz implementation is used by `hyper-acp`, how our provider
 works, and the design options for remote-terminal / local-surface features.
 
-Audience: anyone touching `hyper-acp/plugins/buzz-acp/`,
+Audience: anyone touching `hyper-acp/plugins/buzz/`,
+`hyper-acp/plugins/buzz-acp/`,
 `buzz-backend-provider/`, or the desktop app's Buzz surfaces. Read this before
 editing any of them.
 
@@ -13,19 +14,20 @@ editing any of them.
 ## 1. Active ACP layout
 
 Hosted Buzz launches no longer run the old top-level `buzz-acp` fork or its
-observer websocket. The active container command is `/usr/local/bin/hyper-acp`.
-`hyper-acp` connects outbound to the platform ACP websocket named by
-`HYPER_ACP_WS_URL`, forwards raw ACP JSON-RPC frames, and uses
-`HYPER_ACP_AGENT_COMMAND=/usr/local/lib/hyper-acp/plugins/buzz-acp` to run the
-copied Buzz ACP plugin.
+observer websocket. The active container command is
+`/usr/local/bin/hyper-acp plugin buzz`. `hyper-acp` links the copied Buzz ACP
+implementation in-process. The separate `buzz-acp` binary remains only as a
+thin compatibility executable for legacy callers that need that binary name.
 
 Source locations:
 
 - Canonical ACP copy: `hyper-acp/`, sourced from
   `agentclientprotocol/agent-client-protocol`; see `hyper-acp/PROVENANCE.md`.
-- Buzz plugin copy: `hyper-acp/plugins/buzz-acp/`, sourced from
+- Buzz plugin copy: `hyper-acp/plugins/buzz/`, sourced from
   `~/dev/buzz-git/crates/buzz-acp`; see
-  `hyper-acp/plugins/buzz-acp/PROVENANCE.md`.
+  `hyper-acp/plugins/buzz/PROVENANCE.md`.
+- Buzz compatibility binary: `hyper-acp/plugins/buzz-acp/`, delegating to
+  `hyper-acp/plugins/buzz`.
 - HyperCLI launcher/transport wrapper: `hyper-acp/crates/hyper-acp/`.
 - Slack relay plugin: `hyper-acp/plugins/slack-relay/`.
 
@@ -543,8 +545,8 @@ a code bug.
 **Ours (`~/dev/hypercli`):**
 
 - ACP host and Buzz plugin: `hyper-acp/`, with copied Buzz source under
-  `hyper-acp/plugins/buzz-acp/` and provenance in
-  `hyper-acp/plugins/buzz-acp/PROVENANCE.md`
+  `hyper-acp/plugins/buzz/` and provenance in
+  `hyper-acp/plugins/buzz/PROVENANCE.md`
 - Provider: `buzz-backend-provider/` (payload `src/lib.rs:48`, info schema
   `:306`, deploy `:327`, client config `src/main.rs:47`)
 - Install UI: `desktop/src-tauri/src/providers.rs`,

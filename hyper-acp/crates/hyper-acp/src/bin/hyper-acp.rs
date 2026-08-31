@@ -17,6 +17,7 @@ use hyper_acp::trace::{DEFAULT_MAX_TRACE_ROWS, TraceStore};
 use hyper_acp::transport::AcpFrameObserver;
 #[cfg(feature = "slack-relay")]
 use hyper_acp::transport::ObservedAcpFrame;
+use hyper_acp_buzz as buzz_plugin;
 #[cfg(feature = "slack-relay")]
 use hyper_acp_slack_relay::active::{
     ActiveSlackRelayControl, ActiveSlackRelayError,
@@ -29,7 +30,6 @@ use hyper_acp_slack_relay::output::{
 };
 use std::env;
 use std::path::PathBuf;
-use std::process::Command as StdCommand;
 use std::sync::Arc;
 #[cfg(feature = "slack-relay")]
 use std::time::Duration;
@@ -38,9 +38,6 @@ use tokio::sync::mpsc;
 #[cfg(feature = "slack-relay")]
 use tokio::task::JoinHandle;
 use tracing_subscriber::EnvFilter;
-
-const BUZZ_PLUGIN_COMMAND_ENV: &str = "HYPER_ACP_BUZZ_PLUGIN_COMMAND";
-const DEFAULT_BUZZ_PLUGIN_COMMAND: &str = "/usr/local/lib/hyper-acp/plugins/buzz-acp";
 
 #[derive(Debug, Parser)]
 #[command(name = "hyper-acp")]
@@ -163,49 +160,7 @@ fn child_command(args: &Args) -> Result<Command> {
 }
 
 fn run_buzz_plugin(plugin_args: &[String]) -> Result<()> {
-    let command_path = resolve_buzz_plugin_command();
-    let mut command = StdCommand::new(&command_path);
-    command.args(plugin_args);
-    let status = command
-        .status()
-        .with_context(|| format!("run Buzz ACP plugin {}", command_path.display()))?;
-
-    if status.success() {
-        return Ok(());
-    }
-
-    if let Some(code) = status.code() {
-        std::process::exit(code);
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::ExitStatusExt;
-        if let Some(signal) = status.signal() {
-            std::process::exit(128 + signal);
-        }
-    }
-
-    bail!("Buzz ACP plugin terminated without an exit code")
-}
-
-fn resolve_buzz_plugin_command() -> PathBuf {
-    if let Ok(command) = env::var(BUZZ_PLUGIN_COMMAND_ENV)
-        && !command.is_empty()
-    {
-        return PathBuf::from(command);
-    }
-
-    let default = PathBuf::from(DEFAULT_BUZZ_PLUGIN_COMMAND);
-    if default.is_file() {
-        return default;
-    }
-
-    env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(|parent| parent.join("buzz-acp")))
-        .filter(|path| path.is_file())
-        .unwrap_or(default)
+    buzz_plugin::run_from_hyper_acp(plugin_args.iter().cloned())
 }
 
 #[cfg(feature = "slack-relay")]

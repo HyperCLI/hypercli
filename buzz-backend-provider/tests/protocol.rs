@@ -174,7 +174,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
                 "runtime": "goose",
                 "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
-                "command": ["/usr/local/bin/hyper-acp"],
+                "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
                 "restart": false,
                 "runtime_scopes": [
                     "agents:none",
@@ -197,7 +197,6 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                     "BUZZ_ACP_LAZY_POOL": "true",
                     "BUZZ_ACP_RELAY_OBSERVER": "true",
                     "HYPER_ACP_WS_URL": hyper_acp_ws_url,
-                    "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                     "BUZZ_ACP_DISPLAY_NAME": "Fixture Agent",
                     "BUZZ_ACP_TEXT_MENTIONS": "true",
                     "BUZZ_ACP_REQUIRE_REPLY": "true",
@@ -348,7 +347,6 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "BUZZ_ACP_LAZY_POOL": "true",
                 "BUZZ_ACP_RELAY_OBSERVER": "true",
                 "HYPER_ACP_WS_URL": hyper_acp_ws_url,
-                "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                 "BUZZ_ACP_DISPLAY_NAME": "Fizz",
                 "BUZZ_ACP_TEXT_MENTIONS": "true",
                 "BUZZ_ACP_REQUIRE_REPLY": "true",
@@ -595,10 +593,9 @@ fn dry_run_with_buzz_activity_uses_raw_outbound_tunnel_without_route() {
         .mock("POST", "/agents/deployments")
         .match_body(Matcher::PartialJson(serde_json::json!({
             "routes": {},
-            "command": ["/usr/local/bin/hyper-acp"],
+            "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
             "env": {
                 "HYPER_ACP_WS_URL": hyper_acp_ws_url,
-                "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp",
                 "BUZZ_ACP_RELAY_OBSERVER": "true"
             },
             "secrets": {

@@ -256,14 +256,13 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       image: DEFAULT_BUZZ_CODEX_IMAGE,
-      command: ['/usr/local/bin/hyper-acp'],
+      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
       restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'buzz',
         RUST_LOG: DEFAULT_BUZZ_RUST_LOG,
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
-        HYPER_ACP_AGENT_COMMAND: '/usr/local/lib/hyper-acp/plugins/buzz-acp',
         BUZZ_ACP_RELAY_OBSERVER: 'false',
       },
     });
@@ -293,7 +292,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
       image,
-      command: ['/usr/local/bin/hyper-acp'],
+      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
     });
   });
 
@@ -408,7 +407,7 @@ describe('coding agents', () => {
       size: 'large',
       image: DEFAULT_BUZZ_OPENCODE_IMAGE,
       routes: {},
-      command: ['/usr/local/bin/hyper-acp'],
+      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
       restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
@@ -421,7 +420,6 @@ describe('coding agents', () => {
         BUZZ_ACP_LAZY_POOL: 'true',
         BUZZ_ACP_RELAY_OBSERVER: 'false',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
-        HYPER_ACP_AGENT_COMMAND: '/usr/local/lib/hyper-acp/plugins/buzz-acp',
         BUZZ_ACP_REQUIRE_REPLY: 'true',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
@@ -705,11 +703,11 @@ describe('buzz hyper-acp raw outbound launch', () => {
       buzzEnabled: true,
     });
     const payload = post.mock.calls[0][1];
-    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp']);
+    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp', 'plugin', 'buzz']);
     expect(payload.routes.custom).toEqual({ port: 9000, auth: true });
     expect(payload.routes).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
-    expect(payload.env.HYPER_ACP_AGENT_COMMAND).toBe('/usr/local/lib/hyper-acp/plugins/buzz-acp');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');
     expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('false');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
@@ -733,7 +731,7 @@ describe('buzz hyper-acp raw outbound launch', () => {
     });
     const payload = post.mock.calls[0][1];
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
-    expect(payload.env.HYPER_ACP_AGENT_COMMAND).toBe('/usr/local/lib/hyper-acp/plugins/buzz-acp');
+    expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');
     expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('false');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');

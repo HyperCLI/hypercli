@@ -32,8 +32,8 @@ use buzz_core::observer::{
 };
 use clap::Parser;
 use config::{
-    AuthAgentArgs, AuthMethodsArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
-    MultipleEventHandling, RespondTo, SubscribeMode,
+    AuthAgentArgs, AuthMethodsArgs, AuthTagArgs, AuthenticateArgs, CliArgs, Config, DedupMode,
+    ModelsArgs, MultipleEventHandling, RespondTo, SubscribeMode,
 };
 use filter::SubscriptionRule;
 use futures_util::FutureExt;
@@ -57,8 +57,8 @@ use uuid::Uuid;
 ///
 /// **Constraint**: subcommand must be argv[1] — flags before the subcommand
 /// name (e.g., `buzz-acp --verbose models`) are not supported.
-fn is_subcommand(name: &str) -> bool {
-    std::env::args().nth(1).map(|a| a == name).unwrap_or(false)
+fn is_subcommand(args: &[String], name: &str) -> bool {
+    args.get(1).map(|a| a == name).unwrap_or(false)
 }
 
 /// Timeout for lightweight helper subcommands (spawn + initialize + model/method probes).
@@ -1894,58 +1894,94 @@ mod idle_pool_sleep_tests {
     }
 }
 
-pub fn run() -> Result<()> {
-    config::propagate_legacy_env_vars();
-    tokio_main()
+/// Run the Buzz plugin as the compatibility `buzz-acp` executable.
+pub fn run_compat_binary() -> Result<()> {
+    run_plugin(std::env::args())
 }
 
-#[tokio::main]
-async fn tokio_main() -> Result<()> {
+/// Run the Buzz plugin from `hyper-acp plugin buzz`.
+pub fn run_from_hyper_acp<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<String>,
+{
+    let args = std::iter::once(String::from("buzz-acp")).chain(args.into_iter().map(Into::into));
+    run_plugin(args)
+}
+
+/// Shared Buzz plugin entrypoint.
+pub fn run_plugin<I, T>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<String>,
+{
+    config::propagate_legacy_env_vars();
+    let args = args.into_iter().map(Into::into).collect();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(tokio_main(args))
+}
+
+async fn tokio_main(args: Vec<String>) -> Result<()> {
     // Install the ring crypto provider for rustls (required for wss:// connections).
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("failed to install rustls crypto provider");
-    if is_subcommand("models") {
+    drop(rustls::crypto::ring::default_provider().install_default());
+    if is_subcommand(&args, "models") {
         // Strip the subcommand token so clap doesn't reject it as a positional.
         // Keeps argv[0] (binary name) and passes everything after the subcommand.
-        let filtered: Vec<String> = std::env::args()
+        let filtered: Vec<String> = args
+            .iter()
             .enumerate()
             .filter(|(i, _)| *i != 1)
-            .map(|(_, a)| a)
+            .map(|(_, a)| a.clone())
             .collect();
         let args = ModelsArgs::parse_from(&filtered);
         return run_models(args).await;
     }
 
-    if is_subcommand("auth-methods") {
-        let filtered: Vec<String> = std::env::args()
+    if is_subcommand(&args, "auth-methods") {
+        let filtered: Vec<String> = args
+            .iter()
             .enumerate()
             .filter(|(i, _)| *i != 1)
-            .map(|(_, a)| a)
+            .map(|(_, a)| a.clone())
             .collect();
         let args = AuthMethodsArgs::parse_from(&filtered);
         return run_auth_methods(args).await;
     }
 
-    if is_subcommand("authenticate") {
-        let filtered: Vec<String> = std::env::args()
+    if is_subcommand(&args, "authenticate") {
+        let filtered: Vec<String> = args
+            .iter()
             .enumerate()
             .filter(|(i, _)| *i != 1)
-            .map(|(_, a)| a)
+            .map(|(_, a)| a.clone())
             .collect();
         let args = AuthenticateArgs::parse_from(&filtered);
         return run_authenticate(args).await;
+    }
+
+    if is_subcommand(&args, "auth-tag") {
+        let filtered: Vec<String> = args
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, a)| a.clone())
+            .collect();
+        let args = AuthTagArgs::parse_from(&filtered);
+        return run_auth_tag(args);
     }
 
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buzz_acp=info")),
         )
-        .with_writer(std::io::stderr)
         .compact()
         .init();
 
-    let mut config = Config::from_cli().map_err(|e| anyhow::anyhow!("configuration error: {e}"))?;
+    let cli_args = CliArgs::parse_from(args);
+    let mut config =
+        Config::from_args(cli_args).map_err(|e| anyhow::anyhow!("configuration error: {e}"))?;
 
     // ── Setup-mode early branch ───────────────────────────────────────────────
     //
@@ -4817,6 +4853,17 @@ async fn spawn_and_init(
 async fn spawn_auth_client(agent: &AuthAgentArgs) -> Result<AcpClient, acp::AcpError> {
     let agent_args = config::normalize_agent_args(&agent.agent_command, agent.agent_args.clone());
     AcpClient::spawn(&agent.agent_command, &agent_args, &[], false).await
+}
+
+/// `auth-tag` helper — compute a NIP-OA owner attestation tag.
+fn run_auth_tag(args: AuthTagArgs) -> Result<()> {
+    let owner_keys = nostr::Keys::parse(&args.owner_secret).context("invalid owner secret key")?;
+    let agent_pubkey =
+        PublicKey::from_hex(&args.agent_pubkey).context("invalid agent pubkey hex")?;
+    let tag_json = buzz_sdk::nip_oa::compute_auth_tag(&owner_keys, &agent_pubkey, &args.conditions)
+        .context("failed to compute auth tag")?;
+    println!("{tag_json}");
+    Ok(())
 }
 
 fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<serde_json::Value> {

@@ -7,6 +7,7 @@ use hyper_acp::transport::outbound_ws;
 use hyper_acp::transport::{AcpFrameObserver, ObservedAcpFrame};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -162,6 +163,61 @@ async fn outbound_ws_rejects_host_protocol_envelopes() {
 
     assert!(error.contains("ACP frame"), "{error}");
     assert_eq!(read_jsonl(&child_input_path), Vec::<String>::new());
+}
+
+#[test]
+fn binary_buzz_plugin_help_uses_in_process_library() {
+    let output = StdCommand::new(env!("CARGO_BIN_EXE_hyper-acp"))
+        .arg("plugin")
+        .arg("buzz")
+        .arg("--help")
+        .env(
+            "HYPER_ACP_AGENT_COMMAND",
+            "/definitely/not/a/buzz-acp-binary",
+        )
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "hyper-acp plugin buzz --help exited with {:?}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("ACP harness that bridges Buzz events to AI agents"));
+    assert!(stdout.contains("--private-key"));
+}
+
+#[test]
+fn binary_buzz_helper_help_uses_in_process_library() {
+    for (subcommand, expected) in [
+        (
+            "auth-methods",
+            "Query adapter-advertised ACP authentication methods",
+        ),
+        ("auth-tag", "Compute a NIP-OA owner attestation auth tag"),
+    ] {
+        let output = StdCommand::new(env!("CARGO_BIN_EXE_hyper-acp"))
+            .arg("plugin")
+            .arg(subcommand)
+            .arg("--help")
+            .env(
+                "HYPER_ACP_AGENT_COMMAND",
+                "/definitely/not/a/buzz-acp-binary",
+            )
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "hyper-acp plugin {subcommand} --help exited with {:?}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stdout.contains(expected));
+    }
 }
 
 fn write_child_script(path: PathBuf, child_input_path: &Path) -> PathBuf {

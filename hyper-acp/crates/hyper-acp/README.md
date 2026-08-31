@@ -2,6 +2,13 @@
 
 Thin host transport for canonical Agent Client Protocol JSON-RPC frames.
 
+## Buzz Plugin
+
+`hyper-acp plugin buzz` links the `hyper-acp-buzz` plugin crate and runs it
+in-process. The separate `buzz-acp` executable is retained only as a
+compatibility wrapper over the same plugin library, not as an external runtime
+dependency for `hyper-acp`.
+
 ## Provenance
 
 This crate is derived from the copied upstream Agent Client Protocol workspace

@@ -1,3 +1,3 @@
 fn main() -> anyhow::Result<()> {
-    buzz_acp::run()
+    hyper_acp_buzz::run_compat_binary()
 }

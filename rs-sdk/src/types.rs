@@ -368,7 +368,6 @@ impl RouteConfig {
 pub const DEFAULT_BUZZ_RUST_LOG: &str =
     "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off";
 pub const DEFAULT_HYPER_ACP_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
-pub const HYPER_ACP_BUZZ_PLUGIN_COMMAND: &str = "/usr/local/lib/hyper-acp/plugins/buzz-acp";
 /// Stable, non-secret resource tag applied to deployments managed by Buzz.
 ///
 /// The per-agent `buzz_agent=<pubkey>` tag remains the identity seam. This
@@ -521,7 +520,11 @@ impl BuzzLaunchConfig {
         // slot without baking a stale tier into a client-side contract.
         request.size = None;
         request.mark_buzz_deployment(None);
-        request.command = vec!["/usr/local/bin/hyper-acp".to_owned()];
+        request.command = vec![
+            "/usr/local/bin/hyper-acp".to_owned(),
+            "plugin".to_owned(),
+            "buzz".to_owned(),
+        ];
         if request.image.is_none() {
             request.image = request.runtime.default_buzz_image().map(str::to_owned);
         }
@@ -584,10 +587,6 @@ impl BuzzLaunchConfig {
         request.env.insert(
             "HYPER_ACP_WS_URL".to_owned(),
             DEFAULT_HYPER_ACP_WS_URL.to_owned(),
-        );
-        request.env.insert(
-            "HYPER_ACP_AGENT_COMMAND".to_owned(),
-            HYPER_ACP_BUZZ_PLUGIN_COMMAND.to_owned(),
         );
         request
             .env
@@ -1599,7 +1598,10 @@ mod tests {
 
         assert_eq!(request.size, None);
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
-        assert_eq!(request.command, vec!["/usr/local/bin/hyper-acp"]);
+        assert_eq!(
+            request.command,
+            vec!["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+        );
         assert!(!request.restart);
         assert_eq!(
             request.runtime_scopes,
@@ -1621,13 +1623,7 @@ mod tests {
             request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
-        assert_eq!(
-            request
-                .env
-                .get("HYPER_ACP_AGENT_COMMAND")
-                .map(String::as_str),
-            Some(HYPER_ACP_BUZZ_PLUGIN_COMMAND)
-        );
+        assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert_eq!(
             request.env.get("BUZZ_ACP_AGENT_ARGS").map(String::as_str),
             Some("acp")
@@ -1896,7 +1892,7 @@ mod tests {
             "env": {"SAFE": "visible"},
             "registry_auth": {"password": "registry-secret"},
             "secrets": {"API_TOKEN": "must-not-hydrate"},
-            "command": ["/usr/local/bin/hyper-acp"]
+            "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
         }))
         .unwrap();
 
@@ -2105,7 +2101,7 @@ mod tests {
     }
 
     #[test]
-    fn buzz_launch_uses_raw_outbound_hyper_acp_by_default() {
+    fn buzz_launch_runs_hyper_acp_buzz_plugin_by_default() {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         BuzzLaunchConfig::new("nsec1test", "wss://buzz.example.test")
             .apply_to(&mut request, None)
@@ -2116,12 +2112,10 @@ mod tests {
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
         assert_eq!(
-            request
-                .env
-                .get("HYPER_ACP_AGENT_COMMAND")
-                .map(String::as_str),
-            Some(HYPER_ACP_BUZZ_PLUGIN_COMMAND)
+            request.command,
+            vec!["/usr/local/bin/hyper-acp", "plugin", "buzz"]
         );
+        assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert_eq!(
             request
                 .env
@@ -2145,13 +2139,7 @@ mod tests {
             request.env.get("HYPER_ACP_WS_URL").map(String::as_str),
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
-        assert_eq!(
-            request
-                .env
-                .get("HYPER_ACP_AGENT_COMMAND")
-                .map(String::as_str),
-            Some(HYPER_ACP_BUZZ_PLUGIN_COMMAND)
-        );
+        assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
         assert!(!request.env.contains_key("HYPER_ACP_LOG"));
         assert!(!request.routes.contains_key("hyper-acp"));

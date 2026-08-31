@@ -237,6 +237,24 @@ pub struct AuthenticateArgs {
     pub method_id: String,
 }
 
+/// CLI args for `hyper-acp plugin auth-tag` / `buzz-acp auth-tag`.
+#[derive(Debug, Parser)]
+#[command(
+    name = "buzz auth-tag",
+    about = "Compute a NIP-OA owner attestation auth tag"
+)]
+pub struct AuthTagArgs {
+    /// Owner secret key, as hex or nsec.
+    pub owner_secret: String,
+
+    /// Agent public key, as 64-character hex.
+    pub agent_pubkey: String,
+
+    /// Optional NIP-OA conditions string.
+    #[arg(default_value = "")]
+    pub conditions: String,
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "buzz-acp",
@@ -859,6 +877,7 @@ pub fn propagate_legacy_env_vars() {
 }
 
 impl Config {
+    #[allow(dead_code)]
     pub fn from_cli() -> Result<Self, ConfigError> {
         // Legacy env-var propagation is intentionally NOT done here.
         // Call `propagate_legacy_env_vars()` before the tokio runtime starts

@@ -22,15 +22,16 @@ No single "buzz image" — a shared base plus six provider images:
 
 Base image (`buzz/base/Dockerfile`): `node:24-bookworm-slim`; builds
 - `sprig` multicall (→ `buzz`, `buzz-dev-mcp`) from upstream `block/buzz` at
-  the exact source commit recorded in `hypercli/hyper-acp/plugins/buzz-acp/PROVENANCE.md`
+  the exact source commit recorded in `hypercli/hyper-acp/plugins/buzz/PROVENANCE.md`
   (currently `8342dfcc…`, tag `desktop-v0.5.5`);
 - `hyper-acp` from `HyperCLI/hypercli.git`, including the copied Buzz plugin
-  binary under `/usr/local/lib/hyper-acp/plugins/buzz-acp`, at a caller-supplied
+  available as `hyper-acp plugin buzz` and a compatibility `buzz-acp` binary
+  under `/usr/local/lib/hyper-acp/plugins/buzz-acp`, at a caller-supplied
   40-hex `HYPERCLI_REF`.
 
 Common: USER `node`, WORKDIR `/home/node`, no EXPOSE (outbound-only), tini +
 per-runtime entrypoint, `CMD ["sleep","infinity"]`; hosted launch overrides the
-command with `/usr/local/bin/hyper-acp`. Full HyperCLI source at `/opt/hypercli`
+command with `/usr/local/bin/hyper-acp plugin buzz`. Full HyperCLI source at `/opt/hypercli`
 with the `hyper` CLI pip-installed; nest dirs/skills seeded by
 `hypercli-buzz-init` (only-if-missing, mode 0700) under `/home/node/.buzz`.
 
@@ -55,7 +56,7 @@ Per-runtime entrypoint extras:
 ## 2. Runtime auth (two distinct mechanisms)
 
 1. **Hosted ACP runtime injection** (in the Buzz plugin,
-   `hyper-acp/plugins/buzz-acp/src/acp.rs`):
+   `hyper-acp/plugins/buzz/src/acp.rs`):
    only when `HYPERCLI_RUNTIME_INFERENCE=hypercli` exactly AND
    `HYPER_AGENTS_API_KEY`+`HYPER_API_BASE` non-empty, buzz-acp injects
    per-runtime inference env **in-memory at child spawn** (Claude:
@@ -84,7 +85,7 @@ secrets are client-supplied. Rules that ARE server-side:
 
 The buzz launch payload the CI pins (provider/e2e golden contract):
 - `image = ghcr.io/hypercli/hypercli-buzz-<runtime>:<tag>`,
-  `command = ["/usr/local/bin/hyper-acp"]`, `restart = false`,
+  `command = ["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, `restart = false`,
   `sync_root = /home/node`, `sync_uid/gid = 1000`, `routes = {}`,
   `runtime_scopes = ["agents:none","files:*","flows:*","models:*","voice:*","web:*","workspaces:*"]`
 - **secrets**: `BUZZ_PRIVATE_KEY`, `NOSTR_PRIVATE_KEY` (agent nsec — never env)

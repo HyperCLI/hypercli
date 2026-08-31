@@ -10,7 +10,7 @@
   ],
   "common": {
     "size": "large",
-    "command": ["/usr/local/bin/hyper-acp"],
+    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
     "routes": {},
     "restart": false,
     "sync_root": "/home/node",
@@ -20,8 +20,7 @@
   "common_env": {
     "BUZZ_AGENT_REQUIRE_REPLY": "1",
     "BUZZ_ACP_RELAY_OBSERVER": "false",
-    "HYPER_ACP_WS_URL": "wss://api.agents.hypercli.com/ws",
-    "HYPER_ACP_AGENT_COMMAND": "/usr/local/lib/hyper-acp/plugins/buzz-acp"
+    "HYPER_ACP_WS_URL": "wss://api.agents.hypercli.com/ws"
   },
   "runtimes": {
     "buzz-agent": {

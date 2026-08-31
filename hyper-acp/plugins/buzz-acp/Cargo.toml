@@ -5,79 +5,17 @@ edition = "2021"
 rust-version = "1.88.0"
 license = "Apache-2.0"
 repository = "https://github.com/block/sprout"
-description = "ACP harness that bridges Buzz events to AI agents"
+description = "Compatibility binary for the Hyper ACP Buzz plugin"
 keywords = ["acp", "buzz", "agents"]
 categories = ["development-tools"]
-
-[lib]
-name = "buzz_acp"
-path = "src/lib.rs"
 
 [[bin]]
 name = "buzz-acp"
 path = "src/main.rs"
 
 [dependencies]
-# Internal
-buzz-core = { git = "https://github.com/block/buzz.git", rev = "eed74bde2f4797714335ac10c56c0b0244c1def4" }
-buzz-sdk = { git = "https://github.com/block/buzz.git", rev = "eed74bde2f4797714335ac10c56c0b0244c1def4" }
-buzz-persona = { git = "https://github.com/block/buzz.git", rev = "eed74bde2f4797714335ac10c56c0b0244c1def4" }
-
-# Nostr
-nostr = { version = "0.44", features = ["nip44", "nip98"] }
-
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "signal", "process"] }
-
-# WebSocket
-tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
-
-# Codec (bounded line reads)
-tokio-util = { version = "0.7", features = ["rt", "codec"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-futures-util = "0.3"
-
-# HTTP (channel discovery REST API)
-reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
-
-# Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value"] }
-
-# IDs
-uuid = { version = "1", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-
-# URL parsing
-url = "2"
-
-# NIP-98 HTTP auth signing
-sha2 = "0.11"
-base64 = "0.22"
-hex = "0.4"
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-
-# Error handling
-thiserror = "2"
 anyhow = "1"
-
-# CLI
-clap = { version = "4", features = ["derive", "env"] }
-
-# Config file
-toml = "1.0"
-
-# Filter expressions
-evalexpr = "11"
-
-# Process-group kill (safe wrapper around killpg) — Unix-only; kill_process_group
-# has a #[cfg(not(unix))] fallback in acp.rs.
-[target.'cfg(unix)'.dependencies]
-nix = { version = "0.31", default-features = false, features = ["signal"] }
+hyper-acp-buzz = { path = "../buzz" }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "signal", "process", "test-util"] }
-httparse = "1"
+serde_json = { version = "1", features = ["raw_value"] }

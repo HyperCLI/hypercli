@@ -101,7 +101,7 @@ K8s pod: buzz image, /usr/local/bin/hyper-acp ──┘
      `BUZZ_ACP_DEDUP=queue`, plus `BUZZ_AUTH_TAG`, `BUZZ_ACP_DISPLAY_NAME`,
      `BUZZ_ACP_SYSTEM_PROMPT`, `BUZZ_ACP_MODEL`, `BUZZ_ACP_RESPOND_TO`,
      `BUZZ_ACP_RESPOND_TO_ALLOWLIST`
-   - command `["/usr/local/bin/hyper-acp"]`, `restart:false`, buzz image family,
+   - command `["/usr/local/bin/hyper-acp", "plugin", "buzz"]`, `restart:false`, buzz image family,
      sync uid/gid 1000
    - tags: `app=buzz`, `buzz_agent=<pubkey_hex>`, `buzz_channel=<id>` per channel
 3. Wait for `stopped`; publish agent profile (kind 0 with auth tag) via NIP-98

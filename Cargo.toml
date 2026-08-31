@@ -4,6 +4,7 @@ members = [
     "buzz-backend-provider",
     "hyper-acp/agent-client-protocol-schema",
     "hyper-acp/crates/hyper-acp",
+    "hyper-acp/plugins/buzz",
     "hyper-acp/plugins/buzz-acp",
     "hyper-acp/plugins/slack-relay",
     "hyper-acp/schema/v1",
@@ -14,6 +15,7 @@ default-members = [
     "rs-sdk",
     "buzz-backend-provider",
     "hyper-acp/crates/hyper-acp",
+    "hyper-acp/plugins/buzz",
     "hyper-acp/plugins/buzz-acp",
     "hyper-acp/plugins/slack-relay",
 ]

@@ -205,7 +205,6 @@ const BUZZ_RUNTIME_COMMANDS: Record<CodingAgentRuntime, {
 };
 export const DEFAULT_BUZZ_RUST_LOG =
   'hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off';
-const HYPER_ACP_BUZZ_PLUGIN_COMMAND = '/usr/local/lib/hyper-acp/plugins/buzz-acp';
 const BUZZ_RESERVED_ENV_KEYS = new Set([
   'BUZZ_PRIVATE_KEY',
   'NOSTR_PRIVATE_KEY',
@@ -4971,13 +4970,13 @@ export class Deployments {
         'HYPER_ACP_WS_LISTEN',
         'HYPER_ACP_LOG',
         'HYPER_ACP_WS_TOKEN',
+        'HYPER_ACP_AGENT_COMMAND',
         'HYPER_ACP_AGENT_ARGS',
       ]) {
         delete effectiveEnv[key];
       }
       delete effectiveSecrets.HYPER_ACP_WS_TOKEN;
       effectiveEnv.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(this.apiBase);
-      effectiveEnv.HYPER_ACP_AGENT_COMMAND = HYPER_ACP_BUZZ_PLUGIN_COMMAND;
       effectiveEnv.BUZZ_ACP_RELAY_OBSERVER = 'false';
     }
     let syncInclude: readonly string[] | undefined;
@@ -5005,7 +5004,7 @@ export class Deployments {
       routes: options.routes ?? {},
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/hyper-acp']
+        ? ['/usr/local/bin/hyper-acp', 'plugin', 'buzz']
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,

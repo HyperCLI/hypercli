@@ -280,7 +280,6 @@ _BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
     "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
 }
 DEFAULT_BUZZ_RUST_LOG = "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
-HYPER_ACP_BUZZ_PLUGIN_COMMAND = "/usr/local/lib/hyper-acp/plugins/buzz-acp"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
     {
         "BUZZ_PRIVATE_KEY",
@@ -3889,12 +3888,12 @@ class Deployments:
                 "HYPER_ACP_WS_LISTEN",
                 "HYPER_ACP_LOG",
                 "HYPER_ACP_WS_TOKEN",
+                "HYPER_ACP_AGENT_COMMAND",
                 "HYPER_ACP_AGENT_ARGS",
             ):
                 effective_env.pop(key, None)
             effective_secrets.pop("HYPER_ACP_WS_TOKEN", None)
             effective_env["HYPER_ACP_WS_URL"] = _default_hyper_acp_ws_url(self._api_base)
-            effective_env["HYPER_ACP_AGENT_COMMAND"] = HYPER_ACP_BUZZ_PLUGIN_COMMAND
             effective_env["BUZZ_ACP_RELAY_OBSERVER"] = "false"
         (
             effective_sync_include,
@@ -3918,7 +3917,7 @@ class Deployments:
             secrets=effective_secrets,
             routes={} if routes is None else routes,
             command=(
-                ["/usr/local/bin/hyper-acp"]
+                ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
                 if buzz_enabled or buzz is not None
                 else command
             ),

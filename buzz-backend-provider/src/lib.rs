@@ -18,7 +18,6 @@ use url::Url;
 const BUZZ_LAUNCH_TAG_PREFIX: &str = "buzz_launch=";
 const DEFAULT_HYPER_ACP_WS_URL: &str = "wss://api.agents.hypercli.com/ws";
 const DEV_HYPER_ACP_WS_URL: &str = "wss://api.agents.dev.hypercli.com/ws";
-const HYPER_ACP_BUZZ_PLUGIN_COMMAND: &str = "/usr/local/lib/hyper-acp/plugins/buzz-acp";
 // CI bakes an immutable candidate into the exact provider binary under test so
 // the image remains provider-controlled rather than becoming a user-facing
 // schema knob. Release builds do not set this and use the runtime defaults.
@@ -839,7 +838,11 @@ fn build_launch_request_with_inference_base(
         .or_else(|| Some(runtime.default_image().to_owned()));
     request.mark_buzz_deployment(Some(public_key));
 
-    request.command = vec!["/usr/local/bin/hyper-acp".to_owned()];
+    request.command = vec![
+        "/usr/local/bin/hyper-acp".to_owned(),
+        "plugin".to_owned(),
+        "buzz".to_owned(),
+    ];
     request.sync_root = Some("/home/node".to_owned());
     request.sync_include = request
         .runtime
@@ -1002,10 +1005,6 @@ fn build_launch_request_with_inference_base(
     env.insert(
         "HYPER_ACP_WS_URL".to_owned(),
         hyper_acp_ws_url_from_api_base(inference_api_base),
-    );
-    env.insert(
-        "HYPER_ACP_AGENT_COMMAND".to_owned(),
-        HYPER_ACP_BUZZ_PLUGIN_COMMAND.to_owned(),
     );
     env.insert("HYPER_WORKSPACES_BOOT_SYNC".to_owned(), "1".to_owned());
     env.entry("HYPER_WORKSPACES_DIR".to_owned())
@@ -1771,7 +1770,7 @@ mod tests {
     }
 
     #[test]
-    fn buzz_launch_uses_raw_outbound_hyper_acp_with_relay_observer() {
+    fn buzz_launch_runs_hyper_acp_buzz_plugin_with_relay_observer() {
         let request = build_launch_request(
             test_agent(),
             TEST_PUBLIC_HEX,
@@ -1786,9 +1785,13 @@ mod tests {
             DEFAULT_HYPER_ACP_WS_URL
         );
         assert_eq!(
-            request.launch_config.env["HYPER_ACP_AGENT_COMMAND"],
-            HYPER_ACP_BUZZ_PLUGIN_COMMAND
+            request.launch_config.command,
+            ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
         );
+        assert!(!request
+            .launch_config
+            .env
+            .contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert_eq!(request.launch_config.env["BUZZ_ACP_RELAY_OBSERVER"], "true");
         assert!(!request
             .launch_config
@@ -1876,10 +1879,10 @@ mod tests {
             request.launch_config.env["HYPER_ACP_WS_URL"],
             DEFAULT_HYPER_ACP_WS_URL
         );
-        assert_eq!(
-            request.launch_config.env["HYPER_ACP_AGENT_COMMAND"],
-            HYPER_ACP_BUZZ_PLUGIN_COMMAND
-        );
+        assert!(!request
+            .launch_config
+            .env
+            .contains_key("HYPER_ACP_AGENT_COMMAND"));
 
         let mut agent = agent_with_launch(
             CodingRuntime::Opencode,
@@ -1912,10 +1915,10 @@ mod tests {
             request.launch_config.env["HYPER_ACP_WS_URL"],
             DEFAULT_HYPER_ACP_WS_URL
         );
-        assert_eq!(
-            request.launch_config.env["HYPER_ACP_AGENT_COMMAND"],
-            HYPER_ACP_BUZZ_PLUGIN_COMMAND
-        );
+        assert!(!request
+            .launch_config
+            .env
+            .contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert!(!request.launch_config.env.contains_key("HYPER_ACP_WS_TOKEN"));
         assert!(!request.secrets.contains_key("HYPER_ACP_WS_TOKEN"));
         assert!(!request
@@ -2323,7 +2326,10 @@ mod tests {
             .unwrap();
 
             assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
-            assert_eq!(request.command, ["/usr/local/bin/hyper-acp"]);
+            assert_eq!(
+                request.command,
+                ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            );
             assert_eq!(
                 request.runtime_scopes,
                 BUZZ_RUNTIME_SCOPES.map(str::to_owned)
@@ -2594,7 +2600,7 @@ mod tests {
             .match_body(Matcher::PartialJson(serde_json::json!({
                 "handle": handle,
                 "runtime": "opencode",
-                "command": ["/usr/local/bin/hyper-acp"],
+                "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
                 "restart": false,
                 "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                 "secrets": {
@@ -2610,7 +2616,6 @@ mod tests {
                     "BUZZ_ACP_LAZY_POOL": "true",
                     "BUZZ_ACP_RELAY_OBSERVER": "true",
                     "HYPER_ACP_WS_URL": hyper_acp_ws_url,
-                    "HYPER_ACP_AGENT_COMMAND": HYPER_ACP_BUZZ_PLUGIN_COMMAND,
                     "BUZZ_ACP_SESSION_TITLE": "Fizz",
                     "MODEL_API_KEY": "model-secret"
                 }
@@ -2825,7 +2830,7 @@ mod tests {
                 serde_json::json!({"launch_config":{
                     "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
                     "restart": false,
-                    "command": ["/usr/local/bin/hyper-acp"],
+                    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
                     "sync_root": "/home/node",
                     "sync_uid": 1000,
                     "sync_gid": 1000,
@@ -3116,7 +3121,7 @@ mod tests {
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{
                     "restart": false,
-                    "command": ["/usr/local/bin/hyper-acp"],
+                    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES
                 }})
                 .to_string(),
