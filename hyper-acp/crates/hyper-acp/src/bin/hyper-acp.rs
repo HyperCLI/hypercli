@@ -76,6 +76,8 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    install_rustls_crypto_provider();
+
     let raw_args: Vec<String> = env::args().collect();
     match (
         raw_args.get(1).map(String::as_str),
@@ -96,6 +98,10 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?
         .block_on(run_host())
+}
+
+fn install_rustls_crypto_provider() {
+    drop(rustls::crypto::ring::default_provider().install_default());
 }
 
 async fn run_host() -> Result<()> {
