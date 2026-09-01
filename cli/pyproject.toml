@@ -28,7 +28,8 @@ comfyui = [
     "hypercli-sdk[comfyui]>=2026.6.26",
 ]
 wallet = [
-    "x402[httpx,evm]==2.21.0",
+    "x402[evm]==2.21.0",
+    "httpx>=0.28.1",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
     "argon2-cffi>=25.0.0",
@@ -45,7 +46,8 @@ documents = [
 ]
 all = [
     "hypercli-sdk[all]>=2026.6.26",
-    "x402[httpx,evm]==2.21.0",
+    "x402[evm]==2.21.0",
+    "httpx>=0.28.1",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
     "argon2-cffi>=25.0.0",

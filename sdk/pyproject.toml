@@ -35,14 +35,16 @@ comfyui = [
     "comfyui-workflow-templates-media-image>=0.3.0",
 ]
 wallet = [
-    "x402[httpx,evm]==2.21.0",
+    "x402[evm]==2.21.0",
+    "httpx>=0.28.1",
     "eth-account>=0.13.0",
 ]
 all = [
     "openai>=1.0.0",
     "comfyui-workflow-templates>=0.7.0",
     "comfyui-workflow-templates-media-image>=0.3.0",
-    "x402[httpx,evm]==2.21.0",
+    "x402[evm]==2.21.0",
+    "httpx>=0.28.1",
     "eth-account>=0.13.0",
 ]
 dev = [
