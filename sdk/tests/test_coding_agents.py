@@ -507,6 +507,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
+    assert posted["env"]["BUZZ_AGENT_REQUIRE_REPLY"] == "1"
     assert posted["secrets"] == {
         "BUZZ_PRIVATE_KEY": "nsec1test",
         "NOSTR_PRIVATE_KEY": "nsec1test",

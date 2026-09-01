@@ -1637,6 +1637,7 @@ mod tests {
             Some("Fizz4")
         );
         assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
+        assert_eq!(request.env["BUZZ_AGENT_REQUIRE_REPLY"], "1");
         assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
         assert!(!request.env.contains_key("NOSTR_PRIVATE_KEY"));
         assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], "nsec1test");

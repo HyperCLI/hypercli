@@ -421,6 +421,7 @@ describe('coding agents', () => {
         BUZZ_ACP_RELAY_OBSERVER: 'false',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
         BUZZ_ACP_REQUIRE_REPLY: 'true',
+        BUZZ_AGENT_REQUIRE_REPLY: '1',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },
