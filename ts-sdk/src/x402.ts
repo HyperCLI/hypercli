@@ -1,8 +1,8 @@
 /**
  * x402 pay-per-use client for launching jobs and flow renders without a full API account.
  *
- * Requires the `@x402/client` and `@x402/evm` packages for payment signing.
- * Install with: npm install @x402/client @x402/evm
+ * Requires the `@x402/axios` and `@x402/evm` packages for payment signing.
+ * Install with: npm install @x402/axios @x402/evm
  */
 import { DEFAULT_API_URL } from './config.js';
 import { APIError } from './errors.js';
@@ -211,7 +211,7 @@ async function jsonGet(baseUrl: string, path: string, timeout: number): Promise<
 /**
  * Perform an x402 POST: send request, handle 402 payment challenge, retry with payment.
  *
- * This requires the `@x402/client` and `@x402/evm` packages.
+ * This requires the `@x402/axios` and `@x402/evm` packages.
  * The signer must implement `signTypedData` (e.g., a viem WalletClient or ethers Signer).
  */
 export async function x402Post(
@@ -223,22 +223,24 @@ export async function x402Post(
   options: X402PostOptions = {},
 ): Promise<any> {
   let x402ClientClass: any;
+  let x402HTTPClientClass: any;
   let ExactEvmScheme: any;
   try {
     // Dynamic import to keep x402 deps optional
-    // @ts-expect-error -- optional peer dependency
-    const clientMod = await import('@x402/client');
+    const clientMod = await import('@x402/axios');
     const evmMod = await import('@x402/evm');
-    x402ClientClass = clientMod.x402Client ?? clientMod.default;
+    x402ClientClass = clientMod.x402Client;
+    x402HTTPClientClass = clientMod.x402HTTPClient;
     ExactEvmScheme = evmMod.ExactEvmScheme;
   } catch {
     throw new Error(
-      'x402 dependencies missing. Install with: npm install @x402/client @x402/evm'
+      'x402 dependencies missing. Install with: npm install @x402/axios @x402/evm'
     );
   }
 
   const client = new x402ClientClass();
   client.register('eip155:*', new ExactEvmScheme(signer));
+  const httpClient = new x402HTTPClientClass(client);
 
   const endpointUrl = new URL(`${baseUrl}${path}`);
   for (const [key, value] of Object.entries(options.query ?? {})) {
@@ -266,7 +268,7 @@ export async function x402Post(
     if (response.status === 402) {
       const responseHeaders = Object.fromEntries(response.headers.entries());
       const body = await response.arrayBuffer();
-      const paymentHeaders = await client.handlePaymentRequired(responseHeaders, new Uint8Array(body));
+      const paymentHeaders = await httpClient.handlePaymentRequired(responseHeaders, new Uint8Array(body));
 
       const retryHeaders = {
         ...headers,

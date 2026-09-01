@@ -90,7 +90,7 @@ def _require_x402_deps():
         return x402ClientSync, x402HTTPClientSync, EthAccountSigner, register_exact_evm_client
     except ImportError as exc:
         raise RuntimeError(
-            "x402 dependencies missing. Install with: pip install x402[httpx,evm] eth-account"
+            "x402 dependencies missing. Install with: pip install hypercli-sdk[wallet]"
         ) from exc
 
 

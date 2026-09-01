@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -126,6 +127,92 @@ def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources(
     }
 
     assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "solo") is None
+
+
+def test_subscribe_async_requests_custom_amount_without_mutating_challenge(monkeypatch):
+    calls: list[dict[str, object]] = []
+    payment_required = SimpleNamespace(accepts=[SimpleNamespace(amount="25000")])
+
+    class _Response:
+        def __init__(self, status_code: int, payload: dict | None = None):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.headers = {"payment-required": "encoded"}
+            self.text = json.dumps(self._payload)
+
+        @property
+        def is_success(self) -> bool:
+            return 200 <= self.status_code < 300
+
+        def json(self):
+            return self._payload
+
+    class _FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, **kwargs):
+            calls.append({"url": url, **kwargs})
+            if len(calls) == 1:
+                return _Response(402)
+            return _Response(
+                200,
+                {
+                    "key": "hyper_api_test",
+                    "plan_id": "solo",
+                    "expires_at": "2026-09-02T00:00:00Z",
+                    "tpm_limit": 1000,
+                    "rpm_limit": 10,
+                },
+            )
+
+    class _FakeX402Client:
+        async def create_payment_payload(self, required):
+            assert required.accepts[0].amount == "25000"
+            return SimpleNamespace(x402_version=2)
+
+    class _FakeHTTPClient:
+        def __init__(self, client):
+            self.client = client
+
+        def get_payment_required_response(self, get_header, body):
+            assert get_header("payment-required") == "encoded"
+            return payment_required
+
+        def encode_payment_signature_header(self, payload):
+            return {"PAYMENT-SIGNATURE": "signed"}
+
+    async def _fake_resolve(_http, _api_base, plan_id):
+        return f"https://api.example.com/agents/x402/{plan_id}"
+
+    monkeypatch.setattr("httpx.AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(agent_mod, "_resolve_plan_purchase_url", _fake_resolve)
+    monkeypatch.setattr(agent_mod, "x402Client", _FakeX402Client)
+    monkeypatch.setattr(agent_mod, "EthAccountSigner", lambda account: account)
+    monkeypatch.setattr(agent_mod, "register_exact_evm_client", lambda *_args: None)
+    monkeypatch.setattr("x402.http.x402HTTPClient", _FakeHTTPClient)
+
+    result = asyncio.run(
+        agent_mod._subscribe_async(
+            SimpleNamespace(address="0xabc"),
+            "solo",
+            "https://api.example.com",
+            "0.025",
+        )
+    )
+
+    assert result["key"] == "hyper_api_test"
+    assert [call["params"] for call in calls] == [
+        {"amount": "0.025"},
+        {"amount": "0.025"},
+    ]
+    assert calls[1]["headers"]["PAYMENT-SIGNATURE"] == "signed"
 
 
 def test_agent_activate_code_redeems_via_sdk(monkeypatch):

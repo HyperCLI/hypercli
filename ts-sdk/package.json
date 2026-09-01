@@ -119,8 +119,8 @@
     "ws": "^8.16.0"
   },
   "peerDependencies": {
-    "@x402/axios": "^2.0.0",
-    "@x402/evm": "^2.0.0",
+    "@x402/axios": "2.24.0",
+    "@x402/evm": "2.24.0",
     "axios": "^1.7.0"
   },
   "peerDependenciesMeta": {
@@ -140,8 +140,8 @@
     "@typescript-eslint/eslint-plugin": "^8.55.0",
     "@typescript-eslint/parser": "^8.55.0",
     "@vitest/ui": "^4.0.18",
-    "@x402/axios": "^2.0.0",
-    "@x402/evm": "^2.0.0",
+    "@x402/axios": "2.24.0",
+    "@x402/evm": "2.24.0",
     "axios": "^1.7.0",
     "eslint": "^9.39.2",
     "typescript": "^5.3.3",

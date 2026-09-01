@@ -283,7 +283,7 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
         amount: Optional custom USDC amount (as string, e.g., "5.00")
     """
     import httpx
-    from decimal import Decimal
+    from decimal import Decimal, InvalidOperation
     from x402.http import x402HTTPClient
 
     # Setup x402 client
@@ -292,13 +292,25 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
     register_exact_evm_client(client, EthAccountSigner(account))
     http_client = x402HTTPClient(client)
 
+    params = None
+    if amount:
+        try:
+            amount_decimal = Decimal(amount)
+        except (InvalidOperation, ValueError):
+            console.print(f"\n[red]❌ Invalid amount: {amount}[/red]")
+            raise typer.Exit(1)
+        if amount_decimal <= 0:
+            console.print(f"\n[red]❌ Invalid amount: {amount}[/red]")
+            raise typer.Exit(1)
+        params = {"amount": format(amount_decimal, "f")}
+
     async with httpx.AsyncClient(timeout=_resolve_x402_timeout()) as http:
         try:
             url = await _resolve_plan_purchase_url(http, api_base, plan_id)
             console.print(f"\n[bold]→ Requesting:[/bold] POST {url}\n")
 
             # Step 1: Make initial request to get 402 response with payment requirements
-            response = await http.post(url)
+            response = await http.post(url, params=params)
 
             if response.status_code != 402:
                 if response.is_success:
@@ -324,19 +336,11 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
                 get_header, body
             )
 
-            # Step 3: Modify amount if custom amount specified
-            if amount and payment_required.accepts:
-                amount_decimal = Decimal(amount)
-                amount_smallest = str(int(amount_decimal * Decimal("1000000")))
-                console.print(
-                    f"[bold]Custom amount:[/bold] ${amount} USDC ({amount_smallest} smallest units)"
-                )
-
-                # Modify the amount in payment requirements
-                # PaymentRequirements is a Pydantic model, so we can modify it
-                for req in payment_required.accepts:
-                    req.amount = amount_smallest
-            else:
+            # Step 3: Report server-issued amount. Custom amounts are requested
+            # via query params so the signed challenge remains server-issued.
+            if amount:
+                console.print(f"[bold]Custom amount requested:[/bold] ${amount} USDC")
+            elif payment_required.accepts:
                 console.print(
                     f"[dim]Using server-requested amount: {payment_required.accepts[0].amount if payment_required.accepts else 'N/A'}[/dim]"
                 )
@@ -367,7 +371,7 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
                     pass
 
             console.print("[bold]Sending payment...[/bold]")
-            retry_response = await http.post(url, headers=payment_headers)
+            retry_response = await http.post(url, headers=payment_headers, params=params)
 
             console.print(
                 f"[green]✓[/green] Response status: {retry_response.status_code}"
