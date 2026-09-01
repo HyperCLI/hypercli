@@ -43,10 +43,11 @@ tini → hypercli-buzz-<runtime>-entrypoint → hypercli-buzz-init
 ```
 
 Per-runtime entrypoint extras:
-- `buzz-agent`: defaults `BUZZ_AGENT_PROVIDER=anthropic`,
-  `BUZZ_AGENT_MODEL=kimi-k2.6-anthropic`, `ANTHROPIC_BASE_URL=$HYPER_API_BASE`
-  (hard fail if unset), `ANTHROPIC_API_KEY=$HYPER_AGENTS_API_KEY`. Guards are
-  `[ -z "${VAR+x}" ]` — explicit empty launch values win.
+- `buzz-agent`: defaults `BUZZ_AGENT_PROVIDER=openai`,
+  `BUZZ_AGENT_MODEL=coding-anthropic`,
+  `OPENAI_COMPAT_BASE_URL=$HYPER_API_BASE/v1`,
+  `OPENAI_COMPAT_API=chat`, `OPENAI_COMPAT_API_KEY=$HYPER_AGENTS_API_KEY`.
+  Guards are `[ -z "${VAR+x}" ]` — explicit empty launch values win.
 - `claude-code`: `HYPERCLI_RUNTIME_INFERENCE` = `native` (default) | `hypercli`
   | anything else → exit 2. `hypercli` writes an owned 3-key model catalog;
   `native` removes stale generated catalogs. No secrets on disk.

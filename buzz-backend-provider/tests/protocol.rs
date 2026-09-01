@@ -396,10 +396,12 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
         // translate, and each harness reads a different dialect.
         if runtime == "buzz-agent" {
             // `hypercli` is not a provider id buzz-agent accepts; without the
-            // rewrite the harness exits at startup. The base URL is forced
-            // because an unset value silently routes to api.anthropic.com.
-            expected["env"]["BUZZ_AGENT_PROVIDER"] = serde_json::json!("anthropic");
-            expected["env"]["ANTHROPIC_BASE_URL"] = serde_json::json!(server.url());
+            // rewrite the harness exits at startup. Use Chat Completions
+            // because the hosted Anthropic Messages endpoint streams SSE.
+            expected["env"]["BUZZ_AGENT_PROVIDER"] = serde_json::json!("openai");
+            expected["env"]["OPENAI_COMPAT_BASE_URL"] =
+                serde_json::json!(format!("{}/v1", server.url()));
+            expected["env"]["OPENAI_COMPAT_API"] = serde_json::json!("chat");
         }
         for (key, value) in golden["common_env"].as_object().unwrap() {
             expected["env"][key] = value.clone();

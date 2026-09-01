@@ -797,7 +797,7 @@ fn build_launch_request(
         public_key,
         handle,
         options,
-        HYPERCLI_ANTHROPIC_BASE_URL,
+        HYPERCLI_API_BASE_URL,
     )
 }
 
@@ -1237,12 +1237,13 @@ const BUZZ_AGENT_NATIVE_PROVIDERS: [&str; 7] = [
     "openrouter",
 ];
 
-/// Anthropic Messages base for HyperCLI inference. Deliberately has no
-/// `/v1`: buzz-agent appends `/v1/messages` itself, and an unset value
-/// silently defaults to `api.anthropic.com` — i.e. our key would go to the
-/// wrong vendor.
+/// OpenAI-compatible base for HyperCLI inference. Native `buzz-agent` must use
+/// Chat Completions here: HyperCLI's Anthropic Messages endpoint streams SSE,
+/// while buzz-agent's Anthropic client expects a single JSON response body.
 #[cfg(test)]
-const HYPERCLI_ANTHROPIC_BASE_URL: &str = "https://api.hypercli.com";
+const HYPERCLI_API_BASE_URL: &str = "https://api.hypercli.com";
+#[cfg(test)]
+const HYPERCLI_OPENAI_COMPAT_BASE_URL: &str = "https://api.hypercli.com/v1";
 
 /// Translate the vendor-neutral `hypercli` selection Buzz Desktop sends into
 /// each harness's own dialect.
@@ -1252,10 +1253,9 @@ const HYPERCLI_ANTHROPIC_BASE_URL: &str = "https://api.hypercli.com";
 /// readiness check passes unknown ids through. Only this provider knows how
 /// to resolve it, and every harness resolves it differently:
 ///
-/// * `buzz-agent` validates the id against a fixed list and exits otherwise,
-///   so `hypercli` must be rewritten (its image entrypoint defaults the same
-///   values, but only when the variable is *unset* — which Buzz never leaves
-///   it).
+/// * `buzz-agent` validates the id against a fixed list and exits otherwise.
+///   It is routed through OpenAI-compatible Chat Completions because its
+///   Anthropic client does not parse SSE responses from our Messages endpoint.
 /// * `goose` ships a declarative custom provider named `hypercli` in its
 ///   image, so the id is already valid and must not be touched.
 /// * `opencode` names models `<provider>/<model>`; a bare id never matches
@@ -1271,7 +1271,7 @@ fn apply_hypercli_inference_defaults(
     runtime: CodingRuntime,
     inference_api_base: &str,
 ) {
-    let inference_api_base = inference_api_base.trim_end_matches('/');
+    let openai_compat_base = hypercli_openai_compat_base_url(inference_api_base);
     match runtime {
         CodingRuntime::BuzzAgent => {
             let native = env
@@ -1282,13 +1282,12 @@ fn apply_hypercli_inference_defaults(
                 })
                 .unwrap_or(false);
             if !native {
-                env.insert("BUZZ_AGENT_PROVIDER".to_owned(), "anthropic".to_owned());
-                // Forced, not defaulted: the harness falls back to
-                // api.anthropic.com when this is absent.
+                env.insert("BUZZ_AGENT_PROVIDER".to_owned(), "openai".to_owned());
                 env.insert(
-                    "ANTHROPIC_BASE_URL".to_owned(),
-                    inference_api_base.to_owned(),
+                    "OPENAI_COMPAT_BASE_URL".to_owned(),
+                    openai_compat_base.to_owned(),
                 );
+                env.insert("OPENAI_COMPAT_API".to_owned(), "chat".to_owned());
             }
         }
         CodingRuntime::Goose => {
@@ -1310,6 +1309,18 @@ fn apply_hypercli_inference_defaults(
         // These runtimes receive their provider config at the ACP child-spawn
         // boundary; Buzz sends them no provider id to translate here.
         CodingRuntime::ClaudeCode | CodingRuntime::Codex | CodingRuntime::KimiCode => {}
+    }
+}
+
+fn hypercli_openai_compat_base_url(api_base: &str) -> String {
+    let api_base = api_base
+        .trim_end_matches('/')
+        .strip_suffix("/agents")
+        .unwrap_or_else(|| api_base.trim_end_matches('/'));
+    if api_base.ends_with("/v1") {
+        api_base.to_owned()
+    } else {
+        format!("{api_base}/v1")
     }
 }
 
@@ -1931,7 +1942,7 @@ mod tests {
     }
 
     #[test]
-    fn buzz_agent_rewrites_unknown_provider_and_forces_anthropic_base_url() {
+    fn buzz_agent_rewrites_unknown_provider_to_openai_chat() {
         // `hypercli` is not a provider id buzz-agent accepts; left as-is the
         // harness exits with "BUZZ_AGENT_PROVIDER=hypercli not supported".
         let env = launch_env(
@@ -1942,12 +1953,53 @@ mod tests {
             ],
         );
 
-        assert_eq!(env["BUZZ_AGENT_PROVIDER"], "anthropic");
-        // Forced, not defaulted: unset silently routes to api.anthropic.com.
-        assert_eq!(env["ANTHROPIC_BASE_URL"], HYPERCLI_ANTHROPIC_BASE_URL);
-        assert!(!env["ANTHROPIC_BASE_URL"].ends_with("/v1"));
+        assert_eq!(env["BUZZ_AGENT_PROVIDER"], "openai");
+        assert_eq!(
+            env["OPENAI_COMPAT_BASE_URL"],
+            HYPERCLI_OPENAI_COMPAT_BASE_URL
+        );
+        assert_eq!(env["OPENAI_COMPAT_API"], "chat");
+        assert!(!env.contains_key("ANTHROPIC_BASE_URL"));
         // The user's model selection is never overwritten.
         assert_eq!(env["BUZZ_AGENT_MODEL"], "kimi-k2.6-anthropic");
+    }
+
+    #[test]
+    fn buzz_agent_openai_compat_base_does_not_duplicate_v1() {
+        let mut env = BTreeMap::from([
+            ("BUZZ_AGENT_PROVIDER".to_owned(), "hypercli".to_owned()),
+            ("BUZZ_AGENT_MODEL".to_owned(), "coding-anthropic".to_owned()),
+        ]);
+
+        apply_hypercli_inference_defaults(
+            &mut env,
+            CodingRuntime::BuzzAgent,
+            "https://api.dev.hypercli.com/v1",
+        );
+
+        assert_eq!(
+            env["OPENAI_COMPAT_BASE_URL"],
+            "https://api.dev.hypercli.com/v1"
+        );
+    }
+
+    #[test]
+    fn buzz_agent_openai_compat_base_strips_agents_api_suffix() {
+        let mut env = BTreeMap::from([
+            ("BUZZ_AGENT_PROVIDER".to_owned(), "hypercli".to_owned()),
+            ("BUZZ_AGENT_MODEL".to_owned(), "coding-anthropic".to_owned()),
+        ]);
+
+        apply_hypercli_inference_defaults(
+            &mut env,
+            CodingRuntime::BuzzAgent,
+            "https://api.dev.hypercli.com/agents",
+        );
+
+        assert_eq!(
+            env["OPENAI_COMPAT_BASE_URL"],
+            "https://api.dev.hypercli.com/v1"
+        );
     }
 
     #[test]
