@@ -1000,7 +1000,9 @@ fn build_launch_request_with_inference_base(
         env.insert("BUZZ_ACP_TEXT_MENTIONS".to_owned(), "true".to_owned());
     }
     env.insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
-    env.insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
+    if runtime == CodingRuntime::BuzzAgent {
+        env.insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
+    }
     env.insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
     env.insert(
         "HYPER_ACP_WS_URL".to_owned(),
@@ -2342,7 +2344,11 @@ mod tests {
             assert_eq!(request.env["BUZZ_ACP_DISPLAY_NAME"], "Fizz 4");
             assert_eq!(request.env["BUZZ_ACP_TEXT_MENTIONS"], "true");
             assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
-            assert_eq!(request.env["BUZZ_AGENT_REQUIRE_REPLY"], "1");
+            if runtime == CodingRuntime::BuzzAgent {
+                assert_eq!(request.env["BUZZ_AGENT_REQUIRE_REPLY"], "1");
+            } else {
+                assert!(!request.env.contains_key("BUZZ_AGENT_REQUIRE_REPLY"));
+            }
             if runtime == CodingRuntime::ClaudeCode {
                 assert_eq!(
                     request.env["CLAUDE_CODE_EXECUTABLE"],

@@ -18,7 +18,7 @@
     "sync_gid": 1000
   },
   "common_env": {
-    "BUZZ_AGENT_REQUIRE_REPLY": "1",
+    "BUZZ_ACP_REQUIRE_REPLY": "true",
     "BUZZ_ACP_RELAY_OBSERVER": "false",
     "HYPER_ACP_WS_URL": "wss://api.agents.hypercli.com/ws"
   },
@@ -31,7 +31,9 @@
       "agent_args": "",
       "mcp_command": "/usr/local/bin/buzz-dev-mcp",
       "claude_code_executable": null,
-      "env": {}
+      "env": {
+        "BUZZ_AGENT_REQUIRE_REPLY": "1"
+      }
     },
     "opencode": {
       "sync_include": [

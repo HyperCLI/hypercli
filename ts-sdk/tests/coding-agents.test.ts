@@ -342,6 +342,11 @@ describe('coding agents', () => {
     for (const [key, value] of Object.entries(expectedRuntime.env)) {
       expect(payload.env[key]).toBe(value);
     }
+    for (const key of ['BUZZ_AGENT_REQUIRE_REPLY']) {
+      if (!(key in buzzGolden.common_env) && !(key in expectedRuntime.env)) {
+        expect(payload.env[key]).toBeUndefined();
+      }
+    }
     expect(payload.env.BUZZ_PRIVATE_KEY).toBeUndefined();
     expect(payload.env.NOSTR_PRIVATE_KEY).toBeUndefined();
     expect(payload.secrets).toEqual({
@@ -421,11 +426,11 @@ describe('coding agents', () => {
         BUZZ_ACP_RELAY_OBSERVER: 'false',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
         BUZZ_ACP_REQUIRE_REPLY: 'true',
-        BUZZ_AGENT_REQUIRE_REPLY: '1',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },
     });
+    expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBeUndefined();
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
     expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
     // The SDK no longer mints a start nonce; caller-supplied values are
@@ -435,6 +440,26 @@ describe('coding agents', () => {
       BUZZ_PRIVATE_KEY: 'nsec1test',
       NOSTR_PRIVATE_KEY: 'nsec1test',
     });
+  });
+
+  it('sets the native reply guard only for native Buzz Agent launches', async () => {
+    const post = vi.fn().mockResolvedValue(response('buzz-agent'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createBuzzAgent({
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+      },
+    });
+
+    expect(post.mock.calls[0][1].runtime).toBe('buzz-agent');
+    expect(post.mock.calls[0][1].env.BUZZ_ACP_REQUIRE_REPLY).toBe('true');
+    expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBe('1');
   });
 
   it('uses a safe default ACP log filter for typed Buzz launches', async () => {

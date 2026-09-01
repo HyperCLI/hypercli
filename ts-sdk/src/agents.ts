@@ -1248,8 +1248,8 @@ function buildBuzzLaunchEnv(
   if (buzz.textMentions) env.BUZZ_ACP_TEXT_MENTIONS = 'true';
   if (buzz.requireReply !== false) {
     env.BUZZ_ACP_REQUIRE_REPLY = 'true';
-    env.BUZZ_AGENT_REQUIRE_REPLY = '1';
-  } else {
+    if (runtime === 'buzz-agent') env.BUZZ_AGENT_REQUIRE_REPLY = '1';
+  } else if (runtime === 'buzz-agent') {
     env.BUZZ_AGENT_REQUIRE_REPLY = '0';
   }
   return env;

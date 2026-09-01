@@ -300,6 +300,8 @@ await agent.auth.logout();
 
 The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
 runtime. Do not copy an account API key into the launch environment.
+Native Buzz Agent launches also set upstream's `BUZZ_AGENT_REQUIRE_REPLY=1`;
+other Buzz-hosted coding runtimes do not receive that native-only variable.
 
 Authentication is runtime-specific rather than one universal login protocol.
 Native Buzz Agent has no separate login step and uses its injected model and

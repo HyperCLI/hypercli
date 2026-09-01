@@ -181,7 +181,9 @@ stopped instead of having the runtime automatically restart it. The hosted
 terminal-state observer then completes runtime cleanup, marks the deployment
 `stopped`, and releases its slot. Desktop receives no provider
 acknowledgement. Raw non-Buzz `CreateDeploymentRequest` sizing remains
-caller-selected. The config does not implement `Debug` or `Serialize` because
+caller-selected. Native Buzz Agent requests additionally set upstream's
+`BUZZ_AGENT_REQUIRE_REPLY=1`; other Buzz-hosted coding runtimes do not receive
+that native-only variable. The config does not implement `Debug` or `Serialize` because
 it owns the agent nsec.
 
 `Deployment::is_buzz_managed()` recognizes both the stable tag and legacy

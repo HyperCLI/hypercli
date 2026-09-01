@@ -128,11 +128,12 @@ Three independent layers, all launcher-controlled:
 
 **Reply publication**: upstream removed auto-publishing; ACP streamed text is
 observer telemetry only — the agent must explicitly `buzz messages send` /
-`buzz reactions add`. The fork's reply guard: if a turn ends with no publish
-and `BUZZ_ACP_REQUIRE_REPLY=true`, buzz-acp injects the nag in-session ≤ 2
-times (`BUZZ_ACP_MAX_REPLY_NAGS`, constants in `rs-sdk/src/types.rs:377-383`),
-then accepts silence. `!shutdown` (owner-signed, agent-mentioned kind 9) is
-terminal — `restart:false` means the pod exits for good.
+`buzz reactions add`. Buzz-hosted ACP runtimes carry
+`BUZZ_ACP_REQUIRE_REPLY=true` as the launcher reply-policy marker and rely on
+the shared Buzz prompt to require human-facing replies. Native `buzz-agent`
+launches also receive upstream's process-level `BUZZ_AGENT_REQUIRE_REPLY=1`.
+`!shutdown` (owner-signed, agent-mentioned kind 9) is terminal —
+`restart:false` means the pod exits for good.
 
 ## 5. Relay-side agent lifecycle (launcher duties)
 

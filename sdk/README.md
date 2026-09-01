@@ -319,6 +319,8 @@ not duplicate the stock Desktop provider's validation; invalid combinations
 are rejected later by `hyper-acp`. The Desktop provider also maps structured
 Goose model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct Python
 SDK callers must set any Goose-specific environment themselves.
+Native Buzz Agent launches also set upstream's `BUZZ_AGENT_REQUIRE_REPLY=1`;
+other Buzz-hosted coding runtimes do not receive that native-only variable.
 
 Buzz launches leave size unset for live backend/provider slot selection;
 ordinary coding-agent helpers preserve a caller-provided size or the backend

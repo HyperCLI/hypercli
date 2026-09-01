@@ -622,10 +622,12 @@ impl BuzzLaunchConfig {
             request
                 .env
                 .insert("BUZZ_ACP_REQUIRE_REPLY".to_owned(), "true".to_owned());
-            request
-                .env
-                .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
-        } else {
+            if request.runtime == ManagedRuntime::BuzzAgent {
+                request
+                    .env
+                    .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "1".to_owned());
+            }
+        } else if request.runtime == ManagedRuntime::BuzzAgent {
             request
                 .env
                 .insert("BUZZ_AGENT_REQUIRE_REPLY".to_owned(), "0".to_owned());
@@ -1637,7 +1639,7 @@ mod tests {
             Some("Fizz4")
         );
         assert_eq!(request.env["BUZZ_ACP_REQUIRE_REPLY"], "true");
-        assert_eq!(request.env["BUZZ_AGENT_REQUIRE_REPLY"], "1");
+        assert!(!request.env.contains_key("BUZZ_AGENT_REQUIRE_REPLY"));
         assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
         assert!(!request.env.contains_key("NOSTR_PRIVATE_KEY"));
         assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], "nsec1test");
@@ -1677,6 +1679,13 @@ mod tests {
         assert_eq!(
             agent_request.env.get("BUZZ_ACP_MODEL").map(String::as_str),
             Some("kimi-k3")
+        );
+        assert_eq!(
+            agent_request
+                .env
+                .get("BUZZ_AGENT_REQUIRE_REPLY")
+                .map(String::as_str),
+            Some("1")
         );
         assert_eq!(
             agent_request
@@ -1941,6 +1950,13 @@ mod tests {
             let expected_env = contract["env"].as_object().unwrap();
             for (key, value) in expected_env {
                 assert_eq!(request.env.get(key).map(String::as_str), value.as_str());
+            }
+            for key in ["BUZZ_AGENT_REQUIRE_REPLY"] {
+                if !golden["common_env"].as_object().unwrap().contains_key(key)
+                    && !expected_env.contains_key(key)
+                {
+                    assert!(!request.env.contains_key(key));
+                }
             }
             if contract.get("sync_include").is_some() {
                 assert_eq!(

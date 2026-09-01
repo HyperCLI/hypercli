@@ -271,13 +271,40 @@ DEFAULT_BUZZ_CODING_AGENT_IMAGES: dict[CodingAgentRuntime, str] = {
     "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
 }
 
-_BUZZ_RUNTIME_COMMANDS: dict[CodingAgentRuntime, tuple[str, list[str], str]] = {
-    "buzz-agent": ("/usr/local/bin/buzz-agent", [], "/usr/local/bin/buzz-dev-mcp"),
-    "opencode": ("/usr/local/bin/opencode", ["acp"], ""),
-    "codex": ("/usr/local/bin/codex-acp", [], "/usr/local/bin/buzz-dev-mcp"),
-    "claude-code": ("/usr/local/bin/claude-agent-acp", [], ""),
-    "goose": ("/usr/local/bin/goose", ["acp"], ""),
-    "kimi-code": ("/usr/local/bin/kimi", ["acp"], ""),
+
+@dataclass(frozen=True)
+class _BuzzRuntimeLaunchSpec:
+    command: str
+    args: tuple[str, ...] = ()
+    mcp_command: str = ""
+    claude_code_executable: str | None = None
+
+    def apply_reply_env(self, env: dict[str, str], *, require_reply: bool) -> None:
+        del env, require_reply
+
+
+@dataclass(frozen=True)
+class _NativeBuzzAgentLaunchSpec(_BuzzRuntimeLaunchSpec):
+    def apply_reply_env(self, env: dict[str, str], *, require_reply: bool) -> None:
+        env["BUZZ_AGENT_REQUIRE_REPLY"] = "1" if require_reply else "0"
+
+
+_BUZZ_RUNTIME_SPECS: dict[CodingAgentRuntime, _BuzzRuntimeLaunchSpec] = {
+    "buzz-agent": _NativeBuzzAgentLaunchSpec(
+        "/usr/local/bin/buzz-agent",
+        mcp_command="/usr/local/bin/buzz-dev-mcp",
+    ),
+    "opencode": _BuzzRuntimeLaunchSpec("/usr/local/bin/opencode", ("acp",)),
+    "codex": _BuzzRuntimeLaunchSpec(
+        "/usr/local/bin/codex-acp",
+        mcp_command="/usr/local/bin/buzz-dev-mcp",
+    ),
+    "claude-code": _BuzzRuntimeLaunchSpec(
+        "/usr/local/bin/claude-agent-acp",
+        claude_code_executable="/usr/local/bin/claude",
+    ),
+    "goose": _BuzzRuntimeLaunchSpec("/usr/local/bin/goose", ("acp",)),
+    "kimi-code": _BuzzRuntimeLaunchSpec("/usr/local/bin/kimi", ("acp",)),
 }
 DEFAULT_BUZZ_RUST_LOG = "hyper_acp=info,buzz_acp=info,pool::prompt=info,acp::stream=off"
 BUZZ_RESERVED_ENV_KEYS = frozenset(
@@ -362,20 +389,20 @@ class BuzzLaunchConfig:
         if not 1 <= self.parallelism <= 32:
             raise ValueError("buzz.parallelism must be between 1 and 32")
 
-        default_command, default_args, default_mcp = _BUZZ_RUNTIME_COMMANDS[runtime]
+        spec = _BUZZ_RUNTIME_SPECS[runtime]
         env = {
             "BUZZ_RELAY_URL": self.relay_url,
-            "BUZZ_ACP_AGENT_COMMAND": default_command,
-            "BUZZ_ACP_AGENT_ARGS": ",".join(default_args),
-            "BUZZ_ACP_MCP_COMMAND": default_mcp,
+            "BUZZ_ACP_AGENT_COMMAND": spec.command,
+            "BUZZ_ACP_AGENT_ARGS": ",".join(spec.args),
+            "BUZZ_ACP_MCP_COMMAND": spec.mcp_command,
             "BUZZ_ACP_LAZY_POOL": "true",
             "BUZZ_ACP_RELAY_OBSERVER": "false",
             "BUZZ_ACP_AGENTS": str(self.parallelism),
             "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
             "BUZZ_ACP_DEDUP": "queue",
         }
-        if runtime == "claude-code":
-            env["CLAUDE_CODE_EXECUTABLE"] = "/usr/local/bin/claude"
+        if spec.claude_code_executable:
+            env["CLAUDE_CODE_EXECUTABLE"] = spec.claude_code_executable
         optional = {
             "BUZZ_AUTH_TAG": self.auth_tag,
             "BUZZ_ACP_DISPLAY_NAME": self.display_name,
@@ -400,9 +427,7 @@ class BuzzLaunchConfig:
             env["BUZZ_ACP_TEXT_MENTIONS"] = "true"
         if self.require_reply:
             env["BUZZ_ACP_REQUIRE_REPLY"] = "true"
-            env["BUZZ_AGENT_REQUIRE_REPLY"] = "1"
-        else:
-            env["BUZZ_AGENT_REQUIRE_REPLY"] = "0"
+        spec.apply_reply_env(env, require_reply=self.require_reply)
         if self.rust_log:
             env["RUST_LOG"] = self.rust_log
         return env
