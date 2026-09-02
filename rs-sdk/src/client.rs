@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 use tokio::net::TcpStream;
+use tokio::runtime;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use url::Url;
 
@@ -288,14 +289,33 @@ impl HyperCliClient {
         Self::new_with_timeout(config, std::time::Duration::from_secs(30))
     }
 
+    /// `reqwest::blocking::Client::build` drops its internal tokio runtime
+    /// inline, which panics when called from inside an async context; Tauri
+    /// commands run on one, so build on a plain thread there.
+    fn build_blocking_client(
+        timeout: std::time::Duration,
+    ) -> Result<HttpClient, reqwest::Error> {
+        if runtime::Handle::try_current().is_err() {
+            return HttpClient::builder()
+                .timeout(timeout)
+                .redirect(reqwest::redirect::Policy::none())
+                .build();
+        }
+        std::thread::spawn(move || {
+            HttpClient::builder()
+                .timeout(timeout)
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+        })
+        .join()
+        .expect("blocking client build thread panicked")
+    }
+
     pub fn new_with_timeout(
         config: ClientConfig,
         timeout: std::time::Duration,
     ) -> Result<Self, HyperCliError> {
-        let http = HttpClient::builder()
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let http = Self::build_blocking_client(timeout)
             .map_err(|error| HyperCliError::Transport(error.to_string()))?;
         let async_http = AsyncHttpClient::builder()
             .timeout(timeout)

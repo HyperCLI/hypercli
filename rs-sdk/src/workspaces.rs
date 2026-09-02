@@ -1833,10 +1833,10 @@ mod tests {
             "/team/grants",
             200,
             json!([
-                { "id": "agent-1-admin", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-1", "role": "admin", "expires_at": "2026-09-01T00:00:00Z", "revoked_at": null },
-                { "id": "agent-1-viewer", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-1", "role": "viewer", "expires_at": "2026-08-01T00:00:00Z", "revoked_at": null },
+                { "id": "agent-1-admin", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-1", "role": "admin", "expires_at": "2036-09-01T00:00:00Z", "revoked_at": null },
+                { "id": "agent-1-viewer", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-1", "role": "viewer", "expires_at": "2036-08-01T00:00:00Z", "revoked_at": null },
                 { "id": "agent-2-viewer", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-2", "role": "viewer", "expires_at": null, "revoked_at": null },
-                { "id": "agent-2-contributor", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-2", "role": "contributor", "expires_at": "2026-10-01T00:00:00Z", "revoked_at": null },
+                { "id": "agent-2-contributor", "workspace_id": "workspace-1", "subject_type": "agent", "subject_id": "agent-2", "role": "contributor", "expires_at": "2036-10-01T00:00:00Z", "revoked_at": null },
                 { "id": "user-admin", "workspace_id": "workspace-1", "subject_type": "user", "subject_id": "user-1", "role": "admin", "expires_at": null, "revoked_at": null }
             ]),
         )
@@ -1854,7 +1854,7 @@ mod tests {
                     workspace_id: "workspace-1".to_owned(),
                     agent_id: "agent-1".to_owned(),
                     role: "admin".to_owned(),
-                    expires_at: Some("2026-09-01T00:00:00Z".to_owned()),
+                    expires_at: Some("2036-09-01T00:00:00Z".to_owned()),
                 },
                 WorkspaceAgentAssociation {
                     workspace_id: "workspace-1".to_owned(),

@@ -921,7 +921,13 @@ fn init_tray(app: &tauri::App) -> tauri::Result<()> {
             }
         });
     if let Ok(icon) = tauri::image::Image::from_bytes(include_bytes!("../icons/tray-icon@2x.png")) {
-        builder = builder.icon(icon).icon_as_template(true);
+        builder = builder.icon(icon);
+        // Template icons render as alpha-only silhouettes, which is right on
+        // macOS but turns the icon solid black on Windows.
+        #[cfg(target_os = "macos")]
+        {
+            builder = builder.icon_as_template(true);
+        }
     }
     builder.build(app)?;
     Ok(())
