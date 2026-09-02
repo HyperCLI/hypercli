@@ -506,7 +506,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_ACP_MODEL"] == "hypercli/kimi-k2.6-anthropic"
     assert posted["env"]["BUZZ_ACP_AGENTS"] == "3"
     assert posted["env"]["BUZZ_ACP_LAZY_POOL"] == "true"
-    assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "false"
+    assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "true"
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"

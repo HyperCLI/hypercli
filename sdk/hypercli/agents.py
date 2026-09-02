@@ -396,7 +396,7 @@ class BuzzLaunchConfig:
             "BUZZ_ACP_AGENT_ARGS": ",".join(spec.args),
             "BUZZ_ACP_MCP_COMMAND": spec.mcp_command,
             "BUZZ_ACP_LAZY_POOL": "true",
-            "BUZZ_ACP_RELAY_OBSERVER": "false",
+            "BUZZ_ACP_RELAY_OBSERVER": "true",
             "BUZZ_ACP_AGENTS": str(self.parallelism),
             "BUZZ_ACP_MULTIPLE_EVENT_HANDLING": "steer",
             "BUZZ_ACP_DEDUP": "queue",
@@ -3919,7 +3919,7 @@ class Deployments:
                 effective_env.pop(key, None)
             effective_secrets.pop("HYPER_ACP_WS_TOKEN", None)
             effective_env["HYPER_ACP_WS_URL"] = _default_hyper_acp_ws_url(self._api_base)
-            effective_env["BUZZ_ACP_RELAY_OBSERVER"] = "false"
+            effective_env["BUZZ_ACP_RELAY_OBSERVER"] = "true"
         (
             effective_sync_include,
             effective_sync_exclude,

@@ -583,7 +583,7 @@ impl BuzzLaunchConfig {
             .insert("BUZZ_ACP_LAZY_POOL".to_owned(), "true".to_owned());
         request
             .env
-            .insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "false".to_owned());
+            .insert("BUZZ_ACP_RELAY_OBSERVER".to_owned(), "true".to_owned());
         request.env.insert(
             "HYPER_ACP_WS_URL".to_owned(),
             DEFAULT_HYPER_ACP_WS_URL.to_owned(),
@@ -2138,7 +2138,7 @@ mod tests {
                 .env
                 .get("BUZZ_ACP_RELAY_OBSERVER")
                 .map(String::as_str),
-            Some("false")
+            Some("true")
         );
         assert!(!request.env.contains_key("HYPER_ACP_WS_LISTEN"));
         assert!(!request.env.contains_key("HYPER_ACP_LOG"));

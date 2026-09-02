@@ -1216,7 +1216,7 @@ function buildBuzzLaunchEnv(
     BUZZ_ACP_AGENT_ARGS: harness.args.join(','),
     BUZZ_ACP_MCP_COMMAND: harness.mcpCommand,
     BUZZ_ACP_LAZY_POOL: 'true',
-    BUZZ_ACP_RELAY_OBSERVER: 'false',
+    BUZZ_ACP_RELAY_OBSERVER: 'true',
     BUZZ_ACP_AGENTS: String(parallelism),
     BUZZ_ACP_MULTIPLE_EVENT_HANDLING: 'steer',
     BUZZ_ACP_DEDUP: 'queue',
@@ -4977,7 +4977,7 @@ export class Deployments {
       }
       delete effectiveSecrets.HYPER_ACP_WS_TOKEN;
       effectiveEnv.HYPER_ACP_WS_URL = defaultHyperAcpWsUrl(this.apiBase);
-      effectiveEnv.BUZZ_ACP_RELAY_OBSERVER = 'false';
+      effectiveEnv.BUZZ_ACP_RELAY_OBSERVER = 'true';
     }
     let syncInclude: readonly string[] | undefined;
     let syncExclude: readonly string[] | undefined;

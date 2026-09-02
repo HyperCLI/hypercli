@@ -263,7 +263,7 @@ describe('coding agents', () => {
         HYPER_WORKSPACES_SYNC_WORKSPACE: 'buzz',
         RUST_LOG: DEFAULT_BUZZ_RUST_LOG,
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
-        BUZZ_ACP_RELAY_OBSERVER: 'false',
+        BUZZ_ACP_RELAY_OBSERVER: 'true',
       },
     });
     await expect(deployments.createCodex({
@@ -423,7 +423,7 @@ describe('coding agents', () => {
         BUZZ_ACP_MODEL: 'hypercli/kimi-k2.6-anthropic',
         BUZZ_ACP_AGENTS: '3',
         BUZZ_ACP_LAZY_POOL: 'true',
-        BUZZ_ACP_RELAY_OBSERVER: 'false',
+        BUZZ_ACP_RELAY_OBSERVER: 'true',
         HYPER_ACP_WS_URL: 'wss://api.test.hypercli.com/ws',
         BUZZ_ACP_REQUIRE_REPLY: 'true',
         RUST_LOG: 'debug',
@@ -734,7 +734,7 @@ describe('buzz hyper-acp raw outbound launch', () => {
     expect(payload.routes).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');
-    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('false');
+    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('true');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
@@ -758,7 +758,7 @@ describe('buzz hyper-acp raw outbound launch', () => {
     const payload = post.mock.calls[0][1];
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');
-    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('false');
+    expect(payload.env.BUZZ_ACP_RELAY_OBSERVER).toBe('true');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
