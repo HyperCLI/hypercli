@@ -26,7 +26,6 @@ clap = { workspace = true }
 futures-util = { workspace = true }
 hyper-acp-buzz = { path = "../../plugins/buzz" }
 hyper-acp-slack-relay = { path = "../../plugins/slack-relay", optional = true }
-rusqlite = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

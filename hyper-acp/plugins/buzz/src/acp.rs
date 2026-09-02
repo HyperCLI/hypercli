@@ -3031,8 +3031,7 @@ mod tests {
 
     #[cfg(unix)]
     async fn spawn_named_script(name: &str, script: &str) -> (AcpClient, std::path::PathBuf) {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::symlink;
 
         let dir = std::env::temp_dir().join(format!(
             "buzz-acp-{name}-{}-{}",
@@ -3041,19 +3040,15 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("create temp adapter dir");
         let path = dir.join(name);
-        let mut file = std::fs::File::create(&path).expect("create fake adapter");
-        file.write_all(format!("#!/usr/bin/env bash\n{script}\n").as_bytes())
-            .expect("write fake adapter");
-        file.sync_all().expect("sync fake adapter");
-        drop(file);
-        let mut permissions = std::fs::metadata(&path)
-            .expect("adapter metadata")
-            .permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&path, permissions).expect("chmod fake adapter");
-        let client = AcpClient::spawn(path.to_str().expect("utf8 path"), &[], &[], false)
-            .await
-            .expect("spawn named fake adapter");
+        symlink("/bin/bash", &path).expect("symlink fake adapter");
+        let client = AcpClient::spawn(
+            path.to_str().expect("utf8 path"),
+            &["-c".into(), script.into()],
+            &[],
+            false,
+        )
+        .await
+        .expect("spawn named fake adapter");
         (client, dir)
     }
 
@@ -3066,43 +3061,24 @@ mod tests {
         var: &str,
         extra_env: &[(String, String)],
     ) -> String {
-        use std::io::Write;
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::symlink;
 
         let dir = std::env::temp_dir().join(format!("buzz-acp-env-probe-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("create env probe dir");
         let path = dir.join(file_name);
-        let mut file = std::fs::File::create(&path).expect("create env probe script");
-        file.write_all(format!("#!/bin/sh\nprintf '%s\\n' \"${{{var}:-<unset>}}\"\n").as_bytes())
-            .expect("write env probe script");
-        file.sync_all().expect("sync env probe script");
-        drop(file);
-        let mut permissions = std::fs::metadata(&path).expect("stat probe").permissions();
-        permissions.set_mode(0o700);
-        std::fs::set_permissions(&path, permissions).expect("chmod probe");
+        symlink("/bin/sh", &path).expect("symlink env probe");
 
-        let command = path.to_str().expect("probe path is UTF-8");
-        let mut last_error = None;
-        let mut client = None;
-        for _ in 0..20 {
-            match AcpClient::spawn(command, &[], extra_env, false).await {
-                Ok(spawned) => {
-                    client = Some(spawned);
-                    break;
-                }
-                Err(AcpError::Io(error)) if error.raw_os_error() == Some(26) => {
-                    last_error = Some(error);
-                    tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-                }
-                Err(error) => panic!("spawn env probe script: {error:?}"),
-            }
-        }
-        let mut client = client.unwrap_or_else(|| {
-            panic!("spawn env probe script after retries: {last_error:?}");
-        });
-        if let Some(error) = last_error {
-            tracing::debug!("env probe script spawn succeeded after transient ETXTBSY: {error}");
-        }
+        let mut client = AcpClient::spawn(
+            path.to_str().expect("probe path is UTF-8"),
+            &[
+                "-c".into(),
+                format!("printf '%s\\n' \"${{{var}:-<unset>}}\""),
+            ],
+            extra_env,
+            false,
+        )
+        .await
+        .expect("spawn env probe script");
         let observed = client
             .reader
             .next()

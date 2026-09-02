@@ -1,14 +1,20 @@
 //! Raw ACP transports.
 
-use crate::frame::RawAcpFrame;
-use crate::plugin::PluginRegistry;
-use crate::trace::{Direction, TraceStore};
 use anyhow::{Context, Result};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
 pub mod outbound_ws;
 pub mod stdio;
+
+/// ACP frame direction through the host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    /// Client-to-agent ACP frame.
+    ClientToAgent,
+    /// Agent-to-client ACP frame.
+    AgentToClient,
+}
 
 /// Validated raw ACP frame observed by a transport.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,18 +61,4 @@ pub(crate) fn spawn_acp_child(mut command: Command) -> Result<Child> {
         .stderr(std::process::Stdio::inherit())
         .spawn()
         .context("spawn ACP child process")
-}
-
-pub(crate) fn observe_frame(
-    direction: Direction,
-    text: &str,
-    trace: Option<&TraceStore>,
-    plugins: &PluginRegistry,
-) -> Result<()> {
-    let frame = RawAcpFrame::parse(text)?;
-    if let Some(trace) = trace {
-        trace.record_frame(direction, frame.metadata())?;
-    }
-    plugins.observe(frame.metadata());
-    Ok(())
 }

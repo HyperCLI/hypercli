@@ -13,8 +13,6 @@
 #![doc = "does not redefine or reduce ACP request, response, notification, or batch shapes."]
 
 pub mod frame;
-pub mod plugin;
-pub mod trace;
 pub mod transport;
 
 pub use agent_client_protocol_schema as schema;

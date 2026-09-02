@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 const UPSTREAM_HASHES: &[(&str, &str)] = &[
     (
         "src/acp.rs",
-        "f49694e03805175cc01fd260353af67cfff7452942efda949ce3bff1ec8ab715",
+        "e92935651483d2c9b51b0eae723705f1dac97e590a5843a645c91d42973dbc9f",
     ),
     (
         "src/base_prompt.md",
-        "5d0ca6ce9de5a96b5ebf1e4debfe5949038f9d482d995e7d344bd4c556a02c38",
+        "b710fa17703c126c651c37e089d9958785fce25d769e57c5b81d89694edd9a36",
     ),
     (
         "src/engram_fetch.rs",
@@ -24,7 +24,7 @@ const UPSTREAM_HASHES: &[(&str, &str)] = &[
     ),
     (
         "src/pool.rs",
-        "720328e2482ede2c1070e360cb1f5e868503ef6732594412241c9df59a0ce4c6",
+        "fe4e8dd23ac287f435e57f88a0017b4399a4f79d447ea7bfd0f7709ca146a3d4",
     ),
     (
         "src/pool_lifecycle.rs",
@@ -40,15 +40,27 @@ const UPSTREAM_HASHES: &[(&str, &str)] = &[
     ),
     (
         "src/queue.rs",
-        "dbcfa6e45318acc40d8e3c547565e2be3a8a577081cf81a86e16714dddd21819",
+        "6fd72f7780185e3379bb5a5e792a672d8db413f2d52a19d5b23681238fbb7549",
     ),
     (
         "src/relay.rs",
-        "9aa331b5bc3d50c780dc3dda605cd415a64a9c30e06a32a1a9e64b3498223a16",
+        "96575f74db5cf39120242859c73f0d23eee8c4391a6377f98fe826d33dcbe783",
+    ),
+    (
+        "src/scope.rs",
+        "4b8362570340558f44f57cbd918586024e4017a17c4d18fc562b8a930588d1ba",
+    ),
+    (
+        "src/session_model_channel.md",
+        "654860da1e5f34b2bb0b6ad6fb6e9adbfca05fb434f896dafbd09a23a978ea9f",
+    ),
+    (
+        "src/session_model_thread.md",
+        "a5dc7527ac55cfeb94abd40c54c2b203c88c829e90b53c36ad83d67360b5916b",
     ),
     (
         "src/setup_mode.rs",
-        "d99c8cdf2b8cb81357d1da57c457755a9935f67d5b631b345d2663a04ad5bd36",
+        "370b1b4ebbfffdf9f3bfc309b2566c8494d91ed8b2b05913ff6f425eca26e9a3",
     ),
     (
         "src/usage.rs",

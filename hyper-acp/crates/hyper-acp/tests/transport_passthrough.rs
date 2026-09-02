@@ -1,15 +1,13 @@
 #![allow(missing_docs)]
 
 use futures_util::{SinkExt, StreamExt};
-use hyper_acp::plugin::PluginRegistry;
-use hyper_acp::trace::Direction;
+use hyper_acp::transport::Direction;
 use hyper_acp::transport::outbound_ws;
 use hyper_acp::transport::{AcpFrameObserver, ObservedAcpFrame};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -84,8 +82,6 @@ async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
         ws_url,
         command,
         None,
-        Arc::new(PluginRegistry::new()),
-        None,
         Some(frame_observer),
     )
     .await
@@ -155,7 +151,7 @@ async fn outbound_ws_rejects_host_protocol_envelopes() {
     command.arg("10");
     command.stdin(Stdio::piped()).stdout(Stdio::piped());
 
-    let error = outbound_ws::run(ws_url, command, None, Arc::new(PluginRegistry::new()))
+    let error = outbound_ws::run(ws_url, command)
         .await
         .unwrap_err()
         .to_string();

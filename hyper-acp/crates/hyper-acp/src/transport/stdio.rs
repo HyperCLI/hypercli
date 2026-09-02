@@ -1,10 +1,8 @@
 //! Local raw ACP stdio transport.
 
-use crate::plugin::PluginRegistry;
-use crate::trace::{Direction, TraceStore};
-use crate::transport::AcpFrameObserver;
+use crate::frame::validate_frame;
+use crate::transport::{AcpFrameObserver, Direction};
 use anyhow::{Context, Result};
-use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -20,12 +18,8 @@ use tokio::sync::mpsc;
 ///
 /// Returns an error when the child process cannot be spawned, a frame is not
 /// JSON-RPC 2.0, or either stdio stream fails.
-pub async fn run(
-    command: Command,
-    trace: Option<TraceStore>,
-    plugins: Arc<PluginRegistry>,
-) -> Result<()> {
-    run_with_client_frame_source_and_observer(command, trace, plugins, None, None).await
+pub async fn run(command: Command) -> Result<()> {
+    run_with_client_frame_source_and_observer(command, None, None).await
 }
 
 /// Run an ACP child over local stdio with plugin-provided client frames.
@@ -36,11 +30,9 @@ pub async fn run(
 /// JSON-RPC 2.0, or either stdio stream fails.
 pub async fn run_with_client_frame_source(
     command: Command,
-    trace: Option<TraceStore>,
-    plugins: Arc<PluginRegistry>,
     client_frames: Option<mpsc::Receiver<String>>,
 ) -> Result<()> {
-    run_with_client_frame_source_and_observer(command, trace, plugins, client_frames, None).await
+    run_with_client_frame_source_and_observer(command, client_frames, None).await
 }
 
 /// Run an ACP child over local stdio with plugin-provided frames and observers.
@@ -51,8 +43,6 @@ pub async fn run_with_client_frame_source(
 /// JSON-RPC 2.0, either stdio stream fails, or the observer task stops.
 pub async fn run_with_client_frame_source_and_observer(
     command: Command,
-    trace: Option<TraceStore>,
-    plugins: Arc<PluginRegistry>,
     client_frames: Option<mpsc::Receiver<String>>,
     observer: Option<AcpFrameObserver>,
 ) -> Result<()> {
@@ -62,14 +52,12 @@ pub async fn run_with_client_frame_source_and_observer(
     let (child_write_tx, mut child_write_rx) = mpsc::channel::<String>(256);
 
     let stdin_to_child = {
-        let trace = trace.clone();
-        let plugins = Arc::clone(&plugins);
         let child_write_tx = child_write_tx.clone();
         let observer = observer.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(tokio::io::stdin()).lines();
             while let Some(line) = lines.next_line().await? {
-                super::observe_frame(Direction::ClientToAgent, &line, trace.as_ref(), &plugins)?;
+                validate_frame(&line)?;
                 if let Some(observer) = &observer {
                     observer.observe(Direction::ClientToAgent, &line).await?;
                 }
@@ -83,13 +71,11 @@ pub async fn run_with_client_frame_source_and_observer(
     };
 
     let plugin_to_child = client_frames.map(|mut client_frames| {
-        let trace = trace.clone();
-        let plugins = Arc::clone(&plugins);
         let child_write_tx = child_write_tx.clone();
         let observer = observer.clone();
         tokio::spawn(async move {
             while let Some(line) = client_frames.recv().await {
-                super::observe_frame(Direction::ClientToAgent, &line, trace.as_ref(), &plugins)?;
+                validate_frame(&line)?;
                 if let Some(observer) = &observer {
                     observer.observe(Direction::ClientToAgent, &line).await?;
                 }
@@ -114,13 +100,12 @@ pub async fn run_with_client_frame_source_and_observer(
     });
 
     let stdout_to_client = {
-        let plugins = Arc::clone(&plugins);
         let observer = observer.clone();
         tokio::spawn(async move {
             let mut stdout = tokio::io::stdout();
             let mut lines = BufReader::new(child_stdout).lines();
             while let Some(line) = lines.next_line().await? {
-                super::observe_frame(Direction::AgentToClient, &line, trace.as_ref(), &plugins)?;
+                validate_frame(&line)?;
                 if let Some(observer) = &observer {
                     observer.observe(Direction::AgentToClient, &line).await?;
                 }

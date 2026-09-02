@@ -14,9 +14,9 @@ name = "hyper_acp_buzz"
 path = "src/lib.rs"
 
 [dependencies]
-buzz-core = { git = "https://github.com/block/buzz.git", rev = "eed74bde2f4797714335ac10c56c0b0244c1def4" }
-buzz-sdk = { git = "https://github.com/block/buzz.git", rev = "eed74bde2f4797714335ac10c56c0b0244c1def4" }
-buzz-persona = { git = "https://github.com/block/buzz.git", rev = "eed74bde2f4797714335ac10c56c0b0244c1def4" }
+buzz-core = { git = "https://github.com/block/buzz.git", rev = "0e878664b08cdf7fb2d89d940bc2aa92cdc485f7" }
+buzz-sdk = { git = "https://github.com/block/buzz.git", rev = "0e878664b08cdf7fb2d89d940bc2aa92cdc485f7" }
+buzz-persona = { git = "https://github.com/block/buzz.git", rev = "0e878664b08cdf7fb2d89d940bc2aa92cdc485f7" }
 
 nostr = { version = "0.44", features = ["nip44", "nip98"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util", "signal", "process"] }
@@ -24,7 +24,7 @@ tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 tokio-util = { version = "0.7", features = ["rt", "codec"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 futures-util = "0.3"
-reqwest = { version = "0.13", features = ["json", "rustls"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "rustls", "stream"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 uuid = { version = "1", features = ["v4", "serde"] }

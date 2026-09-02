@@ -3,8 +3,8 @@
 This plugin was ported from upstream Buzz ACP.
 
 - Source: `/home/ubuntu/dev/buzz-git/crates/buzz-acp`
-- Source commit: `eed74bde2f4797714335ac10c56c0b0244c1def4`
-- Last source commit touching `crates/buzz-acp`: `69096c9a8 preserve channel description paragraph breaks (#6946)`
+- Source commit: `0e878664b08cdf7fb2d89d940bc2aa92cdc485f7`
+- Last source commit touching `crates/buzz-acp`: `42aeb1571 feat(desktop): add Pi agent preset (#7208)`
 
 The following upstream files are copied into this plugin and remain the parity
 source for Buzz behavior:
@@ -22,6 +22,9 @@ source for Buzz behavior:
 - `src/prompt_project.rs`
 - `src/queue.rs`
 - `src/relay.rs`
+- `src/scope.rs`
+- `src/session_model_channel.md`
+- `src/session_model_thread.md`
 - `src/setup_mode.rs`
 - `src/usage.rs`
 - `tests/pool_lifecycle_state.rs`
@@ -41,9 +44,10 @@ Deliberate deviations:
 - `src/config.rs` and `src/lib.rs` add the `auth-tag` helper by reusing
   upstream `buzz_sdk::nip_oa::compute_auth_tag`, matching the upstream
   `crates/buzz-sdk/examples/compute_auth_tag.rs` utility.
-- `src/acp.rs` keeps upstream behavior and only hardens the Unix test helpers
-  that spawn fake adapter/probe scripts by flushing and closing temporary
-  scripts before exec, avoiding transient `ETXTBSY` failures on CI filesystems.
+- `src/acp.rs` keeps upstream behavior; the Unix test helpers spawn a
+  `symlink("/bin/bash")`/`symlink("/bin/sh")` with the script passed via `-c`
+  instead of writing + chmod + shebang-exec, for CI filesystems where freshly
+  written scripts cannot be exec'd (noexec tmp / ETXTBSY / shebang resolution).
 
 No relay, queue, owner-command, auth/membership, prompt gating, observer,
 setup, usage, or session-pool semantics are intentionally changed from

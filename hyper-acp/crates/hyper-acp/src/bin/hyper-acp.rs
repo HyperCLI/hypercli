@@ -10,10 +10,8 @@
 //! unchanged between a local ACP stdio child and either local stdio or an
 //! outbound WebSocket `/ws` endpoint.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use clap::Parser;
-use hyper_acp::plugin::PluginRegistry;
-use hyper_acp::trace::{DEFAULT_MAX_TRACE_ROWS, TraceStore};
 use hyper_acp::transport::AcpFrameObserver;
 #[cfg(feature = "slack-relay")]
 use hyper_acp::transport::ObservedAcpFrame;
@@ -29,8 +27,6 @@ use hyper_acp_slack_relay::output::{
     run_slack_acp_output_to_replies,
 };
 use std::env;
-use std::path::PathBuf;
-use std::sync::Arc;
 #[cfg(feature = "slack-relay")]
 use std::time::Duration;
 use tokio::process::Command;
@@ -58,18 +54,6 @@ struct Args {
         value_delimiter = ' '
     )]
     agent_args: Vec<String>,
-
-    /// Optional metadata-only SQLite trace database.
-    #[arg(long, env = "HYPER_ACP_TRACE_DB")]
-    trace_db: Option<PathBuf>,
-
-    /// Maximum trace rows retained when tracing is enabled.
-    #[arg(
-        long,
-        env = "HYPER_ACP_TRACE_MAX_ROWS",
-        default_value_t = DEFAULT_MAX_TRACE_ROWS
-    )]
-    trace_max_rows: usize,
 }
 
 fn main() -> Result<()> {
@@ -108,24 +92,12 @@ async fn run_host() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    let trace = args
-        .trace_db
-        .as_deref()
-        .map(|path| {
-            TraceStore::open(path, args.trace_max_rows)
-                .with_context(|| format!("open trace db {}", path.display()))
-        })
-        .transpose()?;
-
     let child = child_command(&args)?;
-    let plugins = Arc::new(PluginRegistry::new());
     let frame_sources = start_client_frame_sources()?;
     let result = if let Some(ws_url) = args.ws_url {
         hyper_acp::transport::outbound_ws::run_with_client_frame_source_and_observer(
             ws_url,
             child,
-            trace,
-            plugins,
             frame_sources.client_frames,
             frame_sources.observer,
         )
@@ -133,8 +105,6 @@ async fn run_host() -> Result<()> {
     } else {
         hyper_acp::transport::stdio::run_with_client_frame_source_and_observer(
             child,
-            trace,
-            plugins,
             frame_sources.client_frames,
             frame_sources.observer,
         )
@@ -246,8 +216,12 @@ fn start_slack_output_processor(
     let adapter_task = tokio::spawn(async move {
         while let Some(frame) = observed_rx.recv().await {
             let direction = match frame.direction {
-                hyper_acp::trace::Direction::ClientToAgent => SlackAcpFrameDirection::ClientToAgent,
-                hyper_acp::trace::Direction::AgentToClient => SlackAcpFrameDirection::AgentToClient,
+                hyper_acp::transport::Direction::ClientToAgent => {
+                    SlackAcpFrameDirection::ClientToAgent
+                }
+                hyper_acp::transport::Direction::AgentToClient => {
+                    SlackAcpFrameDirection::AgentToClient
+                }
             };
             if slack_tx
                 .send(SlackAcpObservedFrame {

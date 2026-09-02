@@ -1,12 +1,10 @@
 //! Outbound raw ACP WebSocket transport.
 
-use crate::plugin::PluginRegistry;
-use crate::trace::{Direction, TraceStore};
-use crate::transport::AcpFrameObserver;
+use crate::frame::validate_frame;
+use crate::transport::{AcpFrameObserver, Direction};
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use std::env;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -30,13 +28,8 @@ const WS_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 /// Returns an error if the URL is not a `ws` or `wss` `/ws` URL, the child
 /// process cannot be spawned, a frame is not JSON-RPC 2.0, or either transport
 /// fails.
-pub async fn run(
-    ws_url: String,
-    command: Command,
-    trace: Option<TraceStore>,
-    plugins: Arc<PluginRegistry>,
-) -> Result<()> {
-    run_with_client_frame_source_and_observer(ws_url, command, trace, plugins, None, None).await
+pub async fn run(ws_url: String, command: Command) -> Result<()> {
+    run_with_client_frame_source_and_observer(ws_url, command, None, None).await
 }
 
 /// Run an ACP child over outbound `/ws` with plugin-provided client frames.
@@ -51,12 +44,9 @@ pub async fn run(
 pub async fn run_with_client_frame_source(
     ws_url: String,
     command: Command,
-    trace: Option<TraceStore>,
-    plugins: Arc<PluginRegistry>,
     client_frames: Option<mpsc::Receiver<String>>,
 ) -> Result<()> {
-    run_with_client_frame_source_and_observer(ws_url, command, trace, plugins, client_frames, None)
-        .await
+    run_with_client_frame_source_and_observer(ws_url, command, client_frames, None).await
 }
 
 /// Run an ACP child over outbound `/ws` with plugin-provided frames and observers.
@@ -68,8 +58,6 @@ pub async fn run_with_client_frame_source(
 pub async fn run_with_client_frame_source_and_observer(
     ws_url: String,
     command: Command,
-    trace: Option<TraceStore>,
-    plugins: Arc<PluginRegistry>,
     client_frames: Option<mpsc::Receiver<String>>,
     observer: Option<AcpFrameObserver>,
 ) -> Result<()> {
@@ -128,8 +116,6 @@ pub async fn run_with_client_frame_source_and_observer(
     };
 
     let ws_to_child = {
-        let trace = trace.clone();
-        let plugins = Arc::clone(&plugins);
         let child_write_tx = child_write_tx.clone();
         let observer = observer.clone();
         tokio::spawn(async move {
@@ -138,12 +124,6 @@ pub async fn run_with_client_frame_source_and_observer(
                     Message::Text(text) => {
                         let text = text.to_string();
                         validate_stdio_text_frame(&text)?;
-                        super::observe_frame(
-                            Direction::ClientToAgent,
-                            &text,
-                            trace.as_ref(),
-                            &plugins,
-                        )?;
                         if let Some(observer) = &observer {
                             observer.observe(Direction::ClientToAgent, &text).await?;
                         }
@@ -164,14 +144,11 @@ pub async fn run_with_client_frame_source_and_observer(
     };
 
     let plugin_to_child = client_frames.map(|mut client_frames| {
-        let trace = trace.clone();
-        let plugins = Arc::clone(&plugins);
         let child_write_tx = child_write_tx.clone();
         let observer = observer.clone();
         tokio::spawn(async move {
             while let Some(text) = client_frames.recv().await {
                 validate_stdio_text_frame(&text)?;
-                super::observe_frame(Direction::ClientToAgent, &text, trace.as_ref(), &plugins)?;
                 if let Some(observer) = &observer {
                     observer.observe(Direction::ClientToAgent, &text).await?;
                 }
@@ -196,13 +173,12 @@ pub async fn run_with_client_frame_source_and_observer(
     });
 
     let child_to_ws = {
-        let plugins = Arc::clone(&plugins);
         let observer = observer.clone();
         let ws_send_tx = ws_send_tx.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(child_stdout).lines();
             while let Some(line) = lines.next_line().await? {
-                super::observe_frame(Direction::AgentToClient, &line, trace.as_ref(), &plugins)?;
+                validate_frame(&line)?;
                 if let Some(observer) = &observer {
                     observer.observe(Direction::AgentToClient, &line).await?;
                 }
@@ -326,7 +302,7 @@ fn validate_stdio_text_frame(text: &str) -> Result<()> {
     if text.contains('\n') {
         bail!("ACP WebSocket text frames must not contain embedded newlines");
     }
-    crate::frame::RawAcpFrame::parse(text)?;
+    validate_frame(text)?;
     Ok(())
 }
 
