@@ -292,9 +292,7 @@ impl HyperCliClient {
     /// `reqwest::blocking::Client::build` drops its internal tokio runtime
     /// inline, which panics when called from inside an async context; Tauri
     /// commands run on one, so build on a plain thread there.
-    fn build_blocking_client(
-        timeout: std::time::Duration,
-    ) -> Result<HttpClient, reqwest::Error> {
+    fn build_blocking_client(timeout: std::time::Duration) -> Result<HttpClient, reqwest::Error> {
         if runtime::Handle::try_current().is_err() {
             return HttpClient::builder()
                 .timeout(timeout)
