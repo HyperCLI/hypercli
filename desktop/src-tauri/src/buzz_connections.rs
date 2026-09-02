@@ -490,6 +490,7 @@ impl<S: OwnerSecretStore> BuzzConnectionRepository<S> {
     }
 }
 
+#[derive(Clone)]
 pub struct OwnerSigner {
     keys: Keys,
 }
@@ -697,6 +698,129 @@ pub fn build_bot_removal_event(
     agent_public_key: &PublicKey,
 ) -> Result<Event, BuzzConnectionError> {
     build_membership_event(owner, 9001, channel_id, agent_public_key, false)
+}
+
+/// Opt-IN allowlist projection for the managed-agent directory event. Never
+/// put secrets, env vars, or runtime fields here — the event is world-readable
+/// on the relay.
+pub struct ManagedAgentProjection<'a> {
+    pub name: &'a str,
+    pub system_prompt: Option<&'a str>,
+    pub model: Option<&'a str>,
+    pub parallelism: u32,
+    pub respond_to: &'a str,
+    pub respond_to_allowlist: &'a [String],
+}
+
+/// Owner-signed managed-agent definition (kind 30177). The shared Buzz agent
+/// directory, mention autocomplete, and cross-device manage rows are built
+/// from this event: the `d` tag is the agent's pubkey and the content is the
+/// opt-IN projection from upstream `managed_agents/agent_events.rs` — it must
+/// never carry the agent nsec, the NIP-OA auth tag, env vars, or runtime
+/// fields, because the event is world-readable on the relay.
+pub fn build_managed_agent_event(
+    owner: &OwnerSigner,
+    agent_public_key: &PublicKey,
+    projection: &ManagedAgentProjection<'_>,
+) -> Result<Event, BuzzConnectionError> {
+    let name = projection.name.trim();
+    if name.is_empty() || name.len() > 120 {
+        return Err(BuzzConnectionError::InvalidInput(
+            "managed agent name must be 1-120 characters".into(),
+        ));
+    }
+    if projection.parallelism == 0 {
+        return Err(BuzzConnectionError::InvalidInput(
+            "managed agent parallelism must be at least 1".into(),
+        ));
+    }
+    let respond_to = projection.respond_to.trim();
+    if !matches!(respond_to, "owner-only" | "allowlist" | "anyone") {
+        return Err(BuzzConnectionError::InvalidInput(
+            "invalid respond-to policy".into(),
+        ));
+    }
+    let mut content = serde_json::Map::new();
+    content.insert("name".into(), serde_json::Value::String(name.to_owned()));
+    content.insert(
+        "parallelism".into(),
+        serde_json::Value::Number(projection.parallelism.into()),
+    );
+    content.insert(
+        "respond_to".into(),
+        serde_json::Value::String(respond_to.to_owned()),
+    );
+    if let Some(prompt) = projection
+        .system_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        content.insert(
+            "system_prompt".into(),
+            serde_json::Value::String(prompt.to_owned()),
+        );
+    }
+    if let Some(model) = projection
+        .model
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        content.insert("model".into(), serde_json::Value::String(model.to_owned()));
+    }
+    if respond_to == "allowlist" {
+        let mut allowlist = Vec::with_capacity(projection.respond_to_allowlist.len());
+        for entry in projection.respond_to_allowlist {
+            let entry = entry.trim();
+            if entry.len() != 64 || !entry.bytes().all(is_lower_hex) {
+                return Err(BuzzConnectionError::InvalidInput(
+                    "managed agent allowlist entries must be lowercase hex public keys".into(),
+                ));
+            }
+            allowlist.push(serde_json::Value::String(entry.to_owned()));
+        }
+        if allowlist.is_empty() {
+            return Err(BuzzConnectionError::InvalidInput(
+                "allowlist respond-to policy requires at least one member".into(),
+            ));
+        }
+        content.insert(
+            "respond_to_allowlist".into(),
+            serde_json::Value::Array(allowlist),
+        );
+    }
+    let agent = agent_public_key.to_hex();
+    let d_tag = Tag::parse(["d", agent.as_str()])
+        .map_err(|_| BuzzConnectionError::InvalidInput("could not encode agent tag".into()))?;
+    EventBuilder::new(
+        Kind::Custom(30177),
+        serde_json::Value::Object(content).to_string(),
+    )
+    .tags([d_tag])
+    .sign_with_keys(&owner.keys)
+    .map_err(|_| BuzzConnectionError::InvalidInput("could not sign managed agent event".into()))
+}
+
+/// NIP-09 tombstone for the managed-agent coordinate. Mirrors the upstream
+/// `build_agent_delete` shape: exactly one `a` tag and no `e` tag, because an
+/// `e` tag routes the relay to the event-id deletion path and leaves the
+/// parameterized-replaceable coordinate live.
+pub fn build_managed_agent_removal_event(
+    owner: &OwnerSigner,
+    agent_public_key: &PublicKey,
+) -> Result<Event, BuzzConnectionError> {
+    let coordinate = format!(
+        "30177:{}:{}",
+        owner.public_key().to_hex(),
+        agent_public_key.to_hex()
+    );
+    let a_tag = Tag::parse(["a", coordinate.as_str()])
+        .map_err(|_| BuzzConnectionError::InvalidInput("could not encode agent tag".into()))?;
+    EventBuilder::new(Kind::Custom(5), "")
+        .tags([a_tag])
+        .sign_with_keys(&owner.keys)
+        .map_err(|_| {
+            BuzzConnectionError::InvalidInput("could not sign managed agent removal".into())
+        })
 }
 
 fn build_membership_event(
@@ -1177,6 +1301,122 @@ mod tests {
         let remove = build_bot_removal_event(&owner, &channel, &agent.keys.public_key()).unwrap();
         assert_eq!(remove.kind.as_u16(), 9001);
         assert!(tag_values(&remove, "role").is_empty());
+    }
+
+    #[test]
+    fn managed_agent_event_matches_upstream_projection_shape() {
+        let owner = OwnerSigner::from_nsec(&owner_nsec()).unwrap();
+        let agent = AgentIdentity::generate();
+        let member = Keys::generate().public_key().to_hex();
+        let event = build_managed_agent_event(
+            &owner,
+            &agent.keys.public_key(),
+            &ManagedAgentProjection {
+                name: "Maverick",
+                system_prompt: Some("You are a test agent."),
+                model: Some("claude-opus-4"),
+                parallelism: 5,
+                respond_to: "allowlist",
+                respond_to_allowlist: std::slice::from_ref(&member),
+            },
+        )
+        .unwrap();
+        assert_eq!(event.kind.as_u16(), 30177);
+        assert_eq!(event.pubkey, owner.public_key());
+        assert!(event.verify_signature());
+        // Exactly one d tag carrying the agent pubkey; no h/e/expiration tags.
+        let d_tags = tag_values(&event, "d");
+        assert_eq!(d_tags.len(), 1);
+        assert_eq!(d_tags[0][1], agent.public_hex());
+        assert!(tag_values(&event, "h").is_empty());
+        assert!(tag_values(&event, "e").is_empty());
+        let content: serde_json::Value = serde_json::from_str(&event.content).unwrap();
+        assert_eq!(content["name"], "Maverick");
+        assert_eq!(content["parallelism"], 5);
+        assert_eq!(content["respond_to"], "allowlist");
+        assert_eq!(content["respond_to_allowlist"][0], member);
+        assert_eq!(content["system_prompt"], "You are a test agent.");
+        assert_eq!(content["model"], "claude-opus-4");
+        // The opt-IN projection must never carry secrets or runtime fields.
+        for forbidden in [
+            "private_key_nsec",
+            "auth_tag",
+            "env_vars",
+            "backend",
+            "relay_url",
+        ] {
+            assert!(content.get(forbidden).is_none(), "leaked {forbidden}");
+        }
+    }
+
+    #[test]
+    fn managed_agent_event_omits_allowlist_outside_allowlist_policy() {
+        let owner = OwnerSigner::from_nsec(&owner_nsec()).unwrap();
+        let agent = AgentIdentity::generate();
+        fn projection<'a>(
+            respond_to: &'a str,
+            allowlist: &'a [String],
+        ) -> ManagedAgentProjection<'a> {
+            ManagedAgentProjection {
+                name: "Maverick",
+                system_prompt: None,
+                model: None,
+                parallelism: 2,
+                respond_to,
+                respond_to_allowlist: allowlist,
+            }
+        }
+        let event =
+            build_managed_agent_event(&owner, &agent.keys.public_key(), &projection("anyone", &[]))
+                .unwrap();
+        let content: serde_json::Value = serde_json::from_str(&event.content).unwrap();
+        assert_eq!(content["respond_to"], "anyone");
+        assert!(content.get("respond_to_allowlist").is_none());
+        assert!(content.get("system_prompt").is_none());
+        assert!(content.get("model").is_none());
+        assert!(build_managed_agent_event(
+            &owner,
+            &agent.keys.public_key(),
+            &projection("allowlist", &[])
+        )
+        .is_err());
+        let bogus_entry = "not-a-pubkey".to_owned();
+        assert!(build_managed_agent_event(
+            &owner,
+            &agent.keys.public_key(),
+            &projection("allowlist", std::slice::from_ref(&bogus_entry)),
+        )
+        .is_err());
+        assert!(build_managed_agent_event(
+            &owner,
+            &agent.keys.public_key(),
+            &projection("everyone", &[])
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn managed_agent_removal_is_a_tag_only_nip09_tombstone() {
+        let owner = OwnerSigner::from_nsec(&owner_nsec()).unwrap();
+        let agent = AgentIdentity::generate();
+        let event = build_managed_agent_removal_event(&owner, &agent.keys.public_key()).unwrap();
+        assert_eq!(event.kind.as_u16(), 5);
+        assert_eq!(event.pubkey, owner.public_key());
+        assert!(event.content.is_empty());
+        assert!(event.verify_signature());
+        // Exactly one target: an a-tag coordinate, never an e-tag.
+        assert_eq!(event.tags.len(), 1);
+        let a_tags = tag_values(&event, "a");
+        assert_eq!(a_tags.len(), 1);
+        assert_eq!(
+            a_tags[0][1],
+            format!(
+                "30177:{}:{}",
+                owner.public_key().to_hex(),
+                agent.public_hex()
+            )
+        );
+        assert!(tag_values(&event, "e").is_empty());
     }
 
     fn discovery_event(keys: &Keys, kind: u16, tags: Vec<Tag>) -> Event {

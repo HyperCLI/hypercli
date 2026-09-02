@@ -464,15 +464,30 @@ async fn archive_agent(agent_id: String) -> Result<LauncherAgent, String> {
 
 #[tauri::command]
 async fn delete_agent(agent_id: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let agent_id = checked_agent_id(&agent_id)?;
-        managed_client()?
-            .delete_deployment(&agent_id)
-            .map(|_| ())
-            .map_err(|error| error.to_string())
+    // Build the Buzz retraction plan before deleting anything; `None` for
+    // non-Buzz deployments.
+    let removal = tauri::async_runtime::spawn_blocking({
+        let agent_id = agent_id.clone();
+        move || buzz_launch::prepare_buzz_agent_removal(&agent_id)
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    tauri::async_runtime::spawn_blocking({
+        let agent_id = agent_id.clone();
+        move || {
+            let agent_id = checked_agent_id(&agent_id)?;
+            managed_client()?
+                .delete_deployment(&agent_id)
+                .map(|_| ())
+                .map_err(|error| error.to_string())
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    if let Some(removal) = removal {
+        buzz_launch::retract_buzz_agent(removal, &agent_id).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

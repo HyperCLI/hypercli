@@ -25,9 +25,10 @@ use tauri::Emitter;
 
 use crate::buzz_connections::{
     build_agent_profile_event, build_bot_enrollment_event, build_bot_removal_event,
-    build_owner_attestation, discover_visible_channels, AgentIdentity, BuzzConnectionMetadata,
-    BuzzConnectionRepository, ManagedBuzzAgentMetadata, OwnerNsec, SystemOwnerSecretStore,
-    VisibleChannel,
+    build_managed_agent_event, build_managed_agent_removal_event, build_owner_attestation,
+    discover_visible_channels, AgentIdentity, BuzzConnectionMetadata, BuzzConnectionRepository,
+    ManagedAgentProjection, ManagedBuzzAgentMetadata, OwnerNsec, OwnerSigner,
+    SystemOwnerSecretStore, VisibleChannel,
 };
 use crate::{checked_agent_id, home_dir, managed_client, LauncherAgent};
 
@@ -573,10 +574,10 @@ async fn publish_buzz_events(
         let output = tokio::time::timeout(Duration::from_secs(20), client.send_event(event))
             .await
             .map_err(|_| "Buzz relay publish timed out".to_owned())?
-            .map_err(|_| "Buzz relay rejected an enrollment event".to_owned())?;
+            .map_err(|_| "Buzz relay rejected an event".to_owned())?;
         if output.success.is_empty() {
             client.disconnect().await;
-            return Err("Buzz relay did not confirm the enrollment event".to_owned());
+            return Err("Buzz relay did not confirm the event".to_owned());
         }
     }
     client.disconnect().await;
@@ -801,6 +802,7 @@ fn validate_buzz_event_author(signer: &nostr::Keys, event: &NostrEvent) -> Resul
 struct PreparedBuzzLaunch {
     relay: String,
     connection_id: String,
+    owner_signer: OwnerSigner,
     owner_keys: nostr::Keys,
     agent_keys: nostr::Keys,
     agent_public_hex: String,
@@ -854,6 +856,7 @@ fn prepare_buzz_launch(input: &BuzzCreateInput) -> Result<PreparedBuzzLaunch, St
     Ok(PreparedBuzzLaunch {
         relay: connection.relay_url.clone(),
         connection_id: connection.id.clone(),
+        owner_signer: owner.clone(),
         owner_keys: owner.keys(),
         agent_keys: agent.keys(),
         agent_public_hex: agent.public_hex(),
@@ -882,7 +885,7 @@ fn wait_for_stopped(client: &HyperCliClient, deployment: Deployment) -> Result<D
 fn create_buzz_deployment_blocking(
     input: &BuzzCreateInput,
     prepared: &PreparedBuzzLaunch,
-) -> Result<Deployment, String> {
+) -> Result<(Deployment, u32), String> {
     let runtime = parse_buzz_runtime(&input.runtime)?;
     let client = managed_client()?;
     let requested_size = match parse_buzz_size(input.size.as_deref())? {
@@ -942,7 +945,75 @@ fn create_buzz_deployment_blocking(
         .map_err(|error| error.to_string())?;
     // CREATE provisions only. Keep the runtime stopped until its Buzz profile
     // and local ownership record have been installed.
-    wait_for_stopped(&client, deployment)
+    wait_for_stopped(&client, deployment).map(|deployment| (deployment, parallelism))
+}
+
+/// Relay retraction plan for a deleted Buzz deployment: the managed-agent
+/// tombstone plus per-channel bot removals, all owner-signed.
+pub(crate) struct BuzzAgentRemoval {
+    relay: String,
+    owner_keys: nostr::Keys,
+    events: Vec<NostrEvent>,
+}
+
+/// Build the retraction plan for a deployment that is about to be deleted.
+/// Returns `None` for non-Buzz deployments (no local Buzz ownership record).
+pub(crate) fn prepare_buzz_agent_removal(
+    deployment_id: &str,
+) -> Result<Option<BuzzAgentRemoval>, String> {
+    let repository = buzz_connection_repository()?;
+    let document = repository.load().map_err(|error| error.to_string())?;
+    let Some(agent) = document
+        .agents
+        .iter()
+        .find(|candidate| candidate.deployment_id.as_deref() == Some(deployment_id))
+    else {
+        return Ok(None);
+    };
+    let connection = document
+        .connections
+        .iter()
+        .find(|candidate| candidate.id == agent.connection_id)
+        .ok_or_else(|| "Saved Buzz connection not found".to_owned())?;
+    let owner = repository
+        .owner_signer(&agent.connection_id)
+        .map_err(|error| error.to_string())?;
+    let agent_public_key = nostr::PublicKey::from_hex(&agent.agent_public_hex)
+        .map_err(|_| "Stored Buzz agent identity is invalid".to_owned())?;
+    // Tombstone first: the directory entry is the highest-visibility artifact
+    // and the publish loop aborts on the first failure.
+    let mut events = vec![build_managed_agent_removal_event(&owner, &agent_public_key)
+        .map_err(|error| error.to_string())?];
+    for channel in &agent.channels {
+        events.push(
+            build_bot_removal_event(&owner, &channel.id, &agent_public_key)
+                .map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(Some(BuzzAgentRemoval {
+        relay: connection.relay_url.clone(),
+        owner_keys: owner.keys(),
+        events,
+    }))
+}
+
+/// Publish the retraction and drop the local Buzz ownership record. Runs after
+/// the backend deployment is gone; a publish failure keeps the local record so
+/// the retraction can be retried.
+pub(crate) async fn retract_buzz_agent(
+    removal: BuzzAgentRemoval,
+    deployment_id: &str,
+) -> Result<(), String> {
+    publish_buzz_events(&removal.relay, removal.owner_keys, &removal.events).await?;
+    let deployment_id = deployment_id.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        buzz_connection_repository()?
+            .forget_agent_by_deployment(&deployment_id)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn cleanup_created_deployment_blocking(agent_id: String) -> Result<(), String> {
@@ -998,13 +1069,43 @@ pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, 
     } else {
         input.allowlist.clear();
     }
-    let deployment = tauri::async_runtime::spawn_blocking({
+    let (deployment, parallelism) = tauri::async_runtime::spawn_blocking({
         let prepared = prepared.clone();
         let launch_input = input.clone();
         move || create_buzz_deployment_blocking(&launch_input, &prepared)
     })
     .await
     .map_err(|error| error.to_string())??;
+
+    // Owner-signed managed-agent definition (kind 30177) plus its NIP-09
+    // tombstone. The definition rides with the enrollment batch so the agent
+    // appears in the shared Buzz directory right after its profile publish;
+    // the tombstone rides with the removal events so cleanup and uninstall
+    // also retract the directory entry.
+    let managed_agent_event = build_managed_agent_event(
+        &prepared.owner_signer,
+        &prepared.agent_keys.public_key(),
+        &ManagedAgentProjection {
+            name: input.name.trim(),
+            system_prompt: input.instructions.as_deref(),
+            model: input.model.as_deref(),
+            parallelism,
+            respond_to: input.respond_to.trim(),
+            respond_to_allowlist: &input.allowlist,
+        },
+    )
+    .map_err(|error| error.to_string())?;
+    let managed_agent_removal = build_managed_agent_removal_event(
+        &prepared.owner_signer,
+        &prepared.agent_keys.public_key(),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut enrollment_events = prepared.enrollment_events.clone();
+    enrollment_events.push(managed_agent_event);
+    // Tombstone first: the directory entry is the highest-visibility artifact
+    // and the publish loop aborts on the first failure.
+    let mut removal_events = vec![managed_agent_removal];
+    removal_events.extend(prepared.removal_events.iter().cloned());
 
     let profile_identity =
         AgentIdentity::from_nsec(&prepared.agent_nsec).map_err(|error| error.to_string())?;
@@ -1028,7 +1129,7 @@ pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, 
             publish_buzz_events(
                 &prepared.relay,
                 prepared.owner_keys.clone(),
-                &prepared.enrollment_events,
+                &enrollment_events,
             )
             .await
         }
@@ -1044,7 +1145,7 @@ pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, 
         let relay_cleanup = publish_buzz_events(
             &prepared.relay,
             prepared.owner_keys.clone(),
-            &prepared.removal_events,
+            &removal_events,
         )
         .await;
         let mut failures = vec![error];
@@ -1095,7 +1196,7 @@ pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, 
         let relay_cleanup = publish_buzz_events(
             &prepared.relay,
             prepared.owner_keys.clone(),
-            &prepared.removal_events,
+            &removal_events,
         )
         .await;
         let mut failures = vec![format!(
