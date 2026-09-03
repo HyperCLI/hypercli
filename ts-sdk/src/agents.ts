@@ -1173,10 +1173,6 @@ export interface CodingAgentCreateOptions extends Omit<CreateAgentOptions, 'runt
    * The old observer route is no longer provisioned.
    */
   buzzActivity?: boolean;
-  /**
-   * @deprecated The old hosted observer route token is no longer used.
-   */
-  hyperAcpWsToken?: string | null;
 }
 
 export interface BuzzLaunchConfig {
@@ -1589,7 +1585,6 @@ export interface AgentStateFields {
   command: string[];
   entrypoint: string[];
   dryRun: boolean;
-  hyperAcpWsToken?: string | null;
 }
 
 export interface AgentHydrationData {
@@ -2773,12 +2768,6 @@ export class Agent {
   public command: string[];
   public entrypoint: string[];
   public readonly dryRun: boolean;
-  /**
-   * The hyper-acp WS token, only on the Agent instance returned by a
-   * buzz-image create call. Fresh hydrations from backend list/get carry
-   * null; it is never recovered from launch_config.
-   */
-  public hyperAcpWsToken: string | null;
   _deployments: Deployments | null = null;
 
   constructor(fields: AgentStateFields) {
@@ -2819,7 +2808,6 @@ export class Agent {
     this.command = [...fields.command];
     this.entrypoint = [...fields.entrypoint];
     this.dryRun = fields.dryRun;
-    this.hyperAcpWsToken = fields.hyperAcpWsToken ?? null;
   }
 
   static fromDict(data: AgentHydrationData): Agent {

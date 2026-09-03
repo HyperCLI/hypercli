@@ -667,9 +667,7 @@ function openBuzzActivityRouteSocket(wsUrl: string): WebSocket {
  *
  * Auth is app-level and entirely in-band: the route is `auth: false` at the
  * edge, so no platform JWT, cookie priming, or header tricks are involved.
- * The token is the deployment-provisioned `HYPER_ACP_WS_TOKEN`; a value
- * retained on the agent object (present on creation-result Agents — the SDK
- * owns provisioning on direct buzz launches) is used as-is, otherwise each
+ * The token is the deployment-provisioned `HYPER_ACP_WS_TOKEN`; each
  * connect attempt reveals the secret through the OpenClaw-style per-secret
  * endpoint — fresh per attempt, with a launch-epoch freshness guard
  * mirroring the OpenClaw gateway flow. After the WebSocket upgrade the client's FIRST text
@@ -720,12 +718,6 @@ export async function subscribeBuzzActivityRoute(
   // agent side means "unknown", which disables the guard rather than failing
   // it.
   const agentLaunchEpoch = Number((agent as { launchEpoch?: number }).launchEpoch ?? 0);
-  // Token retained on a creation-result Agent (first-class ownership,
-  // mirroring the OpenClaw gatewayToken flow); fresh backend hydrations
-  // carry null and fall through to the Secret reveal.
-  const retainedWsToken = String(
-    (agent as { hyperAcpWsToken?: string | null }).hyperAcpWsToken ?? '',
-  ).trim() || null;
 
   let closed = false;
   let ws: WebSocket | null = null;
@@ -840,9 +832,6 @@ export async function subscribeBuzzActivityRoute(
   }
 
   async function fetchWsToken(): Promise<string> {
-    // Prefer the token retained on the already-fetched agent object (the
-    // creation result): authoritative, needs no reveal and no epoch guard.
-    if (retainedWsToken) return retainedWsToken;
     // Fresh reveal per attempt, no caching: a rotated token is honored
     // without resubscribing. `secret()` APIError (401/403/404) propagates
     // untouched.

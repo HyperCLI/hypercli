@@ -128,7 +128,6 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1].env).toEqual(expectedEnv);
     expect(post.mock.calls[0][1].routes).toEqual({});
     expect(post.mock.calls[0][1].secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-    expect(agent.hyperAcpWsToken).toBeNull();
     if (syncInclude === undefined) {
       expect(post.mock.calls[0][1]).not.toHaveProperty('sync_include');
     } else {
@@ -761,7 +760,6 @@ describe('buzz hyper-acp raw outbound launch', () => {
     expect(payload.env).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
     expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-    expect(agent.hyperAcpWsToken).toBeNull();
   });
 
   it('strips caller-supplied observer env and child command overrides', async () => {
@@ -795,7 +793,6 @@ describe('buzz hyper-acp raw outbound launch', () => {
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-    expect(agent.hyperAcpWsToken).toBeNull();
   });
 
   it('provisions nothing on a non-buzz image by default', async () => {
@@ -806,6 +803,5 @@ describe('buzz hyper-acp raw outbound launch', () => {
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
-    expect(agent.hyperAcpWsToken).toBeNull();
   });
 });

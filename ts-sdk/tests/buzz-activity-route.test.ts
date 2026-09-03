@@ -67,7 +67,6 @@ function routeDeployments(options: {
   hostname?: string | null;
   launchEpoch?: number;
   secrets?: SecretStub[];
-  retainedWsToken?: string | null;
 }) {
   const get = vi.fn().mockResolvedValue({
     id: 'agent-1',
@@ -76,7 +75,6 @@ function routeDeployments(options: {
     },
     hostname: 'hostname' in options ? options.hostname : HOSTNAME,
     launchEpoch: options.launchEpoch ?? 1,
-    hyperAcpWsToken: 'retainedWsToken' in options ? options.retainedWsToken : null,
   });
   const secrets = options.secrets ?? [{ value: 'token-1', launch_epoch: 1 }];
   const secret = vi.fn().mockImplementation(async (): Promise<AgentSecretResponse> => {
@@ -225,44 +223,6 @@ describe('subscribeBuzzActivityRoute', () => {
     const sub = await subscribeBuzzActivityRoute(deployments, 'agent-1', { onFrame: () => {} });
     await flushMicrotasks();
     expect(ControllableWebSocket.instances[0].sent).toEqual(['{"type":"auth","token":"token-zero"}']);
-    sub.close();
-  });
-
-  it('prefers a creation-retained token, skipping the secret reveal entirely', async () => {
-    const { deployments, secret } = routeDeployments({
-      retainedWsToken: 'hyper_acp_retainedtoken',
-      secrets: [new Error('secret endpoint must not be called')],
-    });
-    const sub = await subscribeBuzzActivityRoute(deployments, 'agent-1', { onFrame: () => {} });
-    await flushMicrotasks();
-    // The retained value is exactly what goes on the wire; the per-secret
-    // endpoint is never touched, even across a reconnect.
-    expect(secret).not.toHaveBeenCalled();
-    expect(ControllableWebSocket.instances[0].sent).toEqual([
-      '{"type":"auth","token":"hyper_acp_retainedtoken"}',
-    ]);
-    sub.close();
-
-    const sub2 = await subscribeBuzzActivityRoute(deployments, 'agent-1', { onFrame: () => {} });
-    await flushMicrotasks();
-    expect(secret).not.toHaveBeenCalled();
-    expect(ControllableWebSocket.instances[1].sent).toEqual([
-      '{"type":"auth","token":"hyper_acp_retainedtoken"}',
-    ]);
-    sub2.close();
-  });
-
-  it('falls back to the secret reveal when the retained token is empty or blank', async () => {
-    const { deployments, secret } = routeDeployments({
-      retainedWsToken: '   ',
-      secrets: [{ value: 'hyper_acp_revealed', launch_epoch: 1 }],
-    });
-    const sub = await subscribeBuzzActivityRoute(deployments, 'agent-1', { onFrame: () => {} });
-    await flushMicrotasks();
-    expect(secret).toHaveBeenCalledWith('agent-1', WS_TOKEN_SECRET);
-    expect(ControllableWebSocket.instances[0].sent).toEqual([
-      '{"type":"auth","token":"hyper_acp_revealed"}',
-    ]);
     sub.close();
   });
 
