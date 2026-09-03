@@ -65,6 +65,8 @@ fn main() -> Result<()> {
         raw_args.get(2).map(String::as_str),
     ) {
         (Some("plugin"), Some("buzz")) => return run_buzz_plugin(&raw_args[3..]),
+        #[cfg(feature = "slack-relay")]
+        (Some("plugin"), Some("slack")) => return run_slack_plugin(&raw_args[3..]),
         (Some("plugin"), Some("models" | "auth-methods" | "authenticate" | "auth-tag")) => {
             return run_buzz_plugin(&raw_args[2..]);
         }
@@ -118,7 +120,7 @@ async fn run_host() -> Result<()> {
 
 fn print_plugin_help() {
     println!(
-        "Usage: hyper-acp plugin <COMMAND> [ARGS]\n\nCommands:\n  buzz           Run the full Buzz ACP plugin\n  models         Delegate to Buzz plugin models\n  auth-methods   Delegate to Buzz plugin auth-methods\n  authenticate   Delegate to Buzz plugin authenticate\n  auth-tag       Delegate to Buzz plugin auth-tag"
+        "Usage: hyper-acp plugin <COMMAND> [ARGS]\n\nCommands:\n  buzz           Run the full Buzz ACP plugin\n  slack          Run the standalone Slack ACP plugin (skeleton)\n  models         Delegate to Buzz plugin models\n  auth-methods   Delegate to Buzz plugin auth-methods\n  authenticate   Delegate to Buzz plugin authenticate\n  auth-tag       Delegate to Buzz plugin auth-tag"
     );
 }
 
@@ -133,6 +135,11 @@ fn child_command(args: &Args) -> Result<Command> {
 
 fn run_buzz_plugin(plugin_args: &[String]) -> Result<()> {
     buzz_plugin::run_from_hyper_acp(plugin_args.iter().cloned())
+}
+
+#[cfg(feature = "slack-relay")]
+fn run_slack_plugin(plugin_args: &[String]) -> Result<()> {
+    hyper_acp_slack_relay::plugin::run_from_hyper_acp(plugin_args.iter().cloned())
 }
 
 #[cfg(feature = "slack-relay")]

@@ -1107,7 +1107,7 @@ fn create_direct_account_id(bot_token: &str) -> String {
     crate::client::create_slack_token_cache_key(bot_token)
 }
 
-fn build_policy_from_env(
+pub(crate) fn build_policy_from_env(
     account_id: String,
     relay_api_base_url: Option<String>,
 ) -> ActiveSlackRelayPolicy {
@@ -1204,7 +1204,7 @@ fn parse_context_visibility(value: Option<&str>) -> SlackContextVisibility {
     }
 }
 
-fn derive_relay_api_base_url(raw: &str) -> Option<String> {
+pub(crate) fn derive_relay_api_base_url(raw: &str) -> Option<String> {
     let mut url = url::Url::parse(raw).ok()?;
     match url.scheme() {
         "ws" => url.set_scheme("http").ok()?,
