@@ -43,6 +43,121 @@ const AGENT_FRAMES: &[&str] = &[
 ];
 
 #[tokio::test]
+async fn outbound_ws_reconnects_and_child_survives_socket_close() {
+    let temp = TestTemp::new("outbound-ws-reconnect");
+    let child_input_path = temp.path("child-input.jsonl");
+    let child_script = write_child_script(temp.path("agent-child.sh"), &child_input_path);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ws_url = format!("ws://{}/ws", listener.local_addr().unwrap());
+
+    let first_frame = CLIENT_FRAMES[0];
+    let second_frame = CLIENT_FRAMES[1];
+    let server = tokio::spawn(async move {
+        // Era one: send one frame, then close.
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket
+            .send(Message::Text(first_frame.into()))
+            .await
+            .unwrap();
+        socket.close(None).await.unwrap();
+        drop(socket);
+
+        // Era two: the transport must re-dial on its own; the same child must
+        // receive the next frame.
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket
+            .send(Message::Text(second_frame.into()))
+            .await
+            .unwrap();
+        socket.close(None).await.unwrap();
+    });
+
+    let mut command = Command::new("sh");
+    command.arg(&child_script);
+    command.stdin(Stdio::piped()).stdout(Stdio::piped());
+    let transport = tokio::spawn(outbound_ws::run(ws_url, command));
+
+    server.await.unwrap();
+    // Wait for the reconnected era to deliver the second frame to the child.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !read_jsonl(&child_input_path).contains(&second_frame.to_owned()) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "child never received the post-reconnect frame"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        read_jsonl(&child_input_path),
+        vec![first_frame, second_frame]
+    );
+    transport.abort();
+}
+
+#[tokio::test]
+async fn outbound_ws_drops_child_frames_emitted_while_disconnected() {
+    let temp = TestTemp::new("outbound-ws-drop-offline-frames");
+    let child_input_path = temp.path("child-input.jsonl");
+    let offline_frame = AGENT_FRAMES[2];
+    // Child prints one frame immediately (before the first connection), then
+    // reads stdin. The transport connects, then the server closes the socket;
+    // anything else the child prints while disconnected must not leak into
+    // the next era.
+    let mut script = String::from("#!/bin/sh\nset -eu\n");
+    script.push_str("printf '%s\\n' '");
+    script.push_str(offline_frame);
+    script.push_str("'\n");
+    script.push_str("printf '%s\\n' '");
+    script.push_str(AGENT_FRAMES[3]);
+    script.push_str("'\n");
+    script.push_str("while IFS= read -r line; do\n");
+    script.push_str("  printf '%s\\n' \"$line\" >> '");
+    script.push_str(child_input_path.to_str().unwrap());
+    script.push_str("'\n");
+    script.push_str("done\n");
+    let child_script = temp.path("agent-child.sh");
+    fs::write(&child_script, script).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ws_url = format!("ws://{}/ws", listener.local_addr().unwrap());
+
+    let server = tokio::spawn(async move {
+        let mut received_first_era = Vec::new();
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        while let Some(message) = socket.next().await {
+            match message.unwrap() {
+                Message::Text(text) => received_first_era.push(text.to_string()),
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                Message::Close(_) => break,
+                _ => {}
+            }
+            if received_first_era.len() == 2 {
+                break;
+            }
+        }
+        socket.close(None).await.unwrap();
+        drop(socket);
+
+        // Era two: no dead-era frames may appear; just close.
+        let (stream, _) = listener.accept().await.unwrap();
+        let socket = accept_async(stream).await.unwrap();
+        drop(socket);
+        received_first_era
+    });
+
+    let mut command = Command::new("sh");
+    command.arg(&child_script);
+    command.stdin(Stdio::piped()).stdout(Stdio::piped());
+    let transport = tokio::spawn(outbound_ws::run(ws_url, command));
+
+    assert_eq!(server.await.unwrap(), vec![offline_frame, AGENT_FRAMES[3]]);
+    transport.abort();
+}
+
+#[tokio::test]
 async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
     let temp = TestTemp::new("outbound-ws");
     let child_input_path = temp.path("child-input.jsonl");
@@ -78,18 +193,20 @@ async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
     command.arg(&child_script);
     command.stdin(Stdio::piped()).stdout(Stdio::piped());
     let (frame_observer, mut observed_frames) = frame_observer();
-    outbound_ws::run_with_client_frame_source_and_observer(
+    // The transport is long-lived: it survives the server closing the socket
+    // and re-dials, so the run never returns here. Run it as a task and
+    // assert against what the era delivered.
+    let transport = tokio::spawn(outbound_ws::run_with_client_frame_source_and_observer(
         ws_url,
         command,
         None,
         Some(frame_observer),
-    )
-    .await
-    .unwrap();
+    ));
 
     assert_eq!(server.await.unwrap(), AGENT_FRAMES);
     assert_eq!(read_jsonl(&child_input_path), CLIENT_FRAMES);
     assert_observed_frames(&mut observed_frames);
+    transport.abort();
 }
 
 #[tokio::test]

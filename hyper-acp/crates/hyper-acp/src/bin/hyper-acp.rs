@@ -95,11 +95,13 @@ async fn run_host() -> Result<()> {
     let child = child_command(&args)?;
     let frame_sources = start_client_frame_sources()?;
     let result = if let Some(ws_url) = args.ws_url {
-        hyper_acp::transport::outbound_ws::run_with_client_frame_source_and_observer(
-            ws_url,
-            child,
-            frame_sources.client_frames,
-            frame_sources.observer,
+        Box::pin(
+            hyper_acp::transport::outbound_ws::run_with_client_frame_source_and_observer(
+                ws_url,
+                child,
+                frame_sources.client_frames,
+                frame_sources.observer,
+            ),
         )
         .await
     } else {

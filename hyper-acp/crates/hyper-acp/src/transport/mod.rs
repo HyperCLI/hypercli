@@ -59,6 +59,9 @@ pub(crate) fn spawn_acp_child(mut command: Command) -> Result<Child> {
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
+        // The child must not outlive the host on error paths that return
+        // without an explicit kill (tokio does not kill dropped children).
+        .kill_on_drop(true)
         .spawn()
         .context("spawn ACP child process")
 }
