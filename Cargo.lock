@@ -1444,7 +1444,6 @@ name = "hyper-acp-slack-relay"
 version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
- "agent-client-protocol-schema 1.7.0",
  "anyhow",
  "clap",
  "futures-util",
