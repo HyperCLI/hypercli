@@ -94,9 +94,33 @@ pub struct QueuedSlackEvent {
     pub received_at: Instant,
     /// Relay delivery id (trace correlation with the durable log).
     pub delivery_id: String,
+    /// Logical dedupe key claimed at dispatch; the terminal `Commit` record is
+    /// written under this key when the turn reaches a terminal state.
+    pub dedupe_key: Option<String>,
+    /// Slack metadata snapshot from dispatch time (carried to the `Commit`
+    /// record; not interpreted by the queue).
+    pub slack_meta: serde_json::Value,
 }
 
 impl QueuedSlackEvent {
+    /// Durable terminal-commit record for this envelope, when it was claimed
+    /// under a dedupe key at dispatch time. Written exactly once per terminal
+    /// outcome (turn success or dead-letter) — never for transient releases
+    /// (retry backoff, interrupt-merge, held-batch).
+    #[must_use]
+    pub fn to_terminal_commit_record(
+        &self,
+    ) -> Option<crate::monitor::ingress::DurableSlackRelayRecord> {
+        let dedupe_key = self.dedupe_key.clone()?;
+        Some(crate::monitor::ingress::DurableSlackRelayRecord {
+            delivery_id: self.delivery_id.clone(),
+            dedupe_key: Some(dedupe_key),
+            action: crate::monitor::ingress::DurableSlackRelayAction::Commit,
+            slack_meta: self.slack_meta.clone(),
+            queued_event: None,
+        })
+    }
+
     /// Serialize for the durable log.
     ///
     /// `Instant` is not serializable: receipt is stored as epoch milliseconds
@@ -112,6 +136,8 @@ impl QueuedSlackEvent {
             reply_routing: self.reply_routing.clone(),
             received_at_epoch_ms: epoch_ms,
             delivery_id: self.delivery_id.clone(),
+            dedupe_key: self.dedupe_key.clone(),
+            slack_meta: self.slack_meta.clone(),
         }
     }
 }
@@ -129,6 +155,12 @@ pub struct DurableQueuedSlackEvent {
     pub received_at_epoch_ms: u64,
     /// Relay delivery id.
     pub delivery_id: String,
+    /// Logical dedupe key for the terminal `Commit` record.
+    #[serde(default)]
+    pub dedupe_key: Option<String>,
+    /// Slack metadata snapshot from dispatch time.
+    #[serde(default)]
+    pub slack_meta: serde_json::Value,
 }
 
 impl DurableQueuedSlackEvent {
@@ -146,6 +178,8 @@ impl DurableQueuedSlackEvent {
             reply_routing: self.reply_routing.clone(),
             received_at,
             delivery_id: self.delivery_id.clone(),
+            dedupe_key: self.dedupe_key.clone(),
+            slack_meta: self.slack_meta.clone(),
         }
     }
 }
@@ -164,6 +198,19 @@ pub struct SlackFlushBatch {
     pub scope: SlackSessionScope,
     /// Events in receipt order.
     pub events: Vec<QueuedSlackEvent>,
+}
+
+/// How [`SlackEventQueue::finish`] releases an in-flight batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueueFinish {
+    /// Turn succeeded: drop the batch, clear in-flight state.
+    Complete,
+    /// Turn failed transiently: requeue with backoff (dead-letter past
+    /// [`MAX_RETRIES`], returned to the caller).
+    Retry,
+    /// No turn ran (held) or the turn was interrupted: requeue at the front
+    /// preserving fairness timestamps, no retry penalty.
+    Preserve,
 }
 
 /// How new events are handled while a turn is in flight for their scope.
@@ -395,6 +442,26 @@ impl SlackEventQueue {
         }
     }
 
+    /// Terminal-state release of an in-flight batch: the chosen release mode
+    /// runs, then in-flight state is dropped (structurally fused so no path
+    /// can requeue without releasing).
+    ///
+    /// Returns the batch when [`QueueFinish::Retry`] dead-lettered it (the
+    /// caller then writes the terminal durable `Commit` for those events).
+    pub fn finish(&mut self, batch: SlackFlushBatch, mode: QueueFinish) -> Option<SlackFlushBatch> {
+        let scope = batch.scope.clone();
+        let dead = match mode {
+            QueueFinish::Complete => None,
+            QueueFinish::Retry => self.requeue(batch),
+            QueueFinish::Preserve => {
+                self.requeue_preserve_timestamps(batch);
+                None
+            }
+        };
+        self.mark_complete(&scope);
+        dead
+    }
+
     /// Re-queue a failed batch at the FRONT of its scope partition, preserving
     /// original `received_at` (fairness position); the retry delay comes from
     /// exponential backoff (5s→300s, ±20% jitter), not timestamp resets.
@@ -455,7 +522,7 @@ impl SlackEventQueue {
             tracing::warn!(
                 scope = %scope.telemetry_label(),
                 limit = MAX_PENDING_PER_SCOPE,
-                "requeue overflow — dropped oldest event to enforce cap"
+                "requeue overflow — dropped newest event to enforce cap"
             );
         }
         let channel_id = scope.channel_id.clone();
@@ -539,6 +606,9 @@ pub type SharedSlackEventQueue = std::sync::Arc<tokio::sync::Mutex<SlackEventQue
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::monitor::ingress::{
+        recover_durable_relay_log, DurableSlackRelayStore, SharedSlackRelayStore,
+    };
     use crate::scope::SessionPolicy;
 
     fn scope(channel: &str, thread_ts: Option<&str>) -> SlackSessionScope {
@@ -562,6 +632,8 @@ mod tests {
             prompt_text: prompt.to_owned(),
             received_at: Instant::now(),
             delivery_id: delivery_id.to_owned(),
+            dedupe_key: Some(format!("test-key-{delivery_id}")),
+            slack_meta: serde_json::json!({"origin": "test"}),
         }
     }
 
@@ -613,6 +685,114 @@ mod tests {
 
         let flushed = queue.flush_next().expect("flush");
         assert_eq!(flushed.scope, a, "oldest head event wins across scopes");
+    }
+
+    fn durable_temp_path(name: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "slack-queue-{name}-{}-{nanos}.jsonl",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn finish_modes_release_in_flight_state() {
+        for mode in [
+            QueueFinish::Complete,
+            QueueFinish::Retry,
+            QueueFinish::Preserve,
+        ] {
+            let mut queue = SlackEventQueue::new(DedupMode::Queue);
+            let a = scope("C1", Some("100.100"));
+            queue.push(envelope(a.clone(), "a1", "d1"));
+            let batch = queue.flush_next().expect("flush");
+            assert!(queue.is_scope_in_flight(&a));
+            let _dead = queue.finish(batch, mode);
+            assert!(
+                !queue.is_scope_in_flight(&a),
+                "finish({mode:?}) must release in-flight state"
+            );
+        }
+    }
+
+    #[test]
+    fn dead_lettered_batch_commits_and_stops_replaying() {
+        let path = durable_temp_path("dead-letter");
+        let mut queue = SlackEventQueue::new(DedupMode::Queue);
+        let a = scope("C1", Some("100.100"));
+
+        // Simulate dispatch: claimed envelope with a dedupe key writes its
+        // Dispatch record (enqueue side), then the turn runs.
+        let event = envelope(a.clone(), "poison", "d-poison");
+        let mut store = SharedSlackRelayStore::open(&path).expect("store opens");
+        let envelope_value = serde_json::to_value(event.to_durable_record()).unwrap();
+        store
+            .accept(&crate::monitor::ingress::DurableSlackRelayRecord {
+                delivery_id: event.delivery_id.clone(),
+                dedupe_key: event.dedupe_key.clone(),
+                action: crate::monitor::ingress::DurableSlackRelayAction::Dispatch,
+                slack_meta: event.slack_meta.clone(),
+                queued_event: Some(envelope_value),
+            })
+            .unwrap();
+        queue.push(event);
+
+        // Turn fails until the retry budget is exhausted: dead-letter.
+        let batch = queue.flush_next().expect("flush");
+        queue.set_retry_count_for_test(&a, MAX_RETRIES);
+        let dead = queue
+            .finish(batch, QueueFinish::Retry)
+            .expect("retry budget exhausted → dead-letter");
+        assert_eq!(dead.events.len(), 1);
+
+        // Pool-side behavior on dead-letter: terminal commit per event.
+        for event in &dead.events {
+            store
+                .accept(&event.to_terminal_commit_record().expect("has dedupe key"))
+                .unwrap();
+        }
+
+        let recovery = recover_durable_relay_log(&path).expect("recover");
+        assert!(
+            recovery.replay_records.is_empty(),
+            "dead-letter poisons are committed — no infinite cross-restart retry"
+        );
+        assert!(!recovery.committed_dedupe_keys.is_empty());
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn transient_retry_stays_uncommitted_and_replays_after_crash() {
+        let path = durable_temp_path("transient-retry");
+        let mut queue = SlackEventQueue::new(DedupMode::Queue);
+        let a = scope("C1", Some("100.100"));
+        let event = envelope(a.clone(), "flaky", "d-flaky");
+        let mut store = SharedSlackRelayStore::open(&path).expect("store opens");
+        store
+            .accept(&crate::monitor::ingress::DurableSlackRelayRecord {
+                delivery_id: event.delivery_id.clone(),
+                dedupe_key: event.dedupe_key.clone(),
+                action: crate::monitor::ingress::DurableSlackRelayAction::Dispatch,
+                slack_meta: event.slack_meta.clone(),
+                queued_event: Some(serde_json::to_value(event.to_durable_record()).unwrap()),
+            })
+            .unwrap();
+        queue.push(event);
+
+        let batch = queue.flush_next().expect("flush");
+        let dead = queue.finish(batch, QueueFinish::Retry);
+        assert!(
+            dead.is_none(),
+            "first failure is transient, not dead-letter"
+        );
+
+        // Crash during the backoff window: the envelope replays next boot.
+        let recovery = recover_durable_relay_log(&path).expect("recover");
+        assert_eq!(recovery.replay_records.len(), 1);
+        std::fs::remove_file(&path).ok();
     }
 
     #[test]

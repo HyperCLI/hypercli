@@ -37,6 +37,7 @@ mod module_map;
 pub mod monitor;
 pub mod output;
 pub mod plugin;
+pub mod pool;
 pub mod queue;
 pub mod reconnect;
 pub mod relay_source;

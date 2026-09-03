@@ -153,6 +153,49 @@ impl DurableSlackRelayStore for JsonlSlackRelayStore {
     }
 }
 
+/// Cheaply cloneable, shared handle to one JSONL store.
+///
+/// The relay loop and the worker pool both append records (dispatch-time
+/// claims vs turn-terminal commits); the internal mutex keeps records whole.
+/// The inner mutex is `std::sync` because [`DurableSlackRelayStore::accept`]
+/// is synchronous — the lock is never held across an `.await`.
+#[derive(Debug, Clone)]
+pub struct SharedSlackRelayStore {
+    inner: std::sync::Arc<std::sync::Mutex<JsonlSlackRelayStore>>,
+    path: PathBuf,
+}
+
+impl SharedSlackRelayStore {
+    /// Opens a shared JSONL store at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns IO errors when the parent directory or file cannot be created.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, ActiveSlackRelayError> {
+        let inner = JsonlSlackRelayStore::open(&path)?;
+        let path = path.as_ref().to_path_buf();
+        Ok(Self {
+            inner: std::sync::Arc::new(std::sync::Mutex::new(inner)),
+            path,
+        })
+    }
+
+    /// Path the store persists to (used to recover before first reconnect).
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl DurableSlackRelayStore for SharedSlackRelayStore {
+    fn accept(&mut self, record: &DurableSlackRelayRecord) -> Result<(), ActiveSlackRelayError> {
+        self.inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .accept(record)
+    }
+}
+
 /// In-memory durable store substitute for tests and embedded callers that
 /// provide durability outside this crate.
 #[derive(Debug, Default)]
@@ -211,6 +254,13 @@ pub fn recover_durable_relay_log(
                 }
             }
             DurableSlackRelayAction::Dispatch => {
+                if record.queued_event.is_none() && line.contains("\"acp_frame\"") {
+                    tracing::warn!(
+                        delivery_id = %record.delivery_id,
+                        "durable dispatch from the pre-envelope (acp_frame) log era is not \
+                         replayable — one-time upgrade loss window"
+                    );
+                }
                 if let Some(key) = record.dedupe_key.clone() {
                     if record.queued_event.is_some() && !committed.contains(&key) {
                         in_flight_dispatches.insert(key, record);

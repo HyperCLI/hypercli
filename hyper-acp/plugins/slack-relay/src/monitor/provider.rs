@@ -38,7 +38,7 @@ use crate::monitor::events::interactions::{
 pub use crate::monitor::ingress::{
     default_durable_log_path, outcome_ack, recover_durable_relay_log, ActiveSlackRelayLifecycle,
     DurableSlackRelayAction, DurableSlackRelayRecord, DurableSlackRelayStore, JsonlSlackRelayStore,
-    MemorySlackRelayStore,
+    MemorySlackRelayStore, SharedSlackRelayStore,
 };
 pub use crate::monitor::message_dispatch_dedupe::{
     build_slack_message_dispatch_replay_key, SlackDispatchDedupeDecision, SlackDispatchDedupeState,
@@ -982,9 +982,11 @@ pub async fn run_slack_relay_to_acp_client_frames_with_control(
     client_frames: mpsc::Sender<String>,
     control_rx: Option<mpsc::Receiver<ActiveSlackRelayControl>>,
 ) -> Result<(), ActiveSlackRelayError> {
+    let store = SharedSlackRelayStore::open(relay_durable_log_path(&config))?;
     run_slack_relay_loop(
         config,
         SlackRelaySink::ClientFrames(client_frames),
+        store,
         control_rx,
     )
     .await
@@ -1001,6 +1003,7 @@ pub async fn run_slack_relay_to_queue_with_control(
     config: ActiveSlackRelayConfig,
     queue: SharedSlackEventQueue,
     session_policy: SessionPolicy,
+    store: SharedSlackRelayStore,
     control_rx: Option<mpsc::Receiver<ActiveSlackRelayControl>>,
 ) -> Result<(), ActiveSlackRelayError> {
     run_slack_relay_loop(
@@ -1009,6 +1012,7 @@ pub async fn run_slack_relay_to_queue_with_control(
             queue,
             session_policy,
         },
+        store,
         control_rx,
     )
     .await
@@ -1040,17 +1044,22 @@ impl SlackRelaySink {
     }
 }
 
+/// Resolve the durable JSONL path for a relay config.
+#[must_use]
+pub(crate) fn relay_durable_log_path(config: &ActiveSlackRelayConfig) -> PathBuf {
+    config
+        .durable_log_path
+        .clone()
+        .unwrap_or_else(|| default_durable_log_path(&config.relay.gateway_id, &config.session_id))
+}
+
 async fn run_slack_relay_loop(
     config: ActiveSlackRelayConfig,
     sink: SlackRelaySink,
+    mut store: SharedSlackRelayStore,
     mut control_rx: Option<mpsc::Receiver<ActiveSlackRelayControl>>,
 ) -> Result<(), ActiveSlackRelayError> {
-    let path = config
-        .durable_log_path
-        .clone()
-        .unwrap_or_else(|| default_durable_log_path(&config.relay.gateway_id, &config.session_id));
-    let recovery = recover_durable_relay_log(&path)?;
-    let mut store = JsonlSlackRelayStore::open(path)?;
+    let recovery = recover_durable_relay_log(store.path())?;
     let mut reconnect_attempts = 0_u32;
     let mut state = ActiveSlackRelayState::default();
     state.lifecycle.attach();

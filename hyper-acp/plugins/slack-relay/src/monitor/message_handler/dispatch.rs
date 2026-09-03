@@ -443,6 +443,8 @@ pub(crate) async fn handle_accepted_slack_event_with_target(
                 },
                 received_at: Instant::now(),
                 delivery_id: event.delivery_id.clone(),
+                dedupe_key: dedupe_key.clone(),
+                slack_meta: slack_meta.clone(),
             };
             serde_json::to_value(envelope.to_durable_record())?
         }
@@ -499,13 +501,18 @@ pub(crate) async fn handle_accepted_slack_event_with_target(
     }
     if let Some(key) = dedupe_key.as_deref() {
         state.dedupe.commit(key, Instant::now());
-        store.accept(&DurableSlackRelayRecord {
-            delivery_id: event.delivery_id.clone(),
-            dedupe_key: dedupe_key.clone(),
-            action: DurableSlackRelayAction::Commit,
-            slack_meta: slack_meta.clone(),
-            queued_event: None,
-        })?;
+        if matches!(target, SlackDispatchTarget::AcpClientFrames { .. }) {
+            // Legacy splice path: fire-and-forget, commit at dispatch.
+            // Queue path defers the durable Commit to the turn's terminal
+            // state (see pool finish handling in `plugin`).
+            store.accept(&DurableSlackRelayRecord {
+                delivery_id: event.delivery_id.clone(),
+                dedupe_key: dedupe_key.clone(),
+                action: DurableSlackRelayAction::Commit,
+                slack_meta: slack_meta.clone(),
+                queued_event: None,
+            })?;
+        }
     }
     state.lifecycle.finish_turn();
     Ok(ActiveSlackRelayFrameOutcome::Dispatched { ack, dedupe_key })
@@ -636,16 +643,9 @@ pub(crate) async fn drain_recovered_dispatches_to_queue(
             slack_meta: record.slack_meta.clone(),
             queued_event: record.queued_event.clone(),
         })?;
-        if let Some(key) = record.dedupe_key {
-            state.dedupe.commit(&key, Instant::now());
-            store.accept(&DurableSlackRelayRecord {
-                delivery_id: record.delivery_id,
-                dedupe_key: Some(key),
-                action: DurableSlackRelayAction::Commit,
-                slack_meta: record.slack_meta,
-                queued_event: None,
-            })?;
-        }
+        // No durable Commit here: the queue path commits at the turn's
+        // terminal state. (In-memory dedupe is left untouched too — the key
+        // was already committed in-process at original dispatch time.)
         state.lifecycle.finish_turn();
     }
     Ok(())
@@ -799,7 +799,7 @@ mod tests {
 
     use super::*;
     use crate::config::DedupMode;
-    use crate::monitor::ingress::MemorySlackRelayStore;
+    use crate::monitor::ingress::{recover_durable_relay_log, MemorySlackRelayStore};
     use crate::queue::{SlackEventQueue, SlackFlushBatch};
 
     fn test_config() -> ActiveSlackRelayConfig {
@@ -944,6 +944,8 @@ mod tests {
             },
             received_at: Instant::now(),
             delivery_id: "d9".to_owned(),
+            dedupe_key: Some(r#"["message","acct","T1","C1","105.000"]"#.to_owned()),
+            slack_meta: serde_json::json!({"origin": "test"}),
         };
         let replay = vec![DurableSlackRelayRecord {
             delivery_id: "d9".to_owned(),
@@ -970,10 +972,168 @@ mod tests {
             .records
             .iter()
             .any(|record| record.action == DurableSlackRelayAction::Replay));
-        assert!(store
+        assert!(
+            !store
+                .records
+                .iter()
+                .any(|record| record.action == DurableSlackRelayAction::Commit),
+            "queue replay must NOT commit — the terminal commit lands at turn end"
+        );
+    }
+
+    fn durable_temp_path(name: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "slack-dispatch-{name}-{}-{nanos}.jsonl",
+            std::process::id()
+        ))
+    }
+
+    #[tokio::test]
+    async fn queue_target_writes_dispatch_without_commit_until_turn_end() {
+        let path = durable_temp_path("crash-enqueue");
+        let store_handle =
+            crate::monitor::ingress::SharedSlackRelayStore::open(&path).expect("store opens");
+        let mut store = store_handle.clone();
+        let queue = shared_queue(DedupMode::Queue);
+        let mut state = ActiveSlackRelayState::default();
+
+        let outcome = handle_active_slack_relay_frame_with_target(
+            relay_frame(&json!({
+                "type": "message",
+                "channel": "C1",
+                "user": "U1",
+                "text": "hi",
+                "ts": "105.000",
+                "thread_ts": "100.000",
+            })),
+            &test_config(),
+            &mut state,
+            &mut store,
+            SlackDispatchTarget::Queue {
+                queue: &queue,
+                session_policy: SessionPolicy::Thread,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            ActiveSlackRelayFrameOutcome::Dispatched { .. }
+        ));
+
+        // Crash right after enqueue: nothing completes the turn.
+        drop(queue);
+        drop(store_handle);
+
+        let recovery = recover_durable_relay_log(&path).expect("recover");
+        assert_eq!(
+            recovery.replay_records.len(),
+            1,
+            "uncommitted queue dispatch replays after crash"
+        );
+
+        // Boot 2: replay re-enqueues and writes only the Replay marker (no Commit);
+        // a second crash before the turn ends must replay AGAIN.
+        let queue2 = shared_queue(DedupMode::Queue);
+        let mut store2 =
+            crate::monitor::ingress::SharedSlackRelayStore::open(&path).expect("reopen");
+        let mut state2 = ActiveSlackRelayState::default();
+        state2.lifecycle.attach();
+        state2.lifecycle.start();
+        drain_recovered_dispatches_to_queue(
+            &mut state2,
+            &mut store2,
+            &queue2,
+            recovery.replay_records,
+        )
+        .await
+        .unwrap();
+        let scope = crate::scope::SlackSessionScope {
+            team_id: "T1".to_owned(),
+            channel_id: "C1".to_owned(),
+            thread_ts: Some("100.000".to_owned()),
+            is_dm: false,
+        };
+        assert_eq!(
+            queue2.lock().await.queued_event_count(&scope),
+            1,
+            "replayed envelope lands back in the queue"
+        );
+        drop(queue2);
+        drop(store2);
+        let recovery2 = recover_durable_relay_log(&path).expect("recover again");
+        assert_eq!(
+            recovery2.replay_records.len(),
+            1,
+            "replay alone does not suppress future replays"
+        );
+
+        // Turn completes: pool writes the terminal Commit; boot 3 replays nothing.
+        let mut store3 =
+            crate::monitor::ingress::SharedSlackRelayStore::open(&path).expect("reopen");
+        let commit = recovery2.replay_records[0]
+            .queued_event
+            .clone()
+            .and_then(|value| serde_json::from_value::<DurableQueuedSlackEvent>(value).ok())
+            .expect("envelope in replay record")
+            .to_queued_event()
+            .to_terminal_commit_record()
+            .expect("envelope carries a dedupe key");
+        store3.accept(&commit).unwrap();
+        let recovery3 = recover_durable_relay_log(&path).expect("recover third");
+        for key in recovery3.committed_dedupe_keys {
+            assert!(!key.is_empty());
+        }
+        assert!(
+            recovery3.replay_records.is_empty(),
+            "completed turns are not replayed"
+        );
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn legacy_frame_target_commits_at_dispatch() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let mut state = ActiveSlackRelayState::default();
+        let mut store = MemorySlackRelayStore::default();
+        let outcome = handle_active_slack_relay_frame(
+            relay_frame(&json!({
+                "type": "message",
+                "channel": "C1",
+                "user": "U1",
+                "text": "hi",
+                "ts": "105.000",
+            })),
+            &test_config(),
+            &mut state,
+            &mut store,
+            &tx,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            ActiveSlackRelayFrameOutcome::Dispatched { .. }
+        ));
+        assert!(rx.recv().await.is_some());
+        let actions: Vec<DurableSlackRelayAction> = store
             .records
             .iter()
-            .any(|record| record.action == DurableSlackRelayAction::Commit));
+            .map(|record| record.action.clone())
+            .collect();
+        assert_eq!(
+            actions,
+            vec![
+                DurableSlackRelayAction::Claim,
+                DurableSlackRelayAction::Dispatch,
+                DurableSlackRelayAction::Commit,
+            ],
+            "legacy splice path keeps fire-and-forget commit-at-dispatch"
+        );
     }
 
     #[tokio::test]

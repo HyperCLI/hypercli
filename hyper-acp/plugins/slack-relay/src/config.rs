@@ -6,6 +6,7 @@
 use clap::Parser;
 use thiserror::Error;
 
+use crate::queue::MultipleEventHandling;
 use crate::scope::SessionPolicy;
 
 /// Default idle timeout (seconds) when `--idle-timeout` /
@@ -21,6 +22,12 @@ pub enum ConfigError {
     /// The agent command resolved to an empty string.
     #[error("agent command must not be empty")]
     EmptyAgentCommand,
+    /// Steer mode was requested, which this harness cannot serve.
+    #[error(
+        "steer mode requires the buzz `_session/steering` ACP extension, which the official-SDK \
+         slack harness does not implement for arbitrary agents — use `queue` or `interrupt`"
+    )]
+    SteerUnsupported,
 }
 
 /// CLI args for `hyper-acp plugin slack`.
@@ -40,8 +47,7 @@ pub struct CliArgs {
     )]
     pub agent_args: Vec<String>,
 
-    /// Number of parallel agent subprocesses. The skeleton spawns slot 0 only;
-    /// the range is validated now so later phases can trust the value.
+    /// Number of parallel agent subprocesses (pool slots).
     #[arg(long, env = "SLACK_ACP_AGENTS", default_value_t = 1,
           value_parser = clap::value_parser!(u32).range(1..=32))]
     pub agents: u32,
@@ -64,6 +70,17 @@ pub struct CliArgs {
     /// turn: keep them queued (default) or drop them.
     #[arg(long, env = "SLACK_ACP_DEDUP", default_value = "queue", value_enum)]
     pub dedup: DedupMode,
+
+    /// How new events are handled while a turn is in flight for their scope:
+    /// queue them (default) or interrupt (cancel + merged re-prompt). `steer`
+    /// is rejected at validation time (see [`ConfigError::SteerUnsupported`]).
+    #[arg(long, env = "SLACK_ACP_MODE", default_value = "queue", value_enum)]
+    pub mode: MultipleEventHandling,
+
+    /// Max turns per ACP session before rotation: new events for the scope
+    /// start a fresh session. 0 disables count-based rotation.
+    #[arg(long, env = "SLACK_ACP_MAX_TURNS_PER_SESSION", default_value_t = 0)]
+    pub max_turns_per_session: u32,
 }
 
 /// How the event queue handles new events for a scope whose turn is in flight.
@@ -91,6 +108,10 @@ pub struct Config {
     pub session_policy: SessionPolicy,
     /// Event-queue dedup mode for in-flight scopes.
     pub dedup_mode: DedupMode,
+    /// How new events are handled while a turn is in flight for their scope.
+    pub mode: MultipleEventHandling,
+    /// Max turns per ACP session before rotation (0 = disabled).
+    pub max_turns_per_session: u32,
 }
 
 impl Config {
@@ -116,6 +137,10 @@ impl Config {
             args.idle_timeout
         };
 
+        if args.mode == MultipleEventHandling::Steer {
+            return Err(ConfigError::SteerUnsupported);
+        }
+
         Ok(Self {
             agent_command,
             agent_args: args.agent_args,
@@ -123,6 +148,8 @@ impl Config {
             idle_timeout_secs,
             session_policy: args.session_policy,
             dedup_mode: args.dedup,
+            mode: args.mode,
+            max_turns_per_session: args.max_turns_per_session,
         })
     }
 
@@ -130,13 +157,16 @@ impl Config {
     #[must_use]
     pub fn summary(&self) -> String {
         format!(
-            "agent_cmd={} {} agents={} idle_timeout={}s session_policy={:?} dedup={:?}",
+            "agent_cmd={} {} agents={} idle_timeout={}s session_policy={:?} dedup={:?} \
+             mode={:?} max_turns_per_session={}",
             self.agent_command,
             self.agent_args.join(" "),
             self.agents,
             self.idle_timeout_secs,
             self.session_policy,
             self.dedup_mode,
+            self.mode,
+            self.max_turns_per_session,
         )
     }
 }
@@ -145,13 +175,15 @@ impl Config {
 mod tests {
     use super::*;
 
-    const ENV_VARS: [&str; 6] = [
+    const ENV_VARS: [&str; 8] = [
         "SLACK_ACP_AGENT_COMMAND",
         "SLACK_ACP_AGENT_ARGS",
         "SLACK_ACP_AGENTS",
         "SLACK_ACP_IDLE_TIMEOUT",
         "SLACK_ACP_SESSION_POLICY",
         "SLACK_ACP_DEDUP",
+        "SLACK_ACP_MODE",
+        "SLACK_ACP_MAX_TURNS_PER_SESSION",
     ];
 
     fn clear_env() {
@@ -172,6 +204,35 @@ mod tests {
         assert_eq!(config.idle_timeout_secs, DEFAULT_IDLE_TIMEOUT_SECS);
         assert_eq!(config.session_policy, SessionPolicy::Thread);
         assert_eq!(config.dedup_mode, DedupMode::Queue);
+        assert_eq!(config.mode, MultipleEventHandling::Queue);
+        assert_eq!(config.max_turns_per_session, 0);
+    }
+
+    #[test]
+    fn steer_mode_is_rejected_at_validation() {
+        let _guard = crate::test_env_lock();
+        clear_env();
+        let args = CliArgs::try_parse_from(["slack-acp", "--mode", "steer"]).expect("steer parses");
+        let error = Config::from_args(args).expect_err("steer is not supported");
+        assert!(matches!(error, ConfigError::SteerUnsupported));
+        assert!(error.to_string().contains("steer"));
+    }
+
+    #[test]
+    fn max_turns_per_session_and_interrupt_parse() {
+        let _guard = crate::test_env_lock();
+        clear_env();
+        let args = CliArgs::try_parse_from([
+            "slack-acp",
+            "--mode",
+            "interrupt",
+            "--max-turns-per-session",
+            "7",
+        ])
+        .expect("args parse");
+        let config = Config::from_args(args).expect("args validate");
+        assert_eq!(config.mode, MultipleEventHandling::Interrupt);
+        assert_eq!(config.max_turns_per_session, 7);
     }
 
     #[test]
@@ -241,6 +302,8 @@ mod tests {
             idle_timeout: DEFAULT_IDLE_TIMEOUT_SECS,
             session_policy: SessionPolicy::Thread,
             dedup: DedupMode::Queue,
+            mode: MultipleEventHandling::Queue,
+            max_turns_per_session: 0,
         };
         assert!(matches!(
             Config::from_args(args),
@@ -257,6 +320,8 @@ mod tests {
             idle_timeout: 0,
             session_policy: SessionPolicy::Thread,
             dedup: DedupMode::Queue,
+            mode: MultipleEventHandling::Queue,
+            max_turns_per_session: 0,
         };
         let config = Config::from_args(args).expect("validate");
         assert_eq!(config.idle_timeout_secs, 1);
