@@ -9,9 +9,9 @@
 //! This module keeps provider configuration as data first. Environment parsing
 //! in `monitor/provider.rs` is an adapter into these shapes.
 
-use crate::admission::{AllowBotsMode, DmPolicy, GroupPolicy};
 use crate::monitor::channel_type::SlackMonitorChannelType;
-use crate::reply::SlackReplyToMode;
+use crate::monitor::message_handler::prepare::{AllowBotsMode, DmPolicy, GroupPolicy};
+use crate::monitor::replies::SlackReplyToMode;
 
 /// Connector runtime transport mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

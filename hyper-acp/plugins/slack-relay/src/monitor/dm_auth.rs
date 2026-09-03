@@ -9,13 +9,13 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::time::SystemTime;
 
-use crate::admission::{DmPolicy, SlackAdmissionFacts};
 use crate::allowlist::{resolve_slack_allow_list_match, SlackAllowListMatchSource};
 use crate::monitor::events::messages::SlackAcceptedEvent;
 use crate::monitor::message_handler::dispatch::ActiveSlackRelayState;
+use crate::monitor::message_handler::prepare::{DmPolicy, SlackAdmissionFacts};
 use crate::monitor::provider::ActiveSlackRelayPolicy;
-use crate::relay_source::HYPER_AGENTS_API_KEY_ENV;
-use crate::reply::{
+use crate::monitor::relay_source::HYPER_AGENTS_API_KEY_ENV;
+use crate::monitor::replies::{
     deliver_slack_reply_payloads, SlackRelayApiProxyRequest, SlackRelayHttpSender,
     SlackReplyDeliveryTarget, SlackReplyPayload, SlackReplyToMode,
 };
@@ -309,7 +309,7 @@ pub async fn maybe_send_pairing_challenge(
             channel: channel_id,
             reply_thread_ts: None,
             reply_to_mode: SlackReplyToMode::Off,
-            text_limit: crate::reply::SLACK_TEXT_LIMIT,
+            text_limit: crate::monitor::replies::SLACK_TEXT_LIMIT,
         },
         &[SlackReplyPayload {
             text: Some(text.to_owned()),

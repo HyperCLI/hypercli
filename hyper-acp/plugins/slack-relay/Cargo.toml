@@ -16,7 +16,6 @@ path = "src/lib.rs"
 
 [dependencies]
 agent-client-protocol = "2.0.0"
-agent-client-protocol-schema = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 futures-util = { workspace = true }

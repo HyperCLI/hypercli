@@ -3,7 +3,7 @@
 //! Relay and direct Slack transports both use this key as the logical
 //! coalescing boundary before dispatch.
 
-use crate::content::SlackMessageForContent;
+use crate::monitor::message_handler::prepare_content::SlackMessageForContent;
 
 /// Builds a stable debounce/coalescing key for one Slack logical thread target.
 #[must_use]
@@ -25,7 +25,7 @@ pub fn build_slack_message_debounce_key(
 mod tests {
     use serde_json::json;
 
-    use crate::content::slack_message_for_content_from_value;
+    use crate::monitor::message_handler::prepare_content::slack_message_for_content_from_value;
 
     #[test]
     fn thread_replies_coalesce_to_thread_root_key() {

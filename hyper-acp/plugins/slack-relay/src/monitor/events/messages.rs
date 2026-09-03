@@ -14,7 +14,7 @@
 
 use serde_json::Value;
 
-use crate::relay_source::{SlackRelayAcceptedEvent, SlackRelayRoute};
+use crate::monitor::relay_source::{SlackRelayAcceptedEvent, SlackRelayRoute};
 
 /// Slack event source understood by the core admission/content path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -302,8 +302,8 @@ mod tests {
             team_id: Some("T1".to_owned()),
             message: json!({"type":"message","channel":"C1","ts":"1.0"}),
             payload: json!({"event": {"type":"message"}}),
-            route: crate::relay_source::SlackRelayRoute {
-                kind: crate::relay_source::SlackRelayRouteKind::ThreadAffinity,
+            route: crate::monitor::relay_source::SlackRelayRoute {
+                kind: crate::monitor::relay_source::SlackRelayRouteKind::ThreadAffinity,
                 key: "C1:1.0".to_owned(),
             },
         });

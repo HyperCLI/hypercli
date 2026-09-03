@@ -17,9 +17,11 @@ use serde_json::{json, Value};
 
 use crate::allowlist::resolve_slack_allow_list_match;
 use crate::client::{conversations_replies_operation, files_info_operation, SlackWebApiOperation};
-use crate::content::{format_slack_file_reference_list, SlackFile};
 use crate::monitor::media::slack_file_metadata_allowed;
-use crate::reply::SlackRelayApiProxyRequest;
+use crate::monitor::message_handler::prepare_content::{
+    format_slack_file_reference_list, SlackFile,
+};
+use crate::monitor::replies::SlackRelayApiProxyRequest;
 
 /// Slack recommends no more than 200 replies per page.
 pub const SLACK_THREAD_HISTORY_FETCH_LIMIT: usize = 200;

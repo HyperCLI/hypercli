@@ -8,7 +8,7 @@ pub use crate::client::{
     SlackDirectWebApiRequest, SlackWebApiError, SlackWebApiOperation, SlackWebApiResponse,
     SLACK_BOT_TOKEN_ENV,
 };
-pub use crate::reply::{
+pub use crate::monitor::replies::{
     build_assistant_thread_status_operation, build_chat_post_message_operation,
     build_chat_post_message_proxy_request as build_slack_post_message_proxy_request,
     build_chat_update_operation, build_files_complete_upload_operation,

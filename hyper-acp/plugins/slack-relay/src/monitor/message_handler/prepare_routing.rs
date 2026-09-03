@@ -8,7 +8,7 @@
 //! compatibility while room replies preserve the relay default.
 
 use crate::monitor::provider::ActiveSlackRelayPolicy;
-use crate::reply::SlackReplyToMode;
+use crate::monitor::replies::SlackReplyToMode;
 
 /// Selects the effective Slack reply mode for the inbound channel type.
 #[must_use]

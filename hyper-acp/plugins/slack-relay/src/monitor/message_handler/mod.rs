@@ -5,7 +5,6 @@ pub mod dispatch;
 pub mod dispatch_helpers;
 pub mod dispatch_progress;
 pub mod dispatch_setup;
-pub mod dispatch_streaming;
 pub mod prepare;
 pub mod prepare_content;
 pub mod prepare_dm_history;

@@ -196,10 +196,9 @@ async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
     // The transport is long-lived: it survives the server closing the socket
     // and re-dials, so the run never returns here. Run it as a task and
     // assert against what the era delivered.
-    let transport = tokio::spawn(outbound_ws::run_with_client_frame_source_and_observer(
+    let transport = tokio::spawn(outbound_ws::run_with_observer(
         ws_url,
         command,
-        None,
         Some(frame_observer),
     ));
 

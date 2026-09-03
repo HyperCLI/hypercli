@@ -24,15 +24,21 @@ use tokio_tungstenite::tungstenite::protocol::{
 };
 use url::Url;
 
-use crate::event::normalize_slack_event;
-use crate::manager::{SERVER_SHUTDOWN_CLOSE_CODE, SERVER_SHUTDOWN_REASON};
+use crate::monitor::events::messages::normalize_slack_event;
 use crate::monitor::ingress::{outcome_ack, DurableSlackRelayStore};
 use crate::monitor::message_handler::dispatch::{
-    handle_active_slack_relay_frame_with_target, ActiveSlackRelayState, SlackDispatchTarget,
+    handle_active_slack_relay_frame, ActiveSlackRelayState,
 };
 use crate::monitor::provider::{
     ActiveSlackRelayConfig, ActiveSlackRelayControl, ActiveSlackRelayError,
 };
+use crate::queue::SharedSlackEventQueue;
+use crate::scope::SessionPolicy;
+
+/// Close code for shutdown close frames (was `manager.rs`).
+pub const SERVER_SHUTDOWN_CLOSE_CODE: u16 = 1001;
+/// Close reason for shutdown close frames (was `manager.rs`).
+pub const SERVER_SHUTDOWN_REASON: &str = "server_shutdown";
 
 /// HyperCLI relay credential environment variable.
 pub const HYPER_AGENTS_API_KEY_ENV: &str = "HYPER_AGENTS_API_KEY";
@@ -333,7 +339,8 @@ pub async fn run_one_connection(
     state: &mut ActiveSlackRelayState,
     store: &mut impl DurableSlackRelayStore,
     control_rx: &mut Option<mpsc::Receiver<ActiveSlackRelayControl>>,
-    target: SlackDispatchTarget<'_>,
+    queue: &SharedSlackEventQueue,
+    session_policy: SessionPolicy,
 ) -> Result<ActiveSlackRelayConnectionExit, ActiveSlackRelayError> {
     let url = build_relay_websocket_url(&config.relay)?;
     let options = build_relay_websocket_options(&config.relay.auth_token);
@@ -389,8 +396,8 @@ pub async fn run_one_connection(
                     Message::Close(frame) => return Err(close_error(frame)),
                     Message::Pong(_) | Message::Frame(_) => continue,
                 };
-                let outcome = handle_active_slack_relay_frame_with_target(
-                    data, config, state, store, target,
+                let outcome = handle_active_slack_relay_frame(
+                    data, config, state, store, queue, session_policy,
                 )
                 .await?;
                 if let Some(ack) = outcome_ack(&outcome) {

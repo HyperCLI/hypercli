@@ -11,8 +11,10 @@
 
 use serde_json::{json, Value};
 
-use crate::admission::{resolve_slack_bot_loop_protection, SlackAdmissionFacts};
-use crate::content::SlackMessageForContent;
+use crate::monitor::message_handler::prepare::{
+    resolve_slack_bot_loop_protection, SlackAdmissionFacts,
+};
+use crate::monitor::message_handler::prepare_content::SlackMessageForContent;
 use crate::monitor::provider::ActiveSlackRelayPolicy;
 
 /// Resolves bot-loop metadata for the Slack prompt `_meta` block.

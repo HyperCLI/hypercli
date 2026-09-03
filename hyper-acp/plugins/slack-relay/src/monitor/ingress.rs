@@ -315,7 +315,7 @@ fn sanitize_path_component(value: &str) -> String {
 #[must_use]
 pub fn outcome_ack(
     outcome: &ActiveSlackRelayFrameOutcome,
-) -> Option<&crate::relay_source::SlackRelayAckFrame> {
+) -> Option<&crate::monitor::relay_source::SlackRelayAckFrame> {
     match outcome {
         ActiveSlackRelayFrameOutcome::Dispatched { ack, .. }
         | ActiveSlackRelayFrameOutcome::Dropped { ack, .. }

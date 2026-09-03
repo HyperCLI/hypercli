@@ -1,7 +1,9 @@
 //! OpenClaw `monitor/message-handler/types.ts` equivalent.
 
-pub use crate::content::{SlackMessageForContent, SlackResolvedMessageContent};
-pub use crate::event::{NormalizedSlackEvent, SlackEventSource};
+pub use crate::monitor::events::messages::{NormalizedSlackEvent, SlackEventSource};
+pub use crate::monitor::message_handler::prepare_content::{
+    SlackMessageForContent, SlackResolvedMessageContent,
+};
 
 /// Stable Slack message identity used by dispatch, debounce, and history code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +32,7 @@ impl SlackMessageIdentity {
 mod tests {
     use serde_json::json;
 
-    use crate::content::slack_message_for_content_from_value;
+    use crate::monitor::message_handler::prepare_content::slack_message_for_content_from_value;
 
     #[test]
     fn identity_tracks_channel_message_and_thread_ts() {

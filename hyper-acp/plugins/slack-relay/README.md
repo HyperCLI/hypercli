@@ -1,21 +1,37 @@
 # Hyper ACP Slack Relay
 
 Slack connector boundary for HyperCLI ACP. The crate ports OpenClaw Slack
-semantics into Rust with both HyperCLI relay transport and direct Slack
-bot-token Web API/Event API boundaries sharing the same core pipeline.
+semantics into Rust and runs as a standalone plugin that owns its own ACP
+session pool: one conversation scope (`team:channel:thread`, or the DM
+conversation) maps to one `new_session` on the plugin-spawned ACP child.
 
-## Active Runtime
+## Running
 
-`active::run_slack_relay_to_acp_client_frames` connects to the HyperCLI Slack
-relay and emits canonical ACP JSON-RPC `session/prompt` request frames. It never
-emits `turn.submit`.
+The plugin is bundled into the `hyper-acp` binary as the `slack` subcommand:
+
+```sh
+hyper-acp plugin slack
+```
+
+## Ingress → dispatch
+
+`run_slack_relay_with_control` connects to the HyperCLI Slack relay (WebSocket),
+admits events through dedupe/DM-auth/admission gates, durably logs claims and
+dispatches, and enqueues per-scope envelopes onto the plugin's event queue.
+`plugin.rs` flushes batches into the pool (`pool.rs`), and the pool runs turns
+against the spawned ACP agent via the official `agent-client-protocol` SDK,
+delivering replies through the relay HTTP API. Durable `Commit` records are
+written only at a turn's terminal state (success/dead-letter); on restart,
+uncommitted dispatches replay back into the queue.
 
 Required env:
 
 - `HYPER_ACP_SLACK_RELAY_URL`
 - `HYPER_ACP_SLACK_GATEWAY_ID`
-- `HYPER_ACP_SLACK_SESSION_ID`
 - `HYPER_AGENTS_API_KEY`
+
+Plus the ACP agent command env (`HYPER_ACP_AGENT_COMMAND` /
+`HYPER_ACP_AGENT_ARGS`), see the plugin CLI `--help`.
 
 Optional env:
 
@@ -28,15 +44,23 @@ Optional env:
 - `HYPER_ACP_SLACK_GROUP_POLICY`: `open`, `disabled`, or `allowlist`.
 - `HYPER_ACP_SLACK_ALLOW_FROM`: comma-separated Slack sender allowlist.
 - `HYPER_ACP_SLACK_CHANNELS`: comma-separated Slack channel allowlist.
+- `HYPER_ACP_SLACK_CHANNELS_JSON`: channel allowlist in JSON form —
+  either a plain array (`["C1","C2"]`) or the launcher object form
+  (`{"C1": {"allow": true, ...}}`); wins over the comma-separated form when
+  both are set. Entries with `"allow": false` or `"enabled": false` are
+  excluded.
 - `HYPER_ACP_SLACK_REQUIRE_MENTION`: boolean room mention gate.
 - `HYPER_ACP_SLACK_IGNORE_OTHER_MENTIONS`: boolean other-mention gate.
 - `HYPER_ACP_SLACK_ALLOW_BOTS`: `off`, `all`, or `mentions`.
 - `HYPER_ACP_SLACK_REPLY_TO_MODE`: `off`, `first`, `all`, or `batched`.
+- `HYPER_ACP_SLACK_ACP_MODE`: `spawn` (own child) or `connect` (existing
+  `SteamSocket`); `HYPER_ACP_SLACK_ACP_MAX_TURNS_PER_SESSION`: session rotation
+  threshold.
 
-The active loop records relay payload/action metadata before returning/sending
+The ingress loop records relay payload/action metadata before returning/sending
 an ack. Accepted events are deduped by OpenClaw's logical Slack
-`[account, team, channel, ts]` key, passed through admission gates, enriched with
-portable file/message metadata, and then serialized as ACP `session/prompt`.
-When the relay supplies `thread_history`/`threadHistory` and
-`thread_starter`/`threadStarter`, the plugin unrolls that context with the same
-portable role/id formatting used by OpenClaw.
+`[account, team, channel, ts]` key, passed through admission gates, enriched
+with portable file/message metadata, and scoped/enqueued for the pool. When the
+relay supplies `thread_history`/`threadHistory` and
+`thread_starter`/`threadStarter`, the plugin unrolls that context into the
+prompt text with the same portable role/id formatting used by OpenClaw.

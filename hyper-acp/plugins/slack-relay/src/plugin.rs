@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -24,12 +24,9 @@ use tracing_subscriber::EnvFilter;
 use crate::config::{CliArgs, Config};
 use crate::monitor::ingress::{DurableSlackRelayStore, SharedSlackRelayStore};
 use crate::monitor::provider::{
-    self, run_slack_relay_to_queue_with_control, ActiveSlackRelayConfig, ActiveSlackRelayControl,
-    ActiveSlackRelayError, HYPER_ACP_SLACK_ACCOUNT_ID_ENV, HYPER_ACP_SLACK_DURABLE_LOG_ENV,
-    HYPER_ACP_SLACK_GATEWAY_ID_ENV, HYPER_ACP_SLACK_RELAY_API_URL_ENV,
-    HYPER_ACP_SLACK_RELAY_URL_ENV,
+    self, run_slack_relay_with_control, ActiveSlackRelayConfig, ActiveSlackRelayControl,
+    ActiveSlackRelayError, HYPER_ACP_SLACK_RELAY_URL_ENV,
 };
-use crate::monitor::relay_source::SlackRelaySourceConfig;
 use crate::monitor::replies::SlackRelayHttpSender;
 use crate::pool::{
     run_turn, AgentPool, DeliveryTarget, DispatchContext, TurnDisposition, TurnOutcome,
@@ -103,7 +100,7 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
         .map_err(|error| anyhow::anyhow!("configuration error: {error}"))?;
     tracing::info!("slack-acp starting: {}", config.summary());
 
-    let relay = relay_config_from_env().context("failed to build Slack relay config")?;
+    let relay = ActiveSlackRelayConfig::from_env()?;
 
     let cancel = CancellationToken::new();
     let signal_cancel = cancel.clone();
@@ -142,49 +139,6 @@ pub async fn run(
     run_until_shutdown(dispatch, cancel).await
 }
 
-/// Build the relay config directly from env, bypassing
-/// `ActiveSlackRelayConfig::from_env` (which hard-requires the deleted global
-/// `HYPER_ACP_SLACK_SESSION_ID`).
-fn relay_config_from_env() -> Result<Option<ActiveSlackRelayConfig>> {
-    let Some(url) = env_var_with_legacy(HYPER_ACP_SLACK_RELAY_URL_ENV) else {
-        return Ok(None);
-    };
-    let gateway_id = env_var_with_legacy(HYPER_ACP_SLACK_GATEWAY_ID_ENV).ok_or_else(|| {
-        anyhow::anyhow!("{HYPER_ACP_SLACK_GATEWAY_ID_ENV} is required when Slack relay is enabled")
-    })?;
-    let relay = SlackRelaySourceConfig::from_hyper_agents_env(url, gateway_id)?;
-    let account_id = env_var_with_legacy(HYPER_ACP_SLACK_ACCOUNT_ID_ENV)
-        .unwrap_or_else(|| relay.gateway_id.clone());
-    let policy = provider::build_policy_from_env(
-        account_id,
-        env_var_with_legacy(HYPER_ACP_SLACK_RELAY_API_URL_ENV)
-            .or_else(|| provider::derive_relay_api_base_url(&relay.url)),
-    );
-    let durable_log_path = env_var_with_legacy(HYPER_ACP_SLACK_DURABLE_LOG_ENV).map(PathBuf::from);
-    Ok(Some(ActiveSlackRelayConfig {
-        session_id: relay.gateway_id.clone(),
-        relay,
-        policy,
-        durable_log_path,
-    }))
-}
-
-/// Read a `HYPER_ACP_SLACK_*` env var with `HYPER_SLACK_*` legacy fallback,
-/// mirroring the env resolution in `monitor::provider`.
-fn env_var_with_legacy(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            let legacy = name.strip_prefix("HYPER_ACP_SLACK_")?;
-            std::env::var(format!("HYPER_SLACK_{legacy}"))
-                .ok()
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty())
-        })
-}
-
 /// Spawn the relay ingress loop (durable accept → admission → scope → queue)
 /// and the dispatch loop (queue flush → pool claim → turn → Slack delivery).
 fn start_relay_dispatch(
@@ -212,7 +166,7 @@ fn start_relay_dispatch(
     });
 
     let (control_tx, control_rx) = mpsc::channel(1);
-    let relay_task = tokio::spawn(run_slack_relay_to_queue_with_control(
+    let relay_task = tokio::spawn(run_slack_relay_with_control(
         config,
         queue.clone(),
         harness.session_policy,

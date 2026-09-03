@@ -13,13 +13,12 @@ use std::fmt::Write as _;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::content::{
+use crate::monitor::channel_type::{classify_slack_channel, is_direct_channel};
+use crate::monitor::events::messages::SlackAcceptedEvent;
+use crate::monitor::message_handler::prepare_content::{
     build_rendered_mention_map_for_ids, collect_unique_slack_mention_ids, extract_slack_block_text,
     resolve_slack_message_content, SlackMessageForContent,
 };
-use crate::history::{fetch_slack_thread_history_via_relay, SlackSessionFreshness};
-use crate::monitor::channel_type::{classify_slack_channel, is_direct_channel};
-use crate::monitor::events::messages::SlackAcceptedEvent;
 use crate::monitor::message_handler::prepare_dm_history::{
     extract_thread_history, extract_thread_starter_files,
     filter_slack_thread_history_for_visibility, format_slack_thread_history_body,
@@ -27,8 +26,9 @@ use crate::monitor::message_handler::prepare_dm_history::{
 };
 use crate::monitor::message_handler::prepare_routing::effective_reply_to_mode;
 use crate::monitor::provider::ActiveSlackRelayPolicy;
-use crate::relay_source::{SlackRelayRouteKind, HYPER_AGENTS_API_KEY_ENV};
-use crate::reply::resolve_delivered_slack_reply_thread_ts;
+use crate::monitor::relay_source::{SlackRelayRouteKind, HYPER_AGENTS_API_KEY_ENV};
+use crate::monitor::replies::resolve_delivered_slack_reply_thread_ts;
+use crate::monitor::thread::{fetch_slack_thread_history_via_relay, SlackSessionFreshness};
 
 pub use crate::monitor::events::messages::{
     normalize_slack_event, slack_event_source, NormalizedSlackEvent, SlackEventSource,

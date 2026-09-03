@@ -51,33 +51,7 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// a persistent transport fails, or the socket stays down past
 /// `WS_MAX_DISCONNECTED`.
 pub async fn run(ws_url: String, command: Command) -> Result<()> {
-    Box::pin(run_with_client_frame_source_and_observer(
-        ws_url, command, None, None,
-    ))
-    .await
-}
-
-/// Run an ACP child over outbound `/ws` with plugin-provided client frames.
-///
-/// Frames from `client_frames` are validated and forwarded through the same
-/// client-to-agent stdio path as websocket client frames.
-///
-/// # Errors
-///
-/// Returns an error if URL, child process, frame validation, or transport I/O
-/// fails.
-pub async fn run_with_client_frame_source(
-    ws_url: String,
-    command: Command,
-    client_frames: Option<mpsc::Receiver<String>>,
-) -> Result<()> {
-    Box::pin(run_with_client_frame_source_and_observer(
-        ws_url,
-        command,
-        client_frames,
-        None,
-    ))
-    .await
+    Box::pin(run_with_observer(ws_url, command, None)).await
 }
 
 /// How a socket era ended.
@@ -88,16 +62,15 @@ enum EraEnd {
     Fatal(anyhow::Error),
 }
 
-/// Run an ACP child over outbound `/ws` with plugin-provided frames and observers.
+/// Run an ACP child over outbound `/ws` with an optional frame observer.
 ///
 /// # Errors
 ///
 /// Returns an error if URL, child process, frame validation, observer delivery,
 /// or transport I/O fails.
-pub async fn run_with_client_frame_source_and_observer(
+pub async fn run_with_observer(
     ws_url: String,
     command: Command,
-    client_frames: Option<mpsc::Receiver<String>>,
     observer: Option<AcpFrameObserver>,
 ) -> Result<()> {
     validate_ws_url(&ws_url)?;
@@ -105,26 +78,6 @@ pub async fn run_with_client_frame_source_and_observer(
     let (child_write_tx, mut child_write_rx) = mpsc::channel::<String>(256);
     let (child_outbound_tx, mut child_outbound_rx) =
         mpsc::channel::<String>(CHILD_OUTBOUND_CHANNEL_LIMIT);
-
-    // Plugin frames are child-local: they keep flowing across socket eras and
-    // queue before the child exists.
-    let mut plugin_to_child = client_frames.map(|mut client_frames| {
-        let child_write_tx = child_write_tx.clone();
-        let observer = observer.clone();
-        tokio::spawn(async move {
-            while let Some(text) = client_frames.recv().await {
-                validate_stdio_text_frame(&text)?;
-                if let Some(observer) = &observer {
-                    observer.observe(Direction::ClientToAgent, &text).await?;
-                }
-                child_write_tx
-                    .send(text)
-                    .await
-                    .context("ACP child writer closed")?;
-            }
-            anyhow::Ok(())
-        })
-    });
 
     // The first connection precedes the child spawn so agent startup frames
     // can never race ahead of client frames.
@@ -207,20 +160,6 @@ pub async fn run_with_client_frame_source_and_observer(
                 result??;
                 break Err(anyhow::anyhow!("ACP child stdout closed unexpectedly"));
             }
-            result = async {
-                match &mut plugin_to_child {
-                    Some(task) => Some(task.await),
-                    None => std::future::pending().await,
-                }
-            } => {
-                // The handle is complete; drop it so the next era's select
-                // never re-polls a resolved JoinHandle.
-                drop(plugin_to_child.take());
-                if let Some(result) = result {
-                    result??;
-                }
-                continue;
-            }
         };
 
         if let EraEnd::Fatal(error) = era {
@@ -248,9 +187,6 @@ pub async fn run_with_client_frame_source_and_observer(
     // back-pressured.
     child_reader.abort();
     child_writer.abort();
-    if let Some(task) = &plugin_to_child {
-        task.abort();
-    }
     outcome
 }
 

@@ -4,21 +4,12 @@
 //! dedupe claim, durable accept, DM auth, admission, prompt frame dispatch,
 //! commit/release/drop, and durable replay.
 
-use std::sync::Arc;
 use std::time::Instant;
 
-use agent_client_protocol_schema::v1::{
-    ContentBlock, JsonRpcMessage, PromptRequest, Request, RequestId, TextContent,
-};
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
 
-use crate::admission::{
-    decide_slack_admission, DmPolicy, SlackAdmissionDecision, SlackAdmissionPolicy,
-};
-use crate::content::{slack_message_for_content_from_value, SlackMessageForContent};
-use crate::dm::SlackDirectMessageAuthorization;
 use crate::monitor::channel_config::{channel_allowed, channel_disabled};
+use crate::monitor::dm_auth::SlackDirectMessageAuthorization;
 use crate::monitor::dm_auth::{
     authorize_active_direct_message_with_state, maybe_send_pairing_challenge,
     MemorySlackPairingStore,
@@ -36,40 +27,26 @@ use crate::monitor::message_handler::prepare::{
     build_active_prompt_text, build_slack_admission_inputs, has_authorized_control_command,
     SlackAdmissionFacts,
 };
+use crate::monitor::message_handler::prepare::{
+    decide_slack_admission, DmPolicy, SlackAdmissionDecision, SlackAdmissionPolicy,
+};
+use crate::monitor::message_handler::prepare_content::{
+    slack_message_for_content_from_value, SlackMessageForContent,
+};
 use crate::monitor::message_handler::prepare_routing::{
     build_slack_acp_session_key, effective_reply_to_mode, reply_mode_wire,
 };
 use crate::monitor::provider::{
     ActiveSlackRelayConfig, ActiveSlackRelayError, ActiveSlackRelayPolicy,
 };
-use crate::queue::{
-    DurableQueuedSlackEvent, QueuedSlackEvent, SharedSlackEventQueue, SlackReplyRouting,
-};
-use crate::relay_source::{
+use crate::monitor::relay_source::{
     build_relay_ack, extract_relay_hello, extract_relay_slack_message_event, parse_relay_frame,
     SlackRelayAckFrame,
 };
+use crate::queue::{
+    DurableQueuedSlackEvent, QueuedSlackEvent, SharedSlackEventQueue, SlackReplyRouting,
+};
 use crate::scope::{slack_session_scope, SessionPolicy};
-
-/// Where an admitted Slack event is dispatched after the shared
-/// parse/dedupe/durable-accept/DM-auth/admission pipeline.
-#[derive(Debug, Clone, Copy)]
-pub enum SlackDispatchTarget<'a> {
-    /// Legacy frame splice (hyper-acp host binary): build a canonical ACP
-    /// `session/prompt` frame and send it into the shared child stdin pipe.
-    AcpClientFrames {
-        /// Serialized client frames sink (host transport merges it).
-        client_frames: &'a mpsc::Sender<String>,
-    },
-    /// Standalone plugin: enqueue a durable per-scope envelope for the
-    /// plugin-owned ACP client pool.
-    Queue {
-        /// Shared per-scope event queue.
-        queue: &'a SharedSlackEventQueue,
-        /// Session scoping policy for scope derivation.
-        session_policy: SessionPolicy,
-    },
-}
 
 /// Result of processing a single relay frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -111,67 +88,18 @@ pub enum ActiveSlackRelayFrameOutcome {
     },
 }
 
-/// Builds the canonical ACP `session/prompt` frame for a Slack relay event.
+/// Handles one relay frame: admission, dedupe, durable accept, queue enqueue.
 ///
 /// # Errors
 ///
-/// Returns serialization errors from the canonical schema wrapper.
-pub fn build_slack_session_prompt_frame(
-    request_id: i64,
-    session_id: &str,
-    text: &str,
-    slack_meta: Value,
-) -> Result<String, ActiveSlackRelayError> {
-    let mut meta = serde_json::Map::new();
-    meta.insert("hypercli.slack".to_owned(), slack_meta);
-    let request = PromptRequest::new(
-        session_id.to_owned(),
-        vec![ContentBlock::Text(
-            TextContent::new(text.to_owned()).meta(meta.clone()),
-        )],
-    )
-    .meta(meta);
-    let frame = JsonRpcMessage::wrap(Request {
-        id: RequestId::Number(request_id),
-        method: Arc::from("session/prompt"),
-        params: Some(request),
-    });
-    serde_json::to_string(&frame).map_err(ActiveSlackRelayError::Serialize)
-}
-
-/// Handles one relay frame through admission, dedupe, durable accept, and ACP dispatch.
-///
-/// # Errors
-///
-/// Returns parse, serialization, durable accept, or client-frame send errors.
+/// Returns parse, admission, durable accept, or queue dispatch errors.
 pub async fn handle_active_slack_relay_frame(
     data: impl AsRef<[u8]>,
     config: &ActiveSlackRelayConfig,
     state: &mut ActiveSlackRelayState,
     store: &mut impl DurableSlackRelayStore,
-    client_frames: &mpsc::Sender<String>,
-) -> Result<ActiveSlackRelayFrameOutcome, ActiveSlackRelayError> {
-    handle_active_slack_relay_frame_with_target(
-        data,
-        config,
-        state,
-        store,
-        SlackDispatchTarget::AcpClientFrames { client_frames },
-    )
-    .await
-}
-
-/// Handles one relay frame against an explicit dispatch target.
-///
-/// # Errors
-///
-/// Returns parse, admission, durable accept, or dispatch-target errors.
-pub(crate) async fn handle_active_slack_relay_frame_with_target(
-    data: impl AsRef<[u8]>,
-    config: &ActiveSlackRelayConfig,
-    state: &mut ActiveSlackRelayState,
-    store: &mut impl DurableSlackRelayStore,
-    target: SlackDispatchTarget<'_>,
+    queue: &SharedSlackEventQueue,
+    session_policy: SessionPolicy,
 ) -> Result<ActiveSlackRelayFrameOutcome, ActiveSlackRelayError> {
     let frame = parse_relay_frame(data)?;
     if extract_relay_hello(&frame).is_some() {
@@ -180,12 +108,13 @@ pub(crate) async fn handle_active_slack_relay_frame_with_target(
     let Some(event) = extract_relay_slack_message_event(&frame) else {
         return Ok(ActiveSlackRelayFrameOutcome::Ignored);
     };
-    handle_accepted_slack_event_with_target(
+    handle_accepted_slack_event(
         event.into(),
         &SlackProviderDispatchConfig::from(config),
         state,
         store,
-        target,
+        queue,
+        session_policy,
     )
     .await
 }
@@ -208,40 +137,19 @@ impl From<&ActiveSlackRelayConfig> for SlackProviderDispatchConfig {
     }
 }
 
-/// Handles one accepted Slack event from relay or direct Events API transport.
+/// Handles one accepted Slack event: durable accept → scope → queue enqueue.
 ///
 /// # Errors
 ///
-/// Returns serialization, durable accept, or client-frame send errors.
+/// Returns serialization or durable accept errors.
+#[allow(clippy::too_many_lines)]
 pub async fn handle_accepted_slack_event(
     event: SlackAcceptedEvent,
     config: &SlackProviderDispatchConfig,
     state: &mut ActiveSlackRelayState,
     store: &mut impl DurableSlackRelayStore,
-    client_frames: &mpsc::Sender<String>,
-) -> Result<ActiveSlackRelayFrameOutcome, ActiveSlackRelayError> {
-    handle_accepted_slack_event_with_target(
-        event,
-        config,
-        state,
-        store,
-        SlackDispatchTarget::AcpClientFrames { client_frames },
-    )
-    .await
-}
-
-/// Handles one accepted Slack event against an explicit dispatch target.
-///
-/// # Errors
-///
-/// Returns serialization, durable accept, or dispatch-target errors.
-#[allow(clippy::too_many_lines)]
-pub(crate) async fn handle_accepted_slack_event_with_target(
-    event: SlackAcceptedEvent,
-    config: &SlackProviderDispatchConfig,
-    state: &mut ActiveSlackRelayState,
-    store: &mut impl DurableSlackRelayStore,
-    target: SlackDispatchTarget<'_>,
+    queue: &SharedSlackEventQueue,
+    session_policy: SessionPolicy,
 ) -> Result<ActiveSlackRelayFrameOutcome, ActiveSlackRelayError> {
     let ack = build_relay_ack(&event.delivery_id);
     let message = slack_message_for_content_from_value(&event.message);
@@ -419,36 +327,22 @@ pub(crate) async fn handle_accepted_slack_event_with_target(
             "bot_loop_protection": bot_loop,
         }),
     );
-    let queued_event = match target {
-        SlackDispatchTarget::AcpClientFrames { .. } => {
-            let frame = build_slack_session_prompt_frame(
-                state.next_request_id,
-                &config.session_id,
-                &prompt_text,
-                slack_meta.clone(),
-            )?;
-            state.next_request_id = state.next_request_id.saturating_add(1);
-            Value::String(frame)
-        }
-        SlackDispatchTarget::Queue { session_policy, .. } => {
-            let scope = slack_session_scope(&event, &facts, message.as_ref(), session_policy);
-            let envelope = QueuedSlackEvent {
-                scope,
-                prompt_text,
-                reply_routing: SlackReplyRouting {
-                    channel_id: facts.channel_id.clone(),
-                    team_id: event.team_id.clone(),
-                    reply_thread_ts,
-                    reply_to_mode,
-                },
-                received_at: Instant::now(),
-                delivery_id: event.delivery_id.clone(),
-                dedupe_key: dedupe_key.clone(),
-                slack_meta: slack_meta.clone(),
-            };
-            serde_json::to_value(envelope.to_durable_record())?
-        }
+    let scope = slack_session_scope(&event, &facts, message.as_ref(), session_policy);
+    let envelope = QueuedSlackEvent {
+        scope,
+        prompt_text,
+        reply_routing: SlackReplyRouting {
+            channel_id: facts.channel_id.clone(),
+            team_id: event.team_id.clone(),
+            reply_thread_ts,
+            reply_to_mode,
+        },
+        received_at: Instant::now(),
+        delivery_id: event.delivery_id.clone(),
+        dedupe_key: dedupe_key.clone(),
+        slack_meta: slack_meta.clone(),
     };
+    let queued_event = serde_json::to_value(envelope.to_durable_record())?;
     let record = DurableSlackRelayRecord {
         delivery_id: event.delivery_id.clone(),
         dedupe_key: dedupe_key.clone(),
@@ -457,85 +351,37 @@ pub(crate) async fn handle_accepted_slack_event_with_target(
         queued_event: Some(queued_event.clone()),
     };
     store.accept(&record)?;
-    match target {
-        SlackDispatchTarget::AcpClientFrames { client_frames } => {
-            let Value::String(frame) = queued_event else {
-                return Err(ActiveSlackRelayError::Serialize(serde::ser::Error::custom(
-                    "frame target produced non-string payload",
-                )));
-            };
-            if client_frames.send(frame).await.is_err() {
-                state.lifecycle.finish_turn();
-                if let Some(key) = dedupe_key.as_deref() {
-                    state.dedupe.release(key);
-                    store.accept(&DurableSlackRelayRecord {
-                        delivery_id: event.delivery_id.clone(),
-                        dedupe_key: dedupe_key.clone(),
-                        action: DurableSlackRelayAction::Release,
-                        slack_meta: slack_meta.clone(),
-                        queued_event: None,
-                    })?;
-                }
-                return Err(ActiveSlackRelayError::ClientFrameTransportClosed);
-            }
-        }
-        SlackDispatchTarget::Queue { queue, .. } => {
-            let Ok(durable) = serde_json::from_value::<DurableQueuedSlackEvent>(queued_event)
-            else {
-                return Err(ActiveSlackRelayError::Serialize(serde::ser::Error::custom(
-                    "queue target produced non-envelope payload",
-                )));
-            };
-            if !queue.lock().await.push(durable.to_queued_event()) {
-                state.lifecycle.finish_turn();
-                return drop_active_message(
-                    store,
-                    &mut state.dedupe,
-                    &event,
-                    ack,
-                    dedupe_key,
-                    "queue-rejected",
-                );
-            }
-        }
+    let Ok(durable) = serde_json::from_value::<DurableQueuedSlackEvent>(queued_event) else {
+        return Err(ActiveSlackRelayError::Serialize(serde::ser::Error::custom(
+            "queue dispatch produced a non-envelope payload",
+        )));
+    };
+    if !queue.lock().await.push(durable.to_queued_event()) {
+        state.lifecycle.finish_turn();
+        return drop_active_message(
+            store,
+            &mut state.dedupe,
+            &event,
+            ack,
+            dedupe_key,
+            "queue-rejected",
+        );
     }
     if let Some(key) = dedupe_key.as_deref() {
         state.dedupe.commit(key, Instant::now());
-        if matches!(target, SlackDispatchTarget::AcpClientFrames { .. }) {
-            // Legacy splice path: fire-and-forget, commit at dispatch.
-            // Queue path defers the durable Commit to the turn's terminal
-            // state (see pool finish handling in `plugin`).
-            store.accept(&DurableSlackRelayRecord {
-                delivery_id: event.delivery_id.clone(),
-                dedupe_key: dedupe_key.clone(),
-                action: DurableSlackRelayAction::Commit,
-                slack_meta: slack_meta.clone(),
-                queued_event: None,
-            })?;
-        }
+        // Durable Commit is deferred to the turn's terminal state (see the
+        // pool finish handling in `plugin`).
     }
     state.lifecycle.finish_turn();
     Ok(ActiveSlackRelayFrameOutcome::Dispatched { ack, dedupe_key })
 }
 
 /// Mutable active relay state.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ActiveSlackRelayState {
-    pub(crate) next_request_id: i64,
     pub(crate) dedupe: SlackDispatchDedupeState,
     pub(crate) lifecycle: ActiveSlackRelayLifecycle,
     pub(crate) pairing: MemorySlackPairingStore,
-}
-
-impl Default for ActiveSlackRelayState {
-    fn default() -> Self {
-        Self {
-            next_request_id: 1,
-            dedupe: SlackDispatchDedupeState::default(),
-            lifecycle: ActiveSlackRelayLifecycle::default(),
-            pairing: MemorySlackPairingStore::default(),
-        }
-    }
 }
 
 impl ActiveSlackRelayState {
@@ -560,59 +406,15 @@ impl ActiveSlackRelayState {
     }
 }
 
-pub(crate) async fn drain_recovered_dispatches(
-    state: &mut ActiveSlackRelayState,
-    store: &mut impl DurableSlackRelayStore,
-    client_frames: &mpsc::Sender<String>,
-    replay_records: Vec<DurableSlackRelayRecord>,
-) -> Result<(), ActiveSlackRelayError> {
-    for record in replay_records {
-        let frame = record.queued_event.clone().and_then(|value| {
-            if let Value::String(frame) = value {
-                Some(frame)
-            } else {
-                tracing::warn!(
-                    delivery_id = %record.delivery_id,
-                    "skipping legacy replay of a non-frame durable dispatch payload"
-                );
-                None
-            }
-        });
-        let Some(frame) = frame else { continue };
-        state.lifecycle.begin_turn();
-        client_frames
-            .send(frame)
-            .await
-            .map_err(|_| ActiveSlackRelayError::ClientFrameTransportClosed)?;
-        store.accept(&DurableSlackRelayRecord {
-            delivery_id: record.delivery_id.clone(),
-            dedupe_key: record.dedupe_key.clone(),
-            action: DurableSlackRelayAction::Replay,
-            slack_meta: record.slack_meta.clone(),
-            queued_event: record.queued_event.clone(),
-        })?;
-        if let Some(key) = record.dedupe_key {
-            state.dedupe.commit(&key, Instant::now());
-            store.accept(&DurableSlackRelayRecord {
-                delivery_id: record.delivery_id,
-                dedupe_key: Some(key),
-                action: DurableSlackRelayAction::Commit,
-                slack_meta: record.slack_meta,
-                queued_event: None,
-            })?;
-        }
-        state.lifecycle.finish_turn();
-    }
-    Ok(())
-}
-
-/// Plugin-side durable replay: uncommitted dispatches are re-enqueued into the
-/// per-scope queue (as envelope objects) instead of re-emitting ACP frames.
+/// Durable replay: uncommitted dispatches are re-enqueued into the per-scope
+/// queue (as envelope objects). No durable Commit here — the terminal commit
+/// lands at the turn's end state. The Replay marker is kept (recovery ignores
+/// it; only Commit/Release suppress replays).
 ///
 /// # Errors
 ///
 /// Returns durable-store errors; malformed envelopes are skipped with a warning.
-pub(crate) async fn drain_recovered_dispatches_to_queue(
+pub(crate) async fn drain_recovered_dispatches(
     state: &mut ActiveSlackRelayState,
     store: &mut impl DurableSlackRelayStore,
     queue: &SharedSlackEventQueue,
@@ -784,12 +586,6 @@ fn control_command_sender_allowed(
             .any(|entry| entry == "*" || entry == &sender_id)
 }
 
-pub use crate::output::{
-    run_slack_acp_output_to_replies, SlackAcpFrameDirection, SlackAcpObservedFrame,
-    SlackAcpOutputConfig, SlackAcpOutputDelivery, SlackAcpOutputError, SlackAcpOutputState,
-    SlackStatusDelivery,
-};
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -834,7 +630,7 @@ mod tests {
         let queue = shared_queue(DedupMode::Queue);
         let mut state = ActiveSlackRelayState::default();
         let mut store = MemorySlackRelayStore::default();
-        let outcome = handle_active_slack_relay_frame_with_target(
+        let outcome = handle_active_slack_relay_frame(
             relay_frame(&json!({
                 "type": "message",
                 "channel": "C1",
@@ -846,10 +642,8 @@ mod tests {
             &test_config(),
             &mut state,
             &mut store,
-            SlackDispatchTarget::Queue {
-                queue: &queue,
-                session_policy: SessionPolicy::Thread,
-            },
+            &queue,
+            SessionPolicy::Thread,
         )
         .await
         .unwrap();
@@ -885,7 +679,7 @@ mod tests {
         let queue = shared_queue(DedupMode::Queue);
         let mut state = ActiveSlackRelayState::default();
         let mut store = MemorySlackRelayStore::default();
-        let outcome = handle_active_slack_relay_frame_with_target(
+        let outcome = handle_active_slack_relay_frame(
             relay_frame(&json!({
                 "type": "message",
                 "channel": "D9",
@@ -897,10 +691,8 @@ mod tests {
             &test_config(),
             &mut state,
             &mut store,
-            SlackDispatchTarget::Queue {
-                queue: &queue,
-                session_policy: SessionPolicy::Thread,
-            },
+            &queue,
+            SessionPolicy::Thread,
         )
         .await
         .unwrap();
@@ -955,7 +747,7 @@ mod tests {
             queued_event: Some(serde_json::to_value(envelope.to_durable_record()).unwrap()),
         }];
 
-        drain_recovered_dispatches_to_queue(&mut state, &mut store, &queue, replay)
+        drain_recovered_dispatches(&mut state, &mut store, &queue, replay)
             .await
             .unwrap();
 
@@ -1001,7 +793,7 @@ mod tests {
         let queue = shared_queue(DedupMode::Queue);
         let mut state = ActiveSlackRelayState::default();
 
-        let outcome = handle_active_slack_relay_frame_with_target(
+        let outcome = handle_active_slack_relay_frame(
             relay_frame(&json!({
                 "type": "message",
                 "channel": "C1",
@@ -1013,10 +805,8 @@ mod tests {
             &test_config(),
             &mut state,
             &mut store,
-            SlackDispatchTarget::Queue {
-                queue: &queue,
-                session_policy: SessionPolicy::Thread,
-            },
+            &queue,
+            SessionPolicy::Thread,
         )
         .await
         .unwrap();
@@ -1044,14 +834,9 @@ mod tests {
         let mut state2 = ActiveSlackRelayState::default();
         state2.lifecycle.attach();
         state2.lifecycle.start();
-        drain_recovered_dispatches_to_queue(
-            &mut state2,
-            &mut store2,
-            &queue2,
-            recovery.replay_records,
-        )
-        .await
-        .unwrap();
+        drain_recovered_dispatches(&mut state2, &mut store2, &queue2, recovery.replay_records)
+            .await
+            .unwrap();
         let scope = crate::scope::SlackSessionScope {
             team_id: "T1".to_owned(),
             channel_id: "C1".to_owned(),
@@ -1093,67 +878,5 @@ mod tests {
             "completed turns are not replayed"
         );
         std::fs::remove_file(&path).ok();
-    }
-
-    #[tokio::test]
-    async fn legacy_frame_target_commits_at_dispatch() {
-        let (tx, mut rx) = mpsc::channel(1);
-        let mut state = ActiveSlackRelayState::default();
-        let mut store = MemorySlackRelayStore::default();
-        let outcome = handle_active_slack_relay_frame(
-            relay_frame(&json!({
-                "type": "message",
-                "channel": "C1",
-                "user": "U1",
-                "text": "hi",
-                "ts": "105.000",
-            })),
-            &test_config(),
-            &mut state,
-            &mut store,
-            &tx,
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            outcome,
-            ActiveSlackRelayFrameOutcome::Dispatched { .. }
-        ));
-        assert!(rx.recv().await.is_some());
-        let actions: Vec<DurableSlackRelayAction> = store
-            .records
-            .iter()
-            .map(|record| record.action.clone())
-            .collect();
-        assert_eq!(
-            actions,
-            vec![
-                DurableSlackRelayAction::Claim,
-                DurableSlackRelayAction::Dispatch,
-                DurableSlackRelayAction::Commit,
-            ],
-            "legacy splice path keeps fire-and-forget commit-at-dispatch"
-        );
-    }
-
-    #[tokio::test]
-    async fn legacy_replay_skips_envelope_payloads() {
-        let (tx, mut rx) = mpsc::channel(1);
-        let mut state = ActiveSlackRelayState::default();
-        let mut store = MemorySlackRelayStore::default();
-        let replay = vec![DurableSlackRelayRecord {
-            delivery_id: "d-env".to_owned(),
-            dedupe_key: None,
-            action: DurableSlackRelayAction::Dispatch,
-            slack_meta: json!({}),
-            queued_event: Some(json!({"scope": {"team_id": "T1"}})),
-        }];
-        drain_recovered_dispatches(&mut state, &mut store, &tx, replay)
-            .await
-            .unwrap();
-        assert!(
-            rx.try_recv().is_err(),
-            "envelope must not hit the frame pipe"
-        );
     }
 }

@@ -13,16 +13,16 @@
 use serde_json::Value;
 
 use crate::client::{SlackDirectWebApiClient, SlackWebApiOperation};
-use crate::content::SlackFile;
-use crate::history::{
+use crate::monitor::message_handler::prepare_content::SlackFile;
+use crate::monitor::provider::ActiveSlackRelayPolicy;
+use crate::monitor::relay_source::HYPER_AGENTS_API_KEY_ENV;
+use crate::monitor::replies::SlackRelayHttpSender;
+use crate::monitor::thread::{
     build_files_info_operations, build_files_info_proxy_requests,
     hydrate_slack_thread_starter_media,
 };
-use crate::monitor::provider::ActiveSlackRelayPolicy;
-use crate::relay_source::HYPER_AGENTS_API_KEY_ENV;
-use crate::reply::SlackRelayHttpSender;
 
-pub use crate::history::{
+pub use crate::monitor::thread::{
     filter_slack_thread_history_for_visibility, format_slack_thread_history_body,
     should_seed_initial_thread_context, SlackContextVisibility, SlackHydratedMedia,
     SlackSessionFreshness, SlackThreadHistoryMessage,
@@ -36,7 +36,7 @@ pub enum ActiveSlackMediaHydrationPlan {
     /// Hydrate via direct Slack bot-token Web API operations.
     Direct(Vec<SlackWebApiOperation>),
     /// Hydrate via HyperCLI relay proxy requests.
-    Relay(Vec<crate::reply::SlackRelayApiProxyRequest>),
+    Relay(Vec<crate::monitor::replies::SlackRelayApiProxyRequest>),
 }
 
 /// Plans active thread-starter media hydration for direct or relay mode.
@@ -90,7 +90,7 @@ pub fn extract_thread_history(payload: &Value) -> Option<Vec<SlackThreadHistoryM
                         (!files.is_empty()).then(|| {
                             format!(
                                 "[attached: {}]",
-                                crate::content::format_slack_file_reference_list(
+                                crate::monitor::message_handler::prepare_content::format_slack_file_reference_list(
                                     &parse_slack_files(files)
                                 )
                             )

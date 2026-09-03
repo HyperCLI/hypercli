@@ -19,33 +19,16 @@ use tokio::sync::mpsc;
 /// Returns an error when the child process cannot be spawned, a frame is not
 /// JSON-RPC 2.0, or either stdio stream fails.
 pub async fn run(command: Command) -> Result<()> {
-    run_with_client_frame_source_and_observer(command, None, None).await
+    run_with_observer(command, None).await
 }
 
-/// Run an ACP child over local stdio with plugin-provided client frames.
-///
-/// # Errors
-///
-/// Returns an error when the child process cannot be spawned, a frame is not
-/// JSON-RPC 2.0, or either stdio stream fails.
-pub async fn run_with_client_frame_source(
-    command: Command,
-    client_frames: Option<mpsc::Receiver<String>>,
-) -> Result<()> {
-    run_with_client_frame_source_and_observer(command, client_frames, None).await
-}
-
-/// Run an ACP child over local stdio with plugin-provided frames and observers.
+/// Run an ACP child over local stdio with an optional frame observer.
 ///
 /// # Errors
 ///
 /// Returns an error when the child process cannot be spawned, a frame is not
 /// JSON-RPC 2.0, either stdio stream fails, or the observer task stops.
-pub async fn run_with_client_frame_source_and_observer(
-    command: Command,
-    client_frames: Option<mpsc::Receiver<String>>,
-    observer: Option<AcpFrameObserver>,
-) -> Result<()> {
+pub async fn run_with_observer(command: Command, observer: Option<AcpFrameObserver>) -> Result<()> {
     let mut child = super::spawn_acp_child(command)?;
     let mut child_stdin = child.stdin.take().context("child stdin unavailable")?;
     let child_stdout = child.stdout.take().context("child stdout unavailable")?;
@@ -69,24 +52,6 @@ pub async fn run_with_client_frame_source_and_observer(
             anyhow::Ok(())
         })
     };
-
-    let plugin_to_child = client_frames.map(|mut client_frames| {
-        let child_write_tx = child_write_tx.clone();
-        let observer = observer.clone();
-        tokio::spawn(async move {
-            while let Some(line) = client_frames.recv().await {
-                validate_frame(&line)?;
-                if let Some(observer) = &observer {
-                    observer.observe(Direction::ClientToAgent, &line).await?;
-                }
-                child_write_tx
-                    .send(line)
-                    .await
-                    .context("ACP child writer closed")?;
-            }
-            anyhow::Ok(())
-        })
-    });
 
     drop(child_write_tx);
 
@@ -119,9 +84,6 @@ pub async fn run_with_client_frame_source_and_observer(
 
     let status = child.wait().await?;
     stdin_to_child.abort();
-    if let Some(task) = plugin_to_child {
-        task.abort();
-    }
     child_writer.abort();
     stdout_to_client.await??;
     if !status.success() {

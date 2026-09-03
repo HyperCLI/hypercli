@@ -13,36 +13,21 @@
 //! HyperCLI ACP Slack connector.
 //!
 //! This crate keeps Slack behavior out of ACP core. It is a semantic
-//! TS-to-Rust port of OpenClaw Slack behavior where possible, with HyperCLI
-//! relay and direct Slack bot-token transports sharing the same core shapes.
+//! TS-to-Rust port of OpenClaw Slack behavior where possible, driving a
+//! per-conversation-scope ACP session pool from relay-sourced Slack events.
 
-pub mod active;
-pub mod admission;
 pub mod allowlist;
 pub mod client;
 pub mod client_delivery;
 pub mod commands;
 pub mod config;
 pub mod config_schema;
-pub mod content;
-pub mod dedupe;
-pub mod dm;
-pub mod event;
 pub mod format;
-pub mod history;
-pub mod ingress;
 pub mod limits;
-pub mod manager;
-mod module_map;
 pub mod monitor;
-pub mod output;
 pub mod plugin;
 pub mod pool;
 pub mod queue;
-pub mod reconnect;
-pub mod relay_source;
-pub mod reply;
-pub mod routing;
 pub mod scope;
 pub mod send;
 pub mod thread_ts;

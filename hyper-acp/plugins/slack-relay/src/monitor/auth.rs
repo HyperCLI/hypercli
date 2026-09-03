@@ -13,7 +13,7 @@ use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use thiserror::Error;
 
-pub use crate::dm::SlackDirectMessageAuthorization;
+pub use crate::monitor::dm_auth::SlackDirectMessageAuthorization;
 pub use crate::monitor::dm_auth::{authorize_active_direct_message, maybe_send_pairing_challenge};
 
 const SLACK_SIGNING_VERSION: &str = "v0";

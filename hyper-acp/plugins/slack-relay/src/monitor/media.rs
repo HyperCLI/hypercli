@@ -7,9 +7,9 @@ use serde_json::Value;
 use url::Url;
 
 use crate::client::SlackWebApiOperation;
-pub use crate::content::{SlackFile, MAX_SLACK_MEDIA_FILES};
-pub use crate::history::SlackHydratedMedia;
-use crate::reply::SlackRelayApiProxyRequest;
+pub use crate::monitor::message_handler::prepare_content::{SlackFile, MAX_SLACK_MEDIA_FILES};
+use crate::monitor::replies::SlackRelayApiProxyRequest;
+pub use crate::monitor::thread::SlackHydratedMedia;
 
 /// Download transport plan for an admitted Slack file.
 #[derive(Debug, Clone, PartialEq, Eq)]

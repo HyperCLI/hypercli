@@ -55,7 +55,7 @@ pub(crate) const CIRCUIT_BREAKER_THRESHOLD: usize = 3;
 pub(crate) const CIRCUIT_BREAKER_COOLDOWN: Duration = Duration::from_secs(60);
 
 /// User-visible line delivered when a turn fails before any reply (parity with
-/// `dispatch_streaming.rs` `complete_prompt_response`).
+/// superseded frame-observer `complete_prompt_response`).
 pub const AGENT_FAILURE_LINE: &str = "The agent failed before sending a Slack-visible reply.";
 
 /// Errors surfaced when spawning or initializing a pool worker.

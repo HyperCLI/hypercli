@@ -155,8 +155,10 @@ mod tests {
         if let Some(thread_ts) = thread_ts {
             value["thread_ts"] = json!(thread_ts);
         }
-        crate::content::slack_message_for_content_from_value(&value)
-            .expect("valid message for content")
+        crate::monitor::message_handler::prepare_content::slack_message_for_content_from_value(
+            &value,
+        )
+        .expect("valid message for content")
     }
 
     fn event(route: SlackRelayRoute) -> SlackAcceptedEvent {

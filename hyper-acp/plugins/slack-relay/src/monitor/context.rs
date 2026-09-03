@@ -1,6 +1,7 @@
 //! OpenClaw `monitor/context.ts` equivalent for policy/config facts.
 
-pub use crate::active::{
+pub use crate::monitor::message_handler::prepare::{AllowBotsMode, DmPolicy, GroupPolicy};
+pub use crate::monitor::provider::{
     ActiveSlackRelayConfig, ActiveSlackRelayControl, ActiveSlackRelayLifecycle,
     ActiveSlackRelayPolicy, HYPER_ACP_SLACK_ACCOUNT_ID_ENV, HYPER_ACP_SLACK_ALLOW_BOTS_ENV,
     HYPER_ACP_SLACK_ALLOW_FROM_ENV, HYPER_ACP_SLACK_ALLOW_NAME_MATCHING_ENV,
@@ -12,18 +13,16 @@ pub use crate::active::{
     HYPER_ACP_SLACK_MEDIA_MAX_BYTES_ENV, HYPER_ACP_SLACK_MENTION_PATTERNS_ENV,
     HYPER_ACP_SLACK_MENTION_SUBTEAMS_ENV, HYPER_ACP_SLACK_RELAY_API_URL_ENV,
     HYPER_ACP_SLACK_RELAY_URL_ENV, HYPER_ACP_SLACK_REPLY_TO_MODE_ENV,
-    HYPER_ACP_SLACK_REQUIRE_MENTION_ENV, HYPER_ACP_SLACK_SESSION_ID_ENV,
-    HYPER_ACP_SLACK_THREAD_HISTORY_LIMIT_ENV,
+    HYPER_ACP_SLACK_REQUIRE_MENTION_ENV, HYPER_ACP_SLACK_THREAD_HISTORY_LIMIT_ENV,
 };
-pub use crate::admission::{AllowBotsMode, DmPolicy, GroupPolicy};
-pub use crate::history::SlackContextVisibility;
+pub use crate::monitor::thread::SlackContextVisibility;
 
 /// Runtime context facts consumed by OpenClaw-shaped monitor handlers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActiveSlackMonitorContext {
     /// Logical Slack account id.
     pub account_id: String,
-    /// ACP session id that receives prompts.
+    /// Meta-only legacy ACP session id (gateway id).
     pub session_id: String,
     /// Gateway id used by the relay source.
     pub gateway_id: String,
@@ -44,7 +43,7 @@ impl ActiveSlackMonitorContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::relay_source::SlackRelaySourceConfig;
+    use crate::monitor::relay_source::SlackRelaySourceConfig;
 
     #[test]
     fn context_facts_come_from_active_config() {

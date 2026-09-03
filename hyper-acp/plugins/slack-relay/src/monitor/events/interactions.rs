@@ -13,10 +13,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use crate::admission::DmPolicy;
 use crate::allowlist::resolve_slack_user_allowed;
 use crate::monitor::channel_type::{classify_slack_channel, SlackMonitorChannelType};
 use crate::monitor::events::SlackConnectorSystemEvent;
+use crate::monitor::message_handler::prepare::DmPolicy;
 use crate::monitor::message_handler::prepare_routing::build_slack_acp_session_key;
 use crate::truncate::truncate_slack_text;
 

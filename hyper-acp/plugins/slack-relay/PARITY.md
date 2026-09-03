@@ -1,8 +1,9 @@
 # Slack Connector Parity Boundary
 
 This crate is the active HyperCLI ACP Slack connector boundary. It ports the
-OpenClaw Slack connector semantics that are relevant to both the HyperCLI relay
-transport and direct Slack bot-token transport.
+OpenClaw Slack connector semantics for the HyperCLI relay transport and runs
+as the standalone `hyper-acp plugin slack` runtime: relay ingress → dedupe /
+admission → per-scope queue → plugin-owned ACP session pool.
 
 ## Module Map
 
@@ -32,11 +33,13 @@ where feasible:
 - `client_delivery` -> `client-delivery.ts`
 
 Relay-specific websocket frame parsing and ack handling remain isolated in
-`relay_source`; direct Slack Events API and Socket Mode parsing lives in
-`monitor::events::direct`. Provider mode selection flows through typed
-config/account/channel shapes in `config_schema` and `monitor::provider`.
-Relay, direct HTTP, and direct socket inputs normalize into a transport-neutral
-accepted-event shape before admission/content/history/reply handling.
+`monitor::relay_source`. Direct Slack Events API / Socket Mode parsing
+(`monitor::events::direct`) and the HyperClaw server-side relay ports
+(`hyperclaw-backend/slack-relay/app/routing.py` / `app/relay.py` — the
+Rust-side `routing.rs` / `manager.rs` ports) were deleted in the phase-5
+cutover: the standalone plugin owns the ONLY Slack runtime, and the legacy
+frame-splice path (host-binary `AcpFrameObserver` output wiring, direct
+provider sources, and string-frame durable replay) is gone.
 
 - Relay URL conversion, localhost-only plaintext safety, bearer auth,
   websocket connect/reconnect, hello/event parsing, durable-before-ack:
@@ -96,28 +99,26 @@ accepted-event shape before admission/content/history/reply handling.
   system-event/home/assistant/interaction actions before the ACP message prompt
   path.
 - Active runtime wiring:
-  `hyper-acp/plugins/slack-relay/src/active.rs` exports provider surfaces;
-  `monitor::provider` connects relay, direct HTTP, and direct socket sources to
-  admission gates, logical Slack dedupe, durable-before-ack recording,
-  thread-history unroll, file/message metadata, reply-thread metadata,
-  reconnect/backoff or direct lifecycle control, and canonical ACP
-  `session/prompt` JSON-RPC frames.
+  `plugin.rs` wires `monitor::provider` (relay ingress: admission gates,
+  logical Slack dedupe, durable-before-ack recording, thread-history unroll,
+  file/message metadata, reply-thread metadata, reconnect/backoff) into the
+  per-scope `queue.rs` and the `pool.rs` ACP session pool, which speaks to the
+  plugin-spawned agent via the official `agent-client-protocol` SDK.
 
-Parity tests live with each helper module and in `src/active.rs`. The active
-tests cover canonical ACP frame shape, durable-before-dispatch recording,
-default-open DMs, DM reply mode override, DM allowlist drops, explicit disabled
-channels, logical Slack twin dedupe, duplicate-pending ack behavior for the
-HyperClaw relay, subteam/custom mention admission, bot-loop metadata,
-thread-history unroll with file-only messages and inherited parent file
-filtering, reply metadata, terminal auth retry stop, and no-ack/no-dispatch on
-durable accept failure.
+Parity tests live with each helper module. The active tests cover envelope
+content, durable-before-dispatch recording, deferred turn-terminal commits,
+crash-after-enqueue replay, dead-letter commits, default-open DMs, DM reply
+mode override, DM allowlist drops, explicit disabled channels, logical Slack
+twin dedupe, duplicate-pending ack behavior for the HyperClaw relay,
+subteam/custom mention admission, bot-loop metadata, thread-history unroll
+with file-only messages and inherited parent file filtering, reply metadata,
+terminal auth retry stop, and no-ack/no-dispatch on durable accept failure.
 
 Integration boundaries that remain outside this crate:
 
-- Binding a concrete HTTP listener or Socket Mode websocket client is owned by
-  the embedding binary/service. This crate owns the provider lifecycle over
-  typed HTTP/socket inputs, Slack signing verification, URL verification
-  responses, direct event parsing, and direct bot-token Web API sending.
+- Binding a concrete HTTP listener or Socket Mode websocket client was a
+  deleted legacy concern: the standalone relay plugin is the only Slack
+  ingress.
 - The durable host implementation behind system-event/home/assistant/action
   queues is owned by the embedding runtime. The Rust event-family modules
   produce explicit actions for those side effects without embedding OpenClaw's
@@ -128,6 +129,6 @@ Integration boundaries that remain outside this crate:
   relay-provided bundled history when present, matching the HyperCLI relay
   deployment path.
 - Persistent OpenClaw session stores and channel history windows are owned by
-  OpenClaw's plugin SDK runtime. The active HyperCLI transport sends canonical
-  ACP `session/prompt` frames and leaves long-lived session persistence to the
-  ACP agent/session implementation.
+  OpenClaw's plugin SDK runtime. The pool rotates per-scope ACP sessions on
+  token/turn-track caps (`HYPER_ACP_SLACK_ACP_MAX_TURNS_PER_SESSION`) and leaves
+  long-lived session persistence to the ACP agent/session implementation.

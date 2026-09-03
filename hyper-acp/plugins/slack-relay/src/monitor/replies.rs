@@ -24,7 +24,7 @@ use crate::client::{
 };
 use crate::format::chunk_slack_text_for_outbound;
 use crate::monitor::mrkdwn::markdown_to_slack_mrkdwn;
-use crate::relay_source::HYPER_AGENTS_API_KEY_ENV;
+use crate::monitor::relay_source::HYPER_AGENTS_API_KEY_ENV;
 use crate::truncate::truncate_slack_text;
 
 pub use crate::limits::{SLACK_MESSAGE_TEXT_HARD_LIMIT, SLACK_TEXT_LIMIT};

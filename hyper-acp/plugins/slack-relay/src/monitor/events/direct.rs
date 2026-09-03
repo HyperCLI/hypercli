@@ -15,7 +15,7 @@ use serde_json::Value;
 use crate::monitor::events::messages::{
     normalize_slack_event, SlackAcceptedEvent, SlackAcceptedEventTransport,
 };
-use crate::relay_source::{SlackRelayRoute, SlackRelayRouteKind};
+use crate::monitor::relay_source::{SlackRelayRoute, SlackRelayRouteKind};
 
 /// Parsed direct Slack Events API envelope.
 #[derive(Debug, Clone, PartialEq)]
