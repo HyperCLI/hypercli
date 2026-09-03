@@ -84,8 +84,10 @@ pub struct DurableSlackRelayRecord {
     pub action: DurableSlackRelayAction,
     /// Slack metadata used to build the ACP prompt.
     pub slack_meta: Value,
-    /// Canonical ACP frame when dispatched.
-    pub acp_frame: Option<String>,
+    /// Dispatched payload for `Dispatch` records. Legacy frame-splice path:
+    /// `Value::String` holding the serialized ACP `session/prompt` frame.
+    /// Standalone plugin path: serialized `crate::queue::DurableQueuedSlackEvent`.
+    pub queued_event: Option<Value>,
 }
 
 /// Durable processing action.
@@ -210,7 +212,7 @@ pub fn recover_durable_relay_log(
             }
             DurableSlackRelayAction::Dispatch => {
                 if let Some(key) = record.dedupe_key.clone() {
-                    if record.acp_frame.is_some() && !committed.contains(&key) {
+                    if record.queued_event.is_some() && !committed.contains(&key) {
                         in_flight_dispatches.insert(key, record);
                     }
                 }
@@ -297,7 +299,7 @@ mod tests {
                 dedupe_key: Some(committed.to_owned()),
                 action: DurableSlackRelayAction::Claim,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -305,7 +307,7 @@ mod tests {
                 dedupe_key: Some(committed.to_owned()),
                 action: DurableSlackRelayAction::Commit,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -313,7 +315,7 @@ mod tests {
                 dedupe_key: Some(released.to_owned()),
                 action: DurableSlackRelayAction::Commit,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -321,7 +323,7 @@ mod tests {
                 dedupe_key: Some(released.to_owned()),
                 action: DurableSlackRelayAction::Release,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -329,7 +331,7 @@ mod tests {
                 dedupe_key: Some(uncommitted.to_owned()),
                 action: DurableSlackRelayAction::Dispatch,
                 slack_meta: json!({}),
-                acp_frame: Some("{}".to_owned()),
+                queued_event: Some(Value::String("{}".to_owned())),
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -337,7 +339,7 @@ mod tests {
                 dedupe_key: Some(duplicate.to_owned()),
                 action: DurableSlackRelayAction::Duplicate,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
         ];

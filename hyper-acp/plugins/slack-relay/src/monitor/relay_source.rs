@@ -28,7 +28,7 @@ use crate::event::normalize_slack_event;
 use crate::manager::{SERVER_SHUTDOWN_CLOSE_CODE, SERVER_SHUTDOWN_REASON};
 use crate::monitor::ingress::{outcome_ack, DurableSlackRelayStore};
 use crate::monitor::message_handler::dispatch::{
-    handle_active_slack_relay_frame, ActiveSlackRelayState,
+    handle_active_slack_relay_frame_with_target, ActiveSlackRelayState, SlackDispatchTarget,
 };
 use crate::monitor::provider::{
     ActiveSlackRelayConfig, ActiveSlackRelayControl, ActiveSlackRelayError,
@@ -330,10 +330,10 @@ pub enum ActiveSlackRelayConnectionExit {
 /// Returns websocket, relay, durable ingress, or ACP frame transport errors.
 pub async fn run_one_connection(
     config: &ActiveSlackRelayConfig,
-    client_frames: &mpsc::Sender<String>,
     state: &mut ActiveSlackRelayState,
     store: &mut impl DurableSlackRelayStore,
     control_rx: &mut Option<mpsc::Receiver<ActiveSlackRelayControl>>,
+    target: SlackDispatchTarget<'_>,
 ) -> Result<ActiveSlackRelayConnectionExit, ActiveSlackRelayError> {
     let url = build_relay_websocket_url(&config.relay)?;
     let options = build_relay_websocket_options(&config.relay.auth_token);
@@ -389,12 +389,8 @@ pub async fn run_one_connection(
                     Message::Close(frame) => return Err(close_error(frame)),
                     Message::Pong(_) | Message::Frame(_) => continue,
                 };
-                let outcome = handle_active_slack_relay_frame(
-                    data,
-                    config,
-                    state,
-                    store,
-                    client_frames,
+                let outcome = handle_active_slack_relay_frame_with_target(
+                    data, config, state, store, target,
                 )
                 .await?;
                 if let Some(ack) = outcome_ack(&outcome) {

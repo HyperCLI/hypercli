@@ -1,9 +1,11 @@
-//! Standalone Slack plugin lifecycle (phase-2 skeleton).
+//! Standalone Slack plugin lifecycle (phase-2/3 ingress skeleton).
 //!
 //! Boots as its own process behind `hyper-acp plugin slack`, spawns its own
 //! ACP child via the official `agent-client-protocol` SDK, initializes with
-//! protocol V1, optionally connects the existing Slack relay loop with a
-//! log-only sink (no dispatch yet), and shuts down cleanly on Ctrl-C/SIGTERM.
+//! protocol V1, and optionally runs the Slack relay ingress pipeline:
+//! relay WS → durable accept → admission → per-scope queue, with a log-only
+//! flush consumer until phase 4 wires the agent pool. Shuts down cleanly on
+//! Ctrl-C/SIGTERM.
 //!
 //! The legacy frame-splice path in `crates/hyper-acp` is untouched and keeps
 //! working in parallel until the cutover phase.
@@ -25,12 +27,13 @@ use tracing_subscriber::EnvFilter;
 
 use crate::config::{CliArgs, Config};
 use crate::monitor::provider::{
-    self, run_slack_relay_to_acp_client_frames_with_control, ActiveSlackRelayConfig,
-    ActiveSlackRelayControl, ActiveSlackRelayError, HYPER_ACP_SLACK_ACCOUNT_ID_ENV,
-    HYPER_ACP_SLACK_DURABLE_LOG_ENV, HYPER_ACP_SLACK_GATEWAY_ID_ENV,
-    HYPER_ACP_SLACK_RELAY_API_URL_ENV, HYPER_ACP_SLACK_RELAY_URL_ENV,
+    self, run_slack_relay_to_queue_with_control, ActiveSlackRelayConfig, ActiveSlackRelayControl,
+    ActiveSlackRelayError, HYPER_ACP_SLACK_ACCOUNT_ID_ENV, HYPER_ACP_SLACK_DURABLE_LOG_ENV,
+    HYPER_ACP_SLACK_GATEWAY_ID_ENV, HYPER_ACP_SLACK_RELAY_API_URL_ENV,
+    HYPER_ACP_SLACK_RELAY_URL_ENV,
 };
 use crate::monitor::relay_source::SlackRelaySourceConfig;
+use crate::queue::{SharedSlackEventQueue, SlackEventQueue};
 
 /// Placeholder session id for the skeleton relay sink.
 ///
@@ -42,12 +45,12 @@ const PLUGIN_OWNED_SESSION_ID: &str = "plugin-owned";
 /// Timeout for the relay task to finish after `ActiveSlackRelayControl::Shutdown`.
 const RELAY_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Handles for the optional relay skeleton task and its frame drainer.
+/// Handles for the optional relay ingress task and its queue flush consumer.
 #[derive(Debug)]
-struct RelaySkeleton {
+struct RelayIngress {
     control_tx: mpsc::Sender<ActiveSlackRelayControl>,
-    task: JoinHandle<Result<(), ActiveSlackRelayError>>,
-    drainer: JoinHandle<()>,
+    relay_task: JoinHandle<Result<(), ActiveSlackRelayError>>,
+    flush_task: JoinHandle<()>,
 }
 
 /// Run the Slack plugin from `hyper-acp plugin slack`.
@@ -105,7 +108,7 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
     let relay = relay_config_from_env().context("failed to build Slack relay config")?;
     if relay.is_some() {
         eprintln!(
-            "slack plugin skeleton: dispatch not wired; relay events will be acked and dropped — do not point at a live relay"
+            "slack plugin skeleton: dispatch to agent not wired; events are durably queued — do not point at a live relay"
         );
     }
 
@@ -146,7 +149,9 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
                 .await?;
             tracing::info!(agent_info = ?initialize.agent_info, "slack-acp: agent initialized");
 
-            let relay = relay.map(start_relay_skeleton);
+            let relay = relay.map(|relay_config| {
+                start_relay_ingress(relay_config, config.session_policy, config.dedup_mode)
+            });
             run_until_shutdown(relay).await.map_err(|error| {
                 agent_client_protocol::Error::internal_error().data(error.to_string())
             })
@@ -198,27 +203,53 @@ fn env_var_with_legacy(name: &str) -> Option<String> {
         })
 }
 
-/// Spawn the relay loop with a log-only drainer on the produced frame channel.
-fn start_relay_skeleton(config: ActiveSlackRelayConfig) -> RelaySkeleton {
-    let (frames_tx, mut frames_rx) = mpsc::channel::<String>(256);
+/// Spawn the relay ingress loop (durable accept → admission → scope → queue)
+/// plus the phase-3 flush consumer, which dequeues envelopes, logs them, and
+/// immediately marks them complete. Phase 4 replaces the log with pool dispatch.
+fn start_relay_ingress(
+    config: ActiveSlackRelayConfig,
+    session_policy: crate::scope::SessionPolicy,
+    dedup_mode: crate::config::DedupMode,
+) -> RelayIngress {
+    let queue: SharedSlackEventQueue =
+        std::sync::Arc::new(tokio::sync::Mutex::new(SlackEventQueue::new(dedup_mode)));
     let (control_tx, control_rx) = mpsc::channel(1);
-    let task = tokio::spawn(run_slack_relay_to_acp_client_frames_with_control(
+    let relay_task = tokio::spawn(run_slack_relay_to_queue_with_control(
         config,
-        frames_tx,
+        queue.clone(),
+        session_policy,
         Some(control_rx),
     ));
-    let drainer = tokio::spawn(async move {
-        while let Some(frame) = frames_rx.recv().await {
-            tracing::warn!(
-                frame_bytes = frame.len(),
-                "slack plugin skeleton: dropping relay frame (dispatch not wired)"
-            );
-        }
-    });
-    RelaySkeleton {
+    let flush_task = tokio::spawn(run_flush_logger(queue));
+    RelayIngress {
         control_tx,
-        task,
-        drainer,
+        relay_task,
+        flush_task,
+    }
+}
+
+/// Phase-3 queue consumer: dequeue + log + complete. The log line carries
+/// only the truncated scope label + text length (never full ids/prompts).
+async fn run_flush_logger(queue: SharedSlackEventQueue) {
+    let mut tick = tokio::time::interval(Duration::from_millis(200));
+    loop {
+        tick.tick().await;
+        loop {
+            let flushed = queue.lock().await.flush_next();
+            let Some(batch) = flushed else { break };
+            let text_bytes: usize = batch
+                .events
+                .iter()
+                .map(|event| event.prompt_text.len())
+                .sum();
+            tracing::info!(
+                scope = %batch.scope.telemetry_label(),
+                events = batch.events.len(),
+                text_bytes,
+                "slack plugin: dequeued envelope (dispatch to agent not wired)"
+            );
+            queue.lock().await.mark_complete(&batch.scope);
+        }
     }
 }
 
@@ -232,11 +263,11 @@ enum RelayExit {
 /// Park until the relay task ends or a shutdown signal fires. On shutdown the
 /// relay is asked to stop and awaited with a bounded timeout; returning ends
 /// the ACP connection (and kills the child) in the caller.
-async fn run_until_shutdown(relay: Option<RelaySkeleton>) -> Result<()> {
-    let Some(RelaySkeleton {
+async fn run_until_shutdown(relay: Option<RelayIngress>) -> Result<()> {
+    let Some(RelayIngress {
         control_tx,
-        mut task,
-        drainer,
+        mut relay_task,
+        flush_task,
     }) = relay
     else {
         shutdown_signal().await;
@@ -245,13 +276,13 @@ async fn run_until_shutdown(relay: Option<RelaySkeleton>) -> Result<()> {
     };
 
     let exit = tokio::select! {
-        result = &mut task => RelayExit::Finished(result),
+        result = &mut relay_task => RelayExit::Finished(result),
         () = shutdown_signal() => RelayExit::Shutdown,
     };
 
     match exit {
         RelayExit::Finished(result) => {
-            drainer.abort();
+            flush_task.abort();
             match result {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(error)) => Err(anyhow::anyhow!("slack relay task failed: {error}")),
@@ -263,7 +294,7 @@ async fn run_until_shutdown(relay: Option<RelaySkeleton>) -> Result<()> {
         RelayExit::Shutdown => {
             tracing::info!("slack-acp: shutdown signal received; stopping relay");
             let _ignored = control_tx.send(ActiveSlackRelayControl::Shutdown).await;
-            match tokio::time::timeout(RELAY_SHUTDOWN_TIMEOUT, task).await {
+            match tokio::time::timeout(RELAY_SHUTDOWN_TIMEOUT, relay_task).await {
                 Ok(Ok(Ok(()))) => {}
                 Ok(Ok(Err(error))) => {
                     tracing::warn!("slack relay shutdown completed with error: {error}");
@@ -273,7 +304,7 @@ async fn run_until_shutdown(relay: Option<RelaySkeleton>) -> Result<()> {
                 }
                 Err(_) => tracing::warn!("timed out waiting for slack relay shutdown"),
             }
-            drainer.abort();
+            flush_task.abort();
             Ok(())
         }
     }

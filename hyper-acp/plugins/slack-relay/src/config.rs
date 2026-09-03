@@ -6,6 +6,8 @@
 use clap::Parser;
 use thiserror::Error;
 
+use crate::scope::SessionPolicy;
+
 /// Default idle timeout (seconds) when `--idle-timeout` /
 /// `SLACK_ACP_IDLE_TIMEOUT` is not set.
 ///
@@ -47,6 +49,31 @@ pub struct CliArgs {
     /// Idle timeout: max seconds of silence before killing a turn.
     #[arg(long, env = "SLACK_ACP_IDLE_TIMEOUT", default_value_t = DEFAULT_IDLE_TIMEOUT_SECS)]
     pub idle_timeout: u64,
+
+    /// How ACP sessions are scoped per Slack conversation: one session per
+    /// Slack thread (DMs stay conversation-scoped), or one per channel/DM.
+    #[arg(
+        long,
+        env = "SLACK_ACP_SESSION_POLICY",
+        default_value = "thread",
+        value_enum
+    )]
+    pub session_policy: SessionPolicy,
+
+    /// How the event queue handles new events for a scope with an in-flight
+    /// turn: keep them queued (default) or drop them.
+    #[arg(long, env = "SLACK_ACP_DEDUP", default_value = "queue", value_enum)]
+    pub dedup: DedupMode,
+}
+
+/// How the event queue handles new events for a scope whose turn is in flight.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum DedupMode {
+    /// Drop events while the scope's turn is in flight.
+    Drop,
+    /// Queue events while the scope's turn is in flight (default).
+    #[default]
+    Queue,
 }
 
 /// Validated, owned harness configuration.
@@ -60,6 +87,10 @@ pub struct Config {
     pub agents: u32,
     /// Idle timeout in seconds (clamped to a 1s minimum).
     pub idle_timeout_secs: u64,
+    /// How ACP sessions are scoped per Slack conversation.
+    pub session_policy: SessionPolicy,
+    /// Event-queue dedup mode for in-flight scopes.
+    pub dedup_mode: DedupMode,
 }
 
 impl Config {
@@ -90,6 +121,8 @@ impl Config {
             agent_args: args.agent_args,
             agents: args.agents,
             idle_timeout_secs,
+            session_policy: args.session_policy,
+            dedup_mode: args.dedup,
         })
     }
 
@@ -97,11 +130,13 @@ impl Config {
     #[must_use]
     pub fn summary(&self) -> String {
         format!(
-            "agent_cmd={} {} agents={} idle_timeout={}s",
+            "agent_cmd={} {} agents={} idle_timeout={}s session_policy={:?} dedup={:?}",
             self.agent_command,
             self.agent_args.join(" "),
             self.agents,
             self.idle_timeout_secs,
+            self.session_policy,
+            self.dedup_mode,
         )
     }
 }
@@ -110,11 +145,13 @@ impl Config {
 mod tests {
     use super::*;
 
-    const ENV_VARS: [&str; 4] = [
+    const ENV_VARS: [&str; 6] = [
         "SLACK_ACP_AGENT_COMMAND",
         "SLACK_ACP_AGENT_ARGS",
         "SLACK_ACP_AGENTS",
         "SLACK_ACP_IDLE_TIMEOUT",
+        "SLACK_ACP_SESSION_POLICY",
+        "SLACK_ACP_DEDUP",
     ];
 
     fn clear_env() {
@@ -133,6 +170,8 @@ mod tests {
         assert_eq!(config.agent_args, vec!["acp".to_owned()]);
         assert_eq!(config.agents, 1);
         assert_eq!(config.idle_timeout_secs, DEFAULT_IDLE_TIMEOUT_SECS);
+        assert_eq!(config.session_policy, SessionPolicy::Thread);
+        assert_eq!(config.dedup_mode, DedupMode::Queue);
     }
 
     #[test]
@@ -156,6 +195,31 @@ mod tests {
     }
 
     #[test]
+    fn session_policy_and_dedup_env_parsing() {
+        let _guard = crate::test_env_lock();
+        clear_env();
+        std::env::set_var("SLACK_ACP_SESSION_POLICY", "channel");
+        std::env::set_var("SLACK_ACP_DEDUP", "drop");
+        let args = CliArgs::try_parse_from(["slack-acp"]).expect("env parse");
+        let config = Config::from_args(args).expect("env validate");
+        clear_env();
+        assert_eq!(config.session_policy, SessionPolicy::Channel);
+        assert_eq!(config.dedup_mode, DedupMode::Drop);
+    }
+
+    #[test]
+    fn invalid_session_policy_and_dedup_values_are_rejected() {
+        let _guard = crate::test_env_lock();
+        clear_env();
+        std::env::set_var("SLACK_ACP_SESSION_POLICY", "workspace");
+        assert!(CliArgs::try_parse_from(["slack-acp"]).is_err());
+        std::env::remove_var("SLACK_ACP_SESSION_POLICY");
+        std::env::set_var("SLACK_ACP_DEDUP", "delete");
+        assert!(CliArgs::try_parse_from(["slack-acp"]).is_err());
+        clear_env();
+    }
+
+    #[test]
     fn agents_range_is_enforced() {
         let _guard = crate::test_env_lock();
         clear_env();
@@ -175,6 +239,8 @@ mod tests {
             agent_args: Vec::new(),
             agents: 1,
             idle_timeout: DEFAULT_IDLE_TIMEOUT_SECS,
+            session_policy: SessionPolicy::Thread,
+            dedup: DedupMode::Queue,
         };
         assert!(matches!(
             Config::from_args(args),
@@ -189,6 +255,8 @@ mod tests {
             agent_args: vec!["acp".to_owned()],
             agents: 1,
             idle_timeout: 0,
+            session_policy: SessionPolicy::Thread,
+            dedup: DedupMode::Queue,
         };
         let config = Config::from_args(args).expect("validate");
         assert_eq!(config.idle_timeout_secs, 1);

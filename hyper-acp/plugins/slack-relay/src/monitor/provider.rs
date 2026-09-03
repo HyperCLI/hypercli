@@ -44,13 +44,16 @@ pub use crate::monitor::message_dispatch_dedupe::{
     build_slack_message_dispatch_replay_key, SlackDispatchDedupeDecision, SlackDispatchDedupeState,
 };
 use crate::monitor::message_handler::dispatch::{
-    drain_recovered_dispatches, handle_accepted_slack_event, ActiveSlackRelayFrameOutcome,
-    ActiveSlackRelayState, SlackProviderDispatchConfig,
+    drain_recovered_dispatches, drain_recovered_dispatches_to_queue, handle_accepted_slack_event,
+    ActiveSlackRelayFrameOutcome, ActiveSlackRelayState, SlackDispatchTarget,
+    SlackProviderDispatchConfig,
 };
 use crate::monitor::relay_source::{run_one_connection, ActiveSlackRelayConnectionExit};
+use crate::queue::SharedSlackEventQueue;
 use crate::reconnect::{compute_reconnect_backoff_ms, is_non_recoverable_slack_auth_error};
 use crate::relay_source::{SlackRelayError, SlackRelaySourceConfig};
 use crate::reply::SlackReplyToMode;
+use crate::scope::SessionPolicy;
 
 /// Environment variable for active Slack relay URL.
 pub const HYPER_ACP_SLACK_RELAY_URL_ENV: &str = "HYPER_ACP_SLACK_RELAY_URL";
@@ -977,6 +980,69 @@ pub async fn run_slack_relay_to_acp_client_frames(
 pub async fn run_slack_relay_to_acp_client_frames_with_control(
     config: ActiveSlackRelayConfig,
     client_frames: mpsc::Sender<String>,
+    control_rx: Option<mpsc::Receiver<ActiveSlackRelayControl>>,
+) -> Result<(), ActiveSlackRelayError> {
+    run_slack_relay_loop(
+        config,
+        SlackRelaySink::ClientFrames(client_frames),
+        control_rx,
+    )
+    .await
+}
+
+/// Runs the Slack relay loop against the standalone plugin's per-scope queue:
+/// accepted events are durably logged and enqueued; uncommitted dispatches
+/// replay by re-enqueueing instead of re-emitting frames.
+///
+/// # Errors
+///
+/// Returns terminal local transport/configuration errors.
+pub async fn run_slack_relay_to_queue_with_control(
+    config: ActiveSlackRelayConfig,
+    queue: SharedSlackEventQueue,
+    session_policy: SessionPolicy,
+    control_rx: Option<mpsc::Receiver<ActiveSlackRelayControl>>,
+) -> Result<(), ActiveSlackRelayError> {
+    run_slack_relay_loop(
+        config,
+        SlackRelaySink::Queue {
+            queue,
+            session_policy,
+        },
+        control_rx,
+    )
+    .await
+}
+
+/// Owned dispatch sink for the relay loop.
+enum SlackRelaySink {
+    ClientFrames(mpsc::Sender<String>),
+    Queue {
+        queue: SharedSlackEventQueue,
+        session_policy: SessionPolicy,
+    },
+}
+
+impl SlackRelaySink {
+    fn target(&self) -> SlackDispatchTarget<'_> {
+        match self {
+            Self::ClientFrames(client_frames) => {
+                SlackDispatchTarget::AcpClientFrames { client_frames }
+            }
+            Self::Queue {
+                queue,
+                session_policy,
+            } => SlackDispatchTarget::Queue {
+                queue,
+                session_policy: *session_policy,
+            },
+        }
+    }
+}
+
+async fn run_slack_relay_loop(
+    config: ActiveSlackRelayConfig,
+    sink: SlackRelaySink,
     mut control_rx: Option<mpsc::Receiver<ActiveSlackRelayControl>>,
 ) -> Result<(), ActiveSlackRelayError> {
     let path = config
@@ -992,20 +1058,33 @@ pub async fn run_slack_relay_to_acp_client_frames_with_control(
     for key in recovery.committed_dedupe_keys {
         state.dedupe.load_accepted(key, Instant::now());
     }
-    drain_recovered_dispatches(
-        &mut state,
-        &mut store,
-        &client_frames,
-        recovery.replay_records,
-    )
-    .await?;
+    match &sink {
+        SlackRelaySink::ClientFrames(client_frames) => {
+            drain_recovered_dispatches(
+                &mut state,
+                &mut store,
+                client_frames,
+                recovery.replay_records,
+            )
+            .await?;
+        }
+        SlackRelaySink::Queue { queue, .. } => {
+            drain_recovered_dispatches_to_queue(
+                &mut state,
+                &mut store,
+                queue,
+                recovery.replay_records,
+            )
+            .await?;
+        }
+    }
     loop {
         match run_one_connection(
             &config,
-            &client_frames,
             &mut state,
             &mut store,
             &mut control_rx,
+            sink.target(),
         )
         .await
         {
@@ -1821,7 +1900,7 @@ mod tests {
                 dedupe_key: Some(committed.to_owned()),
                 action: DurableSlackRelayAction::Claim,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -1829,7 +1908,7 @@ mod tests {
                 dedupe_key: Some(committed.to_owned()),
                 action: DurableSlackRelayAction::Commit,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -1837,7 +1916,7 @@ mod tests {
                 dedupe_key: Some(released.to_owned()),
                 action: DurableSlackRelayAction::Commit,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -1845,7 +1924,7 @@ mod tests {
                 dedupe_key: Some(released.to_owned()),
                 action: DurableSlackRelayAction::Release,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -1853,7 +1932,7 @@ mod tests {
                 dedupe_key: Some(uncommitted.to_owned()),
                 action: DurableSlackRelayAction::Dispatch,
                 slack_meta: json!({}),
-                acp_frame: Some("{}".to_owned()),
+                queued_event: Some(Value::String("{}".to_owned())),
             })
             .unwrap(),
             serde_json::to_string(&DurableSlackRelayRecord {
@@ -1861,7 +1940,7 @@ mod tests {
                 dedupe_key: Some(duplicate.to_owned()),
                 action: DurableSlackRelayAction::Duplicate,
                 slack_meta: json!({}),
-                acp_frame: None,
+                queued_event: None,
             })
             .unwrap(),
         ];
@@ -1935,9 +2014,12 @@ mod tests {
         assert_eq!(store.records[0].action, DurableSlackRelayAction::Claim);
         assert_eq!(store.records[1].action, DurableSlackRelayAction::Dispatch);
         assert_eq!(store.records[2].action, DurableSlackRelayAction::Commit);
-        assert!(store.records[1].acp_frame.is_some());
+        assert!(store.records[1].queued_event.is_some());
         let sent = rx.recv().await.unwrap();
-        assert_eq!(store.records[1].acp_frame.as_deref(), Some(sent.as_str()));
+        assert_eq!(
+            store.records[1].queued_event,
+            Some(Value::String(sent.clone()))
+        );
         let value: Value = serde_json::from_str(&sent).unwrap();
         assert_eq!(value["method"], "session/prompt");
         assert!(value["params"]["prompt"][0]["text"]
@@ -2586,9 +2668,9 @@ mod tests {
                 dedupe_key: Some(r#"["message","acct","T1","C1","105.101"]"#.to_owned()),
                 action: DurableSlackRelayAction::Dispatch,
                 slack_meta: json!({}),
-                acp_frame: Some(
+                queued_event: Some(Value::String(
                     json!({"jsonrpc":"2.0","id":1,"method":"session/prompt"}).to_string(),
-                ),
+                )),
             }],
         )
         .await
