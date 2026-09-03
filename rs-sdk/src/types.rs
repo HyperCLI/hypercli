@@ -607,7 +607,14 @@ impl BuzzLaunchConfig {
                 .or_insert_with(|| DEFAULT_BUZZ_RUST_LOG.to_owned());
         }
 
-        insert_nonempty(&mut request.env, "BUZZ_AUTH_TAG", self.auth_tag.as_deref());
+        // The NIP-OA attestation is a bearer credential: keep it in the
+        // k8s-backed secrets projection (unrolled to env at launch) rather
+        // than the plaintext env map.
+        insert_nonempty(
+            &mut request.secrets,
+            "BUZZ_AUTH_TAG",
+            self.auth_tag.as_deref(),
+        );
         insert_nonempty(
             &mut request.env,
             "BUZZ_ACP_DISPLAY_NAME",
@@ -1596,6 +1603,7 @@ mod tests {
         buzz.display_name = Some("Fizz4".to_owned());
         buzz.text_mentions = true;
         buzz.require_reply = true;
+        buzz.auth_tag = Some("[\"auth\",\"owner\",\"\",\"sig\"]".to_owned());
         buzz.apply_to(&mut request, Some("Fizz4")).unwrap();
 
         assert_eq!(request.size, None);
@@ -1644,6 +1652,13 @@ mod tests {
         assert!(!request.env.contains_key("NOSTR_PRIVATE_KEY"));
         assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], "nsec1test");
         assert_eq!(request.secrets["NOSTR_PRIVATE_KEY"], "nsec1test");
+        // The NIP-OA attestation is a bearer credential: secrets projection,
+        // never the plaintext env map.
+        assert!(!request.env.contains_key("BUZZ_AUTH_TAG"));
+        assert_eq!(
+            request.secrets["BUZZ_AUTH_TAG"],
+            "[\"auth\",\"owner\",\"\",\"sig\"]"
+        );
         assert!(!request.env.contains_key("CLAUDE_CODE_EXECUTABLE"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
         // The SDK no longer mints a start nonce; caller-supplied values are

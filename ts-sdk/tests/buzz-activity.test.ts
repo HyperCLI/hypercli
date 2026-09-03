@@ -341,6 +341,52 @@ describe('subscribeBuzzActivity', () => {
       .rejects.toThrow(/not Buzz-backed/);
   });
 
+  it('reveals BUZZ_AUTH_TAG when the served launch config env no longer carries it', async () => {
+    const legacyStrippedEnv = { BUZZ_RELAY_URL: 'wss://relay.example.com' };
+    const get = vi.fn().mockResolvedValue({
+      id: 'agent-1',
+      launchConfig: { env: legacyStrippedEnv },
+    });
+    const secret = vi.fn().mockImplementation((_id: string, key: string) => {
+      if (key === 'BUZZ_AUTH_TAG') {
+        return Promise.resolve({
+          agent_id: 'agent-1',
+          key,
+          value: JSON.stringify(['auth', OWNER_PUB_HEX, '', 'sig']),
+          launch_epoch: 1,
+        });
+      }
+      return Promise.resolve({
+        agent_id: 'agent-1',
+        key,
+        value: AGENT_SECRET_HEX,
+        launch_epoch: 1,
+      });
+    });
+    const deployments = { get, secret } as unknown as Pick<Deployments, 'get' | 'secret'>;
+    const subscription = await subscribeBuzzActivity(deployments, 'agent-1', {
+      onFrame: () => undefined,
+    });
+    await flushMicrotasks();
+    expect(secret).toHaveBeenCalledWith('agent-1', 'BUZZ_AUTH_TAG');
+    expect(secret).toHaveBeenCalledWith('agent-1', 'BUZZ_PRIVATE_KEY');
+    const socket = ControllableWebSocket.instances[0];
+    expect(socket.reqFilter()['#p']).toEqual([OWNER_PUB_HEX]);
+    subscription.close();
+  });
+
+  it('keeps the clear owner error when neither env nor secrets carry the tag', async () => {
+    const legacyStrippedEnv = { BUZZ_RELAY_URL: 'wss://relay.example.com' };
+    const get = vi.fn().mockResolvedValue({
+      id: 'agent-1',
+      launchConfig: { env: legacyStrippedEnv },
+    });
+    const secret = vi.fn().mockRejectedValue(new Error('secret not found'));
+    const deployments = { get, secret } as unknown as Pick<Deployments, 'get' | 'secret'>;
+    await expect(subscribeBuzzActivity(deployments, 'agent-1', { onFrame: () => undefined }))
+      .rejects.toThrow(/owner pubkey not found/);
+  });
+
   it('sends a REQ for kind 24200 with authors/#p filters, history lookback, and limit', async () => {
     const { socket, secret, subscription } = await connectSubscription();
     expect(socket.url).toBe('wss://relay.example.com');

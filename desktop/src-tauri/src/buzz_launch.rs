@@ -254,6 +254,7 @@ async fn fetch_buzz_channels(
             "#p": [viewer.to_hex()],
             "limit": 1000,
         }]),
+        None,
     )
     .await
     .map_err(|error| format!("Could not read Buzz channel memberships: {error}"))?;
@@ -282,6 +283,7 @@ async fn fetch_buzz_channels(
                 "#d": channel_ids,
                 "limit": channel_limit,
             }]),
+            None,
         )
         .await
         .map_err(|error| format!("Could not read Buzz channels: {error}"))?
@@ -614,6 +616,7 @@ async fn open_owner_dm_with_greeting(
         &prepared.relay,
         &prepared.agent_keys,
         serde_json::json!([{ "kinds": [39002], "#p": [prepared.agent_public_hex] }]),
+        Some(&prepared.auth_tag),
     )
     .await?;
     let channel_ids: Vec<String> = memberships
@@ -633,6 +636,7 @@ async fn open_owner_dm_with_greeting(
         &prepared.relay,
         &prepared.agent_keys,
         serde_json::json!([{ "kinds": [39000], "#d": channel_ids }]),
+        Some(&prepared.auth_tag),
     )
     .await?;
     let dm_channel = metas.iter().find_map(|event| {
@@ -723,19 +727,25 @@ async fn query_buzz_events_http(
     relay: &str,
     signer: &nostr::Keys,
     filters: Value,
+    auth_tag: Option<&SecretString>,
 ) -> Result<Vec<NostrEvent>, String> {
     let url = relay_http_query_url(relay)?;
     let body = serde_json::to_vec(&filters)
         .map_err(|_| "Could not serialize the Buzz query".to_owned())?;
     let authorization = build_nip98_authorization(signer, &url, &body)?;
-    let response = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(20))
         .build()
-        .map_err(|_| "Could not configure the Buzz relay client".to_owned())?
+        .map_err(|_| "Could not configure the Buzz relay client".to_owned())?;
+    let mut request = client
         .post(&url)
         .header(reqwest::header::AUTHORIZATION, authorization)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json");
+    if let Some(auth_tag) = auth_tag {
+        request = request.header("x-auth-tag", auth_tag.expose_secret());
+    }
+    let response = request
         .body(body)
         .send()
         .await
@@ -747,6 +757,35 @@ async fn query_buzz_events_http(
         .json::<Vec<NostrEvent>>()
         .await
         .map_err(|_| "Buzz relay returned an invalid event list".to_owned())
+}
+
+/// Bounded jittered retry for relay publishes: a transient relay hiccup
+/// during launch previously tore the whole deployment down.
+async fn with_buzz_publish_retry<F, Fut>(label: &str, mut attempt: F) -> Result<(), String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    const MAX_ATTEMPTS: u32 = 3;
+    let mut last_error = String::new();
+    for try_index in 0..MAX_ATTEMPTS {
+        match attempt().await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = error;
+                if try_index + 1 < MAX_ATTEMPTS {
+                    // 250ms/500ms base backoff with up to 250ms jitter, no new
+                    // RNG dependency.
+                    let jitter_ms = u64::from(uuid::Uuid::new_v4().as_bytes()[0]);
+                    let backoff_ms = 250 * u64::from(try_index + 1) + jitter_ms;
+                    tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                }
+            }
+        }
+    }
+    Err(format!(
+        "{label} failed after {MAX_ATTEMPTS} attempts: {last_error}"
+    ))
 }
 
 async fn publish_signed_buzz_event_http(
@@ -1016,6 +1055,111 @@ pub(crate) async fn retract_buzz_agent(
     .map_err(|error| error.to_string())?
 }
 
+/// Republish the agent's kind:0 profile with a new picture after an avatar
+/// upload so upstream Buzz tiles stop rendering blank. The agent identity is
+/// recovered from the deployment's stored launch config (`BUZZ_PRIVATE_KEY`
+/// secret) and a fresh owner attestation is built for the same agent — the
+/// relay verifies the Schnorr signature over the attestation preimage, so the
+/// rebuilt tag is as valid as the launch-time one. The current profile's
+/// display name and about text are preserved from the relay.
+///
+/// Returns `Ok(false)` for non-Buzz deployments (no local ownership record).
+pub(crate) async fn republish_buzz_agent_avatar(
+    deployment_id: &str,
+    picture_url: &str,
+) -> Result<bool, String> {
+    struct AvatarRepublish {
+        relay: String,
+        identity: AgentIdentity,
+        auth_tag: SecretString,
+    }
+    let plan = tauri::async_runtime::spawn_blocking({
+        let deployment_id = deployment_id.to_owned();
+        move || -> Result<Option<AvatarRepublish>, String> {
+            let repository = buzz_connection_repository()?;
+            let document = repository.load().map_err(|error| error.to_string())?;
+            let Some(agent) = document.agents.iter().find(|candidate| {
+                candidate.deployment_id.as_deref() == Some(deployment_id.as_str())
+            }) else {
+                return Ok(None);
+            };
+            let connection = document
+                .connections
+                .iter()
+                .find(|candidate| candidate.id == agent.connection_id)
+                .ok_or_else(|| "Saved Buzz connection not found".to_owned())?;
+            let owner = repository
+                .owner_signer(&agent.connection_id)
+                .map_err(|error| error.to_string())?;
+            let launch = managed_client()?
+                .stored_launch_config(&deployment_id, None)
+                .map_err(|error| error.to_string())?;
+            let nsec = launch
+                .secrets
+                .get("BUZZ_PRIVATE_KEY")
+                .ok_or_else(|| "Stored launch config has no Buzz identity".to_owned())?;
+            let identity = AgentIdentity::from_nsec(&SecretString::from(nsec.clone()))
+                .map_err(|error| error.to_string())?;
+            let auth_tag = build_owner_attestation(&owner, &identity.public_key(), "")
+                .map_err(|error| error.to_string())?;
+            Ok(Some(AvatarRepublish {
+                relay: connection.relay_url.clone(),
+                identity,
+                auth_tag,
+            }))
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    let Some(plan) = plan else {
+        return Ok(false);
+    };
+
+    let agent_keys = plan.identity.keys();
+    let profiles = query_buzz_events_http(
+        &plan.relay,
+        &agent_keys,
+        serde_json::json!([{
+            "kinds": [0],
+            "authors": [plan.identity.public_hex()],
+            "limit": 1,
+        }]),
+        Some(&plan.auth_tag),
+    )
+    .await?;
+    let current = profiles.iter().max_by_key(|event| event.created_at);
+    let metadata: serde_json::Value = current
+        .and_then(|event| serde_json::from_str(&event.content).ok())
+        .unwrap_or(serde_json::Value::Null);
+    let display_name = metadata
+        .get("display_name")
+        .or_else(|| metadata.get("name"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    if display_name.trim().is_empty() {
+        // Without the existing profile we cannot rebuild a valid kind:0
+        // (display name is required); leave the relay state untouched.
+        return Ok(false);
+    }
+    let about = metadata
+        .get("about")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned);
+    let profile = build_agent_profile_event(
+        &plan.identity,
+        display_name,
+        Some(picture_url),
+        about.as_deref(),
+        &plan.auth_tag,
+    )
+    .map_err(|error| error.to_string())?;
+    with_buzz_publish_retry("Buzz avatar profile publish", || {
+        publish_signed_buzz_event_http(&plan.relay, &agent_keys, &profile, Some(&plan.auth_tag))
+    })
+    .await?;
+    Ok(true)
+}
+
 fn cleanup_created_deployment_blocking(agent_id: String) -> Result<(), String> {
     let agent_id = checked_agent_id(&agent_id)?;
     let client = managed_client()?;
@@ -1117,20 +1261,24 @@ pub async fn create_buzz_agent(input: BuzzCreateInput) -> Result<LauncherAgent, 
         &prepared.auth_tag,
     )
     .map_err(|error| error.to_string())?;
-    let profile_result = publish_signed_buzz_event_http(
-        &prepared.relay,
-        &prepared.agent_keys,
-        &profile_event,
-        Some(&prepared.auth_tag),
-    )
+    let profile_result = with_buzz_publish_retry("Buzz profile publish", || {
+        publish_signed_buzz_event_http(
+            &prepared.relay,
+            &prepared.agent_keys,
+            &profile_event,
+            Some(&prepared.auth_tag),
+        )
+    })
     .await;
     let publish_result = match profile_result {
         Ok(()) => {
-            publish_buzz_events(
-                &prepared.relay,
-                prepared.owner_keys.clone(),
-                &enrollment_events,
-            )
+            with_buzz_publish_retry("Buzz enrollment publish", || {
+                publish_buzz_events(
+                    &prepared.relay,
+                    prepared.owner_keys.clone(),
+                    &enrollment_events,
+                )
+            })
             .await
         }
         Err(error) => Err(error),

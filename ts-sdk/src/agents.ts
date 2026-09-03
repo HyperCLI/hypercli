@@ -1226,7 +1226,6 @@ function buildBuzzLaunchEnv(
   }
   if (buzz.rustLog) env.RUST_LOG = buzz.rustLog;
   const optional: Record<string, string | undefined | null> = {
-    BUZZ_AUTH_TAG: buzz.authTag,
     BUZZ_ACP_DISPLAY_NAME: buzz.displayName,
     BUZZ_ACP_SESSION_TITLE: buzz.sessionTitle || defaultSessionTitle,
     BUZZ_ACP_SYSTEM_PROMPT: buzz.systemPrompt,
@@ -1257,10 +1256,14 @@ function buildBuzzLaunchEnv(
 
 function buildBuzzLaunchSecrets(buzz: BuzzLaunchConfig): Record<string, string> {
   if (!buzz.privateKeyNsec.trim()) throw new Error('buzz.privateKeyNsec is required');
-  return {
+  const secrets: Record<string, string> = {
     BUZZ_PRIVATE_KEY: buzz.privateKeyNsec,
     NOSTR_PRIVATE_KEY: buzz.privateKeyNsec,
   };
+  // The NIP-OA attestation is a bearer credential: keep it in the k8s-backed
+  // secrets projection (unrolled to env at launch) rather than plaintext env.
+  if (buzz.authTag) secrets.BUZZ_AUTH_TAG = buzz.authTag;
+  return secrets;
 }
 
 export interface RuntimeAuthMethod {

@@ -442,6 +442,28 @@ describe('coding agents', () => {
     });
   });
 
+  it('keeps the Buzz NIP-OA auth tag in the secrets projection, never env', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({
+      name: 'buzz-coder',
+      buzz: {
+        privateKeyNsec: 'nsec1test',
+        relayUrl: 'wss://buzz.example.test',
+        authTag: '["auth","owner","","sig"]',
+      },
+    });
+
+    const payload = post.mock.calls[0][1];
+    expect(payload.env.BUZZ_AUTH_TAG).toBeUndefined();
+    expect(payload.secrets.BUZZ_AUTH_TAG).toBe('["auth","owner","","sig"]');
+  });
+
   it('sets the native reply guard only for native Buzz Agent launches', async () => {
     const post = vi.fn().mockResolvedValue(response('buzz-agent'));
     const deployments = new Deployments(

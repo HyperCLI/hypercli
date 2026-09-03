@@ -404,7 +404,6 @@ class BuzzLaunchConfig:
         if spec.claude_code_executable:
             env["CLAUDE_CODE_EXECUTABLE"] = spec.claude_code_executable
         optional = {
-            "BUZZ_AUTH_TAG": self.auth_tag,
             "BUZZ_ACP_DISPLAY_NAME": self.display_name,
             "BUZZ_ACP_SESSION_TITLE": self.session_title or default_session_title,
             "BUZZ_ACP_SYSTEM_PROMPT": self.system_prompt,
@@ -435,10 +434,16 @@ class BuzzLaunchConfig:
     def secrets(self) -> dict[str, str]:
         if not self.private_key_nsec.strip():
             raise ValueError("buzz.private_key_nsec is required")
-        return {
+        secrets = {
             "BUZZ_PRIVATE_KEY": self.private_key_nsec,
             "NOSTR_PRIVATE_KEY": self.private_key_nsec,
         }
+        # The NIP-OA attestation is a bearer credential: keep it in the
+        # k8s-backed secrets projection (unrolled to env at launch) rather
+        # than plaintext env.
+        if self.auth_tag:
+            secrets["BUZZ_AUTH_TAG"] = self.auth_tag
+        return secrets
 
 
 # Public file access is one Reef-backed, sync-root-relative API. S3 is reserved

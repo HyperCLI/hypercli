@@ -496,24 +496,33 @@ async fn set_agent_avatar(
     data: Vec<u8>,
     content_type: String,
 ) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let agent_id = checked_agent_id(&agent_id)?;
-        if data.is_empty() || data.len() > 5 * 1024 * 1024 {
-            return Err("Profile picture must be an image under 5 MB".to_owned());
+    let avatar_url = tauri::async_runtime::spawn_blocking({
+        let agent_id = agent_id.clone();
+        move || {
+            let agent_id = checked_agent_id(&agent_id)?;
+            if data.is_empty() || data.len() > 5 * 1024 * 1024 {
+                return Err("Profile picture must be an image under 5 MB".to_owned());
+            }
+            let content_type = match content_type.as_str() {
+                "image/png" | "image/jpeg" | "image/webp" | "image/gif" => content_type,
+                _ => {
+                    return Err("Profile picture must be a PNG, JPEG, WebP, or GIF image".to_owned())
+                }
+            };
+            let response = managed_client()?
+                .upload_deployment_profile_image(&agent_id, &data, &content_type)
+                .map_err(|error| error.to_string())?;
+            response
+                .avatar_url
+                .ok_or_else(|| "Profile picture upload returned no URL".to_owned())
         }
-        let content_type = match content_type.as_str() {
-            "image/png" | "image/jpeg" | "image/webp" | "image/gif" => content_type,
-            _ => return Err("Profile picture must be a PNG, JPEG, WebP, or GIF image".to_owned()),
-        };
-        let response = managed_client()?
-            .upload_deployment_profile_image(&agent_id, &data, &content_type)
-            .map_err(|error| error.to_string())?;
-        response
-            .avatar_url
-            .ok_or_else(|| "Profile picture upload returned no URL".to_owned())
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| error.to_string())??;
+    // Buzz agents: mirror the avatar into the relay kind:0 so upstream tiles
+    // pick it up. No-op for non-Buzz deployments.
+    buzz_launch::republish_buzz_agent_avatar(&agent_id, &avatar_url).await?;
+    Ok(avatar_url)
 }
 
 #[derive(Deserialize)]

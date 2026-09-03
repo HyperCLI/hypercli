@@ -364,7 +364,31 @@ export async function subscribeBuzzActivity(
 ): Promise<BuzzActivitySubscription> {
   const agent: Agent = await deployments.get(agentIdOrName);
   const env = launchConfigEnv(agent.launchConfig);
-  const { relayUrl, ownerPubHex } = resolveBuzzOwnerFromEnv(env);
+  let relayUrl: string;
+  let ownerPubHex: string | null;
+  try {
+    ({ relayUrl, ownerPubHex } = resolveBuzzOwnerFromEnv(env));
+  } catch (error) {
+    // Agents launched after BUZZ_AUTH_TAG moved from the launch-config env
+    // into the redacted secrets projection no longer carry the attestation
+    // here. The "not Buzz-backed" failure (no relay URL) is terminal; only
+    // the missing-owner case can be recovered by revealing the secret.
+    if (error instanceof Error && error.message.startsWith('Agent is not Buzz-backed')) {
+      throw error;
+    }
+    relayUrl = readEnvString(env, 'BUZZ_RELAY_URL') ?? '';
+    if (!relayUrl) throw error;
+    const tagResponse = await deployments
+      .secret(agentIdOrName, 'BUZZ_AUTH_TAG')
+      .catch(() => null);
+    const tag = tagResponse
+      ? typeof tagResponse.value === 'string'
+        ? tagResponse.value
+        : new TextDecoder().decode(tagResponse.value)
+      : null;
+    ownerPubHex = tag ? ownerFromAuthTag(tag) : null;
+    if (!ownerPubHex) throw error;
+  }
 
   // The agent secret is revealed in both modes: even when the caller supplies
   // an owner key for decryption, the agent pubkey is required for the REQ

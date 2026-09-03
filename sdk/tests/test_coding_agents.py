@@ -490,6 +490,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
             model="hypercli/kimi-k2.6-anthropic",
             parallelism=3,
             require_reply=True,
+            auth_tag='["auth","owner","","sig"]',
         ),
     )
 
@@ -514,9 +515,13 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["secrets"] == {
         "BUZZ_PRIVATE_KEY": "nsec1test",
         "NOSTR_PRIVATE_KEY": "nsec1test",
+        "BUZZ_AUTH_TAG": '["auth","owner","","sig"]',
     }
     assert "BUZZ_PRIVATE_KEY" not in posted["env"]
     assert "NOSTR_PRIVATE_KEY" not in posted["env"]
+    # The NIP-OA attestation is a bearer credential: secrets projection,
+    # never the plaintext env map.
+    assert "BUZZ_AUTH_TAG" not in posted["env"]
     assert posted["env"]["RUST_LOG"] == "debug"
     assert posted["env"]["HYPER_API_KEY"] == "inference-key"
     assert "CLAUDE_CODE_EXECUTABLE" not in posted["env"]
