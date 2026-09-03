@@ -335,12 +335,12 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
                 "BUZZ_PRIVATE_KEY":
                     "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
                 "NOSTR_PRIVATE_KEY":
-                    "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl"
+                    "nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl",
+                "BUZZ_AUTH_TAG": "[\"auth\",\"fixture\"]"
             },
             "env": {
                 "MODEL_API_KEY": "fixture-model-credential",
                 "BUZZ_RELAY_URL": "wss://buzz.example.com",
-                "BUZZ_AUTH_TAG": "[\"auth\",\"fixture\"]",
                 "BUZZ_ACP_AGENT_COMMAND": child_command,
                 "BUZZ_ACP_AGENT_ARGS": child_args,
                 "BUZZ_ACP_MCP_COMMAND": mcp_command,
@@ -560,9 +560,7 @@ fn dry_run_binary_validates_every_hosted_runtime_request_shape() {
             .as_array_mut()
             .unwrap()
             .push(serde_json::json!("buzz_launch=<dynamic>"));
-        for key in ["MODEL_API_KEY", "BUZZ_AUTH_TAG"] {
-            expected["env"][key] = serde_json::json!("<redacted>");
-        }
+        expected["env"]["MODEL_API_KEY"] = serde_json::json!("<redacted>");
         expected["env"]["BUZZ_ACP_RELAY_OBSERVER"] = serde_json::json!("true");
         expected["secrets"] = serde_json::json!("<redacted>");
         expected["registry_auth"] = serde_json::json!("<redacted>");

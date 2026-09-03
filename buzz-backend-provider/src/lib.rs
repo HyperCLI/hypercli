@@ -954,7 +954,9 @@ fn build_launch_request_with_inference_base(
     );
     let auth_tag = nonempty(agent.auth_tag.as_deref());
     if let Some(auth_tag) = auth_tag {
-        env.insert("BUZZ_AUTH_TAG".to_owned(), auth_tag.to_owned());
+        request
+            .secrets
+            .insert("BUZZ_AUTH_TAG".to_owned(), auth_tag.to_owned());
     } else if let Some(owner) = agent
         .launch
         .as_ref()
@@ -2134,7 +2136,8 @@ mod tests {
         assert_eq!(request.env["BUZZ_ACP_MODEL"], "launch-model");
         assert!(!request.env.contains_key("BUZZ_PRIVATE_KEY"));
         assert_eq!(request.secrets["BUZZ_PRIVATE_KEY"], TEST_SECRET_HEX);
-        assert_eq!(request.env["BUZZ_AUTH_TAG"], "[\"auth\",\"tag\"]");
+        assert_eq!(request.secrets["BUZZ_AUTH_TAG"], "[\"auth\",\"tag\"]");
+        assert!(!request.env.contains_key("BUZZ_AUTH_TAG"));
         assert!(!request.env.contains_key("buzz_auth_tag"));
         assert!(!request.env.contains_key("BUZZ_ACP_AGENT_OWNER"));
         assert!(!request.env.contains_key("BUZZ_MANAGED_AGENT"));
@@ -2226,6 +2229,7 @@ mod tests {
             build_launch_request(agent, TEST_PUBLIC_HEX, "buzz-runtime-test", test_options())
                 .unwrap();
         assert!(!request.env.contains_key("BUZZ_AUTH_TAG"));
+        assert!(!request.secrets.contains_key("BUZZ_AUTH_TAG"));
         assert_eq!(request.env["BUZZ_ACP_AGENT_OWNER"], "A".repeat(64));
         assert_eq!(request.env["BUZZ_ACP_AGENT_ARGS"], "");
         assert_eq!(
@@ -2663,11 +2667,11 @@ mod tests {
                 "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                 "secrets": {
                     "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
-                    "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX
+                    "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX,
+                    "BUZZ_AUTH_TAG": "[\"auth\",\"tag\"]"
                 },
                 "env": {
                     "BUZZ_RELAY_URL": "wss://buzz.example.com",
-                    "BUZZ_AUTH_TAG": "[\"auth\",\"tag\"]",
                     "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
                     "BUZZ_ACP_AGENT_ARGS": "acp",
                     "BUZZ_ACP_MCP_COMMAND": "",
