@@ -97,7 +97,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/buzz-activity.test.ts tests/buzz-activity-route.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-whatsapp.test.ts tests/hermes.test.ts tests/session.test.ts tests/claw.test.ts tests/user-profile-image.test.ts",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/acp-client.test.ts tests/browser-entry.test.ts tests/dist-exports.test.ts tests/http-multipart.test.ts tests/agents.test.ts tests/agent-logs.test.ts tests/buzz-activity.test.ts tests/buzz-activity-route.test.ts tests/coding-agents.test.ts tests/agent-files-source.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/workspaces.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts tests/openclaw-skills.test.ts tests/openclaw-channels.test.ts tests/openclaw-connectors.test.ts tests/openclaw-slack.test.ts tests/openclaw-slack-launch-env.test.ts tests/openclaw-whatsapp.test.ts tests/hermes.test.ts tests/session.test.ts tests/claw.test.ts tests/user-profile-image.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
   },
@@ -111,6 +111,7 @@
   "author": "Compute3 AI",
   "license": "MIT",
   "dependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
     "@noble/ciphers": "^1.3.0",
     "@noble/curves": "^1.9.7",
     "@noble/ed25519": "^3.0.0",

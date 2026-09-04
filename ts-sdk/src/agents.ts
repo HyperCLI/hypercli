@@ -25,6 +25,18 @@ import {
   type BuzzActivityRouteHandlers,
   type BuzzActivitySubscription,
 } from './buzz-activity.js';
+import {
+  CodingAgentAcpClient,
+  type CodingAgentAcpConnectOptions,
+} from './acp.js';
+export {
+  CodingAgentAcpClient,
+  CodingAgentAcpConnectionError,
+  CodingAgentAcpReplayGapError,
+  CodingAgentAcpUnavailableError,
+  ACP_RECONNECT_DELAYS_MS,
+  type CodingAgentAcpConnectOptions,
+} from './acp.js';
 // Activity-transport error classes, re-exported here so consumers can classify
 // failures without pulling the SDK root entry (and its optional x402 peers)
 // into their bundle.
@@ -3361,6 +3373,27 @@ export class CodingAgent extends Agent {
 
   get auth(): RuntimeAuthClient {
     return new RuntimeAuthClient(this);
+  }
+
+  /**
+   * Connect to this agent's ACP child through the backend bridge.
+   *
+   * Every coding-agent pod runs `hyper-acp`, which pipes the pod-side ACP
+   * child (`opencode acp`, `claude-code acp`, ...) onto an outbound WebSocket
+   * to the backend `/ws` bridge. This dials the client side of that bridge
+   * (`?agent_id=<id>`, Bearer API key — the same base URL/auth as every other
+   * agent SDK call), completes the ACP v1 `initialize` handshake, and returns
+   * a session-capable client. The `cwd` default is the agent workspace root
+   * (the coding-agent sync root, `/home/node`).
+   */
+  async acpConnect(options: CodingAgentAcpConnectOptions = {}): Promise<CodingAgentAcpClient> {
+    const deployments = this.requireDeployments();
+    const url = new URL(defaultHyperAcpWsUrl(deployments.agentApiBase));
+    url.searchParams.set('agent_id', this.id);
+    return CodingAgentAcpClient.connect(
+      { url: url.toString(), token: deployments.agentApiKey },
+      { ...options, cwd: options.cwd ?? DEFAULT_CODING_AGENT_SYNC_ROOT },
+    );
   }
 }
 

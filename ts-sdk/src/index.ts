@@ -368,6 +368,17 @@ export {
   type BuzzRouteDeploymentsClient,
 } from './buzz-activity.js';
 
+// Coding-agent ACP client
+export {
+  CodingAgentAcpClient,
+  CodingAgentAcpConnectionError,
+  CodingAgentAcpReplayGapError,
+  CodingAgentAcpUnavailableError,
+  ACP_RECONNECT_DELAYS_MS,
+  type CodingAgentAcpConnectOptions,
+  type CodingAgentAcpTarget,
+} from './acp.js';
+
 export * from './hermes/gateway.js';
 export * from './session.js';
 
