@@ -50,7 +50,7 @@ struct RelayDispatch {
 
 /// Run the Slack plugin from `hyper-acp plugin slack`.
 ///
-/// Prepends the synthetic argv[0] (`slack-acp`) so clap sees the same shape
+/// Prepends the synthetic argv0 (`slack-acp`) so clap sees the same shape
 /// as a standalone binary invocation.
 ///
 /// # Errors

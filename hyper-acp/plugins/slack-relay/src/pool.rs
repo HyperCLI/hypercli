@@ -295,8 +295,8 @@ impl AgentPool {
     }
 
     /// Record a slot failure whose worker will not come back (kill + respawn):
-    /// trip the circuit breaker after [`CIRCUIT_BREAKER_THRESHOLD`] failures
-    /// inside one [`CIRCUIT_BREAKER_WINDOW`], cooling off before respawn.
+    /// trip the circuit breaker after `CIRCUIT_BREAKER_THRESHOLD` failures
+    /// inside one `CIRCUIT_BREAKER_WINDOW`, cooling off before respawn.
     pub fn record_failure(&mut self, slot: usize) {
         let entry = &mut self.slots[slot];
         let now = Instant::now();

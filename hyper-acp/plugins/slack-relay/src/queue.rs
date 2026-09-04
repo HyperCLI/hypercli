@@ -206,7 +206,7 @@ pub enum QueueFinish {
     /// Turn succeeded: drop the batch, clear in-flight state.
     Complete,
     /// Turn failed transiently: requeue with backoff (dead-letter past
-    /// [`MAX_RETRIES`], returned to the caller).
+    /// `MAX_RETRIES`, returned to the caller).
     Retry,
     /// No turn ran (held) or the turn was interrupted: requeue at the front
     /// preserving fairness timestamps, no retry penalty.
@@ -288,8 +288,8 @@ impl SlackEventQueue {
     /// Push an event into its scope partition.
     ///
     /// [`DedupMode::Drop`] discards events for in-flight scopes (debug-logged).
-    /// Per-scope depth is capped at [`MAX_PENDING_PER_SCOPE`] (oldest evicted);
-    /// the aggregate per-channel cap [`MAX_PENDING_PER_CHANNEL`] then evicts
+    /// Per-scope depth is capped at `MAX_PENDING_PER_SCOPE` (oldest evicted);
+    /// the aggregate per-channel cap `MAX_PENDING_PER_CHANNEL` then evicts
     /// the globally-oldest event across the channel's scopes.
     ///
     /// Returns `true` when the event was accepted.
@@ -329,7 +329,7 @@ impl SlackEventQueue {
     }
 
     /// Evict the globally-oldest queued events across a channel's scopes until
-    /// aggregate depth is within [`MAX_PENDING_PER_CHANNEL`].
+    /// aggregate depth is within `MAX_PENDING_PER_CHANNEL`.
     fn enforce_channel_cap(&mut self, channel_id: &str) {
         while self.channel_event_total(channel_id) > MAX_PENDING_PER_CHANNEL {
             let victim = self
@@ -391,7 +391,7 @@ impl SlackEventQueue {
     /// Flush the next batch: expire stuck in-flight scopes, pick the eligible
     /// (non-empty, not in flight, not retry-throttled) scope with the oldest
     /// head event — FIFO fairness across scopes — drain up to
-    /// [`MAX_BATCH_EVENTS`], and mark the scope in flight.
+    /// `MAX_BATCH_EVENTS`, and mark the scope in flight.
     ///
     /// Returns `None` when no scope is eligible. The caller MUST eventually
     /// `mark_complete` (or `requeue`) the returned batch's scope.
@@ -466,7 +466,7 @@ impl SlackEventQueue {
     /// original `received_at` (fairness position); the retry delay comes from
     /// exponential backoff (5s→300s, ±20% jitter), not timestamp resets.
     ///
-    /// After [`MAX_RETRIES`] attempts the batch is dead-lettered: ERROR-logged
+    /// After `MAX_RETRIES` attempts the batch is dead-lettered: ERROR-logged
     /// and RETURNED to the caller (so a failure notice can be posted to the
     /// channel); otherwise returns `None`.
     ///
