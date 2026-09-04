@@ -1,5 +1,8 @@
 //! Local raw ACP stdio transport.
 
+use std::sync::Arc;
+
+use crate::capabilities::PodCapabilities;
 use crate::frame::validate_frame;
 use crate::transport::{AcpFrameObserver, Direction};
 use anyhow::{Context, Result};
@@ -33,14 +36,19 @@ pub async fn run_with_observer(command: Command, observer: Option<AcpFrameObserv
     let mut child_stdin = child.stdin.take().context("child stdin unavailable")?;
     let child_stdout = child.stdout.take().context("child stdout unavailable")?;
     let (child_write_tx, mut child_write_rx) = mpsc::channel::<String>(256);
+    let caps = Arc::new(PodCapabilities::from_env(&child_write_tx));
 
     let stdin_to_child = {
         let child_write_tx = child_write_tx.clone();
         let observer = observer.clone();
+        let caps = Arc::clone(&caps);
         tokio::spawn(async move {
             let mut lines = BufReader::new(tokio::io::stdin()).lines();
             while let Some(line) = lines.next_line().await? {
                 validate_frame(&line)?;
+                // Pod capability termination: `initialize` capability rewrite
+                // and `session/new` cwd tracking for the per-session fs jail.
+                let line = caps.rewrite_client_frame(&line).await.into_owned();
                 if let Some(observer) = &observer {
                     observer.observe(Direction::ClientToAgent, &line).await?;
                 }
@@ -66,11 +74,18 @@ pub async fn run_with_observer(command: Command, observer: Option<AcpFrameObserv
 
     let stdout_to_client = {
         let observer = observer.clone();
+        let caps = Arc::clone(&caps);
         tokio::spawn(async move {
             let mut stdout = tokio::io::stdout();
             let mut lines = BufReader::new(child_stdout).lines();
             while let Some(line) = lines.next_line().await? {
                 validate_frame(&line)?;
+                // Agent→client requests the pod serves (fs, optionally
+                // permission) never reach the client; the hook also binds
+                // session/new cwds to session ids as responses pass through.
+                if caps.handle_agent_frame(&line).await {
+                    continue;
+                }
                 if let Some(observer) = &observer {
                     observer.observe(Direction::AgentToClient, &line).await?;
                 }

@@ -4,6 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use hyper_acp::transport::Direction;
 use hyper_acp::transport::outbound_ws;
 use hyper_acp::transport::{AcpFrameObserver, ObservedAcpFrame};
+use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
@@ -89,9 +90,16 @@ async fn outbound_ws_reconnects_and_child_survives_socket_close() {
         );
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+    let received: Vec<Value> = read_jsonl(&child_input_path)
+        .iter()
+        .map(|line| parse_json(line))
+        .collect();
     assert_eq!(
-        read_jsonl(&child_input_path),
-        vec![first_frame, second_frame]
+        received,
+        vec![
+            rewritten_initialize_frame(first_frame),
+            parse_json(second_frame)
+        ]
     );
     transport.abort();
 }
@@ -158,7 +166,7 @@ async fn outbound_ws_drops_child_frames_emitted_while_disconnected() {
 }
 
 #[tokio::test]
-async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
+async fn outbound_ws_forwards_raw_acp_frames_semantically() {
     let temp = TestTemp::new("outbound-ws");
     let child_input_path = temp.path("child-input.jsonl");
     let child_script = write_child_script(temp.path("agent-child.sh"), &child_input_path);
@@ -203,13 +211,19 @@ async fn outbound_ws_forwards_raw_acp_frames_byte_for_byte() {
     ));
 
     assert_eq!(server.await.unwrap(), AGENT_FRAMES);
-    assert_eq!(read_jsonl(&child_input_path), CLIENT_FRAMES);
+    assert_eq!(
+        read_jsonl(&child_input_path)
+            .iter()
+            .map(|line| parse_json(line))
+            .collect::<Vec<_>>(),
+        expected_client_frames(),
+    );
     assert_observed_frames(&mut observed_frames);
     transport.abort();
 }
 
 #[tokio::test]
-async fn binary_local_stdio_launch_forwards_raw_acp_frames_byte_for_byte() {
+async fn binary_local_stdio_launch_forwards_raw_acp_frames_semantically() {
     let temp = TestTemp::new("local-stdio");
     let child_input_path = temp.path("child-input.jsonl");
     let child_script = write_child_script(temp.path("agent-child.sh"), &child_input_path);
@@ -242,7 +256,13 @@ async fn binary_local_stdio_launch_forwards_raw_acp_frames_byte_for_byte() {
         split_lines(&String::from_utf8(output.stdout).unwrap()),
         AGENT_FRAMES
     );
-    assert_eq!(read_jsonl(&child_input_path), CLIENT_FRAMES);
+    assert_eq!(
+        read_jsonl(&child_input_path)
+            .iter()
+            .map(|line| parse_json(line))
+            .collect::<Vec<_>>(),
+        expected_client_frames(),
+    );
 }
 
 #[tokio::test]
@@ -356,6 +376,39 @@ fn split_lines(text: &str) -> Vec<String> {
     text.lines().map(str::to_owned).collect()
 }
 
+fn parse_json(text: &str) -> Value {
+    serde_json::from_str(text).unwrap()
+}
+
+/// Client frames as the child actually receives them: the transport rewrites
+/// `initialize` `clientCapabilities` to advertise fs read/write so pod-side
+/// capability termination can serve them. Terminal stays not advertised.
+fn rewritten_initialize_frame(frame: &str) -> Value {
+    let mut value = parse_json(frame);
+    let capabilities = value["params"]["clientCapabilities"]
+        .as_object_mut()
+        .unwrap();
+    capabilities.insert(
+        "fs".to_owned(),
+        json!({"readTextFile": true, "writeTextFile": true}),
+    );
+    value
+}
+
+fn expected_client_frames() -> Vec<Value> {
+    CLIENT_FRAMES
+        .iter()
+        .map(|frame| {
+            let value = parse_json(frame);
+            if value["method"].as_str() == Some("initialize") {
+                rewritten_initialize_frame(frame)
+            } else {
+                value
+            }
+        })
+        .collect()
+}
+
 fn frame_observer() -> (
     AcpFrameObserver,
     tokio::sync::mpsc::Receiver<ObservedAcpFrame>,
@@ -370,20 +423,21 @@ fn assert_observed_frames(observed: &mut tokio::sync::mpsc::Receiver<ObservedAcp
         frames.push(frame);
     }
 
-    let expected = CLIENT_FRAMES
-        .iter()
-        .map(|frame| (Direction::ClientToAgent, *frame))
-        .chain(
-            AGENT_FRAMES
-                .iter()
-                .map(|frame| (Direction::AgentToClient, *frame)),
-        )
+    // The observed text is post-rewrite: the initialize frame expectation
+    // must match what the transport sent to the child.
+    let client_frames = expected_client_frames()
+        .into_iter()
+        .map(|value| value.to_string());
+    let agent_frames = AGENT_FRAMES.iter().map(|frame| (*frame).to_owned());
+    let expected = client_frames
+        .map(|frame| (Direction::ClientToAgent, frame))
+        .chain(agent_frames.map(|frame| (Direction::AgentToClient, frame)))
         .collect::<Vec<_>>();
 
     assert_eq!(frames.len(), expected.len());
     for (actual, (direction, text)) in frames.iter().zip(expected) {
         assert_eq!(actual.direction, direction);
-        assert_eq!(actual.text, text);
+        assert_eq!(parse_json(&actual.text), parse_json(&text));
         assert!(!actual.text.contains("turn.submit"));
         assert!(!actual.text.contains("agent_shell"));
         assert!(!actual.text.contains(r#""event""#));

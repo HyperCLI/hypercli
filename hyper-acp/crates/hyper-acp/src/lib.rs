@@ -12,6 +12,7 @@
 #![doc = "`agent-client-protocol-schema` crate copied in this repository; this crate"]
 #![doc = "does not redefine or reduce ACP request, response, notification, or batch shapes."]
 
+pub mod capabilities;
 pub mod frame;
 pub mod transport;
 

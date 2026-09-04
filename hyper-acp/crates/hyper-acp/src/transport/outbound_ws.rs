@@ -1,5 +1,8 @@
 //! Outbound raw ACP WebSocket transport.
 
+use std::sync::Arc;
+
+use crate::capabilities::PodCapabilities;
 use crate::frame::validate_frame;
 use crate::transport::{AcpFrameObserver, Direction};
 use anyhow::{Context, Result, bail};
@@ -79,6 +82,8 @@ pub async fn run_with_observer(
     let (child_outbound_tx, mut child_outbound_rx) =
         mpsc::channel::<String>(CHILD_OUTBOUND_CHANNEL_LIMIT);
 
+    let caps = Arc::new(PodCapabilities::from_env(&child_write_tx));
+
     // The first connection precedes the child spawn so agent startup frames
     // can never race ahead of client frames.
     let mut backoff = WS_RECONNECT_BACKOFF_INITIAL;
@@ -113,16 +118,26 @@ pub async fn run_with_observer(
     // The child reader is persistent for the same reason. Between eras nothing
     // drains `child_outbound_rx`, so the channel fills and back-pressures the
     // child's stdout writes instead of failing them.
-    let child_reader = tokio::spawn(async move {
-        let mut lines = BufReader::new(child_stdout).lines();
-        while let Some(line) = lines.next_line().await? {
-            validate_frame(&line)?;
-            child_outbound_tx
-                .send(line)
-                .await
-                .context("ACP child outbound channel closed")?;
+    let child_reader = tokio::spawn({
+        let caps = Arc::clone(&caps);
+        async move {
+            let mut lines = BufReader::new(child_stdout).lines();
+            while let Some(line) = lines.next_line().await? {
+                validate_frame(&line)?;
+                // Pod capability termination: fs/(permission) agent→client
+                // requests are answered locally, never pumped upstream; the
+                // hook also binds session/new cwds to agent-assigned session
+                // ids as responses pass through.
+                if caps.handle_agent_frame(&line).await {
+                    continue;
+                }
+                child_outbound_tx
+                    .send(line)
+                    .await
+                    .context("ACP child outbound channel closed")?;
+            }
+            anyhow::Ok(())
         }
-        anyhow::Ok(())
     });
 
     tokio::pin!(child_writer);
@@ -147,6 +162,7 @@ pub async fn run_with_observer(
             ended = run_socket_era(
                 &ws_url,
                 observer.as_ref(),
+                &caps,
                 &child_write_tx,
                 &mut child_outbound_rx,
                 had_prior_era,
@@ -229,6 +245,7 @@ enum EraError {
 async fn run_socket_era(
     ws_url: &str,
     observer: Option<&AcpFrameObserver>,
+    caps: &Arc<PodCapabilities>,
     child_write_tx: &mpsc::Sender<String>,
     child_outbound_rx: &mut mpsc::Receiver<String>,
     had_prior_era: bool,
@@ -244,7 +261,7 @@ async fn run_socket_era(
     if had_prior_era {
         while child_outbound_rx.try_recv().is_ok() {}
     }
-    match pump_socket(socket, observer, child_write_tx, child_outbound_rx).await {
+    match pump_socket(socket, observer, caps, child_write_tx, child_outbound_rx).await {
         Ok(()) | Err(EraError::Transient) => EraEnd::Transient,
         Err(EraError::Fatal(error)) => EraEnd::Fatal(error),
     }
@@ -253,6 +270,7 @@ async fn run_socket_era(
 async fn pump_socket(
     socket: Socket,
     observer: Option<&AcpFrameObserver>,
+    caps: &Arc<PodCapabilities>,
     child_write_tx: &mpsc::Sender<String>,
     child_outbound_rx: &mut mpsc::Receiver<String>,
 ) -> Result<(), EraError> {
@@ -291,6 +309,7 @@ async fn pump_socket(
     let ws_to_child = {
         let child_write_tx = child_write_tx.clone();
         let observer = observer.cloned();
+        let caps = Arc::clone(caps);
         tokio::spawn(async move {
             while let Some(message) = ws_read.next().await {
                 let message = message.map_err(|_| EraError::Transient)?;
@@ -298,6 +317,9 @@ async fn pump_socket(
                     Message::Text(text) => {
                         let text = text.to_string();
                         validate_stdio_text_frame(&text).map_err(EraError::Fatal)?;
+                        // Pod capability termination: `initialize` capability
+                        // rewrite + `session/new` cwd jail tracking.
+                        let text = caps.rewrite_client_frame(&text).await.into_owned();
                         if let Some(observer) = &observer {
                             observer
                                 .observe(Direction::ClientToAgent, &text)
