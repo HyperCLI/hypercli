@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::capabilities::PodCapabilities;
+use crate::capabilities::{ClientFrameAction, PodCapabilities};
 use crate::frame::validate_frame;
 use crate::transport::{AcpFrameObserver, Direction};
 use anyhow::{Context, Result, bail};
@@ -45,7 +45,9 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// frame in one direction and as a newline-delimited stdio frame in the other.
 /// The child process is long-lived: it survives WebSocket reconnects, matching
 /// ACP v1 semantics where connections are ephemeral and clients re-enter with
-/// `initialize` + `session/load`.
+/// `initialize` + `session/load`. A re-initializing client is answered from
+/// the cached first-era child `initialize` response (see the
+/// `crate::capabilities` module doc); the child only ever initializes once.
 ///
 /// # Errors
 ///
@@ -310,6 +312,7 @@ async fn pump_socket(
         let child_write_tx = child_write_tx.clone();
         let observer = observer.cloned();
         let caps = Arc::clone(caps);
+        let ws_send_tx = ws_send_tx.clone();
         tokio::spawn(async move {
             while let Some(message) = ws_read.next().await {
                 let message = message.map_err(|_| EraError::Transient)?;
@@ -318,17 +321,38 @@ async fn pump_socket(
                         let text = text.to_string();
                         validate_stdio_text_frame(&text).map_err(EraError::Fatal)?;
                         // Pod capability termination: `initialize` capability
-                        // rewrite + `session/new` cwd jail tracking.
-                        let text = caps.rewrite_client_frame(&text).await.into_owned();
-                        if let Some(observer) = &observer {
-                            observer
-                                .observe(Direction::ClientToAgent, &text)
-                                .await
-                                .map_err(EraError::Fatal)?;
+                        // rewrite + `session/new` cwd jail tracking. A
+                        // re-initializing client on a later era is answered
+                        // from the cached first-era child response; the child
+                        // never sees a second `initialize`.
+                        match caps.handle_client_frame(&text).await {
+                            ClientFrameAction::Forward(text) => {
+                                if let Some(observer) = &observer {
+                                    observer
+                                        .observe(Direction::ClientToAgent, &text)
+                                        .await
+                                        .map_err(EraError::Fatal)?;
+                                }
+                                child_write_tx.send(text.into_owned()).await.map_err(|_| {
+                                    EraError::Fatal(anyhow::anyhow!("ACP child writer closed"))
+                                })?;
+                            }
+                            ClientFrameAction::Respond(response) => {
+                                if let Some(observer) = &observer {
+                                    observer
+                                        .observe(Direction::AgentToClient, &response)
+                                        .await
+                                        .map_err(EraError::Fatal)?;
+                                }
+                                if ws_send_tx
+                                    .send(Message::Text(response.into()))
+                                    .await
+                                    .is_err()
+                                {
+                                    return Err(EraError::Transient);
+                                }
+                            }
                         }
-                        child_write_tx.send(text).await.map_err(|_| {
-                            EraError::Fatal(anyhow::anyhow!("ACP child writer closed"))
-                        })?;
                     }
                     Message::Binary(_) => {
                         return Err(EraError::Fatal(anyhow::anyhow!(

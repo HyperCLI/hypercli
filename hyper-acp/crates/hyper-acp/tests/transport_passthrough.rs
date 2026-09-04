@@ -105,6 +105,111 @@ async fn outbound_ws_reconnects_and_child_survives_socket_close() {
 }
 
 #[tokio::test]
+async fn outbound_ws_replays_cached_initialize_response_on_later_eras() {
+    let temp = TestTemp::new("outbound-ws-reinitialize");
+    let child_input_path = temp.path("child-input.jsonl");
+    let initialize = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}"#;
+    let initialize_response = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"counting-acp","version":"0"},"agentCapabilities":{"loadSession":true}}}"#;
+    // The child errors on a second `initialize`, like real children that
+    // treat it as once-per-connection (codex-acp's app-server answers
+    // "Already initialized").
+    let mut script = String::from("#!/bin/sh\nset -eu\ninitialize_count=0\n");
+    script.push_str("while IFS= read -r line; do\n");
+    script.push_str("  printf '%s\\n' \"$line\" >> '");
+    script.push_str(child_input_path.to_str().unwrap());
+    script.push_str("'\n");
+    script.push_str("  case \"$line\" in\n");
+    script.push_str("    *'\"initialize\"'*)\n");
+    script.push_str("      initialize_count=$((initialize_count + 1))\n");
+    script.push_str("      if [ \"$initialize_count\" -gt 1 ]; then\n");
+    script.push_str(
+        "        printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32600,\"message\":\"Already initialized\"}}'\n",
+    );
+    script.push_str("      else\n");
+    script.push_str("        printf '%s\\n' '");
+    script.push_str(initialize_response);
+    script.push_str("'\n");
+    script.push_str("      fi\n");
+    script.push_str("      ;;\n");
+    script.push_str("  esac\n");
+    script.push_str("done\n");
+    let child_script = temp.path("agent-child.sh");
+    fs::write(&child_script, script).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ws_url = format!("ws://{}/ws", listener.local_addr().unwrap());
+
+    let server = tokio::spawn(async move {
+        // Era one: initialize, read the child's response, then hang up.
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket.send(Message::Text(initialize.into())).await.unwrap();
+        let era_one_response = loop {
+            match socket.next().await.unwrap().unwrap() {
+                Message::Text(text) => break text.to_string(),
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                _ => {}
+            }
+        };
+        socket.close(None).await.unwrap();
+        drop(socket);
+
+        // Era two: the client reconnects and re-initializes (same request id,
+        // as a fresh client connection does). The transport must answer from
+        // cache — byte-identical — and the child must never see it.
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+        socket.send(Message::Text(initialize.into())).await.unwrap();
+        let era_two_response = loop {
+            match socket.next().await.unwrap().unwrap() {
+                Message::Text(text) => break text.to_string(),
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                _ => {}
+            }
+        };
+        // Post-initialize era traffic still flows to the child.
+        let load =
+            r#"{"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"s1"}}"#;
+        socket.send(Message::Text(load.into())).await.unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        socket.close(None).await.unwrap();
+        (era_one_response, era_two_response)
+    });
+
+    let mut command = Command::new("sh");
+    command.arg(&child_script);
+    command.stdin(Stdio::piped()).stdout(Stdio::piped());
+    let transport = tokio::spawn(outbound_ws::run(ws_url, command));
+
+    let (era_one_response, era_two_response) = server.await.unwrap();
+    assert_eq!(era_one_response, initialize_response);
+    // The replay is verbatim: identical bytes from the cache.
+    assert_eq!(era_two_response, era_one_response);
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let frames = read_jsonl(&child_input_path);
+        let initializes = frames
+            .iter()
+            .filter(|line| parse_json(line)["method"].as_str() == Some("initialize"))
+            .count();
+        let loads = frames
+            .iter()
+            .filter(|line| parse_json(line)["method"].as_str() == Some("session/load"))
+            .count();
+        if initializes == 1 && loads == 1 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "child frames wrong: {frames:?}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    transport.abort();
+}
+
+#[tokio::test]
 async fn outbound_ws_drops_child_frames_emitted_while_disconnected() {
     let temp = TestTemp::new("outbound-ws-drop-offline-frames");
     let child_input_path = temp.path("child-input.jsonl");

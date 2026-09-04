@@ -30,6 +30,30 @@
 //! unchanged, because the client may implement verbs the pod does not know.
 //! Pod served requests echo back the agent's own request id, which is
 //! disjoint by construction from the client→agent id space.
+//!
+//! # Re-initialize seam (decision: pod-side replay)
+//!
+//! The outbound `/ws` transport keeps the ACP child alive across WebSocket
+//! eras, but ACP v1 `initialize` is once-per-connection and the child's
+//! stdio connection never ends — while a reconnecting client (v2 draft RFD
+//! initialize-first convention) sends `initialize` again on every era. The
+//! seam options were: (a) the pod answers re-initialize from a cached
+//! first-response, (b) the SDK stops re-initializing (violates the v2
+//! convention, rejected), (c) forward and rely on children tolerating it.
+//! (c) is NOT universally safe: `codex-acp` forwards `initialize` to the
+//! Codex app-server, which answers the second one with
+//! `invalid_request("Already initialized")`, and `goose` re-runs its
+//! handler but silently keeps the FIRST era's captured client capabilities
+//! (`OnceCell::set` results discarded). So this module implements (a): the
+//! first successful child `initialize` response is cached (keyed by the
+//! rewritten request's id) and replayed to later-era clients verbatim when
+//! their fresh request carries the same id, reserialized with the new id
+//! otherwise. The per-era request rewrite still runs so the advertised
+//! (pre-rewrite) client capabilities are recorded for observability, but
+//! nothing pod-side consumes stored per-era client capabilities: fs
+//! termination is jailed by session regardless of what the client
+//! advertised (the rewrite forces `fs=true` for the child), and permission
+//! auto-approval is env-gated only.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -66,6 +90,46 @@ struct PodState {
     /// `session/new` request id → cwd, awaiting the agent's response.
     pending_sessions: HashMap<String, PathBuf>,
     advertised: Option<AdvertisedClientCapabilities>,
+    /// `initialize` request id forwarded to the child, awaiting its response.
+    pending_initialize_id: Option<String>,
+    /// First successful child `initialize` response, replayed to clients
+    /// re-initializing on later socket eras (see module doc).
+    initialize_replay: Option<InitializeReplay>,
+}
+
+/// Cached child `initialize` response for re-initialize replay.
+#[derive(Debug, Clone)]
+struct InitializeReplay {
+    /// JSON-serialized request id of the initialize the child answered.
+    request_id: String,
+    /// Child response frame text, verbatim.
+    response_text: String,
+}
+
+impl InitializeReplay {
+    /// Response text for a fresh era's initialize: verbatim when the request
+    /// id matches the cached one, reserialized with the new id otherwise.
+    fn response_for(&self, fresh_id: &Value) -> String {
+        if id_key(fresh_id).as_deref() == Some(self.request_id.as_str()) {
+            return self.response_text.clone();
+        }
+        let Ok(mut response) = serde_json::from_str::<Value>(&self.response_text) else {
+            return self.response_text.clone();
+        };
+        if let Some(object) = response.as_object_mut() {
+            object.insert("id".to_owned(), fresh_id.clone());
+        }
+        serde_json::to_string(&response).unwrap_or_else(|_| self.response_text.clone())
+    }
+}
+
+/// Client→agent frame disposition from [`PodCapabilities::handle_client_frame`].
+#[derive(Debug)]
+pub enum ClientFrameAction<'a> {
+    /// Forward the frame to the child (possibly rewritten).
+    Forward(Cow<'a, str>),
+    /// Answer the client directly; the frame is not child-bound.
+    Respond(String),
 }
 
 /// Pod-local ACP client-capability terminator shared by both transports.
@@ -108,6 +172,8 @@ impl PodCapabilities {
                 jail_roots: HashMap::new(),
                 pending_sessions: HashMap::new(),
                 advertised: None,
+                pending_initialize_id: None,
+                initialize_replay: None,
             }),
             auto_approve_permission,
             child_write_tx,
@@ -120,30 +186,50 @@ impl PodCapabilities {
         self.state.lock().await.advertised
     }
 
-    /// Client→agent pre-forward hook. Returns the frame to forward: the
-    /// original text (borrowed) or a rewritten `initialize` payload.
-    /// `session/new` requests record their `cwd` against the request id so
-    /// the agent's response can bind it (see [`Self::handle_agent_frame`]);
-    /// they pass through unchanged.
-    pub async fn rewrite_client_frame<'a>(&self, text: &'a str) -> Cow<'a, str> {
+    /// Client→agent pre-forward hook. Frames that need no pod action come
+    /// back as [`ClientFrameAction::Forward`] with the original text
+    /// (borrowed) or a rewritten payload:
+    ///
+    /// - `initialize` requests are rewritten (fs capabilities for the child)
+    ///   and forwarded; their ids are tracked so a successful child response
+    ///   becomes the re-initialize replay cache. When the cache exists
+    ///   (later socket era, same long-lived child), the frame is NOT
+    ///   child-bound: the cached response comes back as
+    ///   [`ClientFrameAction::Respond`] with the fresh request's id.
+    /// - `session/new` requests record their `cwd` against the request id so
+    ///   the agent's response can bind it (see [`Self::handle_agent_frame`]);
+    ///   they pass through unchanged.
+    pub async fn handle_client_frame<'a>(&self, text: &'a str) -> ClientFrameAction<'a> {
         if !text.contains("\"initialize\"") && !text.contains("\"session/new\"") {
-            return Cow::Borrowed(text);
+            return ClientFrameAction::Forward(Cow::Borrowed(text));
         }
         let Ok(value) = serde_json::from_str::<Value>(text) else {
-            return Cow::Borrowed(text);
+            return ClientFrameAction::Forward(Cow::Borrowed(text));
         };
         let Some(method) = value.get("method").and_then(Value::as_str) else {
-            return Cow::Borrowed(text);
+            return ClientFrameAction::Forward(Cow::Borrowed(text));
         };
         match method {
             "initialize" => {
-                let Some((rewritten, advertised)) = rewrite_initialize(value) else {
-                    return Cow::Borrowed(text);
+                let Some((rewritten, advertised)) = rewrite_initialize(value.clone()) else {
+                    return ClientFrameAction::Forward(Cow::Borrowed(text));
                 };
-                self.state.lock().await.advertised = Some(advertised);
+                let mut state = self.state.lock().await;
+                state.advertised = Some(advertised);
+                // Re-initialize replay: the child was already initialized on
+                // an earlier era and must not see a second `initialize`.
+                if let Some(replay) = &state.initialize_replay
+                    && let Some(id) = value.get("id")
+                {
+                    return ClientFrameAction::Respond(replay.response_for(id));
+                }
+                if let Some(id) = value.get("id").and_then(id_key) {
+                    state.pending_initialize_id = Some(id);
+                }
+                drop(state);
                 match serde_json::to_string(&rewritten) {
-                    Ok(frame) => Cow::Owned(frame),
-                    Err(_) => Cow::Borrowed(text),
+                    Ok(frame) => ClientFrameAction::Forward(Cow::Owned(frame)),
+                    Err(_) => ClientFrameAction::Forward(Cow::Borrowed(text)),
                 }
             }
             "session/new" => {
@@ -160,9 +246,9 @@ impl PodCapabilities {
                     let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
                     self.state.lock().await.pending_sessions.insert(id, cwd);
                 }
-                Cow::Borrowed(text)
+                ClientFrameAction::Forward(Cow::Borrowed(text))
             }
-            _ => Cow::Borrowed(text),
+            _ => ClientFrameAction::Forward(Cow::Borrowed(text)),
         }
     }
 
@@ -190,11 +276,22 @@ impl PodCapabilities {
             return false;
         };
         let Some(method) = value.get("method").and_then(Value::as_str) else {
-            // An agent response, not a request: complete a pending
-            // session/new binding if this id is being tracked. Error
-            // responses (no result.sessionId) simply drop the pending entry.
+            // An agent response, not a request: cache a successful child
+            // `initialize` response for later-era re-initialize replay, and
+            // complete a pending session/new binding if this id is being
+            // tracked. Error responses (no result.sessionId) simply drop the
+            // pending entry; an errored `initialize` is never cached.
             if let Some(key) = id_key(id) {
                 let mut state = self.state.lock().await;
+                if state.pending_initialize_id.as_deref() == Some(key.as_str()) {
+                    state.pending_initialize_id = None;
+                    if value.get("result").is_some() {
+                        state.initialize_replay = Some(InitializeReplay {
+                            request_id: key.clone(),
+                            response_text: text.to_owned(),
+                        });
+                    }
+                }
                 if let Some(cwd) = state.pending_sessions.remove(&key)
                     && let Some(session_id) = value
                         .get("result")
@@ -536,8 +633,8 @@ mod tests {
     async fn bind_session(caps: &Arc<PodCapabilities>, id: &Value, cwd: &Path, session_id: &str) {
         let request = session_new_frame(id, cwd);
         assert!(matches!(
-            caps.rewrite_client_frame(&request).await,
-            Cow::Borrowed(_)
+            caps.handle_client_frame(&request).await,
+            ClientFrameAction::Forward(Cow::Borrowed(_))
         ));
         let response = json!({
             "jsonrpc": "2.0",
@@ -597,6 +694,105 @@ mod tests {
         assert!(!advertised.fs_read_text_file);
         assert!(!advertised.fs_write_text_file);
         assert!(!advertised.terminal);
+    }
+
+    fn initialize_frame(id: &Value) -> String {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "initialize",
+            "params": { "protocolVersion": 1, "clientCapabilities": {} },
+        })
+        .to_string()
+    }
+
+    async fn answer_initialize_from_child(caps: &Arc<PodCapabilities>, id: &Value) {
+        let response = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "protocolVersion": 1,
+                "agentCapabilities": { "loadSession": true },
+                "agentInfo": { "name": "fake-acp", "version": "0" },
+            },
+        })
+        .to_string();
+        assert!(!caps.handle_agent_frame(&response).await);
+    }
+
+    #[tokio::test]
+    async fn reinitialize_is_answered_from_the_cached_child_response() {
+        let caps = Arc::new(PodCapabilities::new(PathBuf::from("/tmp"), false, None));
+        let first = initialize_frame(&json!(1));
+
+        // First era: the initialize is rewritten and forwarded, and its id
+        // is tracked for the child response.
+        let ClientFrameAction::Forward(rewritten) = caps.handle_client_frame(&first).await else {
+            panic!("first initialize must forward");
+        };
+        assert_eq!(
+            rewritten.parse::<Value>().unwrap()["params"]["clientCapabilities"]["fs"]["readTextFile"],
+            json!(true)
+        );
+        answer_initialize_from_child(&caps, &json!(1)).await;
+
+        // Later era, same request id (fresh client connection): the child
+        // sees nothing and the cached response is replayed verbatim.
+        let second = initialize_frame(&json!(1));
+        let ClientFrameAction::Respond(response) = caps.handle_client_frame(&second).await else {
+            panic!("re-initialize must be answered from cache");
+        };
+        let parsed: Value = response.parse().unwrap();
+        assert_eq!(parsed["id"], json!(1));
+        assert_eq!(parsed["result"]["protocolVersion"], json!(1));
+        assert_eq!(
+            parsed["result"]["agentCapabilities"]["loadSession"],
+            json!(true)
+        );
+
+        // Later era, different request id: the replay swaps the id and keeps
+        // the result payload intact.
+        let third = initialize_frame(&json!("re-1"));
+        let ClientFrameAction::Respond(response) = caps.handle_client_frame(&third).await else {
+            panic!("re-initialize must be answered from cache");
+        };
+        let parsed: Value = response.parse().unwrap();
+        assert_eq!(parsed["id"], json!("re-1"));
+        assert_eq!(
+            parsed["result"]["agentCapabilities"]["loadSession"],
+            json!(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn reinitialize_forwards_until_the_first_response_is_cached() {
+        let caps = Arc::new(PodCapabilities::new(PathBuf::from("/tmp"), false, None));
+
+        // No cache yet: even a second initialize forwards (first response
+        // never arrived).
+        let frame = initialize_frame(&json!(1));
+        assert!(matches!(
+            caps.handle_client_frame(&frame).await,
+            ClientFrameAction::Forward(_)
+        ));
+        assert!(matches!(
+            caps.handle_client_frame(&frame).await,
+            ClientFrameAction::Forward(_)
+        ));
+
+        // An errored initialize is never cached.
+        let error = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}"#;
+        assert!(!caps.handle_agent_frame(error).await);
+        assert!(matches!(
+            caps.handle_client_frame(&frame).await,
+            ClientFrameAction::Forward(_)
+        ));
+
+        answer_initialize_from_child(&caps, &json!(1)).await;
+        assert!(matches!(
+            caps.handle_client_frame(&frame).await,
+            ClientFrameAction::Respond(_)
+        ));
     }
 
     #[test]
@@ -726,7 +922,7 @@ mod tests {
         let temp = TestDir::new("session-error");
         let caps = Arc::new(PodCapabilities::new(temp.0.clone(), false, None));
         let request = session_new_frame(&json!(7), &temp.0);
-        drop(caps.rewrite_client_frame(&request).await);
+        drop(caps.handle_client_frame(&request).await);
         let error_response = json!({
             "jsonrpc": "2.0",
             "id": 7,
@@ -746,7 +942,7 @@ mod tests {
             json!({"jsonrpc": "2.0", "method": "session/new", "params": {"cwd": "/tmp"}}),
             json!({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params": {"mcpServers": []}}),
         ] {
-            drop(caps.rewrite_client_frame(&frame.to_string()).await);
+            drop(caps.handle_client_frame(&frame.to_string()).await);
         }
         assert!(caps.state.lock().await.pending_sessions.is_empty());
     }
