@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use crate::capabilities::{ClientFrameAction, PodCapabilities};
+use crate::capabilities::{AgentFrameAction, ClientFrameAction, PodCapabilities};
 use crate::frame::validate_frame;
+use crate::prompt::PromptConfig;
 use crate::transport::{AcpFrameObserver, Direction};
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
@@ -56,7 +57,26 @@ type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// a persistent transport fails, or the socket stays down past
 /// `WS_MAX_DISCONNECTED`.
 pub async fn run(ws_url: String, command: Command) -> Result<()> {
-    Box::pin(run_with_observer(ws_url, command, None)).await
+    Box::pin(run_with_prompt(ws_url, command, PromptConfig::from_env()?)).await
+}
+
+/// Run an ACP child process over an outbound `/ws` WebSocket with prompt injection.
+///
+/// # Errors
+///
+/// Returns an error under the same conditions as [`run_with_observer`].
+pub async fn run_with_prompt(
+    ws_url: String,
+    command: Command,
+    prompt_config: PromptConfig,
+) -> Result<()> {
+    Box::pin(run_with_prompt_and_observer(
+        ws_url,
+        command,
+        prompt_config,
+        None,
+    ))
+    .await
 }
 
 /// How a socket era ended.
@@ -76,6 +96,21 @@ enum EraEnd {
 pub async fn run_with_observer(
     ws_url: String,
     command: Command,
+    observer: Option<AcpFrameObserver>,
+) -> Result<()> {
+    run_with_prompt_and_observer(ws_url, command, PromptConfig::from_env()?, observer).await
+}
+
+/// Run an ACP child over outbound `/ws` with prompt injection and an optional frame observer.
+///
+/// # Errors
+///
+/// Returns an error if URL, child process, frame validation, prompt injection,
+/// observer delivery, or transport I/O fails.
+pub async fn run_with_prompt_and_observer(
+    ws_url: String,
+    command: Command,
+    prompt_config: PromptConfig,
     observer: Option<AcpFrameObserver>,
 ) -> Result<()> {
     validate_ws_url(&ws_url)?;
@@ -130,11 +165,12 @@ pub async fn run_with_observer(
                 // requests are answered locally, never pumped upstream; the
                 // hook also binds session/new cwds to agent-assigned session
                 // ids as responses pass through.
-                if caps.handle_agent_frame(&line).await {
-                    continue;
-                }
+                let line = match caps.handle_agent_frame(&line).await {
+                    AgentFrameAction::Forward(line) => line,
+                    AgentFrameAction::Drop => continue,
+                };
                 child_outbound_tx
-                    .send(line)
+                    .send(line.into_owned())
                     .await
                     .context("ACP child outbound channel closed")?;
             }
@@ -165,6 +201,7 @@ pub async fn run_with_observer(
                 &ws_url,
                 observer.as_ref(),
                 &caps,
+                &prompt_config,
                 &child_write_tx,
                 &mut child_outbound_rx,
                 had_prior_era,
@@ -248,6 +285,7 @@ async fn run_socket_era(
     ws_url: &str,
     observer: Option<&AcpFrameObserver>,
     caps: &Arc<PodCapabilities>,
+    prompt_config: &PromptConfig,
     child_write_tx: &mpsc::Sender<String>,
     child_outbound_rx: &mut mpsc::Receiver<String>,
     had_prior_era: bool,
@@ -263,7 +301,16 @@ async fn run_socket_era(
     if had_prior_era {
         while child_outbound_rx.try_recv().is_ok() {}
     }
-    match pump_socket(socket, observer, caps, child_write_tx, child_outbound_rx).await {
+    match pump_socket(
+        socket,
+        observer,
+        caps,
+        prompt_config,
+        child_write_tx,
+        child_outbound_rx,
+    )
+    .await
+    {
         Ok(()) | Err(EraError::Transient) => EraEnd::Transient,
         Err(EraError::Fatal(error)) => EraEnd::Fatal(error),
     }
@@ -273,6 +320,7 @@ async fn pump_socket(
     socket: Socket,
     observer: Option<&AcpFrameObserver>,
     caps: &Arc<PodCapabilities>,
+    prompt_config: &PromptConfig,
     child_write_tx: &mpsc::Sender<String>,
     child_outbound_rx: &mut mpsc::Receiver<String>,
 ) -> Result<(), EraError> {
@@ -312,6 +360,7 @@ async fn pump_socket(
         let child_write_tx = child_write_tx.clone();
         let observer = observer.cloned();
         let caps = Arc::clone(caps);
+        let prompt_config = prompt_config.clone();
         let ws_send_tx = ws_send_tx.clone();
         tokio::spawn(async move {
             while let Some(message) = ws_read.next().await {
@@ -320,12 +369,15 @@ async fn pump_socket(
                     Message::Text(text) => {
                         let text = text.to_string();
                         validate_stdio_text_frame(&text).map_err(EraError::Fatal)?;
+                        let text = prompt_config
+                            .inject_client_frame(&text)
+                            .map_err(EraError::Fatal)?;
                         // Pod capability termination: `initialize` capability
                         // rewrite + `session/new` cwd jail tracking. A
                         // re-initializing client on a later era is answered
                         // from the cached first-era child response; the child
                         // never sees a second `initialize`.
-                        match caps.handle_client_frame(&text).await {
+                        match caps.handle_client_frame(text.as_ref()).await {
                             ClientFrameAction::Forward(text) => {
                                 if let Some(observer) = &observer {
                                     observer
@@ -338,6 +390,30 @@ async fn pump_socket(
                                 })?;
                             }
                             ClientFrameAction::Respond(response) => {
+                                if let Some(observer) = &observer {
+                                    observer
+                                        .observe(Direction::AgentToClient, &response)
+                                        .await
+                                        .map_err(EraError::Fatal)?;
+                                }
+                                if ws_send_tx
+                                    .send(Message::Text(response.into()))
+                                    .await
+                                    .is_err()
+                                {
+                                    return Err(EraError::Transient);
+                                }
+                            }
+                            ClientFrameAction::ForwardAndRespond { forward, response } => {
+                                if let Some(observer) = &observer {
+                                    observer
+                                        .observe(Direction::ClientToAgent, &forward)
+                                        .await
+                                        .map_err(EraError::Fatal)?;
+                                }
+                                child_write_tx.send(forward).await.map_err(|_| {
+                                    EraError::Fatal(anyhow::anyhow!("ACP child writer closed"))
+                                })?;
                                 if let Some(observer) = &observer {
                                     observer
                                         .observe(Direction::AgentToClient, &response)

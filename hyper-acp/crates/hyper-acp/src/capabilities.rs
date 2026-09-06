@@ -130,6 +130,22 @@ pub enum ClientFrameAction<'a> {
     Forward(Cow<'a, str>),
     /// Answer the client directly; the frame is not child-bound.
     Respond(String),
+    /// Forward remaining batch entries and answer intercepted entries locally.
+    ForwardAndRespond {
+        /// Batch frame containing entries that still need to reach the child.
+        forward: String,
+        /// Batch response frame synthesized for intercepted entries.
+        response: String,
+    },
+}
+
+/// Agent→client frame disposition from [`PodCapabilities::handle_agent_frame`].
+#[derive(Debug)]
+pub enum AgentFrameAction<'a> {
+    /// Forward the frame to the client (possibly with pod-served batch entries removed).
+    Forward(Cow<'a, str>),
+    /// Drop the frame because all request entries were served by the pod.
+    Drop,
 }
 
 /// Pod-local ACP client-capability terminator shared by both transports.
@@ -206,6 +222,9 @@ impl PodCapabilities {
         let Ok(value) = serde_json::from_str::<Value>(text) else {
             return ClientFrameAction::Forward(Cow::Borrowed(text));
         };
+        if let Value::Array(values) = value {
+            return self.handle_client_batch(text, values).await;
+        }
         let Some(method) = value.get("method").and_then(Value::as_str) else {
             return ClientFrameAction::Forward(Cow::Borrowed(text));
         };
@@ -252,6 +271,105 @@ impl PodCapabilities {
         }
     }
 
+    async fn handle_client_batch<'a>(
+        &self,
+        text: &'a str,
+        values: Vec<Value>,
+    ) -> ClientFrameAction<'a> {
+        let mut forwarded = Vec::with_capacity(values.len());
+        let mut responses = Vec::new();
+        let mut changed = false;
+        let mut forwarded_requires_response = false;
+
+        for value in values {
+            let Some(method) = value.get("method").and_then(Value::as_str) else {
+                forwarded.push(value);
+                continue;
+            };
+            let requires_response = value.get("id").is_some();
+            match method {
+                "initialize" => {
+                    let Some((rewritten, advertised)) = rewrite_initialize(value.clone()) else {
+                        forwarded_requires_response |= requires_response;
+                        forwarded.push(value);
+                        continue;
+                    };
+                    let mut state = self.state.lock().await;
+                    state.advertised = Some(advertised);
+                    if let Some(replay) = &state.initialize_replay
+                        && let Some(id) = value.get("id")
+                        && let Ok(response) =
+                            serde_json::from_str::<Value>(&replay.response_for(id))
+                    {
+                        responses.push(response);
+                        changed = true;
+                        continue;
+                    }
+                    if let Some(id) = value.get("id").and_then(id_key) {
+                        state.pending_initialize_id = Some(id);
+                    }
+                    changed = true;
+                    forwarded_requires_response |= requires_response;
+                    forwarded.push(rewritten);
+                }
+                "session/new" => {
+                    self.track_session_new(&value).await;
+                    forwarded_requires_response |= requires_response;
+                    forwarded.push(value);
+                }
+                _ => {
+                    forwarded_requires_response |= requires_response;
+                    forwarded.push(value);
+                }
+            }
+        }
+
+        if !responses.is_empty() && forwarded_requires_response {
+            let Ok(forward) = serde_json::to_string(&forwarded) else {
+                return ClientFrameAction::Forward(Cow::Borrowed(text));
+            };
+            return ClientFrameAction::ForwardAndRespond {
+                forward,
+                response: Value::Array(responses).to_string(),
+            };
+        }
+
+        if !changed {
+            return ClientFrameAction::Forward(Cow::Borrowed(text));
+        }
+
+        match (forwarded.is_empty(), responses.is_empty()) {
+            (false, true) => serde_json::to_string(&forwarded)
+                .map_or(ClientFrameAction::Forward(Cow::Borrowed(text)), |frame| {
+                    ClientFrameAction::Forward(Cow::Owned(frame))
+                }),
+            (true, false) => ClientFrameAction::Respond(Value::Array(responses).to_string()),
+            (false, false) => {
+                let Ok(forward) = serde_json::to_string(&forwarded) else {
+                    return ClientFrameAction::Forward(Cow::Borrowed(text));
+                };
+                ClientFrameAction::ForwardAndRespond {
+                    forward,
+                    response: Value::Array(responses).to_string(),
+                }
+            }
+            (true, true) => ClientFrameAction::Forward(Cow::Borrowed(text)),
+        }
+    }
+
+    async fn track_session_new(&self, value: &Value) {
+        let id = value.get("id").and_then(id_key);
+        let cwd = value
+            .get("params")
+            .and_then(|params| params.get("cwd"))
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+        if let (Some(id), Some(cwd)) = (id, cwd) {
+            let cwd = std::fs::canonicalize(&cwd).unwrap_or(cwd);
+            self.state.lock().await.pending_sessions.insert(id, cwd);
+        }
+    }
+
     /// Child→client hook. Two duties:
     ///
     /// - Agent→client requests the pod serves (`fs/*`, optionally
@@ -264,16 +382,19 @@ impl PodCapabilities {
     ///   the agent-assigned session id for the per-session fs jail. These
     ///   frames always pass through upstream untouched.
     ///
-    /// Returns whether the frame was pod-served.
-    pub async fn handle_agent_frame(self: &Arc<Self>, text: &str) -> bool {
+    /// Returns whether to forward, rewrite, or drop the frame.
+    pub async fn handle_agent_frame<'a>(self: &Arc<Self>, text: &'a str) -> AgentFrameAction<'a> {
         if !text.contains("\"id\"") {
-            return false;
+            return AgentFrameAction::Forward(Cow::Borrowed(text));
         }
         let Ok(value) = serde_json::from_str::<Value>(text) else {
-            return false;
+            return AgentFrameAction::Forward(Cow::Borrowed(text));
         };
+        if let Value::Array(values) = value {
+            return self.handle_agent_batch(text, values).await;
+        }
         let Some(id) = value.get("id") else {
-            return false;
+            return AgentFrameAction::Forward(Cow::Borrowed(text));
         };
         let Some(method) = value.get("method").and_then(Value::as_str) else {
             // An agent response, not a request: cache a successful child
@@ -301,7 +422,7 @@ impl PodCapabilities {
                     state.jail_roots.insert(session_id.to_owned(), cwd);
                 }
             }
-            return false;
+            return AgentFrameAction::Forward(Cow::Borrowed(text));
         };
         let served = match method {
             "fs/read_text_file" | "fs/write_text_file" => true,
@@ -309,7 +430,7 @@ impl PodCapabilities {
             _ => false,
         };
         if !served {
-            return false;
+            return AgentFrameAction::Forward(Cow::Borrowed(text));
         }
         let params = value.get("params").cloned();
         let id = id.clone();
@@ -321,7 +442,7 @@ impl PodCapabilities {
             .and_then(mpsc::WeakSender::upgrade)
         else {
             tracing::debug!(method, "pod capability request served after child shutdown");
-            return true;
+            return AgentFrameAction::Drop;
         };
         tokio::spawn(async move {
             let response = caps.handle_request(&method, params).await.map_or_else(
@@ -341,7 +462,114 @@ impl PodCapabilities {
                 );
             }
         });
-        true
+        AgentFrameAction::Drop
+    }
+
+    async fn handle_agent_batch<'a>(
+        self: &Arc<Self>,
+        text: &'a str,
+        values: Vec<Value>,
+    ) -> AgentFrameAction<'a> {
+        let mut forwarded = Vec::with_capacity(values.len());
+        let mut served = Vec::new();
+
+        for value in values {
+            let Some(id) = value.get("id") else {
+                forwarded.push(value);
+                continue;
+            };
+            let Some(method) = value.get("method").and_then(Value::as_str) else {
+                let response_text = value.to_string();
+                self.observe_agent_response(id, &value, &response_text)
+                    .await;
+                forwarded.push(value);
+                continue;
+            };
+            let should_serve = match method {
+                "fs/read_text_file" | "fs/write_text_file" => true,
+                "session/request_permission" => self.auto_approve_permission,
+                _ => false,
+            };
+            if should_serve {
+                served.push((id.clone(), method.to_owned(), value.get("params").cloned()));
+            } else {
+                forwarded.push(value);
+            }
+        }
+
+        let served_empty = served.is_empty();
+        if served_empty {
+            return AgentFrameAction::Forward(Cow::Borrowed(text));
+        }
+
+        self.spawn_batch_responses(served);
+
+        if forwarded.is_empty() {
+            AgentFrameAction::Drop
+        } else {
+            serde_json::to_string(&forwarded)
+                .map_or(AgentFrameAction::Forward(Cow::Borrowed(text)), |frame| {
+                    AgentFrameAction::Forward(Cow::Owned(frame))
+                })
+        }
+    }
+
+    async fn observe_agent_response(&self, id: &Value, value: &Value, response_text: &str) {
+        if let Some(key) = id_key(id) {
+            let mut state = self.state.lock().await;
+            if state.pending_initialize_id.as_deref() == Some(key.as_str()) {
+                state.pending_initialize_id = None;
+                if value.get("result").is_some() {
+                    state.initialize_replay = Some(InitializeReplay {
+                        request_id: key.clone(),
+                        response_text: response_text.to_owned(),
+                    });
+                }
+            }
+            if let Some(cwd) = state.pending_sessions.remove(&key)
+                && let Some(session_id) = value
+                    .get("result")
+                    .and_then(|result| result.get("sessionId"))
+                    .and_then(Value::as_str)
+            {
+                state.jail_roots.insert(session_id.to_owned(), cwd);
+            }
+        }
+    }
+
+    fn spawn_batch_responses(self: &Arc<Self>, served: Vec<(Value, String, Option<Value>)>) {
+        let Some(child_write) = self
+            .child_write_tx
+            .as_ref()
+            .and_then(mpsc::WeakSender::upgrade)
+        else {
+            tracing::debug!("pod capability batch served after child shutdown");
+            return;
+        };
+        let caps = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut responses = Vec::with_capacity(served.len());
+            for (id, method, params) in served {
+                let response = caps.handle_request(&method, params).await.map_or_else(
+                    |(code, message)| {
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": code, "message": message },
+                        })
+                    },
+                    |result| json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+                );
+                responses.push(response);
+            }
+            if child_write
+                .send(Value::Array(responses).to_string())
+                .await
+                .is_err()
+            {
+                tracing::debug!("pod capability batch response dropped: child stdin closed");
+            }
+        });
     }
 
     async fn handle_request(
@@ -642,7 +870,10 @@ mod tests {
             "result": { "sessionId": session_id },
         })
         .to_string();
-        assert!(!caps.handle_agent_frame(&response).await);
+        assert!(matches!(
+            caps.handle_agent_frame(&response).await,
+            AgentFrameAction::Forward(_)
+        ));
     }
 
     #[test]
@@ -717,7 +948,10 @@ mod tests {
             },
         })
         .to_string();
-        assert!(!caps.handle_agent_frame(&response).await);
+        assert!(matches!(
+            caps.handle_agent_frame(&response).await,
+            AgentFrameAction::Forward(_)
+        ));
     }
 
     #[tokio::test]
@@ -765,6 +999,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn batched_initialize_rewrites_and_mixed_replay_is_not_split() {
+        let caps = Arc::new(PodCapabilities::new(PathBuf::from("/tmp"), false, None));
+        let first = json!([
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": { "protocolVersion": 1, "clientCapabilities": {} },
+            },
+            {"jsonrpc": "2.0", "id": 2, "method": "session/load", "params": {"sessionId": "s1"}}
+        ])
+        .to_string();
+
+        let ClientFrameAction::Forward(rewritten) = caps.handle_client_frame(&first).await else {
+            panic!("initial batch must forward");
+        };
+        let parsed: Value = rewritten.parse().unwrap();
+        assert_eq!(
+            parsed[0]["params"]["clientCapabilities"]["fs"]["readTextFile"],
+            json!(true)
+        );
+        assert_eq!(parsed[1]["method"], json!("session/load"));
+
+        let child_response = json!([
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": 1,
+                    "agentCapabilities": { "loadSession": true },
+                    "agentInfo": { "name": "fake-acp", "version": "0" },
+                },
+            },
+            {"jsonrpc": "2.0", "id": 2, "result": {"sessionId": "s1"}}
+        ])
+        .to_string();
+        assert!(matches!(
+            caps.handle_agent_frame(&child_response).await,
+            AgentFrameAction::Forward(_)
+        ));
+
+        let second = json!([
+            {
+                "jsonrpc": "2.0",
+                "id": "fresh-init",
+                "method": "initialize",
+                "params": { "protocolVersion": 1, "clientCapabilities": {} },
+            },
+            {"jsonrpc": "2.0", "id": 3, "method": "session/load", "params": {"sessionId": "s1"}}
+        ])
+        .to_string();
+        let ClientFrameAction::ForwardAndRespond { forward, response } =
+            caps.handle_client_frame(&second).await
+        else {
+            panic!("mixed replay/pass-through request batch must forward and respond");
+        };
+        let forwarded: Value = forward.parse().unwrap();
+        assert_eq!(forwarded.as_array().unwrap().len(), 1);
+        assert_eq!(forwarded[0]["id"], json!(3));
+        let parsed: Value = response.parse().unwrap();
+        let responses = parsed.as_array().unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0]["id"], json!("fresh-init"));
+        assert!(responses[0].get("result").is_some());
+    }
+
+    #[tokio::test]
+    async fn client_batch_with_only_observation_side_effects_preserves_raw_bytes() {
+        let temp = TestDir::new("client-observation-batch");
+        let caps = Arc::new(PodCapabilities::new(temp.0.clone(), false, None));
+        let frame = format!(
+            r#"[{{"jsonrpc":"2.0","id":7,"method":"session/new","params":{{"cwd":"{}"}}}},{{"jsonrpc":"2.0","method":"initialized"}}]"#,
+            temp.0.display()
+        );
+
+        let ClientFrameAction::Forward(forwarded) = caps.handle_client_frame(&frame).await else {
+            panic!("observation-only batch must forward");
+        };
+        assert!(matches!(forwarded, Cow::Borrowed(_)));
+        assert_eq!(forwarded.as_ref(), frame);
+        assert!(caps.state.lock().await.pending_sessions.contains_key("7"));
+    }
+
+    #[tokio::test]
+    async fn agent_batch_with_only_observation_side_effects_preserves_raw_bytes() {
+        let caps = Arc::new(PodCapabilities::new(PathBuf::from("/tmp"), false, None));
+        let initialize = initialize_frame(&json!(1));
+        assert!(matches!(
+            caps.handle_client_frame(&initialize).await,
+            ClientFrameAction::Forward(_)
+        ));
+        let frame = r#"[{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"agentInfo":{"name":"fake-acp","version":"0"},"agentCapabilities":{}}},{"jsonrpc":"2.0","id":2,"result":{"ok":true}}]"#;
+
+        let AgentFrameAction::Forward(forwarded) = caps.handle_agent_frame(frame).await else {
+            panic!("observation-only agent batch must forward");
+        };
+        assert!(matches!(forwarded, Cow::Borrowed(_)));
+        assert_eq!(forwarded.as_ref(), frame);
+        assert!(caps.state.lock().await.initialize_replay.is_some());
+    }
+
+    #[tokio::test]
     async fn reinitialize_forwards_until_the_first_response_is_cached() {
         let caps = Arc::new(PodCapabilities::new(PathBuf::from("/tmp"), false, None));
 
@@ -782,7 +1118,10 @@ mod tests {
 
         // An errored initialize is never cached.
         let error = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"boom"}}"#;
-        assert!(!caps.handle_agent_frame(error).await);
+        assert!(matches!(
+            caps.handle_agent_frame(error).await,
+            AgentFrameAction::Forward(_)
+        ));
         assert!(matches!(
             caps.handle_client_frame(&frame).await,
             ClientFrameAction::Forward(_)
@@ -929,7 +1268,10 @@ mod tests {
             "error": { "code": -32603, "message": "no" },
         })
         .to_string();
-        assert!(!caps.handle_agent_frame(&error_response).await);
+        assert!(matches!(
+            caps.handle_agent_frame(&error_response).await,
+            AgentFrameAction::Forward(_)
+        ));
         assert!(caps.state.lock().await.jail_roots.is_empty());
         assert!(caps.state.lock().await.pending_sessions.is_empty());
     }
@@ -991,7 +1333,10 @@ mod tests {
             "params": {"sessionId": "s1", "path": "x"},
         })
         .to_string();
-        assert!(caps.handle_agent_frame(&fs_request).await);
+        assert!(matches!(
+            caps.handle_agent_frame(&fs_request).await,
+            AgentFrameAction::Drop
+        ));
         for method in [
             "terminal/create",
             "terminal/new",
@@ -1009,7 +1354,10 @@ mod tests {
             })
             .to_string();
             assert!(
-                !caps.handle_agent_frame(&frame).await,
+                matches!(
+                    caps.handle_agent_frame(&frame).await,
+                    AgentFrameAction::Forward(_)
+                ),
                 "{method} must pass through upstream"
             );
         }
@@ -1021,8 +1369,89 @@ mod tests {
             "params": {"options": []},
         })
         .to_string();
-        assert!(!caps.handle_agent_frame(&permission).await);
+        assert!(matches!(
+            caps.handle_agent_frame(&permission).await,
+            AgentFrameAction::Forward(_)
+        ));
         let auto = Arc::new(PodCapabilities::new(temp.0.clone(), true, None));
-        assert!(auto.handle_agent_frame(&permission).await);
+        assert!(matches!(
+            auto.handle_agent_frame(&permission).await,
+            AgentFrameAction::Drop
+        ));
+    }
+
+    #[tokio::test]
+    async fn mixed_fs_and_pass_through_agent_batch_forwards_and_answers_locally() {
+        let temp = TestDir::new("batch-fs-read");
+        std::fs::write(temp.child("note.txt"), "one\ntwo\nthree").unwrap();
+        let (tx, mut rx) = mpsc::channel(1);
+        let caps = Arc::new(PodCapabilities::new(
+            temp.0.clone(),
+            false,
+            Some(tx.downgrade()),
+        ));
+        let frame = json!([
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "fs/read_text_file",
+                "params": {"path": "note.txt", "line": 2, "limit": 1},
+            },
+            {"jsonrpc": "2.0", "id": 2, "method": "terminal/output", "params": {}}
+        ])
+        .to_string();
+
+        let AgentFrameAction::Forward(forwarded) = caps.handle_agent_frame(&frame).await else {
+            panic!("mixed agent batch must forward pass-through entries");
+        };
+        let forwarded: Value = forwarded.parse().unwrap();
+        assert_eq!(forwarded.as_array().unwrap().len(), 1);
+        assert_eq!(forwarded[0]["id"], json!(2));
+        let response = rx.recv().await.unwrap();
+        let parsed: Value = response.parse().unwrap();
+        let responses = parsed.as_array().unwrap();
+        assert_eq!(responses.len(), 1);
+        assert_eq!(responses[0]["id"], json!(1));
+        assert_eq!(responses[0]["result"]["content"], json!("two"));
+    }
+
+    #[tokio::test]
+    async fn pure_batched_fs_read_text_file_returns_one_batch_response() {
+        let temp = TestDir::new("batch-fs-read-pure");
+        std::fs::write(temp.child("note.txt"), "one\ntwo\nthree").unwrap();
+        let (tx, mut rx) = mpsc::channel(1);
+        let caps = Arc::new(PodCapabilities::new(
+            temp.0.clone(),
+            false,
+            Some(tx.downgrade()),
+        ));
+        let frame = json!([
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "fs/read_text_file",
+                "params": {"path": "note.txt", "line": 2, "limit": 1},
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "fs/read_text_file",
+                "params": {"path": "note.txt", "line": 3, "limit": 1},
+            }
+        ])
+        .to_string();
+
+        assert!(matches!(
+            caps.handle_agent_frame(&frame).await,
+            AgentFrameAction::Drop
+        ));
+
+        let response = rx.recv().await.unwrap();
+        let response: Value = response.parse().unwrap();
+        assert_eq!(response.as_array().unwrap().len(), 2);
+        assert_eq!(response[0]["id"], json!(1));
+        assert_eq!(response[0]["result"]["content"], json!("two"));
+        assert_eq!(response[1]["id"], json!(2));
+        assert_eq!(response[1]["result"]["content"], json!("three"));
     }
 }

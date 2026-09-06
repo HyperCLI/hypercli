@@ -14,6 +14,7 @@
 
 pub mod capabilities;
 pub mod frame;
+pub mod prompt;
 pub mod transport;
 
 pub use agent_client_protocol_schema as schema;

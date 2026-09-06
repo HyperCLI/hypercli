@@ -316,6 +316,14 @@ async fn outbound_ws_forwards_raw_acp_frames_semantically() {
     ));
 
     assert_eq!(server.await.unwrap(), AGENT_FRAMES);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while read_jsonl(&child_input_path).len() < CLIENT_FRAMES.len() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "child did not receive all library /ws frames"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     assert_eq!(
         read_jsonl(&child_input_path)
             .iter()
@@ -325,6 +333,69 @@ async fn outbound_ws_forwards_raw_acp_frames_semantically() {
     );
     assert_observed_frames(&mut observed_frames);
     transport.abort();
+}
+
+#[tokio::test]
+async fn binary_outbound_ws_launch_forwards_raw_acp_frames_semantically() {
+    let temp = TestTemp::new("binary-outbound-ws");
+    let child_input_path = temp.path("child-input.jsonl");
+    let child_script = write_child_script(temp.path("agent-child.sh"), &child_input_path);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let ws_url = format!("ws://{}/ws", listener.local_addr().unwrap());
+
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut socket = accept_async(stream).await.unwrap();
+
+        for frame in CLIENT_FRAMES {
+            socket.send(Message::Text((*frame).into())).await.unwrap();
+        }
+
+        let mut received = Vec::new();
+        while received.len() < AGENT_FRAMES.len() {
+            let Some(message) = socket.next().await else {
+                panic!("missing agent frame");
+            };
+            match message.unwrap() {
+                Message::Text(text) => received.push(text.to_string()),
+                Message::Ping(payload) => socket.send(Message::Pong(payload)).await.unwrap(),
+                Message::Pong(_) => {}
+                other => panic!("unexpected websocket message {other:?}"),
+            }
+        }
+        socket.close(None).await.unwrap();
+        received
+    });
+
+    let mut host = Command::new(env!("CARGO_BIN_EXE_hyper-acp"));
+    host.arg("--ws-url")
+        .arg(&ws_url)
+        .arg("--agent-command")
+        .arg("sh")
+        .arg("--agent-arg")
+        .arg(&child_script)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = host.spawn().unwrap();
+    assert_eq!(server.await.unwrap(), AGENT_FRAMES);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while read_jsonl(&child_input_path).len() < CLIENT_FRAMES.len() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "child did not receive all binary /ws frames"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        read_jsonl(&child_input_path)
+            .iter()
+            .map(|line| parse_json(line))
+            .collect::<Vec<_>>(),
+        expected_client_frames(),
+    );
+    child.kill().await.unwrap();
 }
 
 #[tokio::test]
@@ -368,6 +439,52 @@ async fn binary_local_stdio_launch_forwards_raw_acp_frames_semantically() {
             .collect::<Vec<_>>(),
         expected_client_frames(),
     );
+}
+
+#[tokio::test]
+async fn binary_local_stdio_rejects_invalid_child_frame_even_if_child_exits() {
+    let mut host = Command::new(env!("CARGO_BIN_EXE_hyper-acp"));
+    host.arg("--agent-command")
+        .arg("printf")
+        .arg("--agent-arg")
+        .arg("not-json\n")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = host.spawn().unwrap();
+    drop(child.stdin.take());
+    let output = child.wait_with_output().await.unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ACP frame"), "stderr was: {stderr}");
+}
+
+#[tokio::test]
+async fn binary_local_stdio_rejects_invalid_client_frame_without_waiting_for_child_exit() {
+    let mut host = Command::new(env!("CARGO_BIN_EXE_hyper-acp"));
+    host.arg("--agent-command")
+        .arg("sleep")
+        .arg("--agent-arg")
+        .arg("10")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = host.spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"not json\n").await.unwrap();
+    drop(stdin);
+
+    let output = tokio::time::timeout(std::time::Duration::from_secs(2), child.wait_with_output())
+        .await
+        .expect("hyper-acp should fail before the child exits")
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ACP frame"), "stderr was: {stderr}");
 }
 
 #[tokio::test]
@@ -500,6 +617,15 @@ fn rewritten_initialize_frame(frame: &str) -> Value {
     value
 }
 
+fn rewritten_session_new_frame(frame: &str) -> Value {
+    let mut value = parse_json(frame);
+    value["params"]["systemPrompt"] = json!(format!(
+        "<base>\n{}\n</base>",
+        include_str!("../src/base_prompt.md").trim()
+    ));
+    value
+}
+
 fn expected_client_frames() -> Vec<Value> {
     CLIENT_FRAMES
         .iter()
@@ -507,6 +633,8 @@ fn expected_client_frames() -> Vec<Value> {
             let value = parse_json(frame);
             if value["method"].as_str() == Some("initialize") {
                 rewritten_initialize_frame(frame)
+            } else if value["method"].as_str() == Some("session/new") {
+                rewritten_session_new_frame(frame)
             } else {
                 value
             }

@@ -76,10 +76,16 @@ async fn run_host() -> Result<()> {
 
     let args = Args::parse();
     let child = child_command(&args)?;
+    let prompt_config = hyper_acp::prompt::PromptConfig::from_env()?;
     if let Some(ws_url) = args.ws_url {
-        Box::pin(hyper_acp::transport::outbound_ws::run(ws_url, child)).await
+        Box::pin(hyper_acp::transport::outbound_ws::run_with_prompt(
+            ws_url,
+            child,
+            prompt_config,
+        ))
+        .await
     } else {
-        hyper_acp::transport::stdio::run(child).await
+        hyper_acp::transport::stdio::run_with_prompt(child, prompt_config).await
     }
 }
 
