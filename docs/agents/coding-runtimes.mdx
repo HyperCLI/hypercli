@@ -117,11 +117,10 @@ restore with that policy cannot currently prove a selected source and fails.
 ## Container families
 
 Coding-agent helpers select the supported public image for the requested
-runtime. Buzz-managed launches use
-`ghcr.io/hypercli/hypercli-buzz-<runtime>:latest` and run the runtime behind
-`/usr/local/bin/hyper-acp`; Claude's Buzz image is named
-`hypercli-buzz-claude`. Buzz Agent already uses `hypercli-buzz-agent:latest`.
-An explicit immutable `image` override still wins.
+runtime. Buzz-managed launches use the same runtime images and select Buzz mode
+with `/usr/local/bin/hyper-acp plugin buzz` plus `BUZZ_ACP_*` environment. Only
+native Buzz Agent uses `hypercli-buzz-agent:latest`. An explicit immutable
+`image` override still wins.
 
 The coding runtimes have no OpenClaw gateway and no public route by default.
 Use authenticated deployment lifecycle, files, exec, shell, and runtime-auth

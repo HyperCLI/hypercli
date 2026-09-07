@@ -68,15 +68,15 @@ _STALE_OPENCLAW_IMAGES = frozenset(
 DEFAULT_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes-agent:latest"
 DEFAULT_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-opencode:latest"
 DEFAULT_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-codex:latest"
-DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude-code:latest"
+DEFAULT_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-claude:latest"
 DEFAULT_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-goose:latest"
 DEFAULT_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-kimi-code:latest"
 DEFAULT_BUZZ_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-buzz-agent:latest"
-DEFAULT_BUZZ_OPENCODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-opencode:latest"
-DEFAULT_BUZZ_CODEX_IMAGE = "ghcr.io/hypercli/hypercli-buzz-codex:latest"
-DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-claude:latest"
-DEFAULT_BUZZ_GOOSE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-goose:latest"
-DEFAULT_BUZZ_KIMI_CODE_IMAGE = "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest"
+DEFAULT_BUZZ_OPENCODE_IMAGE = DEFAULT_OPENCODE_IMAGE
+DEFAULT_BUZZ_CODEX_IMAGE = DEFAULT_CODEX_IMAGE
+DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = DEFAULT_CLAUDE_CODE_IMAGE
+DEFAULT_BUZZ_GOOSE_IMAGE = DEFAULT_GOOSE_IMAGE
+DEFAULT_BUZZ_KIMI_CODE_IMAGE = DEFAULT_KIMI_CODE_IMAGE
 
 
 def _new_application_secret() -> str:
@@ -3953,11 +3953,7 @@ class Deployments:
             ),
             entrypoint=entrypoint,
             image=image
-            or (
-                DEFAULT_BUZZ_CODING_AGENT_IMAGES[runtime]
-                if buzz_launch
-                else DEFAULT_CODING_AGENT_IMAGES[runtime]
-            ),
+            or DEFAULT_CODING_AGENT_IMAGES[runtime],
             sync_root=sync_root if sync_root is not None else DEFAULT_CODING_AGENT_SYNC_ROOT,
             sync_include=effective_sync_include,
             sync_exclude=effective_sync_exclude,

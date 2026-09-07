@@ -127,7 +127,7 @@ impl CodingRuntime {
     fn default_image(self) -> &'static str {
         self.managed()
             .default_buzz_image()
-            .expect("every coding runtime has a managed Buzz image")
+            .expect("every coding runtime has a managed image")
     }
 
     fn harness_command(self) -> &'static str {
@@ -1654,7 +1654,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_catalog_uses_distinct_buzz_images() {
+    fn runtime_catalog_uses_managed_runtime_images() {
         for (runtime, managed) in [
             (CodingRuntime::BuzzAgent, ManagedRuntime::BuzzAgent),
             (CodingRuntime::Opencode, ManagedRuntime::Opencode),
@@ -2890,7 +2890,7 @@ mod tests {
             .mock("POST", "/agents/deployments/existing/start")
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{
-                    "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
+                    "image": "ghcr.io/hypercli/hypercli-opencode:latest",
                     "restart": false,
                     "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
                     "sync_root": "/home/node",

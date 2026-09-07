@@ -173,7 +173,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
                 "handle": handle,
                 "name": format!("fixture-agent-{}", &TEST_PUBLIC_HEX[..8]),
                 "runtime": "goose",
-                "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
+                "image": "ghcr.io/hypercli/hypercli-goose:latest",
                 "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
                 "restart": false,
                 "runtime_scopes": [

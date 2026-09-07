@@ -374,7 +374,7 @@ The SDK has typed launch helpers for six non-OpenClaw runtimes:
 | `buzz-agent` | `create_buzz_agent()` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
 | `opencode` | `create_opencode()` | `ghcr.io/hypercli/hypercli-opencode:latest` |
 | `codex` | `create_codex()` | `ghcr.io/hypercli/hypercli-codex:latest` |
-| `claude-code` | `create_claude_code()` | `ghcr.io/hypercli/hypercli-claude-code:latest` |
+| `claude-code` | `create_claude_code()` | `ghcr.io/hypercli/hypercli-claude:latest` |
 | `goose` | `create_goose()` | `ghcr.io/hypercli/hypercli-goose:latest` |
 | `kimi-code` | `create_kimi_code()` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
 
@@ -440,16 +440,15 @@ A typed Buzz launch:
   `restart=False`;
 - clears public routes and selects `/usr/local/bin/hyper-acp`;
 - derives the selected runtime's ACP child command and Buzz MCP command;
-- selects the matching `ghcr.io/hypercli/hypercli-buzz-<runtime>:latest`
-  image, with Claude using `hypercli-buzz-claude`;
+- selects the normal coding runtime image; only native Buzz Agent uses
+  `hypercli-buzz-agent`;
 - keeps `sync_root=/home/node` and reserves `/home/node/shared` for
   Workspace projections;
 - runs from the image-managed `/home/node/.buzz` nest.
 
-The nest is reconciled after the persistent home mount. OpenCode and Codex
-consume its canonical `AGENTS.md`, while Claude Code receives
-`CLAUDE.md -> AGENTS.md`. `base_prompt.md` remains compiled into the Buzz ACP
-plugin.
+The nest is reconciled after the persistent home mount, but prompt delivery
+stays in the ACP session path. `base_prompt.md` remains compiled into the Buzz
+ACP plugin.
 An explicit `image=` overrides the default. `buzz_enabled=True` is the
 deprecated raw-environment compatibility path and cannot be combined with a
 typed `buzz` value or explicit `command`.

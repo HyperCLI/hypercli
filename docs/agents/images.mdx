@@ -16,15 +16,16 @@ instead of hand-pinning an image.
 | OpenClaw Pro | `openclaw-pro` | `ghcr.io/hypercli/hypercli-openclaw:pro-prod` |
 | Hermes Agent | `hermes-agent` | `ghcr.io/hypercli/hypercli-hermes-agent:latest` |
 | Buzz Agent | `buzz-agent` | `ghcr.io/hypercli/hypercli-buzz-agent:latest` |
-| OpenCode | `opencode` | `ghcr.io/hypercli/hypercli-buzz-opencode:latest` |
-| Goose | `goose` | `ghcr.io/hypercli/hypercli-buzz-goose:latest` |
-| Codex | `codex` | `ghcr.io/hypercli/hypercli-buzz-codex:latest` |
-| Claude Code | `claude-code` | `ghcr.io/hypercli/hypercli-buzz-claude:latest` |
-| Kimi Code | `kimi-code` | `ghcr.io/hypercli/hypercli-buzz-kimi-code:latest` |
+| OpenCode | `opencode` | `ghcr.io/hypercli/hypercli-opencode:latest` |
+| Goose | `goose` | `ghcr.io/hypercli/hypercli-goose:latest` |
+| Codex | `codex` | `ghcr.io/hypercli/hypercli-codex:latest` |
+| Claude Code | `claude-code` | `ghcr.io/hypercli/hypercli-claude:latest` |
+| Kimi Code | `kimi-code` | `ghcr.io/hypercli/hypercli-kimi-code:latest` |
 
 OpenClaw is the gateway runtime. OpenClaw Pro layers desktop support on top of
-the promoted OpenClaw runtime. Hermes exposes an HTTP/SSE API Server. The Buzz
-images run coding-agent ACP runtimes behind the hosted Buzz adapter.
+the promoted OpenClaw runtime. Hermes exposes an HTTP/SSE API Server. Coding
+runtimes use vanilla `hyper-acp`; Buzz launches select `hyper-acp plugin buzz`
+with Buzz-specific environment.
 
 Base and internal images, including `hypercli-buzz-base`, registry-local
 `:latest` images, and CI smoke images, are implementation details. They are not

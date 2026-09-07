@@ -180,22 +180,18 @@ non-JSON child output is skipped, and `agent_message_chunk` is activity
 telemetry rather than a channel publication. There is no plaintext fallback. A
 visible response requires the agent to invoke the Buzz send command/tool.
 
-The provider owns the default hosted image catalog because every provider
-deployment is a Buzz launch. Its defaults are the dedicated `hypercli-buzz-agent`,
-`hypercli-buzz-opencode`, `hypercli-buzz-codex`, `hypercli-buzz-claude`,
-`hypercli-buzz-goose`, and `hypercli-buzz-kimi-code` families. The reusable
-Rust SDK deliberately has no image catalog; it renders launch behavior onto a
-caller-supplied deployment request, leaving image policy to the provider or
-application.
+The provider launches Buzz mode with `hyper-acp plugin buzz` and `BUZZ_ACP_*`
+environment on the normal coding runtime images. Only the native Buzz Agent
+uses the dedicated `hypercli-buzz-agent` image. The reusable Rust SDK renders
+launch behavior onto a caller-supplied deployment request.
 
 The provider keeps `sync_root=/home/node` for persistence and Files API access.
 It defaults `HYPER_WORKSPACES_DIR` to `/home/node/shared` for HyperCLI
 Workspace projections and preserves an explicit caller environment value. The
-Buzz-specialized image entrypoint reconciles the standard nest after mount and
-runs the harness from `/home/node/.buzz`; OpenCode and Codex use its canonical
-`AGENTS.md`, and Claude Code creates `CLAUDE.md -> AGENTS.md`.
+coding image entrypoint reconciles the standard nest after mount and runs the
+harness from `/home/node/.buzz`. Prompt delivery stays in the ACP session path;
 `base_prompt.md` remains compiled into the Buzz-compatible path inside
-`hyper-acp`.
+`hyper-acp plugin buzz`.
 
 Interactive Codex and Claude login is not part of the one-shot provider
 protocol. Hosted OpenCode can infer through its injected provider configuration

@@ -119,15 +119,15 @@ const STALE_OPENCLAW_IMAGES = new Set([
 export const DEFAULT_HERMES_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-hermes-agent:latest';
 export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
 export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
-export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude-code:latest';
+export const DEFAULT_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-claude:latest';
 export const DEFAULT_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-goose:latest';
 export const DEFAULT_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-kimi-code:latest';
 export const DEFAULT_BUZZ_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-agent:latest';
-export const DEFAULT_BUZZ_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-opencode:latest';
-export const DEFAULT_BUZZ_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-codex:latest';
-export const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-claude:latest';
-export const DEFAULT_BUZZ_GOOSE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-goose:latest';
-export const DEFAULT_BUZZ_KIMI_CODE_IMAGE = 'ghcr.io/hypercli/hypercli-buzz-kimi-code:latest';
+export const DEFAULT_BUZZ_OPENCODE_IMAGE = DEFAULT_OPENCODE_IMAGE;
+export const DEFAULT_BUZZ_CODEX_IMAGE = DEFAULT_CODEX_IMAGE;
+export const DEFAULT_BUZZ_CLAUDE_CODE_IMAGE = DEFAULT_CLAUDE_CODE_IMAGE;
+export const DEFAULT_BUZZ_GOOSE_IMAGE = DEFAULT_GOOSE_IMAGE;
+export const DEFAULT_BUZZ_KIMI_CODE_IMAGE = DEFAULT_KIMI_CODE_IMAGE;
 export const DEFAULT_AGENT_RUNTIME_SCOPES = Object.freeze([
   'agents:none',
   'files:*',
@@ -4984,11 +4984,7 @@ export class Deployments {
     if (buzzLaunch) {
       effectiveEnv.RUST_LOG ??= DEFAULT_BUZZ_RUST_LOG;
     }
-    const resolvedImage = options.image ?? (
-      buzzLaunch
-        ? DEFAULT_BUZZ_CODING_AGENT_IMAGES[runtime]
-        : DEFAULT_CODING_AGENT_IMAGES[runtime]
-    );
+    const resolvedImage = options.image ?? DEFAULT_CODING_AGENT_IMAGES[runtime];
     if (buzzLaunch) {
       for (const key of [
         'HYPER_ACP_WS_LISTEN',

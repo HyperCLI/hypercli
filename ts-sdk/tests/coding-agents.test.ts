@@ -82,10 +82,7 @@ describe('coding agents', () => {
       goose: DEFAULT_BUZZ_GOOSE_IMAGE,
       'kimi-code': DEFAULT_BUZZ_KIMI_CODE_IMAGE,
     });
-    expect(new Set([
-      ...Object.values(DEFAULT_CODING_AGENT_IMAGES),
-      ...Object.values(DEFAULT_BUZZ_CODING_AGENT_IMAGES),
-    ]).size).toBe(11);
+    expect(DEFAULT_BUZZ_CODING_AGENT_IMAGES).toEqual(DEFAULT_CODING_AGENT_IMAGES);
   });
 
   it.each([
@@ -254,7 +251,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
-      image: DEFAULT_BUZZ_CODEX_IMAGE,
+      image: DEFAULT_CODEX_IMAGE,
       command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
       restart: false,
       env: {
@@ -278,7 +275,7 @@ describe('coding agents', () => {
     ['createClaudeCode', 'claude-code', DEFAULT_BUZZ_CLAUDE_CODE_IMAGE],
     ['createGoose', 'goose', DEFAULT_BUZZ_GOOSE_IMAGE],
     ['createKimiCode', 'kimi-code', DEFAULT_BUZZ_KIMI_CODE_IMAGE],
-  ] as const)('uses the specialized Buzz image for %s', async (helper, runtime, image) => {
+  ] as const)('uses the runtime default image for Buzz launch %s', async (helper, runtime, image) => {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
       { post } as unknown as HTTPClient,
@@ -409,7 +406,7 @@ describe('coding agents', () => {
 
     expect(post.mock.calls[0][1]).toMatchObject({
       size: 'large',
-      image: DEFAULT_BUZZ_OPENCODE_IMAGE,
+      image: DEFAULT_OPENCODE_IMAGE,
       routes: {},
       command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
       restart: false,

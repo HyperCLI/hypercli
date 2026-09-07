@@ -234,16 +234,15 @@ Default runtime mapping:
 | Runtime | Image | ACP child |
 | --- | --- | --- |
 | Buzz Agent | `ghcr.io/hypercli/hypercli-buzz-agent:latest` | `buzz-agent` |
-| OpenCode | `ghcr.io/hypercli/hypercli-buzz-opencode:latest` | `opencode acp` |
-| Codex | `ghcr.io/hypercli/hypercli-buzz-codex:latest` | `codex-acp` |
-| Claude Code | `ghcr.io/hypercli/hypercli-buzz-claude:latest` | `claude-agent-acp` |
-| Goose | `ghcr.io/hypercli/hypercli-buzz-goose:latest` | `goose acp` |
-| Kimi Code | `ghcr.io/hypercli/hypercli-buzz-kimi-code:latest` | `kimi acp` |
+| OpenCode | `ghcr.io/hypercli/hypercli-opencode:latest` | `opencode acp` |
+| Codex | `ghcr.io/hypercli/hypercli-codex:latest` | `codex-acp` |
+| Claude Code | `ghcr.io/hypercli/hypercli-claude:latest` | `claude-agent-acp` |
+| Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `goose acp` |
+| Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `kimi acp` |
 
-These Buzz-specific images contain the hosted Buzz harness. Direct,
-non-Buzz SDK launches keep using the generic `hypercli-opencode`,
-`hypercli-codex`, `hypercli-claude-code`, `hypercli-goose`, and
-`hypercli-kimi-code` image families.
+Buzz mode is selected by launching `hyper-acp plugin buzz` with `BUZZ_ACP_*`
+environment. Direct, non-Buzz SDK launches use the same non-Buzz runtime images
+through vanilla `hyper-acp` and `HYPER_ACP_*` environment.
 
 #### Filesystem and instruction layout
 
@@ -258,12 +257,9 @@ The persistence and workspace roots are intentionally different:
 
 Because the persistent `/home/node` mount hides files baked directly into the
 image's home directory, the image entrypoint reconciles the nest after mount.
-It creates the standard Buzz directories and skill links and seeds a canonical
-`AGENTS.md` only when that file is missing, preserving restored user content.
-OpenCode and Codex consume `AGENTS.md` directly. The Claude image additionally
-creates `CLAUDE.md -> AGENTS.md`, keeping one canonical instruction source.
-`base_prompt.md` remains compiled into `buzz-acp`; it is not copied into the
-image or nest.
+It creates the standard Buzz directories and skill links without materializing a
+prompt Markdown file into the workspace. Prompt delivery stays in the ACP
+session path; `base_prompt.md` remains compiled into `hyper-acp plugin buzz`.
 
 The provider owns the identity, relay, ACP command, response policy, and timeout
 environment. It validates stock Buzz's `turn_timeout_seconds`,

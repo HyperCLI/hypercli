@@ -42,7 +42,7 @@
         ".local/state/opencode",
         ".cache/opencode"
       ],
-      "image": "ghcr.io/hypercli/hypercli-buzz-opencode:latest",
+      "image": "ghcr.io/hypercli/hypercli-opencode:latest",
       "stock_agent_command": "opencode",
       "agent_command": "/usr/local/bin/opencode",
       "agent_args": "acp",
@@ -52,7 +52,7 @@
     },
     "codex": {
       "sync_include": [".codex"],
-      "image": "ghcr.io/hypercli/hypercli-buzz-codex:latest",
+      "image": "ghcr.io/hypercli/hypercli-codex:latest",
       "stock_agent_command": "codex-acp",
       "agent_command": "/usr/local/bin/codex-acp",
       "agent_args": "",
@@ -62,7 +62,7 @@
     },
     "claude-code": {
       "sync_include": [".claude", ".claude.json"],
-      "image": "ghcr.io/hypercli/hypercli-buzz-claude:latest",
+      "image": "ghcr.io/hypercli/hypercli-claude:latest",
       "stock_agent_command": "claude-agent-acp",
       "agent_command": "/usr/local/bin/claude-agent-acp",
       "agent_args": "",
@@ -72,7 +72,7 @@
     },
     "goose": {
       "sync_include": [".goose"],
-      "image": "ghcr.io/hypercli/hypercli-buzz-goose:latest",
+      "image": "ghcr.io/hypercli/hypercli-goose:latest",
       "stock_agent_command": "goose",
       "agent_command": "/usr/local/bin/goose",
       "agent_args": "acp",
@@ -82,7 +82,7 @@
     },
     "kimi-code": {
       "sync_include": [".kimi-code"],
-      "image": "ghcr.io/hypercli/hypercli-buzz-kimi-code:latest",
+      "image": "ghcr.io/hypercli/hypercli-kimi-code:latest",
       "stock_agent_command": "kimi",
       "agent_command": "/usr/local/bin/kimi",
       "agent_args": "acp",

@@ -99,9 +99,7 @@ def test_generic_and_buzz_image_catalogs_are_explicit():
         "goose": DEFAULT_BUZZ_GOOSE_IMAGE,
         "kimi-code": DEFAULT_BUZZ_KIMI_CODE_IMAGE,
     }
-    assert set(DEFAULT_CODING_AGENT_IMAGES.values()) & set(
-        DEFAULT_BUZZ_CODING_AGENT_IMAGES.values()
-    ) == {DEFAULT_BUZZ_AGENT_IMAGE}
+    assert DEFAULT_BUZZ_CODING_AGENT_IMAGES == DEFAULT_CODING_AGENT_IMAGES
 
 
 def _agent_payload(runtime: str) -> dict:
@@ -305,7 +303,7 @@ def test_coding_agent_include_takes_precedence():
         ("create_kimi_code", "kimi-code", DEFAULT_BUZZ_KIMI_CODE_IMAGE),
     ],
 )
-def test_buzz_coding_agent_uses_specialized_default_image(
+def test_buzz_coding_agent_uses_runtime_default_image(
     method_name,
     runtime,
     buzz_image,
@@ -320,7 +318,7 @@ def test_buzz_coding_agent_uses_specialized_default_image(
     deployments._post = fake_post
     getattr(deployments, method_name)(buzz_enabled=True)
 
-    assert posted["image"] == buzz_image
+    assert posted["image"] == DEFAULT_CODING_AGENT_IMAGES[runtime]
     assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
 
 
@@ -439,7 +437,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
     assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
-    assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
+    assert posted["image"] == DEFAULT_OPENCODE_IMAGE
     assert posted["restart"] is False
     assert "entrypoint" not in posted
     assert "BUZZ_PRIVATE_KEY" not in posted["env"]
@@ -495,7 +493,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     )
 
     assert posted["size"] == "large"
-    assert posted["image"] == DEFAULT_BUZZ_OPENCODE_IMAGE
+    assert posted["image"] == DEFAULT_OPENCODE_IMAGE
     assert posted["routes"] == {}
     assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
     assert posted["restart"] is False

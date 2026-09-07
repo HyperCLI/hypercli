@@ -21,19 +21,15 @@ pub enum ManagedRuntime {
 }
 
 impl ManagedRuntime {
-    /// Container image owned by HyperCLI for a hosted Buzz coding runtime.
-    ///
-    /// Keeping this beside the shared launch contract prevents direct SDK
-    /// callers and Buzz backend providers from silently choosing different
-    /// images for the same runtime.
+    /// Container image owned by HyperCLI for a hosted coding runtime.
     pub const fn default_buzz_image(self) -> Option<&'static str> {
         match self {
             Self::BuzzAgent => Some("ghcr.io/hypercli/hypercli-buzz-agent:latest"),
-            Self::Opencode => Some("ghcr.io/hypercli/hypercli-buzz-opencode:latest"),
-            Self::Codex => Some("ghcr.io/hypercli/hypercli-buzz-codex:latest"),
-            Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-buzz-claude:latest"),
-            Self::Goose => Some("ghcr.io/hypercli/hypercli-buzz-goose:latest"),
-            Self::KimiCode => Some("ghcr.io/hypercli/hypercli-buzz-kimi-code:latest"),
+            Self::Opencode => Some("ghcr.io/hypercli/hypercli-opencode:latest"),
+            Self::Codex => Some("ghcr.io/hypercli/hypercli-codex:latest"),
+            Self::ClaudeCode => Some("ghcr.io/hypercli/hypercli-claude:latest"),
+            Self::Goose => Some("ghcr.io/hypercli/hypercli-goose:latest"),
+            Self::KimiCode => Some("ghcr.io/hypercli/hypercli-kimi-code:latest"),
             Self::Generic | Self::Openclaw | Self::OpenclawPro | Self::HermesAgent => None,
         }
     }
