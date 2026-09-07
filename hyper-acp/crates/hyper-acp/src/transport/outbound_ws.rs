@@ -98,7 +98,13 @@ pub async fn run_with_observer(
     command: Command,
     observer: Option<AcpFrameObserver>,
 ) -> Result<()> {
-    run_with_prompt_and_observer(ws_url, command, PromptConfig::from_env()?, observer).await
+    Box::pin(run_with_prompt_and_observer(
+        ws_url,
+        command,
+        PromptConfig::from_env()?,
+        observer,
+    ))
+    .await
 }
 
 /// Run an ACP child over outbound `/ws` with prompt injection and an optional frame observer.
@@ -198,14 +204,16 @@ pub async fn run_with_prompt_and_observer(
                 break Ok(());
             }
             ended = run_socket_era(
-                &ws_url,
-                observer.as_ref(),
-                &caps,
-                &prompt_config,
-                &child_write_tx,
+                SocketEraContext {
+                    ws_url: &ws_url,
+                    observer: observer.as_ref(),
+                    caps: &caps,
+                    prompt_config: &prompt_config,
+                    child_write_tx: &child_write_tx,
+                    had_prior_era,
+                    preconnected: preconnected.take(),
+                },
                 &mut child_outbound_rx,
-                had_prior_era,
-                preconnected.take(),
             ) => ended,
             result = &mut child_writer => {
                 result??;
@@ -281,32 +289,36 @@ enum EraError {
 /// while the socket was down are dropped: ACP v1 has no replay, and the
 /// reconnecting client re-enters with `initialize`/`session/load`, which must
 /// not see dead-era frames.
-async fn run_socket_era(
-    ws_url: &str,
-    observer: Option<&AcpFrameObserver>,
-    caps: &Arc<PodCapabilities>,
-    prompt_config: &PromptConfig,
-    child_write_tx: &mpsc::Sender<String>,
-    child_outbound_rx: &mut mpsc::Receiver<String>,
+struct SocketEraContext<'a> {
+    ws_url: &'a str,
+    observer: Option<&'a AcpFrameObserver>,
+    caps: &'a Arc<PodCapabilities>,
+    prompt_config: &'a PromptConfig,
+    child_write_tx: &'a mpsc::Sender<String>,
     had_prior_era: bool,
     preconnected: Option<Socket>,
+}
+
+async fn run_socket_era(
+    context: SocketEraContext<'_>,
+    child_outbound_rx: &mut mpsc::Receiver<String>,
 ) -> EraEnd {
-    let socket = match preconnected {
+    let socket = match context.preconnected {
         Some(socket) => socket,
-        None => match connect_socket(ws_url).await {
+        None => match connect_socket(context.ws_url).await {
             Ok(socket) => socket,
             Err(_) => return EraEnd::Transient,
         },
     };
-    if had_prior_era {
+    if context.had_prior_era {
         while child_outbound_rx.try_recv().is_ok() {}
     }
     match pump_socket(
         socket,
-        observer,
-        caps,
-        prompt_config,
-        child_write_tx,
+        context.observer,
+        context.caps,
+        context.prompt_config,
+        context.child_write_tx,
         child_outbound_rx,
     )
     .await
