@@ -1,69 +1,285 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "./markdown.css";
 
-/* HyperCLI Aurora tokens (see ~/dev/hypercli-styles/STYLE.md), light + dark. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  color-scheme: light;
-  --bg: #ffffff;
-  --surface: #f7f9fc;
-  --raised: #eef2f7;
-  --ink: #1f2937;
-  --ink-secondary: #64748b;
-  --ink-dim: #94a3b8;
-  --rule: #eef2f7;
-  --rule-strong: #e2e8f0;
-  --brand: #4f7cff;
-  --brand-hover: #3d68e6;
-  --accent: #3d68e6;
-  --success: #0ea57a;
-  --warning: #b45309;
-  --danger: #dc2626;
+  --background: #fbfaf7;
+  --surface: #f7f6f3;
+  --card: #ffffff;
+  --border: #ebe9e4;
+  --border-strong: #e2dfd8;
+  --foreground: #262522;
+  --text-secondary: #918d84;
+  --accent: #5560d7;
+  --accent-tint: #eeedfb;
+  --success: #2fa56a;
+  --warning: #9a6b0a;
+  --warning-bg: #fbf3dc;
+  --error: #b44436;
+  --error-bg: #fbe9e7;
+  --active-row: #efede9;
+  --you-avatar: #9b978e;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --bg: #10151f;
-    --surface: #1a2230;
-    --raised: #1b2331;
-    --ink: #e8edf4;
-    --ink-secondary: #b9c4d6;
-    --ink-dim: #7c8ba1;
-    --rule: rgba(255, 255, 255, 0.08);
-    --rule-strong: rgba(255, 255, 255, 0.15);
-    --brand: #4f7cff;
-    --brand-hover: #5d87ff;
-    --accent: #9db4ff;
-    --success: #6ce8c4;
-    --warning: #ffd76a;
-    --danger: #f87171;
-  }
+.dark {
+  --background: #0f0f11;
+  --surface: #16171a;
+  --card: #1c1d20;
+  --border: #26262a;
+  --border-strong: #2e2e33;
+  --foreground: #ececec;
+  --text-secondary: #9a9a9a;
+  --accent: #6e76f5;
+  --accent-tint: #23253d;
+  --success: #34c07a;
+  --warning: #d9a03f;
+  --warning-bg: #2e2617;
+  --error: #e0705f;
+  --error-bg: #331d1a;
+  --active-row: #232326;
+  --you-avatar: #6e6e74;
 }
 
 @theme inline {
-  --color-bg: var(--bg);
+  --color-background: var(--background);
   --color-surface: var(--surface);
-  --color-raised: var(--raised);
-  --color-ink: var(--ink);
-  --color-ink-secondary: var(--ink-secondary);
-  --color-ink-dim: var(--ink-dim);
-  --color-rule: var(--rule);
-  --color-rule-strong: var(--rule-strong);
-  --color-brand: var(--brand);
-  --color-brand-hover: var(--brand-hover);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-text-secondary: var(--text-secondary);
   --color-accent: var(--accent);
+  --color-accent-tint: var(--accent-tint);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --color-danger: var(--danger);
+  --color-warning-bg: var(--warning-bg);
+  --color-error: var(--error);
+  --color-error-bg: var(--error-bg);
+  --color-active-row: var(--active-row);
+  --color-you-avatar: var(--you-avatar);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 html,
 body,
 #root {
   height: 100%;
-  margin: 0;
-  overflow: hidden;
 }
 
-body[data-window="panel"] {
-  background-color: var(--bg);
+body {
+  @apply bg-background text-foreground font-sans antialiased select-none;
+  font-size: 13px;
+  overscroll-behavior: none;
+}
+
+[data-tauri-drag-region] {
+  -webkit-app-region: drag;
+}
+
+:focus-visible {
+  outline: none;
+  outline-offset: 1px;
+}
+
+button:focus-visible,
+input:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+textarea:focus-visible {
+  box-shadow: none;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover {
+  scrollbar-color: color-mix(in srgb, var(--text-secondary) 40%, transparent)
+    transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 8px;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-secondary) 35%, transparent);
+}
+
+@layer components {
+  .drag-fill {
+    @apply absolute inset-0;
+  }
+
+  .ui-icon-button {
+    @apply rounded-md text-text-secondary hover:text-foreground hover:bg-active-row transition-colors;
+  }
+
+  .ui-icon-button-sm {
+    @apply p-1.5 rounded-md text-text-secondary hover:text-foreground hover:bg-active-row transition-colors;
+  }
+
+  .ui-field {
+    @apply w-full rounded-md border border-border-strong bg-card px-2.5 py-1.5 text-[12px] outline-none focus:border-accent transition-colors placeholder:text-text-secondary;
+  }
+
+  .ui-field-muted {
+    @apply w-full rounded-md border border-border bg-surface px-2.5 py-1.5 text-[12px] outline-none text-text-secondary;
+  }
+
+  .ui-primary-button {
+    @apply rounded-lg bg-accent text-white text-[13px] font-medium px-4 py-2 disabled:opacity-50 transition-opacity;
+  }
+
+  .ui-secondary-button {
+    @apply rounded-md border border-border-strong px-3 py-1.5 text-[12px] hover:bg-active-row transition-colors;
+  }
+
+  .ui-danger-button {
+    @apply shrink-0 rounded-md border border-error/50 text-error text-[11px] font-medium px-2.5 py-1 hover:bg-error-bg disabled:opacity-40 disabled:hover:bg-transparent transition-colors;
+  }
+
+  .modal-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/30;
+  }
+
+  .modal-card {
+    @apply w-[480px] rounded-xl bg-card border border-border shadow-2xl;
+  }
+
+  .status-dot {
+    @apply w-1.5 h-1.5 rounded-full shrink-0;
+  }
+
+  .tool-card {
+    @apply rounded-md border border-border bg-card;
+  }
+
+  .tool-trace-running {
+    @apply border-warning/35;
+  }
+
+  .tool-trace-scan {
+    @apply pointer-events-none absolute inset-y-0 left-0 w-10 bg-warning/10;
+    animation: tool-trace-scan 1.35s ease-in-out infinite;
+  }
+
+  .app-pane-left {
+    @apply w-[176px] shrink-0 bg-surface border-r border-border flex flex-col;
+  }
+
+  .app-pane-right {
+    @apply w-[272px] shrink-0 bg-surface border-l border-border flex flex-col;
+  }
+
+  .app-main {
+    @apply flex-1 min-w-0 flex flex-col bg-background;
+  }
+
+  .app-header {
+    @apply relative h-[44px] shrink-0 border-b border-border;
+  }
+
+  .app-header-content {
+    @apply relative h-full flex items-center;
+  }
+
+  .side-caption {
+    @apply text-[9px] font-semibold tracking-[0.14em] text-text-secondary;
+  }
+
+  .sidebar-brand {
+    @apply relative px-3 pb-3;
+    padding-top: 20px;
+  }
+
+  .tauri-shell .sidebar-brand {
+    padding-top: 34px;
+  }
+
+  .agent-row {
+    @apply w-full flex items-center gap-2.5 px-2 py-2 rounded-md text-left cursor-pointer transition-colors;
+  }
+
+  .agent-row-idle {
+    @apply hover:bg-active-row/55;
+  }
+
+  .agent-row-active {
+    @apply bg-active-row;
+  }
+
+  .soft-card {
+    @apply rounded-lg border border-border bg-card;
+  }
+
+  .soft-card-strong {
+    @apply rounded-lg border border-border-strong bg-card;
+  }
+
+  .segmented-tabs {
+    @apply flex items-center rounded-md border border-border bg-card p-0.5;
+  }
+
+  .segmented-tab {
+    @apply rounded px-3 py-1.5 text-[11px] text-text-secondary hover:text-foreground transition-colors;
+  }
+
+  .segmented-tab-active {
+    @apply bg-surface text-foreground font-semibold;
+  }
+
+  .message-row {
+    @apply flex gap-3;
+  }
+
+  .message-meta {
+    @apply flex items-baseline gap-2 mb-0.5;
+  }
+
+  .composer {
+    @apply mx-auto max-w-[520px] rounded-xl border border-border-strong bg-card px-3 py-2.5 flex items-center gap-2;
+  }
+
+  .composer-icon {
+    @apply w-8 h-8 shrink-0 flex items-center justify-center text-text-secondary hover:text-foreground transition-colors;
+  }
+
+  .composer-send {
+    @apply w-8 h-8 shrink-0 rounded-lg text-white flex items-center justify-center disabled:opacity-40 transition-opacity;
+  }
+
+  .onboarding-primary {
+    @apply rounded-lg bg-accent px-5 py-2 text-[12px] font-semibold text-white hover:bg-accent/90 transition-colors;
+  }
+
+}
+
+@keyframes tool-trace-scan {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(760%);
+    opacity: 0;
+  }
 }
