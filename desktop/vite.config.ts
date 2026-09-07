@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import NodeWebSocket, { WebSocketServer } from "ws";
-import { HTTPClient } from "../ts-sdk/dist/http.js";
+import { HTTPClient } from "../ts-sdk/src/http.ts";
 import {
   DEFAULT_CODING_AGENT_IMAGES,
   Deployments,
@@ -14,8 +14,8 @@ import {
   OpenClawAgent,
   type AgentLaunchConfig,
   defaultHyperAcpWsUrl,
-} from "../ts-sdk/dist/agents.js";
-import type { AgentSessionClient } from "../ts-sdk/dist/session.js";
+} from "../ts-sdk/src/agents.ts";
+import type { AgentSessionClient } from "../ts-sdk/src/session.ts";
 
 const API_KEY_KEYS = ["HYPER_AGENTS_API_KEY", "HYPER_API_KEY", "HYPERCLI_API_KEY"];
 const API_BASE_KEYS = ["AGENTS_API_BASE_URL", "HYPER_API_BASE", "HYPERCLI_API_URL"];

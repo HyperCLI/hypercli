@@ -3,7 +3,7 @@ import {
   CodingAgentAcpClient,
   type CodingAgentAcpPermissionRequest,
   type CodingAgentAcpSessionNotification,
-} from "../../ts-sdk/dist/acp.js";
+} from "../../ts-sdk/src/acp.ts";
 import { type AgentSummary, type RuntimeChatEvent } from "./api";
 import { RUNNING, runtimeFamily } from "./agent-utils";
 import {
