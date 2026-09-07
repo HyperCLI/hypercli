@@ -1,7 +1,8 @@
 use hypercli_sdk::{
-    AgentSize, BuzzLaunchConfig, ClientConfig, CreateDeploymentRequest, Deployment, HyperCliClient,
-    HyperCliError, HermesLaunchConfig, ManagedRuntime, OpenClawLaunchConfig, StartDeploymentRequest, discover_agents_api_base,
-    discover_client_config, remove_config_api_keys, save_api_key as persist_api_key,
+    discover_agents_api_base, discover_client_config, remove_config_api_keys,
+    save_api_key as persist_api_key, AgentSize, BuzzLaunchConfig, ClientConfig,
+    CreateDeploymentRequest, Deployment, HermesLaunchConfig, HyperCliClient, HyperCliError,
+    ManagedRuntime, OpenClawLaunchConfig, StartDeploymentRequest,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
@@ -72,9 +73,7 @@ fn friendly(error: HyperCliError) -> String {
         Some(401) | Some(403) => "Your sign-in isn't working — sign in again.".to_owned(),
         Some(404) => "That agent is gone — it may have been deleted.".to_owned(),
         Some(409) => "Not ready for that yet — give it a moment and try again.".to_owned(),
-        Some(429) => {
-            "The backend is rate limiting right now — wait a few seconds.".to_owned()
-        }
+        Some(429) => "The backend is rate limiting right now — wait a few seconds.".to_owned(),
         Some(status) if status >= 500 => {
             "HyperCLI is having trouble right now — try again shortly.".to_owned()
         }
@@ -112,9 +111,11 @@ fn default_agent_size(config: &ClientConfig) -> Result<AgentSize, String> {
         .send()
         .map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        return Ok(parse_agent_size("small")?);
+        return parse_agent_size("small");
     }
-    let plan = response.json::<serde_json::Value>().map_err(|e| e.to_string())?;
+    let plan = response
+        .json::<serde_json::Value>()
+        .map_err(|e| e.to_string())?;
     if let Some(inventory) = plan.get("slot_inventory").and_then(|v| v.as_object()) {
         for size in ["large", "medium", "small"] {
             let available = inventory
@@ -183,7 +184,7 @@ async fn list_agents() -> Result<Vec<AgentSummary>, String> {
             .into_iter()
             .map(AgentSummary::from)
             .collect();
-        agents.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        agents.sort_by_key(|agent| agent.name.to_lowercase());
         Ok(agents)
     })
     .await
@@ -195,9 +196,7 @@ async fn start_agent(id: String) -> Result<AgentSummary, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let client = client()?;
         let current = client.get_deployment(&id).map_err(friendly)?;
-        let launch = client
-            .stored_launch_config(&id, None)
-            .map_err(friendly)?;
+        let launch = client.stored_launch_config(&id, None).map_err(friendly)?;
         let mut request = StartDeploymentRequest::new(launch);
         let runtime = current
             .runtime
@@ -206,11 +205,11 @@ async fn start_agent(id: String) -> Result<AgentSummary, String> {
             .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default();
         if runtime == "openclaw" || runtime == "openclaw-pro" {
-            if !request
+            if request
                 .launch_config
                 .secrets
                 .get("OPENCLAW_GATEWAY_TOKEN")
-                .is_some_and(|v| !v.trim().is_empty())
+                .is_none_or(|v| v.trim().is_empty())
             {
                 let token = gateway_token();
                 client
@@ -276,7 +275,9 @@ async fn create_agent(
             Some(size) => Some(parse_agent_size(&size)?),
             None => Some(default_agent_size(&config)?),
         };
-        let image = image.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty());
+        let image = image
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
         let buzz_private_key_nsec = buzz_private_key_nsec
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
@@ -285,19 +286,21 @@ async fn create_agent(
             .filter(|value| !value.is_empty())
             .unwrap_or_else(|| "wss://relay.buzz.hypercli.com".to_owned());
         let mut request = if runtime == ManagedRuntime::Openclaw {
-            let mut request = CreateDeploymentRequest::openclaw(Some(name.clone()), parsed_size, false);
+            let mut request =
+                CreateDeploymentRequest::openclaw(Some(name.clone()), parsed_size, false);
             request
                 .secrets
                 .insert("OPENCLAW_GATEWAY_TOKEN".to_owned(), gateway_token());
             request
         } else if runtime == ManagedRuntime::OpenclawPro {
-            let mut request = CreateDeploymentRequest::openclaw(Some(name.clone()), parsed_size, true);
+            let mut request =
+                CreateDeploymentRequest::openclaw(Some(name.clone()), parsed_size, true);
             request
                 .secrets
                 .insert("OPENCLAW_GATEWAY_TOKEN".to_owned(), gateway_token());
             request
         } else {
-            let mut request = CreateDeploymentRequest::new(runtime.clone());
+            let mut request = CreateDeploymentRequest::new(runtime);
             request.name = Some(name.clone());
             request.size = parsed_size;
             if runtime == ManagedRuntime::HermesAgent {
@@ -315,7 +318,8 @@ async fn create_agent(
             buzz.display_name = Some(name.clone());
             buzz.session_title = Some(name.clone());
             buzz.system_prompt = Some(agent_system_prompt(&name, "buzz-agent"));
-            buzz.apply_to(&mut request, Some(&name)).map_err(|e| e.to_string())?;
+            buzz.apply_to(&mut request, Some(&name))
+                .map_err(|e| e.to_string())?;
         }
         let client = HyperCliClient::new(config).map_err(friendly)?;
         client
@@ -430,12 +434,23 @@ async fn agent_logs_token(id: String) -> Result<AgentLogsToken, String> {
             let status = response.status();
             let body = response.text().unwrap_or_default();
             return Err(if body.trim().is_empty() {
-                format!("{} {}", status.as_u16(), status.canonical_reason().unwrap_or("error"))
+                format!(
+                    "{} {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("error")
+                )
             } else {
-                format!("{} {}: {}", status.as_u16(), status.canonical_reason().unwrap_or("error"), body.trim())
+                format!(
+                    "{} {}: {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("error"),
+                    body.trim()
+                )
             });
         }
-        let mut token = response.json::<AgentLogsToken>().map_err(|e| e.to_string())?;
+        let mut token = response
+            .json::<AgentLogsToken>()
+            .map_err(|e| e.to_string())?;
         token.api_base = config.api_base.to_string();
         Ok(token)
     })
@@ -456,7 +471,11 @@ struct AgentExecResult {
 }
 
 #[tauri::command]
-async fn agent_exec(_id: String, _command: String, _timeout: Option<u64>) -> Result<AgentExecResult, String> {
+async fn agent_exec(
+    _id: String,
+    _command: String,
+    _timeout: Option<u64>,
+) -> Result<AgentExecResult, String> {
     Err("Shell is not wired in the packaged app yet.".to_owned())
 }
 
