@@ -4,7 +4,7 @@
  * The server owns text chunking; a session receives an ordered stream of
  * audio chunks. One request at a time: idle → rendering → receiving → idle.
  * Works in both Node (`ws` package, Authorization header) and the browser
- * (global WebSocket, `?jwt=` query — browsers cannot set WS headers).
+ * (global WebSocket, `?token=` query — browsers cannot set WS headers).
  */
 import type NodeWebSocket from 'ws';
 
@@ -131,8 +131,8 @@ export class VoiceSession {
 
     await new Promise<void>((resolve, reject) => {
       if (useBrowserSocket) {
-        // Browsers cannot set WS headers — credential rides the jwt query param.
-        const url = `${this.wsUrl}/voice?jwt=${encodeURIComponent(this.credential)}`;
+        // Browsers cannot set WS headers — credential rides the token query param.
+        const url = `${this.wsUrl}/voice?token=${encodeURIComponent(this.credential)}`;
         const ws = new WebSocket(url);
         this.ws = ws;
         ws.onopen = () => resolve();

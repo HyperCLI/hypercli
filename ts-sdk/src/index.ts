@@ -143,6 +143,14 @@ export {
   type WorkspaceSubjectOptions,
 } from './workspaces.js';
 
+export {
+  RoutinesAPI,
+  deriveRoutinesApiBase,
+  type Routine,
+  type RoutineCreateOptions,
+  type RoutineUpdateOptions,
+} from './routines.js';
+
 // Logs
 export {
   LogStream,

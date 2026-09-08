@@ -23,6 +23,8 @@ import {
   type WebSocketLike,
 } from '@agentclientprotocol/sdk/experimental/ws-client';
 
+export type { RequestPermissionRequest, SessionNotification } from '@agentclientprotocol/sdk';
+
 /** Reconnect backoff budget, mirroring the buzz-activity subscriptions. */
 export const ACP_RECONNECT_DELAYS_MS: readonly number[] = [1_000, 2_000, 4_000];
 

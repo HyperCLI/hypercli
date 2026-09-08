@@ -3648,7 +3648,10 @@ export class GatewayClient {
       const token = await response.json() as Record<string, unknown>;
       const deploymentId = this.deploymentId as string;
       const tokenKeys = token && typeof token === "object" ? Object.keys(token).sort() : [];
-      const expectedTokenKeys = ["agent_id", "expires_at", "jwt", "ws_url"];
+      const credentialKeys = ["token", "jwt"]
+        .filter((key) => typeof token[key] === "string" && token[key]);
+      const credential = credentialKeys.length > 0 ? (token[credentialKeys[0]] as string) : "";
+      const expectedTokenKeys = ["agent_id", "expires_at", "ws_url", ...credentialKeys].sort();
       let parsed: URL;
       try {
         parsed = new URL(typeof token.ws_url === "string" ? token.ws_url : "");
@@ -3656,11 +3659,10 @@ export class GatewayClient {
         throw new Error("Pairing approval received an invalid exec token");
       }
       if (
-        tokenKeys.length !== expectedTokenKeys.length
+        !credential
+        || tokenKeys.length !== expectedTokenKeys.length
         || tokenKeys.some((key, index) => key !== expectedTokenKeys[index])
         || token.agent_id !== deploymentId
-        || typeof token.jwt !== "string"
-        || !token.jwt
         || typeof token.expires_at !== "string"
         || !token.expires_at
         || !["ws:", "wss:"].includes(parsed.protocol)
@@ -3673,7 +3675,7 @@ export class GatewayClient {
       ) {
         throw new Error("Pairing approval received an invalid exec token");
       }
-      parsed.searchParams.set("jwt", token.jwt);
+      parsed.searchParams.set("token", credential);
 
       const useBrowserSocket = typeof globalThis.WebSocket !== "undefined";
       const socket: GatewaySocket = useBrowserSocket

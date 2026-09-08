@@ -36,16 +36,21 @@ class MockWebSocket {
 function operationToken(agentId: string, purpose: 'metrics' | 'exec') {
   return {
     agent_id: agentId,
-    jwt: `jwt-${purpose}`,
+    token: `jwt-${purpose}`,
     expires_at: '2026-08-15T00:05:00Z',
     ws_url: `wss://socket.example.test/product/ws/${purpose}/${agentId}`,
   };
 }
 
-function shellToken(shell: string, jwt = 'jwt-shell') {
+function legacyOperationToken(agentId: string, purpose: 'metrics' | 'exec') {
+  const { token, ...rest } = operationToken(agentId, purpose);
+  return { ...rest, jwt: token };
+}
+
+function shellToken(shell: string, tokenValue = 'jwt-shell') {
   return {
     agent_id: 'agent-1',
-    jwt,
+    token: tokenValue,
     expires_at: '2026-08-15T00:05:00Z',
     ws_url: 'wss://socket.example.test/product/ws/shell/agent-1',
     shell,
@@ -936,7 +941,7 @@ describe('HyperClaw agents SDK', () => {
     const result = await agents.exec('agent-1', ['ls', '  exact argument  '], { timeout: 20, dryRun: true });
 
     expect(post).toHaveBeenCalledWith('/deployments/agent-1/exec/token');
-    expect(sockets[0]?.url).toBe('wss://socket.example.test/product/ws/exec/agent-1?jwt=jwt-exec');
+    expect(sockets[0]?.url).toBe('wss://socket.example.test/product/ws/exec/agent-1?token=jwt-exec');
     expect(JSON.parse(sockets[0]?.sent[0] ?? '')).toEqual({
       command: ['ls', '  exact argument  '],
       timeout: 20,
@@ -1042,6 +1047,23 @@ describe('HyperClaw agents SDK', () => {
     await expect(agents.exec('agent-1', ['yes'])).rejects.toThrow('output limit exceeded');
   });
 
+  it('accepts legacy jwt-only operation token responses', async () => {
+    const sockets = stubOneShotWebSocket([
+      JSON.stringify({
+        event: 'agent_metrics_result',
+        ok: true,
+        cpu: '25m',
+        memory: '128Mi',
+        timestamp: 7,
+      }),
+    ]);
+    const post = vi.fn().mockResolvedValue(legacyOperationToken('agent-1', 'metrics'));
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    await expect(agents.metrics('agent-1')).resolves.toMatchObject({ ok: true });
+    expect(sockets[0]?.url).toBe('wss://socket.example.test/product/ws/metrics/agent-1?token=jwt-metrics');
+  });
+
   it('rejects a noncanonical operation token before websocket connect', async () => {
     const token = operationToken('agent-1', 'metrics');
     token.ws_url += '?jwt=already-present';
@@ -1078,7 +1100,7 @@ describe('HyperClaw agents SDK', () => {
       timeout: 4_000,
       signal: expect.any(AbortSignal),
     });
-    expect((ws as any).url).toBe('wss://socket.example.test/product/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh');
+    expect((ws as any).url).toBe('wss://socket.example.test/product/ws/shell/agent-1?token=jwt-abc&shell=%2Fbin%2Fsh');
     expect(ws.binaryType).toBe('arraybuffer');
   });
 
@@ -1097,7 +1119,7 @@ describe('HyperClaw agents SDK', () => {
       timeout: 4_000,
       signal: expect.any(AbortSignal),
     });
-    expect((ws as any).url).toBe('wss://socket.example.test/product/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash');
+    expect((ws as any).url).toBe('wss://socket.example.test/product/ws/shell/agent-1?token=jwt-bash&shell=%2Fbin%2Fbash');
   });
 
   it('shellConnect bounds websocket opening and closes a stalled socket', async () => {
@@ -1359,15 +1381,15 @@ describe('HyperClaw agents SDK', () => {
 
   it('logsConnect uses configured agents websocket base', async () => {
     const post = vi.fn().mockResolvedValue({
-      jwt: 'jwt-logs',
-      ws_url: 'wss://wrong-host.example/ws/logs/agent-1?jwt=jwt-logs',
+      token: 'jwt-logs',
+      ws_url: 'wss://wrong-host.example/ws/logs/agent-1?token=jwt-logs',
     });
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
     const ws = await agents.logsConnect('agent-1', { container: 'reef', tailLines: 400 });
 
     expect(post).toHaveBeenCalledWith('/deployments/agent-1/logs/token');
-    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/logs/agent-1?jwt=jwt-logs&container=reef&tail_lines=400');
+    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/logs/agent-1?token=jwt-logs&container=reef&tail_lines=400');
   });
 
   it('file operations mint fresh credentials and use the direct Reef API', async () => {

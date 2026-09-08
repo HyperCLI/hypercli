@@ -360,7 +360,7 @@ export class HermesSessionClient implements AgentSessionClient {
       case 'tool.started': {
         return {
           type: 'tool_call',
-          data: { name: payload.tool_name, args: payload.args, preview: payload.preview },
+          data: { name: payload.tool_name, args: payload.args, input: payload.input, preview: payload.preview },
           ...identity(),
         };
       }

@@ -17,6 +17,12 @@ export {
   type AgentSlotInventory,
   type AgentSlotSize,
 } from './agent-slots.js';
+import {
+  defaultAgentsWsUrl,
+  defaultHyperAcpWsUrl,
+  normalizeAgentsWsUrl,
+  resolveAgentsApiBase,
+} from './agent-urls.js';
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import {
   subscribeBuzzActivity,
@@ -103,11 +109,7 @@ import {
 } from './session.js';
 
 const AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS = 300_000;
-const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
-const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
-const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
-const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
 export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
 const STALE_OPENCLAW_IMAGES = new Set([
@@ -335,6 +337,7 @@ export interface AgentMetricsResult {
 
 export interface AgentOperationTokenResponse {
   agent_id: string;
+  token?: string;
   jwt: string;
   expires_at: string;
   ws_url: string;
@@ -456,6 +459,7 @@ function stringifyOpenClawOperationsFailure(reason: unknown): string {
 
 export interface AgentShellTokenResponse {
   agent_id: string;
+  token?: string;
   jwt: string;
   expires_at: string;
   ws_url: string;
@@ -523,6 +527,7 @@ function runShellOperation<T>(
 
 export interface AgentLogsTokenResponse {
   agent_id?: string;
+  token?: string;
   jwt: string;
   expires_at?: string | null;
   ws_url?: string;
@@ -1853,85 +1858,7 @@ function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListi
   );
 }
 
-function toWsBaseUrl(baseUrl: string): string {
-  const base = (baseUrl || '').replace(/\/+$/, '');
-  if (!base) return '';
-  if (base.startsWith('https://')) return `wss://${base.slice('https://'.length)}`;
-  if (base.startsWith('http://')) return `ws://${base.slice('http://'.length)}`;
-  return base;
-}
-
-function normalizeAgentsWsUrl(url: string): string {
-  const base = toWsBaseUrl(url);
-  if (!base) return '';
-  return base.endsWith('/ws') ? base : `${base}/ws`;
-}
-
-export function resolveAgentsApiBase(apiBase: string): string {
-  const raw = (apiBase || '').trim();
-  if (!raw) return AGENTS_API_BASE;
-  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
-  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
-  const host = parsed.host.toLowerCase();
-  if (normalizedPath.endsWith('/agents')) {
-    return `${parsed.origin}${normalizedPath}`;
-  }
-  if (normalizedPath.endsWith('/api')) {
-    if (host === 'api.agents.hypercli.com') {
-      return AGENTS_API_BASE;
-    }
-    if (host === 'api.agents.dev.hypercli.com') {
-      return DEV_AGENTS_API_BASE;
-    }
-    return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
-  }
-  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
-    return AGENTS_API_BASE;
-  }
-  if (
-    host === 'api.agents.dev.hypercli.com' ||
-    host === 'api.dev.hypercli.com' ||
-    host === 'api.dev.hyperclaw.app' ||
-    host === 'dev-api.hyperclaw.app'
-  ) {
-    return DEV_AGENTS_API_BASE;
-  }
-  const normalized = raw.replace(/\/$/, '');
-  return `${normalized}/agents`;
-}
-
-function defaultAgentsWsUrl(apiBase: string): string {
-  const resolvedApiBase = resolveAgentsApiBase(apiBase);
-  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
-  const host = parsed.host.toLowerCase();
-  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_WS_URL;
-  if (
-    host === 'api.agents.dev.hypercli.com' ||
-    host === 'api.dev.hypercli.com' ||
-    host === 'api.dev.hyperclaw.app' ||
-    host === 'dev-api.hyperclaw.app'
-  ) {
-    return DEV_AGENTS_WS_URL;
-  }
-  return normalizeAgentsWsUrl(resolvedApiBase);
-}
-
-export function defaultHyperAcpWsUrl(apiBase: string): string {
-  const resolvedApiBase = resolveAgentsApiBase(apiBase);
-  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
-  const host = parsed.host.toLowerCase();
-  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_WS_URL;
-  if (
-    host === 'api.agents.dev.hypercli.com' ||
-    host === 'api.dev.hypercli.com' ||
-    host === 'api.dev.hyperclaw.app' ||
-    host === 'dev-api.hyperclaw.app'
-  ) {
-    return DEV_AGENTS_WS_URL;
-  }
-  const base = resolvedApiBase.replace(/\/+$/, '').replace(/\/agents$/, '');
-  return normalizeAgentsWsUrl(base);
-}
+export { defaultHyperAcpWsUrl, resolveAgentsApiBase } from './agent-urls.js';
 
 function randomHexToken(bytes: number): string {
   const buffer = new Uint8Array(bytes);
@@ -2039,15 +1966,17 @@ function validateAgentWsToken(
   purpose: 'metrics' | 'exec' | 'shell',
   shell?: string,
 ): AgentOperationTokenResponse | AgentShellTokenResponse {
-  const expected = purpose === 'shell'
-    ? ['agent_id', 'expires_at', 'jwt', 'shell', 'ws_url']
-    : ['agent_id', 'expires_at', 'jwt', 'ws_url'];
+  const base = purpose === 'shell'
+    ? ['agent_id', 'expires_at', 'shell', 'ws_url']
+    : ['agent_id', 'expires_at', 'ws_url'];
   const invalid = () => new Error(`Backend returned an invalid Agent ${purpose} token response`);
-  if (!isPlainRecord(value) || !ownKeysEqual(value, expected)) throw invalid();
+  if (!isPlainRecord(value)) throw invalid();
+  const credentialKeys = (['token', 'jwt'] as const)
+    .filter((key) => typeof value[key] === 'string' && value[key]);
+  if (credentialKeys.length === 0 || !ownKeysEqual(value, [...base, ...credentialKeys])) throw invalid();
+  const credential = value[credentialKeys[0]] as string;
   if (
     value.agent_id !== agentId
-    || typeof value.jwt !== 'string'
-    || !value.jwt
     || typeof value.expires_at !== 'string'
     || !value.expires_at
     || typeof value.ws_url !== 'string'
@@ -2073,7 +2002,8 @@ function validateAgentWsToken(
   ) {
     throw invalid();
   }
-  return value as unknown as AgentOperationTokenResponse | AgentShellTokenResponse;
+  return { ...value, token: credential, jwt: credential } as unknown as
+    AgentOperationTokenResponse | AgentShellTokenResponse;
 }
 
 function validateAgentMetricsResult(value: unknown): AgentMetricsResult {
@@ -5097,7 +5027,7 @@ export class Deployments {
     );
     const token = validateAgentWsToken(rawToken, agentId, purpose) as AgentOperationTokenResponse;
     const parsed = new URL(token.ws_url);
-    parsed.searchParams.set('jwt', token.jwt);
+    parsed.searchParams.set('token', token.jwt);
     const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
     let ws: WebSocket;
     try {
@@ -5961,7 +5891,11 @@ export class Deployments {
 
   async logsToken(agentIdOrName: string): Promise<AgentLogsTokenResponse> {
     const agentId = await this.resolveAgentId(agentIdOrName);
-    return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
+    const data = await this.agentHttp.post<AgentLogsTokenResponse>(
+      `${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`,
+    );
+    const credential = data.token ?? data.jwt;
+    return credential ? { ...data, token: credential, jwt: credential } : data;
   }
 
   async env(
@@ -6284,7 +6218,7 @@ export class Deployments {
     const tailLines = options.tailLines ?? 100;
     const wsUrl =
       `${this.agentsWsUrl}/logs/${agentId}` +
-      `?jwt=${encodeURIComponent(tokenData.jwt)}` +
+      `?token=${encodeURIComponent(tokenData.jwt)}` +
       `&container=${encodeURIComponent(container)}` +
       `&tail_lines=${encodeURIComponent(String(tailLines))}`;
     const ws = new WebSocket(wsUrl);
@@ -6465,7 +6399,7 @@ export class Deployments {
         },
       );
       const parsed = new URL(tokenData.ws_url);
-      parsed.searchParams.set('jwt', tokenData.jwt);
+      parsed.searchParams.set('token', tokenData.jwt);
       parsed.searchParams.set('shell', tokenData.shell);
       const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
       const ws = new WebSocketImpl(parsed.toString());

@@ -5373,7 +5373,7 @@ describe("GatewayClient", () => {
       ok: true,
       json: async () => ({
         agent_id: "deployment-123",
-        jwt: "jwt-exec",
+        token: "jwt-exec",
         expires_at: "2026-08-15T00:05:00Z",
         ws_url: "wss://socket.example.test/product/ws/exec/deployment-123",
       }),
@@ -5421,7 +5421,7 @@ describe("GatewayClient", () => {
     if (!execSocket || execSocket === firstSocket) throw new Error("Missing exec websocket");
     await waitForSentFrame(execSocket);
     expect(execSocket.url).toBe(
-      "wss://socket.example.test/product/ws/exec/deployment-123?jwt=jwt-exec",
+      "wss://socket.example.test/product/ws/exec/deployment-123?token=jwt-exec",
     );
     const execFrame = JSON.parse(execSocket.sent[0] ?? "{}") as Record<string, unknown>;
     expect(execFrame.timeout).toBe(30);
