@@ -55,7 +55,7 @@ APPIMAGE_DIR="$(dirname "$APPIMAGE_ABS")"
 APPIMAGE_NAME="$(basename "$APPIMAGE_ABS")"
 
 # The main binary inside the AppImage — Tauri names it after mainBinaryName.
-APP_BIN_NAME="HyperCLI"
+APP_BIN_NAME="hypercli-desktop"
 
 # Tauri CLI used for updater re-signing. CI installs @tauri-apps/cli so plain
 # `tauri` is on PATH; override with e.g. TAURI_CLI="cargo tauri" locally.
@@ -147,7 +147,7 @@ for var in GST_PLUGIN_SYSTEM_PATH_1_0 GST_PLUGIN_SYSTEM_PATH \
     unset "$var"
   fi
 done
-exec -a "HyperCLI" "$here/HyperCLI.bin" "$@"
+exec -a "hypercli-desktop" "$here/hypercli-desktop.bin" "$@"
 SHIM
 chmod +x "$APP_BIN"
 
