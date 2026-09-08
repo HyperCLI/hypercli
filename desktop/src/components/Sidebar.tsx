@@ -107,9 +107,15 @@ export function Sidebar({
     };
   }, [acpAgentKey]);
 
-  const allSessions = live.flatMap((agent) =>
-    (sessionsByAgent.get(agent.id) ?? []).map((session) => ({ agent, session })),
-  );
+  const allSessions = live
+    .flatMap((agent) =>
+      (sessionsByAgent.get(agent.id) ?? []).map((session) => ({ agent, session })),
+    )
+    .sort((a, b) => {
+      const at = a.session.updated_at ? Date.parse(a.session.updated_at) : 0;
+      const bt = b.session.updated_at ? Date.parse(b.session.updated_at) : 0;
+      return bt - at;
+    });
   const sessionPickerAgent = sessionPickerAgentId
     ? live.find((agent) => agent.id === sessionPickerAgentId) ?? null
     : null;

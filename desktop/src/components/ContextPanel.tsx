@@ -134,8 +134,8 @@ export function ContextPanel({
         ) : tab === "agent" ? (
           <div className="h-full overflow-y-auto">
             <DesktopSection agent={agent} onSetAgentDesktopEnabled={onSetAgentDesktopEnabled} />
-            <FilesTab agent={agent} />
             <RoutinesTab agent={agent} />
+            <FilesTab agent={agent} />
           </div>
         ) : tab === "status" ? (
           <StatusTabPanel agent={agent} />
@@ -645,7 +645,7 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
   const parent = parentPath(path);
 
   return (
-    <div className="flex h-full flex-col p-4">
+    <div className="flex flex-col border-t border-border p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <Caption>FILES</Caption>
@@ -661,7 +661,7 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
         </button>
       </div>
       {error && <div className="mb-3 rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{error}</div>}
-      <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-card">
+      <div className="min-h-0 max-h-72 overflow-hidden rounded-lg border border-border bg-card">
         {path && (
           <button
             onClick={() => void load(parent)}
