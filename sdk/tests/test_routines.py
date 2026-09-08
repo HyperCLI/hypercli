@@ -13,6 +13,8 @@ ROUTINE_PAYLOAD = {
     "cron": "0 * * * *",
     "prompt": "Run the hourly check",
     "enabled": True,
+    "name": "Hourly check",
+    "run_at": None,
     "next_run_at": "2026-09-08T13:00:00Z",
     "created_at": "2026-09-01T10:00:00Z",
     "updated_at": "2026-09-02T11:00:00Z",
@@ -43,6 +45,8 @@ def test_routine_from_dict_parses_datetimes():
     assert routine.cron == "0 * * * *"
     assert routine.prompt == "Run the hourly check"
     assert routine.enabled is True
+    assert routine.name == "Hourly check"
+    assert routine.run_at is None
     assert routine.next_run_at == datetime(2026, 9, 8, 13, 0, 0, tzinfo=timezone.utc)
     assert routine.created_at == datetime(2026, 9, 1, 10, 0, 0, tzinfo=timezone.utc)
     assert routine.updated_at == datetime(2026, 9, 2, 11, 0, 0, tzinfo=timezone.utc)
@@ -54,6 +58,21 @@ def test_routine_from_dict_allows_null_next_run_at():
     routine = Routine.from_dict(payload)
 
     assert routine.next_run_at is None
+
+
+def test_routine_from_dict_defaults_name_and_run_at_to_none():
+    payload = {key: value for key, value in ROUTINE_PAYLOAD.items() if key not in {"name", "run_at"}}
+
+    routine = Routine.from_dict(payload)
+
+    assert routine.name is None
+    assert routine.run_at is None
+
+
+def test_routine_from_dict_ignores_unknown_fields():
+    routine = Routine.from_dict({**ROUTINE_PAYLOAD, "surprise": "field"})
+
+    assert routine.id == "routine-1"
 
 
 def test_list_passes_agent_id_query_param(monkeypatch):
@@ -120,6 +139,65 @@ def test_create_posts_payload_and_parses_response(monkeypatch):
                     "enabled": True,
                 }
             },
+        )
+    ]
+
+
+def test_create_one_shot_with_run_at_and_name(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, **kwargs):
+        calls.append((method, url, api_key, kwargs))
+        return {**ROUTINE_PAYLOAD, "cron": "", "run_at": "2026-12-25T09:00:00Z"}
+
+    monkeypatch.setattr("hypercli.routines._request", fake_request)
+    api = RoutinesAPI("key", api_base="http://routines.test/routines")
+
+    routine = api.create(
+        agent_id="agent-1",
+        prompt="Open presents",
+        run_at="2026-12-25T09:00:00Z",
+        name="Christmas",
+    )
+
+    assert routine.run_at == "2026-12-25T09:00:00Z"
+    assert calls == [
+        (
+            "POST",
+            "http://routines.test/routines",
+            "key",
+            {
+                "json": {
+                    "agent_id": "agent-1",
+                    "prompt": "Open presents",
+                    "enabled": True,
+                    "run_at": "2026-12-25T09:00:00Z",
+                    "name": "Christmas",
+                }
+            },
+        )
+    ]
+
+
+def test_update_sends_name(monkeypatch):
+    calls = []
+
+    def fake_request(method, url, *, api_key, **kwargs):
+        calls.append((method, url, api_key, kwargs))
+        return {**ROUTINE_PAYLOAD, "name": "Renamed"}
+
+    monkeypatch.setattr("hypercli.routines._request", fake_request)
+    api = RoutinesAPI("key", api_base="http://routines.test/routines")
+
+    routine = api.update("routine-1", name="Renamed")
+
+    assert routine.name == "Renamed"
+    assert calls == [
+        (
+            "PATCH",
+            "http://routines.test/routines/routine-1",
+            "key",
+            {"json": {"name": "Renamed"}},
         )
     ]
 

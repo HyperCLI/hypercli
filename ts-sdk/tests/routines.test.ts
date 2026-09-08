@@ -62,6 +62,106 @@ describe('Routines SDK', () => {
     });
   });
 
+  it('creates one-shot routines with runAt and name', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'routine-2',
+          user_id: 'user-1',
+          agent_id: 'agent-1',
+          cron: '',
+          prompt: 'Open presents',
+          enabled: true,
+          name: 'Christmas',
+          run_at: '2026-12-25T09:00:00Z',
+          next_run_at: '2026-12-25T09:00:00Z',
+          created_at: '2026-09-08T10:00:00Z',
+          updated_at: '2026-09-08T10:00:00Z',
+        }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new RoutinesAPI('key', { apiBase: 'http://routines.test/routines' });
+    const routine = await api.create({
+      agentId: 'agent-1',
+      prompt: 'Open presents',
+      runAt: '2026-12-25T09:00:00Z',
+      name: 'Christmas',
+    });
+
+    expect(routine.name).toBe('Christmas');
+    expect(routine.runAt).toBe('2026-12-25T09:00:00Z');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: 'agent-1',
+        prompt: 'Open presents',
+        enabled: true,
+        run_at: '2026-12-25T09:00:00Z',
+        name: 'Christmas',
+      }),
+    });
+  });
+
+  it('defaults name and runAt to null when absent from the response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'routine-1',
+          user_id: 'user-1',
+          agent_id: 'agent-1',
+          cron: '0 9 * * *',
+          prompt: 'Daily summary',
+          enabled: true,
+          next_run_at: null,
+          created_at: '2026-09-08T10:00:00Z',
+          updated_at: '2026-09-08T10:00:00Z',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new RoutinesAPI('key', { apiBase: 'http://routines.test/routines' });
+    const routine = await api.get('routine-1');
+
+    expect(routine.name).toBeNull();
+    expect(routine.runAt).toBeNull();
+  });
+
+  it('updates the routine name', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: 'routine-1',
+          user_id: 'user-1',
+          agent_id: 'agent-1',
+          cron: '0 9 * * *',
+          prompt: 'Daily summary',
+          enabled: true,
+          name: 'Renamed',
+          run_at: null,
+          next_run_at: null,
+          created_at: '2026-09-08T10:00:00Z',
+          updated_at: '2026-09-08T12:00:00Z',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new RoutinesAPI('key', { apiBase: 'http://routines.test/routines' });
+    const routine = await api.update('routine-1', { name: 'Renamed' });
+
+    expect(routine.name).toBe('Renamed');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'Renamed' }),
+    });
+  });
+
   it('lists routines, optionally filtered by agent', async () => {
     const fetchMock = vi
       .fn()

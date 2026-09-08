@@ -93,11 +93,15 @@ pub struct Routine {
     #[serde(default)]
     pub agent_id: String,
     #[serde(default)]
-    pub cron: String,
+    pub cron: Option<String>,
     #[serde(default)]
     pub prompt: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub run_at: Option<String>,
     #[serde(default)]
     pub next_run_at: Option<String>,
     #[serde(default)]
@@ -109,9 +113,14 @@ pub struct Routine {
 #[derive(Clone, Debug, Serialize)]
 pub struct RoutineCreate {
     pub agent_id: String,
-    pub cron: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cron: Option<String>,
     pub prompt: String,
     pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_at: Option<String>,
 }
 
 impl RoutineCreate {
@@ -124,10 +133,39 @@ impl RoutineCreate {
     ) -> Self {
         Self {
             agent_id: agent_id.into(),
-            cron: cron.into(),
+            cron: Some(cron.into()),
             prompt: prompt.into(),
             enabled: true,
+            name: None,
+            run_at: None,
         }
+    }
+
+    /// Build a one-shot routine scheduled by `run_at` (ISO 8601) instead of a
+    /// cron expression. The backend rejects requests with neither.
+    pub fn one_shot(
+        agent_id: impl Into<String>,
+        run_at: impl Into<String>,
+        prompt: impl Into<String>,
+    ) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            cron: None,
+            prompt: prompt.into(),
+            enabled: true,
+            name: None,
+            run_at: Some(run_at.into()),
+        }
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+
+    pub fn with_run_at(mut self, run_at: impl Into<String>) -> Self {
+        self.run_at = Some(run_at.into());
+        self
     }
 }
 
@@ -141,6 +179,8 @@ pub struct RoutinePatch {
     pub prompt: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -440,6 +480,56 @@ mod tests {
             serde_json::to_value(&patch).unwrap(),
             json!({ "prompt": "pong" })
         );
+    }
+
+    #[test]
+    fn create_one_shot_serializes_run_at_without_cron() {
+        let create = RoutineCreate::one_shot("agent-1", "2026-12-25T09:00:00Z", "Open presents")
+            .with_name("Christmas");
+        assert_eq!(
+            serde_json::to_value(&create).unwrap(),
+            json!({
+                "agent_id": "agent-1",
+                "prompt": "Open presents",
+                "enabled": true,
+                "name": "Christmas",
+                "run_at": "2026-12-25T09:00:00Z"
+            })
+        );
+
+        let patch = RoutinePatch {
+            name: Some("Renamed".to_owned()),
+            ..RoutinePatch::default()
+        };
+        assert_eq!(
+            serde_json::to_value(&patch).unwrap(),
+            json!({ "name": "Renamed" })
+        );
+    }
+
+    #[test]
+    fn routine_decodes_name_run_at_and_ignores_unknown_fields() {
+        let routine: Routine = serde_json::from_value(json!({
+            "id": "routine-1",
+            "user_id": "user-1",
+            "agent_id": "agent-1",
+            "cron": "",
+            "prompt": "ping",
+            "enabled": true,
+            "name": "Christmas",
+            "run_at": "2026-12-25T09:00:00Z",
+            "next_run_at": "2026-12-25T09:00:00Z",
+            "created_at": "2026-09-01T09:00:00Z",
+            "updated_at": "2026-09-02T10:00:00Z",
+            "some_future_field": { "nested": [1, 2, 3] }
+        }))
+        .unwrap();
+        assert_eq!(routine.name.as_deref(), Some("Christmas"));
+        assert_eq!(routine.run_at.as_deref(), Some("2026-12-25T09:00:00Z"));
+
+        let routine: Routine = serde_json::from_value(routine_json("routine-2")).unwrap();
+        assert_eq!(routine.name, None);
+        assert_eq!(routine.run_at, None);
     }
 
     #[test]

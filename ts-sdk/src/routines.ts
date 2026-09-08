@@ -27,9 +27,11 @@ export interface Routine {
   id: string;
   userId: string;
   agentId: string;
-  cron: string;
+  cron: string | null;
   prompt: string;
   enabled: boolean;
+  name: string | null;
+  runAt: string | null;
   nextRunAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -37,8 +39,10 @@ export interface Routine {
 
 export interface RoutineCreateOptions {
   agentId: string;
-  cron: string;
   prompt: string;
+  cron?: string;
+  runAt?: string;
+  name?: string;
   enabled?: boolean;
 }
 
@@ -47,6 +51,7 @@ export interface RoutineUpdateOptions {
   cron?: string;
   prompt?: string;
   enabled?: boolean;
+  name?: string;
 }
 
 function routineFromDict(data: any): Routine {
@@ -54,9 +59,11 @@ function routineFromDict(data: any): Routine {
     id: String(data?.id || ''),
     userId: String(data?.user_id || data?.userId || ''),
     agentId: String(data?.agent_id || data?.agentId || ''),
-    cron: data?.cron || '',
+    cron: data?.cron ?? null,
     prompt: data?.prompt || '',
     enabled: Boolean(data?.enabled ?? false),
+    name: data?.name ?? null,
+    runAt: data?.run_at ?? data?.runAt ?? null,
     nextRunAt: data?.next_run_at ?? data?.nextRunAt ?? null,
     createdAt: data?.created_at ?? data?.createdAt ?? null,
     updatedAt: data?.updated_at ?? data?.updatedAt ?? null,
@@ -135,12 +142,13 @@ export class RoutinesAPI {
   }
 
   async create(body: RoutineCreateOptions): Promise<Routine> {
-    const data = await this.request('POST', '', {
-      agent_id: body.agentId,
-      cron: body.cron,
-      prompt: body.prompt,
-      enabled: body.enabled ?? true,
-    });
+    const payload: Record<string, unknown> = { agent_id: body.agentId };
+    if (body.cron !== undefined) payload.cron = body.cron;
+    payload.prompt = body.prompt;
+    payload.enabled = body.enabled ?? true;
+    if (body.runAt !== undefined) payload.run_at = body.runAt;
+    if (body.name !== undefined) payload.name = body.name;
+    const data = await this.request('POST', '', payload);
     return routineFromDict(data);
   }
 
@@ -150,6 +158,7 @@ export class RoutinesAPI {
     if (body.cron !== undefined) payload.cron = body.cron;
     if (body.prompt !== undefined) payload.prompt = body.prompt;
     if (body.enabled !== undefined) payload.enabled = body.enabled;
+    if (body.name !== undefined) payload.name = body.name;
     const data = await this.request('PATCH', `/${encodeRef(routineId)}`, payload);
     return routineFromDict(data);
   }
