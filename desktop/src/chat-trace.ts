@@ -31,6 +31,25 @@ export interface RuntimeTraceFoldResult {
   lastAction?: string;
 }
 
+const OPEN_TOOL_STATUSES = new Set(["pending", "in_progress"]);
+
+export function settleOpenToolCalls(messages: ChatMessage[], status: "completed" | "interrupted"): ChatMessage[] {
+  let changed = false;
+  const next = messages.map((message) => {
+    if (message.role !== "assistant" || !message.toolCalls.some((tool) => OPEN_TOOL_STATUSES.has(tool.status))) {
+      return message;
+    }
+    changed = true;
+    return {
+      ...message,
+      toolCalls: message.toolCalls.map((tool) =>
+        OPEN_TOOL_STATUSES.has(tool.status) ? { ...tool, status } : tool,
+      ),
+    };
+  });
+  return changed ? next : messages;
+}
+
 let nextId = 0;
 export const genId = () => `m${++nextId}`;
 
@@ -95,7 +114,9 @@ export function runtimeMessageToChat(message: RuntimeChatMessage): ChatMessage {
 function runtimeToolId(event: RuntimeChatEvent) {
   const data = event.data ?? {};
   const id = data.toolCallId ?? data.tool_call_id ?? data.callId ?? data.call_id ?? data.id ?? event.eventId;
-  return typeof id === "string" && id ? id : genId();
+  if (typeof id === "string" && id) return id;
+  const name = data.name ?? data.tool_name ?? data.title;
+  return typeof name === "string" && name ? `tool:${name}` : genId();
 }
 
 function runtimeToolTitle(event: RuntimeChatEvent) {
@@ -139,12 +160,14 @@ export class ChatTraceFolder {
   }
 
   foldRuntimeEvent(messages: ChatMessage[], event: RuntimeChatEvent): RuntimeTraceFoldResult {
-    if (event.type === "done") return { messages: this.foldDoneToolMessages(messages, event) };
+    if (event.type === "done") {
+      return { messages: settleOpenToolCalls(this.foldDoneToolMessages(messages, event), "completed") };
+    }
 
     const next = [...messages];
-    const openAssistant = (): ChatMessage => {
+    const openAssistant = (forceNew = false): ChatMessage => {
       const last = next[next.length - 1];
-      if (last?.role === "assistant") return last;
+      if (last?.role === "assistant" && !forceNew) return last;
       const message: ChatMessage = {
         id: event.messageId ?? genId(),
         role: "assistant",
@@ -162,7 +185,9 @@ export class ChatTraceFolder {
     };
 
     if (event.type === "content" || event.type === "commentary") {
-      const current = openAssistant();
+      const last = next[next.length - 1];
+      const newSegment = last?.role === "assistant" && last.text.trim().length > 0 && last.toolCalls.length > 0;
+      const current = openAssistant(newSegment);
       const text = event.text ?? "";
       replaceLast({ ...current, text: event.replace ? text : current.text + text });
       return { messages: next };
@@ -184,7 +209,9 @@ export class ChatTraceFolder {
     }
 
     if (event.type === "reasoning" || event.type === "thinking") {
-      const current = openAssistant();
+      const lastBefore = next[next.length - 1];
+      const newSegment = lastBefore?.role === "assistant" && lastBefore.text.trim().length > 0;
+      const current = openAssistant(newSegment);
       const text = event.text ?? "";
       const thoughts = event.replace || current.thoughts.length === 0
         ? [text]
@@ -196,7 +223,9 @@ export class ChatTraceFolder {
     if (event.type === "tool_call") {
       const id = runtimeToolId(event);
       const title = runtimeToolTitle(event);
-      const current = openAssistant();
+      const lastBefore = next[next.length - 1];
+      const newSegment = lastBefore?.role === "assistant" && lastBefore.text.trim().length > 0;
+      const current = openAssistant(newSegment);
       const existing = current.toolCalls.find((tool) => tool.id === id);
       const detail = runtimeToolDetail(event);
       const tool: ToolCallEntry = existing
@@ -217,10 +246,10 @@ export class ChatTraceFolder {
       const title = runtimeToolTitle(event);
       const current = openAssistant();
       const exact = current.toolCalls.find((tool) => tool.id === id);
-      const pendingByName = exact
+      const openByName = exact
         ? null
-        : current.toolCalls.filter((tool) => tool.title === title && tool.status !== "completed");
-      const resolvedId = exact?.id ?? (pendingByName?.length === 1 ? pendingByName[0].id : id);
+        : current.toolCalls.filter((tool) => tool.title === title && OPEN_TOOL_STATUSES.has(tool.status));
+      const resolvedId = exact?.id ?? openByName?.[0]?.id ?? id;
       const started = this.toolStarts.get(resolvedId) ?? this.toolStarts.get(id);
       const result = runtimeToolResult(event);
       const failed = event.data?.isError === true || event.data?.error === true;

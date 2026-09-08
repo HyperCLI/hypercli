@@ -35,17 +35,19 @@ export function ToolCallRow({ tool }: { tool: ToolCallEntry }) {
         ) : (
           <CheckCircle2 size={13} className="relative shrink-0 text-success" />
         )}
-        <span className="relative text-[12px] truncate flex-1">{tool.title}</span>
+        <span className="relative text-[12px] font-mono truncate flex-1">{tool.title}</span>
         {tool.durationMs != null && (
           <span className="relative text-[10px] text-text-secondary shrink-0">
             {(tool.durationMs / 1000).toFixed(1)}s
           </span>
         )}
-        <span
-          className={`relative text-[10px] font-medium shrink-0 ${STATUS_STYLE[tool.status] ?? "text-text-secondary"}`}
-        >
-          {tool.status.replace(/_/g, " ")}
-        </span>
+        {!running && (
+          <span
+            className={`relative text-[10px] font-medium shrink-0 ${STATUS_STYLE[tool.status] ?? "text-text-secondary"}`}
+          >
+            {tool.status.replace(/_/g, " ")}
+          </span>
+        )}
       </button>
       {open && tool.detail && (
         <div className="px-2.5 pb-2 pt-0.5">

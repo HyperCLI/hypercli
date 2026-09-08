@@ -3,29 +3,22 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import {
-  Brain,
   CalendarClock,
   Camera,
-  ChevronDown,
-  ChevronRight,
   FileText,
   Folder,
   Maximize2,
-  MessageSquare,
   Monitor,
   RefreshCw,
-  Terminal,
   Trash2,
 } from "lucide-react";
-import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFiles, agentShellUrl, type AgentFileEntry, type AgentSummary } from "../api";
-import type { ActivityEntry, AgentChat } from "../useAgentChat";
+import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFiles, agentShellUrl, routinesCreate, routinesDelete, routinesList, routinesUpdate, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { RUNNING, runtimeLabel } from "../agent-utils";
 import { useAgentLogs } from "../useAgentLogs";
 
-type Tab = "agent" | "routines" | "settings";
-type AgentTab = "activity" | "files" | "advanced";
+type Tab = "agent" | "status" | "settings";
 type MachineTab = "logs" | "shell";
 type FilePreviewKind = "text" | "html" | "image" | "pdf" | "binary";
 type FilePreview = {
@@ -39,17 +32,12 @@ type FilePreview = {
 };
 
 export type ContextTab = Tab;
-export type ContextAgentTab = AgentTab;
 
 const TEXT_TABS: { id: Tab; label: string }[] = [
   { id: "agent", label: "Agent" },
-  { id: "routines", label: "Routines" },
+  { id: "status", label: "Status" },
   { id: "settings", label: "Settings" },
 ];
-
-function formatTime(ts: number) {
-  return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
 
 function plainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -96,11 +84,8 @@ function useLocalBool(key: string, initial: boolean): [boolean, (v: boolean) => 
 
 export function ContextPanel({
   agent,
-  chat,
   tab,
-  agentTab,
   onTab,
-  onAgentTab,
   onArchive,
   onRestore,
   onStop,
@@ -110,11 +95,8 @@ export function ContextPanel({
   onDeleteAgentAvatar,
 }: {
   agent: AgentSummary | null;
-  chat: AgentChat;
   tab: ContextTab;
-  agentTab: ContextAgentTab;
   onTab: (tab: ContextTab) => void;
-  onAgentTab: (tab: ContextAgentTab) => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
   onStop: (id: string) => void;
@@ -148,15 +130,13 @@ export function ContextPanel({
             Select an agent to inspect it.
           </div>
         ) : tab === "agent" ? (
-          <AgentTabPanel
-            agent={agent}
-            chat={chat}
-            tab={agentTab}
-            onTab={onAgentTab}
-            onSetAgentDesktopEnabled={onSetAgentDesktopEnabled}
-          />
-        ) : tab === "routines" ? (
-          <RoutinesTab />
+          <div className="h-full overflow-y-auto">
+            <DesktopSection agent={agent} onSetAgentDesktopEnabled={onSetAgentDesktopEnabled} />
+            <FilesTab agent={agent} />
+            <RoutinesTab agent={agent} />
+          </div>
+        ) : tab === "status" ? (
+          <StatusTabPanel agent={agent} />
         ) : (
           <SettingsTab
             agent={agent}
@@ -164,6 +144,7 @@ export function ContextPanel({
             onRestore={onRestore}
             onStop={onStop}
             onDelete={onDelete}
+            onSetAgentDesktopEnabled={onSetAgentDesktopEnabled}
             onUploadAgentAvatar={onUploadAgentAvatar}
             onDeleteAgentAvatar={onDeleteAgentAvatar}
           />
@@ -173,51 +154,7 @@ export function ContextPanel({
   );
 }
 
-function AgentTabPanel({
-  agent,
-  chat,
-  tab,
-  onTab,
-  onSetAgentDesktopEnabled,
-}: {
-  agent: AgentSummary;
-  chat: AgentChat;
-  tab: AgentTab;
-  onTab: (tab: AgentTab) => void;
-  onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
-}) {
-  return (
-    <div className="flex h-full flex-col">
-      <div className="px-4 pt-3">
-        <div className="segmented-tabs w-full">
-          {(["activity", "files", "advanced"] as const).map((id) => (
-            <button
-              key={id}
-              onClick={() => onTab(id)}
-              className={`segmented-tab flex-1 capitalize ${tab === id ? "segmented-tab-active" : ""}`}
-            >
-              {id}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "activity" ? (
-          <div className="flex min-h-full flex-col">
-            <DesktopSection agent={agent} onSetAgentDesktopEnabled={onSetAgentDesktopEnabled} />
-            <ActivityTab chat={chat} />
-          </div>
-        ) : tab === "files" ? (
-          <FilesTab agent={agent} />
-        ) : (
-          <AdvancedTabPanel agent={agent} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function AdvancedTabPanel({ agent }: { agent: AgentSummary }) {
+function StatusTabPanel({ agent }: { agent: AgentSummary }) {
   const [tab, setTab] = useState<MachineTab>("logs");
 
   return (
@@ -528,39 +465,45 @@ function ShellTab({ agent }: { agent: AgentSummary }) {
     let attempt = 0;
     const connect = () => {
       if (cancelled) return;
-      const socket = new WebSocket(agentShellUrl(agent.id));
-      socket.binaryType = "arraybuffer";
-      socketRef.current = socket;
-      setError(null);
-      socket.onopen = () => {
-        if (cancelled || socketRef.current !== socket) return;
-        attempt = 0;
-        setConnected(true);
-        resizeShell();
-      };
-      socket.onmessage = async (event) => {
-        if (cancelled || socketRef.current !== socket) return;
-        const text = typeof event.data === "string"
-          ? event.data
-          : event.data instanceof Blob
-            ? await event.data.text()
-            : new TextDecoder().decode(event.data as ArrayBuffer);
-        if (text) terminalRef.current?.write(text);
-      };
-      socket.onerror = () => {
-        if (socketRef.current === socket) socket.close();
-      };
-      socket.onclose = (event) => {
-        if (cancelled || socketRef.current !== socket) return;
-        socketRef.current = null;
-        setConnected(false);
-        const reason = event.reason ? `: ${event.reason}` : "";
-        if (event.code !== 1000) setError(`Shell disconnected (${event.code})${reason}`);
-        if (event.code === 1000 || event.code === 1008) return;
-        const delay = Math.min(1_000 * 2 ** attempt, 10_000);
-        attempt += 1;
-        reconnectTimerRef.current = setTimeout(connect, delay);
-      };
+      let socket: WebSocket | null = null;
+      void agentShellUrl(agent.id).then((url) => {
+        if (cancelled) return;
+        socket = new WebSocket(url);
+        socket.binaryType = "arraybuffer";
+        socketRef.current = socket;
+        setError(null);
+        socket.onopen = () => {
+          if (cancelled || socketRef.current !== socket) return;
+          attempt = 0;
+          setConnected(true);
+          resizeShell();
+        };
+        socket.onmessage = async (event) => {
+          if (cancelled || socketRef.current !== socket) return;
+          const text = typeof event.data === "string"
+            ? event.data
+            : event.data instanceof Blob
+              ? await event.data.text()
+              : new TextDecoder().decode(event.data as ArrayBuffer);
+          if (text) terminalRef.current?.write(text);
+        };
+        socket.onerror = () => {
+          if (socketRef.current === socket) socketRef.current?.close();
+        };
+        socket.onclose = (event) => {
+          if (cancelled || socketRef.current !== socket) return;
+          socketRef.current = null;
+          setConnected(false);
+          const reason = event.reason ? `: ${event.reason}` : "";
+          if (event.code !== 1000) setError(`Shell disconnected (${event.code})${reason}`);
+          if (event.code === 1000 || event.code === 1008) return;
+          const delay = Math.min(1_000 * 2 ** attempt, 10_000);
+          attempt += 1;
+          reconnectTimerRef.current = setTimeout(connect, delay);
+        };
+      }).catch((error) => {
+        if (!cancelled) setError(error instanceof Error ? error.message : String(error));
+      });
     };
     connect();
 
@@ -973,30 +916,231 @@ function Caption({ children }: { children: string }) {
   return <div className="side-caption">{children}</div>;
 }
 
-function RoutinesTab() {
+type RoutineFrequency = "daily" | "weekdays" | "weekly" | "hourly";
+
+const ROUTINE_FREQUENCIES: { id: RoutineFrequency; label: string }[] = [
+  { id: "daily", label: "Daily" },
+  { id: "weekdays", label: "Weekdays" },
+  { id: "weekly", label: "Weekly" },
+  { id: "hourly", label: "Hourly" },
+];
+
+function routineCron(frequency: RoutineFrequency, hour: number, minute: number, weekday: number): string {
+  const h = Math.min(23, Math.max(0, hour));
+  const m = Math.min(59, Math.max(0, minute));
+  if (frequency === "hourly") return `${m} * * * *`;
+  if (frequency === "weekdays") return `${m} ${h} * * 1-5`;
+  if (frequency === "weekly") return `${m} ${h} * * ${Math.min(6, Math.max(0, weekday))}`;
+  return `${m} ${h} * * *`;
+}
+
+function describeRoutine(routine: Routine): string {
+  const cron = routine.cron.trim().split(/\s+/);
+  const time = (hour: string, minute: string) =>
+    `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
+  if (cron.length === 5) {
+    const [minute, hour, , , dow] = cron;
+    if (hour === "*" && /^\d+$/.test(minute)) return `Hourly at :${minute.padStart(2, "0")}`;
+    if (/^\d+$/.test(hour) && /^\d+$/.test(minute)) {
+      if (dow === "1-5") return `Weekdays ${time(hour, minute)}`;
+      if (dow === "*") return `Daily ${time(hour, minute)}`;
+      if (/^[0-6]$/.test(dow)) {
+        const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][Number(dow)];
+        return `${day}s ${time(hour, minute)}`;
+      }
+    }
+  }
+  return routine.cron;
+}
+
+function formatRoutineTime(iso: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function RoutinesTab({ agent }: { agent: AgentSummary }) {
+  const [routines, setRoutines] = useState<Routine[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [composing, setComposing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [frequency, setFrequency] = useState<RoutineFrequency>("daily");
+  const [timeValue, setTimeValue] = useState("09:00");
+  const [weekday, setWeekday] = useState(1);
+  const [hourlyMinute, setHourlyMinute] = useState(0);
+
+  const load = () => {
+    routinesList(agent.id)
+      .then((items) => {
+        setRoutines(items);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  };
+  useEffect(load, [agent.id]);
+
+  const create = async () => {
+    const text = prompt.trim();
+    if (!text || saving) return;
+    const [hour, minute] = timeValue.split(":").map((part) => Number(part));
+    const cron = routineCron(frequency, hour || 0, minute || 0, weekday);
+    const finalCron = frequency === "hourly" ? routineCron("hourly", 0, hourlyMinute, 0) : cron;
+    setSaving(true);
+    try {
+      await routinesCreate({ agentId: agent.id, cron: finalCron, prompt: text, enabled: true });
+      setPrompt("");
+      setComposing(false);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggle = async (routine: Routine) => {
+    try {
+      await routinesUpdate(routine.id, { enabled: !routine.enabled });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const remove = async (routine: Routine) => {
+    try {
+      await routinesDelete(routine.id);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   return (
-    <div className="p-4 space-y-3">
+    <div className="p-4 space-y-3 border-t border-border">
       <div className="flex items-center justify-between">
-        <Caption>0 ROUTINES</Caption>
+        <Caption>{routines ? `${routines.length} ROUTINE${routines.length === 1 ? "" : "S"}` : "ROUTINES"}</Caption>
         <button
-          disabled
-          className="text-[11px] font-medium text-text-secondary disabled:opacity-40 transition-colors"
+          onClick={() => setComposing((v) => !v)}
+          className="text-[11px] font-medium text-accent hover:underline"
         >
-          + New routine
+          {composing ? "Cancel" : "+ New routine"}
         </button>
       </div>
 
-      <div className="soft-card px-4 py-6 text-center">
-        <CalendarClock size={20} className="mx-auto text-text-secondary mb-2" />
-        <div className="text-[12px] font-medium mb-0.5">No routines yet</div>
-        <p className="text-[11px] text-text-secondary leading-relaxed">
-          Scheduled runs for this agent will show up here.
-        </p>
-      </div>
+      {error && (
+        <div className="rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{error}</div>
+      )}
 
-      <p className="text-[11px] text-text-secondary leading-relaxed">
-        Routines run in the cloud on schedule, even when your computer is off.
-      </p>
+      {composing && (
+        <div className="soft-card p-3 space-y-2.5">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder={`What should ${agent.name} do on a schedule?`}
+            rows={3}
+            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 text-[12px] outline-none focus:border-border-strong"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="segmented-tabs">
+              {ROUTINE_FREQUENCIES.map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => setFrequency(f.id)}
+                  className={`segmented-tab ${frequency === f.id ? "segmented-tab-active" : ""}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            {frequency === "hourly" ? (
+              <label className="flex items-center gap-1.5 text-[11px] text-text-secondary">
+                at minute
+                <input
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={hourlyMinute}
+                  onChange={(e) => setHourlyMinute(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
+                  className="w-14 rounded-md border border-border bg-background px-2 py-1 text-[12px]"
+                />
+              </label>
+            ) : (
+              <input
+                type="time"
+                value={timeValue}
+                onChange={(e) => setTimeValue(e.target.value || "09:00")}
+                className="rounded-md border border-border bg-background px-2 py-1 text-[12px]"
+              />
+            )}
+            {frequency === "weekly" && (
+              <select
+                value={weekday}
+                onChange={(e) => setWeekday(Number(e.target.value))}
+                className="rounded-md border border-border bg-background px-2 py-1 text-[12px]"
+              >
+                {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day, i) => (
+                  <option key={day} value={i}>{day}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <button
+            onClick={create}
+            disabled={!prompt.trim() || saving}
+            className="ui-secondary-button w-full py-1.5 text-[12px] font-medium disabled:opacity-40"
+          >
+            {saving ? "Creating…" : "Create routine"}
+          </button>
+        </div>
+      )}
+
+      {routines === null && !error ? (
+        <div className="soft-card px-4 py-6 text-center text-[11px] text-text-secondary">Loading routines…</div>
+      ) : routines !== null && routines.length === 0 && !composing ? (
+        <div className="soft-card px-4 py-6 text-center">
+          <CalendarClock size={20} className="mx-auto text-text-secondary mb-2" />
+          <div className="text-[12px] font-medium mb-0.5">No routines yet</div>
+          <p className="text-[11px] text-text-secondary leading-relaxed">
+            Scheduled prompts run in the cloud, even when your computer is off.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {(routines ?? []).map((routine) => (
+            <div key={routine.id} className="soft-card px-3 py-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12px] leading-snug break-words">{routine.prompt}</div>
+                  <div className="mt-1 text-[10px] text-text-secondary">
+                    {describeRoutine(routine)} · next {formatRoutineTime(routine.next_run_at)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    role="switch"
+                    aria-checked={routine.enabled}
+                    onClick={() => toggle(routine)}
+                    className={`shrink-0 w-7 h-[16px] rounded-full relative transition-colors ${routine.enabled ? "bg-accent" : "bg-border-strong"}`}
+                  >
+                    <span className={`absolute top-[2px] w-[12px] h-[12px] rounded-full bg-white transition-all ${routine.enabled ? "left-[13px]" : "left-[2px]"}`} />
+                  </button>
+                  <button
+                    onClick={() => remove(routine)}
+                    className="ui-icon-button-sm text-text-secondary hover:text-error"
+                    title="Delete routine"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1007,6 +1151,7 @@ function SettingsTab({
   onRestore,
   onStop,
   onDelete,
+  onSetAgentDesktopEnabled,
   onUploadAgentAvatar,
   onDeleteAgentAvatar,
 }: {
@@ -1015,6 +1160,7 @@ function SettingsTab({
   onRestore: (id: string) => void;
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
+  onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
   onUploadAgentAvatar: (id: string, file: File) => void;
   onDeleteAgentAvatar: (id: string) => void;
 }) {
@@ -1022,10 +1168,30 @@ function SettingsTab({
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [notify, setNotify] = useLocalBool(`desktop-ng-notify:${agent.id}`, true);
   const [avatarStyleOpen, setAvatarStyleOpen] = useState(false);
+  const desktopEnabled = agentHasDesktop(agent);
 
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+          <div className="min-w-0 flex items-center gap-2">
+            <Monitor size={14} className="shrink-0 text-text-secondary" />
+            <div>
+              <div className="text-[12px] font-medium">Desktop</div>
+              <div className="text-[10px] text-text-secondary leading-snug">
+                {desktopEnabled ? "Enabled — applies next start." : "Disabled for this agent."}
+              </div>
+            </div>
+          </div>
+          <button
+            role="switch"
+            aria-checked={desktopEnabled}
+            onClick={() => onSetAgentDesktopEnabled(agent.id, !desktopEnabled)}
+            className={`shrink-0 w-8 h-[18px] rounded-full relative transition-colors ${desktopEnabled ? "bg-accent" : "bg-border-strong"}`}
+          >
+            <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all ${desktopEnabled ? "left-[16px]" : "left-[2px]"}`} />
+          </button>
+        </div>
         <div className="flex items-center gap-3">
           <Avatar
             name={agent.name}
@@ -1194,141 +1360,6 @@ function SettingsTab({
       </div>
       <div className="shrink-0 border-t border-border bg-surface p-3">
         <DangerZone agent={agent} onArchive={onArchive} onRestore={onRestore} onStop={onStop} onDelete={onDelete} />
-      </div>
-    </div>
-  );
-}
-
-const ACTIVITY_STATUS_STYLE: Record<string, string> = {
-  completed: "text-success",
-  failed: "text-error",
-  in_progress: "text-warning",
-};
-
-function ActivityTab({ chat }: { chat: AgentChat }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const count = chat.activity.length;
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = 0;
-  }, [count]);
-
-  return (
-    <div className="h-full flex flex-col">
-      <div className="px-4 pt-3 pb-1.5 flex items-baseline justify-between gap-2">
-        <Caption>ACTIVITY</Caption>
-        <span className="text-[10px] text-text-secondary">
-          {chat.activity.length === 0
-            ? "No updates yet"
-            : `Last updated ${formatTime(chat.activity[chat.activity.length - 1].ts)}`}
-        </span>
-      </div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
-        {[...chat.activity].reverse().map((entry) => (
-          <ActivityRow key={entry.id} entry={entry} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ActivityRow({ entry }: { entry: ActivityEntry }) {
-  const [open, setOpen] = useState(false);
-  if (entry.kind === "usage" || entry.kind === "note") {
-    return (
-      <div className="px-2 py-1">
-        <div className="text-[11px] text-text-secondary font-mono leading-snug">
-          {entry.title}
-        </div>
-        <div className="text-[10px] text-text-secondary/70">{formatTime(entry.ts)}</div>
-      </div>
-    );
-  }
-  if (entry.kind === "thinking") {
-    return (
-        <div className="tool-card">
-        <button
-          onClick={() => setOpen(!open)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 text-left text-text-secondary"
-        >
-          <Brain size={12} className="shrink-0" />
-          <span className="text-[11px] flex-1">Thinking</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </button>
-        {open && entry.detail && (
-          <div className="px-2.5 pb-2 text-[11px] text-text-secondary leading-relaxed whitespace-pre-wrap">
-            {entry.detail}
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (entry.kind === "reply") {
-    return (
-      <div className="tool-card">
-        <button
-          onClick={() => setOpen(!open)}
-          className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
-        >
-          <MessageSquare size={12} className="text-text-secondary shrink-0" />
-          <span className="text-[11px] truncate flex-1">{entry.title}</span>
-          {entry.status && (
-            <span className={`text-[10px] font-medium shrink-0 ${ACTIVITY_STATUS_STYLE[entry.status] ?? "text-text-secondary"}`}>
-              {entry.status.replace(/_/g, " ")}
-            </span>
-          )}
-          {open ? (
-            <ChevronDown size={12} className="text-text-secondary shrink-0" />
-          ) : (
-            <ChevronRight size={12} className="text-text-secondary shrink-0" />
-          )}
-        </button>
-        {open && entry.detail && (
-          <div className="px-2.5 pb-2 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap">
-            {entry.detail}
-          </div>
-        )}
-        <div className="px-2.5 pb-1.5 -mt-0.5 text-[10px] text-text-secondary/70">
-          {formatTime(entry.ts)}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="tool-card">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
-      >
-        <Terminal size={12} className="text-text-secondary shrink-0" />
-        <span className="text-[11px] truncate flex-1">{entry.title}</span>
-        {entry.durationMs != null && (
-          <span className="text-[10px] text-text-secondary shrink-0">
-            {(entry.durationMs / 1000).toFixed(1)}s
-          </span>
-        )}
-        {entry.status && (
-          <span
-            className={`text-[10px] font-medium shrink-0 ${ACTIVITY_STATUS_STYLE[entry.status] ?? "text-text-secondary"}`}
-          >
-            {entry.status.replace(/_/g, " ")}
-          </span>
-        )}
-        {open ? (
-          <ChevronDown size={12} className="text-text-secondary shrink-0" />
-        ) : (
-          <ChevronRight size={12} className="text-text-secondary shrink-0" />
-        )}
-      </button>
-      {open && entry.detail && (
-        <div className="px-2.5 pb-2">
-          <code className="block text-[10.5px] font-mono text-text-secondary break-all whitespace-pre-wrap">
-            {entry.detail}
-          </code>
-        </div>
-      )}
-      <div className="px-2.5 pb-1.5 -mt-0.5 text-[10px] text-text-secondary/70">
-        {formatTime(entry.ts)}
       </div>
     </div>
   );

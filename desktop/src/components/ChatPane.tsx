@@ -368,7 +368,7 @@ export function ChatPane({
                     {formatTime(message.ts)}
                   </span>
                 </div>
-                <div className={`message-body ${message.role === "user" ? "message-body-user" : failed ? "message-body-error" : ""}`}>
+                <div className={`message-body ${failed ? "message-body-error" : ""}`}>
                   {message.thoughts.length > 0 && (
                     <ThinkingBlock thoughts={message.thoughts} />
                   )}

@@ -19,7 +19,7 @@ import { useAgentChat } from "./useAgentChat";
 import { Sidebar } from "./components/Sidebar";
 import { ChatPane } from "./components/ChatPane";
 import { ContextPanel } from "./components/ContextPanel";
-import type { ContextAgentTab, ContextTab } from "./components/ContextPanel";
+import type { ContextTab } from "./components/ContextPanel";
 import { SignIn } from "./components/SignIn";
 import { SettingsModal } from "./components/SettingsModal";
 import { TutorialModal } from "./components/TutorialModal";
@@ -67,7 +67,6 @@ export default function App() {
     () => localStorage.getItem("desktop-ng-right-open") !== "0",
   );
   const [contextTab, setContextTab] = useState<ContextTab>("agent");
-  const [contextAgentTab, setContextAgentTab] = useState<ContextAgentTab>("activity");
   const [lifecycleErrors, setLifecycleErrors] = useState<Record<string, string>>({});
   const [leftWidth, setLeftWidth] = useState(() => storedPaneWidth("desktop-ng-left-width", LEFT_DEFAULT_WIDTH));
   const [rightWidth, setRightWidth] = useState(() => storedPaneWidth("desktop-ng-right-width", RIGHT_DEFAULT_WIDTH));
@@ -216,8 +215,7 @@ export default function App() {
           ...current,
           [id]: e instanceof Error ? e.message : String(e),
         }));
-        setContextTab("agent");
-        setContextAgentTab("advanced");
+        setContextTab("status");
         setRightOpen(true);
         localStorage.setItem("desktop-ng-right-open", "1");
       } finally {
@@ -341,8 +339,7 @@ export default function App() {
         onStart={onStart}
         onRestore={onRestore}
         onOpenLogs={() => {
-          setContextTab("agent");
-          setContextAgentTab("advanced");
+          setContextTab("status");
           setRightOpen(true);
           localStorage.setItem("desktop-ng-right-open", "1");
         }}
@@ -367,11 +364,8 @@ export default function App() {
           />
           <ContextPanel
             agent={active}
-            chat={chat}
             tab={contextTab}
-            agentTab={contextAgentTab}
             onTab={setContextTab}
-            onAgentTab={setContextAgentTab}
             onArchive={onArchive}
             onRestore={onRestore}
             onStop={onStop}
@@ -402,7 +396,6 @@ export default function App() {
             upsertAgent(agent);
             setActiveId(agent.id);
             setContextTab("agent");
-            setContextAgentTab("activity");
             refreshAgents();
           }}
         />

@@ -1,4 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
+import { CodingAgentAcpClient, type CodingAgentAcpTarget } from "../../ts-sdk/src/acp.ts";
+import { agentsBridgeWsBase, defaultHyperAcpWsUrl } from "../../ts-sdk/src/agent-urls.ts";
 
 export interface AgentSummary {
   id: string;
@@ -41,7 +43,7 @@ export interface PlanSummary {
 
 export interface AgentLogsToken {
   agent_id?: string;
-  jwt: string;
+  token: string;
   expires_at?: string | null;
   ws_url?: string;
   api_base?: string;
@@ -100,7 +102,7 @@ export interface AgentExecResult {
   stderr: string;
 }
 
-function hasTauriInvoke() {
+export function hasTauriInvoke() {
   const internals = (window as unknown as { __TAURI_INTERNALS__?: Record<string, unknown> })
     .__TAURI_INTERNALS__;
   return typeof internals?.invoke === "function";
@@ -162,6 +164,17 @@ export const uploadAgentAvatar = async (id: string, file: File) => {
 export const deleteAgentAvatar = (id: string) =>
   command<AgentAvatarUploadResult>("delete_agent_avatar", { id });
 export const acpCredentials = () => command<AcpCredentials>("acp_credentials");
+
+// One derivation shared by chat, the sessions sweep, dev, and packaged: the
+// backend ACP bridge accepts the credential as a ?token= query param, so both
+// modes dial it directly with a native WebSocket — no tunnel, no proxy.
+export async function acpConnectTarget(agentId: string): Promise<CodingAgentAcpTarget> {
+  const creds = await acpCredentials();
+  const url = new URL(defaultHyperAcpWsUrl(creds.api_base));
+  url.searchParams.set("agent_id", agentId);
+  url.searchParams.set("token", creds.token);
+  return { url: url.toString(), token: "" };
+}
 export const runtimeHistory = (id: string) =>
   command<RuntimeChatMessage[]>("runtime_history", { id });
 export const runtimeHistoryForSession = (id: string, sessionKey: string) =>
@@ -211,17 +224,101 @@ export const agentFileReadBytes = (id: string, path: string) =>
   command<AgentFileBytes>("agent_file_read_bytes", { id, path });
 export const agentExec = (id: string, commandText: string, timeout = 30) =>
   command<AgentExecResult>("agent_exec", { id, command: commandText, timeout });
-export function agentShellUrl(id: string) {
+const agentWsBase = agentsBridgeWsBase;
+
+export interface AgentShellToken {
+  token: string;
+  ws_url: string;
+  shell: string;
+}
+
+export const agentShellToken = (id: string, shell?: string) =>
+  command<AgentShellToken>("agent_shell_token", { id, shell });
+
+export async function agentShellUrl(id: string) {
+  if (hasTauriInvoke()) {
+    const token = await agentShellToken(id);
+    const url = new URL(token.ws_url);
+    url.searchParams.set("token", token.token);
+    url.searchParams.set("shell", token.shell || "/bin/bash");
+    return url.toString();
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams({ agent_id: id });
   return `${protocol}//${window.location.host}/__desktop_ng/shell?${params}`;
 }
-export function agentLogsUrl(id: string) {
+export async function agentLogsUrl(id: string) {
+  if (hasTauriInvoke()) {
+    const [creds, token] = await Promise.all([acpCredentials(), agentLogsToken(id)]);
+    const base = token.ws_url?.trim()
+      ? token.ws_url
+      : `${agentWsBase(creds.api_base)}/logs/${id}`;
+    const url = new URL(base);
+    url.searchParams.set("token", token.token);
+    if (!url.searchParams.has("container")) url.searchParams.set("container", "reef");
+    if (!url.searchParams.has("tail_lines")) url.searchParams.set("tail_lines", "100");
+    return url.toString();
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams({ agent_id: id });
   return `${protocol}//${window.location.host}/__desktop_ng/logs?${params}`;
 }
 export const planSummary = () => command<PlanSummary>("plan_summary");
+
+export interface UsageMetrics {
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  requests: number;
+}
+
+export interface UsageDay extends UsageMetrics {
+  date: string;
+}
+
+export interface UsageKeyEntry extends UsageMetrics {
+  key_hash: string;
+  name: string;
+}
+
+export interface UsageAgentEntry extends UsageMetrics {
+  agent_id: string;
+  name: string;
+  managed: boolean;
+  avatar_url: string | null;
+}
+
+export interface UsageSummary {
+  days: number;
+  history: UsageDay[] | null;
+  keys: UsageKeyEntry[] | null;
+  agents: UsageAgentEntry[] | null;
+  unattributed: UsageMetrics | null;
+}
+
+export const usageSummary = (days = 7) =>
+  command<UsageSummary>("usage_summary", { days });
+
+export interface Routine {
+  id: string;
+  user_id: string | null;
+  agent_id: string | null;
+  cron: string;
+  prompt: string;
+  enabled: boolean;
+  next_run_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export const routinesList = (agentId?: string) =>
+  command<Routine[]>("routines_list", { agentId });
+export const routinesCreate = (input: { agentId: string; cron: string; prompt: string; enabled?: boolean }) =>
+  command<Routine>("routines_create", input);
+export const routinesUpdate = (id: string, patch: { cron?: string; prompt?: string; enabled?: boolean }) =>
+  command<Routine>("routines_update", { id, ...patch });
+export const routinesDelete = (id: string) =>
+  command<void>("routines_delete", { id });
 
 export interface AcpSessionInfo {
   session_id: string;
@@ -235,8 +332,31 @@ export interface AcpSessionList {
   next_cursor: string | null;
 }
 
-export const listAcpSessions = (id: string) =>
-  command<AcpSessionList>("acp_list_sessions", { id });
+export async function listAcpSessions(id: string): Promise<AcpSessionList> {
+  if (hasTauriInvoke()) {
+    // Packaged mode: no Rust `acp_list_sessions` command exists; reuse the
+    // same ACP client as chat (through the Rust WS tunnel), exactly like the
+    // dev bridge's acp_list_sessions handler does with the Node transport.
+    const client = await CodingAgentAcpClient.connect(await acpConnectTarget(id), {
+      clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
+    });
+    try {
+      const response = await client.listSessions();
+      return {
+        sessions: (response.sessions ?? []).map((session) => ({
+          session_id: session.sessionId,
+          title: session.title ?? null,
+          cwd: session.cwd ?? null,
+          updated_at: session.updatedAt ?? null,
+        })),
+        next_cursor: response.nextCursor ?? null,
+      };
+    } finally {
+      client.close();
+    }
+  }
+  return command<AcpSessionList>("acp_list_sessions", { id });
+}
 
 export type RuntimeSessionKind = "openclaw" | "hermes";
 

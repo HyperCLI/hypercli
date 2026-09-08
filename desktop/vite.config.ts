@@ -15,6 +15,7 @@ import {
   type AgentLaunchConfig,
   defaultHyperAcpWsUrl,
 } from "../ts-sdk/src/agents.ts";
+import { agentsBridgeWsBase } from "../ts-sdk/src/agent-urls.ts";
 import type { AgentSessionClient } from "../ts-sdk/src/session.ts";
 
 const API_KEY_KEYS = ["HYPER_AGENTS_API_KEY", "HYPER_API_KEY", "HYPERCLI_API_KEY"];
@@ -39,14 +40,6 @@ const ACP_RUNTIME_HARNESSES: Record<keyof typeof ACP_CREATE_METHODS, { command: 
 
 const runtimeAgentCache = new Map<string, OpenClawAgent | HermesAgent>();
 const runtimeSessionCache = new Map<string, Promise<AgentSessionClient>>();
-
-interface AcpHub {
-  upstream: NodeWebSocket;
-  clients: Set<NodeWebSocket>;
-  open: boolean;
-  pending: Array<{ data: NodeWebSocket.RawData; isBinary: boolean }>;
-}
-const acpHubs = new Map<string, AcpHub>();
 
 function localConfig() {
   const values = new Map<string, string>();
@@ -85,17 +78,10 @@ function devBridge(): Plugin {
     name: "desktop-ng-dev-bridge",
     apply: "serve",
     configureServer(server) {
-      const acpProxy = new WebSocketServer({ noServer: true });
       const shellProxy = new WebSocketServer({ noServer: true });
       const logsProxy = new WebSocketServer({ noServer: true });
       server.httpServer?.on("upgrade", (req, socket, head) => {
         const url = new URL(req.url ?? "/", "http://localhost");
-        if (url.pathname === "/__desktop_ng/acp") {
-          acpProxy.handleUpgrade(req, socket, head, (client) => {
-            proxyAcpWebSocket(client, url.searchParams.get("agent_id") ?? "");
-          });
-          return;
-        }
         if (url.pathname === "/__desktop_ng/shell") {
           shellProxy.handleUpgrade(req, socket, head, (client) => {
             proxyShellWebSocket(client, url.searchParams.get("agent_id") ?? "");
@@ -216,7 +202,7 @@ async function proxyLogsWebSocket(client: NodeWebSocket, agentId: string) {
       ? tokenData.ws_url
       : `${agentsWsBase(config.apiBase)}/logs/${agentId}`;
     const target = new URL(wsUrl);
-    target.searchParams.set("jwt", String(tokenData.jwt ?? ""));
+    target.searchParams.set("token", String(tokenData.token ?? tokenData.jwt ?? ""));
     target.searchParams.set("tail_lines", "0");
     upstream = new NodeWebSocket(target);
   } catch (error) {
@@ -238,85 +224,7 @@ async function proxyLogsWebSocket(client: NodeWebSocket, agentId: string) {
   });
 }
 
-function agentsWsBase(apiBase: string) {
-  const url = new URL(apiBase);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/agents$/, "").replace(/\/api$/, "");
-  return `${url.toString().replace(/\/+$/, "")}/ws`;
-}
-
-function proxyAcpWebSocket(client: NodeWebSocket, agentId: string) {
-  const config = localConfig();
-  if (!config.token) {
-    client.close(4401, "No HyperCLI credential found");
-    return;
-  }
-  if (!agentId) {
-    client.close(1008, "Missing agent_id");
-    return;
-  }
-
-  // N-client hub: one upstream per agent, frames fanned out to every local
-  // client. ACP SDK clients drop unknown-id responses, so multiple clients
-  // (chat UI, sessions poller) share one agent connection safely.
-  let hub = acpHubs.get(agentId);
-  if (!hub || hub.upstream.readyState === NodeWebSocket.CLOSED) {
-    const target = new URL(defaultHyperAcpWsUrl(config.apiBase));
-    target.searchParams.set("agent_id", agentId);
-    const upstream = new NodeWebSocket(target, {
-      headers: { authorization: `Bearer ${config.token}` },
-    });
-    hub = { upstream, clients: new Set(), open: false, pending: [] };
-    acpHubs.set(agentId, hub);
-    upstream.on("open", () => {
-      hub!.open = true;
-      for (const { data, isBinary } of hub!.pending.splice(0)) sendFrame(upstream, data, isBinary);
-    });
-    upstream.on("message", (data, isBinary) => {
-      for (const c of hub!.clients) {
-        if (c.readyState === NodeWebSocket.OPEN) sendFrame(c, data, isBinary);
-      }
-    });
-    upstream.on("close", (code, reason) => {
-      acpHubs.delete(agentId);
-      for (const c of hub!.clients) {
-        if (c.readyState === NodeWebSocket.OPEN) c.close(closeCode(code), reason.toString());
-      }
-      hub!.clients.clear();
-    });
-    upstream.on("error", (error) => {
-      for (const c of hub!.clients) {
-        if (c.readyState === NodeWebSocket.OPEN) c.close(1011, error.message.slice(0, 120));
-      }
-    });
-  }
-
-  hub.clients.add(client);
-  client.on("message", (data, isBinary) => {
-    if (hub!.open && hub!.upstream.readyState === NodeWebSocket.OPEN) {
-      sendFrame(hub!.upstream, data, isBinary);
-    } else {
-      hub!.pending.push({ data, isBinary });
-    }
-  });
-  client.on("close", () => {
-    hub!.clients.delete(client);
-    // Keep the upstream alive briefly after the last client leaves so a
-    // sessions poller reconnecting does not bounce the agent pairing.
-    setTimeout(() => {
-      const current = acpHubs.get(agentId);
-      if (current && current.clients.size === 0) {
-        acpHubs.delete(agentId);
-        if (
-          current.upstream.readyState === NodeWebSocket.OPEN ||
-          current.upstream.readyState === NodeWebSocket.CONNECTING
-        ) {
-          current.upstream.close();
-        }
-      }
-    }, 15_000);
-  });
-}
+const agentsWsBase = agentsBridgeWsBase;
 
 function sendFrame(socket: NodeWebSocket, data: NodeWebSocket.RawData, isBinary: boolean) {
   socket.send(isBinary ? data : data.toString(), { binary: isBinary });
@@ -441,6 +349,60 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
     return deploymentsClient(config).deleteProfileImage(requiredId(args));
   }
   if (command === "plan_summary") return api(config, "plans/current");
+  if (command === "usage_summary") {
+    const days = Math.min(90, Math.max(1, typeof args.days === "number" && Number.isFinite(args.days) ? Math.floor(args.days) : 7));
+    const [history, keys, agents] = await Promise.allSettled([
+      api(config, `usage/history?days=${days}`) as Promise<{ history?: unknown[] }>,
+      api(config, `usage/keys?days=${days}`) as Promise<{ keys?: unknown[] }>,
+      api(config, `usage/agents?days=${days}`) as Promise<{ agents?: unknown[]; unattributed?: unknown }>,
+    ]);
+    return {
+      days,
+      history: history.status === "fulfilled" ? history.value?.history ?? [] : null,
+      keys: keys.status === "fulfilled" ? keys.value?.keys ?? [] : null,
+      agents: agents.status === "fulfilled" ? agents.value?.agents ?? [] : null,
+      unattributed: agents.status === "fulfilled" ? agents.value?.unattributed ?? null : null,
+    };
+  }
+  if (command === "routines_list") {
+    const agentId = typeof args.agentId === "string" && args.agentId.trim()
+      ? `?agent_id=${encodeURIComponent(args.agentId.trim())}`
+      : "";
+    const payload = await routinesApi(config, `routines${agentId}`) as Record<string, unknown> | unknown[] | null;
+    if (Array.isArray(payload)) return payload;
+    return Array.isArray(payload?.routines) ? payload.routines : [];
+  }
+  if (command === "routines_create") {
+    const agentId = typeof args.agentId === "string" ? args.agentId.trim() : "";
+    const cron = typeof args.cron === "string" ? args.cron.trim() : "";
+    const prompt = typeof args.prompt === "string" ? args.prompt : "";
+    if (!agentId) throw new Error("Missing agent id");
+    if (!cron) throw new Error("Missing cron schedule");
+    if (!prompt.trim()) throw new Error("Missing prompt");
+    return routinesApi(config, "routines", {
+      method: "POST",
+      body: JSON.stringify({
+        agent_id: agentId,
+        cron,
+        prompt,
+        enabled: typeof args.enabled === "boolean" ? args.enabled : true,
+      }),
+    });
+  }
+  if (command === "routines_update") {
+    const patch: Record<string, unknown> = {};
+    if (typeof args.cron === "string") patch.cron = args.cron;
+    if (typeof args.prompt === "string") patch.prompt = args.prompt;
+    if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+    if (Object.keys(patch).length === 0) throw new Error("Nothing to update");
+    return routinesApi(config, `routines/${requiredId(args)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+  }
+  if (command === "routines_delete") {
+    return routinesApi(config, `routines/${requiredId(args)}`, { method: "DELETE" });
+  }
   if (command === "create_agent") {
     const name = typeof args.name === "string" && args.name.trim() ? args.name.trim() : "New agent";
     const runtime = typeof args.runtime === "string" && args.runtime.trim() ? args.runtime.trim() : "opencode";
@@ -849,6 +811,16 @@ function desktopRouteFromSummary(agent: Record<string, unknown>): Record<string,
     }
   }
   return null;
+}
+
+// Routines live at the agents API host root (`/routines`), while
+// config.apiBase points at `…/agents`; strip that suffix to reach the root.
+function routinesApi(
+  config: { apiBase: string; token: string },
+  path: string,
+  init: RequestInit = {},
+) {
+  return api({ ...config, apiBase: config.apiBase.replace(/\/agents$/, "") }, path, init);
 }
 
 async function api(

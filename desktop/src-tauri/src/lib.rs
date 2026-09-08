@@ -537,6 +537,275 @@ async fn plan_summary() -> Result<PlanSummary, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct UsageMetrics {
+    total_tokens: u64,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    requests: u64,
+}
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct UsageDay {
+    date: String,
+    total_tokens: u64,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    requests: u64,
+}
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct UsageKeyEntry {
+    key_hash: String,
+    name: String,
+    total_tokens: u64,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    requests: u64,
+}
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct UsageAgentEntry {
+    agent_id: String,
+    name: String,
+    #[serde(default)]
+    managed: bool,
+    avatar_url: Option<String>,
+    total_tokens: u64,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    requests: u64,
+}
+
+#[derive(Clone, Serialize)]
+struct UsageSummary {
+    days: u32,
+    history: Option<Vec<UsageDay>>,
+    keys: Option<Vec<UsageKeyEntry>>,
+    agents: Option<Vec<UsageAgentEntry>>,
+    unattributed: Option<UsageMetrics>,
+}
+
+#[derive(serde::Deserialize)]
+struct UsageHistoryResponse {
+    #[serde(default)]
+    history: Vec<UsageDay>,
+}
+
+#[derive(serde::Deserialize)]
+struct UsageKeysResponse {
+    #[serde(default)]
+    keys: Vec<UsageKeyEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct UsageAgentsResponse {
+    #[serde(default)]
+    agents: Vec<UsageAgentEntry>,
+    #[serde(default)]
+    unattributed: Option<UsageMetrics>,
+}
+
+fn usage_get<T: serde::de::DeserializeOwned>(path: &str) -> Result<T, String> {
+    let config = discover_client_config().map_err(|e| e.to_string())?;
+    let url = format!(
+        "{}/{}",
+        config.api_base.as_str().trim_end_matches('/'),
+        path
+    );
+    let response = reqwest::blocking::Client::new()
+        .get(url)
+        .bearer_auth(config.api_key.expose_secret())
+        .send()
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        return Err(if body.trim().is_empty() {
+            format!(
+                "{} {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("error")
+            )
+        } else {
+            format!(
+                "{} {}: {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("error"),
+                body.trim()
+            )
+        });
+    }
+    response.json::<T>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn usage_summary(days: Option<u32>) -> Result<UsageSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let days = days.unwrap_or(7).clamp(1, 90);
+        discover_client_config().map_err(|e| e.to_string())?;
+        let history = usage_get::<UsageHistoryResponse>(&format!("usage/history?days={days}"));
+        let keys = usage_get::<UsageKeysResponse>(&format!("usage/keys?days={days}"));
+        let agents = usage_get::<UsageAgentsResponse>(&format!("usage/agents?days={days}"));
+        let (agent_rows, unattributed) = match agents {
+            Ok(response) => (Some(response.agents), response.unattributed),
+            Err(_) => (None, None),
+        };
+        Ok(UsageSummary {
+            days,
+            history: history.ok().map(|response| response.history),
+            keys: keys.ok().map(|response| response.keys),
+            agents: agent_rows,
+            unattributed,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct Routine {
+    id: String,
+    user_id: Option<String>,
+    agent_id: Option<String>,
+    cron: String,
+    prompt: String,
+    enabled: bool,
+    next_run_at: Option<String>,
+    created_at: Option<String>,
+    updated_at: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum RoutineListResponse {
+    List(Vec<Routine>),
+    Wrapped { routines: Vec<Routine> },
+}
+
+/// Routines live at the agents API host root (`/routines`), while
+/// `api_base` points at `…/agents`; strip that suffix to reach the root.
+fn routines_http(
+    method: reqwest::Method,
+    path: &str,
+    body: Option<serde_json::Value>,
+) -> Result<String, String> {
+    let config = discover_client_config().map_err(|e| e.to_string())?;
+    let base = config.api_base.as_str().trim_end_matches('/');
+    let root = base.strip_suffix("/agents").unwrap_or(base);
+    let url = format!("{root}/{path}");
+    let mut request = reqwest::blocking::Client::new()
+        .request(method, url)
+        .bearer_auth(config.api_key.expose_secret());
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().unwrap_or_default();
+        return Err(if body.trim().is_empty() {
+            format!(
+                "{} {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("error")
+            )
+        } else {
+            format!(
+                "{} {}: {}",
+                status.as_u16(),
+                status.canonical_reason().unwrap_or("error"),
+                body.trim()
+            )
+        });
+    }
+    response.text().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn routines_list(agent_id: Option<String>) -> Result<Vec<Routine>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = match agent_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            Some(id) => format!("routines?agent_id={id}"),
+            None => "routines".to_owned(),
+        };
+        let body = routines_http(reqwest::Method::GET, &path, None)?;
+        match serde_json::from_str::<RoutineListResponse>(&body).map_err(|e| e.to_string())? {
+            RoutineListResponse::List(routines) | RoutineListResponse::Wrapped { routines } => {
+                Ok(routines)
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn routines_create(
+    agent_id: String,
+    cron: String,
+    prompt: String,
+    enabled: Option<bool>,
+) -> Result<Routine, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let body = routines_http(
+            reqwest::Method::POST,
+            "routines",
+            Some(serde_json::json!({
+                "agent_id": agent_id,
+                "cron": cron,
+                "prompt": prompt,
+                "enabled": enabled.unwrap_or(true),
+            })),
+        )?;
+        serde_json::from_str::<Routine>(&body).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn routines_update(
+    id: String,
+    cron: Option<String>,
+    prompt: Option<String>,
+    enabled: Option<bool>,
+) -> Result<Routine, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut patch = serde_json::Map::new();
+        if let Some(cron) = cron {
+            patch.insert("cron".to_owned(), serde_json::Value::String(cron));
+        }
+        if let Some(prompt) = prompt {
+            patch.insert("prompt".to_owned(), serde_json::Value::String(prompt));
+        }
+        if let Some(enabled) = enabled {
+            patch.insert("enabled".to_owned(), serde_json::Value::Bool(enabled));
+        }
+        if patch.is_empty() {
+            return Err("Nothing to update".to_owned());
+        }
+        let body = routines_http(
+            reqwest::Method::PATCH,
+            &format!("routines/{id}"),
+            Some(serde_json::Value::Object(patch)),
+        )?;
+        serde_json::from_str::<Routine>(&body).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn routines_delete(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        routines_http(reqwest::Method::DELETE, &format!("routines/{id}"), None)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[derive(Clone, Serialize)]
 struct AcpCredentials {
     api_base: String,
@@ -546,7 +815,8 @@ struct AcpCredentials {
 #[derive(Clone, Serialize, serde::Deserialize)]
 struct AgentLogsToken {
     agent_id: Option<String>,
-    jwt: String,
+    #[serde(alias = "jwt")]
+    token: String,
     expires_at: Option<String>,
     ws_url: Option<String>,
     #[serde(default)]
@@ -590,6 +860,58 @@ async fn agent_logs_token(id: String) -> Result<AgentLogsToken, String> {
             .map_err(|e| e.to_string())?;
         token.api_base = config.api_base.to_string();
         Ok(token)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(Clone, Serialize, serde::Deserialize)]
+struct AgentShellToken {
+    #[serde(alias = "jwt")]
+    token: String,
+    ws_url: String,
+    #[serde(default)]
+    shell: String,
+}
+
+#[tauri::command]
+async fn agent_shell_token(id: String, shell: Option<String>) -> Result<AgentShellToken, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = discover_client_config().map_err(|e| e.to_string())?;
+        let url = format!(
+            "{}/deployments/{}/shell/token",
+            config.api_base.as_str().trim_end_matches('/'),
+            id
+        );
+        let response = reqwest::blocking::Client::new()
+            .post(url)
+            .bearer_auth(config.api_key.expose_secret())
+            .json(&serde_json::json!({
+                "shell": shell.as_deref().unwrap_or("/bin/bash")
+            }))
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            return Err(if body.trim().is_empty() {
+                format!(
+                    "{} {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("error")
+                )
+            } else {
+                format!(
+                    "{} {}: {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("error"),
+                    body.trim()
+                )
+            });
+        }
+        response
+            .json::<AgentShellToken>()
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -733,22 +1055,6 @@ async fn agent_file_read_bytes(id: String, path: String) -> Result<AgentFileByte
     .map_err(|e| e.to_string())?
 }
 
-#[derive(Clone, Serialize)]
-struct AgentExecResult {
-    exit_code: i32,
-    stdout: String,
-    stderr: String,
-}
-
-#[tauri::command]
-async fn agent_exec(
-    _id: String,
-    _command: String,
-    _timeout: Option<u64>,
-) -> Result<AgentExecResult, String> {
-    Err("Shell is not wired in the packaged app yet.".to_owned())
-}
-
 #[tauri::command]
 fn acp_credentials() -> Result<AcpCredentials, String> {
     let config = discover_client_config().map_err(|e| e.to_string())?;
@@ -756,6 +1062,26 @@ fn acp_credentials() -> Result<AcpCredentials, String> {
         api_base: config.api_base.to_string(),
         token: config.api_key.expose_secret().to_owned(),
     })
+}
+
+/// Returns `true` when the running install supports Tauri's auto-updater.
+///
+/// On Linux, Tauri's updater only works for AppImage bundles. The AppImage
+/// runtime sets the `APPIMAGE` environment variable when the binary is
+/// executed from an AppImage; when it is absent (e.g. a `.deb` install) the
+/// updater plugin would find an update but cannot swap the binary, producing
+/// an "invalid binary format" error at install time. On macOS and Windows
+/// every supported install format is auto-updatable.
+#[tauri::command]
+fn is_auto_update_supported() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var("APPIMAGE").is_ok()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
 }
 
 /// Watches deployment transitions and nudges the webview to refetch the
@@ -843,12 +1169,18 @@ pub fn run() {
             delete_agent_avatar,
             acp_credentials,
             agent_logs_token,
+            agent_shell_token,
             agent_desktop_url,
+            is_auto_update_supported,
             agent_files,
             agent_file_read,
             agent_file_read_bytes,
-            agent_exec,
             plan_summary,
+            usage_summary,
+            routines_list,
+            routines_create,
+            routines_update,
+            routines_delete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running hypercli desktop-ng");

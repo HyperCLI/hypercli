@@ -162,6 +162,10 @@ textarea:focus-visible {
     @apply w-[480px] rounded-xl bg-card border border-border shadow-2xl;
   }
 
+  .modal-card-wide {
+    @apply w-[720px] max-w-[calc(100vw-2rem)];
+  }
+
   .status-dot {
     @apply w-1.5 h-1.5 rounded-full shrink-0;
   }

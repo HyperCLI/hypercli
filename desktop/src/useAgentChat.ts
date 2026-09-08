@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CodingAgentAcpClient } from "../../ts-sdk/src/acp.ts";
-import type { RequestPermissionRequest, SessionNotification } from "../../ts-sdk/node_modules/@agentclientprotocol/sdk/dist/acp.d.ts";
-import { type AgentSummary, type RuntimeChatEvent } from "./api";
+import {
+  CodingAgentAcpClient,
+  type RequestPermissionRequest,
+  type SessionNotification,
+} from "../../ts-sdk/src/acp.ts";
+import { acpConnectTarget, type AgentSummary, type RuntimeChatEvent } from "./api";
 import { RUNNING, runtimeFamily } from "./agent-utils";
+import { ActivityTrace, type ActivityEntry } from "./activity-trace";
 import {
   ChatTraceFolder,
   detailOf,
   genId,
   runtimeMessageToChat,
+  settleOpenToolCalls,
   type ChatMessage,
   type PlanEntry,
   type ToolCallEntry,
@@ -15,16 +20,7 @@ import {
 import { runtimeChatHistory, streamRuntimeChatMessage } from "./runtime-client";
 
 export type { ChatMessage, PlanEntry, ToolCallEntry } from "./chat-trace";
-
-export interface ActivityEntry {
-  id: string;
-  ts: number;
-  kind: "tool" | "thinking" | "reply" | "usage" | "note";
-  title: string;
-  detail?: string;
-  status?: string;
-  durationMs?: number;
-}
+export type { ActivityEntry } from "./activity-trace";
 
 export interface ApprovalOption {
   optionId: string;
@@ -80,42 +76,18 @@ function runtimeSessionKey(agentId: string) {
   return `runtime-session:${agentId}`;
 }
 
-function runtimeToolActivityId(event: RuntimeChatEvent) {
+function runtimeToolCallId(event: RuntimeChatEvent): string | undefined {
   const data = event.data ?? {};
   const id = data.toolCallId ?? data.tool_call_id ?? data.callId ?? data.call_id ?? data.id ?? event.eventId;
-  return typeof id === "string" && id ? id : genId();
+  if (typeof id === "string" && id) return id;
+  const name = data.name ?? data.tool_name ?? data.title;
+  return typeof name === "string" && name ? `tool:${name}` : undefined;
 }
 
 function runtimeToolActivityTitle(event: RuntimeChatEvent) {
   const data = event.data ?? {};
   const title = data.title ?? data.name ?? data.toolName ?? data.tool_name;
   return typeof title === "string" && title ? title : "Tool call";
-}
-
-function appendReplyActivity(prev: ActivityEntry[], text: string) {
-  if (!text.trim()) return prev;
-  const last = prev[prev.length - 1];
-  if (last?.kind === "reply" && last.status === "in_progress") {
-    const next = [...prev];
-    next[next.length - 1] = {
-      ...last,
-      ts: Date.now(),
-      detail: `${last.detail ?? ""}${text}`,
-    };
-    return next;
-  }
-  return [
-    ...prev,
-    { id: genId(), ts: Date.now(), kind: "reply" as const, title: "Reply", detail: text, status: "in_progress" },
-  ].slice(-400);
-}
-
-function completeReplyActivity(prev: ActivityEntry[]) {
-  return prev.map((entry) =>
-    entry.kind === "reply" && entry.status === "in_progress"
-      ? { ...entry, status: "completed" }
-      : entry,
-  );
 }
 
 export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
@@ -147,8 +119,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const sessionIdRef = useRef<string | null>(null);
   const generationRef = useRef(0);
   const mountKeyRef = useRef<string | null>(null);
-  const toolStartRef = useRef(new Map<string, number>());
-  const toolActivityRef = useRef(new Map<string, string>());
+  const activityTraceRef = useRef(new ActivityTrace());
   const pendingUserEchoRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -163,10 +134,8 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     const update = notification.update as Record<string, unknown>;
     const kind = update.sessionUpdate as string;
 
-    const pushActivity = (entry: Omit<ActivityEntry, "id" | "ts">) =>
-      setActivity((prev) =>
-        [...prev, { ...entry, id: genId(), ts: Date.now() }].slice(-400),
-      );
+    const pushActivity = (entry: Parameters<ActivityTrace["addNote"]>[0]) =>
+      setActivity(activityTraceRef.current.addNote(entry));
 
     if (kind === "available_commands_update") {
       const list = (update.availableCommands as SlashCommand[]) ?? [];
@@ -204,9 +173,9 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
 
     setMessages((prev) => {
       const next = [...prev];
-      const openAssistant = (): ChatMessage => {
+      const openAssistant = (forceNew = false): ChatMessage => {
         const last = next[next.length - 1];
-        if (last?.role === "assistant") return last;
+        if (last?.role === "assistant" && !forceNew) return last;
         const message: ChatMessage = {
           id: genId(),
           role: "assistant",
@@ -255,15 +224,18 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       }
       if (kind === "agent_message_chunk") {
         const text = textOf(update.content);
-        const current = openAssistant();
+        const last = next[next.length - 1];
+        const newSegment = last?.role === "assistant" && last.text.trim().length > 0 && last.toolCalls.length > 0;
+        const current = openAssistant(newSegment);
         replaceLast({ ...current, text: current.text + text });
-        setActivity((prevAct) => appendReplyActivity(prevAct, text));
+        setActivity(activityTraceRef.current.appendReplyText(text));
         return next;
       }
       if (kind === "agent_thought_chunk") {
         const text = textOf(update.content);
-        setActivity(completeReplyActivity);
-        const current = openAssistant();
+        const last = next[next.length - 1];
+        const newSegment = last?.role === "assistant" && last.text.trim().length > 0;
+        const current = openAssistant(newSegment);
         const thoughts =
           current.thoughts.length === 0
             ? [text]
@@ -272,97 +244,77 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
                 current.thoughts[current.thoughts.length - 1] + text,
               ];
         replaceLast({ ...current, thoughts });
-        setActivity((prevAct) => {
-          const last = prevAct[prevAct.length - 1];
-          if (last?.kind === "thinking") {
-            const copy = [...prevAct];
-            copy[copy.length - 1] = { ...last, detail: (last.detail ?? "") + text };
-            return copy;
-          }
-          return [
-            ...prevAct,
-            {
-              id: genId(),
-              ts: Date.now(),
-              kind: "thinking" as const,
-              title: "Thinking",
-              detail: text,
-            },
-          ].slice(-400);
-        });
+        setActivity(activityTraceRef.current.appendThinkingChunk(text));
         return next;
       }
       if (kind === "tool_call") {
         const rawId = update.toolCallId ?? update.tool_call_id ?? update.callId ?? update.call_id ?? update.id;
-        const toolCallId = typeof rawId === "string" && rawId ? rawId : genId();
+        const callId = typeof rawId === "string" && rawId ? rawId : undefined;
         const title = (update.title as string) ?? "Tool call";
-        setActivity(completeReplyActivity);
         const tool: ToolCallEntry = {
-          id: toolCallId,
+          id: callId ?? genId(),
           title,
           kind: update.kind as string | undefined,
           status: (update.status as string) ?? "pending",
           detail: detailOf(update.rawInput),
         };
-        toolStartRef.current.set(toolCallId, Date.now());
-        const current = openAssistant();
+        const last = next[next.length - 1];
+        const newSegment = last?.role === "assistant" && last.text.trim().length > 0;
+        const current = openAssistant(newSegment);
         replaceLast({ ...current, toolCalls: [...current.toolCalls, tool] });
-        const activityId = genId();
-        toolActivityRef.current.set(toolCallId, activityId);
-        setActivity((prevAct) =>
-          [
-            ...prevAct,
-            {
-              id: activityId,
-              ts: Date.now(),
-              kind: "tool" as const,
-              title,
-              detail: tool.detail,
-              status: tool.status,
-            },
-          ].slice(-400),
+        setActivity(
+          activityTraceRef.current.startToolCall({
+            callId,
+            title,
+            detail: tool.detail,
+            status: tool.status,
+          }),
         );
         setLastAction(title);
         return next;
       }
       if (kind === "tool_call_update") {
         const rawId = update.toolCallId ?? update.tool_call_id ?? update.callId ?? update.call_id ?? update.id;
-        const toolCallId = typeof rawId === "string" ? rawId : "";
+        const callId = typeof rawId === "string" && rawId ? rawId : undefined;
         const status = update.status as string | undefined;
-        const started = toolStartRef.current.get(toolCallId);
         const done = status === "completed" || status === "failed";
-        const durationMs =
-          done && started ? Date.now() - started : undefined;
-        const last = next[next.length - 1];
-        if (last) {
-          replaceLast({
-            ...last,
-            toolCalls: last.toolCalls.map((t) =>
-              t.id === toolCallId
-                ? { ...t, status: status ?? t.status, durationMs: durationMs ?? t.durationMs }
-                : t,
-            ),
-          });
+        const startedAt = activityTraceRef.current.toolStartedAt(callId);
+        const durationMs = done && startedAt != null ? Date.now() - startedAt : undefined;
+        let handled = false;
+        if (callId) {
+          for (let i = next.length - 1; i >= 0; i -= 1) {
+            const message = next[i];
+            if (message.role !== "assistant" || !message.toolCalls.some((t) => t.id === callId)) continue;
+            next[i] = {
+              ...message,
+              toolCalls: message.toolCalls.map((t) =>
+                t.id === callId
+                  ? { ...t, status: status ?? t.status, durationMs: durationMs ?? t.durationMs }
+                  : t,
+              ),
+            };
+            handled = true;
+            break;
+          }
+        }
+        if (!handled && done) {
+          for (const message of next) {
+            if (message.role !== "assistant") continue;
+            const index = message.toolCalls.findIndex(
+              (t) => t.status === "pending" || t.status === "in_progress",
+            );
+            if (index < 0) continue;
+            next[next.indexOf(message)] = {
+              ...message,
+              toolCalls: message.toolCalls.map((t, i) =>
+                i === index ? { ...t, status: status ?? t.status } : t,
+              ),
+            };
+            break;
+          }
         }
         if (status) {
-          const entryId = toolActivityRef.current.get(toolCallId);
-          if (entryId) {
-            setActivity((prevAct) =>
-              prevAct.map((entry) =>
-                entry.id === entryId
-                  ? { ...entry, status, durationMs: durationMs ?? entry.durationMs }
-                  : entry,
-              ),
-            );
-          } else if (done) {
-            setActivity((prevAct) =>
-              prevAct.map((entry) =>
-                entry.kind === "tool" && (entry.status === "pending" || entry.status === "in_progress")
-                  ? { ...entry, status, durationMs: durationMs ?? entry.durationMs }
-                  : entry,
-              ),
-            );
-          }
+          setActivity(activityTraceRef.current.updateToolCall({ callId, status }));
         }
         return next;
       }
@@ -372,65 +324,32 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
 
   const foldRuntimeEvent = useCallback((event: RuntimeChatEvent) => {
     if ((event.type === "content" || event.type === "commentary") && event.text) {
-      setActivity((prev) => appendReplyActivity(prev, event.text ?? ""));
+      setActivity(activityTraceRef.current.appendReplyText(event.text ?? ""));
     }
     if (event.type === "thinking" || event.type === "reasoning") {
       const text = event.text ?? "";
       if (text) {
-        setActivity((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.kind === "thinking") {
-            const next = [...prev];
-            next[next.length - 1] = {
-              ...last,
-              ts: Date.now(),
-              detail: event.replace ? text : `${last.detail ?? ""}${text}`,
-            };
-            return next;
-          }
-          return [...prev, { id: genId(), ts: Date.now(), kind: "thinking" as const, title: "Thinking", detail: text }].slice(-400);
-        });
+        setActivity(activityTraceRef.current.appendThinkingChunk(text, event.replace === true));
       }
     }
     if (event.type === "tool_call") {
       const data = event.data ?? {};
-      const toolCallId = runtimeToolActivityId(event);
+      const callId = runtimeToolCallId(event);
       const title = runtimeToolActivityTitle(event);
       const detail = detailOf(data.args ?? data.arguments ?? data.input ?? data.rawInput ?? data);
-      toolStartRef.current.set(toolCallId, Date.now());
-      const activityId = genId();
-      toolActivityRef.current.set(toolCallId, activityId);
-      setActivity((prev) => [
-        ...prev,
-        { id: activityId, ts: Date.now(), kind: "tool" as const, title, detail, status: "in_progress" },
-      ].slice(-400));
+      setActivity(activityTraceRef.current.startToolCall({ callId, title, detail, status: "in_progress" }));
     }
     if (event.type === "tool_result") {
-      const toolCallId = runtimeToolActivityId(event);
+      const callId = runtimeToolCallId(event);
       const title = runtimeToolActivityTitle(event);
-      const started = toolStartRef.current.get(toolCallId);
       const failed = event.data?.isError === true || event.data?.error === true;
-      const durationMs = started ? Date.now() - started : undefined;
-      const entryId = toolActivityRef.current.get(toolCallId);
-      setActivity((prev) => {
-        if (!entryId) {
-          return [...prev, {
-            id: genId(),
-            ts: Date.now(),
-            kind: "tool" as const,
-            title,
-            status: failed ? "failed" : "completed",
-            durationMs,
-          }].slice(-400);
-        }
-        return prev.map((entry) => entry.id === entryId ? {
-          ...entry,
-          ts: Date.now(),
-          title: title === "Tool call" ? entry.title : title,
+      setActivity(
+        activityTraceRef.current.updateToolCall({
+          callId,
           status: failed ? "failed" : "completed",
-          durationMs: durationMs ?? entry.durationMs,
-        } : entry);
-      });
+          createTitle: title,
+        }),
+      );
     }
     setMessages((prev) => {
       const result = traceFolderRef.current.foldRuntimeEvent(prev, event);
@@ -453,6 +372,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       setConnected(false);
       setLastAction(null);
       traceFolderRef.current.clear();
+      activityTraceRef.current.clear();
       setMountState("STOPPED");
       mountKeyRef.current = null;
       return;
@@ -473,6 +393,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       setError(null);
       if (changedMount) setMessages(cachedMessages ?? []);
       if (changedMount) traceFolderRef.current.clear();
+      activityTraceRef.current.clear();
       setActivity([]);
       setApprovals([]);
       setCommands([]);
@@ -495,10 +416,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           const message = e instanceof Error ? e.message : String(e);
           setPhase("ready");
           setMountState("MOUNTED");
-          setActivity((prev) => [
-            ...prev,
-            { id: genId(), ts: Date.now(), kind: "note", title: `History unavailable: ${message}` },
-          ]);
+          setActivity(activityTraceRef.current.addNote({ kind: "note", title: `History unavailable: ${message}` }));
         });
       return () => {
         generationRef.current++;
@@ -516,6 +434,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       setConnected(false);
       setLastAction(null);
       traceFolderRef.current.clear();
+      activityTraceRef.current.clear();
       setMountState("STOPPED");
       return;
     }
@@ -529,19 +448,15 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     setError(null);
     if (changedMount) setMessages([]);
     if (changedMount) traceFolderRef.current.clear();
+    activityTraceRef.current.clear();
     setActivity([]);
     setApprovals([]);
     setCommands([]);
     setLastAction(null);
 
     const connect = async () => {
-      const ws = new URL("/__desktop_ng/acp", window.location.href);
-      ws.protocol = ws.protocol === "https:" ? "wss:" : "ws:";
-      ws.searchParams.set("agent_id", agentId);
-      const url = ws.toString();
-
       const client = await CodingAgentAcpClient.connect(
-        { url, token: "" },
+        await acpConnectTarget(agentId),
         {
           clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
           onUpdate: (notification) => {
@@ -629,8 +544,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
       setMountState("STOPPING");
       generationRef.current++;
       sessionIdRef.current = null;
-      toolStartRef.current.clear();
-      toolActivityRef.current.clear();
+      activityTraceRef.current.clear();
       traceFolderRef.current.clear();
       clientRef.current?.close();
       clientRef.current = null;
@@ -661,19 +575,21 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
           if (mountState !== "MOUNTED") throw new Error("Chat is still mounting. Try again in a moment.");
           const selectedRuntimeSessionKey = localStorage.getItem(runtimeSessionKey(currentAgent.id));
           await streamRuntimeChatMessage(currentAgent, prompt, foldRuntimeEvent, selectedRuntimeSessionKey);
-          setActivity(completeReplyActivity);
+          setActivity(activityTraceRef.current.settleTurn("completed"));
+          setMessages((prev) => settleOpenToolCalls(prev, "completed"));
           return;
         }
         const client = clientRef.current;
         const sessionId = sessionIdRef.current;
         if (!client || !sessionId) return;
         await client.prompt(sessionId, prompt);
-        setActivity(completeReplyActivity);
+        setActivity(activityTraceRef.current.settleTurn("completed"));
+        setMessages((prev) => settleOpenToolCalls(prev, "completed"));
       } catch (e) {
         pendingUserEchoRef.current = null;
         const message = e instanceof Error ? e.message : String(e);
         setMessages((prev) => [
-          ...prev,
+          ...settleOpenToolCalls(prev, "interrupted"),
           {
             id: genId(),
             role: "assistant",
@@ -685,15 +601,8 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
             ts: Date.now(),
           },
         ]);
-        setActivity((prev) => [
-          ...prev,
-          {
-            id: genId(),
-            ts: Date.now(),
-            kind: "note",
-            title: message,
-          },
-        ]);
+        activityTraceRef.current.settleTurn("interrupted");
+        setActivity(activityTraceRef.current.addNote({ kind: "note", title: message }));
       } finally {
         setBusy(false);
       }
@@ -706,6 +615,7 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     if (clientRef.current && sessionId) {
       await clientRef.current.cancel(sessionId).catch(() => {});
     }
+    setActivity(activityTraceRef.current.settleTurn("interrupted"));
   }, []);
 
   const retry = useCallback(() => setRetryNonce((n) => n + 1), []);

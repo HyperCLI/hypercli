@@ -61,8 +61,9 @@ export function useAgentLogs(agent: AgentSummary | null, enabled: boolean) {
     setPhase("connecting");
     setError(null);
 
-    try {
-      ws = new WebSocket(agentLogsUrl(agentId));
+    const open = async () => {
+      try {
+        ws = new WebSocket(await agentLogsUrl(agentId));
         ws.onopen = () => alive && setPhase("connected");
         ws.onmessage = (event) => {
           if (!alive || typeof event.data !== "string" || !event.data) return;
@@ -80,11 +81,13 @@ export function useAgentLogs(agent: AgentSummary | null, enabled: boolean) {
           setPhase("error");
         };
         ws.onclose = () => alive && setPhase((current) => (current === "error" ? "error" : "closed"));
-    } catch (e) {
-      if (!alive) return;
-      setError(e instanceof Error ? e.message : String(e));
-      setPhase("error");
-    }
+      } catch (e) {
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : String(e));
+        setPhase("error");
+      }
+    };
+    void open();
 
     return () => {
       alive = false;

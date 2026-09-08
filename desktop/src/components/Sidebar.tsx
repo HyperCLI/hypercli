@@ -17,6 +17,7 @@ import {
 import type { AgentSummary, AcpSessionInfo } from "../api";
 import { listAcpSessions } from "../api";
 import { useTheme } from "../theme";
+import { useAppUpdate } from "../useAppUpdate";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { RUNNING, TRANSITIONAL, runtimeFamily, runtimeLabel } from "../agent-utils";
@@ -49,6 +50,7 @@ export function Sidebar({
   onNewSession: (agentId: string) => void;
 }) {
   const { resolved, setTheme } = useTheme();
+  const { state: updateState } = useAppUpdate();
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [sessionQuery, setSessionQuery] = useState("");
   const [sessionPickerAgentId, setSessionPickerAgentId] = useState<string | null>(null);
@@ -251,10 +253,20 @@ export function Sidebar({
           </button>
           <button
             onClick={onOpenSettings}
-            className="ui-icon-button-sm"
-            title="Settings"
+            className="ui-icon-button-sm relative"
+            title={
+              updateState.status === "available"
+                ? `Update available: HyperCLI ${updateState.version}`
+                : updateState.status === "downloading"
+                  ? "Downloading update…"
+                  : "Settings"
+            }
           >
             <Settings size={15} />
+            {(updateState.status === "available" ||
+              updateState.status === "downloading") && (
+              <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent" />
+            )}
           </button>
         </div>
       </div>

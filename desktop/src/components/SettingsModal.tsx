@@ -1,14 +1,18 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
-import { User, X } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Download, Loader2, User, X } from "lucide-react";
 import { logout, planSummary, type PlanSummary } from "../api";
 import { useTheme, type Theme } from "../theme";
+import { UsagePanel } from "./UsagePanel";
+import { RELEASES_URL, useAppUpdate } from "../useAppUpdate";
 
-type Tab = "general" | "billing" | "updates";
+type Tab = "general" | "billing" | "usage" | "updates";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "billing", label: "Usage & billing" },
+  { id: "usage", label: "Usage" },
   { id: "updates", label: "Updates" },
 ];
 
@@ -29,7 +33,7 @@ export function SettingsModal({
       onClick={onClose}
     >
       <div
-        className="modal-card"
+        className={`modal-card ${tab === "usage" ? "modal-card-wide" : ""}`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-4 px-5 border-b border-border">
@@ -58,11 +62,16 @@ export function SettingsModal({
           </button>
         </div>
 
-        <div className="p-5 min-h-[220px]">
+        <div
+          className={`p-5 min-h-[220px] ${
+            tab === "usage" ? "max-h-[70vh] overflow-y-auto" : ""
+          }`}
+        >
           {tab === "general" && (
             <GeneralTab apiBase={apiBase} onSignedOut={onSignedOut} />
           )}
           {tab === "billing" && <BillingTab />}
+          {tab === "usage" && <UsagePanel />}
           {tab === "updates" && <UpdatesTab />}
         </div>
       </div>
@@ -178,12 +187,26 @@ function BillingTab() {
 
 function UpdatesTab() {
   const [version, setVersion] = useState<string | null>(null);
+  const { state, checkNow, install } = useAppUpdate();
 
   useEffect(() => {
     getVersion()
       .then(setVersion)
       .catch(() => setVersion(null));
   }, []);
+
+  const openReleases = async () => {
+    try {
+      await openUrl(RELEASES_URL);
+    } catch {
+      window.open(RELEASES_URL, "_blank");
+    }
+  };
+
+  const downloadPercent =
+    state.status === "downloading" && state.total
+      ? Math.min(100, Math.round((state.downloaded / state.total) * 100))
+      : null;
 
   return (
     <div className="space-y-4">
@@ -193,8 +216,81 @@ function UpdatesTab() {
           {version ?? "—"}
         </span>
       </div>
-      <div className="border-t border-border pt-4 text-[12px] text-text-secondary">
-        You're up to date.
+      <div className="border-t border-border pt-4 space-y-3">
+        {state.status === "checking" && (
+          <div className="flex items-center gap-2 text-[12px] text-text-secondary">
+            <Loader2 size={13} className="animate-spin" />
+            Checking for updates…
+          </div>
+        )}
+
+        {state.status === "up-to-date" && (
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-[12px] text-text-secondary">
+              You're up to date.
+            </span>
+            <button onClick={checkNow} className="ui-secondary-button shrink-0">
+              Check again
+            </button>
+          </div>
+        )}
+
+        {state.status === "available" && (
+          <>
+            <div className="text-[13px] font-medium">
+              HyperCLI {state.version} is available
+            </div>
+            {state.notes && (
+              <div className="max-h-24 overflow-y-auto whitespace-pre-wrap text-[11px] text-text-secondary leading-relaxed">
+                {state.notes}
+              </div>
+            )}
+            <div>
+              <button onClick={install} className="ui-secondary-button">
+                Update and restart
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.status === "downloading" && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-[12px] text-text-secondary">
+              <Loader2 size={13} className="animate-spin" />
+              Downloading update{downloadPercent !== null ? ` — ${downloadPercent}%` : "…"}
+            </div>
+            <div className="h-1 rounded-full bg-active-row overflow-hidden">
+              <div
+                className="h-full bg-accent transition-[width]"
+                style={{ width: `${downloadPercent ?? 100}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {state.status === "error" && (
+          <div className="space-y-2">
+            <div className="text-[12px] text-text-secondary">
+              Update check failed{state.error ? `: ${state.error}` : "."}
+            </div>
+            <button onClick={checkNow} className="ui-secondary-button">
+              Try again
+            </button>
+          </div>
+        )}
+
+        {state.status === "manual" && (
+          <div className="space-y-2">
+            <div className="text-[12px] text-text-secondary leading-relaxed">
+              This install can't update itself. Download the latest release to
+              get the newest version.
+            </div>
+            <button onClick={openReleases} className="ui-secondary-button">
+              <Download size={12} className="mr-1.5 inline-block" />
+              Download from GitHub
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
