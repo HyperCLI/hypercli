@@ -9,14 +9,6 @@ on:
       test_api_base_url:
         required: true
         type: string
-  workflow_dispatch:
-    inputs:
-      test_base_url:
-        required: true
-        type: string
-      test_api_base_url:
-        required: true
-        type: string
 
 env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -2,7 +2,6 @@ name: playwright-console
 
 on:
   workflow_call:
-  workflow_dispatch:
 
 env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
