@@ -12,7 +12,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFiles, agentShellUrl, routinesDelete, routinesList, routinesUpdate, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFileWrite, agentFiles, agentShellUrl, routinesDelete, routinesList, routinesUpdate, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
 import { describeRoutine } from "../schedule";
 import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
@@ -644,6 +644,27 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
 
   const parent = parentPath(path);
 
+  const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const dragDepthRef = useRef(0);
+
+  const uploadFiles = async (files: FileList | File[]) => {
+    if (agent.state !== RUNNING) return;
+    for (const file of Array.from(files)) {
+      const target = path ? `${path}/${file.name}` : file.name;
+      setUploading(file.name);
+      try {
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        await agentFileWrite(agent.id, target, bytes);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setUploading(null);
+      }
+    }
+    void load(path);
+  };
+
   return (
     <div className="flex flex-col border-t border-border p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -659,9 +680,36 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
         >
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
         </button>
+        {uploading && (
+          <span className="shrink-0 text-[10px] text-text-secondary">Uploading {uploading}…</span>
+        )}
       </div>
       {error && <div className="mb-3 rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{error}</div>}
-      <div className="min-h-0 max-h-72 overflow-hidden rounded-lg border border-border bg-card">
+      <div
+        className={`min-h-0 max-h-72 overflow-hidden rounded-lg border bg-card ${dragOver ? "border-accent ring-1 ring-accent" : "border-border"}`}
+        onDragEnter={(e) => {
+          e.preventDefault();
+          dragDepthRef.current += 1;
+          if (agent.state === RUNNING) setDragOver(true);
+        }}
+        onDragOver={(e) => e.preventDefault()}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0) setDragOver(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          dragDepthRef.current = 0;
+          setDragOver(false);
+          if (e.dataTransfer.files.length > 0) void uploadFiles(e.dataTransfer.files);
+        }}
+      >
+        {dragOver && (
+          <div className="border-b border-accent bg-accent/10 px-3 py-1.5 text-center text-[11px] text-accent">
+            Drop to upload to /{path || ""}
+          </div>
+        )}
         {path && (
           <button
             onClick={() => void load(parent)}
@@ -680,7 +728,7 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
             <div className="px-3 py-8 text-center text-[11px] text-text-secondary">Loading files...</div>
           ) : entries.length === 0 ? (
             <div className="px-3 py-8 text-center text-[11px] text-text-secondary">
-              {error ? "Could not load this folder." : "No files here."}
+              {error ? "Could not load this folder." : "No files here. Drop files to upload."}
             </div>
           ) : (
             entries.map((entry) => (

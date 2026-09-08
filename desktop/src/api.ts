@@ -223,6 +223,8 @@ export const agentFileRead = (id: string, path: string) =>
   command<string>("agent_file_read", { id, path });
 export const agentFileReadBytes = (id: string, path: string) =>
   command<AgentFileBytes>("agent_file_read_bytes", { id, path });
+export const agentFileWrite = (id: string, path: string, bytes: Uint8Array) =>
+  command<void>("agent_file_write", { id, path, bytes: Array.from(bytes) });
 export const agentExec = (id: string, commandText: string, timeout = 30) =>
   command<AgentExecResult>("agent_exec", { id, command: commandText, timeout });
 const agentWsBase = agentsBridgeWsBase;

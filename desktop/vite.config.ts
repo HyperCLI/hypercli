@@ -528,6 +528,15 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
     const bytes = await agent.fileReadBytes(path, { maxBytes: 20_000_000 });
     return { bytes: Array.from(bytes) };
   }
+  if (command === "agent_file_write") {
+    const path = typeof args.path === "string" ? args.path : "";
+    if (!path) throw new Error("File path is required");
+    const bytes = Array.isArray(args.bytes) ? Uint8Array.from(args.bytes as number[]) : null;
+    if (!bytes) throw new Error("File bytes are required");
+    const agent = await deploymentsClient(config).get(requiredId(args));
+    await agent.fileWriteBytes(path, bytes);
+    return null;
+  }
   if (command === "agent_exec") {
     const commandText = typeof args.command === "string" ? args.command.trim() : "";
     if (!commandText) throw new Error("Command is empty");

@@ -1102,6 +1102,18 @@ async fn agent_file_read_bytes(id: String, path: String) -> Result<AgentFileByte
 }
 
 #[tauri::command]
+async fn agent_file_write(id: String, path: String, bytes: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        client()?
+            .put_deployment_file(&id, &path, &bytes)
+            .map_err(friendly)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 fn acp_credentials() -> Result<AcpCredentials, String> {
     let config = discover_client_config().map_err(|e| e.to_string())?;
     Ok(AcpCredentials {
@@ -1221,6 +1233,7 @@ pub fn run() {
             agent_files,
             agent_file_read,
             agent_file_read_bytes,
+            agent_file_write,
             plan_summary,
             usage_summary,
             routines_list,
