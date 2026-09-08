@@ -740,7 +740,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
     assert captured["gateway_token"] is None
 
 
-def test_agents_start_without_overrides_uses_protected_complete_launch(monkeypatch):
+def test_agents_start_without_overrides_uses_stored_complete_launch(monkeypatch):
     calls: list[tuple[str, object]] = []
     launch_config = {
         "config": {},
@@ -759,6 +759,10 @@ def test_agents_start_without_overrides_uses_protected_complete_launch(monkeypat
         "runtime_scopes": ["agents:none"],
     }
 
+    def stored_launch_config(agent_id):
+        calls.append(("stored_launch_config", agent_id))
+        return launch_config
+
     def start(agent_id, supplied_launch):
         calls.append(("start", (agent_id, supplied_launch)))
         return SimpleNamespace(
@@ -775,12 +779,7 @@ def test_agents_start_without_overrides_uses_protected_complete_launch(monkeypat
     monkeypatch.setattr(
         agents_module,
         "_get_deployments_client",
-        lambda: SimpleNamespace(start=start, get=get),
-    )
-    monkeypatch.setattr(
-        agents_module,
-        "_load_state",
-        lambda: {"agent-123": {"launch_config": launch_config}},
+        lambda: SimpleNamespace(start=start, get=get, stored_launch_config=stored_launch_config),
     )
     monkeypatch.setattr(agents_module, "_save_agent_state", lambda _agent: None)
 
@@ -789,6 +788,7 @@ def test_agents_start_without_overrides_uses_protected_complete_launch(monkeypat
     assert result.exit_code == 0
     assert calls == [
         ("get", "agent-123"),
+        ("stored_launch_config", "agent-123"),
         ("start", ("agent-123", launch_config)),
     ]
     assert "Agent starting: steady-orbit-engine" in result.output
