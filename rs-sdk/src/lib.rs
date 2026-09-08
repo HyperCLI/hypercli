@@ -14,8 +14,7 @@ mod workspaces;
 
 pub use client::{
     FileApiReadyOptions, HyperCliClient, HyperCliError, AGENT_FILE_READ_MAX_BYTES,
-    AGENT_FILE_WRITE_MAX_BYTES,
-    DEFAULT_HOSTNAME_SETTLE_DELAY,
+    AGENT_FILE_WRITE_MAX_BYTES, DEFAULT_HOSTNAME_SETTLE_DELAY,
 };
 pub use config::{
     discover_agents_api_base, discover_client_config, discover_client_config_from,
@@ -33,8 +32,8 @@ pub use hermes::{
 };
 pub use keys::{issue_api_key_from_jwt, IssueApiKeyError, IssueApiKeyFromJwtOptions};
 pub use openclaw::{
-    OpenClawLaunchConfig, AGENT_RUNTIME_SCOPES, OPENCLAW_CRON_ENABLED_ENV,
-    HYPER_DESKTOP_ENABLED_ENV, OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX,
+    OpenClawLaunchConfig, AGENT_RUNTIME_SCOPES, HYPER_DESKTOP_ENABLED_ENV,
+    OPENCLAW_CRON_ENABLED_ENV, OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX,
     OPENCLAW_GATEWAY_PORT, OPENCLAW_IMAGE, OPENCLAW_PRO_IMAGE, OPENCLAW_SYNC_EXCLUDE,
     OPENCLAW_SYNC_ROOT,
 };

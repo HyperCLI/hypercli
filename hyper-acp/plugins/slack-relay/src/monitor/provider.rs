@@ -668,7 +668,7 @@ mod tests {
     #[test]
     fn durable_log_rehydrates_only_committed_unreleased_dedupe_keys() {
         let path = std::env::temp_dir().join(format!(
-            "hyper-acp-slack-dedupe-{}.jsonl",
+            "hyper-acp-slack-dedupe-provider-{}.jsonl",
             std::process::id()
         ));
         let committed = r#"["message","acct","T1","C1","100.100"]"#;

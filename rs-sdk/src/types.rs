@@ -1641,7 +1641,9 @@ mod tests {
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
-        assert!(!request.env.contains_key("HYPER_ACP_AUTO_APPROVE_PERMISSION"));
+        assert!(!request
+            .env
+            .contains_key("HYPER_ACP_AUTO_APPROVE_PERMISSION"));
         assert_eq!(
             request.env.get("BUZZ_ACP_AGENT_ARGS").map(String::as_str),
             Some("acp")
