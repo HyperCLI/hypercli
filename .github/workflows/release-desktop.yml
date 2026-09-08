@@ -119,13 +119,11 @@ jobs:
           fi
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
-          # Never release while either the fast Desktop contract or the
-          # backend image build+E2E gate is red or unfinished. The E2E lives
-          # in the hyperclaw-backend repo (Build & Push Images,
-          # tests/smoke/test_buzz_provider_hypercli_e2e.py against the dev
-          # relay), so it is queried cross-repo by name.
-          # Unrelated site/SDK pipelines must not hold desktop releases hostage.
-          for SPEC in "HyperCLI/hypercli|Desktop CI" "HyperCLI/hyperclaw-backend|Build & Push Images"; do
+          # Never release while the fast Desktop contract is red or
+          # unfinished. The desktop client drives hosted agents but its
+          # release does not depend on the backend image pipeline; backend
+          # CI churn must not hold desktop releases hostage.
+          for SPEC in "HyperCLI/hypercli|Desktop CI"; do
             REPO="${SPEC%%|*}"
             WORKFLOW="${SPEC#*|}"
             STATE="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch main --limit 1 \
