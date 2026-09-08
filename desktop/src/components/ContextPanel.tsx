@@ -12,7 +12,9 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFiles, agentShellUrl, routinesCreate, routinesDelete, routinesList, routinesUpdate, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFiles, agentShellUrl, routinesDelete, routinesList, routinesUpdate, type AgentFileEntry, type AgentSummary, type Routine } from "../api";
+import { describeRoutine } from "../schedule";
+import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { RUNNING, runtimeLabel } from "../agent-utils";
@@ -916,43 +918,6 @@ function Caption({ children }: { children: string }) {
   return <div className="side-caption">{children}</div>;
 }
 
-type RoutineFrequency = "daily" | "weekdays" | "weekly" | "hourly";
-
-const ROUTINE_FREQUENCIES: { id: RoutineFrequency; label: string }[] = [
-  { id: "daily", label: "Daily" },
-  { id: "weekdays", label: "Weekdays" },
-  { id: "weekly", label: "Weekly" },
-  { id: "hourly", label: "Hourly" },
-];
-
-function routineCron(frequency: RoutineFrequency, hour: number, minute: number, weekday: number): string {
-  const h = Math.min(23, Math.max(0, hour));
-  const m = Math.min(59, Math.max(0, minute));
-  if (frequency === "hourly") return `${m} * * * *`;
-  if (frequency === "weekdays") return `${m} ${h} * * 1-5`;
-  if (frequency === "weekly") return `${m} ${h} * * ${Math.min(6, Math.max(0, weekday))}`;
-  return `${m} ${h} * * *`;
-}
-
-function describeRoutine(routine: Routine): string {
-  const cron = routine.cron.trim().split(/\s+/);
-  const time = (hour: string, minute: string) =>
-    `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
-  if (cron.length === 5) {
-    const [minute, hour, , , dow] = cron;
-    if (hour === "*" && /^\d+$/.test(minute)) return `Hourly at :${minute.padStart(2, "0")}`;
-    if (/^\d+$/.test(hour) && /^\d+$/.test(minute)) {
-      if (dow === "1-5") return `Weekdays ${time(hour, minute)}`;
-      if (dow === "*") return `Daily ${time(hour, minute)}`;
-      if (/^[0-6]$/.test(dow)) {
-        const day = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][Number(dow)];
-        return `${day}s ${time(hour, minute)}`;
-      }
-    }
-  }
-  return routine.cron;
-}
-
 function formatRoutineTime(iso: string | null): string {
   if (!iso) return "—";
   const date = new Date(iso);
@@ -964,13 +929,7 @@ function formatRoutineTime(iso: string | null): string {
 function RoutinesTab({ agent }: { agent: AgentSummary }) {
   const [routines, setRoutines] = useState<Routine[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [composing, setComposing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [frequency, setFrequency] = useState<RoutineFrequency>("daily");
-  const [timeValue, setTimeValue] = useState("09:00");
-  const [weekday, setWeekday] = useState(1);
-  const [hourlyMinute, setHourlyMinute] = useState(0);
+  const [modal, setModal] = useState<{ routine: Routine | null } | null>(null);
 
   const load = () => {
     routinesList(agent.id)
@@ -981,25 +940,6 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
   useEffect(load, [agent.id]);
-
-  const create = async () => {
-    const text = prompt.trim();
-    if (!text || saving) return;
-    const [hour, minute] = timeValue.split(":").map((part) => Number(part));
-    const cron = routineCron(frequency, hour || 0, minute || 0, weekday);
-    const finalCron = frequency === "hourly" ? routineCron("hourly", 0, hourlyMinute, 0) : cron;
-    setSaving(true);
-    try {
-      await routinesCreate({ agentId: agent.id, cron: finalCron, prompt: text, enabled: true });
-      setPrompt("");
-      setComposing(false);
-      load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const toggle = async (routine: Routine) => {
     try {
@@ -1024,10 +964,10 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
       <div className="flex items-center justify-between">
         <Caption>{routines ? `${routines.length} ROUTINE${routines.length === 1 ? "" : "S"}` : "ROUTINES"}</Caption>
         <button
-          onClick={() => setComposing((v) => !v)}
+          onClick={() => setModal({ routine: null })}
           className="text-[11px] font-medium text-accent hover:underline"
         >
-          {composing ? "Cancel" : "+ New routine"}
+          + New routine
         </button>
       </div>
 
@@ -1035,86 +975,42 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
         <div className="rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{error}</div>
       )}
 
-      {composing && (
-        <div className="soft-card p-3 space-y-2.5">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={`What should ${agent.name} do on a schedule?`}
-            rows={3}
-            className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-2 text-[12px] outline-none focus:border-border-strong"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="segmented-tabs">
-              {ROUTINE_FREQUENCIES.map((f) => (
-                <button
-                  key={f.id}
-                  onClick={() => setFrequency(f.id)}
-                  className={`segmented-tab ${frequency === f.id ? "segmented-tab-active" : ""}`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
-            {frequency === "hourly" ? (
-              <label className="flex items-center gap-1.5 text-[11px] text-text-secondary">
-                at minute
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={hourlyMinute}
-                  onChange={(e) => setHourlyMinute(Math.min(59, Math.max(0, Number(e.target.value) || 0)))}
-                  className="w-14 rounded-md border border-border bg-background px-2 py-1 text-[12px]"
-                />
-              </label>
-            ) : (
-              <input
-                type="time"
-                value={timeValue}
-                onChange={(e) => setTimeValue(e.target.value || "09:00")}
-                className="rounded-md border border-border bg-background px-2 py-1 text-[12px]"
-              />
-            )}
-            {frequency === "weekly" && (
-              <select
-                value={weekday}
-                onChange={(e) => setWeekday(Number(e.target.value))}
-                className="rounded-md border border-border bg-background px-2 py-1 text-[12px]"
-              >
-                {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((day, i) => (
-                  <option key={day} value={i}>{day}</option>
-                ))}
-              </select>
-            )}
-          </div>
-          <button
-            onClick={create}
-            disabled={!prompt.trim() || saving}
-            className="ui-secondary-button w-full py-1.5 text-[12px] font-medium disabled:opacity-40"
-          >
-            {saving ? "Creating…" : "Create routine"}
-          </button>
-        </div>
-      )}
-
       {routines === null && !error ? (
         <div className="soft-card px-4 py-6 text-center text-[11px] text-text-secondary">Loading routines…</div>
-      ) : routines !== null && routines.length === 0 && !composing ? (
+      ) : routines !== null && routines.length === 0 ? (
         <div className="soft-card px-4 py-6 text-center">
           <CalendarClock size={20} className="mx-auto text-text-secondary mb-2" />
-          <div className="text-[12px] font-medium mb-0.5">No routines yet</div>
+          <div className="text-[12px] font-medium mb-0.5">Your work, on autopilot</div>
           <p className="text-[11px] text-text-secondary leading-relaxed">
-            Scheduled prompts run in the cloud, even when your computer is off.
+            Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows
+            automatically on schedules — without waiting for someone to ask.
           </p>
+          <button
+            onClick={() => setModal({ routine: null })}
+            className="ui-secondary-button mt-3 text-[11px] font-medium"
+          >
+            New Scheduled Job +
+          </button>
         </div>
       ) : (
         <div className="space-y-1.5">
           {(routines ?? []).map((routine) => (
-            <div key={routine.id} className="soft-card px-3 py-2.5">
+            <div
+              key={routine.id}
+              className="soft-card px-3 py-2.5 cursor-pointer hover:border-border-strong transition-colors"
+              onClick={() => setModal({ routine })}
+              title="Edit scheduled job"
+            >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[12px] leading-snug break-words">{routine.prompt}</div>
+                  {routine.name ? (
+                    <>
+                      <div className="text-[12px] font-medium leading-snug break-words">{routine.name}</div>
+                      <div className="mt-0.5 text-[11px] leading-snug break-words text-text-secondary">{routine.prompt}</div>
+                    </>
+                  ) : (
+                    <div className="text-[12px] leading-snug break-words">{routine.prompt}</div>
+                  )}
                   <div className="mt-1 text-[10px] text-text-secondary">
                     {describeRoutine(routine)} · next {formatRoutineTime(routine.next_run_at)}
                   </div>
@@ -1123,13 +1019,19 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
                   <button
                     role="switch"
                     aria-checked={routine.enabled}
-                    onClick={() => toggle(routine)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggle(routine);
+                    }}
                     className={`shrink-0 w-7 h-[16px] rounded-full relative transition-colors ${routine.enabled ? "bg-accent" : "bg-border-strong"}`}
                   >
                     <span className={`absolute top-[2px] w-[12px] h-[12px] rounded-full bg-white transition-all ${routine.enabled ? "left-[13px]" : "left-[2px]"}`} />
                   </button>
                   <button
-                    onClick={() => remove(routine)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      remove(routine);
+                    }}
                     className="ui-icon-button-sm text-text-secondary hover:text-error"
                     title="Delete routine"
                   >
@@ -1140,6 +1042,18 @@ function RoutinesTab({ agent }: { agent: AgentSummary }) {
             </div>
           ))}
         </div>
+      )}
+
+      {modal && (
+        <NewScheduledJobModal
+          agent={agent}
+          routine={modal.routine}
+          onClose={() => setModal(null)}
+          onSaved={() => {
+            setModal(null);
+            load();
+          }}
+        />
       )}
     </div>
   );

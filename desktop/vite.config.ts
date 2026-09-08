@@ -375,23 +375,29 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
   if (command === "routines_create") {
     const agentId = typeof args.agentId === "string" ? args.agentId.trim() : "";
     const cron = typeof args.cron === "string" ? args.cron.trim() : "";
+    const runAt = typeof args.runAt === "string" ? args.runAt.trim() : "";
+    const name = typeof args.name === "string" ? args.name.trim() : "";
     const prompt = typeof args.prompt === "string" ? args.prompt : "";
     if (!agentId) throw new Error("Missing agent id");
-    if (!cron) throw new Error("Missing cron schedule");
+    if (!cron && !runAt) throw new Error("Missing schedule (cron or run_at)");
     if (!prompt.trim()) throw new Error("Missing prompt");
     return routinesApi(config, "routines", {
       method: "POST",
       body: JSON.stringify({
         agent_id: agentId,
-        cron,
         prompt,
         enabled: typeof args.enabled === "boolean" ? args.enabled : true,
+        ...(cron ? { cron } : {}),
+        ...(runAt ? { run_at: runAt } : {}),
+        ...(name ? { name } : {}),
       }),
     });
   }
   if (command === "routines_update") {
     const patch: Record<string, unknown> = {};
-    if (typeof args.cron === "string") patch.cron = args.cron;
+    if (typeof args.cron === "string") patch.cron = args.cron.trim() ? args.cron : null;
+    if (typeof args.runAt === "string") patch.run_at = args.runAt.trim() ? args.runAt : null;
+    if (typeof args.name === "string") patch.name = args.name.trim() ? args.name : null;
     if (typeof args.prompt === "string") patch.prompt = args.prompt;
     if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
     if (Object.keys(patch).length === 0) throw new Error("Nothing to update");

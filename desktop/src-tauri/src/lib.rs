@@ -668,9 +668,11 @@ struct Routine {
     id: String,
     user_id: Option<String>,
     agent_id: Option<String>,
-    cron: String,
+    name: Option<String>,
+    cron: Option<String>,
     prompt: String,
     enabled: bool,
+    run_at: Option<String>,
     next_run_at: Option<String>,
     created_at: Option<String>,
     updated_at: Option<String>,
@@ -722,6 +724,14 @@ fn routines_http(
     response.text().map_err(|e| e.to_string())
 }
 
+fn nullable_string(value: String) -> serde_json::Value {
+    if value.trim().is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::String(value)
+    }
+}
+
 #[tauri::command]
 async fn routines_list(agent_id: Option<String>) -> Result<Vec<Routine>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -743,20 +753,48 @@ async fn routines_list(agent_id: Option<String>) -> Result<Vec<Routine>, String>
 #[tauri::command]
 async fn routines_create(
     agent_id: String,
-    cron: String,
+    cron: Option<String>,
+    run_at: Option<String>,
+    name: Option<String>,
     prompt: String,
     enabled: Option<bool>,
 ) -> Result<Routine, String> {
     tauri::async_runtime::spawn_blocking(move || {
+        let cron = cron
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let run_at = run_at
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if cron.is_none() && run_at.is_none() {
+            return Err("Missing schedule (cron or run_at)".to_owned());
+        }
+        if prompt.trim().is_empty() {
+            return Err("Missing prompt".to_owned());
+        }
+        let mut body = serde_json::Map::new();
+        body.insert("agent_id".to_owned(), serde_json::Value::String(agent_id));
+        body.insert("prompt".to_owned(), serde_json::Value::String(prompt));
+        body.insert(
+            "enabled".to_owned(),
+            serde_json::Value::Bool(enabled.unwrap_or(true)),
+        );
+        if let Some(cron) = cron {
+            body.insert("cron".to_owned(), serde_json::Value::String(cron));
+        }
+        if let Some(run_at) = run_at {
+            body.insert("run_at".to_owned(), serde_json::Value::String(run_at));
+        }
+        if let Some(name) = name
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+        {
+            body.insert("name".to_owned(), serde_json::Value::String(name));
+        }
         let body = routines_http(
             reqwest::Method::POST,
             "routines",
-            Some(serde_json::json!({
-                "agent_id": agent_id,
-                "cron": cron,
-                "prompt": prompt,
-                "enabled": enabled.unwrap_or(true),
-            })),
+            Some(serde_json::Value::Object(body)),
         )?;
         serde_json::from_str::<Routine>(&body).map_err(|e| e.to_string())
     })
@@ -768,13 +806,21 @@ async fn routines_create(
 async fn routines_update(
     id: String,
     cron: Option<String>,
+    run_at: Option<String>,
+    name: Option<String>,
     prompt: Option<String>,
     enabled: Option<bool>,
 ) -> Result<Routine, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut patch = serde_json::Map::new();
         if let Some(cron) = cron {
-            patch.insert("cron".to_owned(), serde_json::Value::String(cron));
+            patch.insert("cron".to_owned(), nullable_string(cron));
+        }
+        if let Some(run_at) = run_at {
+            patch.insert("run_at".to_owned(), nullable_string(run_at));
+        }
+        if let Some(name) = name {
+            patch.insert("name".to_owned(), nullable_string(name));
         }
         if let Some(prompt) = prompt {
             patch.insert("prompt".to_owned(), serde_json::Value::String(prompt));

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { CodingAgentAcpClient, type CodingAgentAcpTarget } from "../../ts-sdk/src/acp.ts";
 import { agentsBridgeWsBase, defaultHyperAcpWsUrl } from "../../ts-sdk/src/agent-urls.ts";
+import type { RoutineCreateOptions, RoutineUpdateOptions } from "@hypercli.com/sdk";
 
 export interface AgentSummary {
   id: string;
@@ -303,19 +304,29 @@ export interface Routine {
   id: string;
   user_id: string | null;
   agent_id: string | null;
-  cron: string;
+  name?: string | null;
+  cron?: string | null;
   prompt: string;
   enabled: boolean;
+  run_at?: string | null;
   next_run_at: string | null;
   created_at: string | null;
   updated_at: string | null;
 }
 
+// Aligned with the ts-sdk RoutinesAPI (name / cron-or-runAt schedules); the
+// desktop wire itself speaks the raw snake_case payload via the bridge below.
+export type RoutineCreateInput = Pick<RoutineCreateOptions, "agentId" | "prompt" | "cron" | "runAt" | "name" | "enabled">;
+
+export type RoutineUpdatePatch = Pick<RoutineUpdateOptions, "prompt" | "cron" | "name" | "enabled"> & {
+  runAt?: string;
+};
+
 export const routinesList = (agentId?: string) =>
   command<Routine[]>("routines_list", { agentId });
-export const routinesCreate = (input: { agentId: string; cron: string; prompt: string; enabled?: boolean }) =>
+export const routinesCreate = (input: RoutineCreateInput) =>
   command<Routine>("routines_create", input);
-export const routinesUpdate = (id: string, patch: { cron?: string; prompt?: string; enabled?: boolean }) =>
+export const routinesUpdate = (id: string, patch: RoutineUpdatePatch) =>
   command<Routine>("routines_update", { id, ...patch });
 export const routinesDelete = (id: string) =>
   command<void>("routines_delete", { id });
