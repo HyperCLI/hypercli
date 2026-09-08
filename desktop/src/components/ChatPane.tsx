@@ -6,10 +6,11 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   Plus,
+  Share2,
   Square,
 } from "lucide-react";
 import type { AgentSummary } from "../api";
-import type { AgentChat } from "../useAgentChat";
+import type { AgentChat, ChatMessage } from "../useAgentChat";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
 import { Markdown } from "./Markdown";
@@ -23,6 +24,55 @@ function formatTime(ts: number) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function exportChatHtml(agentName: string, messages: ChatMessage[]) {
+  const rows = messages
+    .map((message) => {
+      const who = message.role === "user" ? "You" : agentName;
+      const tools = message.toolCalls
+        .map((tool) => `<div class="tool">🔧 ${escapeHtml(tool.title)} — ${escapeHtml(tool.status)}</div>`)
+        .join("");
+      const thoughts = message.thoughts.length
+        ? `<details class="thinking"><summary>Thinking</summary><pre>${escapeHtml(message.thoughts.join(""))}</pre></details>`
+        : "";
+      return `<div class="msg ${message.role}">
+        <div class="meta"><strong>${escapeHtml(who)}</strong> · ${new Date(message.ts).toLocaleString()}</div>
+        ${thoughts}
+        ${tools}
+        <div class="text">${escapeHtml(message.text)}</div>
+      </div>`;
+    })
+    .join("\n");
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(agentName)} chat</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  .msg { margin-bottom: 1.5rem; }
+  .msg.user .text { background: #eef2ff; border-radius: 12px; padding: 0.6rem 0.9rem; display: inline-block; }
+  .meta { color: #888; font-size: 0.8rem; margin-bottom: 0.25rem; }
+  .text { white-space: pre-wrap; line-height: 1.5; }
+  .tool { font-family: ui-monospace, monospace; font-size: 0.8rem; color: #555; background: #f4f4f5; border-radius: 6px; padding: 0.3rem 0.6rem; margin: 0.25rem 0; }
+  .thinking pre { white-space: pre-wrap; color: #777; font-size: 0.8rem; }
+</style></head>
+<body><h1>${escapeHtml(agentName)}</h1>
+${rows}
+</body></html>`;
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${agentName.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase()}-chat.html`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export function ChatPane({
@@ -173,11 +223,13 @@ export function ChatPane({
             )}
           </div>
           <div className="flex-1" />
-          <span className="flex items-center gap-1.5 text-[11px] text-text-secondary shrink-0">
+          <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary shrink">
             {isRunning ? (
               <>
-                <span className="status-dot bg-success" />
-                {family === "acp" ? `Running — ${chat.lastAction ?? "Idle"}` : "Running"}
+                <span className="status-dot bg-success shrink-0" />
+                <span className="truncate">
+                  {family === "acp" ? `Running — ${chat.lastAction ?? "Idle"}` : "Running"}
+                </span>
               </>
             ) : transitional ? (
               <>
@@ -196,6 +248,14 @@ export function ChatPane({
               </>
             )}
           </span>
+          <button
+            onClick={() => exportChatHtml(agent.name, chat.messages)}
+            disabled={chat.messages.length === 0}
+            className="ui-icon-button-sm shrink-0 disabled:opacity-40"
+            title="Export chat as HTML"
+          >
+            <Share2 size={14} />
+          </button>
           {reopenRight}
         </div>
       </header>
@@ -284,7 +344,9 @@ export function ChatPane({
 
           {isRunning && chat.messages.length === 0 && <div className="pt-16" />}
 
-          {chat.messages.map((message) => (
+          {chat.messages.map((message) => {
+            const failed = message.role === "assistant" && (message.error || message.text.startsWith("Send failed:"));
+            return (
             <div key={message.id} className="message-row">
               {message.role === "assistant" ? (
                 <Avatar
@@ -306,7 +368,7 @@ export function ChatPane({
                     {formatTime(message.ts)}
                   </span>
                 </div>
-                <div className="space-y-2">
+                <div className={`message-body ${message.role === "user" ? "message-body-user" : failed ? "message-body-error" : ""}`}>
                   {message.thoughts.length > 0 && (
                     <ThinkingBlock thoughts={message.thoughts} />
                   )}
@@ -314,11 +376,14 @@ export function ChatPane({
                   {message.toolCalls.map((tool) => (
                     <ToolCallRow key={tool.id} tool={tool} />
                   ))}
-                  {message.text && <Markdown text={message.text} />}
+                  {message.text && (failed
+                    ? <div className="text-[12px] leading-relaxed">{message.text}</div>
+                    : <Markdown text={message.text} />)}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
 
           {chat.busy && (
             <div className="message-row">

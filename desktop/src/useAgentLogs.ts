@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { agentLogsToken, type AgentSummary } from "./api";
+import { agentLogsUrl, type AgentSummary } from "./api";
 
 type Phase = "idle" | "connecting" | "connected" | "closed" | "error";
+
+const MAX_LOG_LINES = 10_000;
+const MAX_LOG_LINE_CHARS = 4096;
+const MAX_LOG_TOTAL_CHARS = 32_000_000;
 
 interface LogFrame {
   event?: string;
   log?: string;
   detail?: string;
-}
-
-function logsWsBase(apiBase: string) {
-  const url = new URL(apiBase);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/agents$/, "").replace(/\/api$/, "");
-  return `${url.toString().replace(/\/+$/, "")}/ws`;
 }
 
 function parseLog(raw: string) {
@@ -26,6 +23,21 @@ function parseLog(raw: string) {
     if (e instanceof SyntaxError) return raw;
     throw e;
   }
+}
+
+function boundedLogLines(current: string[], pending: string[]) {
+  const combined = [...current, ...pending.map((line) => (
+    line.length > MAX_LOG_LINE_CHARS ? line.slice(-MAX_LOG_LINE_CHARS) : line
+  ))];
+  let start = combined.length;
+  let chars = 0;
+  while (start > 0 && combined.length - start < MAX_LOG_LINES) {
+    const nextLength = combined[start - 1].length;
+    if (chars + nextLength > MAX_LOG_TOTAL_CHARS) break;
+    chars += nextLength;
+    start -= 1;
+  }
+  return combined.slice(start);
 }
 
 export function useAgentLogs(agent: AgentSummary | null, enabled: boolean) {
@@ -49,21 +61,14 @@ export function useAgentLogs(agent: AgentSummary | null, enabled: boolean) {
     setPhase("connecting");
     setError(null);
 
-    agentLogsToken(agentId)
-      .then((token) => {
-        if (!alive) return;
-        const wsUrl = token.ws_url ?? `${logsWsBase(token.api_base ?? window.location.origin)}/logs/${agentId}`;
-        const url = new URL(wsUrl);
-        url.searchParams.set("jwt", token.jwt);
-        url.searchParams.set("container", "reef");
-        url.searchParams.set("tail_lines", "0");
-        ws = new WebSocket(url.toString());
+    try {
+      ws = new WebSocket(agentLogsUrl(agentId));
         ws.onopen = () => alive && setPhase("connected");
         ws.onmessage = (event) => {
           if (!alive || typeof event.data !== "string" || !event.data) return;
           try {
             const line = parseLog(event.data);
-            if (line) setLines((prev) => [...prev, line].slice(-1000));
+          if (line) setLines((prev) => boundedLogLines(prev, [line]));
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
             setPhase("error");
@@ -75,17 +80,11 @@ export function useAgentLogs(agent: AgentSummary | null, enabled: boolean) {
           setPhase("error");
         };
         ws.onclose = () => alive && setPhase((current) => (current === "error" ? "error" : "closed"));
-      })
-      .catch((e) => {
-        if (!alive) return;
-        const message = e instanceof Error ? e.message : String(e);
-        if (/\b409\b/.test(message)) {
-          setPhase("closed");
-          return;
-        }
-        setError(message);
-        setPhase("error");
-      });
+    } catch (e) {
+      if (!alive) return;
+      setError(e instanceof Error ? e.message : String(e));
+      setPhase("error");
+    }
 
     return () => {
       alive = false;

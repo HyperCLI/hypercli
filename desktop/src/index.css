@@ -180,11 +180,47 @@ textarea:focus-visible {
   }
 
   .app-pane-left {
-    @apply w-[176px] shrink-0 bg-surface border-r border-border flex flex-col;
+    width: var(--pane-left-width, 176px);
+    @apply shrink-0 bg-surface border-r border-border flex flex-col;
   }
 
   .app-pane-right {
-    @apply w-[272px] shrink-0 bg-surface border-l border-border flex flex-col;
+    width: var(--pane-right-width, 272px);
+    @apply h-full min-h-0 shrink-0 overflow-hidden bg-surface border-l border-border flex flex-col;
+  }
+
+  .pane-resize-handle {
+    @apply absolute top-0 z-20 h-full w-2 cursor-col-resize touch-none;
+  }
+
+  .pane-resize-handle::after {
+    content: "";
+    @apply absolute top-0 h-full w-px bg-transparent transition-colors;
+  }
+
+  .pane-resize-handle:hover::after,
+  .pane-resizing .pane-resize-handle::after {
+    @apply bg-accent/60;
+  }
+
+  .pane-resize-handle-left {
+    @apply -right-1;
+  }
+
+  .pane-resize-handle-left::after {
+    @apply left-1/2;
+  }
+
+  .pane-resize-handle-right {
+    @apply -left-1;
+  }
+
+  .pane-resize-handle-right::after {
+    @apply left-1/2;
+  }
+
+  .pane-resizing {
+    @apply cursor-col-resize select-none;
   }
 
   .app-main {
@@ -250,6 +286,18 @@ textarea:focus-visible {
 
   .message-meta {
     @apply flex items-baseline gap-2 mb-0.5;
+  }
+
+  .message-body {
+    @apply space-y-2 rounded-xl px-0 py-0;
+  }
+
+  .message-body-user {
+    @apply border border-border bg-card px-3 py-2;
+  }
+
+  .message-body-error {
+    @apply border border-error/40 bg-error-bg px-3 py-2 text-error;
   }
 
   .composer {

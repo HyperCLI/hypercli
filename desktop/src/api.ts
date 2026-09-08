@@ -10,6 +10,17 @@ export interface AgentSummary {
   hostname: string | null;
   launch_epoch: number;
   size: string | null;
+  hasDesktop?: boolean;
+  has_desktop?: boolean;
+  launch_config?: unknown;
+  launchConfig?: unknown;
+  routes?: unknown;
+}
+
+export interface AgentAvatarUploadResult {
+  id: string;
+  avatar_url: string | null;
+  s3_key?: string | null;
 }
 
 export interface AuthStatus {
@@ -34,6 +45,11 @@ export interface AgentLogsToken {
   expires_at?: string | null;
   ws_url?: string;
   api_base?: string;
+}
+
+export interface AgentDesktopUrl {
+  url: string;
+  expires_at?: string | null;
 }
 
 export interface RuntimeChatMessage {
@@ -72,6 +88,10 @@ export interface AgentFileEntry {
   size?: number;
   size_formatted?: string;
   last_modified?: string;
+}
+
+export interface AgentFileBytes {
+  bytes: number[];
 }
 
 export interface AgentExecResult {
@@ -129,19 +149,34 @@ export const archiveAgent = (id: string) =>
 export const restoreAgent = (id: string) =>
   command<AgentSummary>("restore_agent", { id });
 export const deleteAgent = (id: string) => command<void>("delete_agent", { id });
+export const setAgentDesktopEnabled = (id: string, enabled: boolean) =>
+  command<AgentSummary>("set_agent_desktop_enabled", { id, enabled });
+export const uploadAgentAvatar = async (id: string, file: File) => {
+  const content = Array.from(new Uint8Array(await file.arrayBuffer()));
+  return command<AgentAvatarUploadResult>("upload_agent_avatar", {
+    id,
+    content,
+    contentType: file.type || "image/png",
+  });
+};
+export const deleteAgentAvatar = (id: string) =>
+  command<AgentAvatarUploadResult>("delete_agent_avatar", { id });
 export const acpCredentials = () => command<AcpCredentials>("acp_credentials");
 export const runtimeHistory = (id: string) =>
   command<RuntimeChatMessage[]>("runtime_history", { id });
+export const runtimeHistoryForSession = (id: string, sessionKey: string) =>
+  command<RuntimeChatMessage[]>("runtime_history", { id, sessionKey });
 export async function streamRuntimeMessage(
   id: string,
   text: string,
   onEvent: (event: RuntimeChatEvent) => void,
+  sessionKey?: string | null,
 ) {
   if (hasTauriInvoke()) throw new Error("Runtime streaming is not wired in the packaged app yet.");
   const response = await fetch("/__desktop_ng/stream", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ command: "runtime_message_stream", args: { id, text } }),
+    body: JSON.stringify({ command: "runtime_message_stream", args: { id, text, sessionKey } }),
   });
   if (!response.body) throw new Error(await response.text().catch(() => response.statusText));
   const reader = response.body.getReader();
@@ -166,8 +201,61 @@ export async function streamRuntimeMessage(
 }
 export const agentLogsToken = (id: string) =>
   command<AgentLogsToken>("agent_logs_token", { id });
+export const agentDesktopUrl = (id: string) =>
+  command<AgentDesktopUrl>("agent_desktop_url", { id });
 export const agentFiles = (id: string, path = "") =>
   command<AgentFileEntry[]>("agent_files", { id, path });
+export const agentFileRead = (id: string, path: string) =>
+  command<string>("agent_file_read", { id, path });
+export const agentFileReadBytes = (id: string, path: string) =>
+  command<AgentFileBytes>("agent_file_read_bytes", { id, path });
 export const agentExec = (id: string, commandText: string, timeout = 30) =>
   command<AgentExecResult>("agent_exec", { id, command: commandText, timeout });
+export function agentShellUrl(id: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const params = new URLSearchParams({ agent_id: id });
+  return `${protocol}//${window.location.host}/__desktop_ng/shell?${params}`;
+}
+export function agentLogsUrl(id: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const params = new URLSearchParams({ agent_id: id });
+  return `${protocol}//${window.location.host}/__desktop_ng/logs?${params}`;
+}
 export const planSummary = () => command<PlanSummary>("plan_summary");
+
+export interface AcpSessionInfo {
+  session_id: string;
+  title: string | null;
+  cwd: string | null;
+  updated_at: string | null;
+}
+
+export interface AcpSessionList {
+  sessions: AcpSessionInfo[];
+  next_cursor: string | null;
+}
+
+export const listAcpSessions = (id: string) =>
+  command<AcpSessionList>("acp_list_sessions", { id });
+
+export type RuntimeSessionKind = "openclaw" | "hermes";
+
+export interface RuntimeSessionInfo {
+  session_id: string;
+  title: string | null;
+  cwd: string | null;
+  updated_at: string | null;
+  runtime: RuntimeSessionKind;
+}
+
+export interface RuntimeSessionList {
+  sessions: RuntimeSessionInfo[];
+  next_cursor: string | null;
+}
+
+export const listRuntimeSessions = (id: string) =>
+  command<RuntimeSessionList>("runtime_list_sessions", { id });
+export const createRuntimeSession = (id: string, title?: string) =>
+  command<RuntimeSessionInfo>("runtime_create_session", { id, title });
+export const renameRuntimeSession = (id: string, sessionKey: string, title: string) =>
+  command<RuntimeSessionInfo>("runtime_rename_session", { id, sessionKey, title });

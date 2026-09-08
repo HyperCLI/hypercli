@@ -19,6 +19,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
+  error?: boolean;
   thoughts: string[];
   toolCalls: ToolCallEntry[];
   plan: PlanEntry[];
@@ -34,12 +35,20 @@ let nextId = 0;
 export const genId = () => `m${++nextId}`;
 
 export function detailOf(rawInput: unknown): string | undefined {
+  if (typeof rawInput === "string") return rawInput.trim() || undefined;
+  if (Array.isArray(rawInput)) return rawInput.map((item) => String(item)).join(" ");
   if (!rawInput || typeof rawInput !== "object") return undefined;
   const input = rawInput as Record<string, unknown>;
+  const keys = Object.keys(input);
+  if (keys.length === 0 || keys.every((key) => key === "cwd" || key === "workingDirectory" || key === "working_directory")) return undefined;
   const preferred =
-    input.command ?? input.cmd ?? input.path ?? input.file_path ?? input.pattern ?? input.url;
+    input.command ?? input.cmd ?? input.shell_command ?? input.filePath ?? input.file_path ?? input.path ?? input.pattern ?? input.url;
   if (typeof preferred === "string") return preferred;
   if (Array.isArray(preferred)) return preferred.join(" ");
+  for (const key of ["input", "args", "arguments", "rawInput"]) {
+    const nested = detailOf(input[key]);
+    if (nested) return nested;
+  }
   try {
     const json = JSON.stringify(rawInput);
     return json.length > 160 ? `${json.slice(0, 160)}...` : json;
@@ -104,7 +113,7 @@ function runtimeToolDetail(event: RuntimeChatEvent) {
 function runtimeToolResult(event: RuntimeChatEvent) {
   const data = event.data ?? {};
   const value = event.text ?? data.result ?? data.output ?? data.content ?? data.text ?? data.partialResult;
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return toolContentDetail(value);
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (typeof record.aggregated === "string") return record.aggregated;
@@ -160,16 +169,16 @@ export class ChatTraceFolder {
     }
 
     if (event.type === "error") {
-      const current = openAssistant();
       const text = event.text ?? "Runtime stream failed";
-      replaceLast({
-        ...current,
-        text: current.text.trim() ? `${current.text}\n\n${text}` : text,
-        toolCalls: current.toolCalls.map((tool) =>
-          tool.status === "in_progress" || tool.status === "pending"
-            ? { ...tool, status: "failed", detail: tool.detail ?? text }
-            : tool,
-        ),
+      next.push({
+        id: event.messageId ?? genId(),
+        role: "assistant",
+        text,
+        error: true,
+        thoughts: [],
+        toolCalls: [],
+        plan: [],
+        ts: Date.now(),
       });
       return { messages: next, lastAction: "Failed" };
     }
@@ -291,8 +300,9 @@ function toolMessageDetail(message: Record<string, unknown>) {
 function toolContentDetail(content: string) {
   try {
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    const output = parsed.output ?? parsed.stdout ?? parsed.result ?? parsed.error;
-    if (typeof output === "string") return output;
+    if (parsed && typeof parsed === "object" && Object.keys(parsed).length === 0) return undefined;
+    const output = parsed.content ?? parsed.output ?? parsed.stdout ?? parsed.result ?? parsed.error;
+    if (typeof output === "string") return output.trim() ? output : undefined;
   } catch {
     // Plain text tool content is already a useful detail.
   }

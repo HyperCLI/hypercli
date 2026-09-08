@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Brain, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, XCircle } from "lucide-react";
 import type { ChatMessage, ToolCallEntry } from "../useAgentChat";
 
@@ -13,6 +13,9 @@ export function ToolCallRow({ tool }: { tool: ToolCallEntry }) {
   const [open, setOpen] = useState(tool.status !== "completed" || Boolean(tool.detail));
   const running = tool.status === "in_progress" || tool.status === "pending";
   const failed = tool.status === "failed";
+  useEffect(() => {
+    if (tool.status === "completed" && !tool.detail) setOpen(false);
+  }, [tool.status, tool.detail]);
   return (
     <div className={`tool-card tool-trace ${running ? "tool-trace-running" : ""}`}>
       <button

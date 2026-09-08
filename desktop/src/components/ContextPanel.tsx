@@ -1,27 +1,42 @@
 import { useEffect, useRef, useState } from "react";
+import { Terminal as XTerm } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import "@xterm/xterm/css/xterm.css";
 import {
   Brain,
   CalendarClock,
+  Camera,
   ChevronDown,
   ChevronRight,
   FileText,
   Folder,
-  GraduationCap,
-  Hand,
-  Play,
+  Maximize2,
+  MessageSquare,
+  Monitor,
   RefreshCw,
   Terminal,
+  Trash2,
 } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { agentExec, agentFiles, type AgentExecResult, type AgentFileEntry, type AgentSummary } from "../api";
+import { agentDesktopUrl, agentFileRead, agentFileReadBytes, agentFiles, agentShellUrl, type AgentFileEntry, type AgentSummary } from "../api";
 import type { ActivityEntry, AgentChat } from "../useAgentChat";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
 import { Avatar } from "./Avatar";
-import { RUNNING, TRANSITIONAL, runtimeFamily, runtimeLabel } from "../agent-utils";
+import { RUNNING, runtimeLabel } from "../agent-utils";
 import { useAgentLogs } from "../useAgentLogs";
 
-type Tab = "agent" | "routines" | "settings" | "activity";
-type AgentTab = "screen" | "shell" | "logs" | "files";
+type Tab = "agent" | "routines" | "settings";
+type AgentTab = "activity" | "files" | "advanced";
+type MachineTab = "logs" | "shell";
+type FilePreviewKind = "text" | "html" | "image" | "pdf" | "binary";
+type FilePreview = {
+  entry: AgentFileEntry;
+  kind: FilePreviewKind;
+  content: string | null;
+  url: string | null;
+  bytes: Uint8Array | null;
+  error: string | null;
+  loading: boolean;
+};
 
 export type ContextTab = Tab;
 export type ContextAgentTab = AgentTab;
@@ -34,6 +49,37 @@ const TEXT_TABS: { id: Tab; label: string }[] = [
 
 function formatTime(ts: number) {
   return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function plainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function truthyEnv(value: unknown) {
+  return typeof value === "string" && ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function falseyEnv(value: unknown) {
+  return typeof value === "string" && ["0", "false", "no", "off"].includes(value.trim().toLowerCase());
+}
+
+function routesHaveDesktop(routes: unknown) {
+  if (!plainRecord(routes)) return false;
+  if (plainRecord(routes.desktop)) return true;
+  return Object.values(routes).some((route) => plainRecord(route) && route.prefix === "desktop");
+}
+
+function agentHasDesktop(agent: AgentSummary) {
+  const launchConfig = agent.launch_config ?? agent.launchConfig;
+  if (plainRecord(launchConfig)) {
+    const env = launchConfig.env;
+    const desktopEnv = plainRecord(env) ? env.HYPER_DESKTOP_ENABLED : undefined;
+    if (falseyEnv(desktopEnv)) return false;
+    if (truthyEnv(desktopEnv)) return true;
+    if (routesHaveDesktop(launchConfig.routes)) return true;
+  }
+  if (routesHaveDesktop(agent.routes)) return true;
+  return agent.hasDesktop === true || agent.has_desktop === true;
 }
 
 function useLocalBool(key: string, initial: boolean): [boolean, (v: boolean) => void] {
@@ -57,7 +103,11 @@ export function ContextPanel({
   onAgentTab,
   onArchive,
   onRestore,
+  onStop,
   onDelete,
+  onSetAgentDesktopEnabled,
+  onUploadAgentAvatar,
+  onDeleteAgentAvatar,
 }: {
   agent: AgentSummary | null;
   chat: AgentChat;
@@ -67,7 +117,11 @@ export function ContextPanel({
   onAgentTab: (tab: ContextAgentTab) => void;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
+  onStop: (id: string) => void;
   onDelete: (id: string) => void;
+  onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
+  onUploadAgentAvatar: (id: string, file: File) => void;
+  onDeleteAgentAvatar: (id: string) => void;
 }) {
   return (
     <aside className="app-pane-right">
@@ -94,17 +148,24 @@ export function ContextPanel({
             Select an agent to inspect it.
           </div>
         ) : tab === "agent" ? (
-          <AgentTabPanel agent={agent} tab={agentTab} onTab={onAgentTab} />
+          <AgentTabPanel
+            agent={agent}
+            chat={chat}
+            tab={agentTab}
+            onTab={onAgentTab}
+            onSetAgentDesktopEnabled={onSetAgentDesktopEnabled}
+          />
         ) : tab === "routines" ? (
           <RoutinesTab />
-        ) : tab === "activity" ? (
-          <ActivityTab chat={chat} />
         ) : (
           <SettingsTab
             agent={agent}
             onArchive={onArchive}
             onRestore={onRestore}
+            onStop={onStop}
             onDelete={onDelete}
+            onUploadAgentAvatar={onUploadAgentAvatar}
+            onDeleteAgentAvatar={onDeleteAgentAvatar}
           />
         )}
       </div>
@@ -112,12 +173,24 @@ export function ContextPanel({
   );
 }
 
-function AgentTabPanel({ agent, tab, onTab }: { agent: AgentSummary; tab: AgentTab; onTab: (tab: AgentTab) => void }) {
+function AgentTabPanel({
+  agent,
+  chat,
+  tab,
+  onTab,
+  onSetAgentDesktopEnabled,
+}: {
+  agent: AgentSummary;
+  chat: AgentChat;
+  tab: AgentTab;
+  onTab: (tab: AgentTab) => void;
+  onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void;
+}) {
   return (
     <div className="flex h-full flex-col">
       <div className="px-4 pt-3">
         <div className="segmented-tabs w-full">
-          {(["screen", "shell", "logs", "files"] as const).map((id) => (
+          {(["activity", "files", "advanced"] as const).map((id) => (
             <button
               key={id}
               onClick={() => onTab(id)}
@@ -129,72 +202,416 @@ function AgentTabPanel({ agent, tab, onTab }: { agent: AgentSummary; tab: AgentT
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === "screen" ? <ScreenTab agent={agent} /> : tab === "shell" ? <ShellTab agent={agent} /> : tab === "logs" ? <LogsTab agent={agent} active={tab === "logs"} /> : <FilesTab agent={agent} />}
+        {tab === "activity" ? (
+          <div className="flex min-h-full flex-col">
+            <DesktopSection agent={agent} onSetAgentDesktopEnabled={onSetAgentDesktopEnabled} />
+            <ActivityTab chat={chat} />
+          </div>
+        ) : tab === "files" ? (
+          <FilesTab agent={agent} />
+        ) : (
+          <AdvancedTabPanel agent={agent} />
+        )}
       </div>
     </div>
   );
 }
 
-function ShellTab({ agent }: { agent: AgentSummary }) {
-  const [command, setCommand] = useState("pwd && ls -la");
-  const [result, setResult] = useState<AgentExecResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [runningCommand, setRunningCommand] = useState(false);
-  const canRun = agent.state === RUNNING && command.trim() && !runningCommand;
+function AdvancedTabPanel({ agent }: { agent: AgentSummary }) {
+  const [tab, setTab] = useState<MachineTab>("logs");
 
-  const run = async () => {
-    const next = command.trim();
-    if (!next || runningCommand) return;
-    setRunningCommand(true);
+  return (
+    <div className="flex min-h-full flex-col">
+      <div className="px-4 pt-3">
+        <div className="segmented-tabs w-full">
+          {(["logs", "shell"] as const).map((id) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`segmented-tab flex-1 capitalize ${tab === id ? "segmented-tab-active" : ""}`}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-h-[420px] flex-1">
+        {tab === "logs" ? <LogsTab agent={agent} active /> : <ShellTab agent={agent} />}
+      </div>
+    </div>
+  );
+}
+
+function desktopRoute(agent: AgentSummary) {
+  const launchConfig = agent.launch_config ?? agent.launchConfig;
+  const fromLaunch = plainRecord(launchConfig) ? launchConfig.routes : undefined;
+  const routes = plainRecord(fromLaunch) ? fromLaunch : plainRecord(agent.routes) ? agent.routes : null;
+  if (!routes) return null;
+  if (plainRecord(routes.desktop)) return routes.desktop;
+  return Object.values(routes).find((route) => plainRecord(route) && route.prefix === "desktop") ?? null;
+}
+
+function DesktopSection({ agent, onSetAgentDesktopEnabled }: { agent: AgentSummary; onSetAgentDesktopEnabled: (id: string, enabled: boolean) => void }) {
+  const desktopEnabled = agentHasDesktop(agent);
+  const hasRoute = desktopRoute(agent) !== null;
+  const running = agent.state === RUNNING;
+  const available = hasRoute && running;
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setUrl(null);
     setError(null);
-    try {
-      setResult(await agentExec(agent.id, next));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRunningCommand(false);
-    }
+    setLoading(false);
+  }, [agent.id, agent.state, hasRoute]);
+
+  useEffect(() => {
+    if (!available || url || loading || error) return;
+    setLoading(true);
+    agentDesktopUrl(agent.id)
+      .then((result) => setUrl(result.url))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, [available, url, loading, error, agent.id]);
+
+  const retry = () => {
+    setUrl(null);
+    setError(null);
   };
 
   return (
-    <div className="flex h-full flex-col p-4">
+    <section className="border-b border-border p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="min-w-0 flex items-start gap-2">
+          <Monitor size={14} className="mt-0.5 shrink-0 text-text-secondary" />
+          <div>
+            <div className="text-[12px] font-medium">Desktop</div>
+            <div className="text-[10px] text-text-secondary leading-snug">
+              {!desktopEnabled
+                ? "Desktop Disabled"
+                : running && !hasRoute
+                  ? "Enabled — stop agent to apply."
+                  : running
+                    ? "Enabled for this agent."
+                    : "Enabled — applies next start."}
+            </div>
+          </div>
+        </div>
+        <button
+          role="switch"
+          aria-checked={desktopEnabled}
+          onClick={() => onSetAgentDesktopEnabled(agent.id, !desktopEnabled)}
+          className={`shrink-0 w-8 h-[18px] rounded-full relative transition-colors ${desktopEnabled ? "bg-accent" : "bg-border-strong"}`}
+        >
+          <span className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white transition-all ${desktopEnabled ? "left-[16px]" : "left-[2px]"}`} />
+        </button>
+      </div>
+      {available ? (
+        <>
+          <div
+            className="relative aspect-[8/5] cursor-pointer overflow-hidden rounded-lg border border-border bg-[#05070a] group"
+            onClick={() => url && setExpanded(true)}
+            title="Click to interact"
+          >
+            {url ? (
+              <>
+                <iframe
+                  title={`${agent.name} desktop`}
+                  src={url}
+                  className="pointer-events-none absolute left-0 top-0 h-[800px] w-[1280px] origin-top-left border-0"
+                  style={{ transform: "scale(var(--desktop-scale, 0.25))" }}
+                  ref={(el) => {
+                    if (!el?.parentElement) return;
+                    const parent = el.parentElement;
+                    const update = () => {
+                      el.style.setProperty("--desktop-scale", String(parent.clientWidth / 1280));
+                    };
+                    update();
+                    const observer = new ResizeObserver(update);
+                    observer.observe(parent);
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition group-hover:bg-black/30 group-hover:opacity-100">
+                  <Maximize2 size={20} className="text-white drop-shadow" />
+                </div>
+              </>
+            ) : (
+              <div className="flex h-full cursor-default items-center justify-center text-[11px] text-text-secondary">
+                {loading ? "Connecting desktop..." : error ? "Desktop unavailable" : "Loading desktop..."}
+              </div>
+            )}
+          </div>
+          {expanded && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={() => setExpanded(false)}>
+              <div className="relative h-[85vh] w-[90vw] max-w-[1280px]" onClick={(e) => e.stopPropagation()}>
+                <button
+                  onClick={() => setExpanded(false)}
+                  className="absolute -top-9 right-0 rounded-md bg-card px-2.5 py-1 text-[11px] text-text-secondary hover:text-foreground"
+                >
+                  Close
+                </button>
+                <div className="relative h-full w-full overflow-hidden rounded-lg border border-border bg-[#05070a]">
+                  <iframe
+                    title={`${agent.name} desktop (interactive)`}
+                    src={url ?? undefined}
+                    className="absolute left-0 top-0 h-[800px] w-[1280px] origin-top-left border-0"
+                    style={{ transform: "scale(var(--desktop-modal-scale, 1))" }}
+                    ref={(el) => {
+                      if (!el?.parentElement) return;
+                      const parent = el.parentElement;
+                      const update = () => {
+                        const scale = Math.min(parent.clientWidth / 1280, parent.clientHeight / 800);
+                        el.style.setProperty("--desktop-modal-scale", String(scale));
+                        el.style.left = `${(parent.clientWidth - 1280 * scale) / 2}px`;
+                        el.style.top = `${(parent.clientHeight - 800 * scale) / 2}px`;
+                      };
+                      update();
+                      const observer = new ResizeObserver(update);
+                      observer.observe(parent);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex h-[120px] items-center justify-center rounded-lg border border-dashed border-border bg-card text-[12px] text-text-secondary">
+          {desktopEnabled
+            ? running
+              ? "Desktop route applies next start."
+              : "Desktop disabled while powered off."
+            : "Desktop Disabled"}
+        </div>
+      )}
+      {error && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">
+          <span className="break-words">{error}</span>
+          <button onClick={retry} className="shrink-0 font-medium hover:underline">Retry</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ShellTab({ agent }: { agent: AgentSummary }) {
+  const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
+  const socketRef = useRef<WebSocket | null>(null);
+  const terminalHostRef = useRef<HTMLDivElement | null>(null);
+  const terminalRef = useRef<XTerm | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
+  const sizeRef = useRef<{ rows: number; cols: number } | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [reconnectNonce, setReconnectNonce] = useState(0);
+
+  const sendShellData = (data: string) => {
+    const socket = socketRef.current;
+    if (data && socket?.readyState === WebSocket.OPEN) socket.send(data);
+  };
+
+  const resizeShell = () => {
+    const socket = socketRef.current;
+    const terminal = terminalRef.current;
+    const fit = fitRef.current;
+    if (!terminal || !fit) return;
+    try {
+      fit.fit();
+    } catch {
+      return;
+    }
+    const next = { rows: terminal.rows, cols: terminal.cols };
+    const previous = sizeRef.current;
+    sizeRef.current = next;
+    if (
+      socket?.readyState === WebSocket.OPEN &&
+      (!previous || previous.rows !== next.rows || previous.cols !== next.cols)
+    ) {
+      socket.send(`\x1b[8;${next.rows};${next.cols}t`);
+    }
+  };
+
+  useEffect(() => {
+    const host = terminalHostRef.current;
+    if (!host) return;
+    const terminal = new XTerm({
+      cursorBlink: true,
+      convertEol: true,
+      fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontSize: 12,
+      theme: {
+        background: "#05070a",
+        foreground: "#d8fbd8",
+        cursor: "#d8fbd8",
+        selectionBackground: "#2d5f3a",
+      },
+    });
+    const fit = new FitAddon();
+    terminal.loadAddon(fit);
+    terminal.open(host);
+    terminalRef.current = terminal;
+    fitRef.current = fit;
+    resizeShell();
+    const focusTerminal = () => terminal.focus();
+    const pasteToShell = (event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData("text");
+      if (!text) return;
+      event.preventDefault();
+      sendShellData(text);
+    };
+    const rightClickPaste = (event: MouseEvent) => {
+      event.preventDefault();
+      terminal.focus();
+      void navigator.clipboard?.readText()
+        .then(sendShellData)
+        .catch(() => undefined);
+    };
+    host.addEventListener("pointerdown", focusTerminal);
+    host.addEventListener("paste", pasteToShell);
+    host.addEventListener("contextmenu", rightClickPaste);
+    const hostSizeRef = { w: 0, h: 0 };
+    let resizeRaf = 0;
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeRaf) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        const terminal = terminalRef.current;
+        const fit = fitRef.current;
+        if (!terminal || !fit) return;
+        const w = host.clientWidth;
+        const h = host.clientHeight;
+        if (w === 0 || h === 0) return;
+        if (w === hostSizeRef.w && h === hostSizeRef.h) return;
+        hostSizeRef.w = w;
+        hostSizeRef.h = h;
+        const dims = fit.proposeDimensions();
+        if (dims && (dims.cols !== terminal.cols || dims.rows !== terminal.rows)) resizeShell();
+      });
+    });
+    resizeObserver.observe(host);
+    return () => {
+      host.removeEventListener("pointerdown", focusTerminal);
+      host.removeEventListener("paste", pasteToShell);
+      host.removeEventListener("contextmenu", rightClickPaste);
+      resizeObserver.disconnect();
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      terminalRef.current = null;
+      fitRef.current = null;
+      terminal.dispose();
+    };
+  }, []);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+    const disposable = terminal.onData((data) => {
+      sendShellData(data);
+    });
+    return () => disposable.dispose();
+  }, []);
+
+  useEffect(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    socketRef.current?.close();
+    socketRef.current = null;
+    setError(null);
+    setConnected(false);
+    terminalRef.current?.reset();
+    if (agent.state !== RUNNING) return;
+
+    let cancelled = false;
+    let attempt = 0;
+    const connect = () => {
+      if (cancelled) return;
+      const socket = new WebSocket(agentShellUrl(agent.id));
+      socket.binaryType = "arraybuffer";
+      socketRef.current = socket;
+      setError(null);
+      socket.onopen = () => {
+        if (cancelled || socketRef.current !== socket) return;
+        attempt = 0;
+        setConnected(true);
+        resizeShell();
+      };
+      socket.onmessage = async (event) => {
+        if (cancelled || socketRef.current !== socket) return;
+        const text = typeof event.data === "string"
+          ? event.data
+          : event.data instanceof Blob
+            ? await event.data.text()
+            : new TextDecoder().decode(event.data as ArrayBuffer);
+        if (text) terminalRef.current?.write(text);
+      };
+      socket.onerror = () => {
+        if (socketRef.current === socket) socket.close();
+      };
+      socket.onclose = (event) => {
+        if (cancelled || socketRef.current !== socket) return;
+        socketRef.current = null;
+        setConnected(false);
+        const reason = event.reason ? `: ${event.reason}` : "";
+        if (event.code !== 1000) setError(`Shell disconnected (${event.code})${reason}`);
+        if (event.code === 1000 || event.code === 1008) return;
+        const delay = Math.min(1_000 * 2 ** attempt, 10_000);
+        attempt += 1;
+        reconnectTimerRef.current = setTimeout(connect, delay);
+      };
+    };
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+      socketRef.current?.close();
+      socketRef.current = null;
+    };
+  }, [agent.id, agent.state, reconnectNonce]);
+
+  return (
+    <div className="flex h-full min-w-0 flex-col overflow-hidden p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
           <Caption>SHELL</Caption>
           <div className="mt-1 text-[11px] text-text-secondary">
-            {agent.state === RUNNING ? "Run a command in this agent" : "Start the agent to run commands"}
+            {agent.state === RUNNING
+              ? connected ? "Interactive shell connected" : "Connecting interactive shell"
+              : "Start the agent to open a shell"}
+          </div>
+          <div className="mt-0.5 text-[10px] text-text-secondary">
+            Copy/paste: Ctrl+Shift+C / Ctrl+Shift+V
           </div>
         </div>
         <button
-          onClick={run}
-          disabled={!canRun}
+          onClick={() => {
+            if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+            setError(null);
+            setReconnectNonce((value) => value + 1);
+          }}
+          disabled={agent.state !== RUNNING}
           className="ui-secondary-button flex items-center gap-1.5 disabled:opacity-40 disabled:hover:bg-transparent"
         >
-          <Play size={12} />
-          Run
+          <RefreshCw size={12} />
+          Reconnect
         </button>
       </div>
-      <textarea
-        value={command}
-        onChange={(event) => setCommand(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            void run();
-          }
-        }}
-        disabled={agent.state !== RUNNING}
-        className="min-h-[72px] w-full resize-none rounded-lg border border-border bg-card p-3 font-mono text-[11px] leading-relaxed outline-none focus:border-accent disabled:text-text-secondary"
-        spellCheck={false}
-      />
-      {error && <div className="mt-3 rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{error}</div>}
-      <pre className="mt-3 min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-card p-3 font-mono text-[10.5px] leading-relaxed text-text-secondary whitespace-pre-wrap">
-        {runningCommand
-          ? "Running..."
-          : result
-            ? `$ ${command.trim()}\nexit ${result.exitCode}\n\n${result.stdout}${result.stderr ? `\n${result.stderr}` : ""}`
-            : "Press Cmd+Enter to run."}
-      </pre>
+      {error && <div className="mb-3 rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{error}</div>}
+      {agent.state !== RUNNING ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed border-border bg-card text-[12px] text-text-secondary">
+          Shell unavailable while powered off.
+        </div>
+      ) : (
+        <div
+          ref={terminalHostRef}
+          tabIndex={0}
+          className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-[#05070a] p-3 outline-none"
+        />
+      )}
     </div>
   );
 }
@@ -204,28 +621,81 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
   const [entries, setEntries] = useState<AgentFileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
+  const loadNonceRef = useRef(0);
+  const previewNonceRef = useRef(0);
+  const filesMountedRef = useRef(true);
 
   const load = async (nextPath = path) => {
+    const nonce = ++loadNonceRef.current;
     setLoading(true);
     setError(null);
     try {
       const files = await agentFiles(agent.id, nextPath);
+      if (nonce !== loadNonceRef.current) return;
       setPath(nextPath);
       setEntries(files.sort(compareFileEntries));
     } catch (e) {
+      if (nonce !== loadNonceRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
       setEntries([]);
     } finally {
-      setLoading(false);
+      if (nonce === loadNonceRef.current) setLoading(false);
     }
   };
 
   useEffect(() => {
+    filesMountedRef.current = true;
+    return () => {
+      filesMountedRef.current = false;
+      previewNonceRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    loadNonceRef.current += 1;
+    previewNonceRef.current += 1;
     setPath("");
     setEntries([]);
     setError(null);
-    void load("");
-  }, [agent.id]);
+    setPreview(null);
+    if (agent.state === RUNNING) void load("");
+  }, [agent.id, agent.state]);
+
+  useEffect(() => {
+    return () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+  }, [preview?.url]);
+
+  const openFile = async (entry: AgentFileEntry) => {
+    const nonce = ++previewNonceRef.current;
+    setOpeningPath(entry.path);
+    setError(null);
+    setPreview({ entry, kind: previewKind(entry), content: null, url: null, bytes: null, error: null, loading: true });
+    try {
+      const kind = previewKind(entry);
+      const mimeType = mimeTypeForFile(entry);
+      if (kind === "text" || kind === "html") {
+        const content = await agentFileRead(agent.id, entry.path);
+        if (!filesMountedRef.current || nonce !== previewNonceRef.current) return;
+        const openContent = kind === "html" ? sandboxHtml(content) : content;
+        const url = URL.createObjectURL(new Blob([openContent], { type: mimeType }));
+        setPreview({ entry, kind, content, url, bytes: null, error: null, loading: false });
+        return;
+      }
+      const bytes = Uint8Array.from((await agentFileReadBytes(agent.id, entry.path)).bytes);
+      if (!filesMountedRef.current || nonce !== previewNonceRef.current) return;
+      const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+      setPreview({ entry, kind, content: null, url, bytes, error: null, loading: false });
+    } catch (e) {
+      if (!filesMountedRef.current || nonce !== previewNonceRef.current) return;
+      setPreview({ entry, kind: previewKind(entry), content: null, url: null, bytes: null, error: e instanceof Error ? e.message : String(e), loading: false });
+    } finally {
+      if (filesMountedRef.current && nonce === previewNonceRef.current) setOpeningPath(null);
+    }
+  };
 
   const parent = parentPath(path);
 
@@ -257,7 +727,11 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
           </button>
         )}
         <div className="max-h-full overflow-y-auto">
-          {loading && entries.length === 0 ? (
+          {agent.state !== RUNNING ? (
+            <div className="px-3 py-8 text-center text-[11px] text-text-secondary">
+              Files unavailable while powered off.
+            </div>
+          ) : loading && entries.length === 0 ? (
             <div className="px-3 py-8 text-center text-[11px] text-text-secondary">Loading files...</div>
           ) : entries.length === 0 ? (
             <div className="px-3 py-8 text-center text-[11px] text-text-secondary">
@@ -267,9 +741,9 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
             entries.map((entry) => (
               <button
                 key={`${entry.type}:${entry.path}`}
-                onClick={() => entry.type === "directory" && void load(entry.path)}
-                disabled={entry.type !== "directory"}
-                className="flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-[12px] last:border-b-0 enabled:hover:bg-active-row disabled:cursor-default"
+                onClick={() => entry.type === "directory" ? void load(entry.path) : void openFile(entry)}
+                disabled={openingPath === entry.path}
+                className="flex w-full items-center gap-2 border-b border-border/70 px-3 py-2 text-left text-[12px] last:border-b-0 enabled:hover:bg-active-row disabled:opacity-60"
               >
                 {entry.type === "directory" ? (
                   <Folder size={14} className="shrink-0 text-accent" />
@@ -277,7 +751,9 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
                   <FileText size={14} className="shrink-0 text-text-secondary" />
                 )}
                 <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                {entry.type === "file" && (
+                {entry.type === "file" && openingPath === entry.path ? (
+                  <RefreshCw size={12} className="shrink-0 animate-spin text-text-secondary" />
+                ) : entry.type === "file" && (
                   <span className="shrink-0 text-[10px] text-text-secondary">
                     {entry.size_formatted ?? formatBytes(entry.size)}
                   </span>
@@ -287,6 +763,65 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
           )}
         </div>
       </div>
+      {preview && (
+        <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-background">
+          <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+            <div className="min-w-0 truncate font-mono text-[11px] text-text-secondary">/{preview.entry.path}</div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {preview.url && canOpenPreview(preview) && (
+                <button onClick={() => window.open(preview.url ?? "", "_blank", "noopener,noreferrer")} className="text-[10px] text-accent hover:underline">
+                  Open in window
+                </button>
+              )}
+              {!preview.loading && !preview.error && (
+                <button onClick={() => downloadPreview(preview)} className="text-[10px] text-accent hover:underline">
+                  Download
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  previewNonceRef.current += 1;
+                  setOpeningPath(null);
+                  setPreview(null);
+                }}
+                className="ui-icon-button-sm"
+                aria-label="Close file preview"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+          {preview.loading ? (
+            <div className="flex h-full items-center justify-center gap-2 text-[11px] text-text-secondary">
+              <RefreshCw size={13} className="animate-spin" />
+              Loading preview...
+            </div>
+          ) : preview.error ? (
+            <div className="m-3 rounded-md bg-error-bg px-2.5 py-2 text-[11px] text-error">{preview.error}</div>
+          ) : preview.kind === "html" ? (
+            <iframe
+              title={`Preview of ${preview.entry.name}`}
+              sandbox=""
+              srcDoc={sandboxHtml(preview.content ?? "")}
+              className="h-full w-full bg-white"
+            />
+          ) : preview.kind === "image" && preview.url ? (
+            <div className="flex h-full items-center justify-center bg-black/60 p-3">
+              <img src={preview.url} alt={preview.entry.name} className="max-h-full max-w-full rounded object-contain" />
+            </div>
+          ) : preview.kind === "pdf" && preview.url ? (
+            <iframe title={`Preview of ${preview.entry.name}`} src={preview.url} className="h-full w-full bg-white" />
+          ) : preview.kind === "binary" ? (
+            <div className="flex h-full items-center justify-center px-4 text-center text-[11px] text-text-secondary">
+              Binary preview is not available. Open it in a window or download it.
+            </div>
+          ) : (
+            <pre className="h-full overflow-auto whitespace-pre-wrap p-3 text-[11px] leading-relaxed text-foreground">
+              {preview.content}
+            </pre>
+          )}
+        </div>
+      )}
       <p className="mt-3 text-[11px] leading-relaxed text-text-secondary">
         Browses {agent.name}'s persisted workspace, including stopped agents when file storage is available.
       </p>
@@ -308,6 +843,61 @@ function formatBytes(size: number | undefined) {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function fileExtension(entry: AgentFileEntry) {
+  const name = entry.name || entry.path;
+  const match = /\.([^.\/]+)$/.exec(name);
+  return match?.[1]?.toLowerCase() ?? "";
+}
+
+function previewKind(entry: AgentFileEntry): FilePreviewKind {
+  const ext = fileExtension(entry);
+  if (ext === "html" || ext === "htm") return "html";
+  if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) return "image";
+  if (ext === "pdf") return "pdf";
+  if (["txt", "md", "markdown", "json", "js", "jsx", "ts", "tsx", "css", "csv", "log", "xml", "yaml", "yml", "py", "rs", "go", "sh"].includes(ext)) return "text";
+  return "binary";
+}
+
+function mimeTypeForFile(entry: AgentFileEntry) {
+  const ext = fileExtension(entry);
+  if (ext === "html" || ext === "htm") return "text/html;charset=utf-8";
+  if (ext === "svg") return "image/svg+xml";
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "png") return "image/png";
+  if (ext === "gif") return "image/gif";
+  if (ext === "webp") return "image/webp";
+  if (ext === "pdf") return "application/pdf";
+  if (ext === "json") return "application/json;charset=utf-8";
+  if (ext === "md" || ext === "markdown") return "text/markdown;charset=utf-8";
+  return previewKind(entry) === "text" ? "text/plain;charset=utf-8" : "application/octet-stream";
+}
+
+function downloadPreview(preview: FilePreview) {
+  const source = preview.bytes ? preview.bytes.slice().buffer : preview.content ?? "";
+  const url = URL.createObjectURL(new Blob([source], { type: mimeTypeForFile(preview.entry) }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = preview.entry.name || "download";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function canOpenPreview(preview: FilePreview) {
+  return fileExtension(preview.entry) !== "svg";
+}
+
+function sandboxHtml(source: string) {
+  return [
+    "<!doctype html>",
+    '<meta charset="utf-8">',
+    '<meta name="referrer" content="no-referrer">',
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; base-uri \'none\'; connect-src \'none\'; form-action \'none\'; frame-src \'none\'; img-src data: blob:; media-src data: blob:; object-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'">',
+    source.replace(/<base\b[^>]*>/gi, ""),
+  ].join("");
 }
 
 function LogsTab({ agent, active }: { agent: AgentSummary; active: boolean }) {
@@ -352,108 +942,35 @@ function LogsTab({ agent, active }: { agent: AgentSummary; active: boolean }) {
           {logs.error}
         </div>
       )}
-      <pre
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-card p-3 font-mono text-[10.5px] leading-relaxed text-text-secondary whitespace-pre-wrap"
-      >
-        {logs.lines.length > 0
-          ? logs.lines.join("\n")
-          : streamable
-            ? "Waiting for logs..."
-            : "Start the agent to stream logs."}
-      </pre>
+      {logs.lines.length > 0 ? (
+        <pre
+          ref={scrollRef}
+          className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-card p-3 font-mono text-[10.5px] leading-relaxed text-text-secondary whitespace-pre-wrap"
+        >
+          {logs.lines.join("\n")}
+        </pre>
+      ) : (
+        <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-border bg-card px-4 text-center">
+          <div className="max-w-[220px] text-text-secondary">
+            <div className="text-[12px] font-medium text-foreground">
+              {streamable ? "Waiting for logs" : "No live logs"}
+            </div>
+            <div className="mt-1 text-[11px] leading-relaxed">
+              {logs.phase === "connecting"
+                ? "Loading retained logs and attaching live output."
+                : streamable
+                  ? "Connected, but this runtime has not published retained log lines yet."
+                  : "Start the agent to stream logs."}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function Caption({ children }: { children: string }) {
   return <div className="side-caption">{children}</div>;
-}
-
-function ScreenTab({ agent }: { agent: AgentSummary }) {
-  const running = agent.state === RUNNING;
-  const family = runtimeFamily(agent.runtime);
-  const status = running ? "Running" : TRANSITIONAL.has(agent.state) ? "Idle" : "Stopped";
-  if (family !== "openclaw") {
-    return (
-      <div className="p-4 space-y-3">
-        <Caption>SCREEN</Caption>
-        <div className="soft-card px-3 py-8 text-center">
-          <Terminal size={20} className="mx-auto mb-2 text-text-secondary" />
-          <div className="text-[12px] font-medium">No screen for {runtimeLabel(agent.runtime)}</div>
-          <p className="mt-1 text-[11px] leading-relaxed text-text-secondary">
-            Screen control is available for OpenClaw agents. Use Shell, Logs, or Files for this runtime.
-          </p>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="p-4 space-y-3">
-      <Caption>{`${agent.name.toUpperCase()}'S SCREEN`}</Caption>
-
-      <div className="soft-card overflow-hidden">
-        <div className="flex items-center gap-2 px-2.5 py-2 border-b border-border">
-          <span className="flex gap-1 shrink-0">
-            <span className="w-2 h-2 rounded-full bg-border-strong" />
-            <span className="w-2 h-2 rounded-full bg-border-strong" />
-            <span className="w-2 h-2 rounded-full bg-border-strong" />
-          </span>
-          <div className="flex-1 min-w-0 rounded-md bg-surface border border-border px-2 py-1 text-[10px] text-text-secondary truncate">
-            {agent.hostname ?? "No session yet"}
-          </div>
-        </div>
-        <div className="p-2.5 space-y-1.5">
-          <div className="h-2 rounded-full bg-border/70 w-3/5" />
-          <div className="h-2 rounded-full bg-border/70 w-full" />
-          <div className="h-2 rounded-full bg-border/70 w-5/6" />
-          <div className="h-2 rounded-full bg-border/70 w-2/5" />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[11px] text-text-secondary">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${running ? "bg-success" : "bg-text-secondary/50"}`}
-          />
-          {status}
-        </span>
-        {agent.hostname && (
-          <button
-            onClick={() => openUrl(`https://${agent.hostname}`)}
-            className="text-[11px] text-accent hover:underline transition-colors"
-          >
-            View live →
-          </button>
-        )}
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          disabled
-          className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-border-strong text-[12px] font-medium px-3 py-2 disabled:opacity-40 transition-colors"
-        >
-          <GraduationCap size={13} />
-          Teach a task
-        </button>
-        <button
-          disabled
-          className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-foreground text-background text-[12px] font-medium px-3 py-2 disabled:opacity-40 transition-colors"
-        >
-          <Hand size={13} />
-          Take over
-        </button>
-      </div>
-
-      <div className="soft-card px-3 py-2.5">
-        <div className="text-[12px] font-medium mb-0.5">Your agent's computer</div>
-        <p className="text-[11px] text-text-secondary leading-relaxed">
-          Runs in your cloud — same browser sessions, same{" "}
-          <code className="font-mono text-[10px]">/workspace</code> across restarts.
-        </p>
-      </div>
-    </div>
-  );
 }
 
 function RoutinesTab() {
@@ -488,70 +1005,126 @@ function SettingsTab({
   agent,
   onArchive,
   onRestore,
+  onStop,
   onDelete,
+  onUploadAgentAvatar,
+  onDeleteAgentAvatar,
 }: {
   agent: AgentSummary;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
+  onStop: (id: string) => void;
   onDelete: (id: string) => void;
+  onUploadAgentAvatar: (id: string, file: File) => void;
+  onDeleteAgentAvatar: (id: string) => void;
 }) {
   const persona = usePersona(agent.id);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [notify, setNotify] = useLocalBool(`desktop-ng-notify:${agent.id}`, true);
+  const [avatarStyleOpen, setAvatarStyleOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex items-center gap-3">
-        <Avatar
-          name={agent.name}
-          url={agent.avatar_url}
-          size={44}
-          color={persona.color}
-          icon={persona.icon}
-        />
-        <p className="text-[11px] text-text-secondary leading-snug">
-          Agents read each other's descriptions to decide who to hand work to.
-        </p>
-      </div>
-
-      <div>
-        <div className="text-[11px] text-text-secondary mb-1.5">Color</div>
-        <div className="flex flex-wrap gap-2">
-          {PERSONA_COLORS.map((color) => (
-            <button
-              key={color}
-              onClick={() => setPersona(agent.id, { color })}
-              className="w-5 h-5 rounded-full transition-colors"
-              style={{
-                backgroundColor: color,
-                boxShadow:
-                  persona.color === color
-                    ? `0 0 0 2px var(--surface), 0 0 0 4px ${color}`
-                    : undefined,
-              }}
-            />
-          ))}
+          <Avatar
+            name={agent.name}
+            url={agent.avatar_url}
+            size={44}
+            color={persona.color}
+            icon={persona.icon}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] text-text-secondary leading-snug">
+              Agents read each other's descriptions to decide who to hand work to.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) onUploadAgentAvatar(agent.id, file);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="ui-icon-button flex items-center gap-1.5 px-2 py-1 text-[11px]"
+              >
+                <Camera size={12} />
+                {agent.avatar_url ? "Change avatar" : "Upload avatar"}
+              </button>
+              {agent.avatar_url && (
+                <button
+                  type="button"
+                  onClick={() => onDeleteAgentAvatar(agent.id)}
+                  className="ui-icon-button flex items-center gap-1.5 px-2 py-1 text-[11px]"
+                >
+                  <Trash2 size={12} />
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div>
-        <div className="text-[11px] text-text-secondary mb-1.5">Icon</div>
-        <div className="flex flex-wrap gap-1.5">
-          {PERSONA_ICONS.map((icon) => (
-            <button
-              key={icon}
-              onClick={() => setPersona(agent.id, { icon })}
-              className={`w-7 h-7 rounded-md border flex items-center justify-center transition-colors ${
-                persona.icon === icon
-                  ? "border-accent bg-accent-tint"
-                  : "border-border hover:bg-active-row"
-              }`}
-            >
-              <Avatar name={agent.name} size={16} color={persona.color} icon={icon} />
-            </button>
-          ))}
+      {!agent.avatar_url && (
+        <div className="rounded-lg border border-border bg-card">
+          <button
+            type="button"
+            onClick={() => setAvatarStyleOpen((value) => !value)}
+            className="flex w-full items-center justify-between px-3 py-2 text-left"
+          >
+            <span className="text-[12px] font-medium">Generated avatar</span>
+            <span className="text-[11px] text-text-secondary">{avatarStyleOpen ? "Hide" : "Edit"}</span>
+          </button>
+          {avatarStyleOpen && (
+            <div className="space-y-3 border-t border-border px-3 py-3">
+              <div>
+                <div className="text-[11px] text-text-secondary mb-1.5">Color</div>
+                <div className="flex flex-wrap gap-2">
+                  {PERSONA_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => setPersona(agent.id, { color })}
+                      className="w-5 h-5 rounded-full transition-colors"
+                      style={{
+                        backgroundColor: color,
+                        boxShadow:
+                          persona.color === color
+                            ? `0 0 0 2px var(--surface), 0 0 0 4px ${color}`
+                            : undefined,
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-text-secondary mb-1.5">Icon</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PERSONA_ICONS.map((icon) => (
+                    <button
+                      key={icon}
+                      onClick={() => setPersona(agent.id, { icon })}
+                      className={`w-7 h-7 rounded-md border flex items-center justify-center transition-colors ${
+                        persona.icon === icon
+                          ? "border-accent bg-accent-tint"
+                          : "border-border hover:bg-active-row"
+                      }`}
+                    >
+                      <Avatar name={agent.name} size={16} color={persona.color} icon={icon} />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <div>
         <div className="text-[11px] text-text-secondary mb-1.5">Name</div>
@@ -620,7 +1193,7 @@ function SettingsTab({
 
       </div>
       <div className="shrink-0 border-t border-border bg-surface p-3">
-        <DangerZone agent={agent} onArchive={onArchive} onRestore={onRestore} onDelete={onDelete} />
+        <DangerZone agent={agent} onArchive={onArchive} onRestore={onRestore} onStop={onStop} onDelete={onDelete} />
       </div>
     </div>
   );
@@ -637,7 +1210,7 @@ function ActivityTab({ chat }: { chat: AgentChat }) {
   const count = chat.activity.length;
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el) el.scrollTop = 0;
   }, [count]);
 
   return (
@@ -651,7 +1224,7 @@ function ActivityTab({ chat }: { chat: AgentChat }) {
         </span>
       </div>
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 pb-3 space-y-1.5">
-        {chat.activity.map((entry) => (
+        {[...chat.activity].reverse().map((entry) => (
           <ActivityRow key={entry.id} entry={entry} />
         ))}
       </div>
@@ -687,6 +1260,37 @@ function ActivityRow({ entry }: { entry: ActivityEntry }) {
             {entry.detail}
           </div>
         )}
+      </div>
+    );
+  }
+  if (entry.kind === "reply") {
+    return (
+      <div className="tool-card">
+        <button
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center gap-2 px-2 py-1.5 text-left"
+        >
+          <MessageSquare size={12} className="text-text-secondary shrink-0" />
+          <span className="text-[11px] truncate flex-1">{entry.title}</span>
+          {entry.status && (
+            <span className={`text-[10px] font-medium shrink-0 ${ACTIVITY_STATUS_STYLE[entry.status] ?? "text-text-secondary"}`}>
+              {entry.status.replace(/_/g, " ")}
+            </span>
+          )}
+          {open ? (
+            <ChevronDown size={12} className="text-text-secondary shrink-0" />
+          ) : (
+            <ChevronRight size={12} className="text-text-secondary shrink-0" />
+          )}
+        </button>
+        {open && entry.detail && (
+          <div className="px-2.5 pb-2 text-[11px] leading-relaxed text-text-secondary whitespace-pre-wrap">
+            {entry.detail}
+          </div>
+        )}
+        <div className="px-2.5 pb-1.5 -mt-0.5 text-[10px] text-text-secondary/70">
+          {formatTime(entry.ts)}
+        </div>
       </div>
     );
   }
@@ -734,16 +1338,20 @@ function DangerZone({
   agent,
   onArchive,
   onRestore,
+  onStop,
   onDelete,
 }: {
   agent: AgentSummary;
   onArchive: (id: string) => void;
   onRestore: (id: string) => void;
+  onStop: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const [confirm, setConfirm] = useState<"archive" | "delete" | null>(null);
+  const [confirm, setConfirm] = useState<"stop" | "archive" | "delete" | null>(null);
   const stopped = agent.state === "STOPPED";
   const archived = agent.state === "ARCHIVED";
+  const running = agent.state === RUNNING;
+  useEffect(() => setConfirm(null), [agent.id]);
 
   return (
     <div className="space-y-3">
@@ -766,18 +1374,32 @@ function DangerZone({
               onClick={() => onRestore(agent.id)}
             />
           ) : (
-            <DangerRow
-              title="Archive agent"
-              description={stopped ? "Pack storage away; restore anytime." : "Stop the agent first."}
-              action={confirm === "archive" ? "Confirm" : "Archive"}
-              disabled={!stopped}
-              onClick={() => {
-                if (confirm === "archive") {
-                  setConfirm(null);
-                  onArchive(agent.id);
-                } else setConfirm("archive");
-              }}
-            />
+            <>
+              <DangerRow
+                title="Stop agent"
+                description={running ? "Shut down compute; files stay available." : "Agent is not running."}
+                action={confirm === "stop" ? "Confirm" : "Stop"}
+                disabled={!running}
+                onClick={() => {
+                  if (confirm === "stop") {
+                    setConfirm(null);
+                    onStop(agent.id);
+                  } else setConfirm("stop");
+                }}
+              />
+              <DangerRow
+                title="Archive agent"
+                description={stopped ? "Pack storage away; restore anytime." : "Stop the agent first."}
+                action={confirm === "archive" ? "Confirm" : "Archive"}
+                disabled={!stopped}
+                onClick={() => {
+                  if (confirm === "archive") {
+                    setConfirm(null);
+                    onArchive(agent.id);
+                  } else setConfirm("archive");
+                }}
+              />
+            </>
           )}
           <DangerRow
             title="Delete agent"

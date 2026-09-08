@@ -14,11 +14,11 @@ This file is the persistent scope checklist for the desktop agent client. Check 
 ## Right Panel
 
 - Top-level tabs: Agent, Routines, Settings.
-- Agent sub-tabs: Screen, Shell, Logs, Files.
-- Screen is OpenClaw-specific until another runtime exposes an equivalent screen/session surface.
+- Agent sub-tabs: Activity, Shell, Logs, Files.
+- Activity is the default Agent sub-tab and should show runtime work as it happens.
 - Shell should attach to the agent shell API, not ACP.
 - Logs should use the SDK/backed logs URL/token flow and must not reconnect on ordinary roster refresh.
-- Files should use the agent files/reef API from the SDK.
+- Files should use the agent workspace file API from the SDK.
 
 ## Settings
 

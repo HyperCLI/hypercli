@@ -1,5 +1,6 @@
 import {
   runtimeHistory,
+  runtimeHistoryForSession,
   streamRuntimeMessage,
   type AgentSummary,
   type RuntimeChatEvent,
@@ -10,8 +11,8 @@ import { type RuntimeFamily, runtimeFamily } from "./agent-utils";
 export interface RuntimeSession {
   readonly family: RuntimeFamily;
   readonly canChat: boolean;
-  history(): Promise<RuntimeChatMessage[]>;
-  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void): Promise<void>;
+  history(sessionKey?: string | null): Promise<RuntimeChatMessage[]>;
+  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void, sessionKey?: string | null): Promise<void>;
 }
 
 function hasTauriInvoke() {
@@ -26,11 +27,11 @@ abstract class BaseRuntimeSession implements RuntimeSession {
 
   constructor(protected readonly agent: AgentSummary) {}
 
-  async history(): Promise<RuntimeChatMessage[]> {
+  async history(_sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
     return [];
   }
 
-  async streamMessage(_text: string, _onEvent: (event: RuntimeChatEvent) => void): Promise<void> {
+  async streamMessage(_text: string, _onEvent: (event: RuntimeChatEvent) => void, _sessionKey?: string | null): Promise<void> {
     throw new Error("This runtime does not expose streaming chat yet.");
   }
 
@@ -43,13 +44,14 @@ class OpenClawRuntimeSession extends BaseRuntimeSession {
     return !hasTauriInvoke();
   }
 
-  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void): Promise<void> {
+  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void, sessionKey?: string | null): Promise<void> {
     if (!this.canChat) throw new Error("OpenClaw chat is not wired in the packaged app yet.");
-    return streamRuntimeMessage(this.agent.id, text, onEvent);
+    return streamRuntimeMessage(this.agent.id, text, onEvent, sessionKey);
   }
 
-  history(): Promise<RuntimeChatMessage[]> {
+  history(sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
     if (!this.canChat) return Promise.resolve([]);
+    if (sessionKey) return runtimeHistoryForSession(this.agent.id, sessionKey);
     return runtimeHistory(this.agent.id);
   }
 }
@@ -61,13 +63,14 @@ class HermesRuntimeSession extends BaseRuntimeSession {
     return !hasTauriInvoke();
   }
 
-  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void): Promise<void> {
+  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void, sessionKey?: string | null): Promise<void> {
     if (!this.canChat) throw new Error("Hermes chat is not wired in the packaged app yet.");
-    return streamRuntimeMessage(this.agent.id, text, onEvent);
+    return streamRuntimeMessage(this.agent.id, text, onEvent, sessionKey);
   }
 
-  history(): Promise<RuntimeChatMessage[]> {
+  history(sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
     if (!this.canChat) return Promise.resolve([]);
+    if (sessionKey) return runtimeHistoryForSession(this.agent.id, sessionKey);
     return runtimeHistory(this.agent.id);
   }
 
@@ -94,10 +97,11 @@ export function streamRuntimeChatMessage(
   agent: AgentSummary,
   text: string,
   onEvent: (event: RuntimeChatEvent) => void,
+  sessionKey?: string | null,
 ): Promise<void> {
-  return runtimeSession(agent).streamMessage(text, onEvent);
+  return runtimeSession(agent).streamMessage(text, onEvent, sessionKey);
 }
 
-export function runtimeChatHistory(agent: AgentSummary): Promise<RuntimeChatMessage[]> {
-  return runtimeSession(agent).history();
+export function runtimeChatHistory(agent: AgentSummary, sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
+  return runtimeSession(agent).history(sessionKey);
 }

@@ -92,15 +92,22 @@ export function NewAgentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background text-foreground">
-      <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-12" />
-      <main className="mx-auto flex h-full w-[560px] max-w-[calc(100vw-64px)] flex-col py-12">
-        <div className="mb-8 flex shrink-0 items-center justify-between">
-          <div className="text-[13px] font-semibold">HyperCLI</div>
+    <div className="modal-backdrop" onClick={busy ? undefined : onClose}>
+      <main
+        role="dialog"
+        aria-modal="true"
+        className="modal-card relative flex max-h-[86vh] w-[560px] max-w-[calc(100vw-32px)] flex-col overflow-hidden"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+          <div>
+            <div className="text-[13px] font-semibold">New agent</div>
+            <div className="text-[11px] text-text-secondary">Create a teammate</div>
+          </div>
           <Progress step={step} />
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {step === 0 ? (
             <IntroStep onNext={() => setStep(1)} onSkip={() => setStep(1)} />
           ) : step === 1 ? (
@@ -137,7 +144,7 @@ export function NewAgentModal({
           )}
         </div>
 
-        <div className="mt-6 flex shrink-0 items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between border-t border-border px-4 py-3">
           {step === 0 ? (
             <button type="button" onClick={onClose} className="text-[12px] text-text-secondary hover:text-foreground transition-colors">
               Skip
@@ -162,14 +169,14 @@ export function NewAgentModal({
             </button>
           )}
         </div>
+        <button
+          onClick={onClose}
+          disabled={busy}
+          className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full text-text-secondary hover:bg-active-row hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          <X size={15} />
+        </button>
       </main>
-      <button
-        onClick={onClose}
-        disabled={busy}
-        className="absolute right-8 top-8 flex h-8 w-8 items-center justify-center rounded-full text-text-secondary hover:bg-active-row hover:text-foreground transition-colors"
-      >
-        <X size={16} />
-      </button>
     </div>
   );
 }

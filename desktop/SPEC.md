@@ -103,18 +103,13 @@ CSS vars on `:root` / `.dark`, bridged to Tailwind v4 via `@theme inline`.
 ## 5. Context panel (260px)
 
 Tab row in the 52px header, right-aligned, text-only weight swap (active =
-semibold foreground, inactive = secondary): **Screen · Routines · Profile**,
-then a 1px divider and two icon tabs: **Activity** (ScrollText) and **Settings**
-(Settings2). Default tab: Screen.
+semibold foreground, inactive = secondary): **Agent · Routines · Settings**.
+Default tab: Agent. Agent sub-tabs: **Activity · Shell · Logs · Files**.
 
-- **Screen** (mock-faithful module): caption `{NAME}'S SCREEN` (10px tracked);
-  browser preview card (traffic dots + URL bar with agent hostname + muted
-  skeleton lines); status line `● {Running|Stopped|Idle}` + `View live →`
-  (opens `https://{hostname}` via opener plugin, hidden without hostname);
-  button row: `Teach a task` (outline, disabled) + `Take over` (dark filled,
-  disabled — until images ship a desktop); info card `Your agent's computer` —
-  "Runs in your cloud — same browser sessions, same `/workspace` across
-  restarts."
+- **Activity**: `ACTIVITY` caption + "Last updated {time}"; newest work first.
+  Live feed folded from runtime session updates: tool rows (collapsible, mono
+  detail, duration, status), one coalesced Thinking entry per turn, usage lines
+  (mono 11px), mode notes.
 - **Routines**: `0 ROUTINES` caption + `+ New routine` (disabled, ghost);
   empty-state card per mock; footer caption "Routines run in the cloud on
   schedule, even when your computer is off."
@@ -125,10 +120,6 @@ then a 1px divider and two icon tabs: **Activity** (ScrollText) and **Settings**
   routing table for the whole team — keep it specific."; Notifications toggle
   (local pref); `Share as template` full-width outline (disabled).
   Name shown as a disabled input (backend has no rename yet).
-- **Activity** (user-requested, not in mocks — styled in mock language):
-  `ACTIVITY` caption + "Last updated {time}"; live feed folded from ACP
-  session updates: tool rows (collapsible, mono detail, duration, status),
-  one coalesced Thinking entry per turn, usage lines (mono 11px), mode notes.
 - **Settings** (user-requested): `AGENT` section (runtime, size, host rows)
   + `DANGER ZONE` (error-tinted bordered card): Archive (enabled when STOPPED,
   confirm two-step), Restore (when ARCHIVED), Delete (STOPPED/ARCHIVED,
@@ -165,8 +156,8 @@ mapped: 401/403 sign-in, 404 gone, 409 not-ready, 429 rate-limit, 5xx trouble).
   archive/restore/delete_agent, acp_credentials (api_base + token, in-memory
   handoff), plan_summary. `AgentWatcher` subscribes `/ws/deployments`, emits
   debounced `agents-updated`. All blocking SDK calls on `spawn_blocking`.
-- **Webview chat** (`src/useAgentChat.ts`): `CodingAgentAcpClient` over SSE
-  (`transport: "sse"`) to `/acp` derived from the `/ws` bridge URL. Session id
+- **Webview chat** (`src/useAgentChat.ts`): `CodingAgentAcpClient` over the
+  desktop ACP WebSocket bridge (`/__desktop_ng/acp`). Session id
   persisted per agent (`acp-session:<id>`); loadSession replay with newSession
   fallback. Pure fold of `session/update` → messages (text/thought/tool/plan)
   + activity entries (tool entries tracked by toolCallId — updates patch the

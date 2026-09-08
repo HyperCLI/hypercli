@@ -40,6 +40,14 @@ const ACP_RUNTIME_HARNESSES: Record<keyof typeof ACP_CREATE_METHODS, { command: 
 const runtimeAgentCache = new Map<string, OpenClawAgent | HermesAgent>();
 const runtimeSessionCache = new Map<string, Promise<AgentSessionClient>>();
 
+interface AcpHub {
+  upstream: NodeWebSocket;
+  clients: Set<NodeWebSocket>;
+  open: boolean;
+  pending: Array<{ data: NodeWebSocket.RawData; isBinary: boolean }>;
+}
+const acpHubs = new Map<string, AcpHub>();
+
 function localConfig() {
   const values = new Map<string, string>();
   try {
@@ -78,12 +86,27 @@ function devBridge(): Plugin {
     apply: "serve",
     configureServer(server) {
       const acpProxy = new WebSocketServer({ noServer: true });
+      const shellProxy = new WebSocketServer({ noServer: true });
+      const logsProxy = new WebSocketServer({ noServer: true });
       server.httpServer?.on("upgrade", (req, socket, head) => {
         const url = new URL(req.url ?? "/", "http://localhost");
-        if (url.pathname !== "/__desktop_ng/acp") return;
-        acpProxy.handleUpgrade(req, socket, head, (client) => {
-          proxyAcpWebSocket(client, url.searchParams.get("agent_id") ?? "");
-        });
+        if (url.pathname === "/__desktop_ng/acp") {
+          acpProxy.handleUpgrade(req, socket, head, (client) => {
+            proxyAcpWebSocket(client, url.searchParams.get("agent_id") ?? "");
+          });
+          return;
+        }
+        if (url.pathname === "/__desktop_ng/shell") {
+          shellProxy.handleUpgrade(req, socket, head, (client) => {
+            proxyShellWebSocket(client, url.searchParams.get("agent_id") ?? "");
+          });
+          return;
+        }
+        if (url.pathname === "/__desktop_ng/logs") {
+          logsProxy.handleUpgrade(req, socket, head, (client) => {
+            proxyLogsWebSocket(client, url.searchParams.get("agent_id") ?? "");
+          });
+        }
       });
       server.middlewares.use("/__desktop_ng/stream", async (req, res) => {
         if (req.method !== "POST") {
@@ -135,6 +158,93 @@ function devBridge(): Plugin {
   };
 }
 
+async function proxyShellWebSocket(client: NodeWebSocket, agentId: string) {
+  const config = localConfig();
+  if (!config.token) {
+    client.close(4401, "No HyperCLI credential found");
+    return;
+  }
+  if (!agentId) {
+    client.close(1008, "Missing agent_id");
+    return;
+  }
+
+  let upstream: NodeWebSocket | null = null;
+  try {
+    upstream = await withSdkNodeWebSocket(() => deploymentsClient(config).shellConnect(agentId)) as NodeWebSocket;
+  } catch (error) {
+    client.close(1011, (error instanceof Error ? error.message : String(error)).slice(0, 120));
+    return;
+  }
+
+  const closeBoth = (code?: number, reason?: string) => {
+    if (client.readyState === NodeWebSocket.OPEN) client.close(closeCode(code ?? 1000), reason);
+    if (upstream && upstream.readyState === NodeWebSocket.OPEN) upstream.close(code, reason);
+  };
+
+  upstream.onmessage = (event) => {
+    if (client.readyState !== NodeWebSocket.OPEN) return;
+    client.send(event.data as NodeWebSocket.RawData);
+  };
+  upstream.onclose = (event) => closeBoth(event.code, event.reason);
+  upstream.onerror = () => closeBoth(1011, "Shell transport error");
+  client.on("message", (data, isBinary) => {
+    if (upstream?.readyState === NodeWebSocket.OPEN) {
+      upstream.send(isBinary ? data : data.toString());
+    }
+  });
+  client.on("close", (code, reason) => {
+    if (upstream?.readyState === NodeWebSocket.OPEN) upstream.close(closeCode(code), reason.toString());
+  });
+}
+
+async function proxyLogsWebSocket(client: NodeWebSocket, agentId: string) {
+  const config = localConfig();
+  if (!config.token) {
+    client.close(4401, "No HyperCLI credential found");
+    return;
+  }
+  if (!agentId) {
+    client.close(1008, "Missing agent_id");
+    return;
+  }
+
+  let upstream: NodeWebSocket | null = null;
+  try {
+    const tokenData = await deploymentsClient(config).logsToken(agentId) as Record<string, unknown>;
+    const wsUrl = typeof tokenData.ws_url === "string"
+      ? tokenData.ws_url
+      : `${agentsWsBase(config.apiBase)}/logs/${agentId}`;
+    const target = new URL(wsUrl);
+    target.searchParams.set("jwt", String(tokenData.jwt ?? ""));
+    target.searchParams.set("tail_lines", "0");
+    upstream = new NodeWebSocket(target);
+  } catch (error) {
+    client.close(1011, (error instanceof Error ? error.message : String(error)).slice(0, 120));
+    return;
+  }
+
+  const closeBoth = (code?: number, reason?: string) => {
+    if (client.readyState === NodeWebSocket.OPEN) client.close(closeCode(code ?? 1000), reason);
+    if (upstream && upstream.readyState === NodeWebSocket.OPEN) upstream.close(code, reason);
+  };
+  upstream.onmessage = (event) => {
+    if (client.readyState === NodeWebSocket.OPEN) client.send(event.data as NodeWebSocket.RawData);
+  };
+  upstream.onclose = (event) => closeBoth(event.code, event.reason);
+  upstream.onerror = () => closeBoth(1011, "Log transport error");
+  client.on("close", (code, reason) => {
+    if (upstream?.readyState === NodeWebSocket.OPEN) upstream.close(closeCode(code), reason.toString());
+  });
+}
+
+function agentsWsBase(apiBase: string) {
+  const url = new URL(apiBase);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/agents$/, "").replace(/\/api$/, "");
+  return `${url.toString().replace(/\/+$/, "")}/ws`;
+}
+
 function proxyAcpWebSocket(client: NodeWebSocket, agentId: string) {
   const config = localConfig();
   if (!config.token) {
@@ -146,38 +256,65 @@ function proxyAcpWebSocket(client: NodeWebSocket, agentId: string) {
     return;
   }
 
-  const target = new URL(defaultHyperAcpWsUrl(config.apiBase));
-  target.searchParams.set("agent_id", agentId);
-  const upstream = new NodeWebSocket(target, {
-    headers: { authorization: `Bearer ${config.token}` },
-  });
-  const pending: Array<{ data: NodeWebSocket.RawData; isBinary: boolean }> = [];
-  let upstreamOpen = false;
+  // N-client hub: one upstream per agent, frames fanned out to every local
+  // client. ACP SDK clients drop unknown-id responses, so multiple clients
+  // (chat UI, sessions poller) share one agent connection safely.
+  let hub = acpHubs.get(agentId);
+  if (!hub || hub.upstream.readyState === NodeWebSocket.CLOSED) {
+    const target = new URL(defaultHyperAcpWsUrl(config.apiBase));
+    target.searchParams.set("agent_id", agentId);
+    const upstream = new NodeWebSocket(target, {
+      headers: { authorization: `Bearer ${config.token}` },
+    });
+    hub = { upstream, clients: new Set(), open: false, pending: [] };
+    acpHubs.set(agentId, hub);
+    upstream.on("open", () => {
+      hub!.open = true;
+      for (const { data, isBinary } of hub!.pending.splice(0)) sendFrame(upstream, data, isBinary);
+    });
+    upstream.on("message", (data, isBinary) => {
+      for (const c of hub!.clients) {
+        if (c.readyState === NodeWebSocket.OPEN) sendFrame(c, data, isBinary);
+      }
+    });
+    upstream.on("close", (code, reason) => {
+      acpHubs.delete(agentId);
+      for (const c of hub!.clients) {
+        if (c.readyState === NodeWebSocket.OPEN) c.close(closeCode(code), reason.toString());
+      }
+      hub!.clients.clear();
+    });
+    upstream.on("error", (error) => {
+      for (const c of hub!.clients) {
+        if (c.readyState === NodeWebSocket.OPEN) c.close(1011, error.message.slice(0, 120));
+      }
+    });
+  }
 
+  hub.clients.add(client);
   client.on("message", (data, isBinary) => {
-    if (upstreamOpen) {
-      sendFrame(upstream, data, isBinary);
+    if (hub!.open && hub!.upstream.readyState === NodeWebSocket.OPEN) {
+      sendFrame(hub!.upstream, data, isBinary);
     } else {
-      pending.push({ data, isBinary });
+      hub!.pending.push({ data, isBinary });
     }
-  });
-  upstream.on("open", () => {
-    upstreamOpen = true;
-    for (const { data, isBinary } of pending.splice(0)) sendFrame(upstream, data, isBinary);
-  });
-  upstream.on("message", (data, isBinary) => {
-    if (client.readyState === NodeWebSocket.OPEN) sendFrame(client, data, isBinary);
-  });
-  upstream.on("close", (code, reason) => {
-    if (client.readyState === NodeWebSocket.OPEN) client.close(closeCode(code), reason.toString());
   });
   client.on("close", () => {
-    if (upstream.readyState === NodeWebSocket.OPEN || upstream.readyState === NodeWebSocket.CONNECTING) {
-      upstream.close();
-    }
-  });
-  upstream.on("error", (error) => {
-    if (client.readyState === NodeWebSocket.OPEN) client.close(1011, error.message.slice(0, 120));
+    hub!.clients.delete(client);
+    // Keep the upstream alive briefly after the last client leaves so a
+    // sessions poller reconnecting does not bounce the agent pairing.
+    setTimeout(() => {
+      const current = acpHubs.get(agentId);
+      if (current && current.clients.size === 0) {
+        acpHubs.delete(agentId);
+        if (
+          current.upstream.readyState === NodeWebSocket.OPEN ||
+          current.upstream.readyState === NodeWebSocket.CONNECTING
+        ) {
+          current.upstream.close();
+        }
+      }
+    }, 15_000);
   });
 }
 
@@ -199,7 +336,8 @@ async function streamRuntimeMessage(
   const id = requiredId(args);
   const text = typeof args.text === "string" ? args.text.trim() : "";
   if (!text) throw new Error("Message is empty");
-  const { agent, session, sessionKey } = await runtimeSessionForAgent(config, id);
+  const requestedSessionKey = typeof args.sessionKey === "string" && args.sessionKey.trim() ? args.sessionKey.trim() : undefined;
+  const { agent, session, sessionKey } = await runtimeSessionForAgent(config, id, requestedSessionKey);
   try {
     for await (const event of session.chatSend(text, sessionKey)) {
       emit(event as unknown as Record<string, unknown>);
@@ -218,9 +356,89 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
   if (!config.token) throw new Error("No HyperCLI credential found in ~/.hypercli/config");
   if (command === "list_agents") return api(config, "deployments").then((page) => (page.items ?? []).map(agentSummary));
   if (command === "acp_credentials") return { api_base: config.apiBase, token: config.token };
+  if (command === "acp_list_sessions") {
+    // The ACP hub shares one upstream connection across chat and session commands.
+    const id = requiredId(args);
+    const agent = await deploymentsClient(config).get(id);
+    if (typeof agent.acpConnect !== "function") {
+      throw new Error(`Agent ${id} does not support ACP sessions`);
+    }
+    const client = await agent.acpConnect({ cwd: "/home/node" });
+    try {
+      const response = (await client.listSessions()) as {
+        sessions?: Array<{ sessionId: string; title?: string | null; cwd?: string | null; updatedAt?: string | null }>;
+        nextCursor?: string | null;
+      };
+      return {
+        sessions: (response.sessions ?? []).map((session) => ({
+          session_id: session.sessionId,
+          title: session.title ?? null,
+          cwd: session.cwd ?? null,
+          updated_at: session.updatedAt ?? null,
+        })),
+        next_cursor: response.nextCursor ?? null,
+      };
+    } finally {
+      client.close();
+    }
+  }
+  if (command === "runtime_list_sessions") {
+    const { session } = await runtimeSessionForAgent(config, requiredId(args));
+    const sessions = await session.sessionsList();
+    return {
+      sessions: sessions
+        .filter((item) => item.key && !(session.runtimeKind === "openclaw" && item.key === "main"))
+        .map((item) => runtimeSessionSummary(session.runtimeKind, item)),
+      next_cursor: null,
+    };
+  }
+  if (command === "runtime_create_session") {
+    const { session } = await runtimeSessionForAgent(config, requiredId(args));
+    const title = typeof args.title === "string" && args.title.trim() ? args.title.trim() : "New session";
+    const created = await session.sessionsCreate({ label: title });
+    return runtimeSessionSummary(session.runtimeKind, created);
+  }
+  if (command === "runtime_rename_session") {
+    const sessionKey = typeof args.sessionKey === "string" && args.sessionKey.trim() ? args.sessionKey.trim() : "";
+    const title = typeof args.title === "string" && args.title.trim() ? args.title.trim() : "";
+    if (!sessionKey) throw new Error("Missing session key");
+    if (!title) throw new Error("Missing session title");
+    const { session } = await runtimeSessionForAgent(config, requiredId(args), sessionKey);
+    const renamed = await session.sessionsPatch({ key: sessionKey, label: title });
+    return runtimeSessionSummary(session.runtimeKind, renamed);
+  }
   if (command === "agent_logs_token") {
     const token = await api(config, `deployments/${requiredId(args)}/logs/token`, { method: "POST" });
     return { ...token, api_base: config.apiBase };
+  }
+  if (command === "agent_desktop_url") {
+    const id = requiredId(args);
+    const token = await deploymentsClient(config).refreshToken(id);
+    const jwt = (token.jwt ?? token.token ?? "").trim();
+    if (!jwt) throw new Error("Desktop token is missing");
+    const agent = agentSummary(await deploymentsClient(config).get(id));
+    const route = desktopRouteFromSummary(agent);
+    if (!route) throw new Error("Desktop route is not enabled for this agent");
+    if (agent.state !== "RUNNING") throw new Error("Start the agent to open its desktop");
+    const host = typeof agent.hostname === "string" && agent.hostname ? agent.hostname : null;
+    if (!host) throw new Error("Agent hostname is unavailable");
+    const prefix = typeof route.prefix === "string" ? route.prefix : "desktop";
+    const base = prefix === "" ? `https://${host}` : `https://${prefix}-${host}`;
+    const auth = new URL("/_jwt_auth", base);
+    auth.searchParams.set("jwt", jwt);
+    auth.searchParams.set("redirect", "vnc.html?autoconnect=true&resize=scale");
+    return { url: auth.toString(), expires_at: token.expires_at ?? null };
+  }
+  if (command === "upload_agent_avatar") {
+    const content = Array.isArray(args.content) ? Uint8Array.from(args.content as number[]) : null;
+    if (!content) throw new Error("Avatar image is missing");
+    const contentType = typeof args.contentType === "string" && args.contentType.trim()
+      ? args.contentType.trim()
+      : "image/png";
+    return deploymentsClient(config).uploadProfileImage(requiredId(args), content, contentType);
+  }
+  if (command === "delete_agent_avatar") {
+    return deploymentsClient(config).deleteProfileImage(requiredId(args));
   }
   if (command === "plan_summary") return api(config, "plans/current");
   if (command === "create_agent") {
@@ -245,6 +463,7 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
           name,
           size,
           image: image ?? runtimeImage,
+          env: { HYPER_ACP_PERMISSION_MODE: "default" },
           buzz: {
             privateKeyNsec: buzzPrivateKeyNsec,
             relayUrl: buzzRelayUrl,
@@ -304,7 +523,8 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
     return agentSummary(await deployments.start(id));
   }
   if (command === "runtime_history") {
-    const { agent, session, sessionKey } = await runtimeSessionForAgent(config, requiredId(args));
+    const requestedSessionKey = typeof args.sessionKey === "string" && args.sessionKey.trim() ? args.sessionKey.trim() : undefined;
+    const { agent, session, sessionKey } = await runtimeSessionForAgent(config, requiredId(args), requestedSessionKey);
     try {
       const messages = await session.chatHistory(sessionKey, 50);
       return messages
@@ -327,17 +547,43 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
     const agent = await deploymentsClient(config).get(requiredId(args));
     return agent.filesList(path);
   }
+  if (command === "agent_file_read") {
+    const path = typeof args.path === "string" ? args.path : "";
+    if (!path) throw new Error("File path is required");
+    const agent = await deploymentsClient(config).get(requiredId(args));
+    return agent.fileRead(path, { maxBytes: 500_000 });
+  }
+  if (command === "agent_file_read_bytes") {
+    const path = typeof args.path === "string" ? args.path : "";
+    if (!path) throw new Error("File path is required");
+    const agent = await deploymentsClient(config).get(requiredId(args));
+    const bytes = await agent.fileReadBytes(path, { maxBytes: 20_000_000 });
+    return { bytes: Array.from(bytes) };
+  }
   if (command === "agent_exec") {
     const commandText = typeof args.command === "string" ? args.command.trim() : "";
     if (!commandText) throw new Error("Command is empty");
     const timeout = typeof args.timeout === "number" ? args.timeout : 30;
     const agent = await deploymentsClient(config).get(requiredId(args));
-    return agent.exec(["sh", "-lc", commandText], { timeout });
+    return withSdkNodeWebSocket(() => agent.exec(["sh", "-lc", commandText], { timeout }));
   }
   if (command === "stop_agent") return agentSummary(await api(config, `deployments/${requiredId(args)}/stop`, { method: "POST" }));
   if (command === "archive_agent") return agentSummary(await api(config, `deployments/${requiredId(args)}/archive`, { method: "POST" }));
   if (command === "restore_agent") return agentSummary(await api(config, `deployments/${requiredId(args)}/restore`, { method: "POST" }));
   if (command === "delete_agent") return api(config, `deployments/${requiredId(args)}`, { method: "DELETE" });
+  if (command === "set_agent_desktop_enabled") {
+    const id = requiredId(args);
+    const enabled = args.enabled === true;
+    const client = deploymentsClient(config);
+    const agent = await client.get(id);
+    await agent.setEnv("HYPER_DESKTOP_ENABLED", enabled ? "1" : "0");
+    if (enabled) {
+      await client.setRoute(id, "desktop", { port: 3000, auth: true, prefix: "desktop" });
+    } else {
+      await client.removeRoute(id, "desktop");
+    }
+    return agentSummary(await client.get(id));
+  }
   throw new Error(`${command} is only available in the Tauri app`);
 }
 
@@ -354,12 +600,31 @@ function agentSummary(value: unknown) {
     state: String(item.state ?? ""),
     hostname: typeof item.hostname === "string" ? item.hostname : null,
     launch_epoch: Number(item.launch_epoch ?? item.launchEpoch ?? 0),
+    launch_config: item.launch_config ?? item.launchConfig ?? null,
+    routes: (item as { routes?: unknown }).routes ?? (item.launch_config as { routes?: unknown } | undefined)?.routes ?? (item.launchConfig as { routes?: unknown } | undefined)?.routes ?? null,
+    has_desktop: agentSummaryHasDesktop(item),
     size: typeof item.requested_size === "string"
       ? item.requested_size
       : typeof item.requestedSize === "string"
         ? item.requestedSize
         : typeof item.size === "string" ? item.size : null,
   };
+}
+
+function agentSummaryHasDesktop(item: Record<string, unknown>) {
+  const launchConfig = item.launch_config ?? item.launchConfig;
+  const env = launchConfig && typeof launchConfig === "object" && !Array.isArray(launchConfig)
+    ? (launchConfig as Record<string, unknown>).env
+    : null;
+  const desktopEnv = env && typeof env === "object" && !Array.isArray(env)
+    ? (env as Record<string, unknown>).HYPER_DESKTOP_ENABLED
+    : undefined;
+  if (typeof desktopEnv === "string" && ["0", "false", "no", "off"].includes(desktopEnv.trim().toLowerCase())) return false;
+  if (typeof desktopEnv === "string" && ["1", "true", "yes", "on"].includes(desktopEnv.trim().toLowerCase())) return true;
+  const routes = (item as { routes?: unknown }).routes ?? (launchConfig as { routes?: unknown } | null)?.routes;
+  if (!routes || typeof routes !== "object" || Array.isArray(routes)) return item.hasDesktop === true || item.has_desktop === true;
+  return Boolean((routes as Record<string, unknown>).desktop)
+    || Object.values(routes).some((route) => route && typeof route === "object" && !Array.isArray(route) && (route as Record<string, unknown>).prefix === "desktop");
 }
 
 function hostedAcpLaunchConfig(
@@ -374,6 +639,8 @@ function hostedAcpLaunchConfig(
       BUZZ_ACP_DISPLAY_NAME: launchConfig.env?.BUZZ_ACP_DISPLAY_NAME ?? "HyperCLI agent",
       BUZZ_ACP_SYSTEM_PROMPT: launchConfig.env?.BUZZ_ACP_SYSTEM_PROMPT ?? agentSystemPrompt(agent ?? { runtime }),
     };
+    delete env.HYPER_ACP_AUTO_APPROVE_PERMISSION;
+    env.HYPER_ACP_PERMISSION_MODE ??= "default";
     return {
       ...launchConfig,
       env,
@@ -402,9 +669,11 @@ function hostedAcpLaunchConfig(
     "HYPER_ACP_WS_TOKEN",
     "HYPER_ACP_AGENT_COMMAND",
     "HYPER_ACP_AGENT_ARGS",
+    "HYPER_ACP_AUTO_APPROVE_PERMISSION",
   ]) {
     delete env[key];
   }
+  env.HYPER_ACP_PERMISSION_MODE ??= "default";
   if (runtime === "claude-code") env.CLAUDE_CODE_EXECUTABLE = "/usr/local/bin/claude";
   return {
     ...launchConfig,
@@ -466,11 +735,23 @@ function runtimeCacheKey(config: { apiBase: string }, id: string, runtime?: stri
 async function runtimeSessionForAgent(
   config: { apiBase: string; token: string },
   id: string,
+  requestedSessionKey?: string,
 ) {
   const agent = await cachedRuntimeAgent(config, id);
   const session = await cachedRuntimeSession(config, agent);
-  const sessionKey = await ensureRuntimeSessionKey(session);
+  const sessionKey = requestedSessionKey ?? await ensureRuntimeSessionKey(session);
   return { agent, session, sessionKey };
+}
+
+function runtimeSessionSummary(runtime: "openclaw" | "hermes", item: { key: string; label?: string | null; model?: string | null; updatedAt?: unknown; updated_at?: unknown; lastActive?: unknown; last_active?: unknown }) {
+  const updated = item.updatedAt ?? item.updated_at ?? item.lastActive ?? item.last_active;
+  return {
+    session_id: item.key,
+    title: item.label ?? null,
+    cwd: item.model ?? null,
+    updated_at: typeof updated === "string" ? updated : null,
+    runtime,
+  };
 }
 
 async function cachedRuntimeSession(
@@ -497,16 +778,22 @@ function forgetRuntimeSession(config: { apiBase: string }, id: string, runtime?:
 
 async function openRuntimeSession(agent: OpenClawAgent | HermesAgent): Promise<AgentSessionClient> {
   if (agent instanceof HermesAgent) return agent.connect({ timeoutMs: 60_000 });
-  const previousWebSocket = globalThis.WebSocket;
-  try {
-    // Node 22 exposes undici's WebSocket globally; the OpenClaw SDK's Node
-    // gateway path is more reliable with the ws package it loads itself.
-    (globalThis as typeof globalThis & { WebSocket?: typeof globalThis.WebSocket }).WebSocket = undefined;
-    return await agent.connectSession({
+  return withSdkNodeWebSocket(() =>
+    agent.connectSession({
       clientId: "desktop-ng",
       clientMode: "webchat",
       origin: "http://localhost:1420",
-    });
+    }),
+  );
+}
+
+async function withSdkNodeWebSocket<T>(operation: () => Promise<T>): Promise<T> {
+  const previousWebSocket = globalThis.WebSocket;
+  try {
+    // Node 22 exposes undici's browser-shaped WebSocket globally; the SDK's
+    // Node path uses the ws package, which is the transport we exercise here.
+    (globalThis as typeof globalThis & { WebSocket?: typeof globalThis.WebSocket }).WebSocket = undefined;
+    return await operation();
   } finally {
     (globalThis as typeof globalThis & { WebSocket?: typeof globalThis.WebSocket }).WebSocket = previousWebSocket;
   }
@@ -547,6 +834,21 @@ function deploymentsClient(config: { apiBase: string; token: string }) {
 function requiredId(args: Record<string, unknown>) {
   if (typeof args.id !== "string" || !args.id) throw new Error("Missing id");
   return args.id;
+}
+
+function desktopRouteFromSummary(agent: Record<string, unknown>): Record<string, unknown> | null {
+  const launch = agent.launch_config && typeof agent.launch_config === "object"
+    ? agent.launch_config as Record<string, unknown>
+    : null;
+  const routes = (launch?.routes && typeof launch.routes === "object" ? launch.routes : agent.routes && typeof agent.routes === "object" ? agent.routes : null) as Record<string, unknown> | null;
+  if (!routes) return null;
+  if (routes.desktop && typeof routes.desktop === "object") return routes.desktop as Record<string, unknown>;
+  for (const route of Object.values(routes)) {
+    if (route && typeof route === "object" && (route as Record<string, unknown>).prefix === "desktop") {
+      return route as Record<string, unknown>;
+    }
+  }
+  return null;
 }
 
 async function api(
@@ -592,6 +894,15 @@ function formatDetail(value: unknown): string {
 
 export default defineConfig({
   plugins: [devBridge(), react(), tailwindcss()],
+  resolve: {
+    alias: [
+      // Client bundle: the SDK's ACP client picks `NodeWebSocket ??
+      // globalThis.WebSocket`; aliasing ws to a native-WebSocket shim keeps
+      // the native fallback. The devBridge plugin runs in Vite's Node config
+      // context (bundled before aliases apply), so it keeps the real ws.
+      { find: /^ws$/, replacement: join(__dirname, "src/ws-browser-shim.ts") },
+    ],
+  },
   clearScreen: false,
   server: {
     port: 1420,
