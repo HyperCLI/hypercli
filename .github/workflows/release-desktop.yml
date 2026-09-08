@@ -223,10 +223,21 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
+      - name: Build SDK from sibling checkout
+        shell: bash
+        working-directory: ts-sdk
+        # desktop depends on @hypercli.com/sdk via file:../ts-sdk; the SDK's
+        # types import its own deps (e.g. @agentclientprotocol/sdk), so the
+        # SDK must be installed and built before desktop can typecheck/build.
+        run: |
+          set -euo pipefail
+          npm ci --no-fund --no-audit
+          npm run build
+
       - name: Install frontend dependencies
         shell: bash
         working-directory: desktop
-        run: npm ci
+        run: npm ci --no-fund --no-audit
 
       - name: Install Tauri CLI
         shell: bash
