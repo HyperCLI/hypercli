@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "HyperCLI",
-  "version": "0.1.0",
-  "identifier": "com.hypercli.menubar",
+  "version": "0.2.0",
+  "identifier": "com.hypercli.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -27,16 +27,13 @@
     },
     "macOSPrivateApi": true
   },
-  "plugins": {
-    "deep-link": {
-      "desktop": {
-        "schemes": ["hypercli"]
-      }
-    }
-  },
+  "mainBinaryName": "hypercli-desktop",
   "bundle": {
     "active": true,
     "targets": "all",
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

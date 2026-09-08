@@ -1,8 +1,8 @@
 use hypercli_sdk::{
     discover_agents_api_base, discover_client_config, remove_config_api_keys,
     save_api_key as persist_api_key, AgentSize, BuzzLaunchConfig, ClientConfig,
-    CreateDeploymentRequest, Deployment, HermesLaunchConfig, HyperCliClient, HyperCliError,
-    ManagedRuntime, OpenClawLaunchConfig, StartDeploymentRequest,
+    CreateDeploymentRequest, Deployment, DeploymentProfileImageResponse, HermesLaunchConfig,
+    HyperCliClient, HyperCliError, ManagedRuntime, OpenClawLaunchConfig, StartDeploymentRequest,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
@@ -24,7 +24,13 @@ struct AgentSummary {
     state: String,
     hostname: Option<String>,
     launch_epoch: u64,
+    has_desktop: bool,
     size: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct AgentFileBytes {
+    bytes: Vec<u8>,
 }
 
 impl From<Deployment> for AgentSummary {
@@ -33,6 +39,7 @@ impl From<Deployment> for AgentSummary {
             .runtime
             .and_then(|r| serde_json::to_value(r).ok())
             .and_then(|v| v.as_str().map(str::to_owned));
+        let has_desktop = deployment_has_desktop(&d);
         Self {
             id: d.id,
             name: d.name,
@@ -42,12 +49,58 @@ impl From<Deployment> for AgentSummary {
             state: d.state,
             hostname: d.hostname,
             launch_epoch: d.launch_epoch,
+            has_desktop,
             size: d
                 .requested_size
                 .and_then(|s| serde_json::to_value(s).ok())
                 .and_then(|v| v.as_str().map(str::to_owned)),
         }
     }
+}
+
+fn truthy_env(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn falsey_env(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "0" | "false" | "no" | "off"
+    )
+}
+
+fn deployment_has_desktop(deployment: &Deployment) -> bool {
+    let launch = deployment.launch_config.as_map();
+    if let Some(value) = launch
+        .get("env")
+        .and_then(|env| env.get("HYPER_DESKTOP_ENABLED"))
+        .and_then(serde_json::Value::as_str)
+    {
+        if falsey_env(value) {
+            return false;
+        }
+        if truthy_env(value) {
+            return true;
+        }
+    }
+    launch
+        .get("routes")
+        .and_then(serde_json::Value::as_object)
+        .is_some_and(|routes| {
+            routes
+                .get("desktop")
+                .and_then(serde_json::Value::as_object)
+                .is_some()
+                || routes.values().any(|route| {
+                    route
+                        .get("prefix")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|prefix| prefix == "desktop")
+                })
+        })
 }
 
 fn auth_status_inner() -> AuthStatus {
@@ -224,7 +277,7 @@ async fn start_agent(id: String) -> Result<AgentSummary, String> {
                 || request
                     .launch_config
                     .env
-                    .get("OPENCLAW_DESKTOP_ENABLED")
+                    .get("HYPER_DESKTOP_ENABLED")
                     .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
             if desktop {
                 OpenClawLaunchConfig::desktop().apply_to_start(&mut request);
@@ -311,6 +364,20 @@ async fn create_agent(
         if let Some(image) = image {
             request.image = Some(image);
         }
+        if matches!(
+            runtime,
+            ManagedRuntime::BuzzAgent
+                | ManagedRuntime::Opencode
+                | ManagedRuntime::Codex
+                | ManagedRuntime::ClaudeCode
+                | ManagedRuntime::Goose
+                | ManagedRuntime::KimiCode
+        ) {
+            request
+                .env
+                .entry("HYPER_ACP_PERMISSION_MODE".to_owned())
+                .or_insert_with(|| "default".to_owned());
+        }
         if runtime == ManagedRuntime::BuzzAgent {
             let private_key = buzz_private_key_nsec
                 .ok_or_else(|| "Buzz Agent requires an nsec private key.".to_owned())?;
@@ -363,6 +430,76 @@ async fn delete_agent(id: String) -> Result<(), String> {
         let client = client()?;
         client.delete_deployment(&id).map_err(friendly)?;
         Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn set_agent_desktop_enabled(id: String, enabled: bool) -> Result<AgentSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = client()?;
+        client
+            .set_deployment_env(
+                &id,
+                "HYPER_DESKTOP_ENABLED",
+                if enabled { "1" } else { "0" },
+            )
+            .map_err(friendly)?;
+        if enabled {
+            let route = hypercli_sdk::SetDeploymentRouteRequest {
+                port: 3000,
+                auth: true,
+                prefix: Some("desktop".to_owned()),
+            };
+            client
+                .set_deployment_route(&id, "desktop", &route)
+                .map_err(friendly)?;
+        } else {
+            client
+                .remove_deployment_route(&id, "desktop")
+                .map_err(friendly)?;
+        }
+        client
+            .get_deployment(&id)
+            .map(AgentSummary::from)
+            .map_err(friendly)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn upload_agent_avatar(
+    id: String,
+    content: Vec<u8>,
+    content_type: String,
+) -> Result<DeploymentProfileImageResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if content.is_empty() {
+            return Err("Avatar image is missing".to_owned());
+        }
+        let content_type = if content_type.trim().is_empty() {
+            "image/png".to_owned()
+        } else {
+            content_type
+        };
+        let client = client()?;
+        client
+            .upload_deployment_profile_image(&id, &content, &content_type)
+            .map_err(friendly)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn delete_agent_avatar(id: String) -> Result<DeploymentProfileImageResponse, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = client()?;
+        client
+            .delete_deployment_profile_image(&id)
+            .map_err(friendly)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -458,9 +595,142 @@ async fn agent_logs_token(id: String) -> Result<AgentLogsToken, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[derive(Clone, Serialize)]
+struct AgentDesktopUrl {
+    url: String,
+    expires_at: Option<String>,
+}
+
 #[tauri::command]
-async fn agent_files(_id: String, _path: String) -> Result<Vec<serde_json::Value>, String> {
-    Err("Files are not wired in the packaged app yet.".to_owned())
+async fn agent_desktop_url(id: String) -> Result<AgentDesktopUrl, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = discover_client_config().map_err(|e| e.to_string())?;
+        let http = reqwest::blocking::Client::new();
+        let token_url = format!(
+            "{}/deployments/{}/token",
+            config.api_base.as_str().trim_end_matches('/'),
+            id
+        );
+        let response = http
+            .get(token_url)
+            .bearer_auth(config.api_key.expose_secret())
+            .send()
+            .map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().unwrap_or_default();
+            return Err(if body.trim().is_empty() {
+                format!(
+                    "{} {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("error")
+                )
+            } else {
+                format!(
+                    "{} {}: {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or("error"),
+                    body.trim()
+                )
+            });
+        }
+        let token: serde_json::Value = response.json().map_err(|e| e.to_string())?;
+        let jwt = token
+            .get("jwt")
+            .or_else(|| token.get("token"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Desktop token is missing".to_owned())?;
+        let expires_at = token
+            .get("expires_at")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+
+        let deployment = client()?.get_deployment(&id).map_err(friendly)?;
+        if deployment.state != "RUNNING" {
+            return Err("Start the agent to open its desktop".to_owned());
+        }
+        let hostname = deployment
+            .hostname
+            .clone()
+            .ok_or_else(|| "Agent hostname is unavailable".to_owned())?;
+        let launch = deployment.launch_config.as_map();
+        let routes = launch.get("routes").and_then(serde_json::Value::as_object);
+        let prefix = routes.and_then(|routes| {
+            if routes
+                .get("desktop")
+                .and_then(serde_json::Value::as_object)
+                .is_some()
+            {
+                return Some("desktop".to_owned());
+            }
+            routes.values().find_map(|route| {
+                route
+                    .get("prefix")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|prefix| *prefix == "desktop")
+                    .map(str::to_owned)
+            })
+        });
+        let prefix = match prefix {
+            Some(prefix) => prefix,
+            None => return Err("Desktop route is not enabled for this agent".to_owned()),
+        };
+        let base = if prefix.is_empty() {
+            format!("https://{hostname}")
+        } else {
+            format!("https://{prefix}-{hostname}")
+        };
+        let mut auth = url::Url::parse(&format!("{base}/_jwt_auth")).map_err(|e| e.to_string())?;
+        auth.query_pairs_mut()
+            .append_pair("jwt", jwt)
+            .append_pair("redirect", "vnc.html?autoconnect=true&resize=scale");
+        Ok(AgentDesktopUrl {
+            url: auth.to_string(),
+            expires_at,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn agent_files(
+    id: String,
+    path: String,
+) -> Result<Vec<hypercli_sdk::AgentFileEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        client()?
+            .list_deployment_files(&id, &path)
+            .map_err(friendly)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn agent_file_read(id: String, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = client()?
+            .read_deployment_file_bytes(&id, &path, 500_000)
+            .map_err(friendly)?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn agent_file_read_bytes(id: String, path: String) -> Result<AgentFileBytes, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = client()?
+            .read_deployment_file_bytes(&id, &path, 20_000_000)
+            .map_err(friendly)?;
+        Ok(AgentFileBytes { bytes })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(Clone, Serialize)]
@@ -528,8 +798,30 @@ async fn run_agent_watcher(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            use tauri::Manager;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_opener::init());
+
+    // Register the updater (and the process plugin its relaunch flow needs)
+    // only in configured release builds; omit both locally. build.rs emits
+    // `hypercli_updater_enabled` when HYPERCLI_UPDATER_PUBLIC_KEY and
+    // HYPERCLI_UPDATER_ENDPOINT were present at build time.
+    #[cfg(hypercli_updater_enabled)]
+    let builder = if cfg!(debug_assertions) {
+        builder
+    } else {
+        builder
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_process::init())
+    };
+
+    builder
         .setup(|app| {
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(run_agent_watcher(handle));
@@ -546,9 +838,15 @@ pub fn run() {
             archive_agent,
             restore_agent,
             delete_agent,
+            set_agent_desktop_enabled,
+            upload_agent_avatar,
+            delete_agent_avatar,
             acp_credentials,
             agent_logs_token,
+            agent_desktop_url,
             agent_files,
+            agent_file_read,
+            agent_file_read_bytes,
             agent_exec,
             plan_summary,
         ])

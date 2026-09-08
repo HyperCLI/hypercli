@@ -4,7 +4,7 @@
 
 [package]
 name = "hypercli-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "HyperCLI desktop agent client"
 edition = "2021"
 license = "MIT"
@@ -20,6 +20,15 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["image-png", "macos-private-api"] }
 tauri-plugin-opener = "2"
+# Re-launching the app focuses the existing window instead of spawning a
+# second instance.
+tauri-plugin-single-instance = "2"
+# Always compiled (their permissions must exist for capabilities/default.json),
+# but only *registered* when build.rs emits `hypercli_updater_enabled` — i.e.
+# when HYPERCLI_UPDATER_PUBLIC_KEY + HYPERCLI_UPDATER_ENDPOINT are set at
+# build time. Dev builds carry no updater surface.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync", "time"] }
@@ -27,4 +36,5 @@ dirs = "6"
 secrecy = "0.10"
 hypercli-sdk = { path = "../../rs-sdk" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+url = "2"
 uuid = { version = "1", features = ["v4"] }

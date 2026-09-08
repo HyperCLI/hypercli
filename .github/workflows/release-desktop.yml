@@ -119,9 +119,9 @@ jobs:
           fi
           test "$(git status --porcelain)" = ""
           SOURCE_SHA="$(git rev-parse HEAD)"
-          # Never release while either the fast Desktop contract or the real
-          # Buzz provider launch/message gate is red or unfinished. The Buzz
-          # E2E lives in the hyperclaw-backend repo (Build & Push Images,
+          # Never release while either the fast Desktop contract or the
+          # backend image build+E2E gate is red or unfinished. The E2E lives
+          # in the hyperclaw-backend repo (Build & Push Images,
           # tests/smoke/test_buzz_provider_hypercli_e2e.py against the dev
           # relay), so it is queried cross-repo by name.
           # Unrelated site/SDK pipelines must not hold desktop releases hostage.
@@ -215,22 +215,22 @@ jobs:
           sudo install -D -m 644 /tmp/appimage-runtime /usr/local/lib/appimage-runtime
           echo "APPIMAGETOOL_RUNTIME_FILE=/usr/local/lib/appimage-runtime" >> "$GITHUB_ENV"
 
-      # The ui/ frontend is static — the Tauri CLI is the only node tooling,
-      # installed as a prebuilt binary (no frontend build step).
+      # The app has a real Vite/React frontend; tauri build invokes
+      # `npm run build` (beforeBuildCommand) and needs node_modules present.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install frontend dependencies
+        shell: bash
+        working-directory: desktop
+        run: npm ci
+
       - name: Install Tauri CLI
         shell: bash
         run: npm install --global @tauri-apps/cli@2.11.4
-
-      - name: Build provider sidecar
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --release --locked -p buzz-backend-hypercli
-          EXT=""
-          if [[ "${{ matrix.triple }}" == *-windows-msvc ]]; then EXT=".exe"; fi
-          mkdir -p desktop/src-tauri/binaries
-          cp "target/release/buzz-backend-hypercli${EXT}" \
-            "desktop/src-tauri/binaries/buzz-backend-hypercli-${{ matrix.triple }}${EXT}"
 
       - name: Generate release config
         shell: bash
@@ -407,8 +407,8 @@ jobs:
             mkdir "$STAGE"
             tar -C "$STAGE" -xzf "$TARBALL"
 
-            # Recursive Developer ID signing of the bundle, sidecar included —
-            # the whole bundle is one Gatekeeper identity.
+            # Recursive Developer ID signing of the bundle — the whole bundle
+            # is one Gatekeeper identity.
             "$RCODESIGN" sign \
               --pem-file <(printf '%s' "$SIGNING_PEM") \
               --for-notarization \
