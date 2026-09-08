@@ -743,6 +743,10 @@ pub struct CompleteDeploymentLaunchConfig {
     pub registry_auth: BTreeMap<String, String>,
     #[serde(default = "default_runtime_scopes")]
     pub runtime_scopes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cors: Option<AgentCorsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces_sync: Option<Value>,
 }
 
 impl Default for CompleteDeploymentLaunchConfig {
@@ -763,6 +767,8 @@ impl Default for CompleteDeploymentLaunchConfig {
             registry_url: None,
             registry_auth: BTreeMap::new(),
             runtime_scopes: default_runtime_scopes(),
+            cors: None,
+            workspaces_sync: None,
         }
     }
 }

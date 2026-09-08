@@ -74,7 +74,8 @@ pub struct RuntimeShellToken {
 #[derive(Deserialize)]
 pub(crate) struct RuntimeShellTokenResponse {
     agent_id: String,
-    jwt: String,
+    #[serde(alias = "jwt")]
+    token: String,
     expires_at: String,
     ws_url: String,
     #[serde(default)]
@@ -95,7 +96,7 @@ impl RuntimeShellTokenResponse {
             ws_url,
             shell: self.shell,
             dry_run: self.dry_run,
-            jwt: SecretString::from(self.jwt),
+            jwt: SecretString::from(self.token),
         })
     }
 }
@@ -108,7 +109,7 @@ impl RuntimeShellToken {
         let mut url = self.ws_url.clone();
         {
             let mut query = url.query_pairs_mut();
-            query.append_pair("jwt", self.jwt.expose_secret());
+            query.append_pair("token", self.jwt.expose_secret());
             if let Some(shell) = self.shell.as_deref() {
                 query.append_pair("shell", shell);
             }

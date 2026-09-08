@@ -8,6 +8,7 @@ mod config;
 mod hermes;
 mod keys;
 mod openclaw;
+mod routines;
 mod runtime_auth;
 mod types;
 mod workspaces;
@@ -36,6 +37,10 @@ pub use openclaw::{
     OPENCLAW_CRON_ENABLED_ENV, OPENCLAW_DESKTOP_PORT, OPENCLAW_DESKTOP_PREFIX,
     OPENCLAW_GATEWAY_PORT, OPENCLAW_IMAGE, OPENCLAW_PRO_IMAGE, OPENCLAW_SYNC_EXCLUDE,
     OPENCLAW_SYNC_ROOT,
+};
+pub use routines::{
+    derive_routines_api_base, Routine, RoutineCreate, RoutinePatch, RoutinesApiClient,
+    RoutinesApiError,
 };
 pub use runtime_auth::{
     NativeRuntime, RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginChallenge, RuntimeLoginResult,

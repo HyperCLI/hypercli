@@ -79,7 +79,8 @@ struct DeploymentEventTokenResponse {
 #[serde(deny_unknown_fields)]
 struct OperationToken {
     agent_id: String,
-    jwt: String,
+    #[serde(alias = "jwt")]
+    token: String,
     expires_at: String,
     ws_url: String,
 }
@@ -363,7 +364,7 @@ impl HyperCliClient {
             Url::parse(&t.ws_url).map_err(|e| HyperCliError::InvalidResponse(e.to_string()))?;
         let suffix = format!("/ws/{purpose}/{id}");
         if t.agent_id != id
-            || t.jwt.is_empty()
+            || t.token.is_empty()
             || t.expires_at.is_empty()
             || !matches!(u.scheme(), "ws" | "wss")
             || u.host_str().is_none()
@@ -377,7 +378,7 @@ impl HyperCliClient {
                 "invalid operation token".into(),
             ));
         }
-        u.query_pairs_mut().append_pair("jwt", &t.jwt);
+        u.query_pairs_mut().append_pair("token", &t.token);
         tokio::time::timeout(timeout, async {
             // The URL now contains the short-lived JWT. Never let a
             // connector error render that URL into an SDK error or trace.
@@ -3957,7 +3958,7 @@ mod tests {
                 |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
                     assert_eq!(
                         request.uri().path_and_query().unwrap().as_str(),
-                        "/ws/exec/deployment-1?jwt=jwt"
+                        "/ws/exec/deployment-1?token=jwt"
                     );
                     Ok(response)
                 },
@@ -3975,7 +3976,7 @@ mod tests {
             socket.close(None).await.unwrap();
         });
         let mut server = Server::new_async().await;
-        let token=server.mock("POST","/agents/deployments/deployment-1/exec/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","jwt":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
+        let token=server.mock("POST","/agents/deployments/deployment-1/exec/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","token":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
         (server, token, task)
     }
 
@@ -4054,7 +4055,7 @@ mod tests {
                 |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
                     assert_eq!(
                         request.uri().path_and_query().unwrap().as_str(),
-                        "/ws/metrics/deployment-1?jwt=jwt"
+                        "/ws/metrics/deployment-1?token=jwt"
                     );
                     Ok(response)
                 },
@@ -4065,7 +4066,7 @@ mod tests {
             socket.close(None).await.unwrap();
         });
         let mut server = Server::new_async().await;
-        let token=server.mock("POST","/agents/deployments/deployment-1/metrics/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","jwt":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
+        let token=server.mock("POST","/agents/deployments/deployment-1/metrics/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","token":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
         let client = client_for_async_test(&server).await;
         let value = client.deployment_metrics("deployment-1").await.unwrap();
         assert_eq!(value["cpu"], "10m");
@@ -4090,7 +4091,7 @@ mod tests {
             .with_body(
                 json!({
                     "agent_id": "deployment-1",
-                    "jwt": "short-lived-secret",
+                    "token": "short-lived-secret",
                     "expires_at": "2026-08-16T00:00:00Z",
                     "ws_url": "ws://127.0.0.1:9/prefix/ws/metrics/deployment-1",
                 })
@@ -4122,7 +4123,7 @@ mod tests {
             .with_body(
                 json!({
                     "agent_id": "deployment-1",
-                    "jwt": "short-lived-secret",
+                    "token": "short-lived-secret",
                     "expires_at": "2026-08-16T00:00:00Z",
                     "ws_url": ws_url,
                 })
@@ -4809,7 +4810,7 @@ mod tests {
             .with_body(
                 serde_json::json!({
                     "agent_id": "deployment-1",
-                    "jwt": "short-lived-shell-jwt",
+                    "token": "short-lived-shell-jwt",
                     "expires_at": "2026-08-05T12:00:00Z",
                     "ws_url": "wss://api.agents.hypercli.com/ws/shell/deployment-1",
                     "shell": "/bin/bash"
@@ -4837,7 +4838,7 @@ mod tests {
             .with_body(
                 serde_json::json!({
                     "agent_id": "deployment-1",
-                    "jwt": "short-lived-shell-jwt",
+                    "token": "short-lived-shell-jwt",
                     "expires_at": "2026-08-05T12:00:00Z",
                     "ws_url": "wss://api.agents.hypercli.com/ws/shell/deployment-1",
                     "shell": "/bin/bash"
