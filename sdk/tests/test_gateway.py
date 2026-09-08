@@ -413,7 +413,7 @@ async def test_approve_pairing_request_uses_token_authenticated_exec_ws(monkeypa
         def json(self) -> dict:
             return {
                 "agent_id": "deployment-123",
-                "jwt": "jwt-exec",
+                "token": "jwt-exec",
                 "expires_at": "2026-08-15T00:05:00Z",
                 "ws_url": "wss://socket.example.test/product/ws/exec/deployment-123",
             }
@@ -493,7 +493,7 @@ async def test_approve_pairing_request_uses_token_authenticated_exec_ws(monkeypa
     )
     assert captured["headers"] == {"Authorization": "Bearer agent-key"}
     assert captured["ws_url"] == (
-        "wss://socket.example.test/product/ws/exec/deployment-123?jwt=jwt-exec"
+        "wss://socket.example.test/product/ws/exec/deployment-123?token=jwt-exec"
     )
     assert captured["ws_kwargs"]["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
     assert captured["result_frame_size"] > AGENT_EXEC_OUTPUT_MAX_BYTES

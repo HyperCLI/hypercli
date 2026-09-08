@@ -251,7 +251,7 @@ class FakeOneShotWebSocket:
 def _agent_token(agent_id, purpose):
     return {
         "agent_id": agent_id,
-        "jwt": f"jwt-{purpose}",
+        "token": f"jwt-{purpose}",
         "expires_at": "2026-08-15T00:05:00Z",
         "ws_url": f"wss://socket.example.test/product/ws/{purpose}/{agent_id}",
     }
@@ -285,7 +285,7 @@ def test_agents_exec_mints_token_sends_exact_ws_frame_and_waits_for_normal_close
     assert result.stderr == "warn\n"
     assert posts == [("/deployments/agent-1/exec/token", None)]
     assert connected["url"] == (
-        "wss://socket.example.test/product/ws/exec/agent-1?jwt=jwt-exec"
+        "wss://socket.example.test/product/ws/exec/agent-1?token=jwt-exec"
     )
     assert connected["kwargs"]["max_size"] == AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES
     assert socket.sent == [
@@ -480,7 +480,7 @@ async def test_agents_shell_connect(monkeypatch):
     ws = await agents.shell_connect("agent-1", shell="/bin/sh")
     assert ws == "agent-ws"
     assert captured["url"] == (
-        "wss://socket.example.test/product/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh"
+        "wss://socket.example.test/product/ws/shell/agent-1?token=jwt-abc&shell=%2Fbin%2Fsh"
     )
     assert captured_post["path"] == "/deployments/agent-1/shell/token"
     assert captured_post["json"] == {"shell": "/bin/sh"}
@@ -520,7 +520,7 @@ async def test_agents_logs_stream_ws_uses_agents_ws_url(monkeypatch):
     async for line in agents.logs_stream_ws("agent-1", tail_lines=400):
         lines.append(line)
 
-    assert captured["url"] == "wss://api.agents.dev.hypercli.com/ws/logs/agent-1?jwt=jwt-logs&container=reef&tail_lines=400"
+    assert captured["url"] == "wss://api.agents.dev.hypercli.com/ws/logs/agent-1?token=jwt-logs&container=reef&tail_lines=400"
     assert lines == ["hello"]
 
 

@@ -289,15 +289,6 @@ def _load_state() -> dict:
     return {}
 
 
-def _load_complete_launch_config(agent_id: str) -> dict:
-    launch_config = (_load_state().get(agent_id) or {}).get("launch_config")
-    if not isinstance(launch_config, dict):
-        raise ValueError(
-            "start requires a complete launch configuration in protected local state"
-        )
-    return copy.deepcopy(launch_config)
-
-
 def _write_state(state: dict) -> None:
     """Persist credential-bearing agent state with owner-only permissions."""
     STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1001,7 +992,7 @@ def start(
             raise typer.Exit(1)
         try:
             current = agents.get("self")
-            local_launch = _load_complete_launch_config(current.id)
+            local_launch = agents.stored_launch_config(current.id)
             pod = agents.start(current.id, local_launch, dry_run=dry_run)
         except Exception as e:
             console.print(f"[red]❌ Failed to start agent: {e}[/red]")
@@ -1017,7 +1008,7 @@ def start(
     if not override_names:
         try:
             current = agents.get(requested_agent_id)
-            local_launch = _load_complete_launch_config(current.id)
+            local_launch = agents.stored_launch_config(current.id)
             pod = agents.start(current.id, local_launch)
         except Exception as e:
             console.print(f"[red]❌ Failed to start agent: {e}[/red]")

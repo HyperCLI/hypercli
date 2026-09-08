@@ -3080,21 +3080,24 @@ def _validate_agent_ws_token(
     purpose: Literal["metrics", "exec", "shell"],
     shell: str | None = None,
 ) -> tuple[str, str, str | None]:
-    expected_keys = {"agent_id", "jwt", "expires_at", "ws_url"}
+    base_keys = {"agent_id", "expires_at", "ws_url"}
     if purpose == "shell":
-        expected_keys.add("shell")
-    if not isinstance(data, dict) or set(data) != expected_keys:
+        base_keys.add("shell")
+    if (
+        not isinstance(data, dict)
+        or set(data) - base_keys not in ({"token"}, {"jwt"})
+    ):
         raise ValueError(f"Backend returned an invalid Agent {purpose} token response")
 
     token_agent_id = data.get("agent_id")
-    jwt = data.get("jwt")
+    token = data.get("token") or data.get("jwt")
     expires_at = data.get("expires_at")
     ws_url = data.get("ws_url")
     resolved_shell = data.get("shell") if purpose == "shell" else None
     if (
         token_agent_id != agent_id
-        or not isinstance(jwt, str)
-        or not jwt
+        or not isinstance(token, str)
+        or not token
         or not isinstance(expires_at, str)
         or not expires_at
         or not isinstance(ws_url, str)
@@ -3115,7 +3118,7 @@ def _validate_agent_ws_token(
         or not parsed.path.endswith(expected_suffix)
     ):
         raise ValueError(f"Backend returned an invalid Agent {purpose} token response")
-    return ws_url, jwt, cast(str | None, resolved_shell)
+    return ws_url, token, cast(str | None, resolved_shell)
 
 
 def _validate_metrics_result(data: object) -> dict[str, Any]:
@@ -3484,13 +3487,13 @@ class Deployments:
         from websockets.sync.client import connect
 
         token_data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/{purpose}/token")
-        ws_url, jwt, _ = _validate_agent_ws_token(
+        ws_url, token, _ = _validate_agent_ws_token(
             token_data,
             agent_id=agent_id,
             purpose=purpose,
         )
         separator = "&" if "?" in ws_url else "?"
-        url = f"{ws_url}{separator}jwt={quote(jwt, safe='')}"
+        url = f"{ws_url}{separator}token={quote(token, safe='')}"
 
         try:
             with connect(
@@ -4548,6 +4551,29 @@ class Deployments:
             prepared["registry_auth"] = {}
         return prepared
 
+    def stored_launch_config(
+        self,
+        agent_id: str,
+    ) -> dict:
+        """Return the server-stored launch configuration, START-ready.
+
+        Reads the owner-facing Agent projection and rehydrates the two keys
+        the projection redacts (secrets, registry_auth). Unlike the CLI's
+        protected local cache, this reflects every mutation other clients
+        made since the last local save (routes API, Desktop toggle, Claw
+        settings), so a no-override relaunch cannot clobber them.
+        """
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        agent = self._get_by_id(resolved_agent_id)
+        launch_config = agent.launch_config
+        if not isinstance(launch_config, dict):
+            raise ValueError(
+                f"Agent {resolved_agent_id} has no stored launch configuration"
+            )
+        return self._rehydrate_redacted_launch_config(
+            resolved_agent_id, copy.deepcopy(launch_config)
+        )
+
     def start(
         self,
         agent_id: str,
@@ -4806,7 +4832,7 @@ class Deployments:
         return self._delete(f"{AGENTS_API_PREFIX}/{resolved_agent_id}")
 
     def refresh_token(self, agent_id: str) -> dict:
-        """Refresh the JWT token for an agent.
+        """Refresh the access token for an agent.
 
         Args:
             agent_id: Agent UUID.
@@ -4903,7 +4929,7 @@ class Deployments:
         return self._post("/billing/grants/redeem", json=payload)
 
     def logs_token(self, agent_id: str) -> dict:
-        """Mint a short-lived JWT token for backend log streaming."""
+        """Mint a short-lived token for backend log streaming."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
         return self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/logs/token")
 
@@ -5181,7 +5207,7 @@ class Deployments:
         """
         import websockets
 
-        # Get JWT token
+        # Get stream token
         resolved_agent_id = self.resolve_agent_id(agent_id)
         try:
             token_data = self.logs_token(resolved_agent_id)
@@ -5191,11 +5217,13 @@ class Deployments:
             for line in self.logs_tail(resolved_agent_id, tail_lines).splitlines():
                 yield line
             return
-        jwt = token_data["jwt"]
+        token = token_data.get("token") or token_data.get("jwt")
+        if not isinstance(token, str) or not token:
+            raise ValueError("Backend returned an invalid Agent logs token response")
 
         url = (
             f"{self._agents_ws_url}/logs/{resolved_agent_id}"
-            f"?jwt={quote(jwt, safe='')}"
+            f"?token={quote(token, safe='')}"
             f"&container={quote(container, safe='')}"
             f"&tail_lines={tail_lines}"
         )
@@ -5238,7 +5266,7 @@ class Deployments:
             f"{AGENTS_API_PREFIX}/{resolved_agent_id}/shell/token",
             json={"shell": selected_shell},
         )
-        ws_url, jwt, resolved_shell = _validate_agent_ws_token(
+        ws_url, token, resolved_shell = _validate_agent_ws_token(
             token_data,
             agent_id=resolved_agent_id,
             purpose="shell",
@@ -5246,7 +5274,7 @@ class Deployments:
         )
         separator = "&" if "?" in ws_url else "?"
         url = (
-            f"{ws_url}{separator}jwt={quote(jwt, safe='')}"
+            f"{ws_url}{separator}token={quote(token, safe='')}"
             f"&shell={quote(resolved_shell, safe='')}"
         )
 

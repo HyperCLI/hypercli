@@ -1045,11 +1045,14 @@ class GatewayClient:
                 f"Pairing approval failed: {response.status_code} {response.text}"
             )
         token = response.json()
-        expected_keys = {"agent_id", "jwt", "expires_at", "ws_url"}
-        if not isinstance(token, dict) or set(token) != expected_keys:
+        base_keys = {"agent_id", "expires_at", "ws_url"}
+        if (
+            not isinstance(token, dict)
+            or set(token) - base_keys not in ({"token"}, {"jwt"})
+        ):
             raise RuntimeError("Pairing approval received an invalid exec token")
         ws_url = token.get("ws_url")
-        jwt = token.get("jwt")
+        jwt = token.get("token") or token.get("jwt")
         parsed = urlsplit(ws_url) if isinstance(ws_url, str) else None
         if (
             token.get("agent_id") != deployment_id
@@ -1070,7 +1073,7 @@ class GatewayClient:
 
         try:
             async with websockets.connect(
-                f"{ws_url}?jwt={quote(jwt, safe='')}",
+                f"{ws_url}?token={quote(jwt, safe='')}",
                 open_timeout=10,
                 close_timeout=10,
                 max_size=AGENT_EXEC_RESULT_MAX_MESSAGE_BYTES,

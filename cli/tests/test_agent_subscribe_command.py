@@ -376,6 +376,10 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
                 state="STOPPED",
             )
 
+        def stored_launch_config(self, agent_id):
+            calls.append(("stored_launch_config", agent_id))
+            return launch_config
+
         def start(self, agent_id, supplied_launch, *, dry_run=False):
             calls.append(("start", (agent_id, supplied_launch, dry_run)))
             return Agent(
@@ -397,11 +401,6 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
             )
 
     monkeypatch.setattr(agent_mod, "_get_deployments_client", lambda dev=False: _FakeDeployments())
-    monkeypatch.setattr(
-        agent_mod,
-        "_load_complete_launch_config",
-        lambda _agent_id: launch_config,
-    )
     monkeypatch.setattr(agent_mod, "_save_agent_state", lambda _agent: None)
 
     result = runner.invoke(app, ["agent", "start", "clear-window-works", "--wait"])
@@ -409,6 +408,7 @@ def test_agent_start_alias_starts_by_name(monkeypatch):
     assert result.exit_code == 0
     assert calls == [
         ("get", "clear-window-works"),
+        ("stored_launch_config", "11111111-1111-4111-8111-111111111111"),
         (
             "start",
             (

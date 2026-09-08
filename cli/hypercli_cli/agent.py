@@ -20,7 +20,7 @@ from .onboard import onboard as _onboard_fn
 from .output import output
 from .voice import app as voice_app
 from .embed import app as embed_app
-from .agents import _load_complete_launch_config, _save_agent_state
+from .agents import _save_agent_state
 
 app = typer.Typer(help="HyperAgent inference commands")
 console = Console()
@@ -144,7 +144,7 @@ def _start_deployment_agent(
     *,
     dry_run: bool = False,
 ) -> DeploymentAgent:
-    launch_config = _load_complete_launch_config(agent.id)
+    launch_config = deployments.stored_launch_config(agent.id)
     started = deployments.start(agent.id, launch_config, dry_run=dry_run)
     if not dry_run:
         _save_agent_state(started)
