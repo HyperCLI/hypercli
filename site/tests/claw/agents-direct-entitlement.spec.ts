@@ -356,7 +356,7 @@ test("agents page launches from a direct entitlement without an active subscript
     HYPER_WORKSPACES_BOOT_SYNC: "1",
     HYPER_WORKSPACES_DIR: "/home/node/shared",
     HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
-    OPENCLAW_DESKTOP_ENABLED: "1",
+    HYPER_DESKTOP_ENABLED: "1",
   });
   expect(createBody?.routes).toMatchObject({
     openclaw: { port: 18789, auth: false, prefix: "" },

@@ -106,16 +106,16 @@ def _falsey_env(value: object) -> bool:
 def _desktop_enabled_from_launch(desktop: bool | None, env: dict | None = None, launch_config: dict | None = None) -> bool:
     if desktop is not None:
         return bool(desktop)
-    env_value = (env or {}).get("OPENCLAW_DESKTOP_ENABLED")
+    env_value = (env or {}).get("HYPER_DESKTOP_ENABLED")
     if _truthy_env(env_value):
         return True
     if _falsey_env(env_value):
         return False
     launch_env = (launch_config or {}).get("env")
     if isinstance(launch_env, dict):
-        if _truthy_env(launch_env.get("OPENCLAW_DESKTOP_ENABLED")):
+        if _truthy_env(launch_env.get("HYPER_DESKTOP_ENABLED")):
             return True
-        if _falsey_env(launch_env.get("OPENCLAW_DESKTOP_ENABLED")):
+        if _falsey_env(launch_env.get("HYPER_DESKTOP_ENABLED")):
             return False
     image = str((launch_config or {}).get("image") or "")
     return "hypercli-openclaw:pro" in image or image.endswith("-pro")
@@ -153,8 +153,8 @@ def _launch_epoch_wait_kwargs(agent: object) -> dict[str, int]:
 
 def _openclaw_env_with_desktop(env: dict | None, enabled: bool, *, force: bool = False) -> dict:
     env_dict = dict(env or {})
-    if force or "OPENCLAW_DESKTOP_ENABLED" not in env_dict:
-        env_dict["OPENCLAW_DESKTOP_ENABLED"] = "1" if enabled else "0"
+    if force or "HYPER_DESKTOP_ENABLED" not in env_dict:
+        env_dict["HYPER_DESKTOP_ENABLED"] = "1" if enabled else "0"
     return env_dict
 
 

@@ -186,7 +186,22 @@ def test_create_coding_agent_contract(
         "HYPER_WORKSPACES_BOOT_SYNC": "1",
         "HYPER_WORKSPACES_DIR": "/home/node/shared",
         "HYPER_WORKSPACES_SYNC_READY_ONLY": "1",
+        "HYPER_ACP_PERMISSION_MODE": "default",
     }
+
+
+def test_create_coding_agent_honors_permission_mode_override():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+
+    def fake_post(_path, json=None):
+        posted.update(json or {})
+        return _agent_payload("opencode")
+
+    deployments._post = fake_post
+    deployments.create_opencode(env={"HYPER_ACP_PERMISSION_MODE": "bypass-permissions"})
+
+    assert posted["env"]["HYPER_ACP_PERMISSION_MODE"] == "bypass-permissions"
 
 
 def test_create_coding_agent_honors_runtime_scope_override():
@@ -479,6 +494,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
             "BUZZ_MANAGED_AGENT": "forged",
             "BUZZ_MANAGED_AGENT_START_NONCE": "forged",
             "CLAUDE_CODE_EXECUTABLE": "/host/bin/claude",
+            "HYPER_ACP_AUTO_APPROVE_PERMISSION": "1",
             "RUST_LOG": "debug",
             "HYPER_API_KEY": "inference-key",
         },
@@ -508,6 +524,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["env"]["BUZZ_ACP_RELAY_OBSERVER"] == "true"
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
+    assert "HYPER_ACP_AUTO_APPROVE_PERMISSION" not in posted["env"]
     assert posted["env"]["BUZZ_ACP_REQUIRE_REPLY"] == "true"
     assert "BUZZ_AGENT_REQUIRE_REPLY" not in posted["env"]
     assert posted["secrets"] == {

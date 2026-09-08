@@ -68,6 +68,17 @@ spec: the critical regression surface is Stripe redirect back to `/plans`,
 slot count increasing, and the purchased slot being usable to launch an agent.
 Cleanup at the end should be best-effort only.
 
+For local desktop/frontend CDP debugging from Windows, always launch Chrome with
+a temporary profile so the remote-debugging port is available and isolated from
+
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="$env:TEMP\hypercli-cdp" --no-first-run --no-default-browser-check http://localhost:1420/
+```
+
+Then inspect `http://localhost:9222/json` from WSL or the host. Do not omit
+`--user-data-dir`; attaching CDP to the user's normal Chrome profile is flaky
+and often unavailable.
+
 Build the local E2E image:
 
 ```bash

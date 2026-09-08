@@ -267,7 +267,7 @@ describe('HyperClaw agents SDK', () => {
       state: 'starting',
       launch_config: {
         image: DEFAULT_OPENCLAW_PRO_IMAGE,
-        env: { OPENCLAW_DESKTOP_ENABLED: '1' },
+        env: { HYPER_DESKTOP_ENABLED: '1' },
         routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       },
     });
@@ -292,7 +292,7 @@ describe('HyperClaw agents SDK', () => {
         HYPER_WORKSPACES_DIR: '/home/node/shared',
         HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
         OPENCLAW_CRON_ENABLED: '1',
-        OPENCLAW_DESKTOP_ENABLED: '1',
+        HYPER_DESKTOP_ENABLED: '1',
       }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },

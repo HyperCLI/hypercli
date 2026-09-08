@@ -121,6 +121,7 @@ describe('coding agents', () => {
       HYPER_WORKSPACES_BOOT_SYNC: '1',
       HYPER_WORKSPACES_DIR: '/home/node/shared',
       HYPER_WORKSPACES_SYNC_READY_ONLY: '1',
+      HYPER_ACP_PERMISSION_MODE: 'default',
     };
     expect(post.mock.calls[0][1].env).toEqual(expectedEnv);
     expect(post.mock.calls[0][1].routes).toEqual({});
@@ -136,6 +137,19 @@ describe('coding agents', () => {
       expect(post.mock.calls[0][1].sync_exclude).toEqual(syncExclude);
     }
     expect(post.mock.calls[0][1].env).not.toHaveProperty('OPENCLAW_GATEWAY_TOKEN');
+  });
+
+  it('allows callers to choose the hosted coding permission mode', async () => {
+    const post = vi.fn().mockResolvedValue(response('opencode'));
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.createOpenCode({ env: { HYPER_ACP_PERMISSION_MODE: 'bypass-permissions' } });
+
+    expect(post.mock.calls[0][1].env.HYPER_ACP_PERMISSION_MODE).toBe('bypass-permissions');
   });
 
   it('honors a coding-agent runtime scope override', async () => {
@@ -392,6 +406,7 @@ describe('coding agents', () => {
         BUZZ_MANAGED_AGENT: 'forged',
         BUZZ_MANAGED_AGENT_START_NONCE: 'forged',
         CLAUDE_CODE_EXECUTABLE: '/host/bin/claude',
+        HYPER_ACP_AUTO_APPROVE_PERMISSION: '1',
         RUST_LOG: 'debug',
         HYPER_API_KEY: 'inference-key',
       },
@@ -427,6 +442,7 @@ describe('coding agents', () => {
       },
     });
     expect(post.mock.calls[0][1].env.BUZZ_AGENT_REQUIRE_REPLY).toBeUndefined();
+    expect(post.mock.calls[0][1].env.HYPER_ACP_AUTO_APPROVE_PERMISSION).toBeUndefined();
     expect(post.mock.calls[0][1].env.CLAUDE_CODE_EXECUTABLE).toBeUndefined();
     expect(post.mock.calls[0][1].env.BUZZ_MANAGED_AGENT).toBeUndefined();
     // The SDK no longer mints a start nonce; caller-supplied values are

@@ -43,6 +43,32 @@ export class CodingAgentAcpUnavailableError extends Error {
   }
 }
 
+/** JSON-RPC `auth_required` (-32000) from the upstream SDK. */
+const ACP_AUTH_REQUIRED_CODE = -32000;
+
+function isAuthRequired(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: unknown }).code === ACP_AUTH_REQUIRED_CODE
+  );
+}
+
+/**
+ * Thrown when the agent answers a request with JSON-RPC `auth_required`
+ * (-32000). Call {@link CodingAgentAcpClient.authenticate} with one of the
+ * `authMethods` from the initialize response, then retry.
+ */
+export class CodingAgentAcpAuthRequiredError extends Error {
+  constructor(detail: string, options: { cause?: unknown } = {}) {
+    super(
+      `auth_required: ${detail}`,
+      options.cause !== undefined ? { cause: options.cause } : undefined,
+    );
+    this.name = 'CodingAgentAcpAuthRequiredError';
+  }
+}
+
 /**
  * Thrown when the connection cannot be used: initial dial or handshake
  * failure, a call made while (re)connecting, an in-flight request killed by
@@ -120,6 +146,7 @@ interface TrackedAcpSession {
   mcpServers: acp.McpServer[];
   modes: acp.SessionModeState | null;
   configOptions: acp.SessionConfigOption[] | null;
+  title: string | null;
 }
 
 interface Deferred {
@@ -207,6 +234,11 @@ export class CodingAgentAcpClient {
     return this.initializeResponseValue;
   }
 
+  /** Auth methods the agent advertised in its initialize response. */
+  get authMethods(): acp.AuthMethod[] {
+    return this.initializeResponseValue?.authMethods ?? [];
+  }
+
   /** Session IDs this client created or loaded, in creation order. */
   get sessionIds(): string[] {
     return [...this.sessions.keys()];
@@ -227,34 +259,27 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     const cwd = options.cwd ?? this.cwd;
     const mcpServers = options.mcpServers ?? this.mcpServers;
-    const response = await context.request(acp.methods.agent.session.new, { cwd, mcpServers });
+    const response = await this.requestWithAuth<acp.NewSessionResponse>(context, acp.methods.agent.session.new, { cwd, mcpServers });
     this.sessions.set(response.sessionId, {
       cwd,
       mcpServers,
       modes: response.modes ?? null,
       configOptions: response.configOptions ?? null,
+      title: null,
     });
     return response;
   }
 
   async listSessions(options: { cwd?: string | null; cursor?: string | null } = {}): Promise<acp.ListSessionsResponse> {
     const context = this.requireContext();
-    if (
-      this.initializeResponseValue?.agentCapabilities?.sessionCapabilities?.list === null
-      || this.initializeResponseValue?.agentCapabilities?.sessionCapabilities?.list === undefined
-    ) {
-      throw new CodingAgentAcpUnavailableError(
-        'session/list',
-        'the agent did not advertise sessionCapabilities.list in its initialize response',
-      );
-    }
+    this.requireSessionCapability('session/list', 'list');
     return context.request(acp.methods.agent.session.list, {
       cwd: options.cwd ?? null,
       cursor: options.cursor ?? null,
     });
   }
 
-  async loadSession(sessionId: string): Promise<void> {
+  async loadSession(sessionId: string): Promise<acp.LoadSessionResponse> {
     const context = this.requireContext();
     if (this.initializeResponseValue?.agentCapabilities?.loadSession !== true) {
       throw new CodingAgentAcpUnavailableError(
@@ -265,7 +290,7 @@ export class CodingAgentAcpClient {
     const previous = this.sessions.get(sessionId);
     const cwd = previous?.cwd ?? this.cwd;
     const mcpServers = previous?.mcpServers ?? this.mcpServers;
-    const response = await context.request(acp.methods.agent.session.load, {
+    const response = await this.requestWithAuth<acp.LoadSessionResponse>(context, acp.methods.agent.session.load, {
       sessionId,
       cwd,
       mcpServers,
@@ -275,19 +300,82 @@ export class CodingAgentAcpClient {
       mcpServers,
       modes: response?.modes ?? null,
       configOptions: response?.configOptions ?? null,
+      title: previous?.title ?? null,
     });
+    return response;
+  }
+
+  /**
+   * Restore a session's context without history replay (`session/resume`).
+   * v2-forward-compatible: `session/load` is dropped in ACP v2, resume is
+   * kept. Falls back to nothing — callers wanting history must use loadSession.
+   */
+  async resumeSession(sessionId: string): Promise<acp.ResumeSessionResponse> {
+    const context = this.requireContext();
+    this.requireSessionCapability('session/resume', 'resume');
+    const previous = this.sessions.get(sessionId);
+    const response = await this.requestWithAuth<acp.ResumeSessionResponse>(context, acp.methods.agent.session.resume, {
+      sessionId,
+      cwd: previous?.cwd ?? this.cwd,
+      mcpServers: previous?.mcpServers ?? this.mcpServers,
+    });
+    this.sessions.set(sessionId, {
+      cwd: previous?.cwd ?? this.cwd,
+      mcpServers: previous?.mcpServers ?? this.mcpServers,
+      modes: response?.modes ?? null,
+      configOptions: response?.configOptions ?? null,
+      title: previous?.title ?? null,
+    });
+    return response;
+  }
+
+  /** Cancel ongoing work and free the session's resources (`session/close`). */
+  async closeSession(sessionId: string): Promise<void> {
+    const context = this.requireContext();
+    this.requireSessionCapability('session/close', 'close');
+    await context.request(acp.methods.agent.session.close, { sessionId });
+    this.sessions.delete(sessionId);
+  }
+
+  /** Permanently delete a session (`session/delete`). */
+  async deleteSession(sessionId: string): Promise<void> {
+    const context = this.requireContext();
+    this.requireSessionCapability('session/delete', 'delete');
+    await context.request(acp.methods.agent.session.delete, { sessionId });
+    this.sessions.delete(sessionId);
+  }
+
+  /** Unstable: fork a session into a new session ID (`session/fork`). */
+  async unstableForkSession(sessionId: string): Promise<acp.ForkSessionResponse> {
+    const context = this.requireContext();
+    this.requireSessionCapability('session/fork', 'fork');
+    const previous = this.sessions.get(sessionId);
+    const response = await context.request(acp.methods.agent.session.fork, {
+      sessionId,
+      cwd: previous?.cwd ?? this.cwd,
+      mcpServers: previous?.mcpServers ?? this.mcpServers,
+    });
+    this.sessions.set(response.sessionId, {
+      cwd: previous?.cwd ?? this.cwd,
+      mcpServers: previous?.mcpServers ?? this.mcpServers,
+      modes: response.modes ?? previous?.modes ?? null,
+      configOptions: response.configOptions ?? previous?.configOptions ?? null,
+      title: previous?.title ?? null,
+    });
+    return response;
   }
 
   /**
    * Run one prompt turn. Strings become a single text block. Streams
-   * `session/update` notifications to `onUpdate`. Resolves with the turn's
-   * stop reason; if the socket dies mid-turn the promise rejects with
-   * {@link CodingAgentAcpConnectionError} and the turn is NOT retried.
+   * `session/update` notifications to `onUpdate`. Resolves with the full
+   * response (stop reason, usage); if the socket dies mid-turn the promise
+   * rejects with {@link CodingAgentAcpConnectionError} and the turn is NOT
+   * retried.
    */
   async prompt(
     sessionId: string,
     prompt: string | acp.ContentBlock | acp.ContentBlock[],
-  ): Promise<acp.StopReason> {
+  ): Promise<acp.PromptResponse> {
     const connection = this.requireConnection();
     const blocks: acp.ContentBlock[] = typeof prompt === 'string'
       ? [{ type: 'text', text: prompt }]
@@ -295,11 +383,10 @@ export class CodingAgentAcpClient {
         ? prompt
         : [prompt];
     try {
-      const response = await connection.agent.request(acp.methods.agent.session.prompt, {
+      return await this.requestWithAuth<acp.PromptResponse>(connection.agent, acp.methods.agent.session.prompt, {
         sessionId,
         prompt: blocks,
       });
-      return response.stopReason;
     } catch (error) {
       if (this.connection !== connection || connection.signal.aborted) {
         throw new CodingAgentAcpConnectionError(
@@ -315,20 +402,36 @@ export class CodingAgentAcpClient {
     await this.requireContext().notify(acp.methods.agent.session.cancel, { sessionId });
   }
 
+  /** `session/set_mode`; ungated — agents may accept modes outside the tracked state. */
   async setMode(sessionId: string, modeId: string): Promise<void> {
     const context = this.requireContext();
-    if (!this.sessions.get(sessionId)?.modes) {
-      throw new CodingAgentAcpUnavailableError(
-        'session/set_mode',
-        `session ${sessionId} advertised no modes in its session state`,
-      );
-    }
     await context.request(acp.methods.agent.session.setMode, { sessionId, modeId });
+    const tracked = this.sessions.get(sessionId);
+    if (tracked?.modes) tracked.modes = { ...tracked.modes, currentModeId: modeId };
+  }
+
+  /** Generic `session/set_config_option`; setModel delegates here. */
+  async setConfigOption(
+    sessionId: string,
+    configId: string,
+    value: string | { value: boolean; type: 'boolean' },
+  ): Promise<acp.SetSessionConfigOptionResponse> {
+    const context = this.requireContext();
+    const payload =
+      typeof value === 'string'
+        ? { sessionId, configId, value }
+        : { sessionId, configId, value: value.value, type: value.type };
+    const response = await context.request<acp.SetSessionConfigOptionResponse>(
+      acp.methods.agent.session.setConfigOption,
+      payload,
+    );
+    const tracked = this.sessions.get(sessionId);
+    if (tracked) tracked.configOptions = response.configOptions ?? tracked.configOptions;
+    return response;
   }
 
   /** Set the session model through the `model` config option the session advertised. */
   async setModel(sessionId: string, modelId: string): Promise<acp.SetSessionConfigOptionResponse> {
-    const context = this.requireContext();
     const options = this.sessions.get(sessionId)?.configOptions ?? null;
     const modelOption = options?.find(
       (option) => option.category === 'model' || option.id === 'model',
@@ -339,11 +442,28 @@ export class CodingAgentAcpClient {
         `session ${sessionId} advertised no model configuration option`,
       );
     }
-    return context.request(acp.methods.agent.session.setConfigOption, {
-      sessionId,
-      configId: modelOption.id,
-      value: modelId,
-    });
+    return this.setConfigOption(sessionId, modelOption.id, modelId);
+  }
+
+  /** `authenticate` with one of {@link authMethods}; retry the failed call after. */
+  async authenticate(methodId: string): Promise<void> {
+    const context = this.requireContext();
+    await context.request(acp.methods.agent.authenticate, { methodId });
+  }
+
+  /** Unstable: list the agent's auth/model providers (`providers/list`). */
+  async unstableListProviders(): Promise<unknown> {
+    return this.requireContext().request(acp.methods.agent.providers.list, {});
+  }
+
+  /** Unstable: select a provider (`providers/set`). */
+  async unstableSetProvider(request: acp.SetProviderRequest): Promise<unknown> {
+    return this.requireContext().request(acp.methods.agent.providers.set, request);
+  }
+
+  /** Unstable: disable a provider (`providers/disable`). */
+  async unstableDisableProvider(request: acp.DisableProviderRequest): Promise<unknown> {
+    return this.requireContext().request(acp.methods.agent.providers.disable, request);
   }
 
   /** Raw request escape hatch for `_hyper/*` and other extension methods. */
@@ -612,6 +732,40 @@ export class CodingAgentAcpClient {
 
   private requireContext(): acp.ClientContext {
     return this.requireConnection().agent;
+  }
+
+  private requireSessionCapability(
+    method: string,
+    capability: 'list' | 'delete' | 'fork' | 'resume' | 'close',
+  ): void {
+    const caps = this.initializeResponseValue?.agentCapabilities?.sessionCapabilities;
+    if (!caps || caps[capability] === null || caps[capability] === undefined) {
+      throw new CodingAgentAcpUnavailableError(
+        method,
+        `the agent did not advertise sessionCapabilities.${capability} in its initialize response`,
+      );
+    }
+  }
+
+  /** Map JSON-RPC auth_required (-32000) to a typed error; everything else rethrows. */
+  private async requestWithAuth<Response>(
+    context: acp.ClientContext,
+    method: string,
+    params?: unknown,
+  ): Promise<Response> {
+    try {
+      return await context.request<Response>(method, params);
+    } catch (error) {
+      if (isAuthRequired(error)) {
+        throw new CodingAgentAcpAuthRequiredError(
+          `${method} requires authenticate; the agent advertised methods: ${
+            this.authMethods.map((m) => m.id).join(', ') || '(none)'
+          }`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
   }
 
   private resolveConnectedWaiters(): void {

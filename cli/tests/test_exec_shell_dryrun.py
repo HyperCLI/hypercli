@@ -345,7 +345,7 @@ def test_agents_create_disables_desktop_by_default(monkeypatch):
     result = runner.invoke(app, ["agents", "create", "--dry-run", "--name", "demo"])
 
     assert result.exit_code == 0
-    assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "0"
+    assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "0"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["cron_enabled"] is None
     assert captured["openclaw_route_options"] == {"include_desktop": False}
@@ -394,7 +394,7 @@ def test_agents_create_desktop_uses_openclaw_pro(monkeypatch):
     result = runner.invoke(app, ["agents", "create", "--dry-run", "--desktop", "--name", "demo"])
 
     assert result.exit_code == 0
-    assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
+    assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "1"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["openclaw_route_options"] == {"include_desktop": True}
     assert captured["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
@@ -422,11 +422,11 @@ def test_agents_create_desktop_can_be_enabled_by_env(monkeypatch):
 
     result = runner.invoke(
         app,
-        ["agents", "create", "--dry-run", "--env", "OPENCLAW_DESKTOP_ENABLED=True"],
+        ["agents", "create", "--dry-run", "--env", "HYPER_DESKTOP_ENABLED=True"],
     )
 
     assert result.exit_code == 0
-    assert captured["env"]["OPENCLAW_DESKTOP_ENABLED"] == "True"
+    assert captured["env"]["HYPER_DESKTOP_ENABLED"] == "True"
     assert captured["env"]["OPENCLAW_CRON_ENABLED"] == "1"
     assert captured["openclaw_route_options"] == {"include_desktop": True}
 
@@ -687,7 +687,7 @@ def test_agents_start_reuses_saved_launch_fields_but_inherits_backend_sync_polic
                 "env": {
                     "HYPER_WORKSPACES_BOOT_SYNC": "1",
                     "HYPER_WORKSPACES_DIR": "/home/node/shared",
-                    "OPENCLAW_DESKTOP_ENABLED": "0",
+                    "HYPER_DESKTOP_ENABLED": "0",
                     "OPENCLAW_CRON_ENABLED": "1",
                 },
                 "image": "git.nedos.co/hypercli/hypercli-openclaw:untested",
@@ -805,7 +805,7 @@ def test_agents_start_explicit_exclude_overrides_saved_include(monkeypatch):
                 id=agent_id,
                 gateway_token=None,
                 launch_config={
-                    "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
+                    "env": {"HYPER_DESKTOP_ENABLED": "0"},
                     "sync_include": ["workspace"],
                 },
             )
@@ -851,7 +851,7 @@ def test_agents_start_omits_policy_to_inherit_saved_selective_policy(monkeypatch
                 id=agent_id,
                 gateway_token=None,
                 launch_config={
-                    "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
+                    "env": {"HYPER_DESKTOP_ENABLED": "0"},
                     "sync_include": ["workspace"],
                 },
             )
@@ -889,7 +889,7 @@ def test_agents_start_can_override_openclaw_cron(monkeypatch):
                 gateway_token=None,
                 launch_config={
                     "env": {
-                        "OPENCLAW_DESKTOP_ENABLED": "0",
+                        "HYPER_DESKTOP_ENABLED": "0",
                         "OPENCLAW_CRON_ENABLED": "1",
                     },
                 },
@@ -922,7 +922,7 @@ def test_agents_start_by_name_reuses_canonical_saved_launch_fields(monkeypatch):
         canonical_id: {
             "id": canonical_id,
             "launch_config": {
-                "env": {"OPENCLAW_DESKTOP_ENABLED": "0", "SAVED": "1"},
+                "env": {"HYPER_DESKTOP_ENABLED": "0", "SAVED": "1"},
                 "image": "git.nedos.co/hypercli/hypercli-openclaw:saved",
             },
         }

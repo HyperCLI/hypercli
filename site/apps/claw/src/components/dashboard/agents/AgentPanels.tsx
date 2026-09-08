@@ -261,7 +261,7 @@ const MANAGED_LAUNCH_ENV_KEYS = new Set([
   "OPENCLAW_CONFIG_PATH",
   "OPENCLAW_CONFIG_TEMPLATE",
   "OPENCLAW_CRON_ENABLED",
-  "OPENCLAW_DESKTOP_ENABLED",
+  "HYPER_DESKTOP_ENABLED",
   "OPENCLAW_DESKTOP_PORT",
   "OPENCLAW_GATEWAY_BIND",
   OPENCLAW_GATEWAY_TOKEN_ENV,
@@ -357,6 +357,7 @@ function managedHyperEnvTextFromAgent(agent: Agent | null): string {
       key.startsWith("HYPER_")
       && isManagedLaunchEnvKey(key)
       && key !== "HYPER_WORKSPACES_DIR"
+      && key !== "HYPER_DESKTOP_ENABLED"
     ))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${value}`)
@@ -376,6 +377,9 @@ function parseManagedHyperEnvText(value: string): Record<string, string> {
     const key = line.slice(0, separatorIndex).trim();
     if (key === "HYPER_WORKSPACES_DIR") {
       throw new Error("HYPER_WORKSPACES_DIR is fixed at $HOME/shared.");
+    }
+    if (key === "HYPER_DESKTOP_ENABLED") {
+      throw new Error("HYPER_DESKTOP_ENABLED is controlled by the Desktop toggle.");
     }
     if (!key.startsWith("HYPER_") || !isManagedLaunchEnvKey(key)) {
       throw new Error(`${key} is not an editable managed HYPER_* variable.`);
@@ -487,7 +491,7 @@ function buildUpdatedLaunchConfig(
   };
   const launchEnv: Record<string, string> = {
     ...preservedEnv,
-    OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
+    HYPER_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
     // Keep the injected indexing envs in line with the saved toggles; the
     // container entrypoint re-applies them to openclaw.json on every boot.
     ...(memoryIndex ? buildOpenClawMemoryIndexEnv(memoryIndex) : {}),
@@ -537,8 +541,8 @@ function getDesktopEnabled(agent: Agent | null): boolean {
   const launchConfig = launchConfigFromAgent(agent);
   const routes = isRecord(launchConfig.routes) ? launchConfig.routes : {};
   const hasDesktopRoute = isRecord(routes.desktop);
-  if (env.OPENCLAW_DESKTOP_ENABLED !== undefined) {
-    return envBooleanFromString(env.OPENCLAW_DESKTOP_ENABLED, hasDesktopRoute || Boolean(agent?.hasDesktop));
+  if (env.HYPER_DESKTOP_ENABLED !== undefined) {
+    return envBooleanFromString(env.HYPER_DESKTOP_ENABLED, hasDesktopRoute || Boolean(agent?.hasDesktop));
   }
   return hasDesktopRoute || Boolean(agent?.hasDesktop);
 }

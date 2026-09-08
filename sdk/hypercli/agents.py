@@ -345,6 +345,7 @@ BUZZ_RESERVED_ENV_KEYS = frozenset(
         "HYPER_ACP_WS_LISTEN",
         "HYPER_ACP_LOG",
         "HYPER_ACP_WS_TOKEN",
+        "HYPER_ACP_AUTO_APPROVE_PERMISSION",
         # No longer minted by the SDK; kept listed so caller-supplied values are stripped.
         "BUZZ_MANAGED_AGENT_START_NONCE",
     }
@@ -1164,13 +1165,17 @@ def _repair_openclaw_start_launch_config(
     prepared["routes"] = _with_openclaw_gateway_route(prepared.get("routes"))
     if desktop is not None:
         env = dict(prepared.get("env") or {})
-        env["OPENCLAW_DESKTOP_ENABLED"] = "1" if desktop_enabled else "0"
+        env["HYPER_DESKTOP_ENABLED"] = "1" if desktop_enabled else "0"
         prepared["env"] = env
     return prepared
 
 
 def _truthy_env(value: object) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _falsey_env(value: object) -> bool:
+    return str(value or "").strip().lower() in {"0", "false", "no", "off", "disabled"}
 
 
 def _flatten_config_value(value: object, prefix: str, out: dict[str, Any]) -> None:
@@ -1241,7 +1246,10 @@ def routes_have_desktop(routes: object) -> bool:
 def launch_config_has_desktop(launch_config: object) -> bool:
     if not isinstance(launch_config, dict):
         return False
-    if _truthy_env(get_launch_config_value(launch_config, "env.OPENCLAW_DESKTOP_ENABLED")):
+    desktop_enabled = get_launch_config_value(launch_config, "env.HYPER_DESKTOP_ENABLED")
+    if _falsey_env(desktop_enabled):
+        return False
+    if _truthy_env(desktop_enabled):
         return True
     return routes_have_desktop(get_launch_config_value(launch_config, "routes"))
 
@@ -3819,7 +3827,7 @@ class Deployments:
         memory_index: dict | None = None,
         workspaces_sync: dict | bool | None = None,
     ) -> Agent:
-        effective_env = {"OPENCLAW_DESKTOP_ENABLED": "1", **dict(env or {})}
+        effective_env = {"HYPER_DESKTOP_ENABLED": "1", **dict(env or {})}
         effective_route_options = {"include_desktop": True, **dict(openclaw_route_options or {})}
         return self.create_openclaw(
             name=name,
@@ -3899,6 +3907,7 @@ class Deployments:
             **build_openclaw_workspaces_sync_env(workspaces_sync),
             **dict(env or {}),
         }
+        effective_env.setdefault("HYPER_ACP_PERMISSION_MODE", "default")
         effective_secrets = dict(secrets or {})
         for key in ("BUZZ_PRIVATE_KEY", "NOSTR_PRIVATE_KEY"):
             value = effective_env.pop(key, None)
@@ -3920,6 +3929,7 @@ class Deployments:
                 "HYPER_ACP_WS_TOKEN",
                 "HYPER_ACP_AGENT_COMMAND",
                 "HYPER_ACP_AGENT_ARGS",
+                "HYPER_ACP_AUTO_APPROVE_PERMISSION",
             ):
                 effective_env.pop(key, None)
             effective_secrets.pop("HYPER_ACP_WS_TOKEN", None)

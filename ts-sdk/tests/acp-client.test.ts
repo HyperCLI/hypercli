@@ -287,8 +287,8 @@ describe('CodingAgent.acpConnect', () => {
       mcpServers: [],
     });
 
-    const stopReason = await client.prompt(session.sessionId, 'hello agent');
-    expect(stopReason).toBe('end_turn');
+    const turn = await client.prompt(session.sessionId, "hello agent");
+    expect(turn.stopReason).toBe("end_turn");
     expect(updates).toEqual([
       { sessionId: 'session-1', text: 'chunk-1' },
       { sessionId: 'session-1', text: 'chunk-2' },
@@ -350,7 +350,7 @@ describe('CodingAgent.acpConnect', () => {
     expect(second.framesFor('session/load')[0].params).toMatchObject({ sessionId: 'session-1' });
 
     holdPrompt = false;
-    await expect(client.prompt(session.sessionId, 'second turn')).resolves.toBe('end_turn');
+    await expect(client.prompt(session.sessionId, "second turn")).resolves.toMatchObject({ stopReason: "end_turn" });
   });
 
   it('surfaces CodingAgentAcpReplayGapError when a session cannot be replayed, and stays connected', async () => {

@@ -166,7 +166,7 @@ export function buildOpenClawLaunchOptions({
       ...buildOpenClawWorkspacesSyncEnv(workspacesSync ?? null),
       ...buildOpenClawCronEnv(cronEnabled ?? true),
       ...buildOpenClawMemoryIndexEnv(memoryIndex ?? null),
-      OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
+      HYPER_DESKTOP_ENABLED: desktopEnabled ? "1" : "0",
     },
     cronEnabled: cronEnabled ?? true,
     memoryIndex: memoryIndex ?? null,

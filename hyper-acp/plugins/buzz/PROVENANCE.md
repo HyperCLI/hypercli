@@ -6,8 +6,9 @@ This plugin was ported from upstream Buzz ACP.
 - Source commit: `0e878664b08cdf7fb2d89d940bc2aa92cdc485f7`
 - Last source commit touching `crates/buzz-acp`: `42aeb1571 feat(desktop): add Pi agent preset (#7208)`
 
-The following upstream files are copied into this plugin and remain the parity
-source for Buzz behavior:
+The following upstream files are copied into this plugin and, except for the
+deliberate deviations documented below, remain the parity source for Buzz
+behavior:
 
 - `src/acp.rs`
 - `src/base_prompt.md`
@@ -44,11 +45,20 @@ Deliberate deviations:
 - `src/config.rs` and `src/lib.rs` add the `auth-tag` helper by reusing
   upstream `buzz_sdk::nip_oa::compute_auth_tag`, matching the upstream
   `crates/buzz-sdk/examples/compute_auth_tag.rs` utility.
-- `src/acp.rs` keeps upstream behavior; the Unix test helpers spawn a
+- `src/acp.rs` Unix test helpers spawn a
   `symlink("/bin/bash")`/`symlink("/bin/sh")` with the script passed via `-c`
   instead of writing + chmod + shebang-exec, for CI filesystems where freshly
   written scripts cannot be exec'd (noexec tmp / ETXTBSY / shebang resolution).
+- `src/config.rs` reads the permission mode from `HYPER_ACP_PERMISSION_MODE`
+  and defaults to `default` instead of upstream's `BUZZ_ACP_PERMISSION_MODE`
+  defaulting to `bypass-permissions`.
+- `src/acp.rs` fails closed on `session/request_permission`: it selects the
+  `reject_once` option and, when no reject option is offered, responds with a
+  cancelled result instead of upstream's auto-approve of `allow_once`.
+- `src/pool.rs` no longer applies a non-default permission mode as a safety
+  valve for auto-approved tool calls; the comment and docs reflect that
+  permission requests fail closed in `AcpClient`.
 
 No relay, queue, owner-command, auth/membership, prompt gating, observer,
-setup, usage, or session-pool semantics are intentionally changed from
-upstream.
+setup, usage, session-pool, or other permission semantics beyond the
+deviations listed above are intentionally changed from upstream.

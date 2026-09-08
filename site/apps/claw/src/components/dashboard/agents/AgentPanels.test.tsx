@@ -297,7 +297,7 @@ const agent: Agent = {
   launchConfig: {
     image: "ghcr.io/hypercli/hypercli-openclaw:prod",
     env: {
-      OPENCLAW_DESKTOP_ENABLED: "0",
+      HYPER_DESKTOP_ENABLED: "0",
       OPENCLAW_CRON_ENABLED: "0",
       HYPER_API_BASE: "https://api.hypercli.com",
       HYPER_WORKSPACES_BOOT_SYNC: "1",
@@ -2186,7 +2186,7 @@ describe("AgentSettingsPanel", () => {
         image: "ghcr.io/hypercli/hypercli-openclaw:custom",
         env: {
           OPENCLAW_CRON_ENABLED: "0",
-          OPENCLAW_DESKTOP_ENABLED: "0",
+          HYPER_DESKTOP_ENABLED: "0",
           HYPER_API_BASE: "https://api.dev.hypercli.com",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
           HYPER_WORKSPACES_DIR: "/home/node/shared",
@@ -2570,7 +2570,7 @@ describe("AgentSettingsPanel", () => {
         ...agent.launchConfig,
         env: {
           ...(agent.launchConfig?.env as Record<string, string>),
-          OPENCLAW_DESKTOP_ENABLED: "1",
+          HYPER_DESKTOP_ENABLED: "1",
         },
         routes: {
           ...(agent.launchConfig?.routes as Record<string, unknown>),
@@ -2610,7 +2610,7 @@ describe("AgentSettingsPanel", () => {
     expect(onEnableDesktopAndRestart).toHaveBeenCalledWith("agent-1", expect.objectContaining({
       env: expect.objectContaining({
         OPENCLAW_CRON_ENABLED: "0",
-        OPENCLAW_DESKTOP_ENABLED: "1",
+        HYPER_DESKTOP_ENABLED: "1",
       }),
       routes: expect.objectContaining({
         desktop: { port: 3000, auth: true, prefix: "desktop" },
@@ -2669,7 +2669,7 @@ describe("AgentSettingsPanel", () => {
         ...agent.launchConfig,
         env: {
           ...(agent.launchConfig?.env as Record<string, string>),
-          OPENCLAW_DESKTOP_ENABLED: "1",
+          HYPER_DESKTOP_ENABLED: "1",
         },
         routes: {
           ...(agent.launchConfig?.routes as Record<string, unknown>),
@@ -2734,7 +2734,7 @@ describe("AgentSettingsPanel", () => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
         env: expect.objectContaining({
           OPENCLAW_CRON_ENABLED: "0",
-          OPENCLAW_DESKTOP_ENABLED: "1",
+          HYPER_DESKTOP_ENABLED: "1",
           HYPER_WORKSPACES_BOOT_SYNC: "1",
           HYPER_WORKSPACES_DIR: "/home/node/shared",
           HYPER_WORKSPACES_SYNC_READY_ONLY: "0",
@@ -2757,7 +2757,7 @@ describe("AgentSettingsPanel", () => {
           ...agent.launchConfig,
           env: {
             ...(agent.launchConfig?.env as Record<string, string>),
-            OPENCLAW_DESKTOP_ENABLED: "1",
+            HYPER_DESKTOP_ENABLED: "1",
           },
           routes: {
             ...(agent.launchConfig?.routes as Record<string, unknown>),
@@ -2778,7 +2778,7 @@ describe("AgentSettingsPanel", () => {
       expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({
         env: expect.objectContaining({
           OPENCLAW_CRON_ENABLED: "0",
-          OPENCLAW_DESKTOP_ENABLED: "0",
+          HYPER_DESKTOP_ENABLED: "0",
         }),
         routes: {
           openclaw: { port: 18789, auth: false, prefix: "" },
@@ -2794,7 +2794,7 @@ describe("AgentSettingsPanel", () => {
         ...agent.launchConfig,
         env: {
           ...(agent.launchConfig?.env as Record<string, string>),
-          OPENCLAW_DESKTOP_ENABLED: "0",
+          HYPER_DESKTOP_ENABLED: "0",
         },
       },
     };
@@ -2804,7 +2804,7 @@ describe("AgentSettingsPanel", () => {
         ...initialAgent.launchConfig,
         env: {
           ...(initialAgent.launchConfig?.env as Record<string, string>),
-          OPENCLAW_DESKTOP_ENABLED: "1",
+          HYPER_DESKTOP_ENABLED: "1",
         },
         routes: {
           ...((initialAgent.launchConfig as Record<string, unknown>).routes as Record<string, unknown>),
@@ -2861,7 +2861,7 @@ describe("AgentSettingsPanel", () => {
           ...agent.launchConfig,
           env: {
             ...(agent.launchConfig?.env as Record<string, string>),
-            OPENCLAW_DESKTOP_ENABLED: "0",
+            HYPER_DESKTOP_ENABLED: "0",
           },
           routes: {
             ...(agent.launchConfig?.routes as Record<string, unknown>),
@@ -2927,7 +2927,7 @@ describe("AgentSettingsPanel", () => {
     expect(onUpdateAgentLaunchConfig).toHaveBeenCalledWith("agent-1", {
       image: "ghcr.io/hypercli/hypercli-openclaw:prod",
       env: {
-        OPENCLAW_DESKTOP_ENABLED: "0",
+        HYPER_DESKTOP_ENABLED: "0",
         OPENCLAW_CRON_ENABLED: "0",
         HYPER_API_BASE: "https://api.hypercli.com",
         HYPER_WORKSPACES_BOOT_SYNC: "1",

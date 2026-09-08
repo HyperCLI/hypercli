@@ -3,10 +3,6 @@ use std::path::{Path, PathBuf};
 
 const UPSTREAM_HASHES: &[(&str, &str)] = &[
     (
-        "src/acp.rs",
-        "e92935651483d2c9b51b0eae723705f1dac97e590a5843a645c91d42973dbc9f",
-    ),
-    (
         "src/base_prompt.md",
         "b710fa17703c126c651c37e089d9958785fce25d769e57c5b81d89694edd9a36",
     ),
@@ -21,10 +17,6 @@ const UPSTREAM_HASHES: &[(&str, &str)] = &[
     (
         "src/observer.rs",
         "77396790298d5b9df12b33e0f2c5c052b769066569e35d82d1187e43edc0780b",
-    ),
-    (
-        "src/pool.rs",
-        "fe4e8dd23ac287f435e57f88a0017b4399a4f79d447ea7bfd0f7709ca146a3d4",
     ),
     (
         "src/pool_lifecycle.rs",
@@ -114,9 +106,11 @@ fn copied_buzz_sources_match_upstream_except_documented_entrypoint_diffs() {
         "Cargo.toml",
         "PROVENANCE.md",
         "README.md",
+        "src/acp.rs",
         "src/config.rs",
         "src/lib.rs",
         "src/main.rs",
+        "src/pool.rs",
         "tests/source_parity.rs",
     ]
     .into_iter()

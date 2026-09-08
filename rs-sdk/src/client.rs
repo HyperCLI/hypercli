@@ -212,6 +212,7 @@ fn encode_path_key(key: &str) -> String {
 /// bodies above 100 MB. Enforced client-side so oversized writes fail fast
 /// with a clear error instead of an opaque edge `413 Payload Too Large`.
 pub const AGENT_FILE_WRITE_MAX_BYTES: usize = 100 * 1024 * 1024;
+pub const AGENT_FILE_READ_MAX_BYTES: usize = 20 * 1024 * 1024;
 
 /// Validate a minted Reef locator down to its exact `/_reef` root.
 ///
@@ -1340,6 +1341,37 @@ impl HyperCliClient {
             ));
         }
         Ok(listing.into_entries())
+    }
+
+    pub fn read_deployment_file_bytes(
+        &self,
+        deployment_id: &str,
+        path: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, HyperCliError> {
+        let token = self.deployment_file_token(deployment_id)?;
+        let (url, _path) = reef_file_url(&token, path)?;
+        let response = self
+            .http
+            .get(url.as_str())
+            .bearer_auth(token.token)
+            .send()
+            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(HyperCliError::Status(status));
+        }
+        let bytes = response
+            .bytes()
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        let limit = max_bytes.min(AGENT_FILE_READ_MAX_BYTES);
+        if bytes.len() > limit {
+            return Err(HyperCliError::InvalidResponse(format!(
+                "agent file reads are limited to {} MiB",
+                limit / 1024 / 1024
+            )));
+        }
+        Ok(bytes.to_vec())
     }
 
     /// Wait until an agent's Reef file API is actually serving.

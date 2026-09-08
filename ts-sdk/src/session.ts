@@ -484,6 +484,7 @@ export class OpenClawSessionClient implements AgentSessionClient {
   async sessionsPatch(patch: AgentSessionPatch): Promise<AgentSessionSummary> {
     await this.native.sessionsPatch({
       key: patch.key,
+      ...(patch.label !== undefined ? { label: patch.label } : {}),
       ...(patch.model !== undefined ? { model: patch.model } : {}),
     });
     return { key: patch.key, label: patch.label ?? null, model: patch.model ?? null };

@@ -254,6 +254,7 @@ const BUZZ_RESERVED_ENV_KEYS = new Set([
   'HYPER_ACP_WS_LISTEN',
   'HYPER_ACP_LOG',
   'HYPER_ACP_WS_TOKEN',
+  'HYPER_ACP_AUTO_APPROVE_PERMISSION',
   // No longer minted by the SDK; kept listed so caller-supplied values are stripped.
   'BUZZ_MANAGED_AGENT_START_NONCE',
 ]);
@@ -1780,7 +1781,7 @@ export function routesHaveDesktop(routes: unknown): boolean {
 
 export function launchConfigHasDesktop(launchConfig: unknown): boolean {
   if (!isPlainRecord(launchConfig)) return false;
-  const desktopEnabled = getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED');
+  const desktopEnabled = getLaunchConfigValue(launchConfig, 'env.HYPER_DESKTOP_ENABLED');
   if (isFalseyEnv(desktopEnabled)) return false;
   if (isTruthyEnv(desktopEnabled)) return true;
   return routesHaveDesktop(getLaunchConfigValue(launchConfig, 'routes'));
@@ -1789,7 +1790,7 @@ export function launchConfigHasDesktop(launchConfig: unknown): boolean {
 export function agentConfigHasDesktop(source: AgentDesktopConfigSource | null | undefined): boolean {
   if (!source) return false;
   const launchConfig = source.launchConfig ?? source.launch_config;
-  const desktopEnabled = getLaunchConfigValue(launchConfig, 'env.OPENCLAW_DESKTOP_ENABLED');
+  const desktopEnabled = getLaunchConfigValue(launchConfig, 'env.HYPER_DESKTOP_ENABLED');
   if (isFalseyEnv(desktopEnabled)) return false;
   return (
     launchConfigHasDesktop(launchConfig) ||
@@ -1915,7 +1916,7 @@ function defaultAgentsWsUrl(apiBase: string): string {
   return normalizeAgentsWsUrl(resolvedApiBase);
 }
 
-function defaultHyperAcpWsUrl(apiBase: string): string {
+export function defaultHyperAcpWsUrl(apiBase: string): string {
   const resolvedApiBase = resolveAgentsApiBase(apiBase);
   const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
   const host = parsed.host.toLowerCase();
@@ -2324,7 +2325,7 @@ function repairOpenClawStartLaunchConfig(
   if (desktop !== null) {
     prepared.env = {
       ...(isPlainRecord(prepared.env) ? prepared.env : {}),
-      OPENCLAW_DESKTOP_ENABLED: desktopEnabled ? '1' : '0',
+      HYPER_DESKTOP_ENABLED: desktopEnabled ? '1' : '0',
     };
   }
   return prepared;
@@ -4938,7 +4939,7 @@ export class Deployments {
     return this.createOpenClaw({
       ...options,
       runtime: 'openclaw-pro',
-      env: { OPENCLAW_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
+      env: { HYPER_DESKTOP_ENABLED: '1', ...(options.env ?? {}) },
       image: defaultOpenClawProImage(options.image),
       runtimeScopes: options.runtimeScopes ?? DEFAULT_AGENT_RUNTIME_SCOPES,
       openClawRoutes: { includeDesktop: true, ...(options.openClawRoutes ?? {}) },
@@ -4963,6 +4964,7 @@ export class Deployments {
       ...buildOpenClawWorkspacesSyncEnv(options.workspacesSync ?? null),
       ...(options.env ?? {}),
     };
+    effectiveEnv.HYPER_ACP_PERMISSION_MODE ??= 'default';
     const effectiveSecrets: Record<string, string> = { ...(options.secrets ?? {}) };
     for (const key of ['BUZZ_PRIVATE_KEY', 'NOSTR_PRIVATE_KEY']) {
       const value = effectiveEnv[key];
@@ -4992,6 +4994,7 @@ export class Deployments {
         'HYPER_ACP_WS_TOKEN',
         'HYPER_ACP_AGENT_COMMAND',
         'HYPER_ACP_AGENT_ARGS',
+        'HYPER_ACP_AUTO_APPROVE_PERMISSION',
       ]) {
         delete effectiveEnv[key];
       }

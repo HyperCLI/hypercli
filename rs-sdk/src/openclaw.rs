@@ -18,7 +18,7 @@ pub const OPENCLAW_SYNC_ROOT: &str = "/home/node";
 pub const OPENCLAW_GATEWAY_PORT: u16 = 18789;
 pub const OPENCLAW_DESKTOP_PORT: u16 = 3000;
 pub const OPENCLAW_DESKTOP_PREFIX: &str = "desktop";
-pub const OPENCLAW_DESKTOP_ENABLED_ENV: &str = "OPENCLAW_DESKTOP_ENABLED";
+pub const HYPER_DESKTOP_ENABLED_ENV: &str = "HYPER_DESKTOP_ENABLED";
 pub const OPENCLAW_CRON_ENABLED_ENV: &str = "OPENCLAW_CRON_ENABLED";
 
 /// Runtime scopes granted to a hosted agent's scoped runtime key. Matches
@@ -50,7 +50,7 @@ pub const OPENCLAW_SYNC_EXCLUDE: [&str; 9] = [
 /// Minimal managed launch defaults for hosted OpenClaw agents.
 ///
 /// With `desktop` enabled this builds the `openclaw-pro` variant: desktop
-/// route, `OPENCLAW_DESKTOP_ENABLED=1`, pro image.
+/// route, `HYPER_DESKTOP_ENABLED=1`, pro image.
 #[derive(Clone, Debug, Default)]
 pub struct OpenClawLaunchConfig {
     pub desktop: bool,
@@ -125,7 +125,7 @@ impl OpenClawLaunchConfig {
         if self.desktop {
             request
                 .env
-                .entry(OPENCLAW_DESKTOP_ENABLED_ENV.to_owned())
+                .entry(HYPER_DESKTOP_ENABLED_ENV.to_owned())
                 .or_insert_with(|| "1".to_owned());
         }
         request
@@ -164,7 +164,7 @@ impl OpenClawLaunchConfig {
             request
                 .launch_config
                 .env
-                .entry(OPENCLAW_DESKTOP_ENABLED_ENV.to_owned())
+                .entry(HYPER_DESKTOP_ENABLED_ENV.to_owned())
                 .or_insert_with(|| "1".to_owned());
         }
         if let Some(cron_enabled) = self.cron_enabled {
@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(gateway.port, OPENCLAW_GATEWAY_PORT);
         assert!(!gateway.auth);
         assert!(!request.routes.contains_key("desktop"));
-        assert!(!request.env.contains_key(OPENCLAW_DESKTOP_ENABLED_ENV));
+        assert!(!request.env.contains_key(HYPER_DESKTOP_ENABLED_ENV));
         assert_eq!(
             request
                 .env
@@ -247,7 +247,7 @@ mod tests {
         assert_eq!(
             request
                 .env
-                .get(OPENCLAW_DESKTOP_ENABLED_ENV)
+                .get(HYPER_DESKTOP_ENABLED_ENV)
                 .map(String::as_str),
             Some("1")
         );

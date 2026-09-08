@@ -456,7 +456,7 @@ export async function createOpenClawAgent(apiKey: string, options: FrontendOpenC
     await withUserSlackRelayLaunchConfig(apiKey, options),
   );
   const agentClient = createAgentClient(apiKey);
-  const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.OPENCLAW_DESKTOP_ENABLED ?? "").trim().toLowerCase())
+  const create = ENABLED_ENV_VALUES.has((preparedOptions.env?.HYPER_DESKTOP_ENABLED ?? "").trim().toLowerCase())
     ? agentClient.createOpenClawPro.bind(agentClient)
     : agentClient.createOpenClaw.bind(agentClient);
   return createAgentWithNameRetry(agentClient, create, preparedOptions);

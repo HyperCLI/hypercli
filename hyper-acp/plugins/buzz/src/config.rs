@@ -477,13 +477,11 @@ pub struct CliArgs {
     /// Permission mode for agents that support `session/set_config_option`
     /// with `configId: "mode"` (e.g. `claude-agent-acp`).
     ///
-    /// Defaults to `bypassPermissions` which skips the per-tool-call
-    /// permission flow. Set to `default` to restore the agent's built-in
-    /// behaviour.
+    /// Defaults to `default`, preserving the agent's built-in behaviour.
     #[arg(
         long,
-        env = "BUZZ_ACP_PERMISSION_MODE",
-        default_value = "bypass-permissions",
+        env = "HYPER_ACP_PERMISSION_MODE",
+        default_value = "default",
         value_enum
     )]
     pub permission_mode: PermissionMode,
@@ -1569,7 +1567,7 @@ mod tests {
             model: None,
             effort_level: None,
             session_title: None,
-            permission_mode: PermissionMode::BypassPermissions,
+            permission_mode: PermissionMode::Default,
             respond_to: RespondTo::Anyone,
             respond_to_allowlist: HashSet::new(),
             allowed_respond_to: Vec::new(),
@@ -2450,9 +2448,9 @@ channels = "ALL"
     }
 
     #[test]
-    fn test_default_config_uses_bypass_permissions() {
+    fn test_default_config_uses_default_permission_mode() {
         let config = test_config(SubscribeMode::Mentions);
-        assert_eq!(config.permission_mode, PermissionMode::BypassPermissions);
+        assert_eq!(config.permission_mode, PermissionMode::Default);
     }
 
     #[test]
@@ -2480,7 +2478,7 @@ channels = "ALL"
     #[test]
     fn test_permission_mode_value_enum_camel_case_aliases() {
         // Operators may set env vars using the camelCase wire-format strings
-        // (e.g. BUZZ_ACP_PERMISSION_MODE=bypassPermissions). The #[value(alias)]
+        // (e.g. HYPER_ACP_PERMISSION_MODE=bypassPermissions). The #[value(alias)]
         // attributes ensure these parse correctly.
         use clap::ValueEnum;
         let cases = [

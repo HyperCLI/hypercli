@@ -930,7 +930,7 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClawPro.mockResolvedValue({ id: "agent-123" });
 
     await createOpenClawAgent("hyper_api_test", {
-      env: { OPENCLAW_DESKTOP_ENABLED: "1" },
+      env: { HYPER_DESKTOP_ENABLED: "1" },
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
       openClawRoutes: { includeDesktop: true },
     });
@@ -938,7 +938,7 @@ describe("agent-client", () => {
     expect(deploymentsInstance.createOpenClawPro).toHaveBeenCalledWith(expect.objectContaining({
       controlUiOriginLock: true,
       image: "ghcr.io/hypercli/hypercli-openclaw:pro-prod",
-      env: { OPENCLAW_DESKTOP_ENABLED: "1" },
+      env: { HYPER_DESKTOP_ENABLED: "1" },
       openClawRoutes: { includeDesktop: true },
     }));
     expect(deploymentsInstance.createOpenClaw).not.toHaveBeenCalled();
@@ -961,7 +961,7 @@ describe("agent-client", () => {
 
     const result = createOpenClawAgent("hyper_api_test", {
       name: "clear-window-works",
-      env: { OPENCLAW_DESKTOP_ENABLED: "1" },
+      env: { HYPER_DESKTOP_ENABLED: "1" },
     });
 
     await vi.advanceTimersByTimeAsync(750);
@@ -1078,19 +1078,19 @@ describe("agent-client", () => {
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-456" });
 
     await createOpenClawAgent("hyper_api_test", {
-      env: { OPENCLAW_DESKTOP_ENABLED: "True" },
+      env: { HYPER_DESKTOP_ENABLED: "True" },
     });
     expect(deploymentsInstance.createOpenClawPro).toHaveBeenCalledWith(expect.objectContaining({
-      env: { OPENCLAW_DESKTOP_ENABLED: "True" },
+      env: { HYPER_DESKTOP_ENABLED: "True" },
     }));
 
     vi.clearAllMocks();
 
     await createOpenClawAgent("hyper_api_test", {
-      env: { OPENCLAW_DESKTOP_ENABLED: "False" },
+      env: { HYPER_DESKTOP_ENABLED: "False" },
     });
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
-      env: { OPENCLAW_DESKTOP_ENABLED: "False" },
+      env: { HYPER_DESKTOP_ENABLED: "False" },
     }));
     expect(deploymentsInstance.createOpenClawPro).not.toHaveBeenCalled();
   });

@@ -1140,7 +1140,7 @@ describe('Agents SDK', () => {
     );
     const launchConfig = buildAgentConfig({}, {
       image: 'ghcr.io/hypercli/hypercli-openclaw:pro-latest',
-      env: { OPENCLAW_DESKTOP_ENABLED: '1' },
+      env: { HYPER_DESKTOP_ENABLED: '1' },
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     }).config;
 
@@ -2007,7 +2007,7 @@ describe('Agents SDK', () => {
     await deployments.startOpenClawPro(agentId, { launchConfig: second });
 
     expect(post.mock.calls[0][1].launch_config.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
-    expect(post.mock.calls[0][1].launch_config.env.OPENCLAW_DESKTOP_ENABLED).toBe('1');
+    expect(post.mock.calls[0][1].launch_config.env.HYPER_DESKTOP_ENABLED).toBe('1');
     expect(post.mock.calls[0][1].launch_config.routes).toEqual({
       openclaw: { port: 18789, auth: false, prefix: '' },
     });
@@ -2485,9 +2485,9 @@ describe('Agents SDK', () => {
   });
 
   it('detects desktop from explicit launch config and hydrated routes only', () => {
-    expect(launchConfigHasDesktop({ env: { OPENCLAW_DESKTOP_ENABLED: '1' } })).toBe(true);
+    expect(launchConfigHasDesktop({ env: { HYPER_DESKTOP_ENABLED: '1' } })).toBe(true);
     expect(launchConfigHasDesktop({
-      env: { OPENCLAW_DESKTOP_ENABLED: '0' },
+      env: { HYPER_DESKTOP_ENABLED: '0' },
       routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } },
     })).toBe(false);
     expect(launchConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'screen' } } })).toBe(true);
@@ -2495,19 +2495,19 @@ describe('Agents SDK', () => {
     expect(launchConfigHasDesktop({ image: 'ghcr.io/hypercli/hypercli-openclaw:pro-prod' })).toBe(false);
     expect(agentConfigHasDesktop({ routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } } })).toBe(true);
     expect(agentConfigHasDesktop({
-      launchConfig: { env: { OPENCLAW_DESKTOP_ENABLED: 'false' } },
+      launchConfig: { env: { HYPER_DESKTOP_ENABLED: 'false' } },
       routes: { desktop: { port: 3000, auth: true, prefix: 'desktop' } },
     })).toBe(false);
   });
 
   it('flattens launch config and exposes desktop capability on agents', () => {
     const launchConfig = {
-      env: { OPENCLAW_DESKTOP_ENABLED: '0' },
+      env: { HYPER_DESKTOP_ENABLED: '0' },
       routes: { openclaw: { port: 18789, prefix: '' } },
     };
 
     expect(flattenLaunchConfig(launchConfig)).toMatchObject({
-      'env.OPENCLAW_DESKTOP_ENABLED': '0',
+      'env.HYPER_DESKTOP_ENABLED': '0',
       'routes.openclaw.port': 18789,
     });
 

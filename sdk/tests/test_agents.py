@@ -955,7 +955,8 @@ def test_browser_desktop_url_preserves_redirect_query_and_forces_scale():
 
 
 def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
-    assert launch_config_has_desktop({"env": {"OPENCLAW_DESKTOP_ENABLED": "1"}}) is True
+    assert launch_config_has_desktop({"env": {"HYPER_DESKTOP_ENABLED": "1"}}) is True
+    assert launch_config_has_desktop({"env": {"HYPER_DESKTOP_ENABLED": "0"}, "routes": {"desktop": {}}}) is False
     assert (
         launch_config_has_desktop(
             {"routes": {"desktop": {"port": 3000, "auth": True, "prefix": "screen"}}}
@@ -979,11 +980,11 @@ def test_launch_config_desktop_detection_uses_explicit_config_not_pro_image():
 
 def test_flatten_launch_config_and_agent_has_desktop():
     launch_config = {
-        "env": {"OPENCLAW_DESKTOP_ENABLED": "0"},
+        "env": {"HYPER_DESKTOP_ENABLED": "0"},
         "routes": {"openclaw": {"port": 18789, "prefix": ""}},
     }
 
-    assert flatten_launch_config(launch_config)["env.OPENCLAW_DESKTOP_ENABLED"] == "0"
+    assert flatten_launch_config(launch_config)["env.HYPER_DESKTOP_ENABLED"] == "0"
     assert flatten_launch_config(launch_config)["routes.openclaw.port"] == 18789
 
     agent = Agent.from_dict(
@@ -1481,7 +1482,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
             "state": "starting",
             "launch_config": {
                 "image": DEFAULT_OPENCLAW_PRO_IMAGE,
-                "env": {"OPENCLAW_DESKTOP_ENABLED": "1"},
+                "env": {"HYPER_DESKTOP_ENABLED": "1"},
                 "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
             },
         }
@@ -1501,7 +1502,7 @@ def test_create_openclaw_pro_defaults_desktop_image_env_and_routes(agents_client
         assert posted_json["env"]["HYPER_WORKSPACES_SYNC_READY_ONLY"] == "1"
         assert posted_json["env"]["OPENCLAW_CRON_ENABLED"] == "1"
         assert posted_json["sync_exclude"] == list(DEFAULT_OPENCLAW_SYNC_EXCLUDE)
-        assert posted_json["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
+        assert posted_json["env"]["HYPER_DESKTOP_ENABLED"] == "1"
         assert "OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START" not in posted_json["env"]
         assert posted_json["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
@@ -1903,7 +1904,7 @@ def test_start_openclaw_repairs_managed_image_from_desktop_gate(agents_client):
     agents_client._post = fake_post
     launch_config = build_agent_config(
         image="ghcr.io/hypercli/hypercli-openclaw:pro-latest",
-        env={"OPENCLAW_DESKTOP_ENABLED": "1"},
+        env={"HYPER_DESKTOP_ENABLED": "1"},
         routes={"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
     )
     agents_client.start_openclaw(
@@ -1967,7 +1968,7 @@ def test_start_openclaw_pro_requires_complete_launch_config(agents_client):
 
     sent = posted["launch_config"]
     assert sent["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
-    assert sent["env"]["OPENCLAW_DESKTOP_ENABLED"] == "1"
+    assert sent["env"]["HYPER_DESKTOP_ENABLED"] == "1"
     assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
 
 

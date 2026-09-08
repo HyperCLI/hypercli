@@ -17,7 +17,7 @@ describe("buildOpenClawLaunchOptions", () => {
         HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_CRON_ENABLED: "1",
-        OPENCLAW_DESKTOP_ENABLED: "0",
+        HYPER_DESKTOP_ENABLED: "0",
       },
       cronEnabled: true,
       memoryIndex: null,
@@ -34,7 +34,7 @@ describe("buildOpenClawLaunchOptions", () => {
         HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_CRON_ENABLED: "1",
-        OPENCLAW_DESKTOP_ENABLED: "1",
+        HYPER_DESKTOP_ENABLED: "1",
       },
       cronEnabled: true,
       memoryIndex: null,
@@ -58,7 +58,7 @@ describe("buildOpenClawLaunchOptions", () => {
         HYPER_WORKSPACES_DIR: "/home/node/shared",
         HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
         OPENCLAW_CRON_ENABLED: "1",
-        OPENCLAW_DESKTOP_ENABLED: "1",
+        HYPER_DESKTOP_ENABLED: "1",
       },
       openClawRoutes: { includeDesktop: true },
     });
@@ -148,7 +148,7 @@ describe("buildOpenClawLaunchOptions", () => {
     })).toMatchObject({
       env: {
         HYPER_WORKSPACES_BOOT_SYNC: "0",
-        OPENCLAW_DESKTOP_ENABLED: "0",
+        HYPER_DESKTOP_ENABLED: "0",
       },
       workspacesSync: false,
     });

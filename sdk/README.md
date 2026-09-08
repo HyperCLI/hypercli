@@ -226,7 +226,7 @@ carry open-string diagnostics: `reason` is the stable cause such as `start`,
 `api_stop`, `runtime_exit`, `timeout`, or `delete`, `error` is a failure code
 when the transition failed, and `message` is human-readable context.
 
-Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/browser image. It selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `OPENCLAW_DESKTOP_ENABLED=1`.
+Use `create_openclaw_pro(...)` or `start_openclaw_pro(...)` for the desktop/browser image. It selects `ghcr.io/hypercli/hypercli-openclaw:pro-prod`, enables noVNC through the protected `desktop-<agent>.hypercli.app` route, and sets `HYPER_DESKTOP_ENABLED=1`.
 
 Automatic memory indexing is off by default. Opt in with `memory_index={"on_session_start": True, "on_search": True, "watch": True, "watch_debounce_ms": 30000, "interval_minutes": 0}`.
 

@@ -21,9 +21,10 @@
 //!   with an InvalidParams JSON-RPC error, and a rejected write creates
 //!   nothing on disk (the jail verdict precedes any `create_dir_all`).
 //! - `session/request_permission` passes through to the upstream client by
-//!   default. Setting `HYPER_ACP_AUTO_APPROVE_PERMISSION` to a truthy value
-//!   (`1`, `true`, `yes`, `on`) makes the pod answer locally with the first
-//!   allow option (`allow_always` preferred over `allow_once`), or
+//!   default. Setting `HYPER_ACP_PERMISSION_MODE` to `auto` or
+//!   `bypass-permissions`, or setting `HYPER_ACP_AUTO_APPROVE_PERMISSION` to a
+//!   truthy value (`1`, `true`, `yes`, `on`), makes the pod answer locally with
+//!   the first allow option (`allow_always` preferred over `allow_once`), or
 //!   `cancelled` when the request carries no options.
 //!
 //! Every other frame — including unknown/exotic methods — is pumped byte
@@ -65,6 +66,8 @@ use tokio::sync::{Mutex, mpsc};
 
 /// Environment variable controlling pod-local permission auto-approval.
 pub const HYPER_ACP_AUTO_APPROVE_PERMISSION_ENV: &str = "HYPER_ACP_AUTO_APPROVE_PERMISSION";
+/// Environment variable controlling ACP permission behavior.
+pub const HYPER_ACP_PERMISSION_MODE_ENV: &str = "HYPER_ACP_PERMISSION_MODE";
 
 /// JSON-RPC canonical error codes this terminator can emit.
 const JSONRPC_INTERNAL_ERROR: i64 = -32_603;
@@ -169,7 +172,7 @@ impl PodCapabilities {
     pub fn from_env(child_write_tx: &mpsc::Sender<String>) -> Self {
         Self::new(
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
-            truthy_env(HYPER_ACP_AUTO_APPROVE_PERMISSION_ENV),
+            auto_approve_permission_from_env(),
             Some(child_write_tx.downgrade()),
         )
     }
@@ -814,6 +817,18 @@ fn truthy_env(name: &str) -> bool {
         matches!(
             value.trim().to_ascii_lowercase().as_str(),
             "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
+fn auto_approve_permission_from_env() -> bool {
+    if truthy_env(HYPER_ACP_AUTO_APPROVE_PERMISSION_ENV) {
+        return true;
+    }
+    std::env::var(HYPER_ACP_PERMISSION_MODE_ENV).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "auto" | "bypass-permissions" | "bypasspermissions"
         )
     })
 }

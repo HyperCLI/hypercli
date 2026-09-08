@@ -98,7 +98,7 @@ SKILL_POLICY_EXCLUDED_ROOTS = {"comfyui"}
 EXPECTED_SKILL_LEAF_COUNTS = {
     "hypercli": 3,
     "hypercli-account": 24,
-    "hypercli-agents": 38,
+    "hypercli-agents": 36,
     "hypercli-auth": 4,
     "hypercli-compute": 14,
     "hypercli-flows": 14,
@@ -199,7 +199,7 @@ def test_every_cli_leaf_has_exactly_one_skill_owner_or_policy_exclusion():
             continue
         owner_counts[owner] = owner_counts.get(owner, 0) + 1
     assert owner_counts == EXPECTED_SKILL_LEAF_COUNTS
-    assert len(leaves) == sum(EXPECTED_SKILL_LEAF_COUNTS.values()) + len(excluded) == 136
+    assert len(leaves) == sum(EXPECTED_SKILL_LEAF_COUNTS.values()) + len(excluded) == 134
 
     skill_names = {
         path.parent.name for path in (REPO_ROOT / "skills").glob("*/SKILL.md")

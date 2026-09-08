@@ -68,7 +68,7 @@ const BASE_LAUNCH_CONFIG = {
   image: "ghcr.io/hypercli/hypercli-openclaw:test",
   env: {
     OPENCLAW_GATEWAY_TOKEN: "redacted-gateway-token",
-    OPENCLAW_DESKTOP_ENABLED: "0",
+    HYPER_DESKTOP_ENABLED: "0",
     HYPER_WORKSPACES_BOOT_SYNC: "1",
     HYPER_WORKSPACES_DIR: "/home/node/shared",
     HYPER_WORKSPACES_SYNC_READY_ONLY: "1",
@@ -542,7 +542,7 @@ test.describe("Agent settings Memory index (intercepted gateway)", () => {
     expect(launchConfig.sync_uid).toBe(1000);
     expect(launchConfig.sync_gid).toBe(1000);
     expect(launchConfig.env).toEqual({
-      OPENCLAW_DESKTOP_ENABLED: "0",
+      HYPER_DESKTOP_ENABLED: "0",
       OPENCLAW_MEMORY_SEARCH_ENABLED: "1",
       OPENCLAW_MEMORY_SEARCH_SYNC_ON_SESSION_START: "1",
       OPENCLAW_MEMORY_SEARCH_SYNC_ON_SEARCH: "1",

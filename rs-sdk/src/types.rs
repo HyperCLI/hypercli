@@ -422,6 +422,7 @@ const BUZZ_RESERVED_ENV: &[&str] = &[
     "HYPER_ACP_WS_URL",
     "HYPER_ACP_AGENT_COMMAND",
     "HYPER_ACP_AGENT_ARGS",
+    "HYPER_ACP_AUTO_APPROVE_PERMISSION",
     "HYPER_ACP_WS_LISTEN",
     "HYPER_ACP_LOG",
     "HYPER_ACP_WS_TOKEN",
@@ -796,7 +797,7 @@ impl std::ops::DerefMut for CreateDeploymentRequest {
 
 impl CreateDeploymentRequest {
     pub fn new(runtime: ManagedRuntime) -> Self {
-        Self {
+        let mut request = Self {
             name: None,
             handle: None,
             runtime,
@@ -804,7 +805,13 @@ impl CreateDeploymentRequest {
             tags: Vec::new(),
             launch_config: CompleteDeploymentLaunchConfig::default(),
             dry_run: false,
+        };
+        if runtime.default_buzz_image().is_some() {
+            request
+                .env
+                .insert("HYPER_ACP_PERMISSION_MODE".to_owned(), "default".to_owned());
         }
+        request
     }
 
     /// Mark this deployment as Buzz-managed and, when known, attach its
@@ -1569,6 +1576,10 @@ mod tests {
             "BUZZ_ACP_AGENT_COMMAND".to_owned(),
             "/tmp/not-opencode".to_owned(),
         );
+        request.env.insert(
+            "HYPER_ACP_AUTO_APPROVE_PERMISSION".to_owned(),
+            "1".to_owned(),
+        );
         request
             .env
             .insert("BUZZ_ACP_DISPLAY_NAME".to_owned(), "Wrong".to_owned());
@@ -1630,6 +1641,7 @@ mod tests {
             Some(DEFAULT_HYPER_ACP_WS_URL)
         );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
+        assert!(!request.env.contains_key("HYPER_ACP_AUTO_APPROVE_PERMISSION"));
         assert_eq!(
             request.env.get("BUZZ_ACP_AGENT_ARGS").map(String::as_str),
             Some("acp")
@@ -1949,6 +1961,7 @@ mod tests {
 
             assert_eq!(serde_json::to_value(runtime).unwrap(), runtime_name);
             assert_eq!(request.image.as_deref(), contract["image"].as_str());
+            assert_eq!(request.env["HYPER_ACP_PERMISSION_MODE"], "default");
             assert_eq!(
                 request.env["BUZZ_ACP_AGENT_COMMAND"],
                 contract["agent_command"]
