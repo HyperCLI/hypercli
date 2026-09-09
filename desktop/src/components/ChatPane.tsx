@@ -78,7 +78,7 @@ ${rows}
 export function ChatPane({
   agent,
   chat,
-  lifecycleError,
+  busy,
   onStart,
   onRestore,
   onOpenLogs,
@@ -89,7 +89,12 @@ export function ChatPane({
 }: {
   agent: AgentSummary | null;
   chat: AgentChat;
-  lifecycleError: string | null;
+  /**
+   * A lifecycle command is in flight or waiting for the roster to confirm it.
+   * The failure itself is not a prop any more: `agentMachine` publishes it to
+   * the [ErrorBar](ErrorBar.tsx) with a Retry action (FSM.md §2 guarantee 5).
+   */
+  busy: boolean;
   onStart: (id: string) => void;
   onRestore: (id: string) => void;
   onOpenLogs: () => void;
@@ -178,8 +183,6 @@ export function ChatPane({
     ? `Message ${agent.name}…`
     : isRunning && runtimeCanChat
       ? "Preparing chat…"
-      : isRunning && family === "hermes"
-        ? "Hermes chat is coming next…"
       : "Start the agent to chat…";
 
   const submit = () => {
@@ -241,10 +244,27 @@ export function ChatPane({
                 <span className="status-dot bg-text-secondary/50" />
                 Archived
               </>
-            ) : (
+            ) : agent.state === "FAILED" ? (
+              <>
+                <span className="status-dot bg-error shrink-0" />
+                Failed
+              </>
+            ) : agent.state === "DELETED" ? (
+              <>
+                <span className="status-dot bg-text-secondary/50" />
+                Deleted
+              </>
+            ) : agent.state === "STOPPED" ? (
               <>
                 <span className="status-dot bg-text-secondary/50" />
                 Stopped
+              </>
+            ) : (
+              // An unrecognised state degrades visibly — never silently as
+              // "Stopped" (FSM.md: the union is forward-open).
+              <>
+                <span className="status-dot bg-text-secondary/50" />
+                {agent.state.charAt(0) + agent.state.slice(1).toLowerCase()}
               </>
             )}
           </span>
@@ -289,17 +309,15 @@ export function ChatPane({
             </div>
           )}
 
-          {lifecycleError && (
-            <div className="mx-auto max-w-[460px] rounded-lg border border-error/40 bg-error-bg px-4 py-3 text-[12px] text-error">
-              <div className="font-medium">Agent action failed</div>
-              <div className="mt-1 space-y-0.5 leading-relaxed">
-                {lifecycleError.split(/\n|;\s+/).filter(Boolean).map((line, index) => (
-                  <div key={index}>{line}</div>
-                ))}
-              </div>
+          {busy && (
+            <div className="mx-auto flex max-w-[460px] items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-3 text-[12px] text-text-secondary">
+              <Loader2 size={13} className="animate-spin shrink-0" />
+              <span className="min-w-0 flex-1">
+                Waiting for the control plane to confirm the last action on {agent.name}…
+              </span>
               <button
                 onClick={onOpenLogs}
-                className="mt-2 rounded-md border border-error/50 px-2.5 py-1 text-[11px] font-medium hover:bg-error/10 transition-colors"
+                className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-foreground/5"
               >
                 View logs
               </button>
@@ -320,23 +338,29 @@ export function ChatPane({
               <p className="text-[13px] text-text-secondary leading-relaxed mb-5">
                 {archived
                   ? "This agent is archived. Restore it to pick up where you left off."
-                  : family === "acp"
-                    ? "This agent is stopped. Start it to chat."
-                    : "This agent is stopped. Start it to chat."}
+                  : agent.state === "FAILED"
+                    ? "This agent failed. Start it to try again."
+                    : agent.state === "DELETED"
+                      ? "This agent has been deleted."
+                      : "This agent is stopped. Start it to chat."}
               </p>
               {archived ? (
                 <button
                   onClick={() => onRestore(agent.id)}
-                  className="ui-primary-button"
+                  disabled={busy}
+                  className="ui-primary-button disabled:opacity-50"
                 >
-                  Restore agent
+                  {busy ? "Restoring…" : "Restore agent"}
                 </button>
-              ) : (
+              ) : agent.state === "DELETED" ? null : (
+                // Start stays offered for FAILED exactly as the machine allows
+                // (agentFsm.allowedFor); a tombstone is commanded by no one.
                 <button
                   onClick={() => onStart(agent.id)}
-                  className="ui-primary-button"
+                  disabled={busy}
+                  className="ui-primary-button disabled:opacity-50"
                 >
-                  Start agent
+                  {busy ? "Starting…" : "Start agent"}
                 </button>
               )}
             </div>

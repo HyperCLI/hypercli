@@ -17,7 +17,8 @@ import {
   type PlanEntry,
   type ToolCallEntry,
 } from "./chat-trace";
-import { runtimeChatHistory, streamRuntimeChatMessage } from "./runtime-client";
+import { abortRuntimeChat, runtimeChatCapability, runtimeChatHistory, streamRuntimeChatMessage } from "./runtime-client";
+import { runtimeStreamSink, type RuntimeStreamSink } from "./runtime-stream";
 
 export type { ChatMessage, PlanEntry, ToolCallEntry } from "./chat-trace";
 export type { ActivityEntry } from "./activity-trace";
@@ -95,9 +96,9 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const runtime = agent?.runtime ?? null;
   const running = agent?.state === RUNNING;
   const supportsAcp = runtimeFamily(runtime) === "acp";
-  const supportsOpenClaw = runtimeFamily(runtime) === "openclaw";
-  const supportsHermes = runtimeFamily(runtime) === "hermes";
-  const supportsRuntimeSession = supportsOpenClaw || supportsHermes;
+  // Only families whose chat is carried by a canonical SDK session
+  // (OpenClaw, Hermes — see runtime-client.ts) mount one.
+  const supportsRuntimeSession = runtimeChatCapability(agent).transport === "session";
 
   const [phase, setPhase] = useState<ChatPhase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +122,8 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   const mountKeyRef = useRef<string | null>(null);
   const activityTraceRef = useRef(new ActivityTrace());
   const pendingUserEchoRef = useRef<string | null>(null);
+  /** The in-flight runtime send, so Stop can abort the run it is streaming. */
+  const runtimeSendRef = useRef<{ agentId: string; sink: RuntimeStreamSink } | null>(null);
 
   useEffect(() => {
     latestAgentRef.current = agent;
@@ -555,6 +558,12 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
     async (text: string) => {
       const prompt = text.trim();
       if (!prompt || !agentId) return;
+      // The mount generation at send time. While the stream is in flight the
+      // agent can change underneath us; events and post-stream writes from a
+      // superseded mount must not land in its successor's transcript (the ACP
+      // path guards its callback the same way, at its own dispatch site).
+      const generation = generationRef.current;
+      const isCurrent = () => generationRef.current === generation;
       setMessages((prev) => [
         ...prev,
         {
@@ -574,7 +583,14 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         if (supportsRuntimeSession && currentAgent) {
           if (mountState !== "MOUNTED") throw new Error("Chat is still mounting. Try again in a moment.");
           const selectedRuntimeSessionKey = localStorage.getItem(runtimeSessionKey(currentAgent.id));
-          await streamRuntimeChatMessage(currentAgent, prompt, foldRuntimeEvent, selectedRuntimeSessionKey);
+          const sink = runtimeStreamSink(selectedRuntimeSessionKey ?? "main", isCurrent, foldRuntimeEvent);
+          runtimeSendRef.current = { agentId: currentAgent.id, sink };
+          try {
+            await streamRuntimeChatMessage(currentAgent, prompt, sink.onEvent, selectedRuntimeSessionKey);
+          } finally {
+            if (runtimeSendRef.current?.sink === sink) runtimeSendRef.current = null;
+          }
+          if (!isCurrent()) return;
           setActivity(activityTraceRef.current.settleTurn("completed"));
           setMessages((prev) => settleOpenToolCalls(prev, "completed"));
           return;
@@ -583,10 +599,12 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
         const sessionId = sessionIdRef.current;
         if (!client || !sessionId) return;
         await client.prompt(sessionId, prompt);
+        if (!isCurrent()) return;
         setActivity(activityTraceRef.current.settleTurn("completed"));
         setMessages((prev) => settleOpenToolCalls(prev, "completed"));
       } catch (e) {
         pendingUserEchoRef.current = null;
+        if (!isCurrent()) return;
         const message = e instanceof Error ? e.message : String(e);
         setMessages((prev) => [
           ...settleOpenToolCalls(prev, "interrupted"),
@@ -611,6 +629,15 @@ export function useAgentChat(agent: AgentSummary | null, sessionNonce = 0) {
   );
 
   const cancel = useCallback(async () => {
+    // A runtime send has no clientRef session to cancel; abort the run the
+    // stream was tracking (run id included when it reported one) and clear
+    // busy now rather than waiting for the stream to notice.
+    const runtimeSend = runtimeSendRef.current;
+    const currentAgent = latestAgentRef.current;
+    if (runtimeSend && currentAgent?.id === runtimeSend.agentId) {
+      await abortRuntimeChat(currentAgent, runtimeSend.sink.sessionKey, runtimeSend.sink.runId).catch(() => {});
+      setBusy(false);
+    }
     const sessionId = sessionIdRef.current;
     if (clientRef.current && sessionId) {
       await clientRef.current.cancel(sessionId).catch(() => {});

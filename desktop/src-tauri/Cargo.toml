@@ -30,13 +30,8 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tokio = { version = "1", features = ["sync", "time"] }
 dirs = "6"
 secrecy = "0.10"
+# Credential discovery/persistence only (~/.hypercli/config). All backend
+# HTTP/WS traffic runs through ts-sdk in the webview; there is no Rust proxy.
 hypercli-sdk = { path = "../../rs-sdk" }
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
-url = "2"
-uuid = { version = "1", features = ["v4"] }
-# ACP chat/sessions: the backend /ws bridge requires an Authorization upgrade
-# header, which a browser WebSocket cannot send — the dial happens here.

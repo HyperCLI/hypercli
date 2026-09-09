@@ -1,4 +1,19 @@
+/**
+ * What chat each runtime family supports, and how it is carried.
+ *
+ * This used to gate on whether Tauri IPC was present — a proxy for "are we in
+ * the packaged app", which mattered when runtime streaming existed only inside
+ * the Vite dev bridge. Streaming now runs in the webview, the same in dev and
+ * packaged, so the host is irrelevant: what decides chat is the runtime, and
+ * whether the SDK has a canonical session client for it.
+ *
+ * Both OpenClaw and Hermes do (`AgentSessionClient`, ts-sdk session.ts):
+ * OpenClaw over its pooled WebSocket gateway, Hermes over its HTTP/SSE API.
+ * `src/api.ts` performs the connect per call; this module is only the
+ * family → transport table plus the chat convenience wrappers.
+ */
 import {
+  runtimeChatAbort,
   runtimeHistory,
   runtimeHistoryForSession,
   streamRuntimeMessage,
@@ -6,91 +21,50 @@ import {
   type RuntimeChatEvent,
   type RuntimeChatMessage,
 } from "./api";
-import { type RuntimeFamily, runtimeFamily } from "./agent-utils";
+import { runtimeFamily, type RuntimeFamily } from "./agent-utils";
 
-export interface RuntimeSession {
-  readonly family: RuntimeFamily;
-  readonly canChat: boolean;
-  history(sessionKey?: string | null): Promise<RuntimeChatMessage[]>;
-  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void, sessionKey?: string | null): Promise<void>;
+/** How a family's chat is carried, when it has one. */
+export type RuntimeChatTransport =
+  /** The ACP bridge WebSocket, driven by useAgentChat directly. */
+  | "acp"
+  /** A canonical SDK session (`OpenClawSessionClient` / `HermesSessionClient`). */
+  | "session"
+  | "none";
+
+export interface RuntimeChatCapability {
+  transport: RuntimeChatTransport;
+  /** Null when chat works; otherwise why it doesn't, in the user's words. */
+  unavailable: string | null;
 }
 
-function hasTauriInvoke() {
-  const internals = (window as unknown as { __TAURI_INTERNALS__?: Record<string, unknown> })
-    .__TAURI_INTERNALS__;
-  return typeof internals?.invoke === "function";
-}
+const CAPABILITIES: Record<RuntimeFamily, RuntimeChatCapability> = {
+  acp: { transport: "acp", unavailable: null },
+  openclaw: { transport: "session", unavailable: null },
+  // `HermesAgent.connect()` returns a `HermesSessionClient` over the agent's
+  // HTTP/SSE API server (`agents.ts:3484`): history and streaming exist.
+  hermes: { transport: "session", unavailable: null },
+  generic: { transport: "none", unavailable: "This runtime doesn't expose chat." },
+};
 
-abstract class BaseRuntimeSession implements RuntimeSession {
-  abstract readonly family: RuntimeFamily;
-  abstract readonly canChat: boolean;
-
-  constructor(protected readonly agent: AgentSummary) {}
-
-  async history(_sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
-    return [];
-  }
-
-  async streamMessage(_text: string, _onEvent: (event: RuntimeChatEvent) => void, _sessionKey?: string | null): Promise<void> {
-    throw new Error("This runtime does not expose streaming chat yet.");
-  }
-
-}
-
-class OpenClawRuntimeSession extends BaseRuntimeSession {
-  readonly family = "openclaw" as const;
-
-  get canChat() {
-    return !hasTauriInvoke();
-  }
-
-  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void, sessionKey?: string | null): Promise<void> {
-    if (!this.canChat) throw new Error("OpenClaw chat is not wired in the packaged app yet.");
-    return streamRuntimeMessage(this.agent.id, text, onEvent, sessionKey);
-  }
-
-  history(sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
-    if (!this.canChat) return Promise.resolve([]);
-    if (sessionKey) return runtimeHistoryForSession(this.agent.id, sessionKey);
-    return runtimeHistory(this.agent.id);
-  }
-}
-
-class HermesRuntimeSession extends BaseRuntimeSession {
-  readonly family = "hermes" as const;
-
-  get canChat() {
-    return !hasTauriInvoke();
-  }
-
-  streamMessage(text: string, onEvent: (event: RuntimeChatEvent) => void, sessionKey?: string | null): Promise<void> {
-    if (!this.canChat) throw new Error("Hermes chat is not wired in the packaged app yet.");
-    return streamRuntimeMessage(this.agent.id, text, onEvent, sessionKey);
-  }
-
-  history(sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
-    if (!this.canChat) return Promise.resolve([]);
-    if (sessionKey) return runtimeHistoryForSession(this.agent.id, sessionKey);
-    return runtimeHistory(this.agent.id);
-  }
-
-}
-
-class UnsupportedRuntimeSession extends BaseRuntimeSession {
-  readonly family = "generic" as const;
-  readonly canChat = false;
-
-}
-
-export function runtimeSession(agent: AgentSummary): RuntimeSession {
-  const family = runtimeFamily(agent.runtime);
-  if (family === "openclaw") return new OpenClawRuntimeSession(agent);
-  if (family === "hermes") return new HermesRuntimeSession(agent);
-  return new UnsupportedRuntimeSession(agent);
+export function runtimeChatCapability(agent: AgentSummary | null): RuntimeChatCapability {
+  return CAPABILITIES[runtimeFamily(agent?.runtime ?? null)];
 }
 
 export function canRuntimeChat(agent: AgentSummary): boolean {
-  return runtimeSession(agent).canChat;
+  return runtimeChatCapability(agent).unavailable === null;
+}
+
+/** Why chat is unavailable for this agent, or null when it is available. */
+export function runtimeChatUnavailableReason(agent: AgentSummary | null): string | null {
+  return runtimeChatCapability(agent).unavailable;
+}
+
+export function runtimeChatHistory(
+  agent: AgentSummary,
+  sessionKey?: string | null,
+): Promise<RuntimeChatMessage[]> {
+  if (runtimeChatCapability(agent).transport !== "session") return Promise.resolve([]);
+  return sessionKey ? runtimeHistoryForSession(agent.id, sessionKey) : runtimeHistory(agent.id);
 }
 
 export function streamRuntimeChatMessage(
@@ -99,9 +73,25 @@ export function streamRuntimeChatMessage(
   onEvent: (event: RuntimeChatEvent) => void,
   sessionKey?: string | null,
 ): Promise<void> {
-  return runtimeSession(agent).streamMessage(text, onEvent, sessionKey);
+  const { transport, unavailable } = runtimeChatCapability(agent);
+  if (transport !== "session") {
+    return Promise.reject(new Error(unavailable ?? "This runtime does not expose streaming chat."));
+  }
+  return streamRuntimeMessage(agent.id, text, onEvent, sessionKey);
 }
 
-export function runtimeChatHistory(agent: AgentSummary, sessionKey?: string | null): Promise<RuntimeChatMessage[]> {
-  return runtimeSession(agent).history(sessionKey);
+/**
+ * Abort the run a runtime send is streaming. Identity comes from the stream
+ * itself: Hermes aborts by run id, OpenClaw by session key (+ run id when
+ * known). Called from Stop; a stream that never reported a run id had nothing
+ * to abort, so a Hermes reject there is swallowed by the caller.
+ */
+export function abortRuntimeChat(
+  agent: AgentSummary,
+  sessionKey?: string,
+  runId?: string,
+): Promise<void> {
+  const { transport } = runtimeChatCapability(agent);
+  if (transport !== "session") return Promise.resolve();
+  return runtimeChatAbort(agent.id, sessionKey, runId);
 }

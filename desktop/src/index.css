@@ -335,3 +335,17 @@ textarea:focus-visible {
     opacity: 0;
   }
 }
+
+@keyframes error-bar-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Errors appear without yanking the eye off whatever the user was reading. */
+.error-bar {
+  animation: error-bar-in 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .error-bar { animation: none; }
+}

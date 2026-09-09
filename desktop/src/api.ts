@@ -1,7 +1,90 @@
 import { invoke } from "@tauri-apps/api/core";
+import { HyperCLI } from "../../ts-sdk/src/client.ts";
+import {
+  HermesAgent,
+  OpenClawAgent,
+  type Agent,
+  type AgentFileEntry,
+  type AgentLaunchConfig,
+  type AgentLogsTokenResponse,
+  type AgentProfileImageUploadResult,
+  type AgentShellTokenResponse,
+} from "../../ts-sdk/src/agents.ts";
+import {
+  OpenClawSessionClient,
+  type AgentSessionClient,
+  type AgentSessionMessage,
+} from "../../ts-sdk/src/session.ts";
 import { CodingAgentAcpClient, type CodingAgentAcpTarget } from "../../ts-sdk/src/acp.ts";
 import { agentsBridgeWsBase, defaultHyperAcpWsUrl } from "../../ts-sdk/src/agent-urls.ts";
-import type { RoutineCreateOptions, RoutineUpdateOptions } from "@hypercli.com/sdk";
+import type { HyperAgentUsageReport } from "../../ts-sdk/src/agent.ts";
+import type { RoutineCreateOptions, RoutineUpdateOptions, Routine as SdkRoutine } from "../../ts-sdk/src/routines.ts";
+import { HERMES_RUNTIMES, OPENCLAW_RUNTIMES } from "./agent-utils";
+import { classifyConnectionError, clearConnectionIssue, httpStatusOf, reportConnectionError, type ConnectionIssue } from "./lib/connection-errors";
+import { controlUiOriginsToWrite } from "./lib/origin-lock";
+import { resolveCredentials, usingDevCredentials } from "./lib/credentials";
+import { resolveEndpoints, type Endpoints } from "./lib/endpoints";
+
+// ---------------------------------------------------------------------------
+// SDK client. All backend HTTP+WS goes through ts-sdk; Rust keeps only
+// credential discovery/persistence and OS integration.
+// ---------------------------------------------------------------------------
+
+export type { AcpCredentials } from "./lib/credentials";
+
+let sdkPromise: Promise<HyperCLI> | null = null;
+
+export function resetSdkClient() {
+  sdkPromise = null;
+}
+
+function logSdkError(where: string, error: unknown, url?: string | null) {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  console.error(`[hypercli] ${where} failed:`, message, error);
+  // A blocked fetch has no console presence the user can reach in a packaged
+  // webview, so every logged failure is also published to the error bar.
+  reportConnectionError(error, { operation: where, url: url ?? AGENTS_API_BASE_HINT });
+}
+
+/** Best-effort host for classification when the failing URL isn't to hand. */
+let AGENTS_API_BASE_HINT: string | null = null;
+
+function hostHint(): string {
+  if (!AGENTS_API_BASE_HINT) return "unknown";
+  try {
+    return new URL(AGENTS_API_BASE_HINT).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+export async function sdk(): Promise<HyperCLI> {
+  if (!sdkPromise) {
+    sdkPromise = (async () => {
+      try {
+        const creds = await acpCredentials();
+        const endpoints = resolveEndpoints(creds);
+        AGENTS_API_BASE_HINT = endpoints.httpBase;
+        return new HyperCLI({
+          apiKey: creds.token,
+          agentApiKey: creds.token,
+          agentsApiBaseUrl: endpoints.httpBase,
+        });
+      } catch (error) {
+        logSdkError("sdk init", error);
+        throw error;
+      }
+    })();
+    sdkPromise.catch(() => {
+      sdkPromise = null;
+    });
+  }
+  return sdkPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Shared types (kept stable for the existing components).
+// ---------------------------------------------------------------------------
 
 export interface AgentSummary {
   id: string;
@@ -13,27 +96,37 @@ export interface AgentSummary {
   hostname: string | null;
   launch_epoch: number;
   size: string | null;
-  hasDesktop?: boolean;
   has_desktop?: boolean;
-  launch_config?: unknown;
   launchConfig?: unknown;
   routes?: unknown;
 }
 
-export interface AgentAvatarUploadResult {
-  id: string;
-  avatar_url: string | null;
-  s3_key?: string | null;
+export function agentSummary(agent: Agent): AgentSummary {
+  return {
+    id: agent.id,
+    name: agent.displayName ?? agent.name ?? agent.id,
+    handle: agent.handle,
+    avatar_url: agent.avatarUrl,
+    runtime: agent.runtime,
+    // Normalised once, at the boundary: the SDK's predicates uppercase their
+    // input, so every comparison downstream is correct by construction
+    // (FSM.md — "state is normalised where it enters the app").
+    state: String(agent.state ?? "").toUpperCase(),
+    hostname: agent.hostname,
+    launch_epoch: agent.launchEpoch,
+    size: agent.requestedSize ?? null,
+    has_desktop: agent.hasDesktop,
+    launchConfig: agent.launchConfig ?? null,
+    routes: agent.routes,
+  };
 }
+
+// The SDK's own wire type; the avatar endpoints speak snake_case natively.
+export type AgentAvatarUploadResult = AgentProfileImageUploadResult;
 
 export interface AuthStatus {
   signed_in: boolean;
   api_base: string;
-}
-
-export interface AcpCredentials {
-  api_base: string;
-  token: string;
 }
 
 export interface PlanSummary {
@@ -42,13 +135,11 @@ export interface PlanSummary {
   renews_at: string | null;
 }
 
-export interface AgentLogsToken {
-  agent_id?: string;
-  token: string;
-  expires_at?: string | null;
-  ws_url?: string;
-  api_base?: string;
-}
+/**
+ * The SDK's logs-token response plus the REST base the logs view needs. The
+ * credential is always `token` — the SDK validator rejects anything else.
+ */
+export type AgentLogsToken = AgentLogsTokenResponse & { api_base?: string };
 
 export interface AgentDesktopUrl {
   url: string;
@@ -84,189 +175,261 @@ export interface RuntimeChatEvent {
   data?: Record<string, unknown>;
 }
 
-export interface AgentFileEntry {
-  name: string;
-  path: string;
-  type: "file" | "directory";
-  size?: number;
-  size_formatted?: string;
-  last_modified?: string;
-}
+export type { AgentFileEntry };
 
-export interface AgentFileBytes {
-  bytes: number[];
-}
+// ---------------------------------------------------------------------------
+// Auth — the only commands still owned by Rust (credential persistence).
+// ---------------------------------------------------------------------------
 
-export interface AgentExecResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-export function hasTauriInvoke() {
-  const internals = (window as unknown as { __TAURI_INTERNALS__?: Record<string, unknown> })
-    .__TAURI_INTERNALS__;
-  return typeof internals?.invoke === "function";
-}
-
-async function command<T>(name: string, args?: Record<string, unknown>): Promise<T> {
-  if (hasTauriInvoke()) {
-    try {
-      return await invoke<T>(name, args);
-    } catch (e) {
-      throw new Error(`${name} failed in Tauri: ${e instanceof Error ? e.message : String(e)}`);
-    }
+export const authStatus = async (): Promise<AuthStatus> => {
+  // A dev browser tab has no Tauri IPC but does have an injected key; reporting
+  // it as signed out would send it to a sign-in screen it cannot complete, and
+  // dev would once again fail to reproduce the app.
+  if (usingDevCredentials()) {
+    const creds = await resolveCredentials();
+    return { signed_in: true, api_base: creds.api_base };
   }
-  let response: Response;
+  return invoke<AuthStatus>("auth_status");
+};
+export const saveApiKey = async (key: string) => {
+  const status = await invoke<AuthStatus>("save_api_key", { key });
+  resetSdkClient();
+  return status;
+};
+export const logout = async () => {
+  await invoke<void>("logout");
+  resetSdkClient();
+};
+export const acpCredentials = resolveCredentials;
+
+/** WebSocket URLs must come from the real host, never the dev proxy. */
+async function endpoints(): Promise<Endpoints> {
+  return resolveEndpoints(await acpCredentials());
+}
+
+// ---------------------------------------------------------------------------
+// Agent lifecycle — ts-sdk.
+// ---------------------------------------------------------------------------
+
+export async function listAgents(): Promise<AgentSummary[]> {
+  const client = await sdk();
   try {
-    response = await fetch("/__desktop_ng/invoke", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ command: name, args }),
-    });
-  } catch (e) {
-    throw new Error(`${name} bridge request failed: ${e instanceof Error ? e.message : String(e)}`);
+    const agents = await client.deployments.list();
+    // The roster refetches constantly, so a success here is the clearest
+    // signal that a previously reported connectivity problem is over.
+    clearConnectionIssue(`blocked:${hostHint()}`);
+    clearConnectionIssue("offline");
+    return agents
+      .map(agentSummary)
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  } catch (error) {
+    logSdkError("listAgents", error);
+    throw error;
   }
-  const payload = (await response.json()) as { ok: boolean; result?: T; error?: string };
-  if (!response.ok || !payload.ok) throw new Error(payload.error ?? `Command failed: ${name}`);
-  return payload.result as T;
 }
 
-export const authStatus = () => command<AuthStatus>("auth_status");
-export const saveApiKey = (key: string) =>
-  command<AuthStatus>("save_api_key", { key });
-export const logout = () => command<void>("logout");
-export const listAgents = () => command<AgentSummary[]>("list_agents");
-export const startAgent = (id: string) =>
-  command<AgentSummary>("start_agent", { id });
-export const stopAgent = (id: string) =>
-  command<AgentSummary>("stop_agent", { id });
-export const createAgent = (
+export async function startAgent(id: string): Promise<AgentSummary> {
+  const client = await sdk();
+  const agent = await client.deployments.get(id);
+  const runtime = agent.runtime ?? "";
+  if (OPENCLAW_RUNTIMES.has(runtime)) {
+    let gatewayToken: string | null = null;
+    try {
+      const secret = await client.deployments.secret(id, "OPENCLAW_GATEWAY_TOKEN");
+      const value = secret.value.trim();
+      if (value) gatewayToken = value;
+    } catch (error) {
+      // Only a genuine not-found means "no secret yet" (older OpenClaw agents
+      // predate it). Anything else must abort the start: minting a fresh token
+      // over an unread, possibly healthy one would invalidate every live
+      // gateway session.
+      if (httpStatusOf(error) !== 404) throw error;
+    }
+    if (!gatewayToken) {
+      gatewayToken = crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
+      await client.deployments.setSecret(id, "OPENCLAW_GATEWAY_TOKEN", gatewayToken);
+    }
+    // START takes a *complete replacement* launch config, which the
+    // owner-facing projection can never be (`secrets`/`registry_auth` are
+    // redacted). `storedLaunchConfig` is the typed producer the SDK ships for
+    // exactly this round trip.
+    const stored = await client.deployments.storedLaunchConfig(id);
+    const launchConfig: Omit<AgentLaunchConfig, "config"> = {
+      ...stored,
+      env: {
+        ...stored.env,
+        // Every origin this app can legitimately have, merged with whatever is
+        // already recorded. Writing just our own origin (as this once did)
+        // evicts whoever started the agent last -- dev locks out the packaged
+        // app and vice versa. The shared parser accepts a space-separated list.
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: controlUiOriginsToWrite(agent.launchConfig),
+      },
+    };
+    const started = await client.deployments.startOpenClaw(id, { gatewayToken, launchConfig });
+    return agentSummary(started);
+  }
+  if (HERMES_RUNTIMES.has(runtime)) {
+    const launchConfig = await client.deployments.storedLaunchConfig(id);
+    return agentSummary(await client.deployments.startHermesAgent(id, { launchConfig }));
+  }
+  return agentSummary(await client.deployments.start(id));
+}
+
+export async function stopAgent(id: string): Promise<AgentSummary> {
+  const client = await sdk();
+  return agentSummary(await client.deployments.stop(id));
+}
+
+export interface CreateAgentOptions {
+  image?: string | null;
+  buzzPrivateKeyNsec?: string | null;
+  buzzRelayUrl?: string | null;
+}
+
+export async function createAgent(
   name: string,
   runtime: string,
   size?: string,
-  options: { image?: string | null; buzzPrivateKeyNsec?: string | null; buzzRelayUrl?: string | null } = {},
-) => command<AgentSummary>("create_agent", { name, runtime, size, ...options });
-export const archiveAgent = (id: string) =>
-  command<AgentSummary>("archive_agent", { id });
-export const restoreAgent = (id: string) =>
-  command<AgentSummary>("restore_agent", { id });
-export const deleteAgent = (id: string) => command<void>("delete_agent", { id });
-export const setAgentDesktopEnabled = (id: string, enabled: boolean) =>
-  command<AgentSummary>("set_agent_desktop_enabled", { id, enabled });
-export const uploadAgentAvatar = async (id: string, file: File) => {
-  const content = Array.from(new Uint8Array(await file.arrayBuffer()));
-  return command<AgentAvatarUploadResult>("upload_agent_avatar", {
-    id,
-    content,
-    contentType: file.type || "image/png",
-  });
+  options: CreateAgentOptions = {},
+): Promise<AgentSummary> {
+  const client = await sdk();
+  const sizeOpt = size as "small" | "medium" | "large" | undefined;
+  const shared = { name, ...(sizeOpt ? { size: sizeOpt } : {}), ...(options.image ? { image: options.image } : {}) };
+  if (runtime === "openclaw") {
+    return agentSummary(await client.deployments.createOpenClaw({ ...shared }));
+  }
+  if (runtime === "openclaw-pro") {
+    return agentSummary(await client.deployments.createOpenClawPro({ ...shared }));
+  }
+  if (runtime === "hermes-agent") {
+    return agentSummary(await client.deployments.createHermesAgent({ ...shared }));
+  }
+  if (runtime === "buzz-agent") {
+    const nsec = options.buzzPrivateKeyNsec?.trim();
+    if (!nsec) throw new Error("Buzz Agent requires an nsec private key.");
+    return agentSummary(
+      await client.deployments.createBuzzAgent({
+        ...shared,
+        buzz: {
+          privateKeyNsec: nsec,
+          relayUrl: options.buzzRelayUrl?.trim() || "wss://relay.buzz.hypercli.com",
+          displayName: name,
+          sessionTitle: name,
+        },
+      }),
+    );
+  }
+  if (runtime === "opencode") return agentSummary(await client.deployments.createOpenCode({ ...shared }));
+  if (runtime === "codex") return agentSummary(await client.deployments.createCodex({ ...shared }));
+  if (runtime === "claude-code") return agentSummary(await client.deployments.createClaudeCode({ ...shared }));
+  if (runtime === "goose") return agentSummary(await client.deployments.createGoose({ ...shared }));
+  if (runtime === "kimi-code") return agentSummary(await client.deployments.createKimiCode({ ...shared }));
+  throw new Error(`Unknown runtime: ${runtime}`);
+}
+
+export const archiveAgent = async (id: string) => agentSummary(await (await sdk()).deployments.archive(id));
+export const restoreAgent = async (id: string) => agentSummary(await (await sdk()).deployments.restore(id));
+export const deleteAgent = async (id: string) => {
+  await (await sdk()).deployments.delete(id);
 };
-export const deleteAgentAvatar = (id: string) =>
-  command<AgentAvatarUploadResult>("delete_agent_avatar", { id });
-export const acpCredentials = () => command<AcpCredentials>("acp_credentials");
 
-// One derivation shared by chat, the sessions sweep, dev, and packaged: the
-// backend ACP bridge accepts the credential as a ?token= query param, so both
-// modes dial it directly with a native WebSocket — no tunnel, no proxy.
-export async function acpConnectTarget(agentId: string): Promise<CodingAgentAcpTarget> {
-  const creds = await acpCredentials();
-  const url = new URL(defaultHyperAcpWsUrl(creds.api_base));
-  url.searchParams.set("agent_id", agentId);
-  url.searchParams.set("token", creds.token);
-  return { url: url.toString(), token: "" };
-}
-export const runtimeHistory = (id: string) =>
-  command<RuntimeChatMessage[]>("runtime_history", { id });
-export const runtimeHistoryForSession = (id: string, sessionKey: string) =>
-  command<RuntimeChatMessage[]>("runtime_history", { id, sessionKey });
-export async function streamRuntimeMessage(
-  id: string,
-  text: string,
-  onEvent: (event: RuntimeChatEvent) => void,
-  sessionKey?: string | null,
-) {
-  if (hasTauriInvoke()) throw new Error("Runtime streaming is not wired in the packaged app yet.");
-  const response = await fetch("/__desktop_ng/stream", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ command: "runtime_message_stream", args: { id, text, sessionKey } }),
-  });
-  if (!response.body) throw new Error(await response.text().catch(() => response.statusText));
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line) as RuntimeChatEvent;
-      onEvent(event);
+/**
+ * Watches deployment transitions and fires `onUpdate` (debounced) so the
+ * roster refetches without a poll. Replaces the old Rust-side watcher.
+ * Returns an unsubscribe function.
+ *
+ * The subscription itself is `Deployments.subscribe()`: it mints the events
+ * token, dials the returned `ws_url` with `?token=` (HANDOFF's 403 trap —
+ * fixed SDK-side), and owns the ready handshake, the reconnect loop and its
+ * backoff (AGENTS.md rule 15: the app composes that, it does not rebuild it).
+ * Only a *fatal* exit (a rejected token mint, e.g. a 401 key) escapes, and the
+ * caller degrades the session machine on it.
+ */
+export function subscribeAgentUpdates(
+  onUpdate: () => void,
+  onConnected?: () => void,
+  onFatal?: (issue: ConnectionIssue) => void,
+): () => void {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const fire = () => {
+    if (timer) return;
+    timer = setTimeout(() => {
+      timer = null;
+      onUpdate();
+    }, 500);
+  };
+
+  void (async () => {
+    try {
+      const client = await sdk();
+      if (controller.signal.aborted) return;
+      await client.deployments.subscribe(() => fire(), {
+        signal: controller.signal,
+        // A fresh connection may have missed transitions while it was down. It
+        // is also the only proof the live channel is open, which is a different
+        // fact from "a roster GET succeeded" — see `SOCKET_UP` in lib/fsm.ts.
+        onReady: () => {
+          onConnected?.();
+          fire();
+        },
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      onFatal?.(classifyConnectionError(error, { operation: "Live agent updates", url: null }));
     }
-    if (done) break;
-  }
-  if (buffer.trim()) {
-    const event = JSON.parse(buffer) as RuntimeChatEvent;
-    onEvent(event);
-  }
-}
-export const agentLogsToken = (id: string) =>
-  command<AgentLogsToken>("agent_logs_token", { id });
-export const agentDesktopUrl = (id: string) =>
-  command<AgentDesktopUrl>("agent_desktop_url", { id });
-export const agentFiles = (id: string, path = "") =>
-  command<AgentFileEntry[]>("agent_files", { id, path });
-export const agentFileRead = (id: string, path: string) =>
-  command<string>("agent_file_read", { id, path });
-export const agentFileReadBytes = (id: string, path: string) =>
-  command<AgentFileBytes>("agent_file_read_bytes", { id, path });
-export const agentFileWrite = (id: string, path: string, bytes: Uint8Array) =>
-  command<void>("agent_file_write", { id, path, bytes: Array.from(bytes) });
-export const agentExec = (id: string, commandText: string, timeout = 30) =>
-  command<AgentExecResult>("agent_exec", { id, command: commandText, timeout });
-const agentWsBase = agentsBridgeWsBase;
+  })();
 
-export interface AgentShellToken {
-  token: string;
-  ws_url: string;
-  shell: string;
+  return () => {
+    controller.abort();
+    if (timer) clearTimeout(timer);
+  };
 }
 
-export const agentShellToken = (id: string, shell?: string) =>
-  command<AgentShellToken>("agent_shell_token", { id, shell });
+export async function setAgentDesktopEnabled(id: string, enabled: boolean): Promise<AgentSummary> {
+  const client = await sdk();
+  await client.deployments.setEnv(id, "HYPER_DESKTOP_ENABLED", enabled ? "1" : "0");
+  if (enabled) {
+    await client.deployments.setRoute(id, "desktop", { port: 3000, auth: true, prefix: "desktop" });
+  } else {
+    await client.deployments.removeRoute(id, "desktop");
+  }
+  return agentSummary(await client.deployments.get(id));
+}
 
-export async function agentShellUrl(id: string) {
-  if (hasTauriInvoke()) {
-    const token = await agentShellToken(id);
-    const url = new URL(token.ws_url);
-    url.searchParams.set("token", token.token);
-    url.searchParams.set("shell", token.shell || "/bin/bash");
-    return url.toString();
-  }
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const params = new URLSearchParams({ agent_id: id });
-  return `${protocol}//${window.location.host}/__desktop_ng/shell?${params}`;
+export async function uploadAgentAvatar(id: string, file: File): Promise<AgentAvatarUploadResult> {
+  const client = await sdk();
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  return client.deployments.uploadProfileImage(
+    id,
+    bytes,
+    file.type || "image/png",
+  );
 }
-export async function agentLogsUrl(id: string) {
-  if (hasTauriInvoke()) {
-    const [creds, token] = await Promise.all([acpCredentials(), agentLogsToken(id)]);
-    const base = token.ws_url?.trim()
-      ? token.ws_url
-      : `${agentWsBase(creds.api_base)}/logs/${id}`;
-    const url = new URL(base);
-    url.searchParams.set("token", token.token);
-    if (!url.searchParams.has("container")) url.searchParams.set("container", "reef");
-    if (!url.searchParams.has("tail_lines")) url.searchParams.set("tail_lines", "100");
-    return url.toString();
-  }
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const params = new URLSearchParams({ agent_id: id });
-  return `${protocol}//${window.location.host}/__desktop_ng/logs?${params}`;
+
+export async function deleteAgentAvatar(id: string): Promise<AgentAvatarUploadResult> {
+  const client = await sdk();
+  return client.deployments.deleteProfileImage(id);
 }
-export const planSummary = () => command<PlanSummary>("plan_summary");
+
+// ---------------------------------------------------------------------------
+// Plans & usage — ts-sdk HyperAgent control plane.
+// ---------------------------------------------------------------------------
+
+export async function planSummary(): Promise<PlanSummary> {
+  const client = await sdk();
+  const plan = await client.agent.currentPlan();
+  const renews = plan.agentSlots
+    .map((slot) => slot.expiresAt)
+    .filter((d): d is Date => d instanceof Date && !Number.isNaN(d.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime())[0];
+  return {
+    name: plan.name || plan.id,
+    agents: plan.agents ?? 0,
+    renews_at: renews ? renews.toISOString() : null,
+  };
+}
 
 export interface UsageMetrics {
   total_tokens: number;
@@ -299,8 +462,45 @@ export interface UsageSummary {
   unattributed: UsageMetrics | null;
 }
 
-export const usageSummary = (days = 7) =>
-  command<UsageSummary>("usage_summary", { days });
+const toMetrics = (m: {
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+}): UsageMetrics => ({
+  total_tokens: m.totalTokens,
+  prompt_tokens: m.promptTokens,
+  completion_tokens: m.completionTokens,
+  requests: m.requests,
+});
+
+export async function usageSummary(days = 7): Promise<UsageSummary> {
+  const client = await sdk();
+  const report: HyperAgentUsageReport = await client.agent.usageReport(days);
+  return {
+    days: report.days,
+    history: report.history
+      ? report.history.map((d) => ({ date: d.date, ...toMetrics(d) }))
+      : null,
+    keys: report.keys
+      ? report.keys.map((k) => ({ key_hash: k.keyHash, name: k.name, ...toMetrics(k) }))
+      : null,
+    agents: report.agents
+      ? report.agents.map((a) => ({
+          agent_id: a.agentId,
+          name: a.name,
+          managed: a.managed,
+          avatar_url: a.avatarUrl,
+          ...toMetrics(a),
+        }))
+      : null,
+    unattributed: report.unattributed ? toMetrics(report.unattributed) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Routines — ts-sdk RoutinesAPI (desktop wire speaks snake_case).
+// ---------------------------------------------------------------------------
 
 export interface Routine {
   id: string;
@@ -316,22 +516,101 @@ export interface Routine {
   updated_at: string | null;
 }
 
-// Aligned with the ts-sdk RoutinesAPI (name / cron-or-runAt schedules); the
-// desktop wire itself speaks the raw snake_case payload via the bridge below.
-export type RoutineCreateInput = Pick<RoutineCreateOptions, "agentId" | "prompt" | "cron" | "runAt" | "name" | "enabled">;
+function routineFromSdk(r: SdkRoutine): Routine {
+  return {
+    id: r.id,
+    user_id: r.userId || null,
+    agent_id: r.agentId || null,
+    name: r.name,
+    cron: r.cron,
+    prompt: r.prompt,
+    enabled: r.enabled,
+    run_at: r.runAt,
+    next_run_at: r.nextRunAt,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  };
+}
+
+export type RoutineCreateInput = Pick<
+  RoutineCreateOptions,
+  "agentId" | "prompt" | "cron" | "runAt" | "name" | "enabled"
+>;
 
 export type RoutineUpdatePatch = Pick<RoutineUpdateOptions, "prompt" | "cron" | "name" | "enabled"> & {
   runAt?: string;
 };
 
-export const routinesList = (agentId?: string) =>
-  command<Routine[]>("routines_list", { agentId });
-export const routinesCreate = (input: RoutineCreateInput) =>
-  command<Routine>("routines_create", input);
-export const routinesUpdate = (id: string, patch: RoutineUpdatePatch) =>
-  command<Routine>("routines_update", { id, ...patch });
-export const routinesDelete = (id: string) =>
-  command<void>("routines_delete", { id });
+export const routinesList = async (agentId?: string) =>
+  (await (await sdk()).routines.list(agentId ? { agentId } : {})).map(routineFromSdk);
+export const routinesCreate = async (input: RoutineCreateInput) =>
+  routineFromSdk(await (await sdk()).routines.create(input));
+export const routinesUpdate = async (id: string, patch: RoutineUpdatePatch) =>
+  routineFromSdk(await (await sdk()).routines.update(id, patch));
+export const routinesDelete = async (id: string) => {
+  await (await sdk()).routines.delete(id);
+};
+
+// ---------------------------------------------------------------------------
+// Logs / shell / desktop URLs.
+// ---------------------------------------------------------------------------
+
+const agentWsBase = agentsBridgeWsBase;
+
+export const agentLogsToken = async (id: string): Promise<AgentLogsToken> => {
+  const client = await sdk();
+  const ends = await endpoints();
+  const token = await client.deployments.logsToken(id);
+  return { ...token, api_base: ends.apiBase };
+};
+
+export type AgentShellToken = AgentShellTokenResponse;
+
+export const agentShellToken = async (id: string, shell?: string): Promise<AgentShellToken> => {
+  const client = await sdk();
+  return client.deployments.shellToken(id, shell);
+};
+
+export async function agentDesktopUrl(id: string): Promise<AgentDesktopUrl> {
+  const client = await sdk();
+  const { url, expiresAt } = await client.deployments.desktopUrl(id);
+  return { url, expires_at: expiresAt ? expiresAt.toISOString() : null };
+}
+
+// ---------------------------------------------------------------------------
+// ACP sessions & chat — direct WS through ts-sdk (no CORS on WebSocket).
+// ---------------------------------------------------------------------------
+
+// One derivation shared by chat, the sessions sweep, dev, and packaged: the
+// backend ACP bridge accepts the credential as a ?token= query param, so both
+// modes dial it directly with a native WebSocket — no tunnel, no proxy.
+export async function acpConnectTarget(agentId: string): Promise<CodingAgentAcpTarget> {
+  const creds = await acpCredentials();
+  const url = new URL(defaultHyperAcpWsUrl(resolveEndpoints(creds).apiBase));
+  url.searchParams.set("agent_id", agentId);
+  url.searchParams.set("token", creds.token);
+  return { url: url.toString(), token: "" };
+}
+
+export async function agentLogsUrl(id: string) {
+  const [ends, token] = await Promise.all([endpoints(), agentLogsToken(id)]);
+  const base = token.ws_url?.trim()
+    ? token.ws_url
+    : `${agentWsBase(ends.apiBase)}/logs/${id}`;
+  const url = new URL(base);
+  url.searchParams.set("token", token.token);
+  if (!url.searchParams.has("container")) url.searchParams.set("container", "reef");
+  if (!url.searchParams.has("tail_lines")) url.searchParams.set("tail_lines", "100");
+  return url.toString();
+}
+
+export async function agentShellUrl(id: string) {
+  const token = await agentShellToken(id);
+  const url = new URL(token.ws_url);
+  url.searchParams.set("token", token.token);
+  url.searchParams.set("shell", token.shell || "/bin/bash");
+  return url.toString();
+}
 
 export interface AcpSessionInfo {
   session_id: string;
@@ -346,49 +625,137 @@ export interface AcpSessionList {
 }
 
 export async function listAcpSessions(id: string): Promise<AcpSessionList> {
-  if (hasTauriInvoke()) {
-    // Packaged mode: no Rust `acp_list_sessions` command exists; reuse the
-    // same ACP client as chat (through the Rust WS tunnel), exactly like the
-    // dev bridge's acp_list_sessions handler does with the Node transport.
-    const client = await CodingAgentAcpClient.connect(await acpConnectTarget(id), {
-      clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
-    });
+  const client = await CodingAgentAcpClient.connect(await acpConnectTarget(id), {
+    clientInfo: { name: "hypercli-desktop-ng", version: "0.1.0" },
+  });
+  try {
+    const response = await client.listSessions();
+    return {
+      sessions: (response.sessions ?? []).map((session) => ({
+        session_id: session.sessionId,
+        title: session.title ?? null,
+        cwd: session.cwd ?? null,
+        updated_at: session.updatedAt ?? null,
+      })),
+      next_cursor: response.nextCursor ?? null,
+    };
+  } finally {
+    client.close();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agent files — ts-sdk (Reef-backed).
+// ---------------------------------------------------------------------------
+
+export const agentFiles = async (id: string, path = ""): Promise<AgentFileEntry[]> =>
+  (await sdk()).deployments.filesList(id, path);
+
+export const agentFileRead = async (id: string, path: string): Promise<string> =>
+  (await sdk()).deployments.fileRead(id, path, { maxBytes: 500_000 });
+
+export const agentFileReadBytes = async (id: string, path: string): Promise<Uint8Array<ArrayBuffer>> =>
+  // The SDK builds this from `response.arrayBuffer()`, so the backing store is
+  // always a plain ArrayBuffer and never shared. Narrowing it here lets callers
+  // hand the bytes straight to Blob without re-copying them.
+  (await (await sdk()).deployments.fileReadBytes(id, path)) as Uint8Array<ArrayBuffer>;
+
+export const agentFileWrite = async (id: string, path: string, bytes: Uint8Array) => {
+  await (await sdk()).deployments.fileWriteBytes(id, path, bytes);
+};
+
+// ---------------------------------------------------------------------------
+// Runtime (OpenClaw/Hermes) chat — the SDK's agent classes own the session.
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical session client for a runtime-family agent.
+ *
+ * Both return `AgentSessionClient`s (`chatHistory` / `chatSend` /
+ * `sessionsList`, …), but their lifetimes differ, which is why this helper
+ * takes the operation instead of handing the client out:
+ *
+ * - **OpenClaw** sessions run over the *pooled* deployment-scoped gateway
+ *   (`acquireConnectedGateway` — one socket per
+ *   `${id}:${launchEpoch}:${gatewayUrl}`, not one per history load and per
+ *   send). The pool owns the socket; the caller releases its lease. Calling
+ *   `close()` on the session would close the shared socket out from under
+ *   every other lease holder.
+ * - **Hermes** sessions are a stateless HTTP/SSE client from
+ *   `HermesAgent.connect()` — nothing to pool, fine to close.
+ *
+ * Never hold the returned `Agent`s as state (HANDOFF traps): they are built
+ * fresh per response and carry redacted credentials; each call re-`get`s.
+ */
+async function withRuntimeSession<T>(
+  id: string,
+  fn: (session: AgentSessionClient) => Promise<T>,
+): Promise<T> {
+  const client = await sdk();
+  const agent = await client.deployments.get(id);
+  if (agent instanceof OpenClawAgent) {
+    const lease = await agent.acquireConnectedGateway();
     try {
-      const response = await client.listSessions();
-      return {
-        sessions: (response.sessions ?? []).map((session) => ({
-          session_id: session.sessionId,
-          title: session.title ?? null,
-          cwd: session.cwd ?? null,
-          updated_at: session.updatedAt ?? null,
-        })),
-        next_cursor: response.nextCursor ?? null,
-      };
+      // The client is already connected (the lease awaited its hello), so the
+      // canonical view needs no `connect()` of its own.
+      return await fn(new OpenClawSessionClient(lease.client));
     } finally {
-      client.close();
+      lease.release();
     }
   }
-  return command<AcpSessionList>("acp_list_sessions", { id });
+  if (agent instanceof HermesAgent) {
+    const session = await agent.connect();
+    try {
+      return await fn(session);
+    } finally {
+      session.close();
+    }
+  }
+  throw new Error(`Runtime "${agent.runtime ?? "unknown"}" does not expose chat sessions.`);
 }
 
-export type RuntimeSessionKind = "openclaw" | "hermes";
-
-export interface RuntimeSessionInfo {
-  session_id: string;
-  title: string | null;
-  cwd: string | null;
-  updated_at: string | null;
-  runtime: RuntimeSessionKind;
+function toRuntimeChatMessage(message: AgentSessionMessage): RuntimeChatMessage {
+  return {
+    role: message.role,
+    text: message.text,
+    ...(message.thinking ? { thinking: message.thinking } : {}),
+    ...(message.toolCalls ? { toolCalls: message.toolCalls } : {}),
+    ...(message.timestamp !== undefined ? { timestamp: message.timestamp } : {}),
+    ...(message.messageId ? { messageId: message.messageId } : {}),
+  };
 }
 
-export interface RuntimeSessionList {
-  sessions: RuntimeSessionInfo[];
-  next_cursor: string | null;
+export async function runtimeHistory(id: string): Promise<RuntimeChatMessage[]> {
+  return runtimeHistoryForSession(id, "main");
 }
 
-export const listRuntimeSessions = (id: string) =>
-  command<RuntimeSessionList>("runtime_list_sessions", { id });
-export const createRuntimeSession = (id: string, title?: string) =>
-  command<RuntimeSessionInfo>("runtime_create_session", { id, title });
-export const renameRuntimeSession = (id: string, sessionKey: string, title: string) =>
-  command<RuntimeSessionInfo>("runtime_rename_session", { id, sessionKey, title });
+export async function runtimeHistoryForSession(id: string, sessionKey: string): Promise<RuntimeChatMessage[]> {
+  const rows = await withRuntimeSession(id, (session) =>
+    session.chatHistory(sessionKey, 200),
+  );
+  return rows.map(toRuntimeChatMessage);
+}
+
+export async function streamRuntimeMessage(
+  id: string,
+  text: string,
+  onEvent: (event: RuntimeChatEvent) => void,
+  sessionKey?: string | null,
+) {
+  const key = sessionKey ?? "main";
+  await withRuntimeSession(id, async (session) => {
+    for await (const event of session.chatSend(text, key)) {
+      onEvent(event);
+    }
+  });
+}
+
+/**
+ * Abort an in-flight runtime chat run. `sessionKey`/`runId` come from the
+ * stream itself (`RuntimeChatEvent.sessionKey`/`runId`); Hermes cannot abort
+ * without a run id, so when the stream never reported one there was nothing to
+ * stop and this simply no-ops at the caller.
+ */
+export async function runtimeChatAbort(id: string, sessionKey?: string, runId?: string): Promise<void> {
+  await withRuntimeSession(id, (session) => session.chatAbort(sessionKey, runId));
+}

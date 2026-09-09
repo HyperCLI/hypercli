@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { saveApiKey } from "../api";
 
-export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+export function SignIn({
+  onSignedIn,
+  message,
+}: {
+  onSignedIn: () => void;
+  /** Why this screen is showing, when it is not simply a first run. */
+  message?: string | null;
+}) {
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,7 +32,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
       <div className="w-[360px]">
         <div className="text-[20px] font-semibold mb-1.5">Welcome to HyperCLI</div>
         <p className="text-[13px] text-text-secondary mb-6 leading-relaxed">
-          Sign in with a HyperCLI API key to see your agents.
+          {message ?? "Sign in with a HyperCLI API key to see your agents."}
         </p>
         <input
           type="password"

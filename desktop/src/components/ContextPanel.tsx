@@ -17,7 +17,7 @@ import { describeRoutine } from "../schedule";
 import { NewScheduledJobModal } from "./NewScheduledJobModal";
 import { PERSONA_COLORS, PERSONA_ICONS, setPersona, usePersona } from "../personas";
 import { Avatar } from "./Avatar";
-import { RUNNING, runtimeLabel } from "../agent-utils";
+import { RUNNING, isAgentRuntimeInactiveState, isDeletedState, runtimeLabel } from "../agent-utils";
 import { useAgentLogs } from "../useAgentLogs";
 
 type Tab = "agent" | "status" | "settings";
@@ -60,7 +60,7 @@ function routesHaveDesktop(routes: unknown) {
 }
 
 function agentHasDesktop(agent: AgentSummary) {
-  const launchConfig = agent.launch_config ?? agent.launchConfig;
+  const launchConfig = agent.launchConfig;
   if (plainRecord(launchConfig)) {
     const env = launchConfig.env;
     const desktopEnv = plainRecord(env) ? env.HYPER_DESKTOP_ENABLED : undefined;
@@ -69,7 +69,7 @@ function agentHasDesktop(agent: AgentSummary) {
     if (routesHaveDesktop(launchConfig.routes)) return true;
   }
   if (routesHaveDesktop(agent.routes)) return true;
-  return agent.hasDesktop === true || agent.has_desktop === true;
+  return agent.has_desktop === true;
 }
 
 function useLocalBool(key: string, initial: boolean): [boolean, (v: boolean) => void] {
@@ -182,7 +182,7 @@ function StatusTabPanel({ agent }: { agent: AgentSummary }) {
 }
 
 function desktopRoute(agent: AgentSummary) {
-  const launchConfig = agent.launch_config ?? agent.launchConfig;
+  const launchConfig = agent.launchConfig;
   const fromLaunch = plainRecord(launchConfig) ? launchConfig.routes : undefined;
   const routes = plainRecord(fromLaunch) ? fromLaunch : plainRecord(agent.routes) ? agent.routes : null;
   if (!routes) return null;
@@ -605,7 +605,7 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
     setEntries([]);
     setError(null);
     setPreview(null);
-    if (agent.state === RUNNING) void load("");
+    if (!isDeletedState(agent.state)) void load("");
   }, [agent.id, agent.state]);
 
   useEffect(() => {
@@ -630,7 +630,7 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
         setPreview({ entry, kind, content, url, bytes: null, error: null, loading: false });
         return;
       }
-      const bytes = Uint8Array.from((await agentFileReadBytes(agent.id, entry.path)).bytes);
+      const bytes = await agentFileReadBytes(agent.id, entry.path);
       if (!filesMountedRef.current || nonce !== previewNonceRef.current) return;
       const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
       setPreview({ entry, kind, content: null, url, bytes, error: null, loading: false });
@@ -649,7 +649,10 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
   const dragDepthRef = useRef(0);
 
   const uploadFiles = async (files: FileList | File[]) => {
-    if (agent.state !== RUNNING) return;
+    // Same gate as browsing (FSM.md capability table: files require only that
+    // the agent exists — storage outlives the container). A refusal then comes
+    // from the backend, where it carries a reason, never a silent no-op here.
+    if (isDeletedState(agent.state)) return;
     for (const file of Array.from(files)) {
       const target = path ? `${path}/${file.name}` : file.name;
       setUploading(file.name);
@@ -690,7 +693,7 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
         onDragEnter={(e) => {
           e.preventDefault();
           dragDepthRef.current += 1;
-          if (agent.state === RUNNING) setDragOver(true);
+          if (!isDeletedState(agent.state)) setDragOver(true);
         }}
         onDragOver={(e) => e.preventDefault()}
         onDragLeave={(e) => {
@@ -720,9 +723,9 @@ function FilesTab({ agent }: { agent: AgentSummary }) {
           </button>
         )}
         <div className="max-h-full overflow-y-auto">
-          {agent.state !== RUNNING ? (
+          {isDeletedState(agent.state) ? (
             <div className="px-3 py-8 text-center text-[11px] text-text-secondary">
-              Files unavailable while powered off.
+              This agent is deleted.
             </div>
           ) : loading && entries.length === 0 ? (
             <div className="px-3 py-8 text-center text-[11px] text-text-secondary">Loading files...</div>
@@ -894,7 +897,9 @@ function sandboxHtml(source: string) {
 }
 
 function LogsTab({ agent, active }: { agent: AgentSummary; active: boolean }) {
-  const streamable = active && agent.state !== "STOPPED" && agent.state !== "ARCHIVED";
+  // The SDK's full inactive set — the inline `!== "STOPPED" && !== "ARCHIVED"`
+  // used to mint a token and dial for `FAILED`/`DELETED`/`ARCHIVING` agents.
+  const streamable = active && !isAgentRuntimeInactiveState(agent.state);
   const logs = useAgentLogs(agent, streamable);
   const scrollRef = useRef<HTMLPreElement>(null);
   useEffect(() => {
@@ -916,7 +921,7 @@ function LogsTab({ agent, active }: { agent: AgentSummary; active: boolean }) {
                   ? "Disconnected"
                   : logs.phase === "error"
                     ? "Failed"
-                    : agent.state === "STOPPED" || agent.state === "ARCHIVED"
+                    : isAgentRuntimeInactiveState(agent.state)
                       ? "Offline"
                       : "Idle"}
           </div>
@@ -1343,7 +1348,12 @@ function DangerZone({
   const [confirm, setConfirm] = useState<"stop" | "archive" | "delete" | null>(null);
   const stopped = agent.state === "STOPPED";
   const archived = agent.state === "ARCHIVED";
+  const failed = agent.state === "FAILED";
+  const deleted = isDeletedState(agent.state);
   const running = agent.state === RUNNING;
+  // A failed agent is stopped-compute too: blocking archive and delete on it
+  // used to say "stop the agent first" — a dead end with no way out.
+  const inactive = stopped || failed;
   useEffect(() => setConfirm(null), [agent.id]);
 
   return (
@@ -1359,7 +1369,11 @@ function DangerZone({
           DANGER ZONE
         </div>
         <div className="rounded-lg border border-error/40 bg-error-bg/40 divide-y divide-border">
-          {archived ? (
+          {deleted ? (
+            <div className="px-3 py-2.5 text-[11px] text-text-secondary">
+              This agent is deleted. Only its row remains.
+            </div>
+          ) : archived ? (
             <DangerRow
               title="Restore agent"
               description="Bring storage back from the archive."
@@ -1382,9 +1396,9 @@ function DangerZone({
               />
               <DangerRow
                 title="Archive agent"
-                description={stopped ? "Pack storage away; restore anytime." : "Stop the agent first."}
+                description={inactive ? "Pack storage away; restore anytime." : "Stop the agent first."}
                 action={confirm === "archive" ? "Confirm" : "Archive"}
-                disabled={!stopped}
+                disabled={!inactive}
                 onClick={() => {
                   if (confirm === "archive") {
                     setConfirm(null);
@@ -1392,22 +1406,22 @@ function DangerZone({
                   } else setConfirm("archive");
                 }}
               />
+              <DangerRow
+                title="Delete agent"
+                description={
+                  inactive || archived ? "Gone for good. Files in the archive stay." : "Stop the agent first."
+                }
+                action={confirm === "delete" ? "Confirm" : "Delete"}
+                disabled={!inactive && !archived}
+                onClick={() => {
+                  if (confirm === "delete") {
+                    setConfirm(null);
+                    onDelete(agent.id);
+                  } else setConfirm("delete");
+                }}
+              />
             </>
           )}
-          <DangerRow
-            title="Delete agent"
-            description={
-              stopped || archived ? "Gone for good. Files in the archive stay." : "Stop the agent first."
-            }
-            action={confirm === "delete" ? "Confirm" : "Delete"}
-            disabled={!stopped && !archived}
-            onClick={() => {
-              if (confirm === "delete") {
-                setConfirm(null);
-                onDelete(agent.id);
-              } else setConfirm("delete");
-            }}
-          />
         </div>
       </div>
     </div>

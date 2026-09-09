@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Download, Loader2, User, X } from "lucide-react";
-import { logout, planSummary, type PlanSummary } from "../api";
+import { planSummary, type PlanSummary } from "../api";
 import { useTheme, type Theme } from "../theme";
 import { UsagePanel } from "./UsagePanel";
 import { RELEASES_URL, useAppUpdate } from "../useAppUpdate";
@@ -103,10 +103,11 @@ function GeneralTab({
           </div>
         </div>
         <button
-          onClick={async () => {
-            await logout();
-            onSignedOut();
-          }}
+          // The session machine owns the sign-out: it aborts the in-flight
+          // work first, then calls `logout()`, then bumps the epoch. Calling
+          // `logout()` from here as well would tear the credential down
+          // underneath subscriptions that are still registered against it.
+          onClick={onSignedOut}
           className="ui-secondary-button shrink-0"
         >
           Sign out

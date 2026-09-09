@@ -20,7 +20,7 @@ import { useTheme } from "../theme";
 import { useAppUpdate } from "../useAppUpdate";
 import { usePersona } from "../personas";
 import { Avatar } from "./Avatar";
-import { RUNNING, TRANSITIONAL, runtimeFamily, runtimeLabel } from "../agent-utils";
+import { RUNNING, TRANSITIONAL, agentStateLabel, runtimeFamily, runtimeLabel } from "../agent-utils";
 
 export function Sidebar({
   agents,
@@ -32,6 +32,8 @@ export function Sidebar({
   onStart,
   onStop,
   onRestore,
+  busyIds,
+  rosterLoading,
   activeSessionId,
   onSelectSession,
   onNewSession,
@@ -45,6 +47,14 @@ export function Sidebar({
   onStart: (id: string) => void;
   onStop: (id: string) => void;
   onRestore: (id: string) => void;
+  /**
+   * Agents with a lifecycle command in flight or awaiting roster confirmation.
+   * The row's button stays disabled for the whole of it, rather than
+   * re-enabling the moment the POST returns and the agent is merely STARTING.
+   */
+  busyIds?: ReadonlySet<string>;
+  /** True while the first roster read is outstanding: empty is not "no agents". */
+  rosterLoading?: boolean;
   activeSessionId: string | null;
   onSelectSession: (agentId: string, sessionId: string) => void;
   onNewSession: (agentId: string) => void;
@@ -59,7 +69,8 @@ export function Sidebar({
   );
   const [sessionsBusy, setSessionsBusy] = useState(false);
   const running = agents.filter((a) => a.state === RUNNING).length;
-  const live = agents.filter((a) => a.state !== "ARCHIVED");
+  // A `DELETED` tombstone is not an agent: it gets no row, no Start button.
+  const live = agents.filter((a) => a.state !== "ARCHIVED" && a.state !== "DELETED");
   const archived = agents.filter((a) => a.state === "ARCHIVED");
 
   // Fan out one short-lived session-lister per running ACP agent in parallel
@@ -154,12 +165,13 @@ export function Sidebar({
             onStart={onStart}
             onStop={onStop}
             onRestore={onRestore}
+            busy={busyIds?.has(agent.id) ?? false}
             onOpenSessionPicker={setSessionPickerAgentId}
           />
         ))}
         {live.length === 0 && archived.length === 0 && (
           <div className="px-2 py-6 text-[12px] text-text-secondary text-center">
-            No agents yet
+            {rosterLoading ? "Loading agents…" : "No agents yet"}
           </div>
         )}
         {archived.length > 0 && (
@@ -181,6 +193,7 @@ export function Sidebar({
                   onStart={onStart}
                   onStop={onStop}
                   onRestore={onRestore}
+                  busy={busyIds?.has(agent.id) ?? false}
                   onOpenSessionPicker={setSessionPickerAgentId}
                   dimmed
                 />
@@ -439,6 +452,7 @@ function AgentRow({
   onStart,
   onStop,
   onRestore,
+  busy,
   onOpenSessionPicker,
   dimmed,
 }: {
@@ -448,11 +462,16 @@ function AgentRow({
   onStart: (id: string) => void;
   onStop: (id: string) => void;
   onRestore: (id: string) => void;
+  busy?: boolean;
   onOpenSessionPicker: (id: string) => void;
   dimmed?: boolean;
 }) {
   const persona = usePersona(agent.id);
   const running = agent.state === RUNNING;
+  // The roster's own transitional states, plus the window between issuing a
+  // command and the roster reporting it — the gap where the old button
+  // re-enabled itself and invited a second start.
+  const pending = TRANSITIONAL.has(agent.state) || busy === true;
   const transitional = TRANSITIONAL.has(agent.state);
   const archived = agent.state === "ARCHIVED";
   const pickSession = running && runtimeFamily(agent.runtime) === "acp";
@@ -460,11 +479,10 @@ function AgentRow({
     if (pickSession) onOpenSessionPicker(agent.id);
     else onSelect(agent.id);
   };
-  const subtitle = transitional
-    ? agent.state === "STARTING"
-      ? "booting"
-      : agent.state.toLowerCase()
-    : persona.title ?? runtimeLabel(agent.runtime);
+  const subtitle =
+    transitional || agent.state === "FAILED"
+      ? agentStateLabel(agent.state)
+      : persona.title ?? runtimeLabel(agent.runtime);
 
   return (
     <div
@@ -492,24 +510,26 @@ function AgentRow({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          if (transitional) return;
+          if (pending) return;
           if (archived) onRestore(agent.id);
           else if (running) onStop(agent.id);
           else onStart(agent.id);
         }}
-        disabled={transitional}
+        disabled={pending}
         title={
-          transitional
-            ? agent.state.toLowerCase()
+          pending
+            ? transitional
+              ? agent.state.toLowerCase()
+              : "working…"
             : archived
               ? "Restore"
               : running
                 ? "Stop"
                 : "Start"
         }
-        className={`ui-icon-button shrink-0 w-6 h-6 items-center justify-center ${transitional ? "flex" : "hidden group-hover:flex"}`}
+        className={`ui-icon-button shrink-0 w-6 h-6 items-center justify-center ${pending ? "flex" : "hidden group-hover:flex"}`}
       >
-        {transitional ? (
+        {pending ? (
           <Loader2 size={13} className="animate-spin" />
         ) : archived ? (
           <ArchiveRestore size={13} />
