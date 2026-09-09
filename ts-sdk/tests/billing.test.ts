@@ -2,10 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { HyperCLI } from '../src/client.js';
 
 describe('Billing API', () => {
-  const client = new HyperCLI();
+  const liveIt = process.env.HYPER_API_KEY ? it : it.skip;
+let client: HyperCLI;
 
-  it('should fetch balance', async () => {
-    const balance = await client.billing.balance();
+function getClient(): HyperCLI {
+  if (!client) client = new HyperCLI({ apiKey: process.env.HYPER_API_KEY });
+  return client;
+}
+
+  liveIt('should fetch balance', async () => {
+    const balance = await getClient().billing.balance();
     
     expect(balance).toBeDefined();
     // Balances are returned as strings
@@ -15,8 +21,8 @@ describe('Billing API', () => {
     expect(typeof balance.available).toBe('string');
   });
 
-  it('should fetch transactions', async () => {
-    const transactions = await client.billing.transactions();
+  liveIt('should fetch transactions', async () => {
+    const transactions = await getClient().billing.transactions();
     
     expect(Array.isArray(transactions)).toBe(true);
     

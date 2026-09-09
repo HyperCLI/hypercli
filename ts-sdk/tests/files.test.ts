@@ -4,7 +4,13 @@ import { writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 describe('Files API', () => {
-  const client = new HyperCLI();
+  const liveIt = process.env.HYPER_API_KEY ? it : it.skip;
+let client: HyperCLI;
+
+function getClient(): HyperCLI {
+  if (!client) client = new HyperCLI({ apiKey: process.env.HYPER_API_KEY });
+  return client;
+}
   let uploadedFileId: string | undefined;
   const testFilePath = join('/tmp', 'test-upload.png');
 
@@ -29,7 +35,7 @@ describe('Files API', () => {
   it.skip('should upload a file (API issue - 422)', async () => {
     createTestPNG();
     
-    const file = await client.files.upload(testFilePath);
+    const file = await getClient().files.upload(testFilePath);
     
     expect(file).toBeDefined();
     expect(file.id).toBeDefined();
@@ -43,7 +49,7 @@ describe('Files API', () => {
       throw new Error('No file uploaded in previous test');
     }
 
-    const file = await client.files.get(uploadedFileId);
+    const file = await getClient().files.get(uploadedFileId);
     
     expect(file).toBeDefined();
     expect(file.id).toBe(uploadedFileId);
@@ -54,7 +60,7 @@ describe('Files API', () => {
       throw new Error('No file uploaded in previous test');
     }
 
-    await client.files.delete(uploadedFileId);
+    await getClient().files.delete(uploadedFileId);
     
     // Clean up local test file
     try {

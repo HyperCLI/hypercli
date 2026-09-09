@@ -2,10 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { HyperCLI } from '../src/client.js';
 
 describe('User API', () => {
-  const client = new HyperCLI();
+  const liveIt = process.env.HYPER_API_KEY ? it : it.skip;
+let client: HyperCLI;
 
-  it('should get user info', async () => {
-    const user = await client.user.get();
+function getClient(): HyperCLI {
+  if (!client) client = new HyperCLI({ apiKey: process.env.HYPER_API_KEY });
+  return client;
+}
+
+  liveIt('should get user info', async () => {
+    const user = await getClient().user.get();
     
     expect(user).toBeDefined();
     expect(user.userId).toBeDefined();

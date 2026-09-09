@@ -2,16 +2,22 @@ import { describe, it, expect } from 'vitest';
 import { HyperCLI } from '../src/client.js';
 
 describe('Renders API', () => {
-  const client = new HyperCLI();
+  const liveIt = process.env.HYPER_API_KEY ? it : it.skip;
+let client: HyperCLI;
+
+function getClient(): HyperCLI {
+  if (!client) client = new HyperCLI({ apiKey: process.env.HYPER_API_KEY });
+  return client;
+}
   let createdRenderId: string | undefined;
 
-  it('should list renders', async () => {
-    const renders = await client.renders.list();
+  liveIt('should list renders', async () => {
+    const renders = await getClient().renders.list();
     expect(Array.isArray(renders)).toBe(true);
   });
 
   it.skip('should create a text-to-image render and wait for completion (template issue)', async () => {
-    const render = await client.renders.create({
+    const render = await getClient().renders.create({
       template: 'txt2img-sd15',
       prompt: 'a red cube on a white background',
     });
@@ -27,7 +33,7 @@ describe('Renders API', () => {
     let completedRender = render;
 
     while (Date.now() - startTime < maxWaitTime) {
-      completedRender = await client.renders.get(createdRenderId);
+      completedRender = await getClient().renders.get(createdRenderId);
       
       if (completedRender.state === 'completed' || completedRender.state === 'failed') {
         break;
