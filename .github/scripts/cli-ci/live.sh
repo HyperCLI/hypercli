@@ -212,7 +212,7 @@ case "${GROUP}/${SUB}" in
     # and keep stderr visible instead of piping it into /dev/null.
     ID=""
     CREATE_JSON=""
-    for attempt in 1 2 3; do
+    for attempt in 1 2 3 4 5 6; do
       if CREATE_JSON="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json --dev 2>>/tmp/create.err)"; then
         ID="$(printf '%s' "${CREATE_JSON}" | node -e \
           'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).id)')"
@@ -220,29 +220,37 @@ case "${GROUP}/${SUB}" in
       [ -n "${ID}" ] && break
       echo "create attempt ${attempt} failed; stderr so far:" >&2
       cat /tmp/create.err >&2 || true
+      # hostname release after delete is async; give the domains cache time
       sleep 15
     done
-    [ -n "${ID}" ] || { echo "create returned no id after 3 attempts"; cat /tmp/create.err >&2; exit 1; }
+    [ -n "${ID}" ] || { echo "create returned no id after 6 attempts"; cat /tmp/create.err >&2; exit 1; }
     echo "created ${NAME} id=${ID}"
 
-    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 600 --interval 10 --dev || {
+    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 120 --interval 5 --dev || {
       "${CLI[@]}" agents start "${ID}" --dev
-      "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 600 --interval 10 --dev
+      "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
     }
 
-    "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 300 --dev
+    step "chat 1/2"
+    "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --dev
 
-    "${CLI[@]}" agents exec "${ID}" --dev -- echo ci-ok || {
-      sleep 10
-      "${CLI[@]}" agents exec "${ID}" --dev -- echo ci-ok
-    }
-
-    "${CLI[@]}" agents logs "${ID}" -n 5 --dev
-
+    step "stop → archive → restore"
     "${CLI[@]}" agents stop "${ID}" --yes --dev
-    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 180 --dev || true
+    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 120 --interval 5 --dev
+    "${CLI[@]}" agents archive "${ID}" --dev
+    "${CLI[@]}" agents wait "${ID}" --state ARCHIVED --timeout 60 --interval 5 --dev || true
+    "${CLI[@]}" agents restore "${ID}" --dev
+
+    step "start → chat 2/2"
+    "${CLI[@]}" agents start "${ID}" --dev
+    "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 180 --interval 5 --dev
+    "${CLI[@]}" agents chat "${ID}" "Reply with exactly: CI_OK" --timeout 120 --dev
+
+    step "stop → delete"
+    "${CLI[@]}" agents stop "${ID}" --yes --dev
+    "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 120 --interval 5 --dev || true
     "${CLI[@]}" agents delete "${ID}" --yes --dev
-    echo "lifecycle ok: ${NAME} (${ID}) created, chatted, stopped, deleted"
+    echo "lifecycle ok: ${NAME} (${ID}) create → start → chat → stop → archive → restore → start → chat → stop → delete"
     ;;
 
   jobs/gpus)
