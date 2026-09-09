@@ -259,7 +259,9 @@ jobs:
       HYPER_API_KEY: ${{ secrets.HYPERCLI_DEV_API_KEY }}
       # --dev only retargets the agents API; jobs/flow/files/voice read
       # apiUrl from HYPER_API_BASE and would silently hit prod without it.
+      # SDK reads AGENTS_WS_URL (not HYPER_AGENTS_WS_URL) for WS sessions.
       HYPER_API_BASE: https://api.dev.hypercli.com
+      AGENTS_WS_URL: wss://api.agents.dev.hypercli.com/ws
     strategy:
       fail-fast: false
       matrix:
@@ -317,6 +319,6 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
-            -e HYPER_API_KEY \
+            -e HYPER_API_KEY -e HYPER_API_BASE -e AGENTS_WS_URL \
             "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" \
             /tests/live.sh "${{ matrix.group }}" "${{ matrix.sub }}"

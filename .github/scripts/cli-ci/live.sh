@@ -22,6 +22,9 @@ SUB="${2:?usage: live.sh <group> <sub>}"
 
 export HYPER_API_KEY="${HYPER_API_KEY:?HYPER_API_KEY is required}"
 export HYPER_API_BASE="${HYPER_API_BASE:-https://api.dev.hypercli.com}"
+# SDK reads AGENTS_WS_URL (ts-sdk config.ts); with --dev the default already
+# resolves to the dev WS, this just pins it. HYPER_AGENTS_WS_URL is not read.
+export AGENTS_WS_URL="${AGENTS_WS_URL:-wss://api.agents.dev.hypercli.com/ws}"
 
 NOID="hypercli-ci-does-not-exist"
 CLI=(node dist/index.js)
@@ -204,9 +207,22 @@ case "${GROUP}/${SUB}" in
       "${CLI[@]}" agents delete "${ID}" --yes --dev || true
     fi
 
-    ID="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json --dev 2>/dev/null | node -e \
-      'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).id)')"
-    [ -n "${ID}" ] || { echo "create returned no id"; exit 1; }
+    # Create (real). The CI account's slot inventory is large-tier; a delete
+    # moments earlier can lag slot release, so retry a few times with backoff
+    # and keep stderr visible instead of piping it into /dev/null.
+    ID=""
+    CREATE_JSON=""
+    for attempt in 1 2 3; do
+      if CREATE_JSON="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json --dev 2>>/tmp/create.err)"; then
+        ID="$(printf '%s' "${CREATE_JSON}" | node -e \
+          'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).id)')"
+      fi
+      [ -n "${ID}" ] && break
+      echo "create attempt ${attempt} failed; stderr so far:" >&2
+      cat /tmp/create.err >&2 || true
+      sleep 15
+    done
+    [ -n "${ID}" ] || { echo "create returned no id after 3 attempts"; cat /tmp/create.err >&2; exit 1; }
     echo "created ${NAME} id=${ID}"
 
     "${CLI[@]}" agents wait "${ID}" --state RUNNING --timeout 600 --interval 10 --dev || {
