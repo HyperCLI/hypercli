@@ -10,10 +10,10 @@ run-name: CLI CI
 # drifts from the registry.
 #
 # No npm cache uploads. The image job builds/pushes docker/cli-ci.Dockerfile
-# (ts-sdk + cli deps baked in) tagged with the short commit SHA; every test
-# job runs one `docker run` against the mounted checkout, deferring to
-# .github/scripts/cli_container_entrypoint.sh. Registry coordinates come from
-# CI secrets, not this file.
+# (ts-sdk + cli deps, dists, and tests baked in; per-gate runner scripts at
+# /tests) tagged with the short commit SHA; every test job runs one
+# `docker run <image> /tests/<gate>.sh [args]`. Registry coordinates come
+# from CI secrets, not this file.
 #
 # All jobs run on the self-hosted Linux runners. Windows is not gated.
 #
@@ -26,7 +26,7 @@ on:
     paths:
       - ".github/workflows/cli.yml"
       - "docker/cli-ci.Dockerfile"
-      - ".github/scripts/cli_container_entrypoint.sh"
+      - ".github/scripts/cli-ci/**"
       - "cli/**"
       - "skills/**"
       - "ts-sdk/**"
@@ -34,7 +34,7 @@ on:
     paths:
       - ".github/workflows/cli.yml"
       - "docker/cli-ci.Dockerfile"
-      - ".github/scripts/cli_container_entrypoint.sh"
+      - ".github/scripts/cli-ci/**"
       - "cli/**"
       - "skills/**"
       - "ts-sdk/**"
@@ -146,21 +146,11 @@ jobs:
           username: ${{ secrets.CI_REGISTRY_USER }}
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
-      - name: Run the group's vitest files (from ci-matrix.json)
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            gate "${{ matrix.group }}"
+      - name: Group vitest files
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/gate.sh "${{ matrix.group }}"
 
       - name: Bare group --help smoke (offline, no API key)
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            gate-smoke "${{ matrix.group }}"
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/gate-smoke.sh "${{ matrix.group }}"
 
   # Subcommand matrix: every non-bare smoke in the manifest, one check per
   # subcommand, inside the shared image.
@@ -184,12 +174,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Offline --help smoke
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            smoke "${{ matrix.argv }}"
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/smoke.sh ${{ matrix.argv }}
 
   # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:
@@ -208,12 +193,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Pack gate (npm pack --dry-run assertions)
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            test tests/pack.test.ts
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/test.sh tests/pack.test.ts
 
   # LF-only house rule gate.
   line-endings:
@@ -232,12 +212,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Line endings gate
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            test tests/line-endings.test.ts
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/test.sh tests/line-endings.test.ts
 
   # tsc --noEmit for the CLI.
   typecheck:
@@ -256,12 +231,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Typecheck
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            typecheck
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/typecheck.sh
 
   # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts),
   # gated on every other check above.
@@ -281,9 +251,4 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Full vitest suite
-        run: |
-          set -euo pipefail
-          docker run --rm \
-            -v "${GITHUB_WORKSPACE}:/workspace" \
-            "${{ needs.expand.outputs.image }}" \
-            test
+        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/test.sh

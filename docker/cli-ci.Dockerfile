@@ -1,7 +1,7 @@
 # CLI CI image: ts-sdk + cli dependencies, dists, and tests baked in at
-# /opt/ts-sdk and /opt/cli. CI jobs run named gates inside the image via
-# .github/scripts/cli_container_entrypoint.sh — no npm cache uploads, no
-# per-job `npm ci`. The image is tagged with the short commit SHA.
+# /opt/ts-sdk and /opt/cli. Per-gate runner scripts live at /tests. Each CI
+# job runs one `docker run <image> <script> [args]` — no npm cache uploads,
+# no per-job `npm ci`. Tagged with the short commit SHA.
 FROM node:24-bookworm-slim
 
 # ts-sdk first (cli depends on it via file:../ts-sdk).
@@ -21,9 +21,8 @@ RUN npm run build
 WORKDIR /opt/cli
 RUN npm run build
 
-COPY .github/scripts/cli_container_entrypoint.sh /usr/local/bin/cli_container_entrypoint
-RUN chmod +x /usr/local/bin/cli_container_entrypoint
+# Per-gate runner scripts.
+COPY .github/scripts/cli-ci/ /tests/
+RUN chmod +x /tests/*.sh
 
 WORKDIR /opt
-
-ENTRYPOINT ["cli_container_entrypoint"]
