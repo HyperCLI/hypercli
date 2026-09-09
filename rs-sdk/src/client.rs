@@ -34,7 +34,8 @@ use crate::{
     HyperAgentPaymentsResponse, HyperAgentPlan, HyperAgentStripeBillingPortalResponse,
     HyperAgentStripeCheckoutResponse, HyperAgentSubscriptionList,
     HyperAgentSubscriptionMutationResult, HyperAgentSubscriptionSummary, HyperAgentUsageHistory,
-    HyperAgentUsageSummary, JobLifecycleEvent, NativeRuntime, RuntimeAuthError, RuntimeAuthStatus,
+    HyperAgentUsageSummary, JobLifecycleEvent, LifecycleActionRequest, NativeRuntime,
+    RuntimeAuthError, RuntimeAuthStatus,
     RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
     StartDeploymentRequest, UpdateDeploymentRequest,
 };
@@ -2179,14 +2180,24 @@ impl HyperCliClient {
         result
     }
 
-    pub fn stop_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
+    /// Stop a running deployment. When `options.dry_run` is set the API
+    /// returns the current agent dict without mutating any state.
+    pub fn stop_deployment(
+        &self,
+        deployment_id: &str,
+        options: &LifecycleActionRequest,
+    ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/stop"));
+        let request_trace = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let mut builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        if let Some(body) = request_trace.as_ref() {
+            builder = builder.json(body);
+        }
         let started = Instant::now();
-        let response = match self.send_with_retry(
-            self.http
-                .post(&url)
-                .bearer_auth(self.api_key.expose_secret()),
-        ) {
+        let response = match self.send_with_retry(builder) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -2194,7 +2205,7 @@ impl HyperCliClient {
                     "stop_deployment",
                     "POST",
                     &url,
-                    None,
+                    request_trace.as_ref(),
                     started,
                     None,
                     BTreeMap::new(),
@@ -2210,7 +2221,7 @@ impl HyperCliClient {
             "stop_deployment",
             "POST",
             &url,
-            None,
+            request_trace.as_ref(),
             started,
             Some(status),
             headers,
@@ -2219,50 +2230,65 @@ impl HyperCliClient {
         result
     }
 
-    /// Archive durable storage without launching the deployment.
-    pub fn archive_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
+    /// Archive durable storage without launching the deployment. When
+    /// `options.dry_run` is set the API returns the current agent dict
+    /// without mutating any state.
+    pub fn archive_deployment(
+        &self,
+        deployment_id: &str,
+        options: &LifecycleActionRequest,
+    ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/archive"));
-        self.send_json(
-            "archive_deployment",
-            "POST",
-            &url,
-            None,
-            self.http
-                .post(&url)
-                .bearer_auth(self.api_key.expose_secret()),
-        )
+        let request = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let mut builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        if let Some(body) = request.as_ref() {
+            builder = builder.json(body);
+        }
+        self.send_json("archive_deployment", "POST", &url, request, builder)
     }
 
-    /// Restore durable storage for a stopped or archived deployment.
-    pub fn restore_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
+    /// Restore durable storage for a stopped or archived deployment. When
+    /// `options.dry_run` is set the API returns the current agent dict
+    /// without mutating any state.
+    pub fn restore_deployment(
+        &self,
+        deployment_id: &str,
+        options: &LifecycleActionRequest,
+    ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/restore"));
-        self.send_json(
-            "restore_deployment",
-            "POST",
-            &url,
-            None,
-            self.http
-                .post(&url)
-                .bearer_auth(self.api_key.expose_secret()),
-        )
+        let request = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let mut builder = self
+            .http
+            .post(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        if let Some(body) = request.as_ref() {
+            builder = builder.json(body);
+        }
+        self.send_json("restore_deployment", "POST", &url, request, builder)
     }
 
     /// Permanently remove a stopped deployment. The API enforces the stopped
-    /// precondition; callers should still reflect it in their UI.
+    /// precondition; callers should still reflect it in their UI. When
+    /// `options.dry_run` is set the API returns the current agent dict
+    /// without mutating any state.
     pub fn delete_deployment(
         &self,
         deployment_id: &str,
+        options: &LifecycleActionRequest,
     ) -> Result<DeleteDeploymentResponse, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}"));
-        self.send_json(
-            "delete_deployment",
-            "DELETE",
-            &url,
-            None,
-            self.http
-                .delete(&url)
-                .bearer_auth(self.api_key.expose_secret()),
-        )
+        let request = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let mut builder = self
+            .http
+            .delete(&url)
+            .bearer_auth(self.api_key.expose_secret());
+        if let Some(body) = request.as_ref() {
+            builder = builder.json(body);
+        }
+        self.send_json("delete_deployment", "DELETE", &url, request, builder)
     }
 
     pub fn get_deployment_routes(
@@ -3949,7 +3975,9 @@ mod tests {
             )
             .create();
 
-        let stopped = client(&server).stop_deployment("deployment-1").unwrap();
+        let stopped = client(&server)
+            .stop_deployment("deployment-1", &LifecycleActionRequest::new())
+            .unwrap();
         assert_eq!(stopped.id, "deployment-1");
         assert_eq!(stopped.state, "stopping");
         mock.assert();
@@ -3974,7 +4002,9 @@ mod tests {
             )
             .create();
 
-        let archived = client(&server).archive_deployment("deployment-1").unwrap();
+        let archived = client(&server)
+            .archive_deployment("deployment-1", &LifecycleActionRequest::new())
+            .unwrap();
         assert_eq!(archived.id, "deployment-1");
         assert_eq!(archived.state, "ARCHIVING");
         mock.assert();
@@ -3999,7 +4029,9 @@ mod tests {
             )
             .create();
 
-        let restored = client(&server).restore_deployment("deployment-1").unwrap();
+        let restored = client(&server)
+            .restore_deployment("deployment-1", &LifecycleActionRequest::new())
+            .unwrap();
         assert_eq!(restored.id, "deployment-1");
         assert_eq!(restored.state, "RESTORING");
         mock.assert();
@@ -4011,6 +4043,7 @@ mod tests {
         let mock = server
             .mock("DELETE", "/agents/deployments/deployment-1")
             .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::Missing)
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -4023,10 +4056,137 @@ mod tests {
             )
             .create();
 
-        let deleted = client(&server).delete_deployment("deployment-1").unwrap();
+        let deleted = client(&server)
+            .delete_deployment("deployment-1", &LifecycleActionRequest::new())
+            .unwrap();
         assert!(deleted.ok);
         assert_eq!(deleted.id, "deployment-1");
         assert_eq!(deleted.deleted_at.as_deref(), Some("2026-08-05T06:00:00Z"));
+        mock.assert();
+    }
+
+    #[test]
+    fn stop_posts_dry_run_body_when_requested() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/stop")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({"dry_run": true}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "RUNNING"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut options = LifecycleActionRequest::new();
+        options.dry_run = true;
+        let current = client(&server)
+            .stop_deployment("deployment-1", &options)
+            .unwrap();
+        assert_eq!(current.id, "deployment-1");
+        assert_eq!(current.state, "RUNNING");
+        mock.assert();
+    }
+
+    #[test]
+    fn archive_posts_dry_run_body_when_requested() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/archive")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({"dry_run": true}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "STOPPED"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut options = LifecycleActionRequest::new();
+        options.dry_run = true;
+        let current = client(&server)
+            .archive_deployment("deployment-1", &options)
+            .unwrap();
+        assert_eq!(current.id, "deployment-1");
+        assert_eq!(current.state, "STOPPED");
+        mock.assert();
+    }
+
+    #[test]
+    fn restore_posts_dry_run_body_when_requested() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("POST", "/agents/deployments/deployment-1/restore")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({"dry_run": true}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "ARCHIVED"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut options = LifecycleActionRequest::new();
+        options.dry_run = true;
+        let current = client(&server)
+            .restore_deployment("deployment-1", &options)
+            .unwrap();
+        assert_eq!(current.id, "deployment-1");
+        assert_eq!(current.state, "ARCHIVED");
+        mock.assert();
+    }
+
+    #[test]
+    fn delete_sends_dry_run_body_when_requested() {
+        let mut server = Server::new();
+        let mock = server
+            .mock("DELETE", "/agents/deployments/deployment-1")
+            .match_header("authorization", "Bearer test-credential")
+            .match_body(Matcher::JsonString(
+                serde_json::json!({"dry_run": true}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({
+                    "id": "deployment-1",
+                    "runtime": "openclaw",
+                    "state": "STOPPED"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let mut options = LifecycleActionRequest::new();
+        options.dry_run = true;
+        let preview = client(&server)
+            .delete_deployment("deployment-1", &options)
+            .unwrap();
+        assert!(!preview.ok);
+        assert_eq!(preview.id, "deployment-1");
+        assert_eq!(preview.deleted_at, None);
         mock.assert();
     }
 
@@ -4158,15 +4318,24 @@ mod tests {
             "STARTING"
         );
         assert_eq!(
-            client.stop_deployment("deployment-1").unwrap().state,
+            client
+                .stop_deployment("deployment-1", &LifecycleActionRequest::new())
+                .unwrap()
+                .state,
             "STOPPING"
         );
         assert_eq!(
-            client.archive_deployment("deployment-1").unwrap().state,
+            client
+                .archive_deployment("deployment-1", &LifecycleActionRequest::new())
+                .unwrap()
+                .state,
             "ARCHIVING"
         );
         assert_eq!(
-            client.restore_deployment("deployment-1").unwrap().state,
+            client
+                .restore_deployment("deployment-1", &LifecycleActionRequest::new())
+                .unwrap()
+                .state,
             "RESTORING"
         );
 

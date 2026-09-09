@@ -1378,6 +1378,27 @@ impl Default for StartDeploymentRequest {
     }
 }
 
+/// Options for the lifecycle actions `stop`, `archive`, `restore`, and
+/// `delete`. When `dry_run` is set the API returns the current agent dict
+/// without mutating any state.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct LifecycleActionRequest {
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub dry_run: bool,
+}
+
+impl LifecycleActionRequest {
+    pub fn new() -> Self {
+        Self { dry_run: false }
+    }
+}
+
+impl Default for LifecycleActionRequest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DeploymentRoutes {
     pub agent_id: String,
@@ -1853,8 +1874,12 @@ pub struct UpdateDeploymentRequest {
     pub launch_config: Option<DeploymentLaunchConfig>,
 }
 
+/// Real deletes return `{ok, id, deleted_at}`. A dry-run delete returns the
+/// current agent dict instead, which decodes here with `ok: false` and
+/// `deleted_at: None`; `id` still carries the deployment id.
 #[derive(Clone, Debug, Deserialize)]
 pub struct DeleteDeploymentResponse {
+    #[serde(default)]
     pub ok: bool,
     pub id: String,
     #[serde(default)]

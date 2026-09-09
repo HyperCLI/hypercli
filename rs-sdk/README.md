@@ -55,9 +55,11 @@ println!("{} {}", running.id, running.state);
 ```
 
 Lifecycle mutations remain separate calls:
-`start_deployment(id, request)`, `stop_deployment(id)`,
-`archive_deployment(id)`, and `restore_deployment(id)`. Archive and restore use
-bodyless POST requests and never launch the runtime.
+`start_deployment(id, request)`, `stop_deployment(id, options)`,
+`archive_deployment(id, options)`, `restore_deployment(id, options)`, and
+`delete_deployment(id, options)`. Archive and restore never launch the
+runtime. All four lifecycle options accept `dry_run`; a dry run returns the
+current agent state without mutating anything.
 
 For a newly issued hostname, consumers can use
 `wait_deployment_running_settled(&created.id, timeout, None)`.  It waits for
