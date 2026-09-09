@@ -10,8 +10,8 @@ run-name: CLI CI
 # drifts from the registry.
 #
 # No npm cache uploads. The image job builds/pushes docker/cli-ci.Dockerfile
-# (ts-sdk + cli deps baked in) keyed off the lockfiles; every test job runs
-# `docker run` against the mounted checkout via
+# (ts-sdk + cli deps baked in) tagged with the short commit SHA; every test
+# job runs one `docker run` against the mounted checkout, deferring to
 # .github/scripts/cli_container_entrypoint.sh. Registry coordinates come from
 # CI secrets, not this file.
 #
@@ -54,9 +54,9 @@ env:
   CLI_CI_IMAGE_REPOSITORY: hypercli-cli-ci
 
 jobs:
-  # Builds (or reuses) the shared CI image. Tag is keyed off the lockfiles +
-  # Dockerfile so dependency changes force a rebuild and everything else
-  # reuses the pushed image.
+  # Builds (or reuses) the shared CI image. Tagged with the short commit SHA
+  # (same as hyperclaw-backend); the image is rebuilt when it is absent from
+  # the registry for this SHA.
   image:
     name: cli / image
     runs-on: self-hosted
@@ -70,12 +70,7 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          TAG="$(sha256sum \
-            ts-sdk/package-lock.json \
-            cli/package-lock.json \
-            docker/cli-ci.Dockerfile \
-            .github/scripts/cli_container_entrypoint.sh \
-            | sha256sum | cut -c1-16)"
+          TAG="$(echo "${{ github.sha }}" | cut -c1-7)"
           echo "image_tag=${TAG}" >> "${GITHUB_OUTPUT}"
 
       - name: Login to registry
@@ -99,8 +94,8 @@ jobs:
             .
           docker push "${IMAGE}"
 
-  # Expands the smoke matrix and the full image ref. Runs on the runner so
-  # downstream jobs can `docker run "${{ needs.expand.outputs.image }}" ...`.
+  # Expands the smoke matrix and the image ref. Runs on the runner so every
+  # test job can reference `needs.expand.outputs.*` without re-deriving them.
   expand:
     name: cli / expand
     runs-on: self-hosted
@@ -118,15 +113,8 @@ jobs:
         id: image_ref
         run: |
           set -euo pipefail
-          printf 'image=%s/%s/%s:%s\n' \
-            "${REGISTRY}" "${REGISTRY_ORG}" "${CLI_CI_IMAGE_REPOSITORY}" \
-            "$(sha256sum \
-              ts-sdk/package-lock.json \
-              cli/package-lock.json \
-              docker/cli-ci.Dockerfile \
-              .github/scripts/cli_container_entrypoint.sh \
-              | sha256sum | cut -c1-16)" \
-            >> "${GITHUB_OUTPUT}"
+          TAG="$(echo "${{ github.sha }}" | cut -c1-7)"
+          echo "image=${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${TAG}" >> "${GITHUB_OUTPUT}"
 
   # One gate per command group: the group's vitest files plus the bare
   # `node dist/index.js <group> --help` smoke, inside the shared image.
@@ -163,32 +151,16 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc '
-              set -euo pipefail
-              cd /workspace/cli
-              tests="$(node -p "require(\"./tests/ci-matrix.json\").groups[\"${{ matrix.group }}\"].tests.map((t) => \"tests/\" + t + \".test.ts\").join(\" \")")"
-              if [ -n "${tests}" ]; then
-                npx vitest run ${tests}
-              else
-                echo "no vitest files declared for group ${{ matrix.group }} in tests/ci-matrix.json"
-              fi
-            '
+            gate "${{ matrix.group }}"
 
       - name: Bare group --help smoke (offline, no API key)
         run: |
           set -euo pipefail
-          if [ "${{ matrix.group }}" = "core" ]; then
-            CMD='node dist/index.js > /dev/null && node dist/index.js --help > /dev/null'
-          else
-            CMD='node dist/index.js ${{ matrix.group }} --help > /dev/null'
-          fi
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc "set -euo pipefail; cd /workspace/cli; ${CMD}"
+            gate-smoke "${{ matrix.group }}"
 
   # Subcommand matrix: every non-bare smoke in the manifest, one check per
   # subcommand, inside the shared image.
@@ -216,9 +188,8 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc "set -euo pipefail; cd /workspace/cli; node dist/index.js ${{ matrix.argv }} > /dev/null; echo \"exit 0: hyper ${{ matrix.argv }}\""
+            smoke "${{ matrix.argv }}"
 
   # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:
@@ -241,9 +212,8 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc "set -euo pipefail; cd /workspace/cli; npx vitest run tests/pack.test.ts"
+            test tests/pack.test.ts
 
   # LF-only house rule gate.
   line-endings:
@@ -266,9 +236,8 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc "set -euo pipefail; cd /workspace/cli; npx vitest run tests/line-endings.test.ts"
+            test tests/line-endings.test.ts
 
   # tsc --noEmit for the CLI.
   typecheck:
@@ -291,9 +260,8 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc "set -euo pipefail; cd /workspace/cli; npm run typecheck"
+            typecheck
 
   # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts),
   # gated on every other check above.
@@ -317,6 +285,5 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            --entrypoint /usr/local/bin/cli_container_entrypoint \
             "${{ needs.expand.outputs.image }}" \
-            bash -lc "set -euo pipefail; cd /workspace/cli; npx vitest run"
+            test
