@@ -1,0 +1,402 @@
+name: CLI CI
+run-name: CLI CI
+
+# One gate per command group (checks read `cli / agents`, `cli / jobs`, ...),
+# plus a subcommand-matrix smoke per subcommand (checks read
+# `cli / agents / chat`, ...). The matrix is generated from
+# cli/tests/ci-matrix.json — adding a subcommand means adding a usage line
+# (public) or a HIDDEN entry plus one manifest line; cli/tests/ci-matrix.test.ts
+# fails the run when the manifest drifts from the registry.
+#
+# No secrets; the only network access is the npm registry. Every smoke is an
+# offline `node dist/index.js ... --help` and must exit 0 without an API key.
+#
+# Coordination uses a GitHub concurrency group (no runner-local lock files or
+# flock, per AGENTS.md). Builds are reproduced per job via the npm cache plus a
+# small dist artifact: node_modules is never archived because npm installs the
+# file:../ts-sdk dependency as a symlink/junction, which does not survive
+# artifact upload/download — `npm ci` re-creates the link deterministically.
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - ".github/workflows/cli.yml"
+      - "cli/**"
+      - "skills/**"
+      - "ts-sdk/**"
+  pull_request:
+    paths:
+      - ".github/workflows/cli.yml"
+      - "cli/**"
+      - "skills/**"
+      - "ts-sdk/**"
+  workflow_dispatch:
+
+concurrency:
+  group: cli-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Builds ts-sdk + cli once, sanity-checks the dist binary, publishes the
+  # dist artifacts consumed by the smoke/typecheck jobs, and expands
+  # cli/tests/ci-matrix.json into the gate/smoke matrices.
+  build:
+    name: cli / build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      gates: ${{ steps.matrices.outputs.gates }}
+      smokes: ${{ steps.matrices.outputs.smokes }}
+      windows_smokes: ${{ steps.matrices.outputs.windows_smokes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Install and build ts-sdk
+        working-directory: ts-sdk
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Install and build cli
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+          node dist/index.js --version
+
+      - name: Upload dist artifacts for the smoke jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-dist
+          path: |
+            cli/dist
+            ts-sdk/dist
+          retention-days: 1
+
+      - name: Expand cli/tests/ci-matrix.json into job matrices
+        id: matrices
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          node <<'EOF' >> "$GITHUB_OUTPUT"
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('tests/ci-matrix.json', 'utf8'));
+          const gates = { include: [] };
+          const smokes = { include: [] };
+          const windowsSmokes = { include: [] };
+          for (const [group, spec] of Object.entries(manifest.groups)) {
+            const oses = spec.windows === true ? ['ubuntu-latest', 'windows-latest'] : ['ubuntu-latest'];
+            for (const os of oses) {
+              gates.include.push({ group, os, label: os === 'ubuntu-latest' ? group : `${group} (windows)` });
+            }
+            for (const smoke of spec.smokes) {
+              const argv = group === 'core' ? [...smoke.argv] : [group, ...smoke.argv];
+              const stripped = [...argv];
+              if (stripped[stripped.length - 1] === '--help') stripped.pop();
+              // Bare group --help (and root help) runs inside the group gate,
+              // not as a matrix check — the names would collide.
+              if (group === 'core' ? stripped.length === 0 : stripped.length <= 1) continue;
+              const sub = (group === 'core' ? stripped : stripped.slice(1)).join(' ');
+              const name = `${group} / ${sub}`;
+              const command = argv.join(' ');
+              smokes.include.push({ name, argv: command });
+              if (spec.windows === true) windowsSmokes.include.push({ name: `windows / ${name}`, argv: command });
+            }
+          }
+          console.log(`gates=${JSON.stringify(gates)}`);
+          console.log(`smokes=${JSON.stringify(smokes)}`);
+          console.log(`windows_smokes=${JSON.stringify(windowsSmokes)}`);
+          EOF
+
+  # One gate per command group: the group's vitest files plus the bare
+  # `node dist/index.js <group> --help` smoke. core and skills also gate on
+  # windows-latest (bin shims and path handling are user-facing there).
+  gate:
+    name: cli / ${{ matrix.label }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.gates) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Install and build ts-sdk
+        working-directory: ts-sdk
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Install and build cli
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Run the group's vitest files (from ci-matrix.json)
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          tests="$(node -p "require('./tests/ci-matrix.json').groups['${{ matrix.group }}'].tests.map((t) => 'tests/' + t + '.test.ts').join(' ')")"
+          if [ -n "${tests}" ]; then
+            npx vitest run ${tests}
+          else
+            echo "no vitest files declared for group '${{ matrix.group }}' in tests/ci-matrix.json"
+          fi
+
+      - name: Bare group --help smoke (offline, no API key)
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.group }}" = "core" ]; then
+            node dist/index.js > /dev/null
+            node dist/index.js --help > /dev/null
+          else
+            node dist/index.js ${{ matrix.group }} --help > /dev/null
+          fi
+
+  # Subcommand matrix: every non-bare smoke in the manifest, one check per
+  # subcommand. Reuses the dist artifacts from build; `npm ci` re-creates the
+  # file:../ts-sdk symlink so no build step (or node_modules artifact) is
+  # needed here.
+  smoke:
+    name: cli / ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.smokes) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist
+          path: ${{ github.workspace }}
+
+      - name: Install cli dependencies (re-links file:../ts-sdk)
+        working-directory: cli
+        run: npm ci
+
+      - name: Offline --help smoke
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          node dist/index.js ${{ matrix.argv }} > /dev/null
+          echo "exit 0: hyper ${{ matrix.argv }}"
+
+  # Windows smoke matrix for the groups flagged `windows: true` (core, skills).
+  smoke-windows:
+    name: cli / ${{ matrix.name }}
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.build.outputs.windows_smokes) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist
+          path: ${{ github.workspace }}
+
+      - name: Install cli dependencies (re-links file:../ts-sdk)
+        working-directory: cli
+        run: npm ci
+
+      - name: Offline --help smoke
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          node dist/index.js ${{ matrix.argv }} > /dev/null
+          echo "exit 0: hyper ${{ matrix.argv }}"
+
+  # npm pack --dry-run gate: tarball contents + LF shebang. Ubuntu + Windows
+  # (Windows is a first-class user platform for the bin shim).
+  pack:
+    name: cli / pack (${{ matrix.os }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Install and build ts-sdk
+        working-directory: ts-sdk
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Install and build cli
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Pack gate (npm pack --dry-run assertions)
+        working-directory: cli
+        run: npx vitest run tests/pack.test.ts
+
+  # LF-only house rule gate. Ubuntu only: the repo root has no .gitattributes
+  # (cli/.gitattributes pins cli/** to LF), so a Windows checkout may rewrite
+  # root-level skills/**/SKILL.md to CRLF and fail this test spuriously.
+  line-endings:
+    name: cli / line-endings
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cli/package-lock.json
+
+      - name: Install cli dependencies
+        working-directory: cli
+        run: npm ci
+
+      - name: Line endings gate
+        working-directory: cli
+        run: npx vitest run tests/line-endings.test.ts
+
+  # tsc --noEmit for the CLI (ts-sdk types come from the built dist artifact).
+  typecheck:
+    name: cli / typecheck
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Download dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cli-dist
+          path: ${{ github.workspace }}
+
+      - name: Install cli dependencies (re-links file:../ts-sdk)
+        working-directory: cli
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: cli
+        run: npm run typecheck
+
+  # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts),
+  # gated on every other check above.
+  test:
+    name: cli / test
+    needs: [gate, smoke, smoke-windows, pack, line-endings, typecheck]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            cli/package-lock.json
+
+      - name: Install and build ts-sdk
+        working-directory: ts-sdk
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Install and build cli
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+
+      - name: Full vitest suite
+        working-directory: cli
+        run: npx vitest run
