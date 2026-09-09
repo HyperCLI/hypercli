@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { join } from "node:path";
 import { defineConfig } from "vite";
+import { DEV_PROXY_PREFIX, PROXY_PREFIXES } from "./src/lib/endpoints";
 
 /**
  * Dev proxy target.
@@ -12,6 +13,10 @@ import { defineConfig } from "vite";
  * origin and Vite forwards upstream, which takes CORS out of the picture
  * rather than working around it.
  *
+ * Every proxied route lives under `/api` (e.g. `/api/agents/...` ->
+ * `<target>/agents/...`), so in devtools backend traffic is visibly distinct
+ * from app-served traffic. The proxy strips the prefix and only forwards.
+ *
  * This is a plain pass-through. It deliberately does NOT re-implement any API
  * surface: the previous incarnation of this file ran ts-sdk in Node and served
  * the frontend a parallel implementation, which is why "works in dev, broken
@@ -20,15 +25,13 @@ import { defineConfig } from "vite";
  */
 const API_TARGET = process.env.HYPER_API_BASE ?? "https://api.hypercli.com";
 
-/** Keep in step with `PROXY_PREFIXES` in src/lib/endpoints.ts. */
-const PROXY_PREFIXES = ["/agents", "/routines", "/v1"];
-
 const proxy = Object.fromEntries(
   PROXY_PREFIXES.map((prefix) => [
-    prefix,
+    `${DEV_PROXY_PREFIX}${prefix}`,
     {
       target: API_TARGET,
       changeOrigin: true,
+      rewrite: (path: string) => path.slice(DEV_PROXY_PREFIX.length),
       configure: (server: { on: (event: string, fn: (req: unknown) => void) => void }) => {
         server.on("proxyReq", (proxyReq) => {
           // Present the upstream's own origin rather than the dev server's,
