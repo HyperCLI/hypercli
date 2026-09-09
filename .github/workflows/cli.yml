@@ -120,7 +120,7 @@ jobs:
           - group: files
           - group: voice
     container:
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -159,7 +159,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.expand.outputs.smokes) }}
     container:
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -181,7 +181,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       smokes: ${{ steps.matrices.outputs.smokes }}
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Expand cli/tests/ci-matrix.json into the smoke matrix
@@ -209,7 +209,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 20
     container:
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Pack gate (npm pack --dry-run assertions)
@@ -226,7 +226,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 10
     container:
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Line endings gate
@@ -243,7 +243,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 15
     container:
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Typecheck
@@ -261,7 +261,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 25
     container:
-      image: ${{ steps.image_ref.outputs.image }}
+      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Full vitest suite
