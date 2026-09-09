@@ -30,7 +30,7 @@ const ACP_CREATE_METHODS = {
   "buzz-agent": "createBuzzAgent",
 } as const;
 const ACP_RUNTIME_HARNESSES: Record<keyof typeof ACP_CREATE_METHODS, { command: string; args: string[] }> = {
-  "buzz-agent": { command: "/usr/local/bin/hyper-acp", args: ["plugin", "buzz"] },
+  "buzz-agent": { command: "/usr/local/bin/acp", args: ["plugin", "buzz"] },
   opencode: { command: "/usr/local/bin/opencode", args: ["acp"] },
   codex: { command: "/usr/local/bin/codex-acp", args: [] },
   "claude-code": { command: "/usr/local/bin/claude-agent-acp", args: [] },
@@ -445,7 +445,7 @@ async function handleDevCommand(command: string, args: Record<string, unknown>) 
         name,
         size,
         image: image ?? runtimeImage,
-        command: ["/usr/local/bin/hyper-acp"],
+        command: ["/usr/local/bin/acp"],
         env: vanillaAcpEnv(config, ACP_RUNTIME_HARNESSES[acpRuntime], systemPrompt),
         routes: {},
         restart: false,
@@ -623,7 +623,7 @@ function hostedAcpLaunchConfig(
       env,
       image: launchConfig.image ?? DEFAULT_CODING_AGENT_IMAGES[runtime],
       routes: {},
-      command: ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
+      command: ["/usr/local/bin/acp", "plugin", "buzz"],
       restart: false,
     };
   }
@@ -660,7 +660,7 @@ function hostedAcpLaunchConfig(
     },
     image: launchConfig.image ?? DEFAULT_CODING_AGENT_IMAGES[runtime],
     routes: {},
-    command: ["/usr/local/bin/hyper-acp"],
+    command: ["/usr/local/bin/acp"],
     restart: false,
   };
 }

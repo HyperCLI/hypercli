@@ -296,7 +296,7 @@ agent = client.deployments.create_opencode(
 The managed platform injects an agent-scoped `HYPER_AGENTS_API_KEY` into the
 runtime. Do not copy an account API key into the launch environment.
 
-The SDK selects `/usr/local/bin/hyper-acp`, the runtime-specific child ACP
+The SDK selects `/usr/local/bin/acp`, the runtime-specific child ACP
 command and arguments, the hosted Buzz MCP command, lazy pool creation, relay
 observation, and persistent `/home/node` settings. `/home/node/shared`
 remains reserved for Workspace projections; the specialized image reconciles
@@ -316,7 +316,7 @@ continues to override either default.
 
 Direct `BuzzLaunchConfig` renders timeout and response-policy values but does
 not duplicate the stock Desktop provider's validation; invalid combinations
-are rejected later by `hyper-acp`. The Desktop provider also maps structured
+are rejected later by `acp`. The Desktop provider also maps structured
 Goose model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct Python
 SDK callers must set any Goose-specific environment themselves.
 Native Buzz Agent launches also set upstream's `BUZZ_AGENT_REQUIRE_REPLY=1`;

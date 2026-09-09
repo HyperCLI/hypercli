@@ -334,7 +334,7 @@ def test_buzz_coding_agent_uses_runtime_default_image(
     getattr(deployments, method_name)(buzz_enabled=True)
 
     assert posted["image"] == DEFAULT_CODING_AGENT_IMAGES[runtime]
-    assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+    assert posted["command"] == ["/usr/local/bin/acp", "plugin", "buzz"]
 
 
 @pytest.mark.parametrize(
@@ -449,7 +449,7 @@ def test_coding_agent_buzz_mode_only_changes_container_args_and_preserves_creden
         },
     )
 
-    assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+    assert posted["command"] == ["/usr/local/bin/acp", "plugin", "buzz"]
     assert posted["env"]["HYPER_ACP_WS_URL"] == "wss://api.agents.hypercli.com/ws"
     assert "HYPER_ACP_AGENT_COMMAND" not in posted["env"]
     assert posted["image"] == DEFAULT_OPENCODE_IMAGE
@@ -487,6 +487,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     deployments._post = fake_post
     deployments.create_opencode(
         name="Fizz4",
+        routes={"custom": {"port": 9000, "auth": True}},
         env={
             "BUZZ_RELAY_URL": "wss://attacker.invalid",
             "BUZZ_ACP_AGENT_COMMAND": "/tmp/not-opencode",
@@ -511,7 +512,7 @@ def test_typed_buzz_launch_owns_reserved_env_and_sets_opencode_harness():
     assert posted["size"] == "large"
     assert posted["image"] == DEFAULT_OPENCODE_IMAGE
     assert posted["routes"] == {}
-    assert posted["command"] == ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+    assert posted["command"] == ["/usr/local/bin/acp", "plugin", "buzz"]
     assert posted["restart"] is False
     assert posted["env"]["BUZZ_RELAY_URL"] == "wss://buzz.example.test"
     assert posted["env"]["BUZZ_ACP_AGENT_COMMAND"] == "/usr/local/bin/opencode"

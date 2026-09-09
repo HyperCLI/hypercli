@@ -1,7 +1,7 @@
 /**
  * ACP (Agent Client Protocol) client connectivity for coding agents.
  *
- * Every hosted coding-agent pod runs `hyper-acp`, which bridges the pod-side
+ * Every hosted coding-agent pod runs `acp`, which bridges the pod-side
  * ACP child (`opencode acp`, `claude-code acp`, ...) onto an outbound
  * WebSocket to the backend bridge at `/ws`. This module dials that bridge as
  * the client side (`?agent_id=<uuid>`, Bearer API key), runs the ACP

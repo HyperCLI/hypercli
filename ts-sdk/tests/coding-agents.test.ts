@@ -266,7 +266,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime: 'codex',
       image: DEFAULT_CODEX_IMAGE,
-      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/acp', 'plugin', 'buzz'],
       restart: false,
       env: {
         CODEX_API_KEY: 'test-key',
@@ -302,7 +302,7 @@ describe('coding agents', () => {
     expect(post.mock.calls[0][1]).toMatchObject({
       runtime,
       image,
-      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/acp', 'plugin', 'buzz'],
     });
   });
 
@@ -423,7 +423,7 @@ describe('coding agents', () => {
       size: 'large',
       image: DEFAULT_OPENCODE_IMAGE,
       routes: {},
-      command: ['/usr/local/bin/hyper-acp', 'plugin', 'buzz'],
+      command: ['/usr/local/bin/acp', 'plugin', 'buzz'],
       restart: false,
       env: {
         BUZZ_RELAY_URL: 'wss://buzz.example.test',
@@ -745,7 +745,7 @@ describe('coding agents', () => {
   });
 });
 
-describe('buzz hyper-acp raw outbound launch', () => {
+describe('buzz acp raw outbound launch', () => {
   function provisionDeployments(runtime: 'buzz-agent' | 'opencode' | 'codex' | 'claude-code' | 'goose' | 'kimi-code' = 'buzz-agent') {
     const post = vi.fn().mockResolvedValue(response(runtime));
     const deployments = new Deployments(
@@ -756,15 +756,15 @@ describe('buzz hyper-acp raw outbound launch', () => {
     return { post, deployments };
   }
 
-  it('runs hyper-acp with raw outbound ws and the copied Buzz ACP plugin child', async () => {
+  it('runs acp with raw outbound ws and the copied Buzz ACP plugin child', async () => {
     const { post, deployments } = provisionDeployments('buzz-agent');
     const agent = await deployments.createBuzzAgent({
       routes: { custom: { port: 9000, auth: true } },
       buzzEnabled: true,
     });
     const payload = post.mock.calls[0][1];
-    expect(payload.command).toEqual(['/usr/local/bin/hyper-acp', 'plugin', 'buzz']);
-    expect(payload.routes.custom).toEqual({ port: 9000, auth: true });
+    expect(payload.command).toEqual(['/usr/local/bin/acp', 'plugin', 'buzz']);
+    expect(payload.routes).toEqual({});
     expect(payload.routes).not.toHaveProperty('hyper-acp');
     expect(payload.env.HYPER_ACP_WS_URL).toBe('wss://api.test.hypercli.com/ws');
     expect(payload.env).not.toHaveProperty('HYPER_ACP_AGENT_COMMAND');

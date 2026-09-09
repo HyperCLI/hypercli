@@ -518,7 +518,7 @@ impl BuzzLaunchConfig {
         request.size = None;
         request.mark_buzz_deployment(None);
         request.command = vec![
-            "/usr/local/bin/hyper-acp".to_owned(),
+            "/usr/local/bin/acp".to_owned(),
             "plugin".to_owned(),
             "buzz".to_owned(),
         ];
@@ -1623,7 +1623,7 @@ mod tests {
         assert_eq!(request.tags, vec![BUZZ_DEPLOYMENT_TAG]);
         assert_eq!(
             request.command,
-            vec!["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            vec!["/usr/local/bin/acp", "plugin", "buzz"]
         );
         assert!(!request.restart);
         assert_eq!(
@@ -1933,7 +1933,7 @@ mod tests {
             "env": {"SAFE": "visible"},
             "registry_auth": {"password": "registry-secret"},
             "secrets": {"API_TOKEN": "must-not-hydrate"},
-            "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            "command": ["/usr/local/bin/acp", "plugin", "buzz"]
         }))
         .unwrap();
 
@@ -2162,7 +2162,7 @@ mod tests {
         );
         assert_eq!(
             request.command,
-            vec!["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            vec!["/usr/local/bin/acp", "plugin", "buzz"]
         );
         assert!(!request.env.contains_key("HYPER_ACP_AGENT_COMMAND"));
         assert_eq!(

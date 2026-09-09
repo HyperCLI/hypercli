@@ -80,7 +80,7 @@ rejects secret-looking provider config; Buzz supplies the agent identity
 separately in the deploy request. Buzz launches explicitly set
 `restart: false`, including when the provider starts an existing stopped
 deployment, so an accepted `!shutdown` does not automatically relaunch
-`hyper-acp`.
+`acp`.
 
 For portable launches, `launch.policy_env` is the default tier and
 `launch.env` wins over it; legacy top-level launch fields are ignored. The
@@ -163,7 +163,7 @@ Stock Buzz Desktop v0.5.2 invokes backend providers only for `info` and
 `deploy`; there is no provider stop or undeploy request. Desktop's Shutdown
 action sends a best-effort owner-authored, agent-mentioned `!shutdown` channel
 message. Without a shared channel it errors. If delivered and accepted, stock
-`hyper-acp` exits. New provider launches set `restart: false`, so the hosted
+`acp` exits. New provider launches set `restart: false`, so the hosted
 terminal-state observer can clean the namespace, mark the deployment
 `stopped`, and release its slot. Desktop receives no acknowledgement and does
 not reconcile its local deployed record. Use authenticated HyperCLI lifecycle
@@ -180,7 +180,7 @@ non-JSON child output is skipped, and `agent_message_chunk` is activity
 telemetry rather than a channel publication. There is no plaintext fallback. A
 visible response requires the agent to invoke the Buzz send command/tool.
 
-The provider launches Buzz mode with `hyper-acp plugin buzz` and `BUZZ_ACP_*`
+The provider launches Buzz mode with `acp plugin buzz` and `BUZZ_ACP_*`
 environment on the normal coding runtime images. Only the native Buzz Agent
 uses the dedicated `hypercli-buzz-agent` image. The reusable Rust SDK renders
 launch behavior onto a caller-supplied deployment request.
@@ -191,7 +191,7 @@ Workspace projections and preserves an explicit caller environment value. The
 coding image entrypoint reconciles the standard nest after mount and runs the
 harness from `/home/node/.buzz`. Prompt delivery stays in the ACP session path;
 `base_prompt.md` remains compiled into the Buzz-compatible path inside
-`hyper-acp plugin buzz`.
+`acp plugin buzz`.
 
 Interactive Codex and Claude login is not part of the one-shot provider
 protocol. Hosted OpenCode can infer through its injected provider configuration

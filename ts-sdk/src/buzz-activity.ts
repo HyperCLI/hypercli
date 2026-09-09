@@ -2,7 +2,7 @@
  * Buzz-activity transport: subscribe to a Buzz-backed agent's observer
  * telemetry directly from its Nostr relay.
  *
- * Buzz-backed HyperCLI deployments run `hyper-acp`, which publishes observer
+ * Buzz-backed HyperCLI deployments run `acp plugin buzz`, which publishes observer
  * frames as kind-24200 events signed by the agent key, with the content
  * NIP-44-v2-encrypted to the owner pubkey. The SDK subscribes to the relay
  * over a plain WebSocket and decrypts locally; no backend round-trips are
@@ -239,7 +239,7 @@ export function resolveBuzzOwnerFromEnv(env: Record<string, unknown>): BuzzEnvCo
   if (!relayUrl) {
     throw new Error(
       'Agent is not Buzz-backed: launchConfig env has no BUZZ_RELAY_URL; ' +
-        'observer activity is only published by Buzz deployments running hyper-acp',
+        'observer activity is only published by Buzz deployments running acp plugin buzz',
     );
   }
   const authTag = readEnvString(env, 'BUZZ_AUTH_TAG');

@@ -3166,7 +3166,7 @@ mod tests {
                 serde_json::json!({
                     "runtime": "opencode",
                     "size": "small",
-                    "command": ["/usr/local/bin/hyper-acp"],
+                    "command": ["/usr/local/bin/acp"],
                     "secrets": {"BUZZ_PRIVATE_KEY": "nsec-secret"},
                     "sync_root": "/home/node"
                 })
@@ -3187,7 +3187,7 @@ mod tests {
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         request.size = Some(AgentSize::Small);
         request.command = vec![
-            "/usr/local/bin/hyper-acp".to_owned(),
+            "/usr/local/bin/acp".to_owned(),
             "plugin".to_owned(),
             "buzz".to_owned(),
         ];
@@ -4154,7 +4154,7 @@ mod tests {
                     "name": "Maverick",
                     "size": "large",
                     "launch_config": {
-                        "command": ["/usr/local/bin/hyper-acp"],
+                        "command": ["/usr/local/bin/acp"],
                         "env": {
                             "BUZZ_PRIVATE_KEY": "nsec-preserved",
                             "EDITOR": "nvim"
@@ -4173,7 +4173,7 @@ mod tests {
                     "state": "stopped",
                     "requested_size": "large",
                     "launch_config": {
-                        "command": ["/usr/local/bin/hyper-acp"],
+                        "command": ["/usr/local/bin/acp"],
                         "env": {
                             "BUZZ_PRIVATE_KEY": "nsec-preserved",
                             "EDITOR": "nvim"
@@ -4190,7 +4190,7 @@ mod tests {
             launch_config: Some(crate::DeploymentLaunchConfig::from_map(BTreeMap::from([
                 (
                     "command".to_owned(),
-                    serde_json::json!(["/usr/local/bin/hyper-acp"]),
+                    serde_json::json!(["/usr/local/bin/acp"]),
                 ),
                 (
                     "env".to_owned(),

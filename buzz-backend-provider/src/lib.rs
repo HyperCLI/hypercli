@@ -839,7 +839,7 @@ fn build_launch_request_with_inference_base(
     request.mark_buzz_deployment(Some(public_key));
 
     request.command = vec![
-        "/usr/local/bin/hyper-acp".to_owned(),
+        "/usr/local/bin/acp".to_owned(),
         "plugin".to_owned(),
         "buzz".to_owned(),
     ];
@@ -1801,7 +1801,7 @@ mod tests {
         );
         assert_eq!(
             request.launch_config.command,
-            ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+            ["/usr/local/bin/acp", "plugin", "buzz"]
         );
         assert!(!request
             .launch_config
@@ -2386,7 +2386,7 @@ mod tests {
             assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
             assert_eq!(
                 request.command,
-                ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+                ["/usr/local/bin/acp", "plugin", "buzz"]
             );
             assert_eq!(
                 request.runtime_scopes,
@@ -2662,7 +2662,7 @@ mod tests {
             .match_body(Matcher::PartialJson(serde_json::json!({
                 "handle": handle,
                 "runtime": "opencode",
-                "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
+                "command": ["/usr/local/bin/acp", "plugin", "buzz"],
                 "restart": false,
                 "runtime_scopes": BUZZ_RUNTIME_SCOPES,
                 "secrets": {
@@ -2892,7 +2892,7 @@ mod tests {
                 serde_json::json!({"launch_config":{
                     "image": "ghcr.io/hypercli/hypercli-opencode:latest",
                     "restart": false,
-                    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
+                    "command": ["/usr/local/bin/acp", "plugin", "buzz"],
                     "sync_root": "/home/node",
                     "sync_uid": 1000,
                     "sync_gid": 1000,
@@ -3183,7 +3183,7 @@ mod tests {
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{
                     "restart": false,
-                    "command": ["/usr/local/bin/hyper-acp", "plugin", "buzz"],
+                    "command": ["/usr/local/bin/acp", "plugin", "buzz"],
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES
                 }})
                 .to_string(),

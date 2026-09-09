@@ -81,7 +81,7 @@ on the Mac running Buzz:
 2. Desktop invokes the provider with one JSON request.
 3. The provider uses the local HyperCLI credential to create or find a managed
    deployment.
-4. `/usr/local/bin/hyper-acp` connects outbound to the platform ACP websocket.
+4. `/usr/local/bin/acp` connects outbound to the platform ACP websocket.
 5. The copied Buzz ACP plugin relays Buzz messages and communicates with the
    selected coding runtime over ACP on stdio.
 
@@ -240,9 +240,9 @@ Default runtime mapping:
 | Goose | `ghcr.io/hypercli/hypercli-goose:latest` | `goose acp` |
 | Kimi Code | `ghcr.io/hypercli/hypercli-kimi-code:latest` | `kimi acp` |
 
-Buzz mode is selected by launching `hyper-acp plugin buzz` with `BUZZ_ACP_*`
+Buzz mode is selected by launching `acp plugin buzz` with `BUZZ_ACP_*`
 environment. Direct, non-Buzz SDK launches use the same non-Buzz runtime images
-through vanilla `hyper-acp` and `HYPER_ACP_*` environment.
+through vanilla `acp` and `HYPER_ACP_*` environment.
 
 #### Filesystem and instruction layout
 
@@ -259,7 +259,7 @@ Because the persistent `/home/node` mount hides files baked directly into the
 image's home directory, the image entrypoint reconciles the nest after mount.
 It creates the standard Buzz directories and skill links without materializing a
 prompt Markdown file into the workspace. Prompt delivery stays in the ACP
-session path; `base_prompt.md` remains compiled into `hyper-acp plugin buzz`.
+session path; `base_prompt.md` remains compiled into `acp plugin buzz`.
 
 The provider owns the identity, relay, ACP command, response policy, and timeout
 environment. It validates stock Buzz's `turn_timeout_seconds`,

@@ -331,11 +331,11 @@ root, reserve `/home/node/shared` for Workspace projections, and run
 `hyper-acp` from the specialized `/home/node/.buzz` nest. The image reconciles
 the nest after the home mount. OpenCode and Codex consume its canonical
 `AGENTS.md`; Claude Code receives `CLAUDE.md -> AGENTS.md`.
-`base_prompt.md` remains compiled into `hyper-acp`.
+`base_prompt.md` remains compiled into `acp plugin buzz`.
 
 The typed `buzz` renderer writes timeout and response-policy values but does not
 duplicate the stock Desktop provider's validation; invalid combinations are
-rejected later by `hyper-acp`. The Desktop provider also maps structured Goose
+rejected later by `acp`. The Desktop provider also maps structured Goose
 model/provider fields to `GOOSE_MODEL`/`GOOSE_PROVIDER`; direct TypeScript SDK
 callers must set any Goose-specific environment themselves.
 

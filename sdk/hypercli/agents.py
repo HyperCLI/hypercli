@@ -3958,9 +3958,9 @@ class Deployments:
             tags=tags,
             env=effective_env,
             secrets=effective_secrets,
-            routes={} if routes is None else routes,
+            routes={} if buzz_launch or routes is None else routes,
             command=(
-                ["/usr/local/bin/hyper-acp", "plugin", "buzz"]
+                ["/usr/local/bin/acp", "plugin", "buzz"]
                 if buzz_enabled or buzz is not None
                 else command
             ),

@@ -15,7 +15,7 @@ editing any of them.
 
 Hosted Buzz launches no longer run the old top-level `buzz-acp` fork or its
 observer websocket. The active container command is
-`/usr/local/bin/hyper-acp plugin buzz`. `hyper-acp` links the copied Buzz ACP
+`/usr/local/bin/acp plugin buzz`. `acp` links the copied Buzz ACP
 implementation in-process. The separate `buzz-acp` binary remains only as a
 thin compatibility executable for legacy callers that need that binary name.
 
@@ -441,7 +441,7 @@ Two creation paths:
      isn't served is rejected, never silently substituted.
   3. Build the launch via the SDK's `BuzzLaunchConfig.apply_to`
      (`rs-sdk/src/types.rs:473`): sets the runtime's buzz image, command
-     `/usr/local/bin/hyper-acp`, agent command/args per runtime, injects
+     `/usr/local/bin/acp`, agent command/args per runtime, injects
      `BUZZ_PRIVATE_KEY`/`NOSTR_PRIVATE_KEY` as secrets, `BUZZ_RELAY_URL` +
      `BUZZ_ACP_*` env, clears routes, `sync_root=/home/node`,
      `restart=false` (owner-signed `!shutdown` must not resurrect),

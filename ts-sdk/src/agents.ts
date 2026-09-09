@@ -3309,7 +3309,7 @@ export class CodingAgent extends Agent {
   /**
    * Connect to this agent's ACP child through the backend bridge.
    *
-   * Every coding-agent pod runs `hyper-acp`, which pipes the pod-side ACP
+   * Every coding-agent pod runs `acp`, which pipes the pod-side ACP
    * child (`opencode acp`, `claude-code acp`, ...) onto an outbound WebSocket
    * to the backend `/ws` bridge. This dials the client side of that bridge
    * (`?agent_id=<id>`, Bearer API key — the same base URL/auth as every other
@@ -4954,10 +4954,10 @@ export class Deployments {
       size: buzzLaunch ? (options.size ?? 'large') : options.size,
       env: effectiveEnv,
       secrets: effectiveSecrets,
-      routes: options.routes ?? {},
+      routes: buzzLaunch ? {} : options.routes ?? {},
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
-        ? ['/usr/local/bin/hyper-acp', 'plugin', 'buzz']
+        ? ['/usr/local/bin/acp', 'plugin', 'buzz']
         : options.command,
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,
