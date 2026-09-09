@@ -272,9 +272,22 @@ describe('Routines SDK', () => {
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' });
   });
 
-  it('rejects a malformed list payload instead of returning an empty list', async () => {
+  it('accepts a wrapped routines list payload', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ routines: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const api = new RoutinesAPI('key', { apiBase: 'http://routines.test/routines' });
+    await expect(api.list()).resolves.toEqual([]);
+  });
+
+  it('rejects a malformed list payload instead of returning an empty list', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),

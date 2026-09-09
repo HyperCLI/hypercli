@@ -38,7 +38,7 @@ function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boo
 }
 
 function resolveHyperAgentControlBaseUrl(
-  productApiBaseUrl: string | undefined,
+  _productApiBaseUrl: string | undefined,
   agentsApiBaseUrl: string | undefined,
   dev: boolean,
 ): string {
@@ -122,6 +122,7 @@ export interface HyperAgentCurrentPlan {
   provider?: string;
   secondsRemaining?: number | null;
   pooledTpd?: number;
+  maxAgentSize?: 'small' | 'medium' | 'large' | null;
   slotInventory?: Record<string, { granted: number; used: number; available: number }>;
   agentSlots: AgentSlot[];
 }
@@ -304,6 +305,19 @@ export interface HyperAgentAgentUsage {
   agents: HyperAgentAgentUsageEntry[];
   unattributed: HyperAgentUsageMetrics;
   days: number;
+}
+
+/**
+ * Tolerant combined view over /usage/history, /usage/keys, and /usage/agents:
+ * each section degrades to null on failure so a key missing a scope family
+ * never blanks the whole panel.
+ */
+export interface HyperAgentUsageReport {
+  days: number;
+  history: HyperAgentUsageHistoryEntry[] | null;
+  keys: HyperAgentKeyUsageEntry[] | null;
+  agents: HyperAgentAgentUsageEntry[] | null;
+  unattributed: HyperAgentUsageMetrics | null;
 }
 
 export interface HyperAgentTypePreset {
@@ -618,6 +632,9 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
     provider: data.provider || undefined,
     secondsRemaining: data.seconds_remaining ?? null,
     pooledTpd: data.pooled_tpd || 0,
+    maxAgentSize: ['small', 'medium', 'large'].includes(data.max_agent_size)
+      ? data.max_agent_size
+      : null,
     slotInventory: data.slot_inventory || undefined,
     agentSlots: (data.agent_slots || []).map(agentSlotFromDict),
   };
@@ -1156,7 +1173,7 @@ export class HyperAgent {
   public readonly controlBaseUrl: string;
 
   constructor(
-    private http: HTTPClient,
+    http: HTTPClient,
     agentApiKey?: string,
     dev: boolean = false,
     agentsApiBaseUrl?: string,
@@ -1436,6 +1453,23 @@ export class HyperAgent {
     return hyperAgentAgentUsageFromDict(await this.controlGet('/usage/agents', { days }));
   }
 
+  async usageReport(days: number = 7): Promise<HyperAgentUsageReport> {
+    const clamped = Math.min(Math.max(Math.trunc(days) || 7, 1), 90);
+    const attempt = <T>(promise: Promise<T>): Promise<T | null> => promise.catch(() => null);
+    const [history, keys, agents] = await Promise.all([
+      attempt(this.usageHistory(clamped)),
+      attempt(this.keyUsage(clamped)),
+      attempt(this.agentUsage(clamped)),
+    ]);
+    return {
+      days: clamped,
+      history: history?.history ?? null,
+      keys: keys?.keys ?? null,
+      agents: agents?.agents ?? null,
+      unattributed: agents?.unattributed ?? null,
+    };
+  }
+
   async agentTypes(): Promise<HyperAgentTypeCatalog> {
     return hyperAgentTypeCatalogFromDict(await this.controlGet('/types'));
   }
@@ -1616,7 +1650,7 @@ export class HyperAgent {
   }
 
   async createX402CheckoutWithSigner(
-    request: HyperAgentBrowserX402PurchaseRequest,
+    _request: HyperAgentBrowserX402PurchaseRequest,
   ): Promise<HyperAgentX402CheckoutResponse> {
     throw new Error('A canonical plan ID is required; use purchaseViaX402WithSigner(planId, request)');
   }

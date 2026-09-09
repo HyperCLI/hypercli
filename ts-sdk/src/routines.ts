@@ -48,9 +48,13 @@ export interface RoutineCreateOptions {
 
 export interface RoutineUpdateOptions {
   agentId?: string;
+  /** Empty string clears the schedule field server-side (sent as JSON null). */
   cron?: string;
+  /** Empty string clears the schedule field server-side (sent as JSON null). */
+  runAt?: string;
   prompt?: string;
   enabled?: boolean;
+  /** Empty string clears the name server-side (sent as JSON null). */
   name?: string;
 }
 
@@ -129,11 +133,12 @@ export class RoutinesAPI {
 
   async list(options: { agentId?: string } = {}): Promise<Routine[]> {
     const params = options.agentId !== undefined ? { agent_id: options.agentId } : undefined;
-    const data = await this.request<any[]>('GET', '', undefined, params);
-    if (!Array.isArray(data)) {
+    const data = await this.request<any>('GET', '', undefined, params);
+    const items = Array.isArray(data) ? data : Array.isArray(data?.routines) ? data.routines : null;
+    if (!items) {
       throw new Error('Routines response must be an array.');
     }
-    return data.map(routineFromDict);
+    return items.map(routineFromDict);
   }
 
   async get(routineId: string): Promise<Routine> {
@@ -154,11 +159,13 @@ export class RoutinesAPI {
 
   async update(routineId: string, body: RoutineUpdateOptions): Promise<Routine> {
     const payload: Record<string, unknown> = {};
+    const nullable = (value: string): unknown => (value.trim() === '' ? null : value);
     if (body.agentId !== undefined) payload.agent_id = body.agentId;
-    if (body.cron !== undefined) payload.cron = body.cron;
+    if (body.cron !== undefined) payload.cron = nullable(body.cron);
+    if (body.runAt !== undefined) payload.run_at = nullable(body.runAt);
     if (body.prompt !== undefined) payload.prompt = body.prompt;
     if (body.enabled !== undefined) payload.enabled = body.enabled;
-    if (body.name !== undefined) payload.name = body.name;
+    if (body.name !== undefined) payload.name = nullable(body.name);
     const data = await this.request('PATCH', `/${encodeRef(routineId)}`, payload);
     return routineFromDict(data);
   }

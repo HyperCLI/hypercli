@@ -5925,6 +5925,32 @@ export class Deployments {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
   }
 
+  /**
+   * Signed URL for the agent's VNC desktop. Requires a running agent with the
+   * `desktop` route enabled; throws otherwise.
+   */
+  async desktopUrl(
+    agentIdOrName: string,
+    options: BrowserDesktopUrlOptions = {},
+  ): Promise<{ url: string; expiresAt: Date | null }> {
+    const agentId = await this.resolveAgentId(agentIdOrName);
+    const [token, agent] = await Promise.all([
+      this.refreshToken(agentId),
+      this.getById(agentId),
+    ]);
+    const jwt = (token.token ?? '').trim();
+    if (!jwt) throw new Error('Desktop token is missing');
+    if (!agent.isRunning) throw new Error('Start the agent to open its desktop');
+    const base = agent.desktopUrl;
+    if (!base) throw new Error('Desktop route is not enabled for this agent');
+    const url = buildBrowserDesktopUrl(base, jwt, {
+      redirect: 'vnc.html?autoconnect=true',
+      resize: 'scale',
+      ...options,
+    });
+    return { url, expiresAt: parseDate(token.expires_at) };
+  }
+
   async createScopedKey(agentIdOrName: string, name?: string): Promise<Record<string, any>> {
     const payload: Record<string, string> = {};
     if (name) payload.name = name;

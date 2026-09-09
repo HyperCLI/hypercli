@@ -187,6 +187,7 @@ export {
   type HyperAgentUsageMetrics,
   type HyperAgentAgentUsageEntry,
   type HyperAgentAgentUsage,
+  type HyperAgentUsageReport,
   type HyperAgentTypePreset,
   type HyperAgentTypePlan,
   type HyperAgentTypeCatalog,
