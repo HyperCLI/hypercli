@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 const cliRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = join(cliRoot, '..');
 
-const KNOWN_OFFENDERS = new Set(['skills/hypercli-knowledge/SKILL.md']);
+const KNOWN_OFFENDERS = new Set<string>([]);
 
 const walk = (dir: string, match: (p: string) => boolean, out: string[] = []): string[] => {
   if (!existsSync(dir)) return out;
