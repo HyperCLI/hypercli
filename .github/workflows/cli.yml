@@ -9,11 +9,11 @@ run-name: CLI CI
 # manifest line; cli/tests/ci-matrix.test.ts fails the run when the manifest
 # drifts from the registry.
 #
-# No npm cache uploads. Jobs run inside a pre-built image
-# (docker/cli-ci.Dockerfile) with ts-sdk + cli deps baked in; the
-# image is built/pushed once per lockfile change by the `image` job and
-# re-tagged from the registry digest otherwise. Registry coordinates come
-# from CI env/secrets, not this file.
+# No npm cache uploads. The image job builds/pushes docker/cli-ci.Dockerfile
+# (ts-sdk + cli deps baked in) keyed off the lockfiles; every test job runs
+# `docker run` against the mounted checkout via
+# .github/scripts/cli_container_entrypoint.sh. Registry coordinates come from
+# CI secrets, not this file.
 #
 # All jobs run on the self-hosted Linux runners. Windows is not gated.
 #
@@ -99,89 +99,15 @@ jobs:
             .
           docker push "${IMAGE}"
 
-  # One gate per command group: the group's vitest files plus the bare
-  # `node dist/index.js <group> --help` smoke, inside the shared image.
-  gate:
-    name: cli / ${{ matrix.group }}
-    needs: [image, expand]
-    runs-on: self-hosted
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - group: core
-          - group: me
-          - group: configure
-          - group: skills
-          - group: agents
-          - group: jobs
-          - group: flow
-          - group: files
-          - group: voice
-    container:
-      image: ${{ needs.expand.outputs.image }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run the group's vitest files (from ci-matrix.json)
-        run: |
-          set -euo pipefail
-          /usr/local/bin/cli_container_entrypoint true
-          cd /workspace/cli
-          tests="$(node -p "require('./tests/ci-matrix.json').groups['${{ matrix.group }}'].tests.map((t) => 'tests/' + t + '.test.ts').join(' ')")"
-          if [ -n "${tests}" ]; then
-            npx vitest run ${tests}
-          else
-            echo "no vitest files declared for group '${{ matrix.group }}' in tests/ci-matrix.json"
-          fi
-
-      - name: Bare group --help smoke (offline, no API key)
-        run: |
-          set -euo pipefail
-          cd /workspace/cli
-          if [ "${{ matrix.group }}" = "core" ]; then
-            node dist/index.js > /dev/null
-            node dist/index.js --help > /dev/null
-          else
-            node dist/index.js ${{ matrix.group }} --help > /dev/null
-          fi
-
-  # Subcommand matrix: every non-bare smoke in the manifest, one check per
-  # subcommand, inside the shared image.
-  smoke:
-    name: cli / ${{ matrix.name }}
-    needs: [image, expand]
-    runs-on: self-hosted
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.expand.outputs.smokes) }}
-    container:
-      image: ${{ needs.expand.outputs.image }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Offline --help smoke
-        run: |
-          set -euo pipefail
-          /usr/local/bin/cli_container_entrypoint true
-          cd /workspace/cli
-          node dist/index.js ${{ matrix.argv }} > /dev/null
-          echo "exit 0: hyper ${{ matrix.argv }}"
-
-  # Expands the smoke matrix and the containered job's image ref (kept tiny and
-  # separate; runs on the runner, not in the image, so it can emit job-level
-  # expressions). Everything here must exist before any `${{ needs.expand }}`
-  # reference resolves.
+  # Expands the smoke matrix and the full image ref. Runs on the runner so
+  # downstream jobs can `docker run "${{ needs.expand.outputs.image }}" ...`.
   expand:
     name: cli / expand
     runs-on: self-hosted
     timeout-minutes: 5
     outputs:
       smokes: ${{ steps.matrices.outputs.smokes }}
-      image: ${{ needs.expand.outputs.image }}
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Expand cli/tests/ci-matrix.json into the smoke matrix
@@ -202,22 +128,122 @@ jobs:
               | sha256sum | cut -c1-16)" \
             >> "${GITHUB_OUTPUT}"
 
+  # One gate per command group: the group's vitest files plus the bare
+  # `node dist/index.js <group> --help` smoke, inside the shared image.
+  gate:
+    name: cli / ${{ matrix.group }}
+    needs: [image, expand]
+    runs-on: self-hosted
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: core
+          - group: me
+          - group: configure
+          - group: skills
+          - group: agents
+          - group: jobs
+          - group: flow
+          - group: files
+          - group: voice
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
+      - name: Run the group's vitest files (from ci-matrix.json)
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc '
+              set -euo pipefail
+              cd /workspace/cli
+              tests="$(node -p "require(\"./tests/ci-matrix.json\").groups[\"${{ matrix.group }}\"].tests.map((t) => \"tests/\" + t + \".test.ts\").join(\" \")")"
+              if [ -n "${tests}" ]; then
+                npx vitest run ${tests}
+              else
+                echo "no vitest files declared for group ${{ matrix.group }} in tests/ci-matrix.json"
+              fi
+            '
+
+      - name: Bare group --help smoke (offline, no API key)
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.group }}" = "core" ]; then
+            CMD='node dist/index.js > /dev/null && node dist/index.js --help > /dev/null'
+          else
+            CMD='node dist/index.js ${{ matrix.group }} --help > /dev/null'
+          fi
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc "set -euo pipefail; cd /workspace/cli; ${CMD}"
+
+  # Subcommand matrix: every non-bare smoke in the manifest, one check per
+  # subcommand, inside the shared image.
+  smoke:
+    name: cli / ${{ matrix.name }}
+    needs: [image, expand]
+    runs-on: self-hosted
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.expand.outputs.smokes) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
+      - name: Offline --help smoke
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc "set -euo pipefail; cd /workspace/cli; node dist/index.js ${{ matrix.argv }} > /dev/null; echo \"exit 0: hyper ${{ matrix.argv }}\""
+
   # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:
     name: cli / pack
     needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 20
-    container:
-      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
       - name: Pack gate (npm pack --dry-run assertions)
         run: |
           set -euo pipefail
-          /usr/local/bin/cli_container_entrypoint true
-          cd /workspace/cli
-          npx vitest run tests/pack.test.ts
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc "set -euo pipefail; cd /workspace/cli; npx vitest run tests/pack.test.ts"
 
   # LF-only house rule gate.
   line-endings:
@@ -225,16 +251,24 @@ jobs:
     needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 10
-    container:
-      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
       - name: Line endings gate
         run: |
           set -euo pipefail
-          /usr/local/bin/cli_container_entrypoint true
-          cd /workspace/cli
-          npx vitest run tests/line-endings.test.ts
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc "set -euo pipefail; cd /workspace/cli; npx vitest run tests/line-endings.test.ts"
 
   # tsc --noEmit for the CLI.
   typecheck:
@@ -242,31 +276,47 @@ jobs:
     needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 15
-    container:
-      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
       - name: Typecheck
         run: |
           set -euo pipefail
-          /usr/local/bin/cli_container_entrypoint true
-          cd /workspace/cli
-          npm run typecheck
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc "set -euo pipefail; cd /workspace/cli; npm run typecheck"
 
   # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts),
   # gated on every other check above.
   test:
     name: cli / test
-    needs: [gate, smoke, pack, line-endings, typecheck, expand]
+    needs: [gate, smoke, pack, line-endings, typecheck]
     runs-on: self-hosted
     timeout-minutes: 25
-    container:
-      image: ${{ needs.expand.outputs.image }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
       - name: Full vitest suite
         run: |
           set -euo pipefail
-          /usr/local/bin/cli_container_entrypoint true
-          cd /workspace/cli
-          npx vitest run
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            --entrypoint /usr/local/bin/cli_container_entrypoint \
+            "${{ needs.expand.outputs.image }}" \
+            bash -lc "set -euo pipefail; cd /workspace/cli; npx vitest run"
