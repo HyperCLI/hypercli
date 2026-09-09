@@ -69,7 +69,7 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install -e "sdk[dev]" -e cli
+          python -m pip install -e "sdk[dev]" -e py-cli
 
       - name: Run Python SDK and CLI unit tests
         run: |
@@ -88,10 +88,10 @@ jobs:
             sdk/tests/test_workspaces.py \
             sdk/tests/test_exec_shell_dryrun.py \
             sdk/tests/test_repository_integrity.py \
-            cli/tests/test_llm_command.py \
-            cli/tests/test_jobs_list_tags.py \
-            cli/tests/test_workspaces_command.py \
-            cli/tests/test_exec_shell_dryrun.py
+            py-cli/tests/test_llm_command.py \
+            py-cli/tests/test_jobs_list_tags.py \
+            py-cli/tests/test_workspaces_command.py \
+            py-cli/tests/test_exec_shell_dryrun.py
 
   rust-sdk-unit:
     name: Rust SDK and Buzz provider

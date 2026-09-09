@@ -134,10 +134,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf sdk/dist cli/dist
+          rm -rf sdk/dist py-cli/dist
           python -m build sdk
-          python -m build cli
-          python -m twine check sdk/dist/* cli/dist/*
+          python -m build py-cli
+          python -m twine check sdk/dist/* py-cli/dist/*
 
       - name: Publish TS SDK to npm
         working-directory: ${{ github.workspace }}/${{ env.RELEASE_WORKDIR }}/ts-sdk
@@ -158,7 +158,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m twine upload sdk/dist/*
-          python -m twine upload cli/dist/*
+          python -m twine upload py-cli/dist/*
 
       - name: Release summary
         shell: bash
