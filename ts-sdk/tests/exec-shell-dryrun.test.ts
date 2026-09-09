@@ -1377,15 +1377,17 @@ describe('HyperClaw agents SDK', () => {
 
   it('logsConnect uses configured agents websocket base', async () => {
     const post = vi.fn().mockResolvedValue({
-      token: 'jwt-logs',
-      ws_url: 'wss://wrong-host.example/ws/logs/agent-1?token=jwt-logs',
+      agent_id: 'agent-1',
+      token: 'logs-token',
+      expires_at: '2026-09-09T00:00:00Z',
+      ws_url: 'wss://api.agents.dev.hypercli.com/ws/logs/agent-1',
     });
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
     const ws = await agents.logsConnect('agent-1', { container: 'reef', tailLines: 400 });
 
     expect(post).toHaveBeenCalledWith('/deployments/agent-1/logs/token');
-    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/logs/agent-1?token=jwt-logs&container=reef&tail_lines=400');
+    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/logs/agent-1?token=logs-token&container=reef&tail_lines=400');
   });
 
   it('file operations mint fresh credentials and use the direct Reef API', async () => {

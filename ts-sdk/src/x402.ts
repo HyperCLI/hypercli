@@ -369,7 +369,9 @@ export class X402Client {
     if (auth) jobPayload.auth = auth;
     if (registryAuth) jobPayload.registry_auth = registryAuth;
 
-    const data = await x402Post(this.apiUrl, '/api/x402/job', { amount, job: jobPayload }, signer, this.timeout);
+    // POST /api/x402/job takes a FLAT JobCreateRequest; the price comes from the
+    // x402 payment challenge, not from a client-sent amount field.
+    const data = await x402Post(this.apiUrl, '/api/x402/job', jobPayload, signer, this.timeout);
 
     return {
       job: jobFromX402(data),

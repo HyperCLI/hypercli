@@ -53,6 +53,73 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export interface ShellSessionOptions {
+  /** Shell executable (default: '/bin/bash'). */
+  shell?: string;
+  /** Callback for stdout/stderr output data. */
+  onOutput?: (data: string) => void;
+  /** Callback when the shell closes (receives a reason string). */
+  onClose?: (reason: string) => void;
+}
+
+/**
+ * Ergonomic job shell session: wraps the raw shell WebSocket with a read loop,
+ * output/close callbacks, send(), and resize(). Use Jobs.shellSession() to
+ * connect; shellConnect() remains available when the raw WebSocket is needed.
+ */
+export class ShellSession {
+  private closedFlag = false;
+
+  constructor(
+    private readonly ws: WebSocket,
+    private readonly onOutput?: (data: string) => void,
+    private readonly onClose?: (reason: string) => void,
+  ) {
+    ws.on('message', (data: WebSocket.RawData) => {
+      if (this.closedFlag) return;
+      const text = typeof data === 'string' ? data : Buffer.from(data as Buffer).toString('utf8');
+      this.onOutput?.(text);
+    });
+    ws.on('close', (code: number, reason: Buffer) => {
+      if (this.closedFlag) return;
+      const reasonText = reason?.toString();
+      this.closedFlag = true;
+      this.onClose?.(reasonText || `code ${code}`);
+    });
+    ws.on('error', (error: Error) => {
+      if (this.closedFlag) return;
+      this.closedFlag = true;
+      this.onClose?.(String(error?.message || error));
+    });
+  }
+
+  get closed(): boolean {
+    return this.closedFlag;
+  }
+
+  /** Send stdin data to the shell. */
+  send(data: string): void {
+    if (this.closedFlag) return;
+    this.ws.send(data);
+  }
+
+  /** Send terminal resize (xterm control sequence). */
+  resize(cols: number, rows: number): void {
+    if (this.closedFlag) return;
+    this.ws.send(`\x1b[8;${rows};${cols}t`);
+  }
+
+  /** Close the shell session. */
+  close(): void {
+    this.closedFlag = true;
+    try {
+      this.ws.close();
+    } catch {
+      // already closed
+    }
+  }
+}
+
 export interface CreateJobOptions {
   image: string;
   command?: string;
@@ -332,6 +399,16 @@ export class Jobs {
       timeout,
     });
     return execResultFromDict(data);
+  }
+
+  /**
+   * Connect to a job shell and return an ergonomic ShellSession wrapper with
+   * output/close callbacks, a read loop, and resize support. Use shellConnect()
+   * when the raw WebSocket is needed instead.
+   */
+  async shellSession(jobId: string, options: ShellSessionOptions = {}): Promise<ShellSession> {
+    const ws = await this.shellConnect(jobId, options.shell ?? '/bin/bash');
+    return new ShellSession(ws, options.onOutput, options.onClose);
   }
 
   /**

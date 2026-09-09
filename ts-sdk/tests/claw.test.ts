@@ -766,12 +766,13 @@ describe('HyperAgent API', () => {
     }
   });
 
-  it('keeps trial-start mutations out of the public SDK surface', () => {
+  it('exposes Stripe trial checkout and a deprecated claim stub', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents') as any;
 
-    expect(agent.claimTrialEntitlement).toBeUndefined();
-    expect(agent.createStripeTrialCheckout).toBeUndefined();
+    expect(typeof agent.createStripeTrialCheckout).toBe('function');
+    expect(typeof agent.claimTrialEntitlement).toBe('function');
+    await expect(agent.claimTrialEntitlement()).rejects.toThrow(/deprecated/);
   });
 
   it('creates a Stripe billing portal session for payment method updates', async () => {

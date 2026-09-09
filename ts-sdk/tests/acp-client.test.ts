@@ -235,7 +235,7 @@ afterEach(async () => {
 });
 
 describe('CodingAgent.acpConnect', () => {
-  it('dials the /ws bridge with bearer auth and agent_id, then completes the initialize handshake', async () => {
+  it('dials the /ws bridge with token query auth and agent_id, then completes the initialize handshake', async () => {
     const bridge = await startBridge();
     const updates: string[] = [];
     const client = track(await acpAgent(bridge).acpConnect({ onUpdate: () => updates.push('u') }));
@@ -243,10 +243,10 @@ describe('CodingAgent.acpConnect', () => {
     expect(client.connected).toBe(true);
     expect(bridge.peers).toHaveLength(1);
     const upgrade = bridge.upgrades[0];
-    expect(upgrade.headers.authorization).toBe('Bearer hyper_api_test');
     const url = new URL(upgrade.url ?? '', 'http://127.0.0.1');
     expect(url.pathname).toBe('/ws');
     expect(url.searchParams.get('agent_id')).toBe(AGENT_ID);
+    expect(url.searchParams.get('token')).toBe('hyper_api_test');
 
     const init = bridge.currentPeer.framesFor('initialize');
     expect(init).toHaveLength(1);

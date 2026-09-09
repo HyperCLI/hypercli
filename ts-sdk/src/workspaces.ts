@@ -5,6 +5,17 @@ import { requestWithRetry } from './http.js';
 import { APIError } from './errors.js';
 import { getAgentsApiBaseUrl } from './config.js';
 
+// Node-only builtins are loaded through an opaque specifier so browser bundles
+// (console, desktop webview) never try to resolve them; the sync helpers below
+// throw a clear error when called outside Node.
+async function loadNodeBuiltin<T>(moduleName: string): Promise<T> {
+  try {
+    return (await import(moduleName)) as T;
+  } catch {
+    throw new Error(`shared knowledge sync requires a Node.js runtime (${moduleName} is unavailable)`);
+  }
+}
+
 function envValue(key: string): string | undefined {
   const maybeProcess = globalThis as unknown as { process?: { env?: Record<string, string | undefined> } };
   return maybeProcess.process?.env?.[key];
@@ -740,6 +751,91 @@ export class WorkspacesAPI {
 
   async deleteFile(workspaceRef: string, fileRef: string, subject: WorkspaceSubjectOptions = {}): Promise<void> {
     await this.request('DELETE', `/${encodeRef(workspaceRef)}/files/${encodeFileRef(fileRef)}`, subject);
+  }
+
+  /**
+   * Get raw metadata for one file (`POST /workspaces/meta`).
+   */
+  async meta(
+    workspaceRef: string,
+    fileRef: string,
+    subject: WorkspaceSubjectOptions = {},
+  ): Promise<Record<string, any>> {
+    return await this.request('POST', '/meta', subject, { workspace: workspaceRef, path: fileRef });
+  }
+
+  /**
+   * Write every Markdown projection for a workspace to
+   * `<outputDir>/<workspace_slug>/<path>.md` and return the written paths.
+   */
+  async syncManifest(
+    workspaceRef: string,
+    outputDir: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { readyOnly?: boolean } = {},
+  ): Promise<string[]> {
+    // Node-only: keep this module browser-importable by loading fs/path lazily
+    // with an opaque specifier so browser bundles skip these imports.
+    const fs = await loadNodeBuiltin<typeof import('node:fs')>('node:fs');
+    const path = await loadNodeBuiltin<typeof import('node:path')>('node:path');
+    const manifest = await this.manifest(workspaceRef, subject);
+    const workspaceRoot = path.join(outputDir, manifest.workspaceSlug);
+    const written: string[] = [];
+    for (const markdownFile of manifest.markdownFiles) {
+      if (!markdownFile || typeof markdownFile !== 'object') continue;
+      if (options.readyOnly && markdownFile.state !== 'processed') continue;
+      const markdownPath = normalizePosixPath(String(markdownFile.path || ''));
+      if (!markdownPath) {
+        throw new Error('Workspace manifest markdown entry is missing a path');
+      }
+      const target = path.resolve(workspaceRoot, ...`${markdownPath}.md`.split('/').filter(Boolean));
+      const rootResolved = path.resolve(workspaceRoot);
+      if (target !== rootResolved && !target.startsWith(rootResolved + path.sep)) {
+        throw new Error(`Unsafe markdown path: ${markdownPath}.md`);
+      }
+      let body: string;
+      try {
+        const response = await requestWithRetry({
+          method: 'POST',
+          url: `${this.apiBase}/tomd`,
+          headers: this.headers(subject),
+          body: { workspace: workspaceRef, path: markdownFile.path, index: 1 },
+          retries: options.readyOnly ? 1 : 3,
+          timeout: this.timeout,
+        });
+        body = new TextDecoder().decode(await handleBytesResponse(response));
+      } catch (error) {
+        if (
+          options.readyOnly &&
+          error instanceof APIError &&
+          error.statusCode === 404 &&
+          String(error.detail ?? '').toLowerCase().includes('workspace markdown not found')
+        ) {
+          continue;
+        }
+        throw error;
+      }
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, body, 'utf8');
+      written.push(target);
+    }
+    return written;
+  }
+
+  /**
+   * Sync every shared Markdown collection to `<outputDir>/<slug>/...`.
+   * Returns a map from workspace slug to written file paths.
+   */
+  async syncAll(
+    outputDir: string,
+    subject: WorkspaceSubjectOptions = {},
+    options: { readyOnly?: boolean } = {},
+  ): Promise<Record<string, string[]>> {
+    const synced: Record<string, string[]> = {};
+    for (const workspace of await this.list(subject)) {
+      synced[workspace.slug] = await this.syncManifest(workspace.id, outputDir, subject, options);
+    }
+    return synced;
   }
 
   async markdownFile(

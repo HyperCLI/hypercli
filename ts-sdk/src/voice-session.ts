@@ -21,7 +21,7 @@ export interface VoiceChunkEvent {
 export interface VoiceSessionOptions {
   /** Agents WS base, e.g. wss://api.agents.hypercli.com/ws */
   wsUrl: string;
-  /** API key (hyper_api_...) or JWT. */
+  /** API key (hyper_api_...) or opaque access token. */
   credential: string;
   /** Per-request timeout in milliseconds (default 300 000). */
   timeoutMs?: number;
@@ -144,7 +144,9 @@ export class VoiceSession {
       }
       loadNodeWebSocket()
         .then((NodeSocket) => {
-          const ws = new NodeSocket(`${this.wsUrl}/voice`, {
+          // Send the credential as both ?token= and an Authorization: Bearer
+          // header so either server-side probe shape accepts the session.
+          const ws = new NodeSocket(`${this.wsUrl}/voice?token=${encodeURIComponent(this.credential)}`, {
             headers: { Authorization: `Bearer ${this.credential}` },
           });
           this.ws = ws;

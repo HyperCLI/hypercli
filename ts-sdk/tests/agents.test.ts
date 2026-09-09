@@ -2193,6 +2193,8 @@ describe('Agents SDK', () => {
     });
 
     expect(agent.id).toBe('agent-123');
+    // The backend UpdateAgentRequest is extra="forbid": only name/handle/size/
+    // launch_config may be sent; refresh_from_lagoon is dropped client-side.
     expect((http.patch as any).mock.calls[0]).toEqual([
       '/deployments/agent-123',
       {
@@ -2202,10 +2204,11 @@ describe('Agents SDK', () => {
           image: 'ghcr.io/hypercli/hypercli-openclaw:custom',
           env: { FOO: 'bar' },
         },
-        refresh_from_lagoon: true,
       },
     ]);
     expect((http.patch as any).mock.calls[0][1]).not.toHaveProperty('display_name');
+    expect((http.patch as any).mock.calls[0][1]).not.toHaveProperty('refresh_from_lagoon');
+    expect((http.patch as any).mock.calls[0][1]).not.toHaveProperty('error');
   });
 
   it('uploads profile images through the deployments API', async () => {

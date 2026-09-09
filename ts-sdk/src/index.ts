@@ -47,6 +47,8 @@ export {
   type JobLifecycleEvent,
   type CreateJobOptions,
   type ListJobsOptions,
+  ShellSession,
+  type ShellSessionOptions,
   findJob,
   findById,
   findByHostname,
@@ -496,6 +498,9 @@ export {
   applyParams,
   applyGraphModes,
   graphToApi,
+  loadTemplate,
+  expandSubgraphs,
+  valueMatchesType,
 } from './job/comfyui.js';
 
 export {
@@ -600,3 +605,36 @@ export {
 
 export * from './openclaw/slack.js';
 export * from './openclaw/whatsapp.js';
+export {
+  EGRESS_COMMANDS,
+  EGRESS_HTTP_FETCH_COMMAND,
+  EGRESS_TCP_CLOSE_COMMAND,
+  EGRESS_TCP_OPEN_COMMAND,
+  EGRESS_TCP_READ_COMMAND,
+  EGRESS_TCP_WRITE_COMMAND,
+  DEFAULT_CHUNK_BYTES,
+  DEFAULT_INVOKE_TIMEOUT_MS,
+  DEFAULT_MAX_HTTP_BYTES,
+  DEFAULT_TCP_READ_BYTES,
+  DEFAULT_TCP_READ_WAIT_MS,
+  DEFAULT_TCP_TTL_SECONDS,
+  MAX_CHUNK_BYTES,
+  MAX_HTTP_BYTES,
+  MAX_TCP_CONNECTIONS,
+  MAX_TCP_READ_BYTES,
+  EgressPolicyError,
+  EgressProtocolError,
+  NodeEgressCommandHandlers,
+  NodeEgressServer,
+  NodeEgressClient,
+  LoopbackNodeProxy,
+  EgressCommandHandlers,
+  EgressNodeServer,
+  EgressNodeClient,
+  assertPublicDestination,
+  type NodeEgressCommandHandlerOptions,
+  type NodeEgressServerOptions,
+  type NodeEgressClientOptions,
+  type NodeEgressHttpFetchOptions,
+  type LoopbackNodeProxyOptions,
+} from './openclaw/node-proxy.js';

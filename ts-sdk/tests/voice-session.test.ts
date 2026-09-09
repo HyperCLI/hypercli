@@ -72,6 +72,30 @@ describe('VoiceSession', () => {
     expect(received[0]).toMatchObject({ type: 'speak', text: 'Hello. World.', voice: 'serena', chunks: true });
   });
 
+  it('sends the credential as both ?token= and an Authorization header in Node', async () => {
+    const upgrade: { url?: string; authorization?: string } = {};
+    await new Promise<void>((resolve) => {
+      server = new WebSocketServer({ port: 0 }, () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+        url = `ws://127.0.0.1:${port}`;
+        resolve();
+      });
+      server.on('connection', (ws, req) => {
+        upgrade.url = req.url;
+        upgrade.authorization = req.headers.authorization;
+        ws.close(1000);
+      });
+    });
+
+    const session = new VoiceSession({ wsUrl: url, credential: 'hyper_api_test' });
+    await session.open();
+    session.close();
+
+    expect(upgrade.url).toBe('/voice?token=hyper_api_test');
+    expect(upgrade.authorization).toBe('Bearer hyper_api_test');
+  });
+
   it('throws VoiceStreamError on server error', async () => {
     await startServer((ws, message) => {
       if (message.type !== 'speak') return;

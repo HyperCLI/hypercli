@@ -82,12 +82,21 @@ function userFromDict(data: any): User {
 }
 
 function authMeFromDict(data: any): AuthMe {
-  const runtime = data?.runtime && typeof data.runtime === 'object'
-    ? {
-        runtime: data.runtime.runtime || '',
-        agentId: data.runtime.agent_id || null,
-      }
-    : null;
+  // Tolerate both the nested `runtime` object and top-level runtime fields;
+  // the backend has served both shapes.
+  let runtime: RuntimeIdentity | null = null;
+  const runtimeValue = data?.runtime;
+  if (runtimeValue && typeof runtimeValue === 'object') {
+    runtime = {
+      runtime: String(runtimeValue.runtime || ''),
+      agentId: runtimeValue.agent_id || runtimeValue.agentId || null,
+    };
+  } else if (typeof runtimeValue === 'string' && runtimeValue.trim()) {
+    runtime = {
+      runtime: runtimeValue.trim(),
+      agentId: data?.agent_id || data?.runtime_agent_id || null,
+    };
+  }
   return {
     userId: data.user_id || '',
     orchestraUserId: data.orchestra_user_id || null,

@@ -1114,7 +1114,9 @@ export interface UpdateAgentOptions {
   handle?: string | null;
   size?: string;
   launchConfig?: Record<string, any> | null;
+  /** @deprecated Not accepted by the backend (UpdateAgentRequest is extra="forbid"); ignored. */
   refreshFromLagoon?: boolean;
+  /** @deprecated Not accepted by the backend (UpdateAgentRequest is extra="forbid"); ignored. */
   error?: string | null;
 }
 
@@ -5344,6 +5346,9 @@ export class Deployments {
       } catch (error) {
         if (options.signal?.aborted) break;
         if (error instanceof APIError && [401, 403].includes(error.statusCode)) throw error;
+        if (error instanceof Error && error.message === 'Backend returned an invalid deployment event token response') {
+          throw error;
+        }
         await waitBeforeReconnect();
         void error;
       }
@@ -5726,13 +5731,13 @@ export class Deployments {
   }
 
   async update(agentIdOrName: string, options: UpdateAgentOptions = {}): Promise<Agent> {
+    // Only fields the backend UpdateAgentRequest accepts (it is extra="forbid"):
+    // name, handle, size, launch_config. refresh_from_lagoon/error are rejected.
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
     if (options.handle !== undefined) body.handle = options.handle;
     if (options.size !== undefined) body.size = options.size;
     if (options.launchConfig !== undefined) body.launch_config = options.launchConfig;
-    if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
-    if (options.error !== undefined) body.error = options.error;
     const agentId = await this.resolveAgentId(agentIdOrName);
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
     return this.hydrateAgent(data);

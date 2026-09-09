@@ -68,6 +68,64 @@ describe('Renders subscription routing', () => {
     expect(calls[1]).toEqual(['post', '/agents/flow/text-to-image', { prompt: 'hello' }]);
   });
 
+  it('routes audio-to-text and text-to-speech through the same subscription-aware flow path', async () => {
+    const calls: Array<[string, string, any?]> = [];
+    const http = {
+      get: async (path: string) => {
+        calls.push(['get', path]);
+        return {
+          auth_type: 'user',
+          capabilities: [],
+          has_active_subscription: true,
+        };
+      },
+      post: async (path: string, body: any) => {
+        calls.push(['post', path, body]);
+        return { id: 'render-audio', state: 'queued' };
+      },
+      delete: async (_path: string) => ({ status: 'cancelled' }),
+    };
+
+    const renders = new Renders(http as any);
+    await renders.audioToText({ audioUrl: 'https://example.com/recording.mp3' });
+    await renders.textToSpeech({ text: 'Hello!', mode: 'design', voiceDescription: 'warm voice' });
+
+    const posts = calls.filter(([method]) => method === 'post');
+    expect(posts[0][1]).toBe('/agents/flow/audio-to-text');
+    expect(posts[0][2]).toMatchObject({ audio_url: 'https://example.com/recording.mp3' });
+    expect(posts[1][1]).toBe('/agents/flow/text-to-speech');
+    expect(posts[1][2]).toMatchObject({ text: 'Hello!', mode: 'design', voice_description: 'warm voice' });
+  });
+
+  it('routes audio flows to /api/flow when the credential has no flows capability', async () => {
+    const posts: Array<[string, any]> = [];
+    const http = {
+      get: async (path: string) => {
+        if (path === '/api/auth/me') {
+          return {
+            auth_type: 'api_key',
+            capabilities: ['models:*'],
+            has_active_subscription: false,
+          };
+        }
+        return { id: 'render-audio', state: 'queued' };
+      },
+      post: async (path: string, body: any) => {
+        posts.push([path, body]);
+        return { id: 'render-audio', state: 'queued' };
+      },
+      delete: async (_path: string) => ({ status: 'cancelled' }),
+    };
+
+    const renders = new Renders(http as any);
+    await renders.audioToText({ fileIds: ['file-1'] });
+    await renders.textToSpeech({ text: 'Hi' });
+
+    expect(posts[0][0]).toBe('/api/flow/audio-to-text');
+    expect(posts[0][1]).toMatchObject({ file_ids: ['file-1'] });
+    expect(posts[1][0]).toBe('/api/flow/text-to-speech');
+  });
+
   it('falls back to paid flow on subscription rejection', async () => {
     const calls: Array<[string, string, any?]> = [];
     let first = true;

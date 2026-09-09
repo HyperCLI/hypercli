@@ -40,4 +40,31 @@ describe('User auth me API', () => {
     expect(authMe.hasActiveSubscription).toBe(true);
     expect(authMe.keyId).toBe('key-123');
   });
+
+  it('tolerates top-level runtime fields when the nested runtime object is absent', async () => {
+    const http = {
+      get: async () => ({
+        user_id: 'user-top',
+        runtime: 'agent',
+        agent_id: 'agent-top',
+      }),
+    };
+
+    const authMe = await new UserAPI(http as any).authMe();
+
+    expect(authMe.runtime).toEqual({ runtime: 'agent', agentId: 'agent-top' });
+    expect(isRuntimeAgent(authMe)).toBe(true);
+    expect(runtimeAgentId(authMe)).toBe('agent-top');
+  });
+
+  it('returns null runtime when neither shape is present', async () => {
+    const http = {
+      get: async () => ({ user_id: 'user-plain' }),
+    };
+
+    const authMe = await new UserAPI(http as any).authMe();
+
+    expect(authMe.runtime).toBeNull();
+    expect(isRuntimeAgent(authMe)).toBe(false);
+  });
 });

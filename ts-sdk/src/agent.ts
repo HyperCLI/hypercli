@@ -1522,6 +1522,35 @@ export class HyperAgent {
     return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
   }
 
+  /**
+   * Create the account's one-time Team trial checkout.
+   *
+   * Maps to `POST {agentsBase}/stripe/trial` and returns a Stripe `checkout_url`.
+   */
+  async createStripeTrialCheckout(
+    options: { successUrl?: string; cancelUrl?: string } = {},
+  ): Promise<HyperAgentStripeCheckoutResponse> {
+    return hyperAgentStripeCheckoutResponseFromDict(
+      await this.controlPost('/stripe/trial', {
+        ...(options.successUrl !== undefined ? { success_url: options.successUrl } : {}),
+        ...(options.cancelUrl !== undefined ? { cancel_url: options.cancelUrl } : {}),
+      }),
+    );
+  }
+
+  /**
+   * @deprecated The backend trial-claim endpoint (`/agents/plans/trial`) does not
+   * exist and is being removed from the SDKs. Use createStripeTrialCheckout()
+   * instead. This stub always throws.
+   */
+  async claimTrialEntitlement(): Promise<HyperAgentEntitlement> {
+    const message =
+      'claimTrialEntitlement is deprecated: the backend has no /agents/plans/trial endpoint. ' +
+      'Use createStripeTrialCheckout() to start the Stripe-backed trial instead.';
+    console.warn(`[hypercli] ${message}`);
+    throw new Error(message);
+  }
+
   async createStripeBillingPortalSession(
     request: HyperAgentStripeBillingPortalSessionRequest,
   ): Promise<HyperAgentStripeBillingPortalSessionResponse> {
