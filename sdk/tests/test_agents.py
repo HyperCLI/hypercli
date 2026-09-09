@@ -675,7 +675,9 @@ def test_explicit_lifecycle_methods_use_distinct_endpoints_and_states(monkeypatc
         ]
     )
     post = Mock(side_effect=lambda *_args, **_kwargs: next(responses))
+    patch = Mock(return_value={"id": agent_id, "user_id": "user-456", "state": "STOPPED"})
     monkeypatch.setattr(deployments, "_post", post)
+    monkeypatch.setattr(deployments, "_patch", patch)
 
     assert deployments.create(name="matrix-agent").state == "CREATING"
     launch_config = build_agent_config()
@@ -687,14 +689,18 @@ def test_explicit_lifecycle_methods_use_distinct_endpoints_and_states(monkeypatc
     assert post.call_args_list[0].kwargs["json"]["name"] == "matrix-agent"
     assert "start" not in post.call_args_list[0].kwargs["json"]
     assert post.call_args_list[1:] == [
-        call(
-            f"/deployments/{agent_id}/start",
-            json={"launch_config": launch_config},
-        ),
+        call(f"/deployments/{agent_id}/start"),
         call(f"/deployments/{agent_id}/stop"),
         call(f"/deployments/{agent_id}/archive"),
         call(f"/deployments/{agent_id}/restore"),
     ]
+    expected_launch_config = copy.deepcopy(launch_config)
+    expected_launch_config.pop("image", None)
+    expected_launch_config.pop("registry_url", None)
+    patch.assert_called_once_with(
+        f"/deployments/{agent_id}",
+        json={"launch_config": expected_launch_config},
+    )
 
 
 def test_start_rejects_partial_config_and_preserves_explicit_empty_maps():
@@ -710,16 +716,45 @@ def test_start_rejects_partial_config_and_preserves_explicit_empty_maps():
     launch_config = build_agent_config()
     with patch.object(
         deployments,
+        "_patch",
+        return_value={"id": agent_id, "state": "STOPPED"},
+    ) as patch_update, patch.object(
+        deployments,
+        "_post",
+        return_value={"id": agent_id, "state": "STARTING"},
+        ) as post:
+            deployments.start(agent_id, launch_config)
+    expected_launch_config = copy.deepcopy(launch_config)
+    expected_launch_config.pop("image", None)
+    expected_launch_config.pop("registry_url", None)
+    patch_update.assert_called_once_with(
+        f"/deployments/{agent_id}",
+        json={"launch_config": expected_launch_config},
+    )
+    post.assert_called_once_with(f"/deployments/{agent_id}/start")
+    assert launch_config["env"] == {}
+    assert launch_config["secrets"] == {}
+
+
+def test_start_posts_bodyless_and_preserves_dry_run_option():
+    deployments = Deployments(
+        MagicMock(spec=HTTPClient),
+        api_key="hyper_api_test",
+        api_base="https://api.test.hypercli.com/agents",
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    with patch.object(
+        deployments,
         "_post",
         return_value={"id": agent_id, "state": "STARTING"},
     ) as post:
-        deployments.start(agent_id, launch_config)
-    post.assert_called_once_with(
-        f"/deployments/{agent_id}/start",
-        json={"launch_config": launch_config},
-    )
-    assert launch_config["env"] == {}
-    assert launch_config["secrets"] == {}
+        deployments.start(agent_id)
+        deployments.start(agent_id, dry_run=True)
+
+    assert post.call_args_list == [
+        call(f"/deployments/{agent_id}/start"),
+        call(f"/deployments/{agent_id}/start", json={"dry_run": True}),
+    ]
 
 
 def test_bound_agent_exposes_archive_transitional_projection():
@@ -1914,6 +1949,10 @@ def test_start_openclaw_repairs_gateway_route_in_custom_complete_launch_config(a
             "hostname": "openclaw-test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
+        mock_patch_response = Mock()
+        mock_patch_response.status_code = 200
+        mock_patch_response.json.return_value = {"id": "agent-123", "state": "stopped"}
+        mock_client.patch.return_value = mock_patch_response
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
@@ -1922,13 +1961,25 @@ def test_start_openclaw_repairs_gateway_route_in_custom_complete_launch_config(a
         launch_config = build_agent_config(image="ghcr.io/acme/openclaw:custom")
         agents_client.start_openclaw("agent-123", launch_config)
 
-        sent = mock_client.post.call_args[1]["json"]["launch_config"]
-        assert sent["image"] == "ghcr.io/acme/openclaw:custom"
+        sent = mock_client.patch.call_args[1]["json"]["launch_config"]
+        assert "image" not in sent
+        assert "registry_url" not in sent
         assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
+        assert mock_client.post.call_args[1]["json"] is None
 
 
-def test_start_openclaw_repairs_managed_image_from_desktop_gate(agents_client):
+def test_start_openclaw_preserves_immutable_image_from_desktop_gate(agents_client):
+    patched: dict = {}
     posted: dict = {}
+
+    def fake_patch(_path, json=None):
+        patched.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STOPPED",
+            "runtime": "openclaw-pro",
+        }
 
     def fake_post(_path, json=None):
         posted.update(json or {})
@@ -1940,6 +1991,7 @@ def test_start_openclaw_repairs_managed_image_from_desktop_gate(agents_client):
         }
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     launch_config = build_agent_config(
         image="ghcr.io/hypercli/hypercli-openclaw:pro-latest",
         env={"HYPER_DESKTOP_ENABLED": "1"},
@@ -1950,9 +2002,11 @@ def test_start_openclaw_repairs_managed_image_from_desktop_gate(agents_client):
         launch_config,
     )
 
-    sent = posted["launch_config"]
-    assert sent["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+    sent = patched["launch_config"]
+    assert "image" not in sent
+    assert "registry_url" not in sent
     assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
+    assert posted == {}
 
 
 def test_start_openclaw_preserves_restart_policy(agents_client):
@@ -1966,6 +2020,10 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
             "state": "starting",
             "hostname": "buzz-test.hypercli.com",
         }
+        mock_patch_response = Mock()
+        mock_patch_response.status_code = 200
+        mock_patch_response.json.return_value = {"id": "agent-123", "state": "stopped"}
+        mock_client.patch.return_value = mock_patch_response
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
@@ -1980,16 +2038,28 @@ def test_start_openclaw_preserves_restart_policy(agents_client):
         )
         agents_client.start_openclaw("agent-123", launch_config)
 
-        posted_json = mock_client.post.call_args[1]["json"]["launch_config"]
-        assert posted_json["image"] == "ghcr.io/hypercli/hypercli-opencode:latest"
+        posted_json = mock_client.patch.call_args[1]["json"]["launch_config"]
+        assert "image" not in posted_json
+        assert "registry_url" not in posted_json
         assert posted_json["command"] == ["/usr/local/bin/acp"]
         assert posted_json["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
         assert posted_json["restart"] is False
         assert posted_json["runtime_scopes"] == ["models:*"]
+        assert mock_client.post.call_args[1]["json"] is None
 
 
 def test_start_openclaw_pro_requires_complete_launch_config(agents_client):
+    patched: dict = {}
     posted: dict = {}
+
+    def fake_patch(_path, json=None):
+        patched.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STOPPED",
+            "runtime": "openclaw-pro",
+        }
 
     def fake_post(_path, json=None):
         posted.update(json or {})
@@ -2001,13 +2071,16 @@ def test_start_openclaw_pro_requires_complete_launch_config(agents_client):
         }
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     launch_config = build_agent_config()
     agents_client.start_openclaw_pro("11111111-1111-4111-8111-111111111111", launch_config)
 
-    sent = posted["launch_config"]
-    assert sent["image"] == DEFAULT_OPENCLAW_PRO_IMAGE
+    sent = patched["launch_config"]
+    assert "image" not in sent
+    assert "registry_url" not in sent
     assert sent["env"]["HYPER_DESKTOP_ENABLED"] == "1"
     assert sent["routes"] == {"openclaw": {"port": 18789, "auth": False, "prefix": ""}}
+    assert posted == {}
 
 
 @pytest.mark.parametrize(
@@ -2074,7 +2147,17 @@ def test_openclaw_include_takes_precedence(agents_client):
 
 
 def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agents_client):
+    patched: list[dict] = []
     posted: list[dict] = []
+
+    def fake_patch(_path, json=None):
+        patched.append(dict(json or {}))
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STOPPED",
+            "runtime": "openclaw",
+        }
 
     def fake_post(_path, json=None):
         posted.append(dict(json or {}))
@@ -2086,13 +2169,15 @@ def test_start_openclaw_distinguishes_omitted_and_explicit_null_sync_policy(agen
         }
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     agent_id = "11111111-1111-4111-8111-111111111111"
     agents_client.start_openclaw(agent_id, build_agent_config())
     agents_client.start_openclaw(agent_id, build_agent_config(sync_include=None))
 
-    assert "sync_include" not in posted[0]["launch_config"]
-    assert posted[1]["launch_config"]["sync_include"] is None
-    assert "sync_exclude" not in posted[1]["launch_config"]
+    assert "sync_include" not in patched[0]["launch_config"]
+    assert patched[1]["launch_config"]["sync_include"] is None
+    assert "sync_exclude" not in patched[1]["launch_config"]
+    assert posted == [{}, {}]
 
 
 _STORED_AGENT_ID = "11111111-1111-4111-8111-111111111111"
@@ -2136,7 +2221,13 @@ def test_start_rehydrates_redacted_projection_round_trip(agents_client):
     stored.pop("secrets")  # owner-facing projection redacts secret values
     stored.pop("registry_auth", None)  # ...and caller-held registry credentials
     _install_stored_projection(agents_client, stored, secrets={"API_TOKEN": "tok"})
+    patched: dict = {}
     posted: dict = {}
+
+    def fake_patch(path, json=None):
+        patched["path"] = path
+        patched["json"] = json
+        return {"id": _STORED_AGENT_ID, "user_id": "user-456", "state": "STOPPED"}
 
     def fake_post(path, json=None):
         posted["path"] = path
@@ -2144,13 +2235,16 @@ def test_start_rehydrates_redacted_projection_round_trip(agents_client):
         return {"id": _STORED_AGENT_ID, "user_id": "user-456", "state": "STARTING"}
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     agent = agents_client.start(_STORED_AGENT_ID, stored)
 
     assert agent.state == "STARTING"
-    sent = posted["json"]["launch_config"]
+    sent = patched["json"]["launch_config"]
     assert sent["secrets"] == {"API_TOKEN": "tok"}
     assert sent["registry_auth"] == {}
     assert sent["env"] == {"MODE": "prod"}
+    assert posted["path"] == f"{AGENTS_API_PREFIX}/{_STORED_AGENT_ID}/start"
+    assert posted["json"] is None
     assert "secrets" not in stored  # the caller's object is never mutated
 
 
@@ -2159,6 +2253,11 @@ def test_start_honours_explicitly_empty_redactable_keys(agents_client):
     stored = build_agent_config()
     assert stored["secrets"] == {}
     calls = _install_stored_projection(agents_client, stored, secrets={"API_TOKEN": "tok"})
+    agents_client._patch = lambda path, json=None: {
+        "id": _STORED_AGENT_ID,
+        "user_id": "user-456",
+        "state": "STOPPED",
+    }
     agents_client._post = lambda path, json=None: {
         "id": _STORED_AGENT_ID,
         "user_id": "user-456",
@@ -2191,18 +2290,25 @@ def test_start_openclaw_rehydrates_redacted_projection(agents_client):
     _install_stored_projection(
         agents_client, stored, secrets={"OPENCLAW_GATEWAY_TOKEN": "gw-token"}
     )
+    patched: dict = {}
     posted: dict = {}
+
+    def fake_patch(path, json=None):
+        patched["json"] = json
+        return {"id": _STORED_AGENT_ID, "user_id": "user-456", "state": "STOPPED"}
 
     def fake_post(path, json=None):
         posted["json"] = json
         return {"id": _STORED_AGENT_ID, "user_id": "user-456", "state": "STARTING"}
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     agents_client.start_openclaw(_STORED_AGENT_ID, stored)
 
-    sent = posted["json"]["launch_config"]
+    sent = patched["json"]["launch_config"]
     assert sent["secrets"]["OPENCLAW_GATEWAY_TOKEN"] == "gw-token"
     assert sent["registry_auth"] == {}
+    assert posted["json"] is None
 
 
 def test_start_hermes_agent_rehydrates_redacted_projection(agents_client):
@@ -2220,7 +2326,17 @@ def test_start_hermes_agent_rehydrates_redacted_projection(agents_client):
     _install_stored_projection(
         agents_client, stored, secrets={"API_SERVER_KEY": "h" * 43}
     )
+    patched: dict = {}
     posted: dict = {}
+
+    def fake_patch(path, json=None):
+        patched["json"] = json
+        return {
+            "id": _STORED_AGENT_ID,
+            "user_id": "user-456",
+            "state": "STOPPED",
+            "runtime": "hermes-agent",
+        }
 
     def fake_post(path, json=None):
         posted["json"] = json
@@ -2234,11 +2350,13 @@ def test_start_hermes_agent_rehydrates_redacted_projection(agents_client):
         }
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     agent = agents_client.start_hermes_agent(_STORED_AGENT_ID, stored)
 
-    sent = posted["json"]["launch_config"]
+    sent = patched["json"]["launch_config"]
     assert sent["secrets"]["API_SERVER_KEY"] == "h" * 43
     assert sent["registry_auth"] == {}
+    assert posted["json"] is None
     assert isinstance(agent, HermesAgent)
     # The recovered key is returned rather than silently rotated.
     assert agent.api_server_key == "h" * 43
@@ -2749,6 +2867,10 @@ def test_agents_start_stop_delete(agents_client):
             "hostname": "openclaw-test.hypercli.com",
             "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
+        mock_patch_response = Mock()
+        mock_patch_response.status_code = 200
+        mock_patch_response.json.return_value = {"id": "agent-123", "state": "stopped"}
+        mock_client.patch.return_value = mock_patch_response
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
@@ -2762,7 +2884,13 @@ def test_agents_start_stop_delete(agents_client):
         agent = agents_client.start("agent-123", launch_config)
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token is None
-        assert mock_client.post.call_args[1]["json"] == {"launch_config": launch_config}
+        expected_launch_config = copy.deepcopy(launch_config)
+        expected_launch_config.pop("image", None)
+        expected_launch_config.pop("registry_url", None)
+        assert mock_client.patch.call_args[1]["json"] == {
+            "launch_config": expected_launch_config
+        }
+        assert mock_client.post.call_args[1]["json"] is None
 
         mock_response.json.return_value["state"] = "stopping"
         stopped = agents_client.stop("agent-123")
@@ -2872,6 +3000,10 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             "state": "starting",
             "hostname": "generic.hypercli.com",
         }
+        mock_patch_response = Mock()
+        mock_patch_response.status_code = 200
+        mock_patch_response.json.return_value = {"id": "agent-456", "state": "stopped"}
+        mock_client.patch.return_value = mock_patch_response
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
@@ -2889,8 +3021,9 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         agent = agents_client.start("agent-456", launch_config)
 
         assert isinstance(agent, Agent)
-        posted_json = mock_client.post.call_args[1]["json"]["launch_config"]
-        assert posted_json["image"] == "python:3.12-alpine"
+        posted_json = mock_client.patch.call_args[1]["json"]["launch_config"]
+        assert "image" not in posted_json
+        assert "registry_url" not in posted_json
         assert posted_json["command"] == ["sh", "-c", "python -m http.server 80"]
         assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
         assert posted_json["sync_root"] == "/workspace"
@@ -2898,6 +3031,7 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["sync_uid"] == 2000
         assert posted_json["sync_gid"] == 2001
         assert posted_json["restart"] is False
+        assert mock_client.post.call_args[1]["json"] is None
 
 
 @pytest.mark.parametrize(
@@ -2909,7 +3043,16 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
     ],
 )
 def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expected):
+    patched: dict = {}
     posted: dict = {}
+
+    def fake_patch(_path, json=None):
+        patched.update(json or {})
+        return {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "STOPPED",
+        }
 
     def fake_post(_path, json=None):
         posted.update(json or {})
@@ -2920,15 +3063,17 @@ def test_agents_start_preserves_sync_policy_presence(agents_client, kwargs, expe
         }
 
     agents_client._post = fake_post
+    agents_client._patch = fake_patch
     launch_config = build_agent_config(**kwargs)
     agents_client.start("11111111-1111-4111-8111-111111111111", launch_config)
 
     actual = {
         key: value
-        for key, value in posted["launch_config"].items()
+        for key, value in patched["launch_config"].items()
         if key in {"sync_include", "sync_exclude"}
     }
     assert actual == expected
+    assert posted == {}
 
 
 def test_agents_start_rejects_sync_none_shapes(agents_client):
@@ -2974,6 +3119,14 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
                 "restart": False,
             },
         }
+        mock_patch_response = Mock()
+        mock_patch_response.status_code = 200
+        mock_patch_response.json.return_value = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "user_id": "user-456",
+            "state": "stopped",
+        }
+        mock_client.patch.return_value = mock_patch_response
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
@@ -2991,7 +3144,10 @@ def test_agents_start_retains_backend_hydrated_launch_config(agents_client):
             "env": {"BUZZ_RELAY_URL": "wss://buzz.example.test"},
             "restart": False,
         }
-        assert agent._submitted_launch_config == submitted_launch
+        expected_launch_config = copy.deepcopy(submitted_launch)
+        expected_launch_config.pop("image", None)
+        expected_launch_config.pop("registry_url", None)
+        assert agent._submitted_launch_config == expected_launch_config
 
 
 def test_build_agent_launch_rejects_nested_launch_fields():

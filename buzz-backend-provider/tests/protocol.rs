@@ -242,12 +242,20 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
             .to_string(),
         )
         .create();
-    let start = server
-        .mock("POST", "/agents/deployments/fixture-deployment/start")
+    let update = server
+        .mock("PATCH", "/agents/deployments/fixture-deployment")
         .match_header("authorization", "Bearer fixture-hypercli-credential")
         .match_body(Matcher::PartialJson(
             serde_json::json!({"launch_config":{"restart":false}}),
         ))
+        .with_status(200)
+        .with_header("content-type", "application/json")
+        .with_body(r#"{"id":"fixture-deployment","runtime":"goose","state":"stopped"}"#)
+        .create();
+    let start = server
+        .mock("POST", "/agents/deployments/fixture-deployment/start")
+        .match_header("authorization", "Bearer fixture-hypercli-credential")
+        .match_body(Matcher::PartialJson(serde_json::json!({})))
         .with_status(200)
         .with_header("content-type", "application/json")
         .with_body(
@@ -291,6 +299,7 @@ fn deploy_fixture_waits_for_control_plane_readiness() {
     lookup.assert();
     create.assert();
     provisioned.assert();
+    update.assert();
     start.assert();
     ready.assert();
 }

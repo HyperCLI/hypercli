@@ -472,6 +472,7 @@ describe('HyperClaw agents SDK', () => {
   });
 
   it('startOpenClaw repairs the canonical gateway route before sending', async () => {
+    const patch = vi.fn();
     const post = vi.fn().mockResolvedValue({
       id: 'agent-openclaw',
       user_id: 'user-1',
@@ -480,25 +481,25 @@ describe('HyperClaw agents SDK', () => {
       routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     });
     const deployments = new Deployments(
-      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      { patch, post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
       'https://api.dev.hypercli.com',
     );
 
     const launchConfig = buildAgentConfig().config;
     await deployments.startOpenClaw('agent-123', { launchConfig });
+    const { image: _image, registry_url: _registryUrl, ...expectedLaunchConfig } = launchConfig;
 
-    expect(post).toHaveBeenCalledWith(
-      '/deployments/agent-123/start',
+    expect(patch).toHaveBeenCalledWith(
+      '/deployments/agent-123',
       {
         launch_config: {
-          ...launchConfig,
-          image: DEFAULT_OPENCLAW_IMAGE,
+          ...expectedLaunchConfig,
           routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
         },
       },
-      { retries: 1 },
     );
+    expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', undefined, { retries: 1 });
   });
 
   it('hydrates generic and OpenClaw agents correctly', () => {

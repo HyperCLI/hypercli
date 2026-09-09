@@ -1755,7 +1755,9 @@ impl HyperCliClient {
         request: &UpdateDeploymentRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}"));
-        let request_trace = serde_json::to_value(request).ok();
+        let request_trace = serde_json::to_value(request)
+            .ok()
+            .map(redacted_launch_trace);
         let builder = self
             .http
             .patch(&url)
@@ -2033,31 +2035,10 @@ impl HyperCliClient {
         Ok(secrets)
     }
 
-    /// Rebuild the complete replacement launch configuration START requires
-    /// from nothing but an agent's stored projection.
-    ///
-    /// WHY THIS EXISTS -- do not delete it as convenience sugar. The backend's
-    /// owner-facing agent projection deliberately strips `secrets` and
-    /// `registry_auth` before returning an agent to a user-scoped caller
-    /// (`hydrate_managed_agent` pops both), and [`crate::DeploymentLaunchConfig`]
-    /// strips them again so a redacted projection can never be mistaken for a
-    /// launch payload. START, by contrast, is a *full replacement* and demands
-    /// every key. The read side is therefore structurally incapable of
-    /// returning what the write side requires, and this is the only thing that
-    /// closes the loop:
-    ///
-    /// ```no_run
-    /// # use hypercli_sdk::{HyperCliClient, StartDeploymentRequest};
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let client: HyperCliClient = unimplemented!();
-    /// let launch_config = client.stored_launch_config("agent-1", None)?;
-    /// client.start_deployment("agent-1", &StartDeploymentRequest::new(launch_config))?;
-    /// # Ok(()) }
-    /// ```
-    ///
-    /// The fix is to complete the object honestly, never to weaken the
-    /// completeness contract -- START must stay a replacement, not a merge, so
-    /// [`CompleteDeploymentLaunchConfig`] keeps every field required.
+    /// Rehydrate the stored owner-facing launch projection into the typed
+    /// complete launch shape, suitable for callers that want to modify and
+    /// submit a full [`crate::UpdateDeploymentRequest::launch_config`]
+    /// replacement.
     ///
     /// `secrets` are recoverable because values can be read back one name at a
     /// time. `registry_auth` is NOT: it is caller-held, write-only, and never
@@ -2069,8 +2050,7 @@ impl HyperCliClient {
     ///
     /// Legacy projections are canonicalized on the way through: a nullable
     /// `restart` becomes an explicit `false`, and a projection carrying both or
-    /// neither sync policy is reduced to the exactly-one form START accepts
-    /// (includes win; neither becomes the explicit sync-everything exclusion).
+    /// neither sync policy is reduced to the typed exactly-one form.
     pub fn stored_launch_config(
         &self,
         deployment_id: &str,
@@ -2091,7 +2071,7 @@ impl HyperCliClient {
         }
 
         // Legacy projections may still carry the old nullable restart
-        // representation; START receives one explicit boolean.
+        // representation; the typed complete shape uses one explicit boolean.
         if launch.get("restart").is_some_and(Value::is_null) {
             launch.insert("restart".to_owned(), Value::Bool(false));
         }
@@ -2125,9 +2105,9 @@ impl HyperCliClient {
                 .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?,
         );
 
-        // START requires exactly one sync policy. Includes win when a legacy
-        // projection carries both; carrying neither canonicalizes to the
-        // explicit sync-everything exclusion list.
+        // The typed complete shape uses exactly one sync policy. Includes win
+        // when a legacy projection carries both; carrying neither canonicalizes
+        // to the explicit sync-everything exclusion list.
         let has_include = launch
             .get("sync_include")
             .is_some_and(|value| !value.is_null());
@@ -2145,7 +2125,7 @@ impl HyperCliClient {
 
         serde_json::from_value(Value::Object(launch)).map_err(|error| {
             HyperCliError::InvalidResponse(format!(
-                "agent {} stored launch_config is not a complete START configuration: {error}",
+                "agent {} stored launch_config is not a complete configuration: {error}",
                 deployment.id
             ))
         })
@@ -2157,8 +2137,9 @@ impl HyperCliClient {
         request: &StartDeploymentRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/start"));
-        let request_body = deployment_request_body(request)?;
-        let request_trace = Some(redacted_launch_trace(request_body.clone()));
+        let request_body = serde_json::to_value(request)
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?;
+        let request_trace = Some(request_body.clone());
         let started = Instant::now();
         let response = match self.send_with_retry(
             self.http
@@ -2835,7 +2816,7 @@ fn append_trace(path: &Path, event: &impl Serialize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AgentSize, CompleteDeploymentLaunchConfig, ManagedRuntime};
+    use crate::{AgentSize, ManagedRuntime};
     use mockito::{Matcher, Server};
     use secrecy::SecretString;
     use std::sync::{Arc, Mutex};
@@ -2852,10 +2833,7 @@ mod tests {
         .unwrap()
     }
     fn complete_start() -> StartDeploymentRequest {
-        StartDeploymentRequest::new(CompleteDeploymentLaunchConfig {
-            sync_exclude: Some(Vec::new()),
-            ..Default::default()
-        })
+        StartDeploymentRequest::new()
     }
 
     async fn accept_deployment_event_socket(listener: &TcpListener) -> WebSocketStream<TcpStream> {
@@ -3584,18 +3562,10 @@ mod tests {
                 if message.contains("exclude the entire sync root")
         ));
 
-        let missing = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig::default());
         assert_eq!(
-            deployment_request_body(&missing).unwrap()["launch_config"]["sync_exclude"],
-            serde_json::json!([])
+            serde_json::to_value(StartDeploymentRequest::new()).unwrap(),
+            json!({})
         );
-
-        let launch = CompleteDeploymentLaunchConfig {
-            sync_include: Some(vec!["src".into()]),
-            sync_exclude: Some(vec!["tmp".into()]),
-            ..Default::default()
-        };
-        assert!(deployment_request_body(&StartDeploymentRequest::new(launch)).is_err());
     }
 
     #[test]
@@ -3613,18 +3583,6 @@ mod tests {
             deployment_request_body(&create),
             Err(HyperCliError::InvalidResponse(message))
                 if message.contains("sync_uid")
-        ));
-
-        let launch = CompleteDeploymentLaunchConfig {
-            sync_gid: Some(u32::MAX),
-            sync_exclude: Some(Vec::new()),
-            ..Default::default()
-        };
-        let start = StartDeploymentRequest::new(launch);
-        assert!(matches!(
-            deployment_request_body(&start),
-            Err(HyperCliError::InvalidResponse(message))
-                if message.contains("sync_gid")
         ));
     }
 
@@ -4073,14 +4031,15 @@ mod tests {
     }
 
     #[test]
-    fn start_posts_exact_complete_nested_launch_body() {
+    fn start_posts_start_options_without_launch_config() {
         let mut server = Server::new();
-        let request = complete_start();
+        let mut request = complete_start();
+        request.dry_run = true;
         let mock = server
             .mock("POST", "/agents/deployments/deployment-1/start")
             .match_header("authorization", "Bearer test-credential")
             .match_body(Matcher::JsonString(
-                serde_json::to_string(&request).unwrap(),
+                serde_json::json!({"dry_run": true}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -4125,9 +4084,7 @@ mod tests {
             .create();
         let start = server
             .mock("POST", "/agents/deployments/deployment-1/start")
-            .match_body(Matcher::PartialJsonString(
-                json!({"launch_config":{"restart":false}}).to_string(),
-            ))
+            .match_body(Matcher::JsonString(json!({}).to_string()))
             .with_status(200)
             .with_header("content-type", "application/json")
             .with_body(
@@ -4942,40 +4899,13 @@ mod tests {
     }
 
     #[test]
-    fn stored_launch_config_completes_the_projection_start_could_never_round_trip() {
+    fn stored_launch_config_completes_the_projection_for_launch_config_update() {
         // The owner projection redacts secrets and registry_auth, and
-        // DeploymentLaunchConfig strips them again, so get -> start is
-        // structurally impossible without this rebuild.
+        // DeploymentLaunchConfig strips them again, so callers that want a full
+        // update replacement need this rebuild.
         let mut server = Server::new();
         let projection = mock_projection(&mut server, stored_projection(serde_json::json!({})));
         let secrets = mock_secrets(&mut server, 4);
-        let start = server
-            .mock("POST", "/agents/deployments/deployment-1/start")
-            .match_body(Matcher::JsonString(
-                serde_json::json!({
-                    "launch_config": {
-                        "image": "ghcr.io/example/agent:1",
-                        "env": {"EDITOR": "nvim"},
-                        "secrets": {"API_TOKEN": "recovered-token"},
-                        "routes": {},
-                        "command": [],
-                        "entrypoint": [],
-                        "restart": true,
-                        "sync_root": "/home/node",
-                        "sync_exclude": [".git"],
-                        "sync_uid": 1000,
-                        "sync_gid": 1000,
-                        "registry_url": null,
-                        "registry_auth": {},
-                        "runtime_scopes": ["agents:self"]
-                    }
-                })
-                .to_string(),
-            ))
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(serde_json::json!({"id": "deployment-1", "state": "STARTING"}).to_string())
-            .create();
 
         let client = client(&server);
         let launch_config = client.stored_launch_config("deployment-1", None).unwrap();
@@ -4985,16 +4915,10 @@ mod tests {
             launch_config.sync_exclude.as_deref(),
             Some([".git".to_owned()].as_slice())
         );
-
-        let started = client
-            .start_deployment("deployment-1", &StartDeploymentRequest::new(launch_config))
-            .unwrap();
-        assert_eq!(started.state, "STARTING");
         projection.assert();
         for secret in secrets {
             secret.assert();
         }
-        start.assert();
     }
 
     #[test]
@@ -5075,9 +4999,7 @@ mod tests {
             Some(["workspace".to_owned()].as_slice())
         );
         assert!(launch_config.sync_exclude.is_none());
-        // A body carrying both policies is rejected by the request builder, so
-        // the rebuild above is what makes START reachable at all.
-        assert!(deployment_request_body(&StartDeploymentRequest::new(launch_config)).is_ok());
+        assert!(serde_json::to_value(launch_config).is_ok());
 
         let mut server = Server::new();
         let _neither = mock_projection(

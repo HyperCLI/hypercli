@@ -124,6 +124,7 @@ def test_start_hermes_agent_does_not_rotate_api_server_key(deployments: Deployme
     ):
         client = MagicMock()
         client.post.return_value = _mock_response(_deployment_payload())
+        client.patch.return_value = _mock_response(_deployment_payload(state="stopped"))
         client.__enter__.return_value = client
         client.__exit__.return_value = False
         client_class.return_value = client
@@ -131,12 +132,14 @@ def test_start_hermes_agent_does_not_rotate_api_server_key(deployments: Deployme
         launch_config = build_agent_config(secrets={"CUSTOM_TOKEN": "start-secret"})
         agent = deployments.start_hermes_agent("agent-123", launch_config)
 
-    body = client.post.call_args.kwargs["json"]
+    body = client.patch.call_args.kwargs["json"]
     assert "sync_include" not in body["launch_config"]
     assert "sync_exclude" not in body["launch_config"]
     assert body["launch_config"]["env"] == {}
     assert body["launch_config"]["secrets"] == {"CUSTOM_TOKEN": "start-secret"}
-    assert body["launch_config"]["image"] is None
+    assert "image" not in body["launch_config"]
+    assert "registry_url" not in body["launch_config"]
+    assert client.post.call_args.kwargs["json"] is None
     assert agent.api_server_key is None
 
 
@@ -144,6 +147,7 @@ def test_start_hermes_agent_can_override_cron(deployments: Deployments) -> None:
     with patch("httpx.Client") as client_class:
         client = MagicMock()
         client.post.return_value = _mock_response(_deployment_payload())
+        client.patch.return_value = _mock_response(_deployment_payload(state="stopped"))
         client.__enter__.return_value = client
         client.__exit__.return_value = False
         client_class.return_value = client
@@ -151,11 +155,12 @@ def test_start_hermes_agent_can_override_cron(deployments: Deployments) -> None:
         launch_config = build_agent_config(env={"CUSTOM_FLAG": "1"})
         deployments.start_hermes_agent("agent-123", launch_config, cron_enabled=False)
 
-    body = client.post.call_args.kwargs["json"]
+    body = client.patch.call_args.kwargs["json"]
     assert body["launch_config"]["env"] == {
         "CUSTOM_FLAG": "1",
         "HERMES_CRON_ENABLED": "0",
     }
+    assert client.post.call_args.kwargs["json"] is None
 
 
 def test_hermes_helper_moves_legacy_public_api_key_to_secrets(

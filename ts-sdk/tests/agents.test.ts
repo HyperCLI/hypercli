@@ -190,9 +190,10 @@ describe('Agents SDK', () => {
   });
 
   it('rejects partial START configs and preserves explicit empty env and secrets', async () => {
+    const patch = vi.fn();
     const post = vi.fn().mockResolvedValue({ id: 'agent-123', state: 'STARTING' });
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -202,9 +203,30 @@ describe('Agents SDK', () => {
 
     const launchConfig = buildAgentConfig().config;
     await deployments.start('agent-123', { launchConfig });
+    expect(patch).toHaveBeenCalledWith(
+      '/deployments/agent-123',
+      { launch_config: expect.objectContaining({ env: {}, secrets: {} }) },
+    );
     expect(post).toHaveBeenCalledWith(
       '/deployments/agent-123/start',
-      { launch_config: expect.objectContaining({ env: {}, secrets: {} }) },
+      undefined,
+      { retries: 1 },
+    );
+  });
+
+  it('starts the stored launch config without sending launch_config', async () => {
+    const post = vi.fn().mockResolvedValue({ id: 'agent-123', state: 'STARTING' });
+    const deployments = new Deployments(
+      { post } as unknown as HTTPClient,
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+
+    await deployments.start('agent-123', { dryRun: true });
+
+    expect(post).toHaveBeenCalledWith(
+      '/deployments/agent-123/start',
+      { dry_run: true },
       { retries: 1 },
     );
   });
@@ -804,6 +826,7 @@ describe('Agents SDK', () => {
 
   it('keeps create, start, stop, archive, and restore as distinct lifecycle commands', async () => {
     const agentId = '11111111-1111-4111-8111-111111111111';
+    const patch = vi.fn();
     const post = vi.fn()
       .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'CREATING' })
       .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'STARTING' })
@@ -811,7 +834,7 @@ describe('Agents SDK', () => {
       .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'ARCHIVING' })
       .mockResolvedValueOnce({ id: agentId, user_id: 'user-456', state: 'RESTORING' });
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -826,11 +849,13 @@ describe('Agents SDK', () => {
     expect(post.mock.calls[0]?.[1]).toMatchObject({ name: 'matrix-agent' });
     expect(post.mock.calls[0]?.[1]).not.toHaveProperty('start');
     expect(post.mock.calls.slice(1)).toEqual([
-      [`/deployments/${agentId}/start`, { launch_config: launchConfig }, { retries: 1 }],
+      [`/deployments/${agentId}/start`, undefined, { retries: 1 }],
       [`/deployments/${agentId}/stop`, undefined, { retries: 1 }],
       [`/deployments/${agentId}/archive`, undefined, { retries: 1 }],
       [`/deployments/${agentId}/restore`, undefined, { retries: 1 }],
     ]);
+    const { image: _image, registry_url: _registryUrl, ...expectedLaunchConfig } = launchConfig;
+    expect(patch).toHaveBeenCalledWith(`/deployments/${agentId}`, { launch_config: expectedLaunchConfig });
   });
 
   it('exposes ARCHIVE on hydrated agents and accepts its transitional projection', async () => {
@@ -1036,24 +1061,25 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       state: 'STARTING',
     });
+    const patch = vi.fn();
     const deployments = new Deployments(
-      { get, post } as unknown as HTTPClient,
+      { get, patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
-    return { calls, get, post, deployments };
+    return { calls, get, patch, post, deployments };
   };
 
   it('rehydrates a redacted projection so get() -> start() round-trips', async () => {
     const stored: Record<string, any> = buildAgentConfig({}, { env: { MODE: 'prod' } }).config;
     delete stored.secrets; // the owner-facing projection redacts secret values
     delete stored.registry_auth; // ...and caller-held registry credentials
-    const { post, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
+    const { patch, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
 
     const agent = await deployments.start(STORED_AGENT_ID, { launchConfig: stored as any });
 
     expect(agent.state).toBe('STARTING');
-    const sent = post.mock.calls[0][1].launch_config;
+    const sent = patch.mock.calls[0][1].launch_config;
     expect(sent.secrets).toEqual({ API_TOKEN: 'tok' });
     expect(sent.registry_auth).toEqual({});
     expect(sent.env).toEqual({ MODE: 'prod' });
@@ -1064,12 +1090,12 @@ describe('Agents SDK', () => {
     // An explicit empty object is not the same as an absent, redacted key.
     const stored: Record<string, any> = buildAgentConfig().config;
     expect(stored.secrets).toEqual({});
-    const { calls, post, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
+    const { calls, patch, deployments } = installStoredProjection(stored, { API_TOKEN: 'tok' });
 
     await deployments.start(STORED_AGENT_ID, { launchConfig: stored as any });
 
     expect(calls).toEqual([]); // the caller said "no secrets" and meant it
-    expect(post.mock.calls[0][1].launch_config.secrets).toEqual({});
+    expect(patch.mock.calls[0][1].launch_config.secrets).toEqual({});
   });
 
   it('leaves a config missing more than the redacted keys to the completeness check', async () => {
@@ -1088,7 +1114,7 @@ describe('Agents SDK', () => {
     const stored: Record<string, any> = buildAgentConfig().config;
     stored.registry_url = 'git.nedos.co';
     delete stored.registry_auth;
-    const { post, deployments } = installStoredProjection(stored);
+    const { patch, deployments } = installStoredProjection(stored);
 
     await expect(deployments.start(STORED_AGENT_ID, { launchConfig: stored as any }))
       .rejects.toThrow('registry_auth is caller-held and write-only');
@@ -1097,7 +1123,7 @@ describe('Agents SDK', () => {
       launchConfig: stored as any,
       registryAuth: { username: 'svc', password: 'hunter2' },
     });
-    expect(post.mock.calls[0][1].launch_config.registry_auth)
+    expect(patch.mock.calls[0][1].launch_config.registry_auth)
       .toEqual({ username: 'svc', password: 'hunter2' });
   });
 
@@ -1107,13 +1133,13 @@ describe('Agents SDK', () => {
     }).config;
     delete stored.secrets;
     delete stored.registry_auth;
-    const { post, deployments } = installStoredProjection(stored, {
+    const { patch, deployments } = installStoredProjection(stored, {
       OPENCLAW_GATEWAY_TOKEN: 'gw-token',
     });
 
     await deployments.startOpenClaw(STORED_AGENT_ID, { launchConfig: stored as any });
 
-    const sent = post.mock.calls[0][1].launch_config;
+    const sent = patch.mock.calls[0][1].launch_config;
     expect(sent.secrets.OPENCLAW_GATEWAY_TOKEN).toBe('gw-token');
     expect(sent.registry_auth).toEqual({});
   });
@@ -1143,18 +1169,19 @@ describe('Agents SDK', () => {
 
     await deployments.start(STORED_AGENT_ID);
 
-    expect(post.mock.calls[0][1].launch_config.restart).toBe(false);
+    expect(post).toHaveBeenCalledWith(`/deployments/${STORED_AGENT_ID}/start`, undefined, { retries: 1 });
   });
 
-  it('repairs stale managed OpenClaw images from the desktop gate on startOpenClaw', async () => {
+  it('preserves immutable OpenClaw image from the desktop gate on startOpenClaw', async () => {
     const post = vi.fn().mockResolvedValue({
       id: STORED_AGENT_ID,
       user_id: 'user-456',
       state: 'STARTING',
       runtime: 'openclaw-pro',
     });
+    const patch = vi.fn();
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -1166,8 +1193,9 @@ describe('Agents SDK', () => {
 
     await deployments.startOpenClaw(STORED_AGENT_ID, { launchConfig });
 
-    const sent = post.mock.calls[0][1].launch_config;
-    expect(sent.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
+    const sent = patch.mock.calls[0][1].launch_config;
+    expect(sent.image).toBeUndefined();
+    expect(sent.registry_url).toBeUndefined();
     expect(sent.routes).toEqual({ openclaw: { port: 18789, auth: false, prefix: '' } });
   });
 
@@ -1986,6 +2014,7 @@ describe('Agents SDK', () => {
       state: 'STARTING',
     }));
     const http = { get, post } as unknown as HTTPClient;
+    (http as any).patch = vi.fn();
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
 
     const launchConfig = buildAgentConfig({}, {
@@ -1997,8 +2026,13 @@ describe('Agents SDK', () => {
     expect(result.id).toBe('11111111-1111-4111-8111-111111111111');
     expect(post).toHaveBeenCalledWith(
       '/deployments/11111111-1111-4111-8111-111111111111/start',
-      { launch_config: launchConfig },
+      undefined,
       { retries: 1 },
+    );
+    const { image: _image, registry_url: _registryUrl, ...expectedLaunchConfig } = launchConfig;
+    expect((http as any).patch).toHaveBeenCalledWith(
+      '/deployments/11111111-1111-4111-8111-111111111111',
+      { launch_config: expectedLaunchConfig },
     );
 
     const handleResult = await deployments.get('coder');
@@ -2014,8 +2048,9 @@ describe('Agents SDK', () => {
       state: 'STARTING',
       runtime: 'openclaw-pro',
     });
+    const patch = vi.fn();
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -2026,14 +2061,14 @@ describe('Agents SDK', () => {
     await deployments.startOpenClawPro(agentId, { launchConfig: first });
     await deployments.startOpenClawPro(agentId, { launchConfig: second });
 
-    expect(post.mock.calls[0][1].launch_config.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
-    expect(post.mock.calls[0][1].launch_config.env.HYPER_DESKTOP_ENABLED).toBe('1');
-    expect(post.mock.calls[0][1].launch_config.routes).toEqual({
+    expect(patch.mock.calls[0][1].launch_config.image).toBeUndefined();
+    expect(patch.mock.calls[0][1].launch_config.env.HYPER_DESKTOP_ENABLED).toBe('1');
+    expect(patch.mock.calls[0][1].launch_config.routes).toEqual({
       openclaw: { port: 18789, auth: false, prefix: '' },
     });
-    expect(post.mock.calls[1][1].launch_config.image).toBe(DEFAULT_OPENCLAW_PRO_IMAGE);
-    expect(post.mock.calls[1][1].launch_config.runtime_scopes).toEqual(['models:*']);
-    expect(post.mock.calls[1][1].launch_config.routes).toEqual({
+    expect(patch.mock.calls[1][1].launch_config.image).toBeUndefined();
+    expect(patch.mock.calls[1][1].launch_config.runtime_scopes).toEqual(['models:*']);
+    expect(patch.mock.calls[1][1].launch_config.routes).toEqual({
       openclaw: { port: 18789, auth: false, prefix: '' },
     });
   });
@@ -2045,8 +2080,9 @@ describe('Agents SDK', () => {
       state: 'STARTING',
       runtime: 'openclaw',
     });
+    const patch = vi.fn();
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -2060,9 +2096,9 @@ describe('Agents SDK', () => {
       { launchConfig },
     );
 
-    expect(post.mock.calls[0][1].launch_config.sync_include).toEqual(['src']);
-    expect(post.mock.calls[0][1].launch_config).not.toHaveProperty('sync_enabled');
-    expect(post.mock.calls[0][1].launch_config).not.toHaveProperty('sync_exclude');
+    expect(patch.mock.calls[0][1].launch_config.sync_include).toEqual(['src']);
+    expect(patch.mock.calls[0][1].launch_config).not.toHaveProperty('sync_enabled');
+    expect(patch.mock.calls[0][1].launch_config).not.toHaveProperty('sync_exclude');
   });
 
   it('distinguishes omitted and explicit null sync fields when starting', async () => {
@@ -2071,8 +2107,9 @@ describe('Agents SDK', () => {
       user_id: 'user-456',
       state: 'STARTING',
     });
+    const patch = vi.fn();
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -2085,12 +2122,12 @@ describe('Agents SDK', () => {
     ];
     for (const launchConfig of configs) await deployments.start(agentId, { launchConfig });
 
-    expect(post.mock.calls[0][1].launch_config).not.toHaveProperty('sync_include');
-    expect(post.mock.calls[0][1].launch_config).not.toHaveProperty('sync_exclude');
-    expect(post.mock.calls[1][1].launch_config).toHaveProperty('sync_include', null);
-    expect(post.mock.calls[1][1].launch_config).not.toHaveProperty('sync_exclude');
-    expect(post.mock.calls[2][1].launch_config).toHaveProperty('sync_exclude', null);
-    expect(post.mock.calls[2][1].launch_config).not.toHaveProperty('sync_include');
+    expect(patch.mock.calls[0][1].launch_config).not.toHaveProperty('sync_include');
+    expect(patch.mock.calls[0][1].launch_config).not.toHaveProperty('sync_exclude');
+    expect(patch.mock.calls[1][1].launch_config).toHaveProperty('sync_include', null);
+    expect(patch.mock.calls[1][1].launch_config).not.toHaveProperty('sync_exclude');
+    expect(patch.mock.calls[2][1].launch_config).toHaveProperty('sync_exclude', null);
+    expect(patch.mock.calls[2][1].launch_config).not.toHaveProperty('sync_include');
   });
 
   it('rejects sync-none shapes in start launch config', async () => {
@@ -2131,8 +2168,9 @@ describe('Agents SDK', () => {
       runtime: 'opencode',
       launch_config: persistedLaunchConfig,
     });
+    const patch = vi.fn();
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );

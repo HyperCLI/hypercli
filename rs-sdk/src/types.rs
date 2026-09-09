@@ -1362,28 +1362,19 @@ fn is_false(value: &bool) -> bool {
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct StartDeploymentRequest {
-    pub launch_config: CompleteDeploymentLaunchConfig,
     #[serde(default, skip_serializing_if = "is_false")]
     pub dry_run: bool,
 }
 
 impl StartDeploymentRequest {
-    pub fn new(launch_config: CompleteDeploymentLaunchConfig) -> Self {
-        Self {
-            launch_config,
-            dry_run: false,
-        }
+    pub fn new() -> Self {
+        Self { dry_run: false }
     }
 }
-impl std::ops::Deref for StartDeploymentRequest {
-    type Target = CompleteDeploymentLaunchConfig;
-    fn deref(&self) -> &Self::Target {
-        &self.launch_config
-    }
-}
-impl std::ops::DerefMut for StartDeploymentRequest {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.launch_config
+
+impl Default for StartDeploymentRequest {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1790,8 +1781,8 @@ impl Deployment {
 
 /// Persisted non-secret launch configuration returned by the agent API.
 ///
-/// This is a redacted inspection projection, not a restart payload. Complete
-/// START input must remain caller-owned because credentials are not recoverable.
+/// This is a redacted inspection projection. Start uses the persisted backend
+/// launch configuration; launch-affecting changes go through create/update.
 #[derive(Clone, Default, Serialize)]
 #[serde(transparent)]
 pub struct DeploymentLaunchConfig(BTreeMap<String, Value>);
@@ -1821,6 +1812,21 @@ impl DeploymentLaunchConfig {
         values.remove("secrets");
         values.remove("registry_auth");
         Self(values)
+    }
+}
+
+impl From<CompleteDeploymentLaunchConfig> for DeploymentLaunchConfig {
+    fn from(value: CompleteDeploymentLaunchConfig) -> Self {
+        let mut values: BTreeMap<String, Value> = serde_json::to_value(value)
+            .ok()
+            .and_then(|value| match value {
+                Value::Object(object) => Some(object.into_iter().collect()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        values.remove("image");
+        values.remove("registry_url");
+        Self::from_map(values)
     }
 }
 
@@ -2676,19 +2682,14 @@ mod tests {
 
     #[test]
     fn empty_sync_exclude_round_trips_as_full_root_sync() {
-        let full_root = StartDeploymentRequest::new(CompleteDeploymentLaunchConfig {
+        let full_root = CompleteDeploymentLaunchConfig {
             sync_exclude: Some(Vec::new()),
             ..Default::default()
-        });
+        };
         let full_root_wire = serde_json::to_value(&full_root).unwrap();
-        assert!(full_root_wire["launch_config"]
-            .get("sync_include")
-            .is_none());
-        assert_eq!(
-            full_root_wire["launch_config"]["sync_exclude"],
-            serde_json::json!([])
-        );
-        let full_root_round_trip: StartDeploymentRequest =
+        assert!(full_root_wire.get("sync_include").is_none());
+        assert_eq!(full_root_wire["sync_exclude"], serde_json::json!([]));
+        let full_root_round_trip: CompleteDeploymentLaunchConfig =
             serde_json::from_value(full_root_wire).unwrap();
         assert_eq!(full_root_round_trip.sync_include, None);
         assert_eq!(full_root_round_trip.sync_exclude, Some(Vec::new()));
@@ -2697,12 +2698,8 @@ mod tests {
             sync_exclude: Some(vec!["tmp/**".into()]),
             ..Default::default()
         };
-        let excluded = StartDeploymentRequest::new(launch);
-        let excluded_wire = serde_json::to_value(&excluded).unwrap();
-        assert_eq!(
-            excluded_wire["launch_config"]["sync_exclude"],
-            serde_json::json!(["tmp/**"])
-        );
+        let excluded_wire = serde_json::to_value(&launch).unwrap();
+        assert_eq!(excluded_wire["sync_exclude"], serde_json::json!(["tmp/**"]));
     }
 
     #[test]
@@ -2833,10 +2830,6 @@ mod tests {
         let generic_json = serde_json::to_value(&generic).unwrap();
         assert_eq!(generic_json["restart"], false);
         assert!(generic_json.get("config").is_none());
-        let generic_start = StartDeploymentRequest::new(generic.launch_config.clone());
-        let generic_start_json = serde_json::to_value(&generic_start).unwrap();
-        assert_eq!(generic_start_json["launch_config"]["restart"], false);
-        assert!(generic_start_json["launch_config"].get("config").is_none());
 
         let mut buzz_request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         buzz_request.restart = true;
@@ -2850,12 +2843,6 @@ mod tests {
         let round_trip: CreateDeploymentRequest =
             serde_json::from_value(serde_json::to_value(&buzz_request).unwrap()).unwrap();
         assert!(!round_trip.restart);
-
-        let start = StartDeploymentRequest::new(buzz_request.launch_config);
-        let start_json = serde_json::to_value(&start).unwrap();
-        assert!(start_json["launch_config"].get("config").is_none());
-        let start_round_trip: StartDeploymentRequest = serde_json::from_value(start_json).unwrap();
-        assert!(!start_round_trip.restart);
     }
 
     #[test]
@@ -2865,13 +2852,6 @@ mod tests {
         let expected = BUZZ_RUNTIME_SCOPES.map(str::to_owned);
         assert_eq!(create_json["runtime_scopes"], serde_json::json!(expected));
 
-        let start = StartDeploymentRequest::new(create.launch_config.clone());
-        let start_json = serde_json::to_value(&start).unwrap();
-        assert_eq!(
-            start_json["launch_config"]["runtime_scopes"],
-            serde_json::json!(expected)
-        );
-
         let mut create = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
         create.runtime_scopes = vec!["agents:none".to_owned(), "models:*".to_owned()];
         assert_eq!(
@@ -2879,9 +2859,8 @@ mod tests {
             serde_json::json!(["agents:none", "models:*"])
         );
 
-        let start = StartDeploymentRequest::new(create.launch_config.clone());
         assert_eq!(
-            serde_json::to_value(&start).unwrap()["launch_config"]["runtime_scopes"],
+            serde_json::to_value(&create.launch_config).unwrap()["runtime_scopes"],
             serde_json::json!(["agents:none", "models:*"])
         );
     }

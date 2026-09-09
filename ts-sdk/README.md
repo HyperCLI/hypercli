@@ -189,7 +189,8 @@ const agent = await client.deployments.create({
   registryAuth: launchConfig.registry_auth,
 });
 await client.deployments.waitForState(agent.id, ['STOPPED'], 330_000);
-await client.deployments.start(agent.id, { launchConfig });
+await client.deployments.update(agent.id, { launchConfig });
+await client.deployments.start(agent.id);
 const running = await client.deployments.waitForState(
   agent.id,
   ['RUNNING'],
@@ -204,12 +205,10 @@ for (const slot of capacity.agentSlots) {
 }
 ```
 
-`start()` and `startOpenClaw()` require a complete `launchConfig`. The SDK
-sends it under `launch_config` as one replacement object and never merges
-omitted fields with the stored Agent. `startOpenClaw()` still ensures the
-canonical gateway route before submitting. Retain caller-owned application
-secrets needed for a later typed start; hydrated Agents never recover secret
-values.
+`start()` and `startOpenClaw()` start the Backend-stored launch config. Change
+launch settings through `update(..., { launchConfig })` before starting.
+Compatibility calls that still pass `launchConfig` update mutable launch fields
+first and then issue a bodyless start; immutable image identity is not changed.
 
 `archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
 HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in

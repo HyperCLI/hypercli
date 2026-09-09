@@ -841,7 +841,7 @@ export interface RegistryAuth {
   password: string;
 }
 
-/** Complete Backend START replacement contract. */
+/** Complete Backend launch_config replacement contract. */
 export interface AgentLaunchConfig {
   config?: Record<string, any>;
   image: string | null;
@@ -1097,14 +1097,13 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
 
 export interface StartAgentOptions {
   /**
-   * Complete replacement launch configuration. The two keys the owner-facing
-   * projection redacts (`secrets`, `registry_auth`) are repaired in place, so
-   * an `Agent.launchConfig` read straight back from {@link Deployments.get}
-   * is accepted. When omitted entirely, the stored launch config is rebuilt
-   * via {@link Deployments.storedLaunchConfig}.
+   * @deprecated Start uses the Agent's stored launch_config. Pass launchConfig
+   * to {@link Deployments.create} or {@link Deployments.update} instead.
+   * For compatibility, this SDK writes a supplied value with update() before
+   * sending the start command, but never includes it in the start payload.
    */
-  launchConfig?: AgentLaunchConfig;
-  /** Caller-held registry credentials for stored configs with a registry_url. */
+  launchConfig?: Record<string, any>;
+  /** @deprecated registry_auth is no longer used by start; update launch_config explicitly. */
   registryAuth?: RegistryAuth;
   dryRun?: boolean;
 }
@@ -1150,7 +1149,7 @@ export interface OpenClawCreateAgentOptions extends Omit<CreateAgentOptions, 'co
 }
 
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
-  launchConfig: Omit<AgentLaunchConfig, 'config'>;
+  launchConfig?: Omit<AgentLaunchConfig, 'config'>;
   gatewayToken?: string | null;
 }
 
@@ -1171,7 +1170,7 @@ export interface HermesAgentCreateOptions extends CreateAgentOptions {
 }
 
 export interface HermesAgentStartOptions extends StartAgentOptions {
-  launchConfig: AgentLaunchConfig;
+  launchConfig?: AgentLaunchConfig;
   /** Caller-known inbound Hermes API credential; never recovered from Backend state. */
   apiServerKey?: string | null;
   /** Enable or disable Hermes automatic cron dispatch for this start. Omitted preserves launch env. */
@@ -2287,7 +2286,6 @@ function repairOpenClawStartLaunchConfig(
 ): AgentLaunchConfig {
   const prepared = structuredClone(launchConfig);
   const desktopEnabled = desktop ?? launchConfigHasDesktop(prepared);
-  prepared.image = defaultOpenClawStartImage(prepared.image, desktopEnabled);
   prepared.routes = withOpenClawGatewayRoute(prepared.routes);
   if (desktop !== null) {
     prepared.env = {
@@ -5497,19 +5495,19 @@ export class Deployments {
    * Backend's owner-facing Agent projection deliberately strips `secrets` and
    * `registry_auth` before returning an Agent to a user-scoped caller
    * (`hydrate_managed_agent` pops both), and this SDK's own hydrator drops
-   * `secrets` again. START, by contrast, is a *full replacement* and demands
-   * every key in REQUIRED_START_LAUNCH_CONFIG_KEYS. Without this step the
-   * obvious round trip can never succeed, because the read side is
-   * structurally incapable of returning what the write side requires:
+   * `secrets` again. A caller that writes launch_config before start still
+   * needs a complete replacement object. Without this step the obvious round
+   * trip can never succeed, because the read side is structurally incapable of
+   * returning what the write side requires:
    *
    * ```ts
    * const agent = await client.deployments.get(agentId);
-   * await client.deployments.start(agentId, { launchConfig: agent.launchConfig });
+   * await client.deployments.update(agentId, { launchConfig: agent.launchConfig });
    * // Error: launchConfig is incomplete; missing: secrets, registry_auth
    * ```
    *
    * The fix is to complete the object honestly, never to weaken the
-   * completeness contract — START must stay a replacement, not a merge.
+   * completeness contract — launch_config writes are replacements, not merges.
    *
    * Only keys that are genuinely ABSENT are rebuilt. A caller-supplied
    * `secrets` or `registry_auth` is honoured verbatim, including an explicit
@@ -5557,7 +5555,7 @@ export class Deployments {
           + 'launchConfig carries no registry_auth; registry_auth is caller-held and write-only, '
           + 'so the owner-facing projection can never return it and the SDK will not substitute '
           + 'an empty credential that would break the private-registry pull — pass registryAuth '
-          + 'explicitly to START',
+          + 'with the launch_config update',
         );
       } else {
         prepared.registry_auth = {};
@@ -5567,16 +5565,14 @@ export class Deployments {
   }
 
   /**
-   * Rebuild the complete replacement launch_config that START requires, from
+   * Rebuild a complete replacement launch_config from
    * nothing but the Agent's stored projection.
    *
-   * DELIBERATELY RETAINED where the Python SDK dropped `stored_launch_config`.
-   * Python's `start()` always takes a launch_config, so once it rehydrated the
-   * redacted keys inline the stored rebuild became a pure duplicate. This SDK
-   * additionally supports `start(id)` with no config at all, and this is the
-   * only thing that can produce one; it is also the only place that
-   * canonicalizes the two legacy projection shapes the inline repair never
-   * sees, because the repair fills absent keys and touches nothing else:
+   * This SDK starts stored config without reading it. This method is retained
+   * for callers that want to explicitly update stored launch_config;
+   * it is also the only place that canonicalizes the two legacy projection
+   * shapes the inline repair never sees, because the repair fills absent keys
+   * and touches nothing else:
    * nullable `restart`, and a projection carrying both or neither sync policy.
    *
    * Reads the stored Agent projection, rehydrates redacted secrets through the
@@ -5595,7 +5591,7 @@ export class Deployments {
     const launchConfig: Record<string, any> = structuredClone(agent.launchConfig);
 
     // Legacy projections may still carry the old nullable restart
-    // representation; START receives one explicit boolean.
+    // representation; replacement writes receive one explicit boolean.
     if ('restart' in launchConfig && launchConfig.restart === null) {
       launchConfig.restart = false;
     }
@@ -5607,12 +5603,12 @@ export class Deployments {
       throw new Error(
         `Agent ${agent.id} pulls from registry_url ${JSON.stringify(registryUrl)}; `
         + 'registry_auth is caller-held and never stored server-side, so it must '
-        + 'be supplied to rebuild a complete START configuration',
+        + 'be supplied to rebuild a complete launch_config replacement',
       );
     }
     launchConfig.registry_auth = options.registryAuth ? structuredClone(options.registryAuth) : {};
 
-    // START requires exactly one sync policy. Includes win when a legacy
+    // Replacement writes require exactly one sync policy. Includes win when a legacy
     // projection carries both; carrying neither canonicalizes to the
     // explicit sync-everything exclusion list.
     if (Object.prototype.hasOwnProperty.call(launchConfig, 'sync_include')) {
@@ -5626,25 +5622,30 @@ export class Deployments {
 
   async start(agentIdOrName: string, options?: StartAgentOptions): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
-    // START requires one complete replacement launch_config. A caller-supplied
-    // config is first repaired for the two keys the owner-facing projection
-    // redacts, so the natural get() -> start() round trip works. When the
-    // caller supplies nothing, rebuild the config from the stored projection.
-    const launchConfig = options?.launchConfig
-      ? cloneCompleteLaunchConfig(
+    if (options?.launchConfig !== undefined) {
+      if (options.launchConfig === null) {
+        throw new Error('start launchConfig cannot be null; update launchConfig explicitly');
+      }
+      if (options.dryRun) {
+        throw new Error('dry-run start cannot carry launchConfig; update launchConfig first');
+      }
+      const launchConfig = cloneCompleteLaunchConfig(
         await this.rehydrateRedactedLaunchConfig(
           agentId,
-          options.launchConfig,
+          options.launchConfig as AgentLaunchConfig,
           options.registryAuth,
         ),
-      )
-      : await this.storedLaunchConfig(agentId, { registryAuth: options?.registryAuth });
-    delete (launchConfig as { config?: unknown }).config;
-    const body: Record<string, any> = { launch_config: launchConfig };
+      );
+      delete (launchConfig as { config?: unknown }).config;
+      delete (launchConfig as { image?: unknown }).image;
+      delete (launchConfig as { registry_url?: unknown }).registry_url;
+      await this.agentHttp.patch(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, { launch_config: launchConfig });
+    }
+    const body: Record<string, any> = {};
     if (options?.dryRun) body.dry_run = true;
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/start`,
-      body,
+      Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
     if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
@@ -5653,70 +5654,92 @@ export class Deployments {
 
   private async startOpenClawInternal(
     agentIdOrName: string,
-    options: OpenClawStartAgentOptions,
+    options: OpenClawStartAgentOptions = {},
     desktop: boolean | null,
   ): Promise<Agent> {
-    // Resolve first: the gateway-token injection below reads launchConfig.env
-    // and launchConfig.secrets, so a redacted projection has to be repaired
-    // before it is inspected, not after.
     const agentId = await this.resolveAgentId(agentIdOrName);
-    const launchConfig = repairOpenClawStartLaunchConfig(
-      cloneCompleteLaunchConfig(
-        await this.rehydrateRedactedLaunchConfig(agentId, options.launchConfig, options.registryAuth),
-      ),
-      desktop,
-    );
-    rejectOpenClawSecretOnlyEnv(launchConfig.env, 'launchConfig.env');
-    const explicitToken = options.gatewayToken?.trim() || null;
-    const configuredToken = launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
-    if (options.gatewayToken !== undefined && options.gatewayToken !== null && !explicitToken) {
+    let gatewayToken = options.gatewayToken?.trim() || null;
+    if (options.gatewayToken !== undefined && options.gatewayToken !== null && !gatewayToken) {
       throw new Error('gatewayToken must not be blank');
     }
-    if (explicitToken && configuredToken && explicitToken !== configuredToken) {
-      throw new Error('gatewayToken conflicts with launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN');
+    const needsLaunchPatch = options.launchConfig !== undefined || gatewayToken !== null || desktop !== null;
+    if (needsLaunchPatch) {
+      if (options.dryRun) {
+        throw new Error('dry-run start cannot carry launchConfig changes; update launchConfig first');
+      }
+      const launchConfig = repairOpenClawStartLaunchConfig(
+        cloneCompleteLaunchConfig(
+          await this.rehydrateRedactedLaunchConfig(
+            agentId,
+            options.launchConfig ?? await this.storedLaunchConfig(agentId, { registryAuth: options.registryAuth }),
+            options.registryAuth,
+          ),
+        ),
+        desktop,
+      );
+      rejectOpenClawSecretOnlyEnv(launchConfig.env, 'launchConfig.env');
+      const configuredToken = launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+      if (gatewayToken && configuredToken && gatewayToken !== configuredToken) {
+        throw new Error('gatewayToken conflicts with launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN');
+      }
+      gatewayToken = gatewayToken ?? configuredToken;
+      if (gatewayToken) launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+      // Repair records written before the SDK owned this set: the gateway id is
+      // the Backend's own derivation from the Agent id, known here.
+      HostedSlackLaunchEnv.repairForAgent(launchConfig.env, { agentId });
+      HostedSlackLaunchEnv.assertComplete(launchConfig.env, 'startOpenClaw launch env');
+      delete (launchConfig as { config?: unknown }).config;
+      delete (launchConfig as { image?: unknown }).image;
+      delete (launchConfig as { registry_url?: unknown }).registry_url;
+      await this.agentHttp.patch(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, { launch_config: launchConfig });
     }
-    const gatewayToken = explicitToken ?? configuredToken;
-    if (gatewayToken) launchConfig.secrets.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-    // Repair records written before the SDK owned this set: the gateway id is
-    // the Backend's own derivation from the Agent id, known here.
-    HostedSlackLaunchEnv.repairForAgent(launchConfig.env, { agentId });
-    HostedSlackLaunchEnv.assertComplete(launchConfig.env, 'startOpenClaw launch env');
-    delete (launchConfig as { config?: unknown }).config;
     const agent = await this.start(agentId, {
-      launchConfig,
       dryRun: options.dryRun,
     });
     if (agent instanceof OpenClawAgent) agent.gatewayToken = gatewayToken;
     return agent;
   }
 
-  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
+  async startOpenClaw(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     return this.startOpenClawInternal(agentIdOrName, options, null);
   }
 
-  async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions): Promise<HermesAgent> {
-    // Resolve first: the API_SERVER_KEY reconciliation below reads
-    // launchConfig.env and launchConfig.secrets, so a redacted projection has
-    // to be repaired before it is inspected, not after.
+  async startHermesAgent(agentIdOrName: string, options: HermesAgentStartOptions = {}): Promise<HermesAgent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
-    const launchConfig = cloneCompleteLaunchConfig(
-      await this.rehydrateRedactedLaunchConfig(agentId, options.launchConfig, options.registryAuth),
-    );
-    const suppliedApiServerKey = options.apiServerKey
-      ?? launchConfig.secrets.API_SERVER_KEY
-      ?? launchConfig.env.API_SERVER_KEY;
-    const apiServerKey = suppliedApiServerKey === undefined
-      ? null
-      : resolveHermesApiServerKey(options.apiServerKey, launchConfig.env, launchConfig.secrets);
-    if (apiServerKey) {
-      delete launchConfig.env.API_SERVER_KEY;
-      launchConfig.secrets.API_SERVER_KEY = apiServerKey;
-    }
-    if (options.cronEnabled !== undefined && options.cronEnabled !== null) {
-      launchConfig.env.HERMES_CRON_ENABLED = envBool(options.cronEnabled);
+    let apiServerKey = options.apiServerKey ?? null;
+    const needsLaunchPatch = options.launchConfig !== undefined
+      || options.apiServerKey !== undefined && options.apiServerKey !== null
+      || options.cronEnabled !== undefined && options.cronEnabled !== null;
+    if (needsLaunchPatch) {
+      if (options.dryRun) {
+        throw new Error('dry-run start cannot carry launchConfig changes; update launchConfig first');
+      }
+      const launchConfig = cloneCompleteLaunchConfig(
+        await this.rehydrateRedactedLaunchConfig(
+          agentId,
+          options.launchConfig ?? await this.storedLaunchConfig(agentId, { registryAuth: options.registryAuth }),
+          options.registryAuth,
+        ),
+      );
+      const suppliedApiServerKey = options.apiServerKey
+        ?? launchConfig.secrets.API_SERVER_KEY
+        ?? launchConfig.env.API_SERVER_KEY;
+      apiServerKey = suppliedApiServerKey === undefined
+        ? null
+        : resolveHermesApiServerKey(options.apiServerKey, launchConfig.env, launchConfig.secrets);
+      if (apiServerKey) {
+        delete launchConfig.env.API_SERVER_KEY;
+        launchConfig.secrets.API_SERVER_KEY = apiServerKey;
+      }
+      if (options.cronEnabled !== undefined && options.cronEnabled !== null) {
+        launchConfig.env.HERMES_CRON_ENABLED = envBool(options.cronEnabled);
+      }
+      delete (launchConfig as { config?: unknown }).config;
+      delete (launchConfig as { image?: unknown }).image;
+      delete (launchConfig as { registry_url?: unknown }).registry_url;
+      await this.agentHttp.patch(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, { launch_config: launchConfig });
     }
     const agent = await this.start(agentId, {
-      launchConfig,
       dryRun: options.dryRun,
     });
     if (!(agent instanceof HermesAgent)) {
@@ -5726,7 +5749,7 @@ export class Deployments {
     return agent;
   }
 
-  async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions): Promise<Agent> {
+  async startOpenClawPro(agentIdOrName: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     return this.startOpenClawInternal(agentIdOrName, options, true);
   }
 

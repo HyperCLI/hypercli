@@ -2,7 +2,8 @@ use hypercli_sdk::{
     discover_agents_api_base, discover_client_config, remove_config_api_keys,
     save_api_key as persist_api_key, AgentSize, BuzzLaunchConfig, ClientConfig,
     CreateDeploymentRequest, Deployment, DeploymentProfileImageResponse, HermesLaunchConfig,
-    HyperCliClient, HyperCliError, ManagedRuntime, OpenClawLaunchConfig, StartDeploymentRequest,
+    DeploymentLaunchConfig, HyperCliClient, HyperCliError, ManagedRuntime, OpenClawLaunchConfig,
+    StartDeploymentRequest, UpdateDeploymentRequest,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde::Serialize;
@@ -250,8 +251,6 @@ async fn start_agent(id: String) -> Result<AgentSummary, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let client = client()?;
         let current = client.get_deployment(&id).map_err(friendly)?;
-        let launch = client.stored_launch_config(&id, None).map_err(friendly)?;
-        let mut request = StartDeploymentRequest::new(launch);
         let runtime = current
             .runtime
             .as_ref()
@@ -259,8 +258,8 @@ async fn start_agent(id: String) -> Result<AgentSummary, String> {
             .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default();
         if runtime == "openclaw" || runtime == "openclaw-pro" {
-            if request
-                .launch_config
+            let mut launch = client.stored_launch_config(&id, None).map_err(friendly)?;
+            if launch
                 .secrets
                 .get("OPENCLAW_GATEWAY_TOKEN")
                 .is_none_or(|v| v.trim().is_empty())
@@ -269,29 +268,36 @@ async fn start_agent(id: String) -> Result<AgentSummary, String> {
                 client
                     .set_deployment_secret(&id, "OPENCLAW_GATEWAY_TOKEN", &token)
                     .map_err(friendly)?;
-                request
-                    .launch_config
+                launch
                     .secrets
                     .insert("OPENCLAW_GATEWAY_TOKEN".to_owned(), token);
             }
             let desktop = runtime == "openclaw-pro"
-                || request
-                    .launch_config
+                || launch
                     .env
                     .get("HYPER_DESKTOP_ENABLED")
                     .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
             if desktop {
-                OpenClawLaunchConfig::desktop().apply_to_start(&mut request);
+                OpenClawLaunchConfig::desktop().apply_to_complete(&mut launch);
             } else {
-                OpenClawLaunchConfig::new().apply_to_start(&mut request);
+                OpenClawLaunchConfig::new().apply_to_complete(&mut launch);
             }
-            request.launch_config.env.insert(
+            launch.env.insert(
                 "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN".to_owned(),
                 "http://localhost:1420".to_owned(),
             );
+            client
+                .update_deployment(
+                    &id,
+                    &UpdateDeploymentRequest {
+                        launch_config: Some(DeploymentLaunchConfig::from(launch)),
+                        ..Default::default()
+                    },
+                )
+                .map_err(friendly)?;
         }
         client
-            .start_deployment(&id, &request)
+            .start_deployment(&id, &StartDeploymentRequest::new())
             .map(AgentSummary::from)
             .map_err(friendly)
     })

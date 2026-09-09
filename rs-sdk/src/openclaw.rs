@@ -9,7 +9,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    AgentSize, CreateDeploymentRequest, ManagedRuntime, RouteConfig, StartDeploymentRequest,
+    AgentSize, CompleteDeploymentLaunchConfig, CreateDeploymentRequest, ManagedRuntime, RouteConfig,
 };
 
 pub const OPENCLAW_IMAGE: &str = "ghcr.io/hypercli/hypercli-openclaw:prod";
@@ -158,24 +158,38 @@ impl OpenClawLaunchConfig {
         }
     }
 
-    pub fn apply_to_start(&self, request: &mut StartDeploymentRequest) {
-        self.ensure_routes(&mut request.launch_config.routes);
+    /// Apply mutable OpenClaw runtime defaults to a stored complete launch
+    /// config before submitting it through deployment update.
+    pub fn apply_to_complete(&self, launch_config: &mut CompleteDeploymentLaunchConfig) {
         if self.desktop {
-            request
-                .launch_config
+            launch_config
                 .env
                 .entry(HYPER_DESKTOP_ENABLED_ENV.to_owned())
                 .or_insert_with(|| "1".to_owned());
         }
         if let Some(cron_enabled) = self.cron_enabled {
-            request.launch_config.env.insert(
+            launch_config.env.insert(
                 OPENCLAW_CRON_ENABLED_ENV.to_owned(),
-                if cron_enabled {
-                    "1".to_owned()
-                } else {
-                    "0".to_owned()
-                },
+                if cron_enabled { "1" } else { "0" }.to_owned(),
             );
+        }
+        self.ensure_routes(&mut launch_config.routes);
+        if launch_config.sync_root.is_none() {
+            launch_config.sync_root = Some(OPENCLAW_SYNC_ROOT.to_owned());
+        }
+        if launch_config.sync_include.is_none() && launch_config.sync_exclude.is_none() {
+            launch_config.sync_exclude = Some(
+                OPENCLAW_SYNC_EXCLUDE
+                    .iter()
+                    .map(|path| (*path).to_owned())
+                    .collect(),
+            );
+        }
+        if launch_config.runtime_scopes.is_empty() {
+            launch_config.runtime_scopes = AGENT_RUNTIME_SCOPES
+                .iter()
+                .map(|scope| (*scope).to_owned())
+                .collect();
         }
     }
 }
@@ -306,65 +320,6 @@ mod tests {
         assert_eq!(
             request.routes.get("custom").expect("custom route").port,
             8080
-        );
-    }
-
-    #[test]
-    fn start_request_repairs_openclaw_gateway_route() {
-        let mut request = StartDeploymentRequest::new(Default::default());
-        request.launch_config.routes.insert(
-            "custom".to_owned(),
-            RouteConfig {
-                port: 8080,
-                auth: true,
-                prefix: Some("app".to_owned()),
-            },
-        );
-
-        OpenClawLaunchConfig::new().apply_to_start(&mut request);
-
-        let gateway = request
-            .launch_config
-            .routes
-            .get("openclaw")
-            .expect("gateway route");
-        assert_eq!(gateway.port, OPENCLAW_GATEWAY_PORT);
-        assert!(!gateway.auth);
-        assert_eq!(gateway.prefix.as_deref(), Some(""));
-        assert_eq!(
-            request
-                .launch_config
-                .routes
-                .get("custom")
-                .expect("custom route")
-                .port,
-            8080
-        );
-        assert!(!request
-            .launch_config
-            .env
-            .contains_key(OPENCLAW_CRON_ENABLED_ENV));
-    }
-
-    #[test]
-    fn start_request_can_explicitly_set_cron() {
-        let mut request = StartDeploymentRequest::new(Default::default());
-        request
-            .launch_config
-            .env
-            .insert(OPENCLAW_CRON_ENABLED_ENV.to_owned(), "1".to_owned());
-
-        OpenClawLaunchConfig::new()
-            .with_cron_enabled(false)
-            .apply_to_start(&mut request);
-
-        assert_eq!(
-            request
-                .launch_config
-                .env
-                .get(OPENCLAW_CRON_ENABLED_ENV)
-                .map(String::as_str),
-            Some("0")
         );
     }
 

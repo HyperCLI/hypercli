@@ -44,7 +44,7 @@ let created = client.create_deployment(&request)?;
 let created = client
     .wait_deployment_state(&created.id, &["stopped"], &["failed", "deleted"], Duration::from_secs(330))
     .await?;
-let start = StartDeploymentRequest::new(request.launch_config.clone());
+let start = StartDeploymentRequest::new();
 client.start_deployment(&created.id, &start)?;
 let running = client
     .wait_deployment_running(&created.id, Duration::from_secs(300))
@@ -100,15 +100,14 @@ stable transition cause such as `start`, `api_stop`,
 `runtime_exit`, `timeout`, or `delete`; `error` is a failure code when present,
 and `message` is human-readable context.
 
-START is a complete replacement contract. Keep the original
-`CompleteDeploymentLaunchConfig` (including secrets and registry auth) under
-caller ownership and pass a clone to `StartDeploymentRequest::new`; the
-redacted `Deployment.launch_config` inspection projection cannot be used as a
-restart payload. Omit both selectors or use `sync_exclude: Some(vec![])` for
-whole-root sync. `sync_include: Some(vec![])` is invalid; a present include
-must contain at least one path. Root-wide excludes such as
-`sync_exclude: Some(vec!["*".into()])` are invalid. CREATE and START reject
-requests that set both selectors.
+START uses the launch configuration already stored on the backend. Put launch
+configuration on `CreateDeploymentRequest` or replace it while stopped with
+`UpdateDeploymentRequest::launch_config`; `StartDeploymentRequest` only carries
+start options such as `dry_run`. Omit both sync selectors on create/update or
+use `sync_exclude: Some(vec![])` for whole-root sync.
+`sync_include: Some(vec![])` is invalid; a present include must contain at least
+one path. Root-wide excludes such as `sync_exclude: Some(vec!["*".into()])` are
+invalid. CREATE rejects requests that set both selectors.
 
 ## Plans and agent capacity
 

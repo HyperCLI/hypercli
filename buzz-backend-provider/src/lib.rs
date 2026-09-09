@@ -4,8 +4,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use hypercli_sdk::{
-    canonical_deployment_name, AgentCapacity, AgentSize, CreateDeploymentRequest, Deployment,
-    HyperCliClient, HyperCliError, ManagedRuntime, StartDeploymentRequest, BUZZ_RUNTIME_SCOPES,
+    canonical_deployment_name, AgentCapacity, AgentSize, CompleteDeploymentLaunchConfig,
+    CreateDeploymentRequest, Deployment, DeploymentLaunchConfig, HyperCliClient, HyperCliError,
+    ManagedRuntime, StartDeploymentRequest, UpdateDeploymentRequest, BUZZ_RUNTIME_SCOPES,
 };
 use nostr::Keys;
 use reqwest::StatusCode;
@@ -438,9 +439,18 @@ fn deploy_with_readiness(
                 let deployment =
                     wait_until_stopped(client, deployment, readiness_timeout, poll_interval)?;
                 let minimum_launch_epoch = deployment.launch_epoch.saturating_add(1);
-                let start = bound_hyper_acp_start_request(&request, &deployment.id);
+                let launch_config = bound_hyper_acp_start_launch_config(&request, &deployment.id);
+                client
+                    .update_deployment(
+                        &deployment.id,
+                        &UpdateDeploymentRequest {
+                            launch_config: Some(DeploymentLaunchConfig::from(launch_config)),
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(ProviderError::HyperCli)?;
                 let deployment = client
-                    .start_deployment(&deployment.id, &start)
+                    .start_deployment(&deployment.id, &StartDeploymentRequest::new())
                     .map_err(ProviderError::HyperCli)?;
                 let deployment = wait_until_running(
                     client,
@@ -663,17 +673,26 @@ fn restart_if_stopped(
         return Ok((deployment, minimum_launch_epoch));
     }
     let minimum_launch_epoch = deployment.launch_epoch.saturating_add(1);
-    let start = bound_hyper_acp_start_request(create, &deployment.id);
+    let launch_config = bound_hyper_acp_start_launch_config(create, &deployment.id);
     client
-        .start_deployment(&deployment.id, &start)
+        .update_deployment(
+            &deployment.id,
+            &UpdateDeploymentRequest {
+                launch_config: Some(DeploymentLaunchConfig::from(launch_config)),
+                ..Default::default()
+            },
+        )
+        .map_err(ProviderError::HyperCli)?;
+    client
+        .start_deployment(&deployment.id, &StartDeploymentRequest::new())
         .map(|deployment| (deployment, minimum_launch_epoch))
         .map_err(ProviderError::HyperCli)
 }
 
-fn bound_hyper_acp_start_request(
+fn bound_hyper_acp_start_launch_config(
     create: &CreateDeploymentRequest,
     deployment_id: &str,
-) -> StartDeploymentRequest {
+) -> CompleteDeploymentLaunchConfig {
     let mut launch_config = create.launch_config.clone();
     if let Some(ws_url) = launch_config.env.get("HYPER_ACP_WS_URL").cloned() {
         launch_config.env.insert(
@@ -681,7 +700,7 @@ fn bound_hyper_acp_start_request(
             bind_hyper_acp_runtime_ws_url(&ws_url, deployment_id),
         );
     }
-    StartDeploymentRequest::new(launch_config)
+    launch_config
 }
 
 fn wait_until_running(
@@ -1827,14 +1846,15 @@ mod tests {
         )
         .unwrap();
 
-        let start = bound_hyper_acp_start_request(&request, "11111111-1111-4111-8111-111111111111");
+        let launch_config =
+            bound_hyper_acp_start_launch_config(&request, "11111111-1111-4111-8111-111111111111");
 
         assert_eq!(
             request.launch_config.env["HYPER_ACP_WS_URL"],
             DEFAULT_HYPER_ACP_WS_URL
         );
         assert_eq!(
-            start.launch_config.env["HYPER_ACP_WS_URL"],
+            launch_config.env["HYPER_ACP_WS_URL"],
             "wss://api.agents.hypercli.com/ws?agent_id=11111111-1111-4111-8111-111111111111&session_id=default&side=runtime"
         );
     }
@@ -2706,10 +2726,19 @@ mod tests {
                 .to_string(),
             )
             .create();
+        let update = server
+            .mock("PATCH", "/agents/deployments/deployment-1")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-1","runtime":"opencode","state":"stopped"}"#)
+            .create();
         let start = server
             .mock("POST", "/agents/deployments/deployment-1/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2742,6 +2771,7 @@ mod tests {
         lookup.assert();
         create.assert();
         provisioned.assert();
+        update.assert();
         start.assert();
         ready.assert();
     }
@@ -2813,10 +2843,20 @@ mod tests {
             )
             .expect(1)
             .create();
+        let update = server
+            .mock("PATCH", "/agents/deployments/deployment-medium")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"deployment-medium","runtime":"opencode","state":"stopped"}"#)
+            .expect(1)
+            .create();
         let start = server
             .mock("POST", "/agents/deployments/deployment-medium/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2848,6 +2888,7 @@ mod tests {
         refreshed_capacity.assert();
         medium_create.assert();
         provisioned.assert();
+        update.assert();
         start.assert();
         ready.assert();
     }
@@ -2884,33 +2925,19 @@ mod tests {
                 .to_string(),
             )
             .create();
+        let update = server
+            .mock("PATCH", "/agents/deployments/existing")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"stopped"}"#)
+            .create();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({"launch_config":{
-                    "image": "ghcr.io/hypercli/hypercli-opencode:latest",
-                    "restart": false,
-                    "command": ["/usr/local/bin/acp", "plugin", "buzz"],
-                    "sync_root": "/home/node",
-                    "sync_uid": 1000,
-                    "sync_gid": 1000,
-                    "runtime_scopes": BUZZ_RUNTIME_SCOPES,
-                    "secrets": {
-                        "BUZZ_PRIVATE_KEY": TEST_SECRET_HEX,
-                        "NOSTR_PRIVATE_KEY": TEST_SECRET_HEX
-                    },
-                    "env": {
-                        "BUZZ_RELAY_URL": "wss://buzz.example.com",
-                        "BUZZ_ACP_AGENT_COMMAND": "/usr/local/bin/opencode",
-                        "BUZZ_ACP_AGENT_ARGS": "acp",
-                        "BUZZ_ACP_MCP_COMMAND": "",
-                        "PORTABLE_TIER": "launch",
-                        "PORTABLE_ONLY": "preserved",
-                        "HYPER_WORKSPACES_BOOT_SYNC": "1",
-                        "HYPER_WORKSPACES_DIR": "/home/node/shared"
-                    }
-                }})
-                .to_string(),
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2949,6 +2976,7 @@ mod tests {
         .unwrap();
         assert_eq!(response.agent_id, "existing");
         lookup.assert();
+        update.assert();
         restart.assert();
         ready.assert();
     }
@@ -2956,10 +2984,19 @@ mod tests {
     #[test]
     fn stopped_agent_relaunch_without_sync_root_omits_persistence_fields() {
         let mut server = Server::new();
+        let update = server
+            .mock("PATCH", "/agents/deployments/existing")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"sync_root":null}}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"stopped"}"#)
+            .create();
         let restart = server
             .mock("POST", "/agents/deployments/existing/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({"launch_config":{"sync_root":null}}).to_string(),
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -2979,17 +3016,27 @@ mod tests {
 
         assert_eq!(restarted.id, "existing");
         assert_eq!(minimum_launch_epoch, 1);
+        update.assert();
         restart.assert();
     }
 
     #[test]
     fn stopped_agent_relaunch_filter_does_not_add_persistence_fields_without_root() {
         let mut server = Server::new();
-        let restart = server
-            .mock("POST", "/agents/deployments/existing/start")
+        let update = server
+            .mock("PATCH", "/agents/deployments/existing")
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{"sync_include":[".config/opencode"]}})
                     .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"stopped"}"#)
+            .create();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -3009,6 +3056,7 @@ mod tests {
 
         assert_eq!(restarted.id, "existing");
         assert_eq!(minimum_launch_epoch, 1);
+        update.assert();
         restart.assert();
     }
 
@@ -3071,10 +3119,19 @@ mod tests {
                 .to_string(),
             )
             .create();
+        let update = server
+            .mock("PATCH", "/agents/deployments/new-runtime")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"new-runtime","runtime":"opencode","state":"stopped"}"#)
+            .create();
         let start = server
             .mock("POST", "/agents/deployments/new-runtime/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -3103,6 +3160,7 @@ mod tests {
         delete.assert();
         create.assert();
         provisioned.assert();
+        update.assert();
         start.assert();
         ready.assert();
     }
@@ -3176,8 +3234,8 @@ mod tests {
             .with_status(409)
             .expect(1)
             .create();
-        let restart = server
-            .mock("POST", "/agents/deployments/existing/start")
+        let update = server
+            .mock("PATCH", "/agents/deployments/existing")
             .match_body(Matcher::PartialJsonString(
                 serde_json::json!({"launch_config":{
                     "restart": false,
@@ -3185,6 +3243,16 @@ mod tests {
                     "runtime_scopes": BUZZ_RUNTIME_SCOPES
                 }})
                 .to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"existing","runtime":"opencode","state":"stopped"}"#)
+            .expect(1)
+            .create();
+        let restart = server
+            .mock("POST", "/agents/deployments/existing/start")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -3228,6 +3296,7 @@ mod tests {
         initial_lookup.assert();
         recovered_lookup.assert();
         conflicting_create.assert();
+        update.assert();
         restart.assert();
         ready.assert();
     }
@@ -3283,10 +3352,20 @@ mod tests {
             .with_status(409)
             .expect(1)
             .create();
+        let update = server
+            .mock("PATCH", "/agents/deployments/shared")
+            .match_body(Matcher::PartialJsonString(
+                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id":"shared","runtime":"opencode","state":"stopped"}"#)
+            .expect(1)
+            .create();
         let start = server
             .mock("POST", "/agents/deployments/shared/start")
             .match_body(Matcher::PartialJsonString(
-                serde_json::json!({"launch_config":{"restart":false}}).to_string(),
+                serde_json::json!({}).to_string(),
             ))
             .with_status(200)
             .with_header("content-type", "application/json")
@@ -3349,6 +3428,7 @@ mod tests {
         recovered_lookup.assert();
         winning_create.assert();
         losing_create.assert();
+        update.assert();
         start.assert();
         ready.assert();
     }

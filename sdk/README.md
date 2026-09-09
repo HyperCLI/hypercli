@@ -163,7 +163,8 @@ agent = client.deployments.create(
     registry_auth=launch_config["registry_auth"],
 )
 agent = client.deployments.wait_for_state(agent.id, {"stopped"}, timeout=330)
-agent = client.deployments.start(agent.id, launch_config)
+client.deployments.update(agent.id, launch_config=launch_config)
+agent = client.deployments.start(agent.id)
 agent = client.deployments.wait_running(agent.id, timeout=300)
 
 capacity = client.deployments.list_with_capacity()
@@ -172,11 +173,10 @@ for slot in capacity.agent_slots:
     print(slot.size, slot.plan_id, slot.agent_id)
 ```
 
-`start()` and `start_openclaw()` require a complete `launch_config`. The SDK
-sends it as one replacement object and never merges omitted fields with the
-stored Agent. `start_openclaw()` still ensures the canonical gateway route
-before submitting. Retain caller-owned application secrets needed for a later
-typed start; hydrated Agents never recover secret values.
+`start()` and `start_openclaw()` start the Backend-stored launch config. Change
+launch settings through `update(..., launch_config=...)` before starting.
+Compatibility calls that still pass `launch_config` update mutable launch fields
+first and then issue a bodyless start; immutable image identity is not changed.
 
 `archive()` returns the accepted `ARCHIVING` Agent projection. `delete()` uses
 HTTP 200 to accept a durable soft delete; cluster-local cleanup continues in

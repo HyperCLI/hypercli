@@ -19,9 +19,7 @@ use thiserror::Error;
 use url::Url;
 use uuid::Uuid;
 
-use crate::{
-    CreateDeploymentRequest, ManagedRuntime, Nullable, RouteConfig, StartDeploymentRequest,
-};
+use crate::{CreateDeploymentRequest, ManagedRuntime, Nullable, RouteConfig};
 
 pub const HERMES_AGENT_IMAGE: &str = "ghcr.io/hypercli/hypercli-hermes-agent:latest";
 pub const HERMES_API_PORT: u16 = 8642;
@@ -98,31 +96,6 @@ impl HermesLaunchConfig {
                     "0".to_owned()
                 }
             });
-    }
-
-    pub fn apply_to_start(&self, request: &mut StartDeploymentRequest) {
-        let request = &mut request.launch_config;
-        self.apply(
-            &mut request.image,
-            &mut request.env,
-            &mut request.secrets,
-            &mut request.routes,
-            &mut request.sync_root,
-            &mut request.sync_include,
-            &mut request.sync_exclude,
-            &mut request.sync_uid,
-            &mut request.sync_gid,
-        );
-        if let Some(cron_enabled) = self.cron_enabled {
-            request.env.insert(
-                HERMES_CRON_ENABLED_ENV.to_owned(),
-                if cron_enabled {
-                    "1".to_owned()
-                } else {
-                    "0".to_owned()
-                },
-            );
-        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1007,34 +980,14 @@ mod tests {
         assert!(!request.env.contains_key("OPENCLAW_GATEWAY_TOKEN"));
         assert!(!request.env.contains_key("HYPER_AGENTS_API_KEY"));
         assert_eq!(request.env[HERMES_CRON_ENABLED_ENV], "1");
-
-        let mut start =
-            StartDeploymentRequest::new(crate::CompleteDeploymentLaunchConfig::default());
-        start
-            .env
-            .insert("API_SERVER_KEY".into(), "legacy-public-value".into());
-        launch.apply_to_start(&mut start);
-        assert_eq!(start.sync_include, None);
-        assert_eq!(
-            start.sync_exclude.as_deref(),
-            Some(vec!["shared/**".to_owned()].as_slice())
-        );
-        assert!(!start.env.contains_key("API_SERVER_KEY"));
-        assert_eq!(start.secrets["API_SERVER_KEY"], "gateway-secret-only");
-        assert!(!start.env.contains_key(HERMES_CRON_ENABLED_ENV));
     }
 
     #[test]
-    fn hermes_cron_can_be_overridden_on_create_and_start() {
+    fn hermes_cron_can_be_overridden_on_create() {
         let launch = HermesLaunchConfig::new("gateway-secret-only").with_cron_enabled(false);
         let mut create = CreateDeploymentRequest::new(ManagedRuntime::HermesAgent);
         launch.apply_to_create(&mut create);
         assert_eq!(create.env[HERMES_CRON_ENABLED_ENV], "0");
-
-        let mut start =
-            StartDeploymentRequest::new(crate::CompleteDeploymentLaunchConfig::default());
-        launch.apply_to_start(&mut start);
-        assert_eq!(start.env[HERMES_CRON_ENABLED_ENV], "0");
     }
 
     #[test]

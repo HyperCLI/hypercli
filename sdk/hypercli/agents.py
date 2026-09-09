@@ -1158,10 +1158,6 @@ def _repair_openclaw_start_launch_config(
 ) -> dict[str, Any]:
     prepared = copy.deepcopy(launch_config)
     desktop_enabled = bool(desktop) if desktop is not None else launch_config_has_desktop(prepared)
-    prepared["image"] = _default_openclaw_start_image(
-        prepared.get("image"),
-        desktop_enabled=desktop_enabled,
-    )
     prepared["routes"] = _with_openclaw_gateway_route(prepared.get("routes"))
     if desktop is not None:
         env = dict(prepared.get("env") or {})
@@ -4504,8 +4500,8 @@ class Deployments:
         The Backend's owner-facing Agent projection deliberately strips
         ``secrets`` and ``registry_auth`` before returning an Agent to a
         user-scoped caller (``hydrate_managed_agent`` in the Backend's
-        ``unified_agents`` module pops both). START, by contrast, is a *full
-        replacement* and demands every key in
+        ``unified_agents`` module pops both). Updating a complete legacy start
+        config is a *full replacement* and demands every key in
         ``REQUIRED_START_LAUNCH_CONFIG_KEYS``. Without this step the obvious
         round-trip can never succeed, because the read side is structurally
         incapable of returning what the write side requires::
@@ -4516,7 +4512,8 @@ class Deployments:
             #             registry_auth, secrets
 
         The fix is to complete the object honestly, never to weaken the
-        completeness contract -- START must stay a replacement, not a merge.
+        completeness contract -- the persisted launch_config update remains a
+        replacement, not a merge.
 
         Only keys that are genuinely ABSENT are rebuilt. A caller-supplied
         ``secrets`` or ``registry_auth`` is honoured verbatim, including an
@@ -4555,7 +4552,7 @@ class Deployments:
                     "registry_auth is caller-held and write-only, so the owner-facing "
                     "projection can never return it and the SDK will not substitute an "
                     "empty credential that would break the private-registry pull -- "
-                    "pass registry_auth explicitly to START"
+                    "pass registry_auth explicitly before updating launch_config"
                 )
             prepared["registry_auth"] = {}
         return prepared
@@ -4564,7 +4561,7 @@ class Deployments:
         self,
         agent_id: str,
     ) -> dict:
-        """Return the server-stored launch configuration, START-ready.
+        """Return the server-stored launch configuration, rehydrated for update.
 
         Reads the owner-facing Agent projection and rehydrates the two keys
         the projection redacts (secrets, registry_auth). Unlike the CLI's
@@ -4586,32 +4583,43 @@ class Deployments:
     def start(
         self,
         agent_id: str,
-        launch_config: dict,
+        launch_config: dict | None = None,
         *,
         dry_run: bool = False,
     ) -> Agent:
-        """Start with one complete replacement launch configuration.
+        """Start the server-stored launch configuration.
 
-        ``launch_config`` is sent wholesale. The SDK never merges it with the
-        prior Agent snapshot or asks the Backend to inherit omitted fields.
+        When supplied for compatibility, ``launch_config`` is first persisted
+        through Agent update. The start mutation itself only carries start
+        options such as ``dry_run``.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        prepared = _copy_complete_launch_config(
-            self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
-        )
-        prepared.pop("config", None)
-        body: dict[str, Any] = {"launch_config": prepared}
+        submitted_launch: dict[str, Any] | None = None
+        if launch_config is not None:
+            if dry_run:
+                raise ValueError("dry-run start cannot carry launch_config; update launch_config first")
+            prepared = _copy_complete_launch_config(
+                self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
+            )
+            prepared.pop("config", None)
+            prepared.pop("image", None)
+            prepared.pop("registry_url", None)
+            submitted_launch = copy.deepcopy(prepared)
+            self.update(resolved_agent_id, launch_config=prepared)
+        body: dict[str, Any] = {}
         if dry_run:
             body["dry_run"] = True
-        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start", json=body)
+        path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/start"
+        data = self._post(path, json=body) if body else self._post(path)
         agent = self._hydrate_agent(data)
-        agent.__dict__["_submitted_launch_config"] = copy.deepcopy(body["launch_config"])
+        if submitted_launch is not None:
+            agent.__dict__["_submitted_launch_config"] = submitted_launch
         return agent
 
     def start_hermes_agent(
         self,
         agent_id: str,
-        launch_config: dict,
+        launch_config: dict | None = None,
         *,
         api_server_key: str = None,
         cron_enabled: bool | None = None,
@@ -4619,16 +4627,23 @@ class Deployments:
     ) -> HermesAgent:
         """Start Hermes without silently rotating its application gateway key."""
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        prepared = _copy_complete_launch_config(
-            self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
-        )
+        prepared = None
+        if launch_config is not None or api_server_key is not None or cron_enabled is not None:
+            prepared = _copy_complete_launch_config(
+                self._rehydrate_redacted_launch_config(
+                    resolved_agent_id,
+                    launch_config
+                    if launch_config is not None
+                    else self.stored_launch_config(resolved_agent_id),
+                )
+            )
         supplied_key = (
             api_server_key
-            or (prepared.get("secrets") or {}).get("API_SERVER_KEY")
-            or (prepared.get("env") or {}).get("API_SERVER_KEY")
+            or ((prepared.get("secrets") or {}).get("API_SERVER_KEY") if prepared else None)
+            or ((prepared.get("env") or {}).get("API_SERVER_KEY") if prepared else None)
         )
         effective_key: str | None = None
-        if supplied_key is not None:
+        if prepared is not None and supplied_key is not None:
             effective_env, effective_secrets, effective_key = _inject_hermes_api_server_key(
                 prepared.get("env"),
                 prepared.get("secrets"),
@@ -4636,16 +4651,12 @@ class Deployments:
             )
             prepared["env"] = effective_env
             prepared["secrets"] = effective_secrets
-        if cron_enabled is not None:
+        if prepared is not None and cron_enabled is not None:
             prepared["env"] = {
                 **dict(prepared.get("env") or {}),
                 **build_hermes_cron_env(cron_enabled),
             }
-        agent = self.start(
-            resolved_agent_id,
-            prepared,
-            dry_run=dry_run,
-        )
+        agent = self.start(resolved_agent_id, prepared, dry_run=dry_run)
         if not isinstance(agent, HermesAgent):
             raise TypeError("backend did not return a HermesAgent deployment")
         agent.api_server_key = effective_key
@@ -4654,31 +4665,35 @@ class Deployments:
     def start_openclaw(
         self,
         agent_id: str,
-        launch_config: dict,
+        launch_config: dict | None = None,
         *,
         gateway_token: str = None,
         dry_run: bool = False,
         _desktop: bool | None = None,
     ) -> Agent:
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        prepared = _copy_complete_launch_config(
-            self._rehydrate_redacted_launch_config(resolved_agent_id, launch_config)
-        )
-        prepared = _repair_openclaw_start_launch_config(prepared, desktop=_desktop)
-        prepared.pop("config", None)
-        effective_env, effective_secrets, effective_gateway_token = _inject_openclaw_gateway_token(
-            prepared.get("env"),
-            prepared.get("secrets"),
-            gateway_token,
-            generate=False,
-        )
-        prepared["env"] = effective_env
-        prepared["secrets"] = effective_secrets
-        agent = self.start(
-            resolved_agent_id,
-            prepared,
-            dry_run=dry_run,
-        )
+        prepared = None
+        effective_gateway_token = gateway_token
+        if launch_config is not None or gateway_token is not None or _desktop is not None:
+            prepared = _copy_complete_launch_config(
+                self._rehydrate_redacted_launch_config(
+                    resolved_agent_id,
+                    launch_config
+                    if launch_config is not None
+                    else self.stored_launch_config(resolved_agent_id),
+                )
+            )
+            prepared = _repair_openclaw_start_launch_config(prepared, desktop=_desktop)
+            prepared.pop("config", None)
+            effective_env, effective_secrets, effective_gateway_token = _inject_openclaw_gateway_token(
+                prepared.get("env"),
+                prepared.get("secrets"),
+                gateway_token,
+                generate=False,
+            )
+            prepared["env"] = effective_env
+            prepared["secrets"] = effective_secrets
+        agent = self.start(resolved_agent_id, prepared, dry_run=dry_run)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
         return agent
@@ -4686,7 +4701,7 @@ class Deployments:
     def start_openclaw_pro(
         self,
         agent_id: str,
-        launch_config: dict,
+        launch_config: dict | None = None,
         *,
         gateway_token: str = None,
         dry_run: bool = False,

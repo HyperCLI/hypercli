@@ -91,9 +91,10 @@ describe('Hermes deployment lifecycle', () => {
   });
 
   it('does not rotate the application gateway key on start', async () => {
+    const patch = vi.fn();
     const post = vi.fn().mockResolvedValue(deployment());
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -105,13 +106,16 @@ describe('Hermes deployment lifecycle', () => {
     const started = await deployments.startHermesAgent(id, { launchConfig });
 
     expect(started.apiServerKey).toBeNull();
-    expect(post.mock.calls[0][1]).toEqual({ launch_config: launchConfig });
+    const { image: _image, registry_url: _registryUrl, ...expectedLaunchConfig } = launchConfig;
+    expect(patch.mock.calls[0][1]).toEqual({ launch_config: expectedLaunchConfig });
+    expect(post.mock.calls[0][1]).toBeUndefined();
   });
 
   it('can override Hermes cron on start without materializing it by default', async () => {
+    const patch = vi.fn();
     const post = vi.fn().mockResolvedValue(deployment());
     const deployments = new Deployments(
-      { post } as unknown as HTTPClient,
+      { patch, post } as unknown as HTTPClient,
       'hyper_api_test',
       'https://api.test.hypercli.com/agents',
     );
@@ -120,10 +124,11 @@ describe('Hermes deployment lifecycle', () => {
 
     await deployments.startHermesAgent(id, { launchConfig, cronEnabled: false });
 
-    expect(post.mock.calls[0][1].launch_config.env).toEqual({
+    expect(patch.mock.calls[0][1].launch_config.env).toEqual({
       CUSTOM_FLAG: '1',
       HERMES_CRON_ENABLED: '0',
     });
+    expect(post.mock.calls[0][1]).toBeUndefined();
   });
 
   it('treats explicit server-key length as opaque application policy', async () => {

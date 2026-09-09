@@ -238,9 +238,10 @@ describe('hosted Slack launch env', () => {
   });
 
   it('startOpenClaw repairs a stored launch env that predates the gateway id', async () => {
+    const patch = vi.fn();
     const post = vi.fn().mockResolvedValue({ ...createdAgentPayload({ state: 'STARTING' }) });
     const get = vi.fn().mockResolvedValue(createdAgentPayload({ state: 'STOPPED' }));
-    const deployments = deploymentsWith({ post, get });
+    const deployments = deploymentsWith({ patch, post, get });
 
     await deployments.startOpenClaw(AGENT_ID, {
       launchConfig: completeLaunchConfig({
@@ -250,11 +251,12 @@ describe('hosted Slack launch env', () => {
       }),
     });
 
-    const startBody = post.mock.calls.at(-1)?.[1];
-    expect(startBody?.launch_config?.env).toMatchObject({
+    const patchBody = patch.mock.calls.at(-1)?.[1];
+    expect(patchBody?.launch_config?.env).toMatchObject({
       HYPER_SLACK_APP_ENABLED: '1',
       HYPER_SLACK_GATEWAY_ID: `agent:${AGENT_ID}`,
     });
+    expect(post.mock.calls.at(-1)?.[1]).toBeUndefined();
   });
 
   it('startOpenClaw refuses a launch env whose relay URL is missing', async () => {
