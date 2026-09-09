@@ -230,6 +230,7 @@ jobs:
   # gated on every other check above.
   test:
     name: cli / test
+    if: always() && !failure() && !cancelled()
     needs: [gate, smoke, pack, line-endings, typecheck]
     runs-on: self-hosted
     timeout-minutes: 25
