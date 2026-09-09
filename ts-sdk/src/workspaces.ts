@@ -10,7 +10,7 @@ import { getAgentsApiBaseUrl } from './config.js';
 // throw a clear error when called outside Node.
 async function loadNodeBuiltin<T>(moduleName: string): Promise<T> {
   try {
-    return (await import(moduleName)) as T;
+    return (await import(/* webpackIgnore: true */ moduleName)) as T;
   } catch {
     throw new Error(`shared knowledge sync requires a Node.js runtime (${moduleName} is unavailable)`);
   }

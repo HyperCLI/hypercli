@@ -83,8 +83,8 @@ function cloneRecord<T>(value: T): T {
   return structuredClone(value);
 }
 
-function cloneStoredStartLaunchConfig(agent: SdkAgent, runtimeLabel: string): AgentLaunchConfig {
-  const launchConfig = cloneRecord((agent as { launchConfig?: unknown }).launchConfig ?? {});
+function cloneStoredStartLaunchConfig(storedConfig: unknown, runtimeLabel: string): AgentLaunchConfig {
+  const launchConfig = cloneRecord(storedConfig ?? {});
   if (!isRecord(launchConfig)) {
     throw new Error(`${runtimeLabel} start requires a stored launch configuration.`);
   }
@@ -98,8 +98,8 @@ function cloneStoredStartLaunchConfig(agent: SdkAgent, runtimeLabel: string): Ag
   return launchConfig as unknown as AgentLaunchConfig;
 }
 
-function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string): AgentLaunchConfig {
-  const launchConfig = cloneStoredStartLaunchConfig(agent, "OpenClaw") as unknown as Record<string, unknown>;
+function buildOpenClawStartLaunchConfig(storedConfig: AgentLaunchConfig, controlUiOrigin: string): AgentLaunchConfig {
+  const launchConfig = cloneStoredStartLaunchConfig(storedConfig, "OpenClaw") as unknown as Record<string, unknown>;
   delete launchConfig.config;
   launchConfig.env = {
     ...(isRecord(launchConfig.env) ? launchConfig.env : {}),
@@ -108,8 +108,8 @@ function buildOpenClawStartLaunchConfig(agent: SdkAgent, controlUiOrigin: string
   return launchConfig as unknown as AgentLaunchConfig;
 }
 
-function buildHermesStartLaunchConfig(agent: SdkAgent): AgentLaunchConfig {
-  const launchConfig = cloneStoredStartLaunchConfig(agent, "Hermes") as unknown as Record<string, unknown>;
+function buildHermesStartLaunchConfig(storedConfig: AgentLaunchConfig): AgentLaunchConfig {
+  const launchConfig = cloneStoredStartLaunchConfig(storedConfig, "Hermes") as unknown as Record<string, unknown>;
   // Agents created before the launcher sent an image carry image: null; START
   // replays the stored contract verbatim, so repair it with the configured
   // default or the pod keeps resolving a stale image.
@@ -513,14 +513,13 @@ export async function requestAgentStart(
   let accepted: SdkAgent;
   try {
     const storedLaunchConfig = await agentClient.storedLaunchConfig(agentId);
-    const startSource = { ...current, launchConfig: storedLaunchConfig };
     if (isHermesRuntime) {
-      await agentClient.update(agentId, { launchConfig: buildHermesStartLaunchConfig(startSource) });
+      await agentClient.update(agentId, { launchConfig: buildHermesStartLaunchConfig(storedLaunchConfig) });
       accepted = await agentClient.startHermesAgent(agentId);
     } else {
       const origin = currentControlUiOrigin();
       if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
-      await agentClient.update(agentId, { launchConfig: buildOpenClawStartLaunchConfig(startSource, origin) });
+      await agentClient.update(agentId, { launchConfig: buildOpenClawStartLaunchConfig(storedLaunchConfig, origin) });
       accepted = await agentClient.startOpenClaw(agentId);
     }
   } catch (error) {
