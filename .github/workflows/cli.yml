@@ -9,29 +9,32 @@ run-name: CLI CI
 # manifest line; cli/tests/ci-matrix.test.ts fails the run when the manifest
 # drifts from the registry.
 #
-# No secrets; the only network access is the npm registry. Every smoke is an
-# offline `node dist/index.js ... --help` and must exit 0 without an API key.
+# No npm cache uploads. Jobs run inside a pre-built image
+# (docker/cli-ci.Dockerfile) with ts-sdk + cli deps baked in; the
+# image is built/pushed once per lockfile change by the `image` job and
+# re-tagged from the registry digest otherwise. Registry coordinates come
+# from CI env/secrets, not this file.
 #
-# All jobs run on the self-hosted Linux runners. Windows is not gated: we
-# assume parity with Linux for the CLI's purposes.
+# All jobs run on the self-hosted Linux runners. Windows is not gated.
 #
 # Coordination uses a GitHub concurrency group (no runner-local lock files or
-# flock, per AGENTS.md). Builds are reproduced per job via the npm cache plus a
-# small dist artifact: node_modules is never archived because npm installs the
-# file:../ts-sdk dependency as a symlink/junction, which does not survive
-# artifact upload/download — `npm ci` re-creates the link deterministically.
+# flock, per AGENTS.md).
 
 on:
   push:
     branches: [main, dev]
     paths:
       - ".github/workflows/cli.yml"
+      - "docker/cli-ci.Dockerfile"
+      - ".github/scripts/cli_container_entrypoint.sh"
       - "cli/**"
       - "skills/**"
       - "ts-sdk/**"
   pull_request:
     paths:
       - ".github/workflows/cli.yml"
+      - "docker/cli-ci.Dockerfile"
+      - ".github/scripts/cli_container_entrypoint.sh"
       - "cli/**"
       - "skills/**"
       - "ts-sdk/**"
@@ -45,99 +48,87 @@ defaults:
   run:
     shell: bash
 
+env:
+  REGISTRY: ${{ vars.CI_REGISTRY }}
+  REGISTRY_ORG: ${{ vars.CI_REGISTRY_ORG }}
+  CLI_CI_IMAGE_REPOSITORY: hypercli-cli-ci
+
 jobs:
-  # Builds ts-sdk + cli once, sanity-checks the dist binary, publishes the
-  # dist artifacts consumed by the smoke/typecheck jobs, and expands
-  # cli/tests/ci-matrix.json into the gate/smoke matrices.
-  build:
-    name: cli / build
+  # Builds (or reuses) the shared CI image. Tag is keyed off the lockfiles +
+  # Dockerfile so dependency changes force a rebuild and everything else
+  # reuses the pushed image.
+  image:
+    name: cli / image
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 30
     outputs:
-      gates: ${{ steps.matrices.outputs.gates }}
-      smokes: ${{ steps.matrices.outputs.smokes }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Install and build ts-sdk
-        working-directory: ts-sdk
+      - name: Compute image tag
+        id: meta
         run: |
           set -euo pipefail
-          npm ci
-          npm run build
+          TAG="$(sha256sum \
+            ts-sdk/package-lock.json \
+            cli/package-lock.json \
+            docker/cli-ci.Dockerfile \
+            .github/scripts/cli_container_entrypoint.sh \
+            | sha256sum | cut -c1-16)"
+          echo "image_tag=${TAG}" >> "${GITHUB_OUTPUT}"
 
-      - name: Install and build cli
-        working-directory: cli
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.CI_REGISTRY_USER }}
+          password: ${{ secrets.CI_REGISTRY_TOKEN }}
+
+      - name: Build and push image if absent
         run: |
           set -euo pipefail
-          npm ci
-          npm run build
-          node dist/index.js --version
-
-      - name: Upload dist artifacts for the smoke jobs
-        uses: actions/upload-artifact@v4
-        with:
-          name: cli-dist
-          path: |
-            cli/dist
-            ts-sdk/dist
-          retention-days: 1
-
-      - name: Expand cli/tests/ci-matrix.json into job matrices
-        id: matrices
-        working-directory: cli
-        run: node scripts/expand-ci-matrix.mjs
+          IMAGE="${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ steps.meta.outputs.image_tag }}"
+          if docker manifest inspect "${IMAGE}" >/dev/null 2>&1; then
+            echo "image already present: ${IMAGE}"
+            exit 0
+          fi
+          docker build \
+            -f docker/cli-ci.Dockerfile \
+            -t "${IMAGE}" \
+            .
+          docker push "${IMAGE}"
 
   # One gate per command group: the group's vitest files plus the bare
-  # `node dist/index.js <group> --help` smoke.
+  # `node dist/index.js <group> --help` smoke, inside the shared image.
   gate:
     name: cli / ${{ matrix.group }}
-    needs: build
+    needs: [image, expand]
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.build.outputs.gates) }}
+        include:
+          - group: core
+          - group: me
+          - group: configure
+          - group: skills
+          - group: agents
+          - group: jobs
+          - group: flow
+          - group: files
+          - group: voice
+    container:
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Install and build ts-sdk
-        working-directory: ts-sdk
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
-      - name: Install and build cli
-        working-directory: cli
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
       - name: Run the group's vitest files (from ci-matrix.json)
-        working-directory: cli
         run: |
           set -euo pipefail
+          /usr/local/bin/cli_container_entrypoint true
+          cd /workspace/cli
           tests="$(node -p "require('./tests/ci-matrix.json').groups['${{ matrix.group }}'].tests.map((t) => 'tests/' + t + '.test.ts').join(' ')")"
           if [ -n "${tests}" ]; then
             npx vitest run ${tests}
@@ -146,9 +137,9 @@ jobs:
           fi
 
       - name: Bare group --help smoke (offline, no API key)
-        working-directory: cli
         run: |
           set -euo pipefail
+          cd /workspace/cli
           if [ "${{ matrix.group }}" = "core" ]; then
             node dist/index.js > /dev/null
             node dist/index.js --help > /dev/null
@@ -157,172 +148,125 @@ jobs:
           fi
 
   # Subcommand matrix: every non-bare smoke in the manifest, one check per
-  # subcommand. Reuses the dist artifacts from build; `npm ci` re-creates the
-  # file:../ts-sdk symlink so no build step (or node_modules artifact) is
-  # needed here.
+  # subcommand, inside the shared image.
   smoke:
     name: cli / ${{ matrix.name }}
-    needs: build
+    needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.build.outputs.smokes) }}
+        include: ${{ fromJSON(needs.expand.outputs.smokes) }}
+    container:
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: cli-dist
-          path: ${{ github.workspace }}
-
-      - name: Install cli dependencies (re-links file:../ts-sdk)
-        working-directory: cli
-        run: npm ci
-
       - name: Offline --help smoke
-        working-directory: cli
         run: |
           set -euo pipefail
+          /usr/local/bin/cli_container_entrypoint true
+          cd /workspace/cli
           node dist/index.js ${{ matrix.argv }} > /dev/null
           echo "exit 0: hyper ${{ matrix.argv }}"
+
+  # Expands the smoke matrix and the containered job's image ref (kept tiny and
+  # separate; runs on the runner, not in the image, so it can emit job-level
+  # expressions). Everything here must exist before any `${{ needs.expand }}`
+  # reference resolves.
+  expand:
+    name: cli / expand
+    runs-on: self-hosted
+    timeout-minutes: 5
+    outputs:
+      smokes: ${{ steps.matrices.outputs.smokes }}
+      image: ${{ steps.image_ref.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expand cli/tests/ci-matrix.json into the smoke matrix
+        id: matrices
+        working-directory: cli
+        run: node scripts/expand-ci-matrix.mjs
+      - name: Resolve CLI CI image ref
+        id: image_ref
+        run: |
+          set -euo pipefail
+          printf 'image=%s/%s/%s:%s\n' \
+            "${REGISTRY}" "${REGISTRY_ORG}" "${CLI_CI_IMAGE_REPOSITORY}" \
+            "$(sha256sum \
+              ts-sdk/package-lock.json \
+              cli/package-lock.json \
+              docker/cli-ci.Dockerfile \
+              .github/scripts/cli_container_entrypoint.sh \
+              | sha256sum | cut -c1-16)" \
+            >> "${GITHUB_OUTPUT}"
 
   # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:
     name: cli / pack
-    needs: build
+    needs: [image, expand]
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 20
+    container:
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Install and build ts-sdk
-        working-directory: ts-sdk
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
-      - name: Install and build cli
-        working-directory: cli
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
       - name: Pack gate (npm pack --dry-run assertions)
-        working-directory: cli
-        run: npx vitest run tests/pack.test.ts
+        run: |
+          set -euo pipefail
+          /usr/local/bin/cli_container_entrypoint true
+          cd /workspace/cli
+          npx vitest run tests/pack.test.ts
 
   # LF-only house rule gate.
   line-endings:
     name: cli / line-endings
-    needs: build
+    needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 10
+    container:
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: cli/package-lock.json
-
-      - name: Install cli dependencies
-        working-directory: cli
-        run: npm ci
-
       - name: Line endings gate
-        working-directory: cli
-        run: npx vitest run tests/line-endings.test.ts
+        run: |
+          set -euo pipefail
+          /usr/local/bin/cli_container_entrypoint true
+          cd /workspace/cli
+          npx vitest run tests/line-endings.test.ts
 
-  # tsc --noEmit for the CLI (ts-sdk types come from the built dist artifact).
+  # tsc --noEmit for the CLI.
   typecheck:
     name: cli / typecheck
-    needs: build
+    needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 15
+    container:
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: cli-dist
-          path: ${{ github.workspace }}
-
-      - name: Install cli dependencies (re-links file:../ts-sdk)
-        working-directory: cli
-        run: npm ci
-
       - name: Typecheck
-        working-directory: cli
-        run: npm run typecheck
+        run: |
+          set -euo pipefail
+          /usr/local/bin/cli_container_entrypoint true
+          cd /workspace/cli
+          npm run typecheck
 
   # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts),
   # gated on every other check above.
   test:
     name: cli / test
-    needs: [gate, smoke, pack, line-endings, typecheck]
+    needs: [gate, smoke, pack, line-endings, typecheck, expand]
     runs-on: self-hosted
-    timeout-minutes: 20
+    timeout-minutes: 25
+    container:
+      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Install and build ts-sdk
-        working-directory: ts-sdk
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
-      - name: Install and build cli
-        working-directory: cli
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-
       - name: Full vitest suite
-        working-directory: cli
-        run: npx vitest run
+        run: |
+          set -euo pipefail
+          /usr/local/bin/cli_container_entrypoint true
+          cd /workspace/cli
+          npx vitest run

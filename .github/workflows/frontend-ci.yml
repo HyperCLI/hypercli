@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/**"
       - ".github/scripts/**"
-      - ".github/docker/**"
+      - "docker/**"
       - "site/**"
       - "ts-sdk/**"
       - "sdk/**"
@@ -88,7 +88,7 @@ jobs:
             if ! changed_files="$(git diff --name-only "${before}" "${GITHUB_SHA}" 2>/dev/null)"; then
               should_build=true
               reason="unable-to-diff"
-            elif printf '%s\n' "${changed_files}" | grep -Eq '^(\.github/docker/build-site\.Dockerfile|\.github/scripts/(build_site_image|site_container_entrypoint)\.sh|ts-sdk/package-lock\.json|site/package-lock\.json)$'; then
+            elif printf '%s\n' "${changed_files}" | grep -Eq '^(docker/build-site\.Dockerfile|\.github/scripts/(build_site_image|site_container_entrypoint)\.sh|ts-sdk/package-lock\.json|site/package-lock\.json)$'; then
               should_build=true
               reason="builder-inputs-changed"
             fi
