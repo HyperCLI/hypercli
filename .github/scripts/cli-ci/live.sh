@@ -48,7 +48,7 @@ assert_fail() {
   [ "$placed" = 1 ] || dev_args+=("--dev")
   out="$("${CLI[@]}" "${dev_args[@]}" 2>&1)" || rc=$?
   [ "${rc}" -eq "${want}" ] || { echo "want exit ${want}, got ${rc}: ${out}"; exit 1; }
-  grep -qF "${pat}" <<<"${out}" || { echo "missing '${pat}': ${out}"; exit 1; }
+  grep -qF -- "${pat}" <<<"${out}" || { echo "missing '${pat}': ${out}"; exit 1; }
   echo "expected failure ok (${dev_args[*]}): ${pat}"
 }
 
@@ -204,7 +204,7 @@ case "${GROUP}/${SUB}" in
       "${CLI[@]}" agents delete "${ID}" --yes --dev || true
     fi
 
-    ID="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --json --dev 2>/dev/null | node -e \
+    ID="$("${CLI[@]}" agents create "${NAME}" --runtime opencode --size large --json --dev 2>/dev/null | node -e \
       'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).id)')"
     [ -n "${ID}" ] || { echo "create returned no id"; exit 1; }
     echo "created ${NAME} id=${ID}"
