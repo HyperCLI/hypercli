@@ -3300,9 +3300,17 @@ class Deployments:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
-    def _delete(self, path: str) -> Any:
+    def _delete(self, path: str, json: dict = None) -> Any:
         with httpx.Client(timeout=self._timeout) as client:
-            resp = client.delete(f"{self._api_base}{path}", headers=self._headers)
+            if json is None:
+                resp = client.delete(f"{self._api_base}{path}", headers=self._headers)
+            else:
+                resp = client.request(
+                    "DELETE",
+                    f"{self._api_base}{path}",
+                    headers=self._headers,
+                    json=json,
+                )
         if resp.status_code >= 400:
             try:
                 detail = resp.json().get("detail", resp.text)
@@ -4744,11 +4752,12 @@ class Deployments:
     ) -> Agent:
         return self.update(agent_id, size=size)
 
-    def stop(self, agent_id: str) -> Agent:
+    def stop(self, agent_id: str, *, dry_run: bool = False) -> Agent:
         """Stop an agent (tears down pod, keeps DB record).
 
         Args:
             agent_id: Agent UUID.
+            dry_run: When True, returns the current agent dict with no mutation.
 
         Returns:
             Agent in ``stopping`` state while runtime cleanup is in progress.
@@ -4756,19 +4765,30 @@ class Deployments:
             deployment event stream before treating the slot as released.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop")
+        path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/stop"
+        data = self._post(path, json={"dry_run": True}) if dry_run else self._post(path)
         return self._hydrate_agent(data)
 
-    def archive(self, agent_id: str) -> Agent:
-        """Archive durable storage for a stopped agent without launching it."""
+    def archive(self, agent_id: str, *, dry_run: bool = False) -> Agent:
+        """Archive durable storage for a stopped agent without launching it.
+
+        When ``dry_run`` is True, returns the current agent dict with no
+        mutation.
+        """
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/archive")
+        path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/archive"
+        data = self._post(path, json={"dry_run": True}) if dry_run else self._post(path)
         return self._hydrate_agent(data)
 
-    def restore(self, agent_id: str) -> Agent:
-        """Restore durable storage for a stopped or archived agent."""
+    def restore(self, agent_id: str, *, dry_run: bool = False) -> Agent:
+        """Restore durable storage for a stopped or archived agent.
+
+        When ``dry_run`` is True, returns the current agent dict with no
+        mutation.
+        """
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        data = self._post(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/restore")
+        path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/restore"
+        data = self._post(path, json={"dry_run": True}) if dry_run else self._post(path)
         return self._hydrate_agent(data)
 
     def _routes_target(self, agent_id: str) -> str:
@@ -4836,18 +4856,22 @@ class Deployments:
         path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}/routes/{encoded_name}"
         return AgentRoutes.from_dict(self._delete(path))
 
-    def delete(self, agent_id: str) -> dict:
+    def delete(self, agent_id: str, *, dry_run: bool = False) -> dict:
         """Accept a durable soft delete and background local cleanup.
 
         Args:
             agent_id: Agent UUID.
+            dry_run: When True, returns the current agent dict with no mutation.
 
         Returns:
             The Backend's HTTP 200 accepted projection. Runtime storage cleanup
             continues in the background; the response is not proof of cleanup.
         """
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        return self._delete(f"{AGENTS_API_PREFIX}/{resolved_agent_id}")
+        path = f"{AGENTS_API_PREFIX}/{resolved_agent_id}"
+        if dry_run:
+            return self._delete(path, json={"dry_run": True})
+        return self._delete(path)
 
     def refresh_token(self, agent_id: str) -> dict:
         """Refresh the access token for an agent.

@@ -757,6 +757,86 @@ def test_start_posts_bodyless_and_preserves_dry_run_option():
     ]
 
 
+def test_lifecycle_post_actions_bodyless_default_and_dry_run_body():
+    deployments = Deployments(
+        MagicMock(spec=HTTPClient),
+        api_key="hyper_api_test",
+        api_base="https://api.test.hypercli.com/agents",
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    with patch.object(
+        deployments,
+        "_post",
+        return_value={"id": agent_id, "state": "STOPPED"},
+    ) as post:
+        for action in (deployments.stop, deployments.archive, deployments.restore):
+            action(agent_id)
+            action(agent_id, dry_run=True)
+
+    assert post.call_args_list == [
+        call(f"/deployments/{agent_id}/stop"),
+        call(f"/deployments/{agent_id}/stop", json={"dry_run": True}),
+        call(f"/deployments/{agent_id}/archive"),
+        call(f"/deployments/{agent_id}/archive", json={"dry_run": True}),
+        call(f"/deployments/{agent_id}/restore"),
+        call(f"/deployments/{agent_id}/restore", json={"dry_run": True}),
+    ]
+
+
+def test_delete_bodyless_default_and_dry_run_body():
+    deployments = Deployments(
+        MagicMock(spec=HTTPClient),
+        api_key="hyper_api_test",
+        api_base="https://api.test.hypercli.com/agents",
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    with patch.object(
+        deployments,
+        "_delete",
+        return_value={"id": agent_id, "state": "STOPPED"},
+    ) as delete:
+        deployments.delete(agent_id)
+        deployments.delete(agent_id, dry_run=True)
+
+    assert delete.call_args_list == [
+        call(f"/deployments/{agent_id}"),
+        call(f"/deployments/{agent_id}", json={"dry_run": True}),
+    ]
+
+
+def test_delete_sends_json_body_on_delete_request():
+    deployments = Deployments(
+        MagicMock(spec=HTTPClient),
+        api_key="hyper_api_test",
+        api_base="https://api.test.hypercli.com/agents",
+    )
+    agent_id = "11111111-1111-4111-8111-111111111111"
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {"id": agent_id}
+    with patch("hypercli.agents.httpx.Client") as client_cls:
+        client = client_cls.return_value.__enter__.return_value
+        client.request.return_value = response
+        client.delete.return_value = response
+
+        deployments.delete(agent_id, dry_run=True)
+        deployments.delete(agent_id)
+
+    called_request = client.request.call_args_list
+    assert called_request == [
+        call(
+            "DELETE",
+            f"https://api.test.hypercli.com/agents/deployments/{agent_id}",
+            headers=deployments._headers,
+            json={"dry_run": True},
+        ),
+    ]
+    client.delete.assert_called_once_with(
+        f"https://api.test.hypercli.com/agents/deployments/{agent_id}",
+        headers=deployments._headers,
+    )
+
+
 def test_bound_agent_exposes_archive_transitional_projection():
     deployments = MagicMock()
     archived = Agent.from_dict({"id": "agent-123", "user_id": "user-456", "state": "ARCHIVING"})
