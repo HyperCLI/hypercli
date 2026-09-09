@@ -62,7 +62,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 30
     outputs:
-      image_tag: ${{ steps.meta.outputs.image_tag }}
+      image: ${{ steps.build.outputs.image }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,9 +81,11 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Build and push image if absent
+        id: build
         run: |
           set -euo pipefail
           IMAGE="${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ steps.meta.outputs.image_tag }}"
+          echo "image=${IMAGE}" >> "${GITHUB_OUTPUT}"
           if docker manifest inspect "${IMAGE}" >/dev/null 2>&1; then
             echo "image already present: ${IMAGE}"
             exit 0
@@ -94,27 +96,20 @@ jobs:
             .
           docker push "${IMAGE}"
 
-  # Expands the smoke matrix and the image ref. Runs on the runner so every
-  # test job can reference `needs.expand.outputs.*` without re-deriving them.
+  # Expands the smoke matrix. Runs on the runner so the smoke matrix can
+  # reference `needs.expand.outputs.smokes`.
   expand:
     name: cli / expand
     runs-on: self-hosted
     timeout-minutes: 5
     outputs:
       smokes: ${{ steps.matrices.outputs.smokes }}
-      image: ${{ steps.image_ref.outputs.image }}
     steps:
       - uses: actions/checkout@v4
       - name: Expand cli/tests/ci-matrix.json into the smoke matrix
         id: matrices
         working-directory: cli
         run: node scripts/expand-ci-matrix.mjs
-      - name: Resolve CLI CI image ref
-        id: image_ref
-        run: |
-          set -euo pipefail
-          TAG="$(echo "${{ github.sha }}" | cut -c1-7)"
-          echo "image=${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${TAG}" >> "${GITHUB_OUTPUT}"
 
   # One gate per command group: the group's vitest files plus the bare
   # `node dist/index.js <group> --help` smoke, inside the shared image.
@@ -147,10 +142,10 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Group vitest files
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/gate.sh "${{ matrix.group }}"
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/gate.sh "${{ matrix.group }}"
 
       - name: Bare group --help smoke (offline, no API key)
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/gate-smoke.sh "${{ matrix.group }}"
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/gate-smoke.sh "${{ matrix.group }}"
 
   # Subcommand matrix: every non-bare smoke in the manifest, one check per
   # subcommand, inside the shared image.
@@ -174,7 +169,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Offline --help smoke
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/smoke.sh ${{ matrix.argv }}
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/smoke.sh ${{ matrix.argv }}
 
   # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:
@@ -193,7 +188,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Pack gate (npm pack --dry-run assertions)
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/test.sh tests/pack.test.ts
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/test.sh tests/pack.test.ts
 
   # LF-only house rule gate.
   line-endings:
@@ -212,7 +207,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Line endings gate
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/test.sh tests/line-endings.test.ts
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/test.sh tests/line-endings.test.ts
 
   # tsc --noEmit for the CLI.
   typecheck:
@@ -231,7 +226,7 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Typecheck
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/typecheck.sh
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/typecheck.sh
 
   # Summary gate: the full vitest suite (including tests/ci-matrix.test.ts),
   # gated on every other check above.
@@ -251,4 +246,4 @@ jobs:
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
       - name: Full vitest suite
-        run: docker run --rm "${{ needs.expand.outputs.image }}" /tests/test.sh
+        run: docker run --rm "${{ needs.image.outputs.image }}" /tests/test.sh
