@@ -4,12 +4,16 @@ run-name: CLI CI
 # One gate per command group (checks read `cli / agents`, `cli / jobs`, ...),
 # plus a subcommand-matrix smoke per subcommand (checks read
 # `cli / agents / chat`, ...). The matrix is generated from
-# cli/tests/ci-matrix.json — adding a subcommand means adding a usage line
-# (public) or a HIDDEN entry plus one manifest line; cli/tests/ci-matrix.test.ts
-# fails the run when the manifest drifts from the registry.
+# cli/tests/ci-matrix.json by cli/scripts/expand-ci-matrix.mjs — adding a
+# subcommand means adding a usage line (public) or a HIDDEN entry plus one
+# manifest line; cli/tests/ci-matrix.test.ts fails the run when the manifest
+# drifts from the registry.
 #
 # No secrets; the only network access is the npm registry. Every smoke is an
 # offline `node dist/index.js ... --help` and must exit 0 without an API key.
+#
+# All jobs run on the self-hosted Linux runners. Windows is not gated: we
+# assume parity with Linux for the CLI's purposes.
 #
 # Coordination uses a GitHub concurrency group (no runner-local lock files or
 # flock, per AGENTS.md). Builds are reproduced per job via the npm cache plus a
@@ -47,12 +51,11 @@ jobs:
   # cli/tests/ci-matrix.json into the gate/smoke matrices.
   build:
     name: cli / build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     outputs:
       gates: ${{ steps.matrices.outputs.gates }}
       smokes: ${{ steps.matrices.outputs.smokes }}
-      windows_smokes: ${{ steps.matrices.outputs.windows_smokes }}
     steps:
       - uses: actions/checkout@v4
 
@@ -92,45 +95,14 @@ jobs:
       - name: Expand cli/tests/ci-matrix.json into job matrices
         id: matrices
         working-directory: cli
-        run: |
-          set -euo pipefail
-          node <<'EOF' >> "$GITHUB_OUTPUT"
-          const fs = require('node:fs');
-          const manifest = JSON.parse(fs.readFileSync('tests/ci-matrix.json', 'utf8'));
-          const gates = { include: [] };
-          const smokes = { include: [] };
-          const windowsSmokes = { include: [] };
-          for (const [group, spec] of Object.entries(manifest.groups)) {
-            const oses = spec.windows === true ? ['ubuntu-latest', 'windows-latest'] : ['ubuntu-latest'];
-            for (const os of oses) {
-              gates.include.push({ group, os, label: os === 'ubuntu-latest' ? group : `${group} (windows)` });
-            }
-            for (const smoke of spec.smokes) {
-              const argv = group === 'core' ? [...smoke.argv] : [group, ...smoke.argv];
-              const stripped = [...argv];
-              if (stripped[stripped.length - 1] === '--help') stripped.pop();
-              // Bare group --help (and root help) runs inside the group gate,
-              // not as a matrix check — the names would collide.
-              if (group === 'core' ? stripped.length === 0 : stripped.length <= 1) continue;
-              const sub = (group === 'core' ? stripped : stripped.slice(1)).join(' ');
-              const name = `${group} / ${sub}`;
-              const command = argv.join(' ');
-              smokes.include.push({ name, argv: command });
-              if (spec.windows === true) windowsSmokes.include.push({ name: `windows / ${name}`, argv: command });
-            }
-          }
-          console.log(`gates=${JSON.stringify(gates)}`);
-          console.log(`smokes=${JSON.stringify(smokes)}`);
-          console.log(`windows_smokes=${JSON.stringify(windowsSmokes)}`);
-          EOF
+        run: node scripts/expand-ci-matrix.mjs
 
   # One gate per command group: the group's vitest files plus the bare
-  # `node dist/index.js <group> --help` smoke. core and skills also gate on
-  # windows-latest (bin shims and path handling are user-facing there).
+  # `node dist/index.js <group> --help` smoke.
   gate:
-    name: cli / ${{ matrix.label }}
+    name: cli / ${{ matrix.group }}
     needs: build
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -191,7 +163,7 @@ jobs:
   smoke:
     name: cli / ${{ matrix.name }}
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -226,56 +198,12 @@ jobs:
           node dist/index.js ${{ matrix.argv }} > /dev/null
           echo "exit 0: hyper ${{ matrix.argv }}"
 
-  # Windows smoke matrix for the groups flagged `windows: true` (core, skills).
-  smoke-windows:
-    name: cli / ${{ matrix.name }}
-    needs: build
-    runs-on: windows-latest
-    timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.build.outputs.windows_smokes) }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            cli/package-lock.json
-
-      - name: Download dist artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: cli-dist
-          path: ${{ github.workspace }}
-
-      - name: Install cli dependencies (re-links file:../ts-sdk)
-        working-directory: cli
-        run: npm ci
-
-      - name: Offline --help smoke
-        working-directory: cli
-        run: |
-          set -euo pipefail
-          node dist/index.js ${{ matrix.argv }} > /dev/null
-          echo "exit 0: hyper ${{ matrix.argv }}"
-
-  # npm pack --dry-run gate: tarball contents + LF shebang. Ubuntu + Windows
-  # (Windows is a first-class user platform for the bin shim).
+  # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:
-    name: cli / pack (${{ matrix.os }})
+    name: cli / pack
     needs: build
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -306,13 +234,11 @@ jobs:
         working-directory: cli
         run: npx vitest run tests/pack.test.ts
 
-  # LF-only house rule gate. Ubuntu only: the repo root has no .gitattributes
-  # (cli/.gitattributes pins cli/** to LF), so a Windows checkout may rewrite
-  # root-level skills/**/SKILL.md to CRLF and fail this test spuriously.
+  # LF-only house rule gate.
   line-endings:
     name: cli / line-endings
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -336,7 +262,7 @@ jobs:
   typecheck:
     name: cli / typecheck
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -368,8 +294,8 @@ jobs:
   # gated on every other check above.
   test:
     name: cli / test
-    needs: [gate, smoke, smoke-windows, pack, line-endings, typecheck]
-    runs-on: ubuntu-latest
+    needs: [gate, smoke, pack, line-endings, typecheck]
+    runs-on: self-hosted
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
