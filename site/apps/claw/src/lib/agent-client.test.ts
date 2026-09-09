@@ -17,6 +17,8 @@ const { deploymentsConstructor, deploymentsInstance, getSlackInstallStatus, hype
       get: vi.fn(),
       list: vi.fn(),
       setEnv: vi.fn(),
+      storedLaunchConfig: vi.fn(),
+      update: vi.fn(),
       start: vi.fn(),
       startOpenClaw: vi.fn(),
       startHermesAgent: vi.fn(),
@@ -143,6 +145,7 @@ describe("agent-client", () => {
     expect(observed).toHaveBeenCalledWith(expect.objectContaining({ state: "ARCHIVED" }));
     expect(deploymentsInstance.start).not.toHaveBeenCalled();
     expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
+    expect(deploymentsInstance.update).not.toHaveBeenCalled();
   });
 
   beforeEach(() => {
@@ -163,6 +166,9 @@ describe("agent-client", () => {
     deploymentsInstance.delete.mockReset();
     deploymentsInstance.list.mockReset();
     deploymentsInstance.setEnv.mockReset();
+    deploymentsInstance.storedLaunchConfig.mockReset();
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
+    deploymentsInstance.update.mockReset();
     deploymentsInstance.start.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
     deploymentsInstance.startHermesAgent.mockReset();
@@ -237,6 +243,7 @@ describe("agent-client", () => {
     };
     const onAccepted = vi.fn();
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig({ routes: {} }));
     deploymentsInstance.get.mockResolvedValue({
       id: "agent-123",
       state: "STOPPED",
@@ -248,7 +255,7 @@ describe("agent-client", () => {
 
     expect(deploymentsInstance.start).not.toHaveBeenCalled();
     expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-123",
       {
         launchConfig: expect.objectContaining({
@@ -257,7 +264,11 @@ describe("agent-client", () => {
         }),
       },
     );
-    const submitted = deploymentsInstance.startOpenClaw.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123");
+    expect(deploymentsInstance.update.mock.invocationCallOrder[0]).toBeLessThan(
+      deploymentsInstance.startOpenClaw.mock.invocationCallOrder[0],
+    );
+    const submitted = deploymentsInstance.update.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
     expect(submitted).not.toHaveProperty("secrets");
     expect(submitted).not.toHaveProperty("registry_auth");
     expect(onAccepted).toHaveBeenCalledWith(accepted);
@@ -271,12 +282,14 @@ describe("agent-client", () => {
       runtime: "openclaw-pro",
       launchConfig: { env: {} },
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue({ env: {} });
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).rejects.toThrow(
       "OpenClaw start requires a complete launch configuration",
     );
 
     expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
+    expect(deploymentsInstance.update).not.toHaveBeenCalled();
     expect(deploymentsInstance.start).not.toHaveBeenCalled();
     expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
   });
@@ -289,16 +302,18 @@ describe("agent-client", () => {
       runtime: "openclaw",
       launchConfig: redactedOpenClawLaunchConfig({ restart: null }),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig({ restart: null }));
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-123",
       {
         launchConfig: expect.objectContaining({ restart: false }),
       },
     );
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123");
   });
 
   it.each([true, false])("preserves an explicit restart=%s without rewriting it", async (restart) => {
@@ -309,15 +324,16 @@ describe("agent-client", () => {
       runtime: "openclaw",
       launchConfig: redactedOpenClawLaunchConfig({ restart }),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig({ restart }));
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
-    const submitted = deploymentsInstance.startOpenClaw.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    const submitted = deploymentsInstance.update.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
     expect(submitted.restart).toBe(restart);
   });
 
-  it.each(["yes", 0])("forwards the malformed restart=%s unchanged so the typed SDK start contract rejects it", async (restart) => {
+  it.each(["yes", 0])("forwards the malformed restart=%s unchanged so the typed SDK update contract rejects it", async (restart) => {
     const accepted = { id: "agent-123", state: "STARTING", launchEpoch: 8 };
     deploymentsInstance.get.mockResolvedValue({
       id: "agent-123",
@@ -325,11 +341,12 @@ describe("agent-client", () => {
       runtime: "openclaw",
       launchConfig: redactedOpenClawLaunchConfig({ restart }),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig({ restart }));
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
-    const submitted = deploymentsInstance.startOpenClaw.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    const submitted = deploymentsInstance.update.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
     expect(submitted.restart).toBe(restart);
   });
 
@@ -341,17 +358,19 @@ describe("agent-client", () => {
       runtime: "hermes-agent",
       launchConfig: redactedHermesLaunchConfig({ restart: null }),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedHermesLaunchConfig({ restart: null }));
     deploymentsInstance.startHermesAgent.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-hermes")).resolves.toBe(accepted);
 
     expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
-    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-hermes",
       {
         launchConfig: expect.objectContaining({ restart: false }),
       },
     );
+    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith("agent-hermes");
   });
 
   it("passes the launch environment on start whatever runtime the agent reports", async () => {
@@ -362,13 +381,14 @@ describe("agent-client", () => {
       runtime: "claude-code",
       launchConfig: redactedOpenClawLaunchConfig(),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
     expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
     expect(deploymentsInstance.start).not.toHaveBeenCalled();
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-123",
       {
         launchConfig: expect.objectContaining({
@@ -376,6 +396,7 @@ describe("agent-client", () => {
         }),
       },
     );
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123");
   });
 
   // Regression: managed deployments carry the Agent.runtime column default of
@@ -390,12 +411,13 @@ describe("agent-client", () => {
       runtime: "generic",
       launchConfig: redactedOpenClawLaunchConfig(),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
     expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-123",
       {
         launchConfig: expect.objectContaining({
@@ -403,6 +425,7 @@ describe("agent-client", () => {
         }),
       },
     );
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123");
   });
 
   it("patches the launch environment on start when the agent reports no runtime at all", async () => {
@@ -412,12 +435,13 @@ describe("agent-client", () => {
       state: "STOPPED",
       launchConfig: redactedOpenClawLaunchConfig(),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);
 
     expect(deploymentsInstance.setEnv).not.toHaveBeenCalled();
-    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-123",
       {
         launchConfig: expect.objectContaining({
@@ -425,6 +449,7 @@ describe("agent-client", () => {
         }),
       },
     );
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledWith("agent-123");
   });
 
   it("creates hermes agents through the hermes deployment helper", async () => {
@@ -484,12 +509,13 @@ describe("agent-client", () => {
       runtime: "hermes-agent",
       launchConfig: redactedHermesLaunchConfig(),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedHermesLaunchConfig());
     deploymentsInstance.startHermesAgent.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-hermes")).resolves.toBe(accepted);
 
     expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
-    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-hermes",
       {
         launchConfig: expect.objectContaining({
@@ -502,7 +528,11 @@ describe("agent-client", () => {
         }),
       },
     );
-    const submitted = deploymentsInstance.startHermesAgent.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
+    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith("agent-hermes");
+    expect(deploymentsInstance.update.mock.invocationCallOrder[0]).toBeLessThan(
+      deploymentsInstance.startHermesAgent.mock.invocationCallOrder[0],
+    );
+    const submitted = deploymentsInstance.update.mock.calls[0]?.[1]?.launchConfig as Record<string, unknown>;
     expect(submitted).not.toHaveProperty("secrets");
     expect(submitted).not.toHaveProperty("registry_auth");
     expect(submitted.env).not.toHaveProperty("OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN");
@@ -515,6 +545,7 @@ describe("agent-client", () => {
       runtime: "hermes-agent",
       launchConfig: { env: {} },
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue({ env: {} });
 
     await expect(requestAgentStart("hyper_api_test", "agent-hermes")).rejects.toThrow(
       "Hermes start requires a complete launch configuration",
@@ -522,6 +553,7 @@ describe("agent-client", () => {
 
     expect(deploymentsInstance.startHermesAgent).not.toHaveBeenCalled();
     expect(deploymentsInstance.startOpenClaw).not.toHaveBeenCalled();
+    expect(deploymentsInstance.update).not.toHaveBeenCalled();
   });
 
   it("repairs a missing hermes image from the configured default on start", async () => {    process.env.NEXT_PUBLIC_HERMES_AGENT_IMAGE = "ghcr.io/hypercli/hypercli-hermes-agent:prod";
@@ -532,11 +564,12 @@ describe("agent-client", () => {
       runtime: "hermes-agent",
       launchConfig: redactedHermesLaunchConfig({ image: null }),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedHermesLaunchConfig({ image: null }));
     deploymentsInstance.startHermesAgent.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-hermes")).resolves.toBe(accepted);
 
-    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith(
+    expect(deploymentsInstance.update).toHaveBeenCalledWith(
       "agent-hermes",
       {
         launchConfig: expect.objectContaining({
@@ -544,6 +577,7 @@ describe("agent-client", () => {
         }),
       },
     );
+    expect(deploymentsInstance.startHermesAgent).toHaveBeenCalledWith("agent-hermes");
     delete process.env.NEXT_PUBLIC_HERMES_AGENT_IMAGE;
   });
 
@@ -555,6 +589,7 @@ describe("agent-client", () => {
       runtime: "claude-code",
       launchConfig: redactedOpenClawLaunchConfig(),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(startAgent("hyper_api_test", "agent-123")).resolves.toBe(accepted);
@@ -575,6 +610,7 @@ describe("agent-client", () => {
         launchConfig: redactedOpenClawLaunchConfig(),
       })
       .mockResolvedValue(running);
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
 
     await expect(startAgent("hyper_api_test", "agent-123", onAccepted)).resolves.toBe(running);
 
@@ -599,6 +635,7 @@ describe("agent-client", () => {
     const onAccepted = vi.fn();
     deploymentsInstance.startOpenClaw.mockRejectedValue(timeout);
     deploymentsInstance.get.mockResolvedValue(stopped);
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
 
     const result = expect(requestAgentStart("hyper_api_test", "agent-123", onAccepted)).rejects.toThrow(
       "The start request timed out before launch was confirmed. Check the agent status and try again.",
@@ -618,6 +655,7 @@ describe("agent-client", () => {
       runtime: "claude-code",
       launchConfig: redactedOpenClawLaunchConfig(),
     });
+    deploymentsInstance.storedLaunchConfig.mockResolvedValue(redactedOpenClawLaunchConfig());
     deploymentsInstance.startOpenClaw.mockResolvedValue(accepted);
 
     await expect(requestAgentStart("hyper_api_test", "agent-123")).resolves.toBe(accepted);

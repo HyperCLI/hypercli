@@ -130,10 +130,8 @@ async function createAndStartHermesAgent(email: string): Promise<string> {
     if (!stopped.launchConfig) throw new Error("Hermes deployment returned no launch configuration");
     if (!created.apiServerKey) throw new Error("Hermes deployment returned no API server key");
 
-    await deployments.startHermesAgent(created.id, {
-      launchConfig: stopped.launchConfig,
-      apiServerKey: created.apiServerKey,
-    });
+    await deployments.update(created.id, { launchConfig: await deployments.storedLaunchConfig(stopped.id) });
+    await deployments.startHermesAgent(created.id);
     return created.id;
   } finally {
     deployments.dispose();

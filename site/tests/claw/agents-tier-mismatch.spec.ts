@@ -9,6 +9,20 @@ const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 test("agents page resizes a stopped agent to an available tier before starting it", async ({ page }) => {
   let startCalls = 0;
   let patchCalls = 0;
+  const launchConfig = {
+    config: {},
+    image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+    env: {},
+    routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
+    command: [],
+    entrypoint: [],
+    restart: false,
+    sync_root: "/home/node",
+    sync_uid: null,
+    sync_gid: null,
+    registry_url: null,
+    runtime_scopes: ["models:*"],
+  };
 
   await page.context().addCookies([
     {
@@ -43,6 +57,7 @@ test("agents page resizes a stopped agent to an available tier before starting i
             cpu: 2,
             memory: 2,
             hostname: "deep-sage-agent.hypercli.app",
+            launch_config: launchConfig,
             created_at: "2026-04-07T00:00:00Z",
             updated_at: "2026-04-07T00:00:00Z",
           },
@@ -91,6 +106,11 @@ test("agents page resizes a stopped agent to an available tier before starting i
     }
 
     if (pathName.endsWith("/agents/deployments/agent-1/start")) {
+      const startBody = route.request().postData();
+      if (startBody?.includes("launch_config")) {
+        await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "START launch_config is not supported" }) });
+        return;
+      }
       startCalls += 1;
       await route.fulfill({
         status: 200,
@@ -112,7 +132,12 @@ test("agents page resizes a stopped agent to an available tier before starting i
 
     if (pathName.endsWith("/agents/deployments/agent-1") && route.request().method() === "PATCH") {
       patchCalls += 1;
-      expect(route.request().postDataJSON()).toEqual({ size: "large" });
+      const patchBody = route.request().postDataJSON() as Record<string, unknown>;
+      expect(patchBody).toEqual(
+        "size" in patchBody
+          ? { size: "large" }
+          : { launch_config: expect.objectContaining({ image: expect.any(String) }) },
+      );
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -144,6 +169,6 @@ test("agents page resizes a stopped agent to an available tier before starting i
 
   await selector.getByRole("button", { name: /Large\s+4 free/i }).click();
 
-  await expect.poll(() => patchCalls).toBe(1);
+  await expect.poll(() => patchCalls).toBe(2);
   await expect.poll(() => startCalls).toBe(1);
 });

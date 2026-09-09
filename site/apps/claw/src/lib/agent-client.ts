@@ -512,18 +512,16 @@ export async function requestAgentStart(
   const isHermesRuntime = (current as { runtime?: string | null }).runtime === "hermes-agent";
   let accepted: SdkAgent;
   try {
+    const storedLaunchConfig = await agentClient.storedLaunchConfig(agentId);
+    const startSource = { ...current, launchConfig: storedLaunchConfig };
     if (isHermesRuntime) {
-      // Hermes launches carry API_SERVER_KEY in secrets; the SDK rehydrates the
-      // redacted projection server-side, so the stored launch config round-trips.
-      accepted = await agentClient.startHermesAgent(agentId, {
-        launchConfig: buildHermesStartLaunchConfig(current),
-      });
+      await agentClient.update(agentId, { launchConfig: buildHermesStartLaunchConfig(startSource) });
+      accepted = await agentClient.startHermesAgent(agentId);
     } else {
       const origin = currentControlUiOrigin();
       if (!origin) throw new Error("Could not determine this dashboard address before starting the agent.");
-      accepted = await agentClient.startOpenClaw(agentId, {
-        launchConfig: buildOpenClawStartLaunchConfig(current, origin),
-      });
+      await agentClient.update(agentId, { launchConfig: buildOpenClawStartLaunchConfig(startSource, origin) });
+      accepted = await agentClient.startOpenClaw(agentId);
     }
   } catch (error) {
     if (!isAgentLifecycleTimeout(error)) throw error;

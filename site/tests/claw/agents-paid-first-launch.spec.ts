@@ -186,9 +186,7 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
         created_at: "2026-07-30T00:00:00Z",
         updated_at: "2026-07-30T00:00:00Z",
         tags: Array.isArray(createBody?.tags) ? createBody.tags : [],
-        // The explicit START replays this stored launch contract verbatim; the
-        // complete owner-visible shape (with the gateway secret) is what the
-        // page hands back. Mirrors agent-client.test.ts's fixture.
+        // The app PATCHes this stored launch contract before bodyless START.
         launch_config: {
           config: {},
           image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
@@ -286,7 +284,18 @@ test("creates the saved first agent after Stripe payment is reflected", async ({
       }) });
       return;
     }
+    if (createdAgent && method === "PATCH" && pathName.endsWith("/agents/deployments/agent-paid-first")) {
+      const updateBody = route.request().postDataJSON() as Record<string, unknown>;
+      createdAgent = { ...createdAgent, launch_config: updateBody.launch_config };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
     if (createdAgent && method === "POST" && pathName.endsWith("/agents/deployments/agent-paid-first/start")) {
+      const startBody = route.request().postData();
+      if (startBody?.includes("launch_config")) {
+        await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "START launch_config is not supported" }) });
+        return;
+      }
       startCount += 1;
       stagingEvents.push("start");
       createdAgent = { ...createdAgent, state: "RUNNING" };

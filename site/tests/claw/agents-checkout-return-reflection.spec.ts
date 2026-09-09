@@ -291,6 +291,12 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
     }
+    if (createdAgent && method === "PATCH" && pathName.endsWith(`/agents/deployments/${createdAgent.id}`)) {
+      const updateBody = route.request().postDataJSON() as Record<string, unknown>;
+      createdAgent = { ...createdAgent, launch_config: updateBody.launch_config };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
     // Starter file writes go through Reef: mint a token, then PUT the bytes to
     // the returned agent-hostname URL (mocked below by the reef route).
     if (method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent?.id ?? "?"}/files/token`)) {
@@ -306,6 +312,11 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       return;
     }
     if (createdAgent && method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent.id}/start`)) {
+      const startBody = route.request().postData();
+      if (startBody?.includes("launch_config")) {
+        await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "START launch_config is not supported" }) });
+        return;
+      }
       counters.startCount += 1;
       stagingEvents.push("start");
       if (controls.failStartWith) {

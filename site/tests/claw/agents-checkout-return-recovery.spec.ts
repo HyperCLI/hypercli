@@ -318,6 +318,11 @@ async function installMockBackend(page: Page): Promise<MockControls> {
       return;
     }
     if (createdAgent && method === "POST" && pathName.endsWith(`/agents/deployments/${createdAgent.id}/start`)) {
+      const startBody = route.request().postData();
+      if (startBody?.includes("launch_config")) {
+        await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "START launch_config is not supported" }) });
+        return;
+      }
       counters.startCount += 1;
       stagingEvents.push("start");
       createdAgent = { ...createdAgent, state: "RUNNING" };

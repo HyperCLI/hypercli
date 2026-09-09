@@ -5,15 +5,11 @@
     "packageManager": "npm@10.0.0",
     "workspaces": [
         "apps/*",
-        "packages/*",
-        "mock-server"
+        "packages/*"
     ],
     "scripts": {
-        "dev": "turbo run dev --filter=!hypercli-mock-server",
+        "dev": "turbo run dev",
         "dev:real": "bash scripts/setup-local-env.sh && npm run dev",
-        "dev:with-mock": "concurrently \"npm run dev\" \"npm run mock-server:all\" --names \"apps\" \"mock-servers\"",
-        "mock-server": "npm start -w mock-server",
-        "mock-server:all": "npm run start:all -w mock-server",
         "build": "turbo run build",
         "lint": "turbo run lint",
         "test": "turbo run test",

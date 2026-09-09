@@ -1440,11 +1440,8 @@ export async function waitForBrowserAgentStartOrLaunchError(
       if (!response.ok()) {
         throw new Error(`Agent start request failed with ${response.status()}: ${await responseFailureDetail(response)}`);
       }
-      // START requires one complete replacement launch_config; the SDK
-      // rebuilds it from the stored projection when the app omits it.
-      expect(response.request().postDataJSON()).toEqual(
-        expect.objectContaining({ launch_config: expect.objectContaining({ image: expect.any(String) }) })
-      );
+      const startBody = response.request().postData();
+      expect(startBody === null || startBody === "" || !startBody.includes("launch_config")).toBe(true);
       return (await response.json()) as DeploymentRecord;
     })
     .then(

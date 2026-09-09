@@ -110,6 +110,20 @@ test("agents page launches from a direct entitlement without an active subscript
     const url = new URL(route.request().url());
     const pathName = url.pathname;
     const method = route.request().method();
+    const launchConfig = {
+      config: {},
+      image: "ghcr.io/hypercli/hypercli-openclaw:pro-latest",
+      env: {},
+      routes: { openclaw: { port: 18789, auth: false, prefix: "" } },
+      command: [],
+      entrypoint: [],
+      restart: false,
+      sync_root: "/home/node",
+      sync_uid: null,
+      sync_gid: null,
+      registry_url: null,
+      runtime_scopes: ["models:*"],
+    };
 
     if (pathName.endsWith("/agents/deployments") && method === "GET") {
       await route.fulfill({
@@ -130,6 +144,7 @@ test("agents page launches from a direct entitlement without an active subscript
         cpu: 4,
         memory: 4,
         hostname: null,
+        launch_config: launchConfig,
         launch_epoch: 0,
         created_at: "2026-05-17T00:00:00Z",
         updated_at: "2026-05-17T00:00:00Z",
@@ -147,12 +162,24 @@ test("agents page launches from a direct entitlement without an active subscript
         await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Agent not found" }) });
         return;
       }
+      const startBody = route.request().postData();
+      if (startBody?.includes("launch_config")) {
+        await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ detail: "START launch_config is not supported" }) });
+        return;
+      }
       createdAgent = {
         ...createdAgent,
         state: "CREATING",
         launch_epoch: 1,
         updated_at: "2026-05-17T00:01:00Z",
       };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/deployments/agent-direct-entitlement") && method === "PATCH" && createdAgent) {
+      const updateBody = route.request().postDataJSON() as Record<string, unknown>;
+      createdAgent = { ...createdAgent, launch_config: updateBody.launch_config };
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(createdAgent) });
       return;
     }
