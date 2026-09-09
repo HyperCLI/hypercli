@@ -257,6 +257,9 @@ jobs:
     timeout-minutes: 15
     env:
       HYPER_API_KEY: ${{ secrets.HYPERCLI_DEV_API_KEY }}
+      # --dev only retargets the agents API; jobs/flow/files/voice read
+      # apiUrl from HYPER_API_BASE and would silently hit prod without it.
+      HYPER_API_BASE: https://api.dev.hypercli.com
     strategy:
       fail-fast: false
       matrix:
@@ -266,32 +269,40 @@ jobs:
           - { group: skills, sub: list }
           - { group: skills, sub: ls }
           - { group: skills, sub: export }
+          - { group: skills, sub: install }
           - { group: agents, sub: ls }
           - { group: agents, sub: list }
           - { group: agents, sub: status }
-          - { group: agents, sub: create }
-          - { group: agents, sub: start }
-          - { group: agents, sub: stop }
-          - { group: agents, sub: archive }
-          - { group: agents, sub: restore }
-          - { group: agents, sub: delete }
-          - { group: agents, sub: chat }
           - { group: agents, sub: wait }
           - { group: agents, sub: logs }
           - { group: agents, sub: exec }
           - { group: agents, sub: cp }
           - { group: agents, sub: token }
           - { group: agents, sub: models }
+          - { group: agents, sub: create }
           - { group: agents, sub: activate }
-          - { group: agents, sub: routines-list }
-          - { group: agents, sub: routines-create }
-          - { group: agents, sub: routines-update }
-          - { group: agents, sub: routines-delete }
-          - { group: agents, sub: config-get }
-          - { group: agents, sub: config-set }
-          - { group: agents, sub: routes-list }
-          - { group: agents, sub: routes-add }
-          - { group: agents, sub: routes-remove }
+          - { group: agents, sub: routines }
+          # The only job that mutates for real: one serialized lifecycle,
+          # persistent name hypercli-ci-lifecycle, cleans up after itself.
+          - { group: agents, sub: lifecycle }
+          - { group: jobs, sub: gpus }
+          - { group: jobs, sub: list }
+          - { group: jobs, sub: ls }
+          - { group: jobs, sub: get }
+          - { group: jobs, sub: logs }
+          - { group: jobs, sub: create }
+          - { group: jobs, sub: cancel }
+          - { group: jobs, sub: extend }
+          - { group: jobs, sub: exec }
+          - { group: flow, sub: list }
+          - { group: flow, sub: status }
+          - { group: flow, sub: wait }
+          - { group: flow, sub: create }
+          - { group: flow, sub: cancel }
+          - { group: files, sub: upload }
+          - { group: files, sub: get }
+          - { group: files, sub: delete }
+          - { group: voice, sub: tts }
     steps:
       - uses: actions/checkout@v4
 
