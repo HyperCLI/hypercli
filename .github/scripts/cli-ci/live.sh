@@ -194,18 +194,22 @@ case "${GROUP}/${SUB}" in
     ;;
 
   agents/lifecycle)
-    step "agents lifecycle (serialized, real mutation: create → wait → chat → exec → logs → stop → delete)"
-    NAME="hypercli-ci-lifecycle"
-    ID="$("${CLI[@]}" agents ls --json --dev 2>/dev/null | node -e '
+    step "agents lifecycle (serialized, real mutation: create → start → chat → stop → archive → restore → start → chat → stop → delete)"
+    # Unique-per-run name avoids the async hostname release 409 race; the
+    # sweep cleans up hypercli-ci-lifecycle-* orphans from crashed runs.
+    NAME="hypercli-ci-lifecycle-${LIFECYCLE_SUFFIX:?LIFECYCLE_SUFFIX is required}"
+    PREFIX="hypercli-ci-lifecycle"
+    "${CLI[@]}" agents ls --json --dev 2>/dev/null | node -e '
       const a = JSON.parse(require("fs").readFileSync(0, "utf8"));
-      const m = a.find((x) => x.name === process.argv[1] || x.display_name === process.argv[1]);
-      process.stdout.write(m ? m.id : "");
-    ' "${NAME}")"
-    if [ -n "${ID}" ]; then
-      step "leftover ${NAME} (${ID}) from a prior run: cleaning up"
-      "${CLI[@]}" agents stop "${ID}" --yes --dev || true
-      "${CLI[@]}" agents delete "${ID}" --yes --dev || true
-    fi
+      for (const x of a) {
+        const n = x.name || x.display_name || "";
+        if (n.startsWith(process.argv[1])) console.log(x.id, n);
+      }
+    ' "${PREFIX}" | while read -r OLD_ID OLD_NAME; do
+      step "sweep leftover ${OLD_NAME} (${OLD_ID})"
+      "${CLI[@]}" agents stop "${OLD_ID}" --yes --dev || true
+      "${CLI[@]}" agents delete "${OLD_ID}" --yes --dev || true
+    done
 
     # Create (real). The CI account's slot inventory is large-tier; a delete
     # moments earlier can lag slot release, so retry a few times with backoff

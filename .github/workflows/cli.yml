@@ -320,5 +320,6 @@ jobs:
           set -euo pipefail
           docker run --rm \
             -e HYPER_API_KEY -e HYPER_API_BASE -e AGENTS_WS_URL \
+            -e LIFECYCLE_SUFFIX="$(echo "${{ github.sha }}" | cut -c1-7)-${{ github.run_attempt }}" \
             "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" \
             /tests/live.sh "${{ matrix.group }}" "${{ matrix.sub }}"
