@@ -347,8 +347,11 @@ async function cmdWait(ctx: CommandContext, args: string[]): Promise<void> {
 async function cmdCancel(ctx: CommandContext, args: string[]): Promise<void> {
   const parsed = parseCommandArgs(args, { yes: { type: 'boolean', default: false } });
   const id = positional(parsed, 1, 'hyper flow cancel <id> [--yes]');
-  const confirmed = parsed.values.yes === true || parsed.format === 'json' || !process.stdin.isTTY;
+  const confirmed = parsed.values.yes === true || parsed.format === 'json';
   if (!confirmed) {
+    if (!process.stdin.isTTY) {
+      throw new CliError(`refusing to cancel ${id} without confirmation: pass --yes (or --json)`);
+    }
     const rl = createInterface({ input: process.stdin, output: process.stderr });
     try {
       const answer = (await rl.question(`Cancel flow ${id}? [y/N] `)).trim().toLowerCase();

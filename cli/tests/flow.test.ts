@@ -232,11 +232,21 @@ describe('hyper flow', () => {
     expect(stderr()).toBe('');
   });
 
-  it('(g) cancel without an interactive TTY proceeds', async () => {
+  it('(g) cancel without an interactive TTY refuses without --yes', async () => {
     const renders = fakeRenders();
     const ctx = makeCtx(fakeClient(renders));
 
-    await flow.run(ctx, ['cancel', 'r_123']);
+    await expect(flow.run(ctx, ['cancel', 'r_123'])).rejects.toThrow(
+      'refusing to cancel r_123 without confirmation',
+    );
+    expect(renders.cancel).not.toHaveBeenCalled();
+  });
+
+  it('(g) cancel proceeds with --yes', async () => {
+    const renders = fakeRenders();
+    const ctx = makeCtx(fakeClient(renders));
+
+    await flow.run(ctx, ['cancel', 'r_123', '--yes']);
 
     expect(renders.cancel).toHaveBeenCalledWith('r_123');
     expect(stdout()).toContain('cancelled flow r_123');

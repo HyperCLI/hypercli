@@ -1319,6 +1319,9 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
 
   let stage: ChatStage = 'start';
   let timedOut = false;
+  // The SDK's prompt path takes no AbortSignal; on timeout we close the live
+  // connection instead, which rejects the in-flight turn.
+  let closeActive: (() => void) | undefined;
   const controller = new AbortController();
   const startedAt = Date.now();
   const remainingMs = () => Math.max(1, timeoutMs - (Date.now() - startedAt));
@@ -1326,6 +1329,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
+      closeActive?.();
       reject(new Error('chat timeout'));
     }, timeoutMs);
     if (typeof timer.unref === 'function') timer.unref();
@@ -1382,19 +1386,27 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
           },
         }));
       try {
+        closeActive = () => acp.close();
         sessionId = await atStage('connect', () => acpOpenSession(acp, sessionName));
         ctx.output.info(`session opened ${sessionId}`);
         await atStage('prompt', () => acp.prompt(sessionId, promptText));
         if (!reply) throw new Error('the turn ended without an assistant reply');
       } finally {
+        closeActive = undefined;
         acp.close();
       }
     } else {
       if (family === 'openclaw') {
         // Persist pairing artifacts (device identity + issued device token)
         // to ~/.hypercli/auth.json so repeat chats don't re-pair. Bridge is
-        // idempotent and file-backed, never in-memory.
-        installOpenClawAuthBridge();
+        // idempotent and file-backed, never in-memory. HOME-less environments
+        // (CI sandboxes) make homedir() unusable — skip persistence rather
+        // than crash the chat; pairing still works for this process.
+        try {
+          installOpenClawAuthBridge();
+        } catch (err) {
+          ctx.output.info(`chat: pairing persistence disabled: ${describeFailure(err)}`);
+        }
       }
       const session: AgentSessionClient = await atStage('connect', (): Promise<AgentSessionClient> =>
         family === 'hermes'
@@ -1421,6 +1433,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
               },
             }));
       try {
+        closeActive = () => session.close();
         sessionId = await atStage('connect', () => canonicalSessionKey(session, sessionName));
         ctx.output.info(`session opened ${sessionId}`);
         let sawDone = false;
@@ -1442,6 +1455,7 @@ async function cmdChat(ctx: CommandContext, args: string[]): Promise<void> {
         });
         if (!sawDone && !reply) throw new Error('the turn ended without an assistant reply');
       } finally {
+        closeActive = undefined;
         session.close();
       }
     }
