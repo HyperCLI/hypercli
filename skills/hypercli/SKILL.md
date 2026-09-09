@@ -1,9 +1,9 @@
 ---
 name: hypercli
 description: >
-  Operate HyperCLI product APIs and managed agents with the hyper CLI. Use as
-  the router for credentials, account, compute, flows, knowledge, voice, and
-  agent operations, or directly for local-image analysis and text embeddings.
+  Operate HyperCLI product APIs, GPU jobs, media flows, voice, and managed
+  agents with the hyper CLI. Use as the router for identity, credentials,
+  agents, compute, flows, files, and voice operations.
 ---
 
 # HyperCLI
@@ -13,41 +13,44 @@ Use the bundled `hyper` command. Run `hyper --help` and
 `/opt/hypercli/docs/cli/` in managed images.
 
 For credential resolution or coding-harness login, load the `hypercli-auth`
-skill. For media generation load `hypercli-flows`. For speech generation,
-cloning, or transcription load `hypercli-voice`.
+skill. For identity and entitlements load `hypercli-account`. For media
+generation load `hypercli-flows`. For GPU jobs load `hypercli-compute`. For
+managed runtimes load `hypercli-agents`. For text-to-speech load
+`hypercli-voice`.
 
-The current harness should handle ordinary reasoning and text generation.
-Three specialized inference utilities remain useful when the user asks for
-them:
+## Root surface
 
-```bash
-hyper llm image ./input.png
-hyper agent embed text "text to embed"
-hyper agent embed test
-```
+The v1 command tree is deliberately small:
 
-`hyper llm image` defaults to a concise description; use `--prompt/-p` only
-when the user asks a specific question about the image. Use `hyper agent embed`
-for embedding work. Use the `hypercli-flows` skill for managed media generation
-so jobs are bounded and tracked.
+- `hyper me`: identity, capabilities, and entitlements for the active key.
+- `hyper configure`: write the local product API key to
+  `~/.hypercli/config`.
+- `hyper skills`: inventory and print the skills bundled with this CLI.
+- Groups: `hyper agents`, `hyper jobs`, `hyper flow`, `hyper files`,
+  `hyper voice`.
+
+Every command accepts `--json`; `--dev` selects the dev environment, and
+mutations accept `--dry-run` for preflight validation. Do not select
+`--dev` or another environment unless the user explicitly intends it.
 
 ## Authentication
 
-`HYPER_API_KEY` authenticates product APIs. `HYPER_AGENTS_API_KEY` can override
-it for agent APIs. Environment values can override saved credentials; read
-[configuration.mdx](/opt/hypercli/docs/cli/configuration.mdx) before changing a
-key or base URL.
+`HYPER_API_KEY` authenticates product APIs, with legacy `HYPERCLI_API_KEY`
+next and the key saved by `hyper configure` in `~/.hypercli/config` last.
+Environment values override the saved key. Agent APIs try that same chain
+first and then fall back to `HYPER_AGENTS_API_KEY`. Load `hypercli-auth`
+before changing any of these sources.
 
-Never print, paste, or send a credential. Before a costly or mutating operation,
-validate the intended identity and API base:
+Never print, paste, or send a credential. Before a costly or mutating
+operation, validate the intended identity:
 
 ```bash
-hyper me --output json
+hyper me --json
 ```
 
-If this returns `401` or says the key is inactive, stop. Do not retry, select
-another saved key, expose the key, or switch to `--x402` unless the user asks.
-Report the API base, credential source name, and server detail. See
+If this returns `401` or says the key is inactive, stop. Do not retry or
+select another saved key. Report the API base, credential source name, and
+server detail, then follow the `hypercli-auth` skill. See
 [configuration.mdx](/opt/hypercli/docs/cli/configuration.mdx#diagnosing-401-errors).
 
 ## Remote Agents
@@ -55,33 +58,31 @@ Report the API base, credential source name, and server detail. See
 Start with table output:
 
 ```bash
-hyper agents list
+hyper agents ls
 hyper agents status <agent>
-hyper agents metrics <agent>
-hyper agents logs <agent> --no-follow -n 100
+hyper agents logs <agent>
 ```
 
-For dynamic HTTPS routes or runtime-bound lifecycle operations, load the
-`hypercli-agents` skill. Its commands use `self` as the reserved current-agent
-target, for example `hyper agents routes list self`.
+Add `-f` to follow logs, and use `hyper agents wait <agent> --state <state>`
+when the next step depends on a target state. For lifecycle, routines,
+container access, and runtime configuration, load the `hypercli-agents`
+skill.
 
-Do not paste `agents list --json`: it includes `launch_config`, which can contain
-environment secrets. Treat config, session, file, log, exec, shell, token,
-external-key, and cron output as sensitive. Get approval before `exec`, `shell`,
-`cp` to a remote destination, `config-patch`, `cron-*`, lifecycle changes, or
-key rotation. Read [agents.mdx](/opt/hypercli/docs/cli/commands/agents.mdx).
+Do not paste raw `ls --json` output: it can contain launch environment
+secrets. Treat log, exec, shell, file-copy, token, config, and routine
+output as sensitive. Get approval before `exec`, `shell`, `cp` to a remote
+destination, `agents config` changes, lifecycle mutations, or archive and
+restore, and dry-run mutations first. Read
+[agents.mdx](/opt/hypercli/docs/cli/commands/agents.mdx).
 
 ## Reference Map
 
-- `configure`, `me`, `status`, `config`: `/opt/hypercli/docs/cli/configuration.mdx`
-- `launch`, `instances`: `/opt/hypercli/docs/cli/commands/instances.mdx`
-- `agent`: `/opt/hypercli/docs/cli/commands/agent.mdx`
+- `configure`, `me`, `skills`: `/opt/hypercli/docs/cli/configuration.mdx`
 - `agents`: `/opt/hypercli/docs/cli/commands/agents.mdx`
-- `hyper llm image`: `/opt/hypercli/docs/cli/commands/llm.mdx`
-- `hyper agent embed text/test`: `/opt/hypercli/docs/cli/commands/agent.mdx`
-- `billing`, `files`, `flow`, `keys`, `jobs`, `memory`, `user`, `voice`,
-  `wallet`, `workspaces`: matching
-  `/opt/hypercli/docs/cli/commands/<group>.mdx`
+- `jobs`: `/opt/hypercli/docs/cli/commands/jobs.mdx`
+- `flow`: `/opt/hypercli/docs/cli/commands/flow.mdx`
+- `files`: `/opt/hypercli/docs/cli/commands/files.mdx`
+- `voice`: `/opt/hypercli/docs/cli/commands/voice.mdx`
 
-If `/opt/hypercli` is unavailable, rely on command help rather than inventing a
-contract.
+If `/opt/hypercli` is unavailable, rely on command help rather than
+inventing a contract.
