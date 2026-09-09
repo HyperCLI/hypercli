@@ -14,6 +14,11 @@ on:
         required: false
         type: string
         default: all
+      site_builder_image:
+        description: Fully-qualified site builder image ref (overrides the lockfile-derived default).
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       deploy_environment:
@@ -46,7 +51,7 @@ jobs:
   publish:
     runs-on: self-hosted
     env:
-      SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
+      SITE_BUILDER_IMAGE: ${{ inputs.site_builder_image }}
       SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
       SITE_BUILDER_REGISTRY_USERNAME: ${{ secrets.SITE_BUILDER_REGISTRY_USERNAME }}
       SITE_BUILDER_REGISTRY_PASSWORD: ${{ secrets.SITE_BUILDER_REGISTRY_PASSWORD }}
@@ -72,13 +77,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${SITE_BUILDER_IMAGE:-}" ] \
-            || [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
+          if [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
             || [ -z "${SITE_BUILDER_REGISTRY_USERNAME:-}" ] \
             || [ -z "${SITE_BUILDER_REGISTRY_PASSWORD:-}" ]; then
-            echo "::error::SITE_BUILDER_IMAGE, SITE_BUILDER_REGISTRY, SITE_BUILDER_REGISTRY_USERNAME, and SITE_BUILDER_REGISTRY_PASSWORD are required so publish jobs pull the shared builder image instead of rebuilding it."
+            echo "::error::SITE_BUILDER_REGISTRY, SITE_BUILDER_REGISTRY_USERNAME, and SITE_BUILDER_REGISTRY_PASSWORD are required so publish jobs pull the shared builder image instead of rebuilding it."
             exit 1
           fi
+
+      - name: Resolve site builder image ref
+        run: |
+          set -euo pipefail
+          if [ -n "${SITE_BUILDER_IMAGE:-}" ]; then
+            echo "using caller-provided image: ${SITE_BUILDER_IMAGE}"
+            echo "SITE_BUILDER_IMAGE=${SITE_BUILDER_IMAGE}" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+          TAG="$(sha256sum \
+            docker/build-site.Dockerfile \
+            .github/scripts/site_container_entrypoint.sh \
+            .github/scripts/build_site_image.sh \
+            ts-sdk/package-lock.json \
+            site/package-lock.json \
+            | sha256sum | cut -c1-16)"
+          IMAGE="${SITE_BUILDER_REGISTRY}/hypercli/hypercli-site-builder:${TAG}"
+          echo "resolved image from lockfiles: ${IMAGE}"
+          echo "SITE_BUILDER_IMAGE=${IMAGE}" >> "${GITHUB_ENV}"
 
       - name: Log in to site builder registry
         uses: docker/login-action@v3

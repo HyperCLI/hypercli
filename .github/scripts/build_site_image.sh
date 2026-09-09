@@ -18,8 +18,8 @@ copy_file() {
   cp "${src}" "${dest}"
 }
 
-mkdir -p "${BUILD_CTX}/.github/docker" "${BUILD_CTX}/.github/scripts"
-cp "${REPO_ROOT}/.github/docker/build-site.Dockerfile" "${BUILD_CTX}/.github/docker/build-site.Dockerfile"
+mkdir -p "${BUILD_CTX}/.github/scripts" "${BUILD_CTX}/docker"
+cp "${REPO_ROOT}/docker/build-site.Dockerfile" "${BUILD_CTX}/docker/build-site.Dockerfile"
 cp "${REPO_ROOT}/.github/scripts/site_container_entrypoint.sh" "${BUILD_CTX}/.github/scripts/site_container_entrypoint.sh"
 
 copy_file "${REPO_ROOT}/ts-sdk/package.json" "${BUILD_CTX}/ts-sdk/package.json"
@@ -30,11 +30,10 @@ copy_file "${REPO_ROOT}/site/apps/main/package.json" "${BUILD_CTX}/site/apps/mai
 copy_file "${REPO_ROOT}/site/apps/console/package.json" "${BUILD_CTX}/site/apps/console/package.json"
 copy_file "${REPO_ROOT}/site/apps/claw/package.json" "${BUILD_CTX}/site/apps/claw/package.json"
 copy_file "${REPO_ROOT}/site/packages/shared-ui/package.json" "${BUILD_CTX}/site/packages/shared-ui/package.json"
-copy_file "${REPO_ROOT}/site/mock-server/package.json" "${BUILD_CTX}/site/mock-server/package.json"
 
 docker build \
   -t "${SITE_IMAGE}" \
-  -f "${BUILD_CTX}/.github/docker/build-site.Dockerfile" \
+  -f "${BUILD_CTX}/docker/build-site.Dockerfile" \
   "${BUILD_CTX}"
 
 if [[ "${PUSH_IMAGE}" == "1" ]]; then

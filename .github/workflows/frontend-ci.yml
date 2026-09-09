@@ -24,13 +24,18 @@ jobs:
     uses: ./.github/workflows/sdk-integration-tests.yml
     secrets: inherit
 
+  # Builds (or reuses) the shared site builder image. Tag is keyed off the
+  # builder inputs (Dockerfile + entrypoint + lockfiles) so dependency changes
+  # force a rebuild and everything else reuses the pushed image. Registry
+  # coordinates come from CI secrets, not this file.
   build-site-builder:
     runs-on: self-hosted
     concurrency:
       group: hypercli-site-builder
       cancel-in-progress: false
+    outputs:
+      site_builder_image: ${{ steps.meta.outputs.site_builder_image }}
     env:
-      SITE_BUILDER_IMAGE: ${{ secrets.SITE_BUILDER_IMAGE }}
       SITE_BUILDER_REGISTRY: ${{ secrets.SITE_BUILDER_REGISTRY }}
       SITE_BUILDER_REGISTRY_USERNAME: ${{ secrets.SITE_BUILDER_REGISTRY_USERNAME }}
       SITE_BUILDER_REGISTRY_PASSWORD: ${{ secrets.SITE_BUILDER_REGISTRY_PASSWORD }}
@@ -41,7 +46,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           clean: false
-          fetch-depth: 2
 
       - name: Normalize workspace ownership
         run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
@@ -53,17 +57,28 @@ jobs:
           echo "DOCKER_CONFIG=${docker_config_dir}" >> "${GITHUB_ENV}"
           mkdir -p "${docker_config_dir}"
 
-      - name: Require site builder image config
+      - name: Require site builder registry config
         run: |
           set -euo pipefail
-
-          if [ -z "${SITE_BUILDER_IMAGE:-}" ] \
-            || [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
+          if [ -z "${SITE_BUILDER_REGISTRY:-}" ] \
             || [ -z "${SITE_BUILDER_REGISTRY_USERNAME:-}" ] \
             || [ -z "${SITE_BUILDER_REGISTRY_PASSWORD:-}" ]; then
-            echo "::error::SITE_BUILDER_IMAGE, SITE_BUILDER_REGISTRY, SITE_BUILDER_REGISTRY_USERNAME, and SITE_BUILDER_REGISTRY_PASSWORD are required for site publishing."
+            echo "::error::SITE_BUILDER_REGISTRY, SITE_BUILDER_REGISTRY_USERNAME, and SITE_BUILDER_REGISTRY_PASSWORD are required for site publishing."
             exit 1
           fi
+
+      - name: Compute site builder image ref
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG="$(sha256sum \
+            docker/build-site.Dockerfile \
+            .github/scripts/site_container_entrypoint.sh \
+            .github/scripts/build_site_image.sh \
+            ts-sdk/package-lock.json \
+            site/package-lock.json \
+            | sha256sum | cut -c1-16)"
+          echo "site_builder_image=${SITE_BUILDER_REGISTRY}/hypercli/hypercli-site-builder:${TAG}" >> "${GITHUB_OUTPUT}"
 
       - name: Log in to site builder registry
         uses: docker/login-action@v3
@@ -72,44 +87,17 @@ jobs:
           username: ${{ env.SITE_BUILDER_REGISTRY_USERNAME }}
           password: ${{ env.SITE_BUILDER_REGISTRY_PASSWORD }}
 
-      - name: Detect site builder changes
-        id: site_builder_changes
+      - name: Build and push site builder image if absent
         run: |
           set -euo pipefail
-
-          should_build=false
-          reason="unchanged"
-
-          before="${{ github.event.before }}"
-          if [ "${{ github.event_name }}" != "push" ] || [ -z "${before}" ] || [[ "${before}" =~ ^0+$ ]]; then
-            should_build=true
-            reason="manual-or-initial-run"
-          else
-            if ! changed_files="$(git diff --name-only "${before}" "${GITHUB_SHA}" 2>/dev/null)"; then
-              should_build=true
-              reason="unable-to-diff"
-            elif printf '%s\n' "${changed_files}" | grep -Eq '^(docker/build-site\.Dockerfile|\.github/scripts/(build_site_image|site_container_entrypoint)\.sh|ts-sdk/package-lock\.json|site/package-lock\.json)$'; then
-              should_build=true
-              reason="builder-inputs-changed"
-            fi
+          SITE_IMAGE="${{ steps.meta.outputs.site_builder_image }}"
+          if docker manifest inspect "${SITE_IMAGE}" >/dev/null 2>&1; then
+            echo "image already present: ${SITE_IMAGE}"
+            exit 0
           fi
-
-          if [ "${should_build}" != "true" ] && ! docker pull "${SITE_BUILDER_IMAGE}" >/dev/null 2>&1; then
-            should_build=true
-            reason="image-missing"
-          fi
-
-          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
-          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
-          echo "Site builder refresh: ${should_build} (${reason})"
-
-      - name: Build and push site builder image
-        if: ${{ steps.site_builder_changes.outputs.should_build == 'true' }}
-        run: |
-          set -euo pipefail
           docker builder prune --all --force --filter "until=24h"
-          IMAGE_TAG=latest \
-          SITE_IMAGE="${SITE_BUILDER_IMAGE}" \
+          IMAGE_TAG="${SITE_IMAGE##*:}" \
+          SITE_IMAGE="${SITE_IMAGE}" \
           PUSH_IMAGE=1 \
             .github/scripts/build_site_image.sh
 

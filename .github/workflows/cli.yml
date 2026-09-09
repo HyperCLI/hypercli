@@ -49,8 +49,8 @@ defaults:
     shell: bash
 
 env:
-  REGISTRY: ${{ vars.CI_REGISTRY }}
-  REGISTRY_ORG: ${{ vars.CI_REGISTRY_ORG }}
+  REGISTRY: ${{ secrets.CI_REGISTRY }}
+  REGISTRY_ORG: ${{ secrets.CI_REGISTRY_ORG }}
   CLI_CI_IMAGE_REPOSITORY: hypercli-cli-ci
 
 jobs:
