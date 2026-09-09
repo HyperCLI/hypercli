@@ -369,11 +369,12 @@ export class HTTPClient {
     }, handleResponse<T>);
   }
 
-  async delete<T = any>(path: string): Promise<T> {
+  async delete<T = any>(path: string, body?: any): Promise<T> {
     return requestWithRetryHandled({
       method: 'DELETE',
       url: `${this.baseUrl}${path}`,
       headers: this.headers,
+      body,
       timeout: this.timeout,
     }, handleResponse<T>);
   }
@@ -389,7 +390,7 @@ export class HTTPClient {
     const formData = new FormData();
     
     for (const [fieldName, file] of Object.entries(files)) {
-      const blob = new Blob([file.content as unknown as BlobPart], { type: file.contentType });
+      const blob = new Blob([file.content as unknown as NonNullable<ConstructorParameters<typeof Blob>[0]>[number]], { type: file.contentType });
       formData.append(fieldName, blob, file.filename);
     }
 

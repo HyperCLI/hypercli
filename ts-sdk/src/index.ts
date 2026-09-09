@@ -339,6 +339,7 @@ export {
   type HermesAgentCreateOptions,
   type HermesAgentStartOptions,
   type StartAgentOptions,
+  type LifecycleActionOptions,
   type AgentExecOptions,
   type AgentState,
   type DeploymentMetaObservedState,

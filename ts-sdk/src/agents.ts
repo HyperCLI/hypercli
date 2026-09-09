@@ -1102,6 +1102,19 @@ export interface StartAgentOptions {
   dryRun?: boolean;
 }
 
+/**
+ * Options for the deployment lifecycle actions stop, archive, restore, and
+ * delete. Mirrors the Backend's LifecycleActionRequest (extra="forbid").
+ */
+export interface LifecycleActionOptions {
+  /**
+   * Validate the action only. The Backend returns the current Agent record
+   * unchanged -- nothing mutates and the state stays as it was (the Agent is
+   * not stopped, archived, restored, or deleted).
+   */
+  dryRun?: boolean;
+}
+
 export interface UpdateAgentOptions {
   name?: string;
   handle?: string | null;
@@ -2877,8 +2890,8 @@ export class Agent {
   }
 
   /** Accept background archival and return its transitional Agent projection. */
-  async archive(): Promise<Agent> {
-    return this.requireDeployments().archive(this.id);
+  async archive(options?: LifecycleActionOptions): Promise<Agent> {
+    return this.requireDeployments().archive(this.id, options);
   }
 
   async env(): Promise<Record<string, string>> {
@@ -5781,39 +5794,58 @@ export class Deployments {
    * The returned agent remains `STOPPING` while runtime cleanup is in
    * progress. Fetch it again until it becomes `STOPPED` before treating its
    * deployment slot as released.
+   *
+   * With `dryRun: true` the Backend only validates the request and returns
+   * the current Agent unchanged -- nothing mutates and no stop is started.
    */
-  async stop(agentIdOrName: string): Promise<Agent> {
+  async stop(agentIdOrName: string, options?: LifecycleActionOptions): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
+    const body: Record<string, any> = {};
+    if (options?.dryRun) body.dry_run = true;
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`,
-      undefined,
+      Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    this.invalidateOpenClawGateway(agentId);
+    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
-  /** Archive durable storage without launching the agent. */
-  async archive(agentIdOrName: string): Promise<Agent> {
+  /**
+   * Archive durable storage without launching the agent.
+   *
+   * With `dryRun: true` the Backend only validates the request and returns
+   * the current Agent unchanged -- nothing mutates and no archive is started.
+   */
+  async archive(agentIdOrName: string, options?: LifecycleActionOptions): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
+    const body: Record<string, any> = {};
+    if (options?.dryRun) body.dry_run = true;
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/archive`,
-      undefined,
+      Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    this.invalidateOpenClawGateway(agentId);
+    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
-  /** Restore durable storage. The accepted snapshot is `RESTORING`; completion is `STOPPED`. */
-  async restore(agentIdOrName: string): Promise<Agent> {
+  /**
+   * Restore durable storage. The accepted snapshot is `RESTORING`; completion is `STOPPED`.
+   *
+   * With `dryRun: true` the Backend only validates the request and returns
+   * the current Agent unchanged -- nothing mutates and no restore is started.
+   */
+  async restore(agentIdOrName: string, options?: LifecycleActionOptions): Promise<Agent> {
     const agentId = await this.resolveAgentId(agentIdOrName);
+    const body: Record<string, any> = {};
+    if (options?.dryRun) body.dry_run = true;
     const data = await this.agentHttp.post<AgentHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/restore`,
-      undefined,
+      Object.keys(body).length ? body : undefined,
       { retries: 1 },
     );
-    this.invalidateOpenClawGateway(agentId);
+    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return this.hydrateAgent(data);
   }
 
@@ -5894,12 +5926,22 @@ export class Deployments {
     return agentRoutesStateFromData(data);
   }
 
-  async delete(agentIdOrName: string): Promise<Record<string, any>> {
+  /**
+   * Delete a deployment.
+   *
+   * With `dryRun: true` the Backend only validates the request and returns
+   * the current Agent record unchanged -- nothing mutates and the deployment
+   * is not deleted.
+   */
+  async delete(agentIdOrName: string, options?: LifecycleActionOptions): Promise<Record<string, any>> {
     // HTTP 200 accepts the durable soft delete. Cluster-local cleanup continues
     // in the background and is not proven complete by this response.
     const agentId = await this.resolveAgentId(agentIdOrName);
-    const result = await this.agentHttp.delete<Record<string, any>>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
-    this.invalidateOpenClawGateway(agentId);
+    const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}`;
+    const result = options?.dryRun
+      ? await this.agentHttp.delete<Record<string, any>>(path, { dry_run: true })
+      : await this.agentHttp.delete<Record<string, any>>(path);
+    if (!options?.dryRun) this.invalidateOpenClawGateway(agentId);
     return result;
   }
 
@@ -6225,7 +6267,7 @@ export class Deployments {
     const response = await this.fetchReef(access, `/files/${encodedPath}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: bytes as unknown as BodyInit,
+      body: bytes as unknown as NonNullable<RequestInit['body']>,
     });
     return (await response.json()) as Record<string, any>;
   }

@@ -2938,7 +2938,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   if (!globalThis.crypto?.subtle) {
     throw new Error("crypto.subtle is required for device auth");
   }
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as unknown as BufferSource);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as unknown as Parameters<typeof globalThis.crypto.subtle.digest>[1]);
   return bytesToHex(new Uint8Array(digest));
 }
 
