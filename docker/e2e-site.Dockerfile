@@ -16,7 +16,6 @@ COPY site/apps/main/package.json /workspace/site/apps/main/package.json
 COPY site/apps/console/package.json /workspace/site/apps/console/package.json
 COPY site/apps/claw/package.json /workspace/site/apps/claw/package.json
 COPY site/packages/shared-ui/package.json /workspace/site/packages/shared-ui/package.json
-COPY site/mock-server/package.json /workspace/site/mock-server/package.json
 WORKDIR /workspace/site
 RUN npm ci --no-audit --no-fund \
   && npm cache clean --force
