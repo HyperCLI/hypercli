@@ -1,0 +1,96 @@
+{
+  "skills": [
+    {
+      "name": "hypercli",
+      "description": "Operate HyperCLI product APIs, GPU jobs, media flows, voice, and managed agents with the hyper CLI. Use as the router for identity, credentials, agents, compute, flows, files, and voice operations.",
+      "commands": [
+        "hyper",
+        "hyper --help",
+        "hyper <group> --help",
+        "hyper me",
+        "hyper configure",
+        "hyper skills",
+        "hyper agents",
+        "hyper jobs",
+        "hyper flow",
+        "hyper files",
+        "hyper voice",
+        "hyper agents wait <agent> --state <state>"
+      ]
+    },
+    {
+      "name": "hypercli-account",
+      "description": "Inspect the active HyperCLI identity, capabilities, and entitlements with hyper me, and set up the local product API key with hyper configure. Use for who-am-I, capability, entitlement, and credential-setup questions.",
+      "commands": [
+        "hyper me",
+        "hyper configure"
+      ]
+    },
+    {
+      "name": "hypercli-agents",
+      "description": "Create, run, inspect, and control managed HyperCLI agents across the openclaw, hermes, goose, opencode, and buzz runtimes. Use for hyper agents lifecycle and wait, logs, exec, shell, file copies, routines, grant activation with hyper agents activate, dynamic routes, archive and restore, and OpenClaw-only configuration through the hidden hyper agents config and hyper agents models commands.",
+      "commands": [
+        "hyper agents --help",
+        "hyper agents <command> --help",
+        "hyper agents wait <agent>",
+        "hyper agents token <agent>",
+        "hyper agents routines create --help",
+        "hyper agents routines update",
+        "hyper me",
+        "hyper agents create <name> --runtime openclaw",
+        "hyper agents config set <agent>",
+        "hyper agents routes list <agent>",
+        "hyper agents routes add <agent> <name> --port N",
+        "hyper agents routes remove <agent> <name>",
+        "hyper agents archive <agent>",
+        "hyper agents restore <agent>",
+        "hyper agents ls"
+      ]
+    },
+    {
+      "name": "hypercli-auth",
+      "description": "Diagnose and configure HyperCLI credentials, API bases, and inactive keys, and authenticate hosted Buzz coding-runtime harnesses. Use when choosing between HYPER_API_KEY, HYPERCLI_API_KEY, and HYPER_AGENTS_API_KEY, running hyper me safely, applying hyper configure, or signing OpenCode, Goose, Claude Code, Codex, or Kimi Code into a hosted runtime.",
+      "commands": [
+        "hyper configure",
+        "hyper me",
+        "hyper me --json",
+        "hyper agents ls --json"
+      ]
+    },
+    {
+      "name": "hypercli-compute",
+      "description": "Browse the live HyperCLI GPU catalog and create, inspect, and control GPU jobs. Use for hyper jobs gpus inventory, job submission preflighted with --dry-run, job list/get/logs, cancellation, and the hidden extend and exec power commands.",
+      "commands": [
+        "hyper jobs --help",
+        "hyper jobs gpus",
+        "hyper jobs create",
+        "hyper jobs list",
+        "hyper jobs get",
+        "hyper jobs logs",
+        "hyper jobs cancel",
+        "hyper jobs extend",
+        "hyper jobs exec",
+        "hyper jobs get <job>"
+      ]
+    },
+    {
+      "name": "hypercli-flows",
+      "description": "Create, monitor, wait on, and cancel HyperCLI image and video flows, and upload reusable pipeline inputs with hyper files upload. Use for hyper flow create across the current flow types, flow list/status/wait tracking, and cancelled or failed render handling.",
+      "commands": [
+        "hyper flow --help",
+        "hyper flow create <type> --help",
+        "hyper voice tts",
+        "hyper flow list --json"
+      ]
+    },
+    {
+      "name": "hypercli-voice",
+      "description": "Generate speech with HyperCLI text-to-speech through hyper voice tts, save the audio with --out, and handle voice API errors and identity checks. Use for CLI speech generation and voice-capability validation.",
+      "commands": [
+        "hyper voice tts --help",
+        "hyper me",
+        "hyper configure"
+      ]
+    }
+  ]
+}

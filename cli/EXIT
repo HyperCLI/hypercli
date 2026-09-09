@@ -1,0 +1,4 @@
+agents chat --help ==0 first=hyper agents — Manage hosted agents (deployments, shells, logs, files, routines).
+agents --help ==0 first=hyper agents — Manage hosted agents (deployments, shells, logs, files, routines).
+skills export --help ==0 first=hyper skills — List, inspect, export, and install bundled skills.
+skills install --help ==0 first=hyper skills — List, inspect, export, and install bundled skills.

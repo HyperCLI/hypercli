@@ -1,0 +1,116 @@
+{
+  "$comment": "Single source of truth for .github/workflows/cli.yml. Every command group's public subcommands (usage lines) + hidden subcommands (HIDDEN lists in src/commands) must appear here; tests/ci-matrix.test.ts fails CI when code and manifest drift apart. smokes[].argv excludes the group token; the CI smoke appends nothing extra — entries already end in --help. The bare ['--help'] entry per group runs in the group gate ('cli / <group>'); every other entry is a matrix check ('cli / <group> / <sub>'). hidden: true = works but absent from the group's help listing. alias: true = alternate spelling of another entry. windows: true = also exercised on windows-latest.",
+  "version": 1,
+  "groups": {
+    "core": {
+      "tests": ["argv", "help", "table", "ci-matrix"],
+      "windows": true,
+      "smokes": [
+        { "argv": [] },
+        { "argv": ["--help"] },
+        { "argv": ["--version"] }
+      ]
+    },
+    "me": {
+      "tests": ["me"],
+      "windows": false,
+      "smokes": [{ "argv": ["--help"] }]
+    },
+    "configure": {
+      "tests": [],
+      "windows": false,
+      "smokes": [{ "argv": ["--help"] }]
+    },
+    "skills": {
+      "tests": ["skills", "skills-runtime", "skills.install", "build-skills"],
+      "windows": true,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["ls", "--help"] },
+        { "argv": ["list", "--help"] },
+        { "argv": ["export", "--help"] },
+        { "argv": ["install", "--help"] }
+      ]
+    },
+    "agents": {
+      "tests": ["agents", "agents.chat"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["ls", "--help"] },
+        { "argv": ["list", "--help"], "alias": true },
+        { "argv": ["status", "--help"] },
+        { "argv": ["wait", "--help"] },
+        { "argv": ["create", "--help"] },
+        { "argv": ["start", "--help"] },
+        { "argv": ["chat", "--help"] },
+        { "argv": ["stop", "--help"] },
+        { "argv": ["delete", "--help"] },
+        { "argv": ["exec", "--help"] },
+        { "argv": ["shell", "--help"] },
+        { "argv": ["logs", "--help"] },
+        { "argv": ["cp", "--help"] },
+        { "argv": ["activate", "--help"] },
+        { "argv": ["routines", "list", "--help"] },
+        { "argv": ["routines", "create", "--help"] },
+        { "argv": ["routines", "delete", "--help"] },
+        { "argv": ["routines", "update", "--help"], "hidden": true },
+        { "argv": ["archive", "--help"], "hidden": true },
+        { "argv": ["restore", "--help"], "hidden": true },
+        { "argv": ["token", "--help"], "hidden": true },
+        { "argv": ["models", "--help"], "hidden": true },
+        { "argv": ["config", "get", "--help"], "hidden": true },
+        { "argv": ["config", "set", "--help"], "hidden": true },
+        { "argv": ["routes", "list", "--help"], "hidden": true },
+        { "argv": ["routes", "add", "--help"], "hidden": true },
+        { "argv": ["routes", "remove", "--help"], "hidden": true }
+      ]
+    },
+    "jobs": {
+      "tests": ["jobs"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["gpus", "--help"] },
+        { "argv": ["create", "--help"] },
+        { "argv": ["list", "--help"] },
+        { "argv": ["get", "--help"] },
+        { "argv": ["logs", "--help"] },
+        { "argv": ["cancel", "--help"] },
+        { "argv": ["ls", "--help"], "alias": true },
+        { "argv": ["extend", "--help"], "hidden": true },
+        { "argv": ["exec", "--help"], "hidden": true }
+      ]
+    },
+    "flow": {
+      "tests": ["flow"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["create", "--help"] },
+        { "argv": ["list", "--help"] },
+        { "argv": ["status", "--help"] },
+        { "argv": ["wait", "--help"] },
+        { "argv": ["cancel", "--help"] }
+      ]
+    },
+    "files": {
+      "tests": ["files"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["upload", "--help"] },
+        { "argv": ["get", "--help"] },
+        { "argv": ["delete", "--help"] }
+      ]
+    },
+    "voice": {
+      "tests": ["voice"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] },
+        { "argv": ["tts", "--help"] }
+      ]
+    }
+  }
+}
