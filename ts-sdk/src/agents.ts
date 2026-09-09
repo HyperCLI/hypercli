@@ -112,12 +112,6 @@ const AGENT_HOSTED_SLACK_PATCH_TIMEOUT_MS = 300_000;
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
 export const DEFAULT_OPENCLAW_PRO_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:pro-prod';
-const STALE_OPENCLAW_IMAGES = new Set([
-  'ghcr.io/hypercli/hypercli-openclaw:latest',
-  'ghcr.io/hypercli/hypercli-openclaw:pro-latest',
-  DEFAULT_OPENCLAW_IMAGE,
-  DEFAULT_OPENCLAW_PRO_IMAGE,
-]);
 export const DEFAULT_HERMES_AGENT_IMAGE = 'ghcr.io/hypercli/hypercli-hermes-agent:latest';
 export const DEFAULT_OPENCODE_IMAGE = 'ghcr.io/hypercli/hypercli-opencode:latest';
 export const DEFAULT_CODEX_IMAGE = 'ghcr.io/hypercli/hypercli-codex:latest';
@@ -2254,17 +2248,6 @@ function defaultOpenClawProImage(
 ): string {
   if (image !== undefined && image !== null) return image;
   return DEFAULT_OPENCLAW_PRO_IMAGE;
-}
-
-function defaultOpenClawStartImage(
-  image: unknown,
-  desktopEnabled: boolean,
-): string {
-  const raw = String(image ?? '').trim();
-  if (!raw || STALE_OPENCLAW_IMAGES.has(raw)) {
-    return desktopEnabled ? DEFAULT_OPENCLAW_PRO_IMAGE : DEFAULT_OPENCLAW_IMAGE;
-  }
-  return raw;
 }
 
 function canonicalOpenClawGatewayRoute(): AgentRouteConfig {
@@ -4435,7 +4418,7 @@ export class Deployments {
   private readonly openClawGatewayContextFlights = new Map<string, OpenClawGatewayContextFlight>();
 
   constructor(
-    private readonly http: HTTPClient,
+    http: HTTPClient,
     agentApiKey?: string,
     agentApiBase?: string,
     agentsWsUrl?: string,
@@ -6242,7 +6225,7 @@ export class Deployments {
     const response = await this.fetchReef(access, `/files/${encodedPath}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: bytes,
+      body: bytes as unknown as BodyInit,
     });
     return (await response.json()) as Record<string, any>;
   }

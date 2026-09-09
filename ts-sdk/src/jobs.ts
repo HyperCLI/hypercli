@@ -9,12 +9,10 @@ import {
   jobMetricsFromDict,
   lifecycleEventFromDict,
   normalizeTags,
-  type GPUMetrics,
   type Job,
   type JobLifecycleEvent,
   type JobListPage,
   type JobMetrics,
-  type SystemMetrics,
 } from './job-codecs.js';
 
 function execArgv(command: unknown): string[] {

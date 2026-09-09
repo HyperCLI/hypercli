@@ -50,10 +50,6 @@ export function createOpenClawSdkSessionKey(
   return createOpenClawSessionKey(existingSessionKeys, OPENCLAW_SDK_SESSION_PREFIX);
 }
 
-function quotePosixShellArgument(value: string): string {
-  return `'${value.split("'").join("'\"'\"'")}'`;
-}
-
 export function isOpenClawInternalMainSessionKey(sessionKey: string | null | undefined): boolean {
   const normalized = (sessionKey ?? "").trim().toLowerCase();
   if (!normalized) return false;
@@ -2942,7 +2938,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   if (!globalThis.crypto?.subtle) {
     throw new Error("crypto.subtle is required for device auth");
   }
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as unknown as BufferSource);
   return bytesToHex(new Uint8Array(digest));
 }
 

@@ -389,7 +389,7 @@ export class HTTPClient {
     const formData = new FormData();
     
     for (const [fieldName, file] of Object.entries(files)) {
-      const blob = new Blob([file.content], { type: file.contentType });
+      const blob = new Blob([file.content as unknown as BlobPart], { type: file.contentType });
       formData.append(fieldName, blob, file.filename);
     }
 
