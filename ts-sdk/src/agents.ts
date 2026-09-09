@@ -337,16 +337,14 @@ export interface AgentMetricsResult {
 
 export interface AgentOperationTokenResponse {
   agent_id: string;
-  token?: string;
-  jwt: string;
+  token: string;
   expires_at: string;
   ws_url: string;
 }
 
 export interface AgentTokenResponse {
   agent_id?: string;
-  token?: string;
-  jwt?: string;
+  token: string;
   expires_at?: string | null;
 }
 
@@ -459,8 +457,7 @@ function stringifyOpenClawOperationsFailure(reason: unknown): string {
 
 export interface AgentShellTokenResponse {
   agent_id: string;
-  token?: string;
-  jwt: string;
+  token: string;
   expires_at: string;
   ws_url: string;
   shell: string;
@@ -527,8 +524,7 @@ function runShellOperation<T>(
 
 export interface AgentLogsTokenResponse {
   agent_id?: string;
-  token?: string;
-  jwt: string;
+  token: string;
   expires_at?: string | null;
   ws_url?: string;
 }
@@ -1971,10 +1967,9 @@ function validateAgentWsToken(
     : ['agent_id', 'expires_at', 'ws_url'];
   const invalid = () => new Error(`Backend returned an invalid Agent ${purpose} token response`);
   if (!isPlainRecord(value)) throw invalid();
-  const credentialKeys = (['token', 'jwt'] as const)
-    .filter((key) => typeof value[key] === 'string' && value[key]);
-  if (credentialKeys.length === 0 || !ownKeysEqual(value, [...base, ...credentialKeys])) throw invalid();
-  const credential = value[credentialKeys[0]] as string;
+  if (!ownKeysEqual(value, [...base, 'token']) || typeof value.token !== 'string' || !value.token) {
+    throw invalid();
+  }
   if (
     value.agent_id !== agentId
     || typeof value.expires_at !== 'string'
@@ -2002,8 +1997,48 @@ function validateAgentWsToken(
   ) {
     throw invalid();
   }
-  return { ...value, token: credential, jwt: credential } as unknown as
+  return value as unknown as
     AgentOperationTokenResponse | AgentShellTokenResponse;
+}
+
+function validateDeploymentEventToken(value: unknown): { token: string; ws_url: string } {
+  const invalid = () => new Error('Backend returned an invalid deployment event token response');
+  if (!isPlainRecord(value) || !ownKeysEqual(value, ['token', 'ws_url'])) throw invalid();
+  if (typeof value.token !== 'string' || !value.token || typeof value.ws_url !== 'string' || !value.ws_url) {
+    throw invalid();
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value.ws_url);
+  } catch {
+    throw invalid();
+  }
+  if (!['ws:', 'wss:'].includes(parsed.protocol) || !parsed.hostname || parsed.search || parsed.hash) {
+    throw invalid();
+  }
+  return { token: value.token, ws_url: value.ws_url };
+}
+
+function validateAgentLogsToken(value: unknown): AgentLogsTokenResponse {
+  const invalid = () => new Error('Backend returned an invalid Agent logs token response');
+  if (!isPlainRecord(value)) throw invalid();
+  if (!ownKeysEqual(value, ['agent_id', 'expires_at', 'token', 'ws_url'])) throw invalid();
+  if (typeof value.token !== 'string' || !value.token) throw invalid();
+  if (typeof value.agent_id !== 'string' || !value.agent_id) throw invalid();
+  if (typeof value.expires_at !== 'string' || !value.expires_at) throw invalid();
+  if (typeof value.ws_url !== 'string' || !value.ws_url) throw invalid();
+  if (typeof value.ws_url === 'string') {
+    let parsed: URL;
+    try {
+      parsed = new URL(value.ws_url);
+    } catch {
+      throw invalid();
+    }
+    if (!['ws:', 'wss:'].includes(parsed.protocol) || !parsed.hostname || parsed.search || parsed.hash) {
+      throw invalid();
+    }
+  }
+  return value as unknown as AgentLogsTokenResponse;
 }
 
 function validateAgentMetricsResult(value: unknown): AgentMetricsResult {
@@ -2836,7 +2871,7 @@ export class Agent {
 
   async refreshToken(): Promise<AgentTokenResponse> {
     const data = await this.requireDeployments().refreshToken(this.id);
-    this.jwtToken = data.token ?? data.jwt ?? null;
+    this.jwtToken = data.token ?? null;
     this.jwtExpiresAt = parseDate(data.expires_at);
     return data;
   }
@@ -3312,7 +3347,7 @@ export class CodingAgent extends Agent {
    * Every coding-agent pod runs `acp`, which pipes the pod-side ACP
    * child (`opencode acp`, `claude-code acp`, ...) onto an outbound WebSocket
    * to the backend `/ws` bridge. This dials the client side of that bridge
-   * (`?agent_id=<id>`, Bearer API key — the same base URL/auth as every other
+   * (`?agent_id=<id>&token=<api key>` — the same base URL/auth as every other
    * agent SDK call), completes the ACP v1 `initialize` handshake, and returns
    * a session-capable client. The `cwd` default is the agent workspace root
    * (the coding-agent sync root, `/home/node`).
@@ -3321,8 +3356,9 @@ export class CodingAgent extends Agent {
     const deployments = this.requireDeployments();
     const url = new URL(defaultHyperAcpWsUrl(deployments.agentApiBase));
     url.searchParams.set('agent_id', this.id);
+    url.searchParams.set('token', deployments.agentApiKey);
     return CodingAgentAcpClient.connect(
-      { url: url.toString(), token: deployments.agentApiKey },
+      { url: url.toString(), token: '' },
       { ...options, cwd: options.cwd ?? DEFAULT_CODING_AGENT_SYNC_ROOT },
     );
   }
@@ -5027,7 +5063,7 @@ export class Deployments {
     );
     const token = validateAgentWsToken(rawToken, agentId, purpose) as AgentOperationTokenResponse;
     const parsed = new URL(token.ws_url);
-    parsed.searchParams.set('token', token.jwt);
+    parsed.searchParams.set('token', token.token);
     const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
     let ws: WebSocket;
     try {
@@ -5236,12 +5272,14 @@ export class Deployments {
     };
     while (!options.signal?.aborted) {
       try {
-        const token = await this.agentHttp.post<{
+        const token = validateDeploymentEventToken(await this.agentHttp.post<{
           token: string;
           ws_url: string;
-        }>(`${DEPLOYMENTS_API_PREFIX}/events/token`, undefined, { signal: options.signal });
+        }>(`${DEPLOYMENTS_API_PREFIX}/events/token`, undefined, { signal: options.signal }));
+        const eventUrl = new URL(token.ws_url);
+        eventUrl.searchParams.set('token', token.token);
         const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
-        const ws = new WebSocketImpl(token.ws_url);
+        const ws = new WebSocketImpl(eventUrl.toString());
         let readyAt: number | null = null;
         let closedAt: number | null = null;
         await new Promise<void>((resolve, reject) => {
@@ -5254,10 +5292,7 @@ export class Deployments {
           }, 10_000);
           const abort = () => ws.close(1000, 'Subscription cancelled');
           options.signal?.addEventListener('abort', abort, { once: true });
-          ws.addEventListener('open', () => {
-            opened = true;
-            ws.send(JSON.stringify({ type: 'auth', token: token.token }));
-          });
+          ws.addEventListener('open', () => { opened = true; });
           ws.addEventListener('message', (message) => {
             processing = processing.then(async () => {
               const frame = JSON.parse(await websocketMessageText(message.data)) as Record<string, unknown>;
@@ -5891,11 +5926,9 @@ export class Deployments {
 
   async logsToken(agentIdOrName: string): Promise<AgentLogsTokenResponse> {
     const agentId = await this.resolveAgentId(agentIdOrName);
-    const data = await this.agentHttp.post<AgentLogsTokenResponse>(
+    return validateAgentLogsToken(await this.agentHttp.post<AgentLogsTokenResponse>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`,
-    );
-    const credential = data.token ?? data.jwt;
-    return credential ? { ...data, token: credential, jwt: credential } : data;
+    ));
   }
 
   async env(
@@ -6218,7 +6251,7 @@ export class Deployments {
     const tailLines = options.tailLines ?? 100;
     const wsUrl =
       `${this.agentsWsUrl}/logs/${agentId}` +
-      `?token=${encodeURIComponent(tokenData.jwt)}` +
+      `?token=${encodeURIComponent(tokenData.token)}` +
       `&container=${encodeURIComponent(container)}` +
       `&tail_lines=${encodeURIComponent(String(tailLines))}`;
     const ws = new WebSocket(wsUrl);
@@ -6399,7 +6432,7 @@ export class Deployments {
         },
       );
       const parsed = new URL(tokenData.ws_url);
-      parsed.searchParams.set('token', tokenData.jwt);
+      parsed.searchParams.set('token', tokenData.token);
       parsed.searchParams.set('shell', tokenData.shell);
       const WebSocketImpl = globalThis.WebSocket ?? NodeWebSocket;
       const ws = new WebSocketImpl(parsed.toString());

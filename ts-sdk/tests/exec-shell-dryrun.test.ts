@@ -42,11 +42,6 @@ function operationToken(agentId: string, purpose: 'metrics' | 'exec') {
   };
 }
 
-function legacyOperationToken(agentId: string, purpose: 'metrics' | 'exec') {
-  const { token, ...rest } = operationToken(agentId, purpose);
-  return { ...rest, jwt: token };
-}
-
 function shellToken(shell: string, tokenValue = 'jwt-shell') {
   return {
     agent_id: 'agent-1',
@@ -1047,7 +1042,7 @@ describe('HyperClaw agents SDK', () => {
     await expect(agents.exec('agent-1', ['yes'])).rejects.toThrow('output limit exceeded');
   });
 
-  it('accepts legacy jwt-only operation token responses', async () => {
+  it('rejects legacy jwt-only operation token responses', async () => {
     const sockets = stubOneShotWebSocket([
       JSON.stringify({
         event: 'agent_metrics_result',
@@ -1057,11 +1052,12 @@ describe('HyperClaw agents SDK', () => {
         timestamp: 7,
       }),
     ]);
-    const post = vi.fn().mockResolvedValue(legacyOperationToken('agent-1', 'metrics'));
+    const { token, ...legacy } = operationToken('agent-1', 'metrics');
+    const post = vi.fn().mockResolvedValue({ ...legacy, jwt: token });
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
 
-    await expect(agents.metrics('agent-1')).resolves.toMatchObject({ ok: true });
-    expect(sockets[0]?.url).toBe('wss://socket.example.test/product/ws/metrics/agent-1?token=jwt-metrics');
+    await expect(agents.metrics('agent-1')).rejects.toThrow('invalid Agent metrics token');
+    expect(sockets).toHaveLength(0);
   });
 
   it('rejects a noncanonical operation token before websocket connect', async () => {
@@ -1088,7 +1084,7 @@ describe('HyperClaw agents SDK', () => {
     const token = await agents.shellToken('agent-1', '/bin/sh');
     const ws = await agents.shellConnect('agent-1', '/bin/sh');
 
-    expect(token.jwt).toBe('jwt-abc');
+    expect(token.token).toBe('jwt-abc');
     expect(post).toHaveBeenNthCalledWith(1, '/deployments/agent-1/shell/token', {
       shell: '/bin/sh',
     });
@@ -1284,20 +1280,20 @@ describe('HyperClaw agents SDK', () => {
       .mockResolvedValueOnce(new Response(body, {
         status: 503,
       }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ jwt: 'jwt-ready' }), {
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: 'token-ready' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }));
     vi.stubGlobal('fetch', fetchMock);
     const client = new HTTPClient('https://api.agents.dev.hypercli.com', 'sk-hyper-test');
 
-    const result = await client.post<{ jwt: string }>('/deployments/agent-1/shell/token', {}, {
+    const result = await client.post<{ token: string }>('/deployments/agent-1/shell/token', {}, {
       retries: 2,
       backoff: 0,
       retryStatuses: [503],
     });
 
-    expect(result.jwt).toBe('jwt-ready');
+    expect(result.token).toBe('token-ready');
     expect(fetchMock).toHaveBeenCalledTimes(2);
     vi.stubGlobal('fetch', originalFetch);
   });

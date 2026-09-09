@@ -5508,7 +5508,7 @@ describe("GatewayClient", () => {
       ok: true,
       json: async () => ({
         agent_id: "deployment-123",
-        jwt: "jwt-exec",
+        token: "jwt-exec",
         expires_at: "2026-08-15T00:05:00Z",
         ws_url: "wss://socket.example.test/ws/exec/deployment-123",
       }),
@@ -5782,7 +5782,7 @@ describe("GatewayClient", () => {
       ok: true,
       json: async () => ({
         agent_id: "deployment-123",
-        jwt: "jwt-exec",
+        token: "jwt-exec",
         expires_at: "2026-08-15T00:05:00Z",
         ws_url: "wss://socket.example.test/ws/exec/deployment-123",
       }),
@@ -5984,7 +5984,7 @@ describe("GatewayClient", () => {
       ok: true,
       json: async () => ({
         agent_id: "deployment-123",
-        jwt: "jwt-exec",
+        token: "jwt-exec",
         expires_at: "2026-08-15T00:05:00Z",
         ws_url: "wss://socket.example.test/ws/exec/deployment-123",
       }),

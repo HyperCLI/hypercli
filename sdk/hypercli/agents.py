@@ -2227,7 +2227,7 @@ class Agent:
 
     def refresh_token(self) -> dict:
         data = self._require_deployments().refresh_token(self.id)
-        self.jwt_token = data.get("token") or data.get("jwt")
+        self.jwt_token = data.get("token")
         self.jwt_expires_at = _parse_dt(data.get("expires_at"))
         return data
 
@@ -3085,12 +3085,12 @@ def _validate_agent_ws_token(
         base_keys.add("shell")
     if (
         not isinstance(data, dict)
-        or set(data) - base_keys not in ({"token"}, {"jwt"})
+        or set(data) != {*base_keys, "token"}
     ):
         raise ValueError(f"Backend returned an invalid Agent {purpose} token response")
 
     token_agent_id = data.get("agent_id")
-    token = data.get("token") or data.get("jwt")
+    token = data.get("token")
     expires_at = data.get("expires_at")
     ws_url = data.get("ws_url")
     resolved_shell = data.get("shell") if purpose == "shell" else None
@@ -4264,14 +4264,20 @@ class Deployments:
                 token_data = await asyncio.to_thread(
                     self._post, f"{AGENTS_API_PREFIX}/events/token"
                 )
+                if not isinstance(token_data, dict) or set(token_data) != {"token", "ws_url"}:
+                    raise RuntimeError("Deployment event token response is incomplete")
                 ws_url = str(token_data.get("ws_url") or "").strip()
                 token = str(token_data.get("token") or "").strip()
                 if not ws_url or not token:
                     raise RuntimeError("Deployment event token response is incomplete")
+                parsed = urlsplit(ws_url)
+                if parsed.scheme not in {"ws", "wss"} or not parsed.hostname or parsed.query or parsed.fragment:
+                    raise RuntimeError("Deployment event token response is incomplete")
+                query = urlencode({"token": token})
+                authed_ws_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, query, ""))
                 async with websockets.connect(
-                    ws_url, ping_interval=20, ping_timeout=20
+                    authed_ws_url, ping_interval=20, ping_timeout=20
                 ) as websocket:
-                    await websocket.send(json.dumps({"type": "auth", "token": token}))
                     ready = json.loads(await asyncio.wait_for(websocket.recv(), timeout=10))
                     if ready != {"type": "ready"}:
                         raise RuntimeError("Deployment event socket did not send ready")
@@ -4301,6 +4307,17 @@ class Deployments:
                 raise
             except APIError as exc:
                 if exc.status_code in {401, 403}:
+                    raise
+                if stop_event is None:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=retry_delay)
+                    except asyncio.TimeoutError:
+                        pass
+                retry_delay = min(retry_delay * 2, 5.0)
+            except RuntimeError as exc:
+                if str(exc) == "Deployment event token response is incomplete":
                     raise
                 if stop_event is None:
                     await asyncio.sleep(retry_delay)
@@ -5217,8 +5234,10 @@ class Deployments:
             for line in self.logs_tail(resolved_agent_id, tail_lines).splitlines():
                 yield line
             return
-        token = token_data.get("token") or token_data.get("jwt")
-        if not isinstance(token, str) or not token:
+        if not isinstance(token_data, dict):
+            raise ValueError("Backend returned an invalid Agent logs token response")
+        token = token_data.get("token")
+        if set(token_data) != {"agent_id", "token", "expires_at", "ws_url"} or not isinstance(token, str) or not token:
             raise ValueError("Backend returned an invalid Agent logs token response")
 
         url = (

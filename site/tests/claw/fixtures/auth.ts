@@ -3086,7 +3086,7 @@ async function captureAgentDiagnosticLog(
   try {
     const tokenData = await deployments.logsToken(agentId);
     const wsUrl = new URL(String(tokenData.ws_url ?? ""));
-    wsUrl.searchParams.set("jwt", String(tokenData.jwt ?? ""));
+    wsUrl.searchParams.set("token", tokenData.token);
     wsUrl.searchParams.set("tail_lines", String(AGENT_LOG_TAIL_LINES));
     await new Promise<void>((resolve) => {
       const socket = new WebSocket(wsUrl.toString());

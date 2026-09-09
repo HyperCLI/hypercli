@@ -207,7 +207,12 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
 
     import websockets
 
-    monkeypatch.setattr(websockets, "connect", lambda *_args, **_kwargs: FakeConnection())
+    ws_urls: list[str] = []
+    monkeypatch.setattr(
+        websockets,
+        "connect",
+        lambda url, *_args, **_kwargs: ws_urls.append(url) or FakeConnection(),
+    )
     received: list[DeploymentEvent] = []
 
     def handler(event: DeploymentEvent):
@@ -221,7 +226,8 @@ async def test_subscribe_connects_before_rest_snapshot(monkeypatch):
         on_ready=lambda: calls.append("rest"),
     )
 
-    assert calls[:3] == ["/deployments/events/token", "auth", "rest"]
+    assert calls[:2] == ["/deployments/events/token", "rest"]
+    assert ws_urls == ["wss://events.test/ws/deployments?token=token"]
     assert [event.type for event in received] == ["deployment.transition"]
     assert received[-1].agent_id == "agent-123"
     assert received[-1].state == "ARCHIVING"
@@ -288,7 +294,12 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
 
     import websockets
 
-    monkeypatch.setattr(websockets, "connect", lambda *_args, **_kwargs: FakeConnection())
+    ws_urls: list[str] = []
+    monkeypatch.setattr(
+        websockets,
+        "connect",
+        lambda url, *_args, **_kwargs: ws_urls.append(url) or FakeConnection(),
+    )
     received: list[DeploymentEvent] = []
 
     def handler(event: DeploymentEvent):
@@ -306,13 +317,40 @@ async def test_subscribe_reconnects_after_clean_disconnect_and_resyncs_again(mon
     assert stop.waits == 1
     assert calls == [
         "/deployments/events/token",
-        "auth",
         "rest",
         "/deployments/events/token",
-        "auth",
         "rest",
     ]
+    assert ws_urls == [
+        "wss://events.test/ws/deployments?token=token",
+        "wss://events.test/ws/deployments?token=token",
+    ]
     assert [event.type for event in received] == ["deployment.transition"]
+
+
+@pytest.mark.asyncio
+async def test_subscribe_rejects_legacy_event_token_fields_before_dialing(monkeypatch):
+    http = MagicMock(spec=HTTPClient)
+    http.api_key = "hyper_api_test"
+    deployments = Deployments(http)
+    monkeypatch.setattr(
+        deployments,
+        "_post",
+        lambda _path: {
+            "token": "token",
+            "jwt": "legacy",
+            "ws_url": "wss://events.test/ws/deployments",
+        },
+    )
+    ws_urls: list[str] = []
+
+    import websockets
+
+    monkeypatch.setattr(websockets, "connect", lambda url, *_args, **_kwargs: ws_urls.append(url))
+
+    with pytest.raises(RuntimeError, match="Deployment event token response is incomplete"):
+        await deployments.subscribe(lambda _event: None)
+    assert ws_urls == []
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@
  * Every hosted coding-agent pod runs `acp`, which bridges the pod-side
  * ACP child (`opencode acp`, `claude-code acp`, ...) onto an outbound
  * WebSocket to the backend bridge at `/ws`. This module dials that bridge as
- * the client side (`?agent_id=<uuid>`, Bearer API key), runs the ACP
+ * the client side (`?agent_id=<uuid>&token=<api key>`), runs the ACP
  * `initialize` handshake, and exposes typed session helpers plus a raw
  * JSON-RPC escape hatch.
  *
@@ -572,9 +572,10 @@ export class CodingAgentAcpClient {
         return socket;
       }
     } as unknown as WebSocketConstructor;
+    const headers = this.target.token ? { Authorization: `Bearer ${this.target.token}` } : undefined;
     const stream = createWebSocketStream(this.target.url, {
       WebSocket: TrackedWebSocket,
-      headers: { Authorization: `Bearer ${this.target.token}` },
+      headers,
       cookieStore: this.cookieStore,
     });
     const connection = this.buildApp().connect(stream);

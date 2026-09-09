@@ -3648,10 +3648,8 @@ export class GatewayClient {
       const token = await response.json() as Record<string, unknown>;
       const deploymentId = this.deploymentId as string;
       const tokenKeys = token && typeof token === "object" ? Object.keys(token).sort() : [];
-      const credentialKeys = ["token", "jwt"]
-        .filter((key) => typeof token[key] === "string" && token[key]);
-      const credential = credentialKeys.length > 0 ? (token[credentialKeys[0]] as string) : "";
-      const expectedTokenKeys = ["agent_id", "expires_at", "ws_url", ...credentialKeys].sort();
+      const credential = typeof token.token === "string" ? token.token : "";
+      const expectedTokenKeys = ["agent_id", "expires_at", "token", "ws_url"].sort();
       let parsed: URL;
       try {
         parsed = new URL(typeof token.ws_url === "string" ? token.ws_url : "");

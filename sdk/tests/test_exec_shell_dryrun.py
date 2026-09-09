@@ -462,7 +462,7 @@ async def test_agents_shell_connect(monkeypatch):
         captured_post["json"] = json
         return {
             "agent_id": "agent-1",
-            "jwt": "jwt-abc",
+            "token": "jwt-abc",
             "expires_at": "2026-08-15T00:05:00Z",
             "ws_url": "wss://socket.example.test/product/ws/shell/agent-1",
             "shell": "/bin/sh",
@@ -493,7 +493,12 @@ async def test_agents_logs_stream_ws_uses_agents_ws_url(monkeypatch):
     monkeypatch.setattr(
         agents,
         "logs_token",
-        lambda agent_id: {"jwt": "jwt-logs", "ws_url": "wss://wrong-host.example/ws/logs/agent-1?jwt=jwt-logs"},
+        lambda agent_id: {
+            "agent_id": agent_id,
+            "token": "logs-token",
+            "expires_at": "2026-08-15T00:00:00Z",
+            "ws_url": "wss://wrong-host.example/ws/logs/agent-1",
+        },
     )
 
     captured = {}
@@ -520,7 +525,7 @@ async def test_agents_logs_stream_ws_uses_agents_ws_url(monkeypatch):
     async for line in agents.logs_stream_ws("agent-1", tail_lines=400):
         lines.append(line)
 
-    assert captured["url"] == "wss://api.agents.dev.hypercli.com/ws/logs/agent-1?token=jwt-logs&container=reef&tail_lines=400"
+    assert captured["url"] == "wss://api.agents.dev.hypercli.com/ws/logs/agent-1?token=logs-token&container=reef&tail_lines=400"
     assert lines == ["hello"]
 
 
@@ -530,7 +535,12 @@ async def test_agents_logs_stream_ws_stops_after_history_when_not_following(monk
     monkeypatch.setattr(
         agents,
         "logs_token",
-        lambda agent_id: {"jwt": "jwt-logs"},
+        lambda agent_id: {
+            "agent_id": agent_id,
+            "token": "logs-token",
+            "expires_at": "2026-08-15T00:00:00Z",
+            "ws_url": "wss://api.agents.dev.hypercli.com/ws/logs/agent-1",
+        },
     )
 
     class FakeWS:
@@ -560,6 +570,16 @@ async def test_agents_logs_stream_ws_stops_after_history_when_not_following(monk
     ]
 
     assert lines == ["first"]
+
+
+@pytest.mark.asyncio
+async def test_agents_logs_stream_ws_rejects_legacy_jwt_key(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    monkeypatch.setattr(agents, "logs_token", lambda agent_id: {"jwt": "legacy"})
+
+    with pytest.raises(ValueError, match="invalid Agent logs token response"):
+        async for _line in agents.logs_stream_ws("agent-1"):
+            pass
 
 
 @pytest.mark.asyncio

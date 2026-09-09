@@ -60,7 +60,7 @@ impl RuntimeAuthStatus {
 /// Short-lived credential used only to connect to the protected shell proxy.
 ///
 /// This type deliberately does not implement `Debug`, `Clone`, or `Serialize`:
-/// its JWT is not an application credential and must never enter logs, traces,
+/// its token is not an application credential and must never enter logs, traces,
 /// Tauri events, or persisted state.
 pub struct RuntimeShellToken {
     pub agent_id: String,
@@ -68,13 +68,12 @@ pub struct RuntimeShellToken {
     pub ws_url: Url,
     pub shell: Option<String>,
     pub dry_run: bool,
-    pub(crate) jwt: SecretString,
+    pub(crate) token: SecretString,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct RuntimeShellTokenResponse {
     agent_id: String,
-    #[serde(alias = "jwt")]
     token: String,
     expires_at: String,
     ws_url: String,
@@ -96,7 +95,7 @@ impl RuntimeShellTokenResponse {
             ws_url,
             shell: self.shell,
             dry_run: self.dry_run,
-            jwt: SecretString::from(self.token),
+            token: SecretString::from(self.token),
         })
     }
 }
@@ -109,7 +108,7 @@ impl RuntimeShellToken {
         let mut url = self.ws_url.clone();
         {
             let mut query = url.query_pairs_mut();
-            query.append_pair("token", self.jwt.expose_secret());
+            query.append_pair("token", self.token.expose_secret());
             if let Some(shell) = self.shell.as_deref() {
                 query.append_pair("shell", shell);
             }
@@ -586,7 +585,7 @@ mod tests {
             ws_url: Url::parse(&format!("ws://{address}/ws/shell/agent-1")).unwrap(),
             shell: Some("/bin/bash".to_owned()),
             dry_run: false,
-            jwt: SecretString::from("short-lived-jwt".to_owned()),
+            token: SecretString::from("short-lived-token".to_owned()),
         };
         let mut session =
             RuntimeLoginSession::connect(token, NativeRuntime::ClaudeCode, Duration::from_secs(2))
@@ -641,7 +640,7 @@ mod tests {
             ws_url: Url::parse(&format!("ws://{address}/ws/shell/agent-1")).unwrap(),
             shell: Some("/bin/bash".to_owned()),
             dry_run: false,
-            jwt: SecretString::from("short-lived-jwt".to_owned()),
+            token: SecretString::from("short-lived-token".to_owned()),
         };
         let mut session =
             RuntimeLoginSession::connect(token, NativeRuntime::Codex, Duration::from_secs(2))

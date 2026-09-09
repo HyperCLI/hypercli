@@ -30,7 +30,12 @@ class ControllableWebSocket {
 }
 
 function deploymentsWithLogsToken() {
-  const post = vi.fn().mockResolvedValue({ jwt: 'jwt-logs' });
+  const post = vi.fn().mockResolvedValue({
+    agent_id: 'agent-1',
+    token: 'logs-token',
+    expires_at: '2026-08-15T00:00:00Z',
+    ws_url: 'wss://api.agents.dev.hypercli.com/ws/logs/agent-1',
+  });
   const agents = new Deployments(
     { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
     'sk-hyper-test',
@@ -198,5 +203,19 @@ describe('Deployments.subscribeLogs', () => {
 
     expect(ControllableWebSocket.instances).toHaveLength(1);
     expect(lines).toEqual(['past-1']);
+  });
+
+  it('rejects legacy jwt-only log token responses before dialing', async () => {
+    const post = vi.fn().mockResolvedValue({ jwt: 'logs-token' });
+    const agents = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await expect(agents.logsConnect('agent-1')).rejects.toThrow(
+      'Backend returned an invalid Agent logs token response',
+    );
+    expect(ControllableWebSocket.instances).toHaveLength(0);
   });
 });

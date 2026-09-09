@@ -259,13 +259,14 @@ describe('Agents SDK', () => {
 
     class FakeWebSocket extends EventTarget {
       static OPEN = 1;
+      static urls: string[] = [];
+      static sent: string[] = [];
+      send = vi.fn((payload: string) => { FakeWebSocket.sent.push(payload); });
       readyState = FakeWebSocket.OPEN;
       constructor(public readonly url: string) {
         super();
+        FakeWebSocket.urls.push(url);
         queueMicrotask(() => this.dispatchEvent(new Event('open')));
-      }
-      send(payload: string) {
-        expect(JSON.parse(payload)).toEqual({ type: 'auth', token: 'event-token' });
         for (const frame of [
           { type: 'ready' },
           {
@@ -313,6 +314,8 @@ describe('Agents SDK', () => {
       undefined,
       { signal: controller.signal },
     );
+    expect(FakeWebSocket.urls).toEqual(['wss://events.test/ws/deployments?token=event-token']);
+    expect(FakeWebSocket.sent).toEqual([]);
     expect(received.map((event) => event.type)).toEqual([
       'deployment.transition',
       'deployment.import_status',
@@ -330,6 +333,26 @@ describe('Agents SDK', () => {
       namespace: 'prod-agent-example',
       reason: 'missing_bound_pvc',
     });
+  });
+
+  it('rejects legacy deployment event jwt responses before dialing', async () => {
+    const deployments = new Deployments({
+      post: vi.fn().mockResolvedValue({ jwt: 'event-token', ws_url: 'wss://events.test/ws/deployments' }),
+      get: vi.fn(),
+    } as unknown as HTTPClient, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+
+    class FakeWebSocket {
+      static urls: string[] = [];
+      constructor(url: string) {
+        FakeWebSocket.urls.push(url);
+      }
+    }
+    vi.stubGlobal('WebSocket', FakeWebSocket as any);
+
+    await expect(deployments.subscribe(() => undefined)).rejects.toThrow(
+      'Backend returned an invalid deployment event token response',
+    );
+    expect(FakeWebSocket.urls).toEqual([]);
   });
 
   it('passes cancellation through event-token admission', async () => {
@@ -394,10 +417,8 @@ describe('Agents SDK', () => {
       private closed = false;
       constructor(public readonly url: string) {
         super();
-        queueMicrotask(() => this.dispatchEvent(new Event('open')));
-      }
-      send() {
         queueMicrotask(() => {
+          this.dispatchEvent(new Event('open'));
           const event = new Event('message');
           Object.defineProperty(event, 'data', {
             value: JSON.stringify({ type: 'ready' }),
@@ -406,6 +427,7 @@ describe('Agents SDK', () => {
         });
         if (this.ordinal === 1) queueMicrotask(() => this.close());
       }
+      send() {}
       close() {
         if (this.closed) return;
         this.closed = true;
@@ -456,16 +478,15 @@ describe('Agents SDK', () => {
       private closed = false;
       constructor(public readonly url: string) {
         super();
-        queueMicrotask(() => this.dispatchEvent(new Event('open')));
-      }
-      send() {
         queueMicrotask(() => {
+          this.dispatchEvent(new Event('open'));
           const event = new Event('message');
           Object.defineProperty(event, 'data', { value: JSON.stringify({ type: 'ready' }) });
           this.dispatchEvent(event);
           queueMicrotask(() => this.close());
         });
       }
+      send() {}
       close() {
         if (this.closed) return;
         this.closed = true;
@@ -522,10 +543,8 @@ describe('Agents SDK', () => {
       private closed = false;
       constructor(public readonly url: string) {
         super();
-        queueMicrotask(() => this.dispatchEvent(new Event('open')));
-      }
-      send() {
         queueMicrotask(() => {
+          this.dispatchEvent(new Event('open'));
           const event = new Event('message');
           Object.defineProperty(event, 'data', { value: JSON.stringify({ type: 'ready' }) });
           this.dispatchEvent(event);
@@ -533,6 +552,7 @@ describe('Agents SDK', () => {
           else if (this.ordinal === 3) setTimeout(() => this.close(), 10_000);
         });
       }
+      send() {}
       close() {
         if (this.closed) return;
         this.closed = true;

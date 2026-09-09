@@ -71,6 +71,7 @@ impl Default for FileApiReadyOptions {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DeploymentEventTokenResponse {
     token: String,
     ws_url: String,
@@ -79,7 +80,6 @@ struct DeploymentEventTokenResponse {
 #[serde(deny_unknown_fields)]
 struct OperationToken {
     agent_id: String,
-    #[serde(alias = "jwt")]
     token: String,
     expires_at: String,
     ws_url: String,
@@ -198,6 +198,31 @@ fn permanent_deployment_event_error(error: &HyperCliError) -> bool {
     error
         .status()
         .is_some_and(|status| matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN))
+}
+
+fn deployment_event_ws_url(raw_url: &str, token: &str) -> Result<Url, HyperCliError> {
+    let credential = token.trim();
+    if credential.is_empty() {
+        return Err(HyperCliError::InvalidResponse(
+            "deployment event token response omitted token".to_owned(),
+        ));
+    }
+    let mut url = Url::parse(raw_url)
+        .map_err(|_| HyperCliError::InvalidResponse("invalid deployment event ws_url".to_owned()))?;
+    if !matches!(url.scheme(), "ws" | "wss")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/ws/deployments"
+    {
+        return Err(HyperCliError::InvalidResponse(
+            "invalid deployment event ws_url".to_owned(),
+        ));
+    }
+    url.query_pairs_mut().append_pair("token", credential);
+    Ok(url)
 }
 
 /// Percent-encode a single path segment (env/secret keys can contain
@@ -780,20 +805,11 @@ impl HyperCliClient {
 
     async fn connect_deployment_events(&self) -> Result<DeploymentEventSocket, HyperCliError> {
         let token = self.create_deployment_event_token().await?;
-        let (mut socket, _) = connect_async(token.ws_url.as_str())
+        let ws_url = deployment_event_ws_url(&token.ws_url, &token.token)?;
+        let (socket, _) = connect_async(ws_url.as_str())
             .await
-            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
-        socket
-            .send(Message::Text(
-                serde_json::to_string(&json!({
-                    "type": "auth",
-                    "token": token.token,
-                }))
-                .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))?
-                .into(),
-            ))
-            .await
-            .map_err(|error| HyperCliError::Transport(error.to_string()))?;
+            .map_err(|_| HyperCliError::Transport("deployment event websocket connection failed".to_owned()))?;
+        let mut socket = socket;
         let ready = tokio::time::timeout(Duration::from_secs(10), socket.next())
             .await
             .map_err(|_| HyperCliError::Transport("deployment event ready timed out".to_owned()))?
@@ -2349,7 +2365,7 @@ mod tests {
     use secrecy::SecretString;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
-    use tokio_tungstenite::{accept_async, accept_hdr_async};
+    use tokio_tungstenite::accept_hdr_async;
 
     fn client(server: &Server) -> HyperCliClient {
         HyperCliClient::new(ClientConfig {
@@ -2364,6 +2380,21 @@ mod tests {
             sync_exclude: Some(Vec::new()),
             ..Default::default()
         })
+    }
+
+    async fn accept_deployment_event_socket(
+        listener: &TcpListener,
+    ) -> WebSocketStream<TcpStream> {
+        let (stream, _) = listener.accept().await.unwrap();
+        accept_hdr_async(
+            stream,
+            |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+                assert_eq!(request.uri().query(), Some("token=event-token"));
+                Ok(response)
+            },
+        )
+        .await
+        .unwrap()
     }
 
     #[test]
@@ -2384,16 +2415,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = accept_async(stream).await.unwrap();
-            let auth = socket.next().await.unwrap().unwrap();
-            let Message::Text(auth) = auth else {
-                panic!("expected auth text")
-            };
-            assert_eq!(
-                serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                json!({"type": "auth", "token": "event-token"})
-            );
+            let mut socket = accept_deployment_event_socket(&listener).await;
             socket
                 .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
@@ -2488,16 +2510,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = accept_async(stream).await.unwrap();
-            let auth = socket.next().await.unwrap().unwrap();
-            let Message::Text(auth) = auth else {
-                panic!("expected auth text")
-            };
-            assert_eq!(
-                serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                json!({"type": "auth", "token": "event-token"})
-            );
+            let mut socket = accept_deployment_event_socket(&listener).await;
             socket
                 .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
@@ -2578,16 +2591,7 @@ mod tests {
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
             for attempt in 0..2 {
-                let (stream, _) = listener.accept().await.unwrap();
-                let mut socket = accept_async(stream).await.unwrap();
-                let auth = socket.next().await.unwrap().unwrap();
-                let Message::Text(auth) = auth else {
-                    panic!("expected auth text")
-                };
-                assert_eq!(
-                    serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                    json!({"type": "auth", "token": "event-token"})
-                );
+                let mut socket = accept_deployment_event_socket(&listener).await;
                 socket
                     .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                     .await
@@ -2681,16 +2685,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = accept_async(stream).await.unwrap();
-            let auth = socket.next().await.unwrap().unwrap();
-            let Message::Text(auth) = auth else {
-                panic!("expected auth text")
-            };
-            assert_eq!(
-                serde_json::from_str::<Value>(auth.as_ref()).unwrap(),
-                json!({"type": "auth", "token": "event-token"})
-            );
+            let mut socket = accept_deployment_event_socket(&listener).await;
             socket
                 .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
@@ -2790,9 +2785,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = accept_async(stream).await.unwrap();
-            let _auth = socket.next().await.unwrap().unwrap();
+            let mut socket = accept_deployment_event_socket(&listener).await;
             socket
                 .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
@@ -2872,9 +2865,7 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
         let websocket = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = accept_async(stream).await.unwrap();
-            let _auth = socket.next().await.unwrap().unwrap();
+            let mut socket = accept_deployment_event_socket(&listener).await;
             socket
                 .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                 .await
@@ -3001,9 +2992,7 @@ mod tests {
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let ws_url = format!("ws://{}/ws/deployments", listener.local_addr().unwrap());
             let websocket = tokio::spawn(async move {
-                let (stream, _) = listener.accept().await.unwrap();
-                let mut socket = accept_async(stream).await.unwrap();
-                let _auth = socket.next().await.unwrap().unwrap();
+                let mut socket = accept_deployment_event_socket(&listener).await;
                 socket
                     .send(Message::Text(json!({"type": "ready"}).to_string().into()))
                     .await
@@ -4108,7 +4097,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn operation_connection_errors_never_expose_the_short_lived_jwt() {
+    async fn operation_connection_errors_never_expose_the_short_lived_token() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let ws_url = format!(
             "ws://{}/ws/metrics/deployment-1",
@@ -4810,7 +4799,7 @@ mod tests {
             .with_body(
                 serde_json::json!({
                     "agent_id": "deployment-1",
-                    "token": "short-lived-shell-jwt",
+                    "token": "short-lived-shell-token",
                     "expires_at": "2026-08-05T12:00:00Z",
                     "ws_url": "wss://api.agents.hypercli.com/ws/shell/deployment-1",
                     "shell": "/bin/bash"
@@ -4838,7 +4827,7 @@ mod tests {
             .with_body(
                 serde_json::json!({
                     "agent_id": "deployment-1",
-                    "token": "short-lived-shell-jwt",
+                    "token": "short-lived-shell-token",
                     "expires_at": "2026-08-05T12:00:00Z",
                     "ws_url": "wss://api.agents.hypercli.com/ws/shell/deployment-1",
                     "shell": "/bin/bash"
@@ -4853,7 +4842,7 @@ mod tests {
         assert_eq!(token.agent_id, "deployment-1");
         assert_eq!(token.shell.as_deref(), Some("/bin/bash"));
         assert_eq!(token.ws_url.scheme(), "wss");
-        assert_eq!(token.jwt.expose_secret(), "short-lived-shell-jwt");
+        assert_eq!(token.token.expose_secret(), "short-lived-shell-token");
         mock.assert();
     }
 
