@@ -88,10 +88,9 @@ pub use types::{
     HyperAgentUsageHistory, HyperAgentUsageHistoryEntry, HyperAgentUsageSummary, JobLifecycleEvent,
     LifecycleActionRequest, ManagedRuntime, Nullable, RouteConfig, RuntimeIdentity,
     SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
-    UpdateDeploymentRequest,
-    AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES, BUZZ_ACP_MAX_REPLY_NAGS,
-    BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES, CANONICAL_AGENT_STATES,
-    DEFAULT_BUZZ_RUST_LOG,
+    UpdateDeploymentRequest, AGENT_RUNTIME_INACTIVE_STATES, AGENT_TRANSITIONAL_STATES,
+    BUZZ_ACP_MAX_REPLY_NAGS, BUZZ_ACP_REPLY_GUARD_NAG, BUZZ_DEPLOYMENT_TAG, BUZZ_RUNTIME_SCOPES,
+    CANONICAL_AGENT_STATES, DEFAULT_BUZZ_RUST_LOG,
 };
 pub use user::{ApiUser, UserClient};
 pub use workspaces::{

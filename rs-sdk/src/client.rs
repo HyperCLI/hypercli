@@ -35,9 +35,9 @@ use crate::{
     HyperAgentStripeCheckoutResponse, HyperAgentSubscriptionList,
     HyperAgentSubscriptionMutationResult, HyperAgentSubscriptionSummary, HyperAgentUsageHistory,
     HyperAgentUsageSummary, JobLifecycleEvent, LifecycleActionRequest, NativeRuntime,
-    RuntimeAuthError, RuntimeAuthStatus,
-    RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
-    StartDeploymentRequest, UpdateDeploymentRequest,
+    RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
+    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
+    UpdateDeploymentRequest,
 };
 
 type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -2188,7 +2188,9 @@ impl HyperCliClient {
         options: &LifecycleActionRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/stop"));
-        let request_trace = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let request_trace = options
+            .dry_run
+            .then(|| serde_json::json!({"dry_run": true}));
         let mut builder = self
             .http
             .post(&url)
@@ -2239,7 +2241,9 @@ impl HyperCliClient {
         options: &LifecycleActionRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/archive"));
-        let request = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let request = options
+            .dry_run
+            .then(|| serde_json::json!({"dry_run": true}));
         let mut builder = self
             .http
             .post(&url)
@@ -2259,7 +2263,9 @@ impl HyperCliClient {
         options: &LifecycleActionRequest,
     ) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/restore"));
-        let request = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let request = options
+            .dry_run
+            .then(|| serde_json::json!({"dry_run": true}));
         let mut builder = self
             .http
             .post(&url)
@@ -2280,7 +2286,9 @@ impl HyperCliClient {
         options: &LifecycleActionRequest,
     ) -> Result<DeleteDeploymentResponse, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}"));
-        let request = options.dry_run.then(|| serde_json::json!({"dry_run": true}));
+        let request = options
+            .dry_run
+            .then(|| serde_json::json!({"dry_run": true}));
         let mut builder = self
             .http
             .delete(&url)
