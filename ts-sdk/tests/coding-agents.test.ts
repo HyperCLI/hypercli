@@ -812,9 +812,17 @@ describe('buzz acp raw outbound launch', () => {
     const { post, deployments } = provisionDeployments('codex');
     const agent = await deployments.createCodex();
     const payload = post.mock.calls[0][1];
+    expect(payload.command).toEqual(['/usr/local/bin/acp']);
     expect(payload.routes ?? {}).not.toHaveProperty('hyper-acp');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_WS_LISTEN');
     expect(payload.env ?? {}).not.toHaveProperty('HYPER_ACP_LOG');
     expect(payload.secrets ?? {}).not.toHaveProperty('HYPER_ACP_WS_TOKEN');
+  });
+
+  it('keeps an explicit plain ACP launch command', async () => {
+    const { post, deployments } = provisionDeployments('opencode');
+    await deployments.createOpenCode({ command: ['/bin/sh', '-c', 'sleep infinity'] });
+    const payload = post.mock.calls[0][1];
+    expect(payload.command).toEqual(['/bin/sh', '-c', 'sleep infinity']);
   });
 });

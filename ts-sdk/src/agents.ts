@@ -4990,7 +4990,10 @@ export class Deployments {
       image: resolvedImage,
       command: options.buzzEnabled || options.buzz
         ? ['/usr/local/bin/acp', 'plugin', 'buzz']
-        : options.command,
+        // Plain ACP launches run the image's `acp` binary; without an
+        // explicit command the container falls back to `sleep infinity` and
+        // no runtime ever dials the backend /ws bridge.
+        : options.command ?? ['/usr/local/bin/acp'],
       syncRoot: options.syncRoot ?? DEFAULT_CODING_AGENT_SYNC_ROOT,
       syncInclude,
       syncExclude,

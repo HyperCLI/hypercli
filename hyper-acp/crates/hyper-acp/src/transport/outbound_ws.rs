@@ -255,13 +255,17 @@ pub async fn run_with_prompt_and_observer(
 
 /// Connect one outbound `/ws` socket with the runtime auth header.
 async fn connect_socket(ws_url: &str) -> Result<Socket> {
-    let mut request = ws_url
+    // The bridge accepts the token as a `Bearer` header or a `?token=` query
+    // parameter; send both so either bridge build registers this runtime.
+    let token = outbound_auth_token();
+    let request_url = authenticated_request_url(ws_url, token.as_deref())?;
+    let mut request = request_url
         .into_client_request()
         .context("build ACP WebSocket request")?;
     request
         .headers_mut()
         .insert(USER_AGENT, "hyper-acp/0.1".parse().unwrap());
-    if let Some(token) = outbound_auth_token() {
+    if let Some(token) = token {
         request.headers_mut().insert(
             AUTHORIZATION,
             format!("Bearer {token}")
@@ -503,6 +507,17 @@ async fn pump_socket(
     result
 }
 
+fn authenticated_request_url(ws_url: &str, token: Option<&str>) -> Result<String> {
+    match token {
+        Some(token) => {
+            let mut url = Url::parse(ws_url).context("parse ACP WebSocket URL")?;
+            url.query_pairs_mut().append_pair("token", token);
+            Ok(url.into())
+        }
+        None => Ok(ws_url.to_owned()),
+    }
+}
+
 fn validate_ws_url(ws_url: &str) -> Result<()> {
     let url = Url::parse(ws_url).context("parse ACP WebSocket URL")?;
     match url.scheme() {
@@ -547,6 +562,22 @@ mod tests {
         assert!(validate_stdio_text_frame(r#"{"jsonrpc":"2.0","method":"initialized"}"#).is_ok());
         assert!(validate_stdio_text_frame("{}").is_err());
         assert!(validate_stdio_text_frame("{}\n{}").is_err());
+    }
+
+    #[test]
+    fn token_is_added_as_query_param_without_touching_path() {
+        assert_eq!(
+            authenticated_request_url("wss://api.example.com/ws", Some("secret")).unwrap(),
+            "wss://api.example.com/ws?token=secret"
+        );
+        assert_eq!(
+            authenticated_request_url("wss://api.example.com/ws?agent_id=a", Some("se cret")).unwrap(),
+            "wss://api.example.com/ws?agent_id=a&token=se+cret"
+        );
+        assert_eq!(
+            authenticated_request_url("wss://api.example.com/ws", None).unwrap(),
+            "wss://api.example.com/ws"
+        );
     }
 
     #[test]

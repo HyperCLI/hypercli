@@ -3958,7 +3958,10 @@ class Deployments:
             command=(
                 ["/usr/local/bin/acp", "plugin", "buzz"]
                 if buzz_enabled or buzz is not None
-                else command
+                # Plain ACP launches run the image's `acp` binary; without an
+                # explicit command the container falls back to `sleep infinity`
+                # and no runtime ever dials the backend /ws bridge.
+                else (command if command is not None else ["/usr/local/bin/acp"])
             ),
             entrypoint=entrypoint,
             image=image

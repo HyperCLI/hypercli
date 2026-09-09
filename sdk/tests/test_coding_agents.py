@@ -282,6 +282,26 @@ def test_coding_agent_rejects_empty_sync_include():
         deployments.create_codex(sync_include=[])
 
 
+def test_plain_coding_agent_launch_command_defaults_to_acp():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+    deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("opencode")
+
+    deployments.create_opencode()
+
+    assert posted["command"] == ["/usr/local/bin/acp"]
+
+
+def test_plain_coding_agent_explicit_command_wins():
+    deployments = Deployments(_HTTP())
+    posted: dict = {}
+    deployments._post = lambda _path, json=None: posted.update(json or {}) or _agent_payload("opencode")
+
+    deployments.create_opencode(command=["/bin/sh", "-c", "sleep infinity"])
+
+    assert posted["command"] == ["/bin/sh", "-c", "sleep infinity"]
+
+
 def test_coding_agent_create_reads_the_runtime_subclass_sync_default(monkeypatch):
     deployments = Deployments(_HTTP())
     posted: dict = {}
