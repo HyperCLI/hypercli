@@ -145,25 +145,17 @@ jobs:
       - name: Bare group --help smoke (offline, no API key)
         run: docker run --rm "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" /tests/gate-smoke.sh "${{ matrix.group }}"
 
-  # Smoke matrix: every non-bare smoke for the group, one check per group.
+  # Smoke matrix: every non-bare smoke in the manifest, one check per
+  # subcommand (grouped by command group in the run graph).
   smoke:
-    name: cli / smoke / ${{ matrix.group }}
+    name: cli / ${{ matrix.group }} / ${{ matrix.sub }}
     needs: [image, expand]
     runs-on: self-hosted
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - group: core
-          - group: me
-          - group: configure
-          - group: skills
-          - group: agents
-          - group: jobs
-          - group: flow
-          - group: files
-          - group: voice
+        include: ${{ fromJSON(needs.expand.outputs.smokes) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -174,8 +166,8 @@ jobs:
           username: ${{ secrets.CI_REGISTRY_USER }}
           password: ${{ secrets.CI_REGISTRY_TOKEN }}
 
-      - name: Group smokes
-        run: docker run --rm "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" /tests/smoke-group.sh "${{ matrix.group }}"
+      - name: Offline --help smoke
+        run: docker run --rm "${REGISTRY}/${REGISTRY_ORG}/${CLI_CI_IMAGE_REPOSITORY}:${{ needs.image.outputs.image_tag }}" /tests/smoke.sh ${{ matrix.argv }}
 
   # npm pack --dry-run gate: tarball contents + LF shebang.
   pack:

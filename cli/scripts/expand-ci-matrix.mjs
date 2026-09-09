@@ -1,7 +1,8 @@
 // Expands cli/tests/ci-matrix.json into the smoke job matrix for
-// .github/workflows/cli.yml. Emits a `smokes` output (a bare list) to
-// $GITHUB_OUTPUT. Kept as a file (not a heredoc) so YAML indentation can
-// never corrupt it. All jobs run self-hosted Linux; Windows is not gated.
+// .github/workflows/cli.yml. Emits a `smokes` output (a bare list of
+// {group, sub, argv} entries) to $GITHUB_OUTPUT. Kept as a file (not a
+// heredoc) so YAML indentation can never corrupt it. All jobs run
+// self-hosted Linux; Windows is not gated.
 import { appendFileSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 
@@ -17,7 +18,7 @@ for (const [group, spec] of Object.entries(manifest.groups)) {
     // not as a matrix check — the names would collide.
     if (group === 'core' ? stripped.length === 0 : stripped.length <= 1) continue;
     const sub = (group === 'core' ? stripped : stripped.slice(1)).join(' ');
-    smokes.push({ name: `${group} / ${sub}`, argv: argv.join(' ') });
+    smokes.push({ group, sub, argv: argv.join(' ') });
   }
 }
 
