@@ -2,7 +2,7 @@
 OpenClaw Gateway Client — WebSocket RPC client for the OpenClaw Gateway protocol.
 
 The Python SDK mirrors the TS SDK's browser/control-ui handshake closely:
-- edge/proxy auth uses `?token=<jwt>`
+- edge/proxy auth uses `?token=<token>`
 - gateway auth uses the shared gateway token or a cached device token
 - non-local connects require signed device identity payloads
 - pairing-required flows can be auto-approved through trusted exec

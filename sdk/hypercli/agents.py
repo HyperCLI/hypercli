@@ -1477,7 +1477,7 @@ class RuntimeAuthStatus:
 
 
 class RuntimeLoginSession:
-    """Live, JWT-authenticated PTY session for browser/device login."""
+    """Live, token-authenticated PTY session for browser/device login."""
 
     def __init__(
         self,
@@ -2288,8 +2288,6 @@ class Agent:
         name: str | None = None,
         size: str | None = None,
         launch_config: dict | None = None,
-        refresh_from_lagoon: bool | None = None,
-        error: str | None = None,
         handle: str | None = None,
     ) -> "Agent":
         agent = self._require_deployments().update(
@@ -2297,8 +2295,6 @@ class Agent:
             name=name,
             size=size,
             launch_config=launch_config,
-            refresh_from_lagoon=refresh_from_lagoon,
-            error=error,
             handle=handle,
         )
         self.__dict__.update(agent.__dict__)
@@ -2489,8 +2485,6 @@ class HermesAgent(Agent):
         name: str | None = None,
         size: str | None = None,
         launch_config: dict | None = None,
-        refresh_from_lagoon: bool | None = None,
-        error: str | None = None,
         handle: str | None = None,
     ) -> "HermesAgent":
         api_server_key = self.api_server_key
@@ -2498,8 +2492,6 @@ class HermesAgent(Agent):
             name=name,
             size=size,
             launch_config=launch_config,
-            refresh_from_lagoon=refresh_from_lagoon,
-            error=error,
             handle=handle,
         )
         self.api_server_key = api_server_key
@@ -3271,7 +3263,7 @@ class Deployments:
         response_format: dict[str, Any] | None = None,
         timeout: float = 330.0,
     ) -> dict:
-        """Run the JWT-authenticated onboarding inference endpoint."""
+        """Run the authenticated onboarding inference endpoint."""
         body = {
             "messages": messages,
             "response_format": response_format or {"type": "json_object"},
@@ -4714,8 +4706,6 @@ class Deployments:
         name: str | None = None,
         size: str | None = None,
         launch_config: dict | None = None,
-        refresh_from_lagoon: bool | None = None,
-        error: str | None = None,
         handle: str | None = None,
     ) -> Agent:
         body: dict[str, Any] = {}
@@ -4727,12 +4717,8 @@ class Deployments:
             body["size"] = size
         if launch_config is not None:
             body["launch_config"] = launch_config
-        if refresh_from_lagoon is not None:
-            body["refresh_from_lagoon"] = refresh_from_lagoon
-        if error is not None:
-            body["error"] = error
         resolved_agent_id = self.resolve_agent_id(agent_id)
-        data = self._http.patch(f"{AGENTS_API_PREFIX}/{resolved_agent_id}", json=body)
+        data = self._patch(f"{AGENTS_API_PREFIX}/{resolved_agent_id}", json=body)
         return self._hydrate_agent(data)
 
     def resize(
@@ -4895,6 +4881,48 @@ class Deployments:
                 detail = resp.text
             raise APIError(resp.status_code, detail)
         return resp.json()
+
+    def delete_profile_image(self, agent_id: str) -> dict:
+        """Remove an agent's avatar/profile image through the deployments API."""
+        resolved_agent_id = self.resolve_agent_id(agent_id)
+        return self._delete(f"{AGENTS_API_PREFIX}/{resolved_agent_id}/profile-image")
+
+    def get_account_profile_image(self) -> dict:
+        """Return the authenticated account's profile image projection."""
+        return self._get("/users/profile-image")
+
+    def upload_account_profile_image(
+        self,
+        content: bytes | bytearray | memoryview | str | Path,
+        *,
+        content_type: str | None = None,
+    ) -> dict:
+        """Upload the authenticated account's profile image."""
+        guessed_content_type = content_type
+        if isinstance(content, (str, Path)):
+            path = Path(content)
+            payload = path.read_bytes()
+            guessed_content_type = guessed_content_type or mimetypes.guess_type(path.name)[0]
+        else:
+            payload = bytes(content)
+
+        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
+            resp = client.post(
+                f"{self._api_base}/users/profile-image",
+                headers=self._file_headers(content_type=guessed_content_type or "image/png"),
+                content=payload,
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
+    def delete_account_profile_image(self) -> dict:
+        """Remove the authenticated account's profile image."""
+        return self._delete("/users/profile-image")
 
     def web_search(self, query: str, *, count: int = 5, **params: Any) -> dict:
         """Run Brave web search through the HyperClaw agents API proxy.

@@ -18,6 +18,8 @@ class ApiKey:
     created_at: str
     last_used_at: Optional[str]
     expires_at: Optional[str]
+    # Deprecated: orchestra dropped per-key capabilities from the key schema,
+    # so this is always empty. Kept for backward compatibility.
     capabilities: list[str] = field(default_factory=list)
 
     @classmethod

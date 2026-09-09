@@ -89,7 +89,7 @@ from openai import OpenAI
 
 sdk = HyperCLI(api_key="hyper_api_key", agent_api_key="hyper_api_agent_key")
 plans = sdk.agent.plans()
-trial = sdk.agent.claim_trial_entitlement()
+trial = sdk.agent.create_stripe_trial_checkout()
 activation = sdk.deployments.redeem_grant_code("PROMO123")
 renewal = sdk.deployments.redeem_grant_code("PROMO123", extend_existing=True)
 
@@ -104,7 +104,7 @@ response = client.chat.completions.create(
 )
 ```
 
-`claim_trial_entitlement()` sends an authenticated, bodyless claim to `/agents/plans/trial` and returns the backend-created introductory entitlement. Trial eligibility is decided exclusively by the backend. `deployments.redeem_grant_code()` applies a promo/activation code to the current HyperClaw account and returns the created entitlement. Codes create new entitlements by default; pass `extend_existing=True` only for renewal/extension behavior.
+`create_stripe_trial_checkout()` creates the account's one-time Team trial checkout session. `claim_trial_entitlement()` (the former bodyless `POST /agents/plans/trial` claim) is deprecated: the route no longer exists in the backends. `deployments.redeem_grant_code()` applies a promo/activation code to the current HyperClaw account and returns the created entitlement. Codes create new entitlements by default; pass `extend_existing=True` only for renewal/extension behavior.
 
 Plan IDs are open strings on the wire so future and historical plans continue
 to parse. `plan.canonical_id` recognizes the current `solo`, `team`, and `pro`

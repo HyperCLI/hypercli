@@ -382,36 +382,6 @@ class Renders:
         """
         return self.create_flow("speaking-video", prompt=prompt, image_url=image_url, audio_url=audio_url, file_ids=file_ids, negative=negative, length=length, width=width, height=height, notify_url=notify_url)
 
-    def speaking_video_wan(
-        self,
-        prompt: str,
-        image_url: str,
-        audio_url: str,
-        negative: str = None,
-        width: int = None,
-        height: int = None,
-        notify_url: str = None,
-    ) -> Render:
-        """Generate an audio-driven video using Wan 2.2 S2V.
-
-        Args:
-            prompt: Description of the scene/action
-            image_url: URL of the image
-            audio_url: URL of the audio file
-            negative: Optional negative prompt (things to avoid)
-            width: Optional video width
-            height: Optional video height
-            notify_url: Optional webhook URL for completion notification
-
-        Example:
-            render = client.renders.speaking_video_wan(
-                "The person is singing",
-                "https://example.com/face.png",
-                "https://example.com/song.mp3"
-            )
-        """
-        return self.create_flow("speaking-video-wan", prompt=prompt, image_url=image_url, audio_url=audio_url, negative=negative, width=width, height=height, notify_url=notify_url)
-
     def image_to_image(
         self,
         prompt: str,
@@ -498,7 +468,7 @@ class Renders:
             render = client.renders.audio_to_text("https://example.com/recording.mp3")
             render = client.renders.audio_to_text(file_ids=["abc123"])
         """
-        return self._flow("/api/flow/audio-to-text", audio_url=audio_url, file_ids=file_ids, notify_url=notify_url)
+        return self.create_flow("audio-to-text", audio_url=audio_url, file_ids=file_ids, notify_url=notify_url)
 
     def text_to_speech(
         self,
@@ -542,8 +512,8 @@ class Renders:
             render = client.renders.text_to_speech("Hello!", mode="design",
                 voice_description="A young Indian male, enthusiastic")
         """
-        return self._flow(
-            "/api/flow/text-to-speech",
+        return self.create_flow(
+            "text-to-speech",
             text=text,
             mode=mode,
             language=language,

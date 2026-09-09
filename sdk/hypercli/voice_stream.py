@@ -21,6 +21,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
+from urllib.parse import urlencode
 
 import websockets
 
@@ -63,8 +64,12 @@ class VoiceSession:
     async def open(self) -> "VoiceSession":
         if self._ws is not None:
             return self
+        # Send the credential as both a ?token= query param (historic contract)
+        # and an Authorization Bearer header. urlencode keeps tokens with
+        # URL-unsafe characters intact.
+        url = f"{self._ws_url}/voice?{urlencode({'token': self._api_key})}"
         self._ws = await websockets.connect(
-            f"{self._ws_url}/voice",
+            url,
             additional_headers={"Authorization": f"Bearer {self._api_key}"},
             ping_interval=20,
             ping_timeout=20,

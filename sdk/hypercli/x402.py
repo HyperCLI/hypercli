@@ -212,6 +212,25 @@ class X402Client:
                 return item.price_usd
         raise APIError(404, f"Flow {flow_type} not found in flow catalog")
 
+    def top_up(
+        self,
+        *,
+        amount: float,
+        account: Any,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Top up the account balance via an x402 payment.
+
+        The paid amount is taken from the x402 payment header. ``amount`` is a
+        client-side guard only.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be greater than 0")
+        payload: dict[str, Any] = {"amount": amount}
+        if user_id:
+            payload["user_id"] = user_id
+        return _x402_post(self.api_url, "/api/x402/top_up", payload, account, self.timeout)
+
     def create_job(
         self,
         *,
@@ -232,7 +251,10 @@ class X402Client:
         if amount <= 0:
             raise ValueError("amount must be greater than 0")
 
-        job_payload: dict[str, Any] = {
+        # POST /api/x402/job takes a flat JobCreateRequest body. ``amount`` is a
+        # client-side guard only; the charged amount comes from the x402 payment
+        # header negotiated by _x402_post.
+        payload: dict[str, Any] = {
             "docker_image": image,
             "gpu_type": gpu_type,
             "gpu_count": gpu_count,
@@ -240,19 +262,18 @@ class X402Client:
             "command": base64.b64encode((command or "").encode()).decode(),
         }
         if region:
-            job_payload["region"] = region
+            payload["region"] = region
         if constraints:
-            job_payload["constraints"] = constraints
+            payload["constraints"] = constraints
         if env:
-            job_payload["env_vars"] = env
+            payload["env_vars"] = env
         if ports:
-            job_payload["ports"] = ports
+            payload["ports"] = ports
         if auth:
-            job_payload["auth"] = auth
+            payload["auth"] = auth
         if registry_auth:
-            job_payload["registry_auth"] = registry_auth
+            payload["registry_auth"] = registry_auth
 
-        payload = {"amount": amount, "job": job_payload}
         data = _x402_post(self.api_url, "/api/x402/job", payload, account, self.timeout)
         return X402JobLaunch.from_dict(data)
 

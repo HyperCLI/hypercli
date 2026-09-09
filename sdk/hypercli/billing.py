@@ -74,3 +74,12 @@ class Billing:
         """Get a specific transaction"""
         data = self._http.get(f"/api/tx/{transaction_id}")
         return Transaction.from_dict(data)
+
+    def create_stripe_top_up(self, amount: float) -> dict:
+        """Create a Stripe checkout session to top up the account balance.
+
+        Returns a dict with ``checkout_url``, ``session_id``, and ``message``.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be greater than 0")
+        return self._http.post("/api/stripe/top_up", json={"amount": amount})

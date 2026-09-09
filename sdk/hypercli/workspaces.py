@@ -674,6 +674,16 @@ class WorkspacesAPI:
         )
         return WorkspaceGrant.from_dict(data)
 
+    def accept_invite(self, grant_id: str, *, user_id: str | None = None) -> WorkspaceGrant:
+        """Accept a workspace invite addressed to the signed-in user's email."""
+        data = _request(
+            "POST",
+            f"{self.api_base}/invites/accept/{_encode_ref(grant_id)}",
+            api_key=self.api_key,
+            user_id=user_id,
+        )
+        return WorkspaceGrant.from_dict(data)
+
     def revoke_grant(self, workspace_ref: str, grant_id: str, *, user_id: str | None = None) -> dict:
         return _request(
             "DELETE",

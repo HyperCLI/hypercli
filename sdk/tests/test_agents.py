@@ -2792,7 +2792,7 @@ def test_agents_update_and_resize(agents_client):
             "memory": 4,
         }
 
-    agents_client._http.patch = fake_patch
+    agents_client._patch = fake_patch
 
     updated = agents_client.update(
         "agent-123",
@@ -2801,7 +2801,6 @@ def test_agents_update_and_resize(agents_client):
             "image": "ghcr.io/hypercli/hypercli-openclaw:custom",
             "env": {"FOO": "bar"},
         },
-        refresh_from_lagoon=True,
     )
     assert updated.id == "agent-123"
     assert patch_calls[0] == (
@@ -2812,7 +2811,6 @@ def test_agents_update_and_resize(agents_client):
                 "image": "ghcr.io/hypercli/hypercli-openclaw:custom",
                 "env": {"FOO": "bar"},
             },
-            "refresh_from_lagoon": True,
         },
     )
     assert "display_name" not in patch_calls[0][1]
@@ -2835,7 +2833,7 @@ def test_bound_agent_resize_delegates_to_deployments(agents_client):
             "memory": 4,
         }
 
-    agents_client._http.patch = fake_patch
+    agents_client._patch = fake_patch
 
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()

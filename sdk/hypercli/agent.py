@@ -4,6 +4,7 @@ HyperAgent API client
 Provides access to the HyperClaw inference API for AI agents.
 Uses the official OpenAI Python client for chat completions.
 """
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -1148,6 +1149,28 @@ class HyperAgent:
         response.raise_for_status()
         return HyperAgentEntitlementsSummary.from_dict(response.json())
 
+    def usage(self) -> HyperAgentUsageSummary:
+        """Return the high-level 30-day usage summary for dashboard cards."""
+        return HyperAgentUsageSummary.from_dict(self._control_get("/usage"))
+
+    def usage_history(self, *, days: int = 7) -> HyperAgentUsageHistory:
+        """Return the daily token usage breakdown for the last ``days`` days (1-30)."""
+        data = self._control_get("/usage/history", params={"days": int(days)})
+        return HyperAgentUsageHistory.from_dict(data)
+
+    def key_usage(self, *, days: int = 7) -> HyperAgentKeyUsage:
+        """Return per-key token usage for the last ``days`` days (1-30)."""
+        data = self._control_get("/usage/keys", params={"days": int(days)})
+        return HyperAgentKeyUsage.from_dict(data)
+
+    def agent_usage(self, *, days: int = 1) -> Dict[str, Any]:
+        """Return token usage attributed to each Agent runtime key (1-30 days)."""
+        return self._control_get("/usage/agents", params={"days": int(days)})
+
+    def me(self) -> Dict[str, Any]:
+        """Return the agents-side auth context for the current credential."""
+        return self._control_get("/me")
+
     def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
         response = self._http._session.post(
             f"{self._control_base_url}/subscriptions/{subscription_id}/cancel",
@@ -1199,10 +1222,114 @@ class HyperAgent:
         )
 
     def claim_trial_entitlement(self) -> HyperAgentEntitlement:
-        """Claim the authenticated fresh user's introductory trial entitlement."""
+        """Claim the authenticated fresh user's introductory trial entitlement.
+
+        .. deprecated::
+            ``POST /agents/plans/trial`` is not served by the current backends.
+            Use :meth:`create_stripe_trial_checkout` instead, which creates the
+            account's one-time Team trial checkout session. This method is kept
+            callable for backward compatibility.
+        """
+        warnings.warn(
+            "claim_trial_entitlement() is deprecated: POST /agents/plans/trial no "
+            "longer exists in the backends. Use create_stripe_trial_checkout() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return HyperAgentEntitlement.from_dict(
             self._control_post_bodyless("/plans/trial")
         )
+
+    def create_stripe_checkout(
+        self,
+        plan_id: str,
+        *,
+        success_url: str | None = None,
+        cancel_url: str | None = None,
+        quantity: int | None = None,
+    ) -> HyperAgentStripeCheckoutResponse:
+        """Create a Stripe Checkout session for a plan subscription."""
+        normalized_plan_id = str(plan_id or "").strip()
+        if not normalized_plan_id:
+            raise ValueError("plan_id is required")
+        payload: dict[str, Any] = {}
+        if success_url is not None:
+            payload["success_url"] = success_url
+        if cancel_url is not None:
+            payload["cancel_url"] = cancel_url
+        if quantity is not None:
+            payload["quantity"] = int(quantity)
+        return HyperAgentStripeCheckoutResponse.from_dict(
+            self._control_post(f"/stripe/{quote(normalized_plan_id, safe='')}", payload)
+        )
+
+    def create_stripe_billing_portal_session(
+        self,
+        *,
+        return_url: str,
+        flow_data: dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """Create a Stripe Billing Portal session for the authenticated user."""
+        normalized_return_url = str(return_url or "").strip()
+        if not normalized_return_url:
+            raise ValueError("return_url is required")
+        payload: dict[str, Any] = {"return_url": normalized_return_url}
+        if flow_data is not None:
+            payload["flow_data"] = flow_data
+        return self._control_post("/stripe/billing-portal", payload)
+
+    def billing_info(self) -> HyperAgentBillingInfo:
+        """Return company billing info shown on invoices."""
+        return HyperAgentBillingInfo.from_dict(self._control_get("/billing/info"))
+
+    def billing_profile(self) -> HyperAgentBillingProfileResponse:
+        """Return the account's billing profile plus company billing info."""
+        return HyperAgentBillingProfileResponse.from_dict(self._control_get("/billing/profile"))
+
+    def update_billing_profile(
+        self,
+        profile: HyperAgentBillingProfileFields | dict[str, Any] | None = None,
+        **fields: Any,
+    ) -> HyperAgentBillingProfileResponse:
+        """Upsert the account's billing profile fields."""
+        payload: dict[str, Any] = {}
+        if profile is not None:
+            if isinstance(profile, HyperAgentBillingProfileFields):
+                payload.update(profile.to_dict())
+            else:
+                payload.update(dict(profile))
+        payload.update(fields)
+        data = self._control_put("/billing/profile", payload)
+        return HyperAgentBillingProfileResponse.from_dict(data)
+
+    def billing_payments(
+        self,
+        *,
+        limit: int = 50,
+        provider: str | None = None,
+        status: str | None = None,
+    ) -> HyperAgentPaymentsResponse:
+        """List the account's payment records."""
+        params: dict[str, Any] = {"limit": int(limit)}
+        if provider is not None:
+            params["provider"] = provider
+        if status is not None:
+            params["status"] = status
+        data = self._control_get("/billing/payments", params=params)
+        return HyperAgentPaymentsResponse.from_dict(data)
+
+    def billing_payment(self, payment_id: str) -> HyperAgentPayment:
+        """Return one of the account's payment records by id."""
+        normalized_payment_id = str(payment_id or "").strip()
+        if not normalized_payment_id:
+            raise ValueError("payment_id is required")
+        data = self._control_get(f"/billing/payments/{quote(normalized_payment_id, safe='')}")
+        return HyperAgentPayment.from_dict(data)
+
+    def entitlement_instances(self) -> list[HyperAgentEntitlement]:
+        """List the account's concrete entitlement instances."""
+        data = self._control_get("/entitlements/instances")
+        return [HyperAgentEntitlement.from_dict(item) for item in data.get("items", [])]
 
     def purchase_via_x402(
         self,
@@ -1241,11 +1368,23 @@ class HyperAgent:
         raise ValueError("A canonical plan ID is required; use purchase_via_x402(plan_id, ...) instead")
 
     def discovery_health(self) -> Dict[str, Any]:
+        """Return gateway discovery health.
+
+        This targets an external gateway discovery surface that is not served
+        by the mainline orchestra or hyperclaw backends; availability depends
+        on the deployment's gateway configuration.
+        """
         response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")
         response.raise_for_status()
         return response.json()
 
     def discovery_config(self, api_key: str = None) -> Dict[str, Any]:
+        """Return gateway discovery configuration.
+
+        This targets an external gateway discovery surface that is not served
+        by the mainline orchestra or hyperclaw backends; availability depends
+        on the deployment's gateway configuration.
+        """
         headers = {}
         if api_key:
             headers["X-API-KEY"] = api_key

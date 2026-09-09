@@ -42,7 +42,7 @@ class RuntimeIdentity:
     def from_dict(cls, data: dict | None) -> "RuntimeIdentity | None":
         if not isinstance(data, dict):
             return None
-        runtime = str(data.get("runtime") or "").strip()
+        runtime = str(data.get("runtime") or data.get("kind") or "").strip()
         if not runtime:
             return None
         return cls(runtime=runtime, agent_id=data.get("agent_id"))
@@ -72,6 +72,7 @@ class AuthMe:
         privy_user_id = data.get("privy_user_id")
         wallet_address = data.get("wallet_address")
         return cls(
+            runtime=cls._parse_runtime_identity(data),
             user_id=data.get("user_id", ""),
             orchestra_user_id=data.get("orchestra_user_id"),
             external_id=data.get("external_id")
@@ -90,11 +91,23 @@ class AuthMe:
             auth_type=data.get("auth_type", ""),
             capabilities=list(data.get("capabilities") or []),
             tags=list(data.get("tags") or []),
-            runtime=RuntimeIdentity.from_dict(data.get("runtime")),
             has_active_subscription=bool(data.get("has_active_subscription")),
             key_id=data.get("key_id"),
             key_name=data.get("key_name"),
         )
+
+    @staticmethod
+    def _parse_runtime_identity(data: dict) -> "RuntimeIdentity | None":
+        # Tolerate both response shapes: the nested ``runtime`` object (which
+        # may itself use either ``runtime`` or ``kind`` for the runtime name)
+        # and top-level fields such as ``runtime_kind``/``agent_id``.
+        runtime = RuntimeIdentity.from_dict(data.get("runtime"))
+        if runtime is not None:
+            return runtime
+        runtime_kind = str(data.get("runtime_kind") or "").strip()
+        if runtime_kind:
+            return RuntimeIdentity(runtime=runtime_kind, agent_id=data.get("agent_id"))
+        return None
 
     @property
     def is_runtime_agent(self) -> bool:
@@ -141,3 +154,21 @@ class UserAPI:
         """Resolve the current auth context, including key capabilities."""
         data = self._auth_http.get("/api/auth/me")
         return AuthMe.from_dict(data)
+
+    def update(
+        self,
+        *,
+        name: str | None = None,
+        email: str | None = None,
+    ) -> User:
+        """Update the current user's profile (display name and/or email).
+
+        Changing the email resets its verification status server-side.
+        """
+        payload = {}
+        if name is not None:
+            payload["name"] = name
+        if email is not None:
+            payload["email"] = email
+        data = self._http.patch("/api/user", json=payload)
+        return User.from_dict(data)
