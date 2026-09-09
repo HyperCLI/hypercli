@@ -301,12 +301,24 @@ pub struct HyperAgentEntitlement {
     #[serde(default)]
     pub tpd_limit: u64,
     #[serde(default)]
+    pub agent_tier: Option<String>,
+    #[serde(default)]
+    pub features: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub meta: Option<Value>,
+    #[serde(default)]
     pub slot_grants: BTreeMap<String, u32>,
+    #[serde(default)]
+    pub active_agent_count: u32,
+    #[serde(default)]
+    pub active_agent_ids: Vec<String>,
     #[serde(default)]
     pub agent_slots: Vec<AgentSlot>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct HyperAgentEntitlementsSummary {
     #[serde(default)]
     pub effective_plan_id: String,
@@ -326,6 +338,8 @@ pub struct HyperAgentEntitlementsSummary {
     pub active_entitlement_count: u32,
     #[serde(default)]
     pub entitlement_items: Vec<HyperAgentEntitlement>,
+    #[serde(default)]
+    pub billing_reset_at: Option<String>,
 }
 
 impl HyperAgentEntitlementsSummary {
@@ -336,7 +350,509 @@ impl HyperAgentEntitlementsSummary {
 }
 
 pub type EntitlementsSummary = HyperAgentEntitlementsSummary;
-pub type HyperAgentSubscriptionSummary = HyperAgentEntitlementsSummary;
+
+/// Trial timing for a recurring HyperClaw subscription. Fields are tolerant
+/// of numeric strings and ISO/RFC 3339 datetimes on the wire.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct HyperAgentSubscriptionTrial {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default, deserialize_with = "de_opt_i64")]
+    pub days: Option<i64>,
+    #[serde(default)]
+    pub starts_at: Option<String>,
+    #[serde(default)]
+    pub ends_at: Option<String>,
+    #[serde(default, deserialize_with = "de_opt_i64")]
+    pub seconds_remaining: Option<i64>,
+}
+
+/// A recurring HyperClaw billing subscription.
+#[derive(Clone, Debug, Deserialize)]
+pub struct HyperAgentSubscription {
+    pub id: String,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub plan_name: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default = "default_one_u64")]
+    pub quantity: u64,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub current_period_end: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub stripe_subscription_id: Option<String>,
+    #[serde(default)]
+    pub cancel_at_period_end: bool,
+    #[serde(default)]
+    pub can_cancel: bool,
+    #[serde(default)]
+    pub is_current: bool,
+    #[serde(default)]
+    pub meta: Option<Value>,
+    #[serde(default)]
+    pub plan_tpm_limit: u64,
+    #[serde(default)]
+    pub plan_rpm_limit: u64,
+    #[serde(default)]
+    pub plan_tpd: u64,
+    #[serde(default)]
+    pub plan_agent_tier: Option<String>,
+    #[serde(default)]
+    pub slot_grants: BTreeMap<String, u32>,
+    #[serde(default)]
+    pub entitlements: Vec<HyperAgentEntitlement>,
+    #[serde(default)]
+    pub agent_slots: Vec<AgentSlot>,
+    #[serde(default)]
+    pub trial: Option<HyperAgentSubscriptionTrial>,
+}
+
+impl HyperAgentSubscription {
+    /// Effective period end: `current_period_end` with `expires_at` as the
+    /// legacy fallback, matching the Python SDK.
+    pub fn period_end(&self) -> Option<&str> {
+        self.current_period_end
+            .as_deref()
+            .or(self.expires_at.as_deref())
+    }
+}
+
+/// Result of updating or canceling a recurring subscription.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentSubscriptionMutationResult {
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub subscription: Option<HyperAgentSubscription>,
+}
+
+/// `GET {agents}/subscriptions`: the recurring-subscription page.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentSubscriptionList {
+    #[serde(default)]
+    pub items: Vec<HyperAgentSubscription>,
+    #[serde(default)]
+    pub current_subscription_id: Option<String>,
+    #[serde(default)]
+    pub effective_plan_id: Option<String>,
+}
+
+/// User identity embedded in the subscription summary projection.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub struct HyperAgentSubscriptionUser {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub plan_id: Option<String>,
+}
+
+/// Effective entitlement and recurring-subscription summary, returned by
+/// `GET {agents}/subscriptions/summary` (and `GET {agents}/entitlements`).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentSubscriptionSummary {
+    #[serde(default)]
+    pub effective_plan_id: String,
+    #[serde(default)]
+    pub current_subscription_id: Option<String>,
+    #[serde(default)]
+    pub current_entitlement_id: Option<String>,
+    #[serde(default)]
+    pub pooled_tpm_limit: u64,
+    #[serde(default)]
+    pub pooled_rpm_limit: u64,
+    #[serde(default)]
+    pub pooled_tpd: u64,
+    #[serde(default)]
+    pub slot_inventory: BTreeMap<String, AgentSlotInventory>,
+    #[serde(default)]
+    pub billing_reset_at: Option<String>,
+    #[serde(default)]
+    pub active_subscription_count: u32,
+    #[serde(default)]
+    pub active_entitlement_count: u32,
+    #[serde(default)]
+    pub entitlements: HyperAgentEntitlementsSummary,
+    #[serde(default)]
+    pub entitlement_items: Vec<HyperAgentEntitlement>,
+    #[serde(default)]
+    pub active_subscriptions: Vec<HyperAgentSubscription>,
+    #[serde(default)]
+    pub subscriptions: Vec<HyperAgentSubscription>,
+    #[serde(default)]
+    pub user: HyperAgentSubscriptionUser,
+    #[serde(default)]
+    pub agent_slots: Vec<AgentSlot>,
+}
+
+impl HyperAgentSubscriptionSummary {
+    /// Whether any subscription or direct entitlement is currently active.
+    pub fn has_active_plan(&self) -> bool {
+        self.active_subscription_count > 0 || self.active_entitlement_count > 0
+    }
+}
+
+/// Aggregate token metrics used by the usage endpoints.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentTokenMetrics {
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub requests: u64,
+}
+
+/// `GET {agents}/usage`: dashboard-card usage summary for the team.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentUsageSummary {
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub request_count: u64,
+    #[serde(default)]
+    pub active_keys: u64,
+    #[serde(default)]
+    pub current_tpm: u64,
+    #[serde(default)]
+    pub current_rpm: u64,
+    #[serde(default)]
+    pub period: String,
+}
+
+/// One day of token usage, from `GET {agents}/usage/history`.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentUsageHistoryEntry {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub requests: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentUsageHistory {
+    #[serde(default)]
+    pub history: Vec<HyperAgentUsageHistoryEntry>,
+    #[serde(default)]
+    pub days: u32,
+}
+
+/// Per-key token usage, from `GET {agents}/usage/keys`.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentKeyUsageEntry {
+    #[serde(default)]
+    pub key_hash: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub total_tokens: u64,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub requests: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentKeyUsage {
+    #[serde(default)]
+    pub keys: Vec<HyperAgentKeyUsageEntry>,
+    #[serde(default)]
+    pub days: u32,
+}
+
+/// Token usage attributed to one Agent runtime, from
+/// `GET {agents}/usage/agents`.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentAgentUsageEntry {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub managed: bool,
+    #[serde(default)]
+    pub avatar_url: Option<String>,
+    #[serde(flatten)]
+    pub metrics: HyperAgentTokenMetrics,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentAgentUsage {
+    #[serde(default)]
+    pub agents: Vec<HyperAgentAgentUsageEntry>,
+    #[serde(default)]
+    pub unattributed: HyperAgentTokenMetrics,
+    #[serde(default)]
+    pub days: u32,
+}
+
+/// Company billing address shown on invoices.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentBillingInfo {
+    #[serde(default)]
+    pub address: Vec<String>,
+    #[serde(default)]
+    pub email: String,
+}
+
+/// The account's own billing profile fields (`PUT {agents}/billing/profile`).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentBillingProfileFields {
+    #[serde(default)]
+    pub billing_name: Option<String>,
+    #[serde(default)]
+    pub billing_company: Option<String>,
+    #[serde(default)]
+    pub billing_tax_id: Option<String>,
+    #[serde(default)]
+    pub billing_line1: Option<String>,
+    #[serde(default)]
+    pub billing_line2: Option<String>,
+    #[serde(default)]
+    pub billing_city: Option<String>,
+    #[serde(default)]
+    pub billing_state: Option<String>,
+    #[serde(default)]
+    pub billing_postal_code: Option<String>,
+    #[serde(default)]
+    pub billing_country: Option<String>,
+}
+
+/// `GET/PUT {agents}/billing/profile` response.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentBillingProfileResponse {
+    #[serde(default)]
+    pub company_billing: HyperAgentBillingInfo,
+    #[serde(default)]
+    pub profile: Option<HyperAgentBillingProfileFields>,
+    #[serde(default)]
+    pub synced_stripe_customer_ids: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentBillingUser {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub wallet_address: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub plan_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentPaymentSubscription {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub current_period_end: Option<String>,
+    #[serde(default)]
+    pub stripe_subscription_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentPaymentEntitlement {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub agent_tier: Option<String>,
+    #[serde(default)]
+    pub features: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// One payment, from `GET {agents}/billing/payments[/{id}]`.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentPayment {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_id: Option<String>,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub amount: String,
+    #[serde(default)]
+    pub currency: String,
+    #[serde(default)]
+    pub external_payment_id: Option<String>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub user: Option<HyperAgentBillingUser>,
+    #[serde(default)]
+    pub subscription: Option<HyperAgentPaymentSubscription>,
+    #[serde(default)]
+    pub entitlement: Option<HyperAgentPaymentEntitlement>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct HyperAgentPaymentsResponse {
+    #[serde(default)]
+    pub items: Vec<HyperAgentPayment>,
+}
+
+/// Stripe Checkout session for a plan subscription
+/// (`POST {agents}/stripe/{plan_id}`).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentStripeCheckoutResponse {
+    #[serde(default)]
+    pub checkout_url: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub checkout_attempt_id: Option<String>,
+}
+
+/// Stripe Billing Portal session (`POST {agents}/stripe/billing-portal`).
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct HyperAgentStripeBillingPortalResponse {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub url: String,
+}
+
+/// The agent product's view of the authenticated account
+/// (`GET {agents}/me`).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct AgentsMe {
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub orchestra_user_id: Option<String>,
+    #[serde(default)]
+    pub team_id: String,
+    #[serde(default)]
+    pub plan_id: String,
+    #[serde(default)]
+    pub auth_type: String,
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    #[serde(default)]
+    pub auth_capabilities: Vec<String>,
+    #[serde(default)]
+    pub has_active_subscription: bool,
+    #[serde(default)]
+    pub key_id: Option<String>,
+    #[serde(default)]
+    pub key_name: Option<String>,
+}
+
+/// Fresh agent/route-scoped access token for one running deployment
+/// (`GET {agents}/deployments/{id}/token`).
+#[derive(Clone, Deserialize)]
+pub struct DeploymentAccessToken {
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub expires_at: String,
+}
+
+/// Short-lived log-streaming credential
+/// (`POST {agents}/deployments/{id}/logs/token`). Deliberately not `Debug`:
+/// `token` is a live credential and must not enter logs or traces.
+#[derive(Clone, Deserialize)]
+pub struct DeploymentLogsToken {
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub token: String,
+    #[serde(default)]
+    pub expires_at: String,
+    #[serde(default)]
+    pub ws_url: String,
+}
+
+/// Accept numeric values as JSON numbers or numeric strings; anything else
+/// becomes `None` rather than failing the response.
+fn de_opt_i64<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Num(i64),
+        Float(f64),
+        Str(String),
+        Other(serde::de::IgnoredAny),
+    }
+    Ok(match Option::<Raw>::deserialize(deserializer)? {
+        Some(Raw::Num(value)) => Some(value),
+        Some(Raw::Float(value)) if value.is_finite() => Some(value as i64),
+        Some(Raw::Str(value)) => value
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .map(|value| value as i64),
+        _ => None,
+    })
+}
+
+const fn default_one_u64() -> u64 {
+    1
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct RouteConfig {
@@ -1339,29 +1855,130 @@ pub struct DeleteDeploymentResponse {
     pub deleted_at: Option<String>,
 }
 
+/// Runtime identity attached to a credential, when the key speaks for one
+/// Agent runtime.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RuntimeIdentity {
+    pub runtime: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
 /// Auth context for the configured credential (`GET /api/auth/me` on the
 /// product API base). Subset of the Python SDK's `AuthMe`.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AuthMe {
     pub user_id: String,
-    #[serde(default)]
     pub team_id: String,
-    #[serde(default)]
     pub plan_id: String,
-    #[serde(default)]
     pub email: Option<String>,
-    #[serde(default)]
     pub auth_type: String,
-    #[serde(default)]
     pub capabilities: Vec<String>,
-    #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
+    pub runtime: Option<RuntimeIdentity>,
     pub has_active_subscription: bool,
-    #[serde(default)]
     pub key_id: Option<String>,
-    #[serde(default)]
     pub key_name: Option<String>,
+}
+
+/// Serde projection accepting both the nested `runtime` object
+/// (`{"runtime": {"runtime": "agent", "agent_id": "..."}}`) and the legacy
+/// flat form (`{"runtime": "agent", "agent_id": "..."}`).
+#[derive(Deserialize)]
+struct AuthMeWire {
+    user_id: String,
+    #[serde(default)]
+    team_id: String,
+    #[serde(default)]
+    plan_id: String,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    auth_type: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    runtime: Option<Value>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    has_active_subscription: bool,
+    #[serde(default)]
+    key_id: Option<String>,
+    #[serde(default)]
+    key_name: Option<String>,
+}
+
+impl AuthMe {
+    /// True when the credential speaks for one Agent runtime.
+    pub fn is_runtime_agent(&self) -> bool {
+        self.runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.runtime == "agent")
+    }
+
+    /// The Agent this credential speaks for, if it is a runtime key.
+    pub fn runtime_agent_id(&self) -> Option<&str> {
+        self.is_runtime_agent()
+            .then(|| self.runtime.as_ref()?.agent_id.as_deref())
+            .flatten()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AuthMe {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = AuthMeWire::deserialize(deserializer)?;
+        let runtime = match wire.runtime {
+            Some(Value::Object(object)) => {
+                let runtime = object
+                    .get("runtime")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned();
+                let agent_id = object
+                    .get("agent_id")
+                    .and_then(Value::as_str)
+                    .or(wire.agent_id.as_deref())
+                    .map(ToOwned::to_owned);
+                if runtime.is_empty() {
+                    None
+                } else {
+                    Some(RuntimeIdentity { runtime, agent_id })
+                }
+            }
+            Some(Value::String(runtime)) => {
+                let runtime = runtime.trim().to_owned();
+                if runtime.is_empty() {
+                    None
+                } else {
+                    Some(RuntimeIdentity {
+                        runtime,
+                        agent_id: wire.agent_id.clone(),
+                    })
+                }
+            }
+            _ => None,
+        };
+        Ok(Self {
+            user_id: wire.user_id,
+            team_id: wire.team_id,
+            plan_id: wire.plan_id,
+            email: wire.email,
+            auth_type: wire.auth_type,
+            capabilities: wire.capabilities,
+            tags: wire.tags,
+            runtime,
+            has_active_subscription: wire.has_active_subscription,
+            key_id: wire.key_id,
+            key_name: wire.key_name,
+        })
+    }
 }
 
 /// What the presented credential is, as the agent product resolves it

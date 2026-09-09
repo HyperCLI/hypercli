@@ -1501,6 +1501,7 @@ mod tests {
             api_base: Url::parse(&format!("{server_url}/agents")).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
+            timeout: None,
         })
         .unwrap()
     }
@@ -2384,10 +2385,7 @@ mod tests {
             .unwrap();
 
             assert_eq!(request.name.as_deref(), Some("fizz-4-79be667e"));
-            assert_eq!(
-                request.command,
-                ["/usr/local/bin/acp", "plugin", "buzz"]
-            );
+            assert_eq!(request.command, ["/usr/local/bin/acp", "plugin", "buzz"]);
             assert_eq!(
                 request.runtime_scopes,
                 BUZZ_RUNTIME_SCOPES.map(str::to_owned)

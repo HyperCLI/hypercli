@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use secrecy::SecretString;
 use thiserror::Error;
@@ -17,6 +18,11 @@ pub struct ClientConfig {
     pub api_base: Url,
     pub api_key: SecretString,
     pub trace_file: Option<PathBuf>,
+    /// Per-request HTTP timeout. `None` uses the client default
+    /// ([`crate::DEFAULT_REQUEST_TIMEOUT`]). This is the single source of
+    /// truth for the default; [`crate::HyperCliClient::new_with_timeout`]
+    /// remains an explicit per-client override.
+    pub timeout: Option<Duration>,
 }
 
 #[derive(Debug, Error)]
@@ -151,6 +157,7 @@ pub fn discover_client_config_from(
         api_base: discover_api_base(env, &file_config)?,
         api_key: SecretString::from(api_key),
         trace_file,
+        timeout: None,
     })
 }
 

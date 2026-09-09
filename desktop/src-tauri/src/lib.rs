@@ -206,6 +206,7 @@ async fn save_api_key(key: String) -> Result<AuthStatus, String> {
             api_base,
             api_key: SecretString::from(key.clone()),
             trace_file: None,
+            timeout: None,
         };
         let client = HyperCliClient::new(config).map_err(friendly)?;
         client.list_deployments().map_err(friendly)?;

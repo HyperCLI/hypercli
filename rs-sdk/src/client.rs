@@ -13,7 +13,7 @@ use reqwest::StatusCode;
 use secrecy::ExposeSecret;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio::runtime;
@@ -23,15 +23,20 @@ use url::Url;
 use crate::runtime_auth::{auth_status_command, RuntimeShellTokenResponse};
 use crate::{
     AgentAccessIdentity, AgentCapacity, AgentDirectoryListing, AgentFileEntry,
-    AgentLaunchValueMutation, ApiKey, AuthMe, ClientConfig, CompleteDeploymentLaunchConfig,
-    CreateApiKeyRequest, CreateDeploymentRequest, DeleteDeploymentResponse, Deployment,
-    DeploymentEnvironment, DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters,
+    AgentLaunchValueMutation, AgentsMe, ApiKey, AuthMe, ClientConfig,
+    CompleteDeploymentLaunchConfig, CreateApiKeyRequest, CreateDeploymentRequest,
+    DeleteDeploymentResponse, Deployment, DeploymentAccessToken, DeploymentEnvironment,
+    DeploymentEvent, DeploymentFileWriteResponse, DeploymentListFilters, DeploymentLogsToken,
     DeploymentProfileImageResponse, DeploymentRoutes, DeploymentSecret, DeploymentSecretNames,
-    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentCurrentPlan,
-    HyperAgentEntitlementsSummary, HyperAgentPlan, JobLifecycleEvent, NativeRuntime,
-    RuntimeAuthError, RuntimeAuthStatus, RuntimeLoginSession, RuntimeShellToken,
-    SetDeploymentRouteRequest, SetDeploymentRoutesRequest, StartDeploymentRequest,
-    UpdateDeploymentRequest,
+    ExecDeploymentRequest, ExecDeploymentResponse, HyperAgentAgentUsage, HyperAgentBillingInfo,
+    HyperAgentBillingProfileFields, HyperAgentBillingProfileResponse, HyperAgentCurrentPlan,
+    HyperAgentEntitlement, HyperAgentEntitlementsSummary, HyperAgentKeyUsage, HyperAgentPayment,
+    HyperAgentPaymentsResponse, HyperAgentPlan, HyperAgentStripeBillingPortalResponse,
+    HyperAgentStripeCheckoutResponse, HyperAgentSubscriptionList,
+    HyperAgentSubscriptionMutationResult, HyperAgentSubscriptionSummary, HyperAgentUsageHistory,
+    HyperAgentUsageSummary, JobLifecycleEvent, NativeRuntime, RuntimeAuthError, RuntimeAuthStatus,
+    RuntimeLoginSession, RuntimeShellToken, SetDeploymentRouteRequest, SetDeploymentRoutesRequest,
+    StartDeploymentRequest, UpdateDeploymentRequest,
 };
 
 type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -47,6 +52,27 @@ type DeploymentEventSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 /// actually serving instead of assuming a duration.
 pub const DEFAULT_HOSTNAME_SETTLE_DELAY: Duration = Duration::from_secs(15);
 const DEFAULT_DEPLOYMENT_STATE_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Default per-request HTTP timeout, shared with the Python and TypeScript
+/// SDKs. Overridable per client through [`ClientConfig::timeout`] or
+/// [`HyperCliClient::new_with_timeout`].
+pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Total send attempts per request when the transport fails, matching the
+/// Python SDK's `request_with_retry(retries=3)`. HTTP status failures are
+/// never retried; only pre-response transport errors (connect/proxy/timeout)
+/// are.
+const TRANSPORT_RETRY_ATTEMPTS: u32 = 3;
+/// Base for the linear backoff between transport retries (attempt 1 waits
+/// 1x, attempt 2 waits 2x), matching the Python SDK.
+const TRANSPORT_RETRY_BACKOFF: Duration = Duration::from_secs(1);
+
+/// Retry pre-response transport failures (connect/proxy/timeout), mirroring
+/// the Python SDK's retryable `httpx` exception set. Anything else (decode
+/// errors, TLS policy rejections, invalid headers) is returned immediately.
+fn transport_error_is_retryable(error: &reqwest::Error) -> bool {
+    error.is_connect() || error.is_timeout()
+}
 
 /// Tuning for [`HyperCliClient::wait_deployment_file_api_ready`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,11 +119,12 @@ struct FileToken {
 }
 
 pub struct HyperCliClient {
-    api_base: Url,
-    api_key: secrecy::SecretString,
-    http: HttpClient,
+    pub(crate) api_base: Url,
+    pub(crate) api_key: secrecy::SecretString,
+    pub(crate) http: HttpClient,
     async_http: AsyncHttpClient,
     trace_file: Option<PathBuf>,
+    pub(crate) auth_me_cache: std::sync::OnceLock<Option<AuthMe>>,
 }
 
 #[derive(Debug, Error)]
@@ -207,8 +234,9 @@ fn deployment_event_ws_url(raw_url: &str, token: &str) -> Result<Url, HyperCliEr
             "deployment event token response omitted token".to_owned(),
         ));
     }
-    let mut url = Url::parse(raw_url)
-        .map_err(|_| HyperCliError::InvalidResponse("invalid deployment event ws_url".to_owned()))?;
+    let mut url = Url::parse(raw_url).map_err(|_| {
+        HyperCliError::InvalidResponse("invalid deployment event ws_url".to_owned())
+    })?;
     if !matches!(url.scheme(), "ws" | "wss")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -313,7 +341,8 @@ fn reef_directory_url(token: &FileToken, path: &str) -> Result<(Url, String), Hy
 
 impl HyperCliClient {
     pub fn new(config: ClientConfig) -> Result<Self, HyperCliError> {
-        Self::new_with_timeout(config, std::time::Duration::from_secs(30))
+        let timeout = config.timeout.unwrap_or(DEFAULT_REQUEST_TIMEOUT);
+        Self::new_with_timeout(config, timeout)
     }
 
     /// `reqwest::blocking::Client::build` drops its internal tokio runtime
@@ -353,10 +382,11 @@ impl HyperCliClient {
             http,
             async_http,
             trace_file: config.trace_file,
+            auth_me_cache: std::sync::OnceLock::new(),
         })
     }
 
-    fn endpoint(&self, path: &str) -> String {
+    pub(crate) fn endpoint(&self, path: &str) -> String {
         format!(
             "{}/{}",
             self.api_base.as_str().trim_end_matches('/'),
@@ -405,7 +435,7 @@ impl HyperCliClient {
         }
         u.query_pairs_mut().append_pair("token", &t.token);
         tokio::time::timeout(timeout, async {
-            // The URL now contains the short-lived JWT. Never let a
+            // The URL now contains the short-lived token. Never let a
             // connector error render that URL into an SDK error or trace.
             let (mut s, _) = connect_async(u.as_str()).await.map_err(|_| {
                 HyperCliError::Transport("operation websocket connection failed".into())
@@ -664,7 +694,7 @@ impl HyperCliClient {
             .get(&url)
             .bearer_auth(self.api_key.expose_secret())
             .query(filters);
-        let response = match request_builder.send() {
+        let response = match self.send_with_retry(request_builder) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -710,15 +740,433 @@ impl HyperCliClient {
         self.get_json("plans/current")
     }
 
-    pub fn subscription_summary(&self) -> Result<HyperAgentEntitlementsSummary, HyperCliError> {
+    /// Effective entitlement plus recurring-subscription summary
+    /// (`GET {agents}/subscriptions/summary`).
+    pub fn subscription_summary(&self) -> Result<HyperAgentSubscriptionSummary, HyperCliError> {
         self.get_json("subscriptions/summary")
     }
 
-    /// Effective HyperClaw entitlement summary. A scoped key without the
-    /// `user` scope family returns 403; callers should treat that as unknown,
-    /// not as an explicit inactive-plan result.
+    /// Effective HyperClaw entitlement summary (`GET {agents}/entitlements`).
+    /// A scoped key without the `user` scope family returns 403; callers
+    /// should treat that as unknown, not as an explicit inactive-plan result.
     pub fn entitlements_summary(&self) -> Result<HyperAgentEntitlementsSummary, HyperCliError> {
-        self.subscription_summary()
+        self.get_json("entitlements")
+    }
+
+    /// Recurring billing subscriptions (`GET {agents}/subscriptions`).
+    pub fn subscriptions(&self) -> Result<HyperAgentSubscriptionList, HyperCliError> {
+        self.get_json("subscriptions")
+    }
+
+    /// Cancel a recurring subscription (`POST {agents}/subscriptions/{id}/cancel`).
+    /// The response shape is backend-owned (the Stripe subscription ends at
+    /// the period end).
+    pub fn cancel_subscription(&self, subscription_id: &str) -> Result<Value, HyperCliError> {
+        let url = self.endpoint(&format!("subscriptions/{subscription_id}/cancel"));
+        self.send_json(
+            "cancel_subscription",
+            "POST",
+            &url,
+            None,
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )
+    }
+
+    /// Change a recurring subscription's plan and quantity
+    /// (`POST {agents}/subscriptions/{id}/update` `{plan_id, quantity}`).
+    pub fn update_subscription(
+        &self,
+        subscription_id: &str,
+        plan_id: &str,
+        quantity: u32,
+    ) -> Result<HyperAgentSubscriptionMutationResult, HyperCliError> {
+        let subscription_id = subscription_id.trim();
+        let plan_id = plan_id.trim();
+        if subscription_id.is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "subscription_id is required".to_owned(),
+            ));
+        }
+        if plan_id.is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "plan_id is required".to_owned(),
+            ));
+        }
+        if quantity < 1 {
+            return Err(HyperCliError::InvalidResponse(
+                "quantity must be a positive integer".to_owned(),
+            ));
+        }
+        let url = self.endpoint(&format!("subscriptions/{subscription_id}/update"));
+        let request = json!({ "plan_id": plan_id, "quantity": quantity });
+        self.send_json(
+            "update_subscription",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
+    /// Concrete entitlement grants (`GET {agents}/entitlements/instances`).
+    pub fn entitlement_instances(&self) -> Result<Vec<HyperAgentEntitlement>, HyperCliError> {
+        let items: Value = self.get_json("entitlements/instances")?;
+        let items = items.get("items").cloned().unwrap_or(items);
+        serde_json::from_value(items)
+            .map_err(|error| HyperCliError::InvalidResponse(error.to_string()))
+    }
+
+    /// The agent product's account view (`GET {agents}/me`).
+    pub fn agents_me(&self) -> Result<AgentsMe, HyperCliError> {
+        self.get_json("me")
+    }
+
+    /// `GET {agents}/usage`: team usage summary for dashboard cards.
+    pub fn usage_summary(&self) -> Result<HyperAgentUsageSummary, HyperCliError> {
+        self.get_json("usage")
+    }
+
+    /// `GET {agents}/usage/history?days=` (1-30).
+    pub fn usage_history(&self, days: u32) -> Result<HyperAgentUsageHistory, HyperCliError> {
+        let url = self.endpoint("usage/history");
+        let query = [("days", days.to_string())];
+        self.send_json(
+            "usage_history",
+            "GET",
+            &url,
+            None,
+            self.http
+                .get(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .query(&query),
+        )
+    }
+
+    /// `GET {agents}/usage/keys?days=` (1-30).
+    pub fn usage_keys(&self, days: u32) -> Result<HyperAgentKeyUsage, HyperCliError> {
+        let url = self.endpoint("usage/keys");
+        let query = [("days", days.to_string())];
+        self.send_json(
+            "usage_keys",
+            "GET",
+            &url,
+            None,
+            self.http
+                .get(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .query(&query),
+        )
+    }
+
+    /// `GET {agents}/usage/agents?days=` (1-30).
+    pub fn usage_agents(&self, days: u32) -> Result<HyperAgentAgentUsage, HyperCliError> {
+        let url = self.endpoint("usage/agents");
+        let query = [("days", days.to_string())];
+        self.send_json(
+            "usage_agents",
+            "GET",
+            &url,
+            None,
+            self.http
+                .get(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .query(&query),
+        )
+    }
+
+    /// `GET {agents}/billing/info`: the company's invoice billing identity.
+    pub fn billing_info(&self) -> Result<HyperAgentBillingInfo, HyperCliError> {
+        self.get_json("billing/info")
+    }
+
+    /// `GET {agents}/billing/profile`.
+    pub fn billing_profile(&self) -> Result<HyperAgentBillingProfileResponse, HyperCliError> {
+        self.get_json("billing/profile")
+    }
+
+    /// `PUT {agents}/billing/profile`.
+    pub fn update_billing_profile(
+        &self,
+        profile: &HyperAgentBillingProfileFields,
+    ) -> Result<HyperAgentBillingProfileResponse, HyperCliError> {
+        let url = self.endpoint("billing/profile");
+        self.send_json(
+            "update_billing_profile",
+            "PUT",
+            &url,
+            serde_json::to_value(profile).ok(),
+            self.http
+                .put(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(profile),
+        )
+    }
+
+    /// `GET {agents}/billing/payments` with optional `limit`, `provider`,
+    /// and `status` filters.
+    pub fn payments(
+        &self,
+        limit: Option<u32>,
+        provider: Option<&str>,
+        status: Option<&str>,
+    ) -> Result<HyperAgentPaymentsResponse, HyperCliError> {
+        let url = self.endpoint("billing/payments");
+        let mut query: Vec<(String, String)> = Vec::new();
+        if let Some(limit) = limit {
+            query.push(("limit".to_owned(), limit.to_string()));
+        }
+        if let Some(provider) = provider.filter(|value| !value.is_empty()) {
+            query.push(("provider".to_owned(), provider.to_owned()));
+        }
+        if let Some(status) = status.filter(|value| !value.is_empty()) {
+            query.push(("status".to_owned(), status.to_owned()));
+        }
+        self.send_json(
+            "payments",
+            "GET",
+            &url,
+            None,
+            self.http
+                .get(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .query(&query),
+        )
+    }
+
+    /// `GET {agents}/billing/payments/{id}`.
+    pub fn payment(&self, payment_id: &str) -> Result<HyperAgentPayment, HyperCliError> {
+        self.get_json(&format!("billing/payments/{payment_id}"))
+    }
+
+    /// Create a Stripe Checkout session for a plan subscription
+    /// (`POST {agents}/stripe/{plan_id}`).
+    pub fn create_stripe_checkout(
+        &self,
+        plan_id: &str,
+        success_url: Option<&str>,
+        cancel_url: Option<&str>,
+        quantity: Option<u32>,
+    ) -> Result<HyperAgentStripeCheckoutResponse, HyperCliError> {
+        if plan_id.trim().is_empty() {
+            return Err(HyperCliError::InvalidResponse(
+                "A canonical plan ID is required".to_owned(),
+            ));
+        }
+        let url = self.endpoint(&format!("stripe/{plan_id}"));
+        let mut request = Map::new();
+        if let Some(success_url) = success_url {
+            request.insert("success_url".to_owned(), json!(success_url));
+        }
+        if let Some(cancel_url) = cancel_url {
+            request.insert("cancel_url".to_owned(), json!(cancel_url));
+        }
+        if let Some(quantity) = quantity {
+            request.insert("quantity".to_owned(), json!(quantity));
+        }
+        let request = Value::Object(request);
+        self.send_json(
+            "create_stripe_checkout",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
+    /// Create a Stripe Billing Portal session
+    /// (`POST {agents}/stripe/billing-portal`). `flow_type` maps to the
+    /// backend's `flow_data.type`.
+    pub fn create_stripe_billing_portal_session(
+        &self,
+        return_url: &str,
+        flow_type: Option<&str>,
+    ) -> Result<HyperAgentStripeBillingPortalResponse, HyperCliError> {
+        let url = self.endpoint("stripe/billing-portal");
+        let mut request = json!({ "return_url": return_url });
+        if let Some(flow_type) = flow_type {
+            request["flow_data"] = json!({ "type": flow_type });
+        }
+        self.send_json(
+            "create_stripe_billing_portal_session",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
+    /// Mint a fresh agent/route-scoped access token for a running deployment
+    /// (`GET {agents}/deployments/{id}/token`).
+    pub fn refresh_deployment_token(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentAccessToken, HyperCliError> {
+        self.get_json(&format!("deployments/{deployment_id}/token"))
+    }
+
+    /// Mint a new Orchestra API key scoped to one exact agent
+    /// (`POST {agents}/deployments/{id}/keys` `{name}`).
+    pub fn create_scoped_deployment_key(
+        &self,
+        deployment_id: &str,
+        name: Option<&str>,
+    ) -> Result<ApiKey, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/keys"));
+        let request = match name {
+            Some(name) => json!({ "name": name }),
+            None => json!({}),
+        };
+        self.send_json(
+            "create_scoped_deployment_key",
+            "POST",
+            &url,
+            Some(request.clone()),
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request),
+        )
+    }
+
+    /// Mint a short-lived log-streaming credential
+    /// (`POST {agents}/deployments/{id}/logs/token`). Only available while
+    /// the agent is in a running state.
+    pub fn deployment_logs_token(
+        &self,
+        deployment_id: &str,
+    ) -> Result<DeploymentLogsToken, HyperCliError> {
+        let url = self.endpoint(&format!("deployments/{deployment_id}/logs/token"));
+        let token: DeploymentLogsToken = self.send_json(
+            "deployment_logs_token",
+            "POST",
+            &url,
+            None,
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        )?;
+        if !token.agent_id.is_empty() && token.agent_id != deployment_id {
+            return Err(HyperCliError::InvalidResponse(
+                "logs token was minted for a different agent".into(),
+            ));
+        }
+        Ok(token)
+    }
+
+    /// Persisted log tail (`GET {agents}/deployments/{id}/logs`). Works in
+    /// any agent state, including stopped.
+    pub fn deployment_logs(
+        &self,
+        deployment_id: &str,
+        tail_lines: Option<usize>,
+    ) -> Result<String, HyperCliError> {
+        #[derive(Deserialize)]
+        struct LogsResponse {
+            #[serde(default)]
+            logs: String,
+        }
+        let response: LogsResponse = self.get_json(&format!("deployments/{deployment_id}/logs"))?;
+        let logs = match tail_lines {
+            Some(tail_lines) => {
+                let lines: Vec<&str> = response.logs.lines().collect();
+                if lines.len() > tail_lines {
+                    lines[lines.len() - tail_lines..].join("\n")
+                } else {
+                    response.logs
+                }
+            }
+            None => response.logs,
+        };
+        Ok(logs)
+    }
+
+    /// Run a Brave web search through the agents API proxy
+    /// (`GET {agents}/brave/res/v1/web/search`). The API key travels as
+    /// `X-Subscription-Token`; the backend substitutes its Brave key
+    /// upstream.
+    pub fn web_search(
+        &self,
+        query: &str,
+        count: u32,
+        extra_params: &BTreeMap<String, String>,
+    ) -> Result<Value, HyperCliError> {
+        let url = self.endpoint("brave/res/v1/web/search");
+        let mut params: Vec<(String, String)> = vec![
+            ("q".to_owned(), query.to_owned()),
+            ("count".to_owned(), count.to_string()),
+        ];
+        params.extend(extra_params.iter().map(|(k, v)| (k.clone(), v.clone())));
+        self.send_json(
+            "web_search",
+            "GET",
+            &url,
+            None,
+            self.http
+                .get(&url)
+                .header("X-Subscription-Token", self.api_key.expose_secret())
+                .header(reqwest::header::ACCEPT, "application/json")
+                .query(&params),
+        )
+    }
+
+    /// Compact public platform status from the hyperclaw status endpoint
+    /// (`GET {agents}/status`). The shape is backend-owned.
+    pub fn status(&self) -> Result<Value, HyperCliError> {
+        self.get_json("status")
+    }
+
+    /// Jobs product API (`{product}/api/jobs`).
+    pub fn jobs(&self) -> crate::jobs::JobsClient<'_> {
+        crate::jobs::JobsClient { client: self }
+    }
+
+    /// Renders/flow API with subscription-capability routing.
+    pub fn renders(&self) -> crate::renders::RendersClient<'_> {
+        crate::renders::RendersClient {
+            client: self,
+            auth_me: &self.auth_me_cache,
+        }
+    }
+
+    /// Product billing API (`{product}/api/balance`, `{product}/api/tx`).
+    pub fn billing(&self) -> crate::billing::BillingClient<'_> {
+        crate::billing::BillingClient { client: self }
+    }
+
+    /// File uploads for renders (`{product}/api/files`).
+    pub fn files(&self) -> crate::files::FilesClient<'_> {
+        crate::files::FilesClient { client: self }
+    }
+
+    /// GPU instance catalog (`{product}/instances/*`).
+    pub fn instances(&self) -> crate::instances::InstancesClient<'_> {
+        crate::instances::InstancesClient { client: self }
+    }
+
+    /// OpenAI-compatible model catalog (`GET {product}/v1/models`).
+    pub fn models(&self) -> crate::models::ModelsClient<'_> {
+        crate::models::ModelsClient { client: self }
+    }
+
+    /// User profile API (`GET {product}/api/user`).
+    pub fn user(&self) -> crate::user::UserClient<'_> {
+        crate::user::UserClient { client: self }
+    }
+
+    /// Product API-key management (`{product}/api/keys`).
+    pub fn keys(&self) -> crate::keys::KeysClient<'_> {
+        crate::keys::KeysClient { client: self }
     }
 
     pub fn entitlements(&self) -> Result<HyperAgentEntitlementsSummary, HyperCliError> {
@@ -728,12 +1176,11 @@ impl HyperCliClient {
     pub fn get_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}"));
         let started = Instant::now();
-        let response = match self
-            .http
-            .get(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .send()
-        {
+        let response = match self.send_with_retry(
+            self.http
+                .get(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        ) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -806,9 +1253,9 @@ impl HyperCliClient {
     async fn connect_deployment_events(&self) -> Result<DeploymentEventSocket, HyperCliError> {
         let token = self.create_deployment_event_token().await?;
         let ws_url = deployment_event_ws_url(&token.ws_url, &token.token)?;
-        let (socket, _) = connect_async(ws_url.as_str())
-            .await
-            .map_err(|_| HyperCliError::Transport("deployment event websocket connection failed".to_owned()))?;
+        let (socket, _) = connect_async(ws_url.as_str()).await.map_err(|_| {
+            HyperCliError::Transport("deployment event websocket connection failed".to_owned())
+        })?;
         let mut socket = socket;
         let ready = tokio::time::timeout(Duration::from_secs(10), socket.next())
             .await
@@ -1261,13 +1708,12 @@ impl HyperCliClient {
         let request_body = deployment_request_body(request)?;
         let request_trace = Some(redacted_launch_trace(request_body.clone()));
         let started = Instant::now();
-        let response = match self
-            .http
-            .post(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .json(&request_body)
-            .send()
-        {
+        let response = match self.send_with_retry(
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request_body),
+        ) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -1714,13 +2160,12 @@ impl HyperCliClient {
         let request_body = deployment_request_body(request)?;
         let request_trace = Some(redacted_launch_trace(request_body.clone()));
         let started = Instant::now();
-        let response = match self
-            .http
-            .post(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .json(&request_body)
-            .send()
-        {
+        let response = match self.send_with_retry(
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret())
+                .json(&request_body),
+        ) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -1756,12 +2201,11 @@ impl HyperCliClient {
     pub fn stop_deployment(&self, deployment_id: &str) -> Result<Deployment, HyperCliError> {
         let url = self.endpoint(&format!("deployments/{deployment_id}/stop"));
         let started = Instant::now();
-        let response = match self
-            .http
-            .post(&url)
-            .bearer_auth(self.api_key.expose_secret())
-            .send()
-        {
+        let response = match self.send_with_retry(
+            self.http
+                .post(&url)
+                .bearer_auth(self.api_key.expose_secret()),
+        ) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -2005,7 +2449,7 @@ impl HyperCliClient {
 
     /// Mint a short-lived token for the backend's protected agent PTY.
     ///
-    /// The returned JWT is opaque and intentionally unavailable to callers;
+    /// The returned token is opaque and intentionally unavailable to callers;
     /// pass the token directly to [`RuntimeLoginSession::connect`] through
     /// [`Self::start_runtime_login`].
     pub fn create_runtime_shell_token(
@@ -2098,7 +2542,7 @@ impl HyperCliClient {
         base.strip_suffix("/agents").unwrap_or(base).to_owned()
     }
 
-    fn product_endpoint(&self, path: &str) -> String {
+    pub(crate) fn product_endpoint(&self, path: &str) -> String {
         format!(
             "{}/{}",
             self.product_api_base(),
@@ -2128,7 +2572,38 @@ impl HyperCliClient {
         Ok(url)
     }
 
-    fn send_json<T: DeserializeOwned>(
+    /// Send with transport-error retries (3 attempts with a linear backoff),
+    /// matching the Python SDK's `request_with_retry`. Requests whose body
+    /// cannot be replayed are sent once.
+    pub(crate) fn send_with_retry(
+        &self,
+        builder: RequestBuilder,
+    ) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let mut current = builder;
+        let mut attempts_used = 0u32;
+        loop {
+            let retry_builder = if attempts_used + 1 < TRANSPORT_RETRY_ATTEMPTS {
+                current.try_clone()
+            } else {
+                None
+            };
+            match current.send() {
+                Ok(response) => return Ok(response),
+                Err(error) => {
+                    attempts_used += 1;
+                    match retry_builder.filter(|_| transport_error_is_retryable(&error)) {
+                        Some(next) => {
+                            current = next;
+                            std::thread::sleep(TRANSPORT_RETRY_BACKOFF * attempts_used);
+                        }
+                        None => return Err(error),
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn send_json<T: DeserializeOwned>(
         &self,
         operation: &str,
         method: &str,
@@ -2137,7 +2612,7 @@ impl HyperCliClient {
         builder: RequestBuilder,
     ) -> Result<T, HyperCliError> {
         let started = Instant::now();
-        let response = match builder.send() {
+        let response = match self.send_with_retry(builder) {
             Ok(response) => response,
             Err(error) => {
                 let error = HyperCliError::Transport(error.to_string());
@@ -2372,6 +2847,7 @@ mod tests {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: None,
+            timeout: None,
         })
         .unwrap()
     }
@@ -2382,10 +2858,9 @@ mod tests {
         })
     }
 
-    async fn accept_deployment_event_socket(
-        listener: &TcpListener,
-    ) -> WebSocketStream<TcpStream> {
+    async fn accept_deployment_event_socket(listener: &TcpListener) -> WebSocketStream<TcpStream> {
         let (stream, _) = listener.accept().await.unwrap();
+        #[allow(clippy::result_large_err)]
         accept_hdr_async(
             stream,
             |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
@@ -2460,6 +2935,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -2552,6 +3028,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -2635,6 +3112,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -2748,6 +3226,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -2827,6 +3306,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -2903,6 +3383,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -2964,6 +3445,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -3023,6 +3505,7 @@ mod tests {
                     api_base,
                     api_key: SecretString::from("test-credential"),
                     trace_file: None,
+                    timeout: None,
                 })
                 .unwrap()
             })
@@ -3346,7 +3829,7 @@ mod tests {
             )
             .create();
 
-        let entitlements = client(&server).entitlements_summary().unwrap();
+        let entitlements = client(&server).subscription_summary().unwrap();
         assert_eq!(entitlements.active_subscription_count, 0);
         assert_eq!(entitlements.active_entitlement_count, 1);
         assert_eq!(entitlements.agent_slots[0].size, "medium");
@@ -3475,6 +3958,7 @@ mod tests {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: Some(trace_file.clone()),
+            timeout: None,
         })
         .unwrap();
 
@@ -3947,7 +4431,7 @@ mod tests {
                 |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
                     assert_eq!(
                         request.uri().path_and_query().unwrap().as_str(),
-                        "/ws/exec/deployment-1?token=jwt"
+                        "/ws/exec/deployment-1?token=exec-token"
                     );
                     Ok(response)
                 },
@@ -3965,7 +4449,7 @@ mod tests {
             socket.close(None).await.unwrap();
         });
         let mut server = Server::new_async().await;
-        let token=server.mock("POST","/agents/deployments/deployment-1/exec/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","token":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
+        let token=server.mock("POST","/agents/deployments/deployment-1/exec/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","token":"exec-token","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
         (server, token, task)
     }
 
@@ -3976,6 +4460,7 @@ mod tests {
                 api_base,
                 api_key: SecretString::from("test-credential"),
                 trace_file: None,
+                timeout: None,
             })
             .unwrap()
         })
@@ -4044,7 +4529,7 @@ mod tests {
                 |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
                     assert_eq!(
                         request.uri().path_and_query().unwrap().as_str(),
-                        "/ws/metrics/deployment-1?token=jwt"
+                        "/ws/metrics/deployment-1?token=metrics-token"
                     );
                     Ok(response)
                 },
@@ -4055,7 +4540,7 @@ mod tests {
             socket.close(None).await.unwrap();
         });
         let mut server = Server::new_async().await;
-        let token=server.mock("POST","/agents/deployments/deployment-1/metrics/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","token":"jwt","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
+        let token=server.mock("POST","/agents/deployments/deployment-1/metrics/token").match_header("authorization","Bearer test-credential").with_status(200).with_header("content-type","application/json").with_body(json!({"agent_id":"deployment-1","token":"metrics-token","expires_at":"2026-08-16T00:00:00Z","ws_url":ws_url}).to_string()).create_async().await;
         let client = client_for_async_test(&server).await;
         let value = client.deployment_metrics("deployment-1").await.unwrap();
         assert_eq!(value["cpu"], "10m");
@@ -4364,6 +4849,7 @@ mod tests {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: Some(trace_file.clone()),
+            timeout: None,
         })
         .unwrap();
 
@@ -4879,6 +5365,7 @@ mod tests {
             api_base: Url::parse(&format!("{}/agents", server.url())).unwrap(),
             api_key: SecretString::from("test-credential"),
             trace_file: Some(trace_file.clone()),
+            timeout: None,
         })
         .unwrap();
         let mut request = CreateDeploymentRequest::new(ManagedRuntime::Opencode);
@@ -4905,5 +5392,503 @@ mod tests {
             fs::metadata(trace_file).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn transport_errors_retry_three_attempts_with_backoff() {
+        // A closed listener yields connection-refused (retryable) for every
+        // attempt; the linear backoff (1s + 2s) bounds the total runtime.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let mut server = Server::new();
+        let unused = server.mock("GET", "/agents/status").expect(0).create();
+        let client = HyperCliClient::new(ClientConfig {
+            api_base: Url::parse(&format!("http://{address}/agents")).unwrap(),
+            api_key: SecretString::from("test-credential"),
+            trace_file: None,
+            timeout: Some(Duration::from_secs(5)),
+        })
+        .unwrap();
+
+        let started = Instant::now();
+        let error = client.status().unwrap_err();
+
+        assert!(matches!(error, HyperCliError::Transport(_)));
+        assert!(
+            started.elapsed() >= Duration::from_secs(3),
+            "transport retries did not back off twice"
+        );
+        unused.assert();
+    }
+
+    #[test]
+    fn status_responses_are_not_retried() {
+        let mut server = Server::new();
+        let not_found = server
+            .mock("GET", "/agents/status")
+            .with_status(404)
+            .with_header("content-type", "application/json")
+            .with_body("{}")
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let error = client.status().unwrap_err();
+
+        assert_eq!(error.status(), Some(StatusCode::NOT_FOUND));
+        not_found.assert();
+    }
+
+    #[test]
+    fn auth_me_parses_nested_and_flat_runtime_identities() {
+        let mut server = Server::new();
+        let nested = server
+            .mock("GET", "/api/auth/me")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "user_id": "user-1",
+                    "auth_type": "api_key",
+                    "runtime": {"runtime": "agent", "agent_id": "agent-1"}
+                })
+                .to_string(),
+            )
+            .create();
+        let flat = server
+            .mock("GET", "/api/auth/me")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"user_id": "user-1", "auth_type": "api_key", "runtime": "agent", "agent_id": "agent-2"}).to_string())
+            .create();
+        let absent = server
+            .mock("GET", "/api/auth/me")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"user_id": "user-1", "auth_type": "user"}).to_string())
+            .create();
+
+        let client = client(&server);
+        let nested_identity = client.auth_me().unwrap();
+        assert!(nested_identity.is_runtime_agent());
+        assert_eq!(nested_identity.runtime_agent_id(), Some("agent-1"));
+
+        let flat_identity = client.auth_me().unwrap();
+        assert_eq!(flat_identity.runtime_agent_id(), Some("agent-2"));
+
+        let none_identity = client.auth_me().unwrap();
+        assert!(!none_identity.is_runtime_agent());
+        assert!(none_identity.runtime.is_none());
+        nested.assert();
+        flat.assert();
+        absent.assert();
+    }
+
+    #[test]
+    fn subscription_endpoints_parse_the_real_shapes() {
+        let mut server = Server::new();
+        let summary = server
+            .mock("GET", "/agents/subscriptions/summary")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "effective_plan_id": "team",
+                    "current_subscription_id": "sub-1",
+                    "current_entitlement_id": "ent-1",
+                    "pooled_tpm_limit": 40000,
+                    "pooled_rpm_limit": 100,
+                    "pooled_tpd": 5000000,
+                    "active_subscription_count": 1,
+                    "active_entitlement_count": 1,
+                    "billing_reset_at": "2026-10-01T00:00:00Z",
+                    "entitlements": {"effective_plan_id": "team", "pooled_tpm_limit": 40000},
+                    "entitlement_items": [{"id": "ent-1", "plan_id": "team", "provider": "stripe", "status": "active"}],
+                    "active_subscriptions": [{"id": "sub-1", "plan_id": "team", "provider": "stripe", "status": "active", "quantity": 1, "current_period_end": "2026-10-01T00:00:00Z", "trial": {"active": true, "days": "7", "seconds_remaining": 600}}],
+                    "subscriptions": [{"id": "sub-1", "plan_id": "team", "provider": "stripe", "status": "active"}],
+                    "user": {"user_id": "user-1", "email": "user@example.com"}
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create();
+        let subscriptions = server
+            .mock("GET", "/agents/subscriptions")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"items": [{"id": "sub-1", "plan_id": "team", "provider": "stripe", "status": "active", "can_cancel": true, "is_current": true}], "current_subscription_id": "sub-1", "effective_plan_id": "team"}).to_string())
+            .expect(1)
+            .create();
+        let cancel = server
+            .mock("POST", "/agents/subscriptions/sub-1/cancel")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"ok": true, "message": "canceled"}).to_string())
+            .expect(1)
+            .create();
+        let update = server
+            .mock("POST", "/agents/subscriptions/sub-1/update")
+            .match_body(Matcher::Json(json!({"plan_id": "pro", "quantity": 2})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"ok": true, "message": "updated", "subscription": {"id": "sub-1", "plan_id": "pro", "provider": "stripe", "status": "active"}}).to_string())
+            .expect(1)
+            .create();
+        let instances = server
+            .mock("GET", "/agents/entitlements/instances")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"items": [{"id": "ent-1", "plan_id": "team", "provider": "stripe", "status": "active", "active_agent_count": 2}]}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let parsed_summary = client.subscription_summary().unwrap();
+        assert_eq!(parsed_summary.effective_plan_id, "team");
+        assert_eq!(
+            parsed_summary.current_subscription_id.as_deref(),
+            Some("sub-1")
+        );
+        assert_eq!(parsed_summary.entitlements.pooled_tpm_limit, 40000);
+        assert_eq!(parsed_summary.subscriptions.len(), 1);
+        assert_eq!(
+            parsed_summary.active_subscriptions[0]
+                .trial
+                .as_ref()
+                .unwrap()
+                .seconds_remaining,
+            Some(600)
+        );
+        assert_eq!(
+            parsed_summary.active_subscriptions[0].period_end(),
+            Some("2026-10-01T00:00:00Z")
+        );
+        assert_eq!(
+            parsed_summary.user.email.as_deref(),
+            Some("user@example.com")
+        );
+
+        let list = client.subscriptions().unwrap();
+        assert_eq!(list.items.len(), 1);
+        assert!(list.items[0].can_cancel);
+
+        assert_eq!(client.cancel_subscription("sub-1").unwrap()["ok"], true);
+
+        let updated = client.update_subscription("sub-1", "pro", 2).unwrap();
+        assert!(updated.ok);
+        assert_eq!(updated.subscription.unwrap().plan_id, "pro");
+
+        let parsed_instances = client.entitlement_instances().unwrap();
+        assert_eq!(parsed_instances.len(), 1);
+        assert_eq!(parsed_instances[0].active_agent_count, 2);
+
+        summary.assert();
+        subscriptions.assert();
+        cancel.assert();
+        update.assert();
+        instances.assert();
+    }
+
+    #[test]
+    fn usage_endpoints_parse_summaries_history_keys_and_agents() {
+        let mut server = Server::new();
+        let summary = server
+            .mock("GET", "/agents/usage")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"total_tokens": 100, "prompt_tokens": 60, "completion_tokens": 40, "request_count": 3, "active_keys": 2, "current_tpm": 1000, "current_rpm": 10, "period": "30d"}).to_string())
+            .expect(1)
+            .create();
+        let history = server
+            .mock("GET", "/agents/usage/history")
+            .match_query(Matcher::UrlEncoded("days".into(), "7".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"history": [{"date": "2026-09-08", "total_tokens": 100, "prompt_tokens": 60, "completion_tokens": 40, "requests": 3}], "days": 7}).to_string())
+            .expect(1)
+            .create();
+        let keys = server
+            .mock("GET", "/agents/usage/keys")
+            .match_query(Matcher::UrlEncoded("days".into(), "7".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"keys": [{"key_hash": "sk-hash", "name": "default", "total_tokens": 100, "prompt_tokens": 60, "completion_tokens": 40, "requests": 3}], "days": 7}).to_string())
+            .expect(1)
+            .create();
+        let agents = server
+            .mock("GET", "/agents/usage/agents")
+            .match_query(Matcher::UrlEncoded("days".into(), "1".into()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"agents": [{"agent_id": "agent-1", "name": "demo", "managed": true, "avatar_url": null, "total_tokens": 100, "prompt_tokens": 60, "completion_tokens": 40, "requests": 3}], "unattributed": {"total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0, "requests": 0}, "days": 1}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        assert_eq!(client.usage_summary().unwrap().current_tpm, 1000);
+        assert_eq!(
+            client.usage_history(7).unwrap().history[0].date,
+            "2026-09-08"
+        );
+        assert_eq!(client.usage_keys(7).unwrap().keys[0].name, "default");
+        let parsed_agents = client.usage_agents(1).unwrap();
+        assert_eq!(parsed_agents.agents[0].agent_id.as_deref(), Some("agent-1"));
+        assert_eq!(parsed_agents.agents[0].metrics.total_tokens, 100);
+
+        summary.assert();
+        history.assert();
+        keys.assert();
+        agents.assert();
+    }
+
+    #[test]
+    fn billing_profile_info_and_payments_round_trip() {
+        let mut server = Server::new();
+        let info = server
+            .mock("GET", "/agents/billing/info")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"address": ["One Way", "SF"], "email": "billing@example.com"}).to_string(),
+            )
+            .expect(1)
+            .create();
+        let profile_get = server
+            .mock("GET", "/agents/billing/profile")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"company_billing": {"address": [], "email": "billing@example.com"}, "profile": {"billing_name": "Jane", "billing_country": "US"}}).to_string())
+            .expect(1)
+            .create();
+        let profile_put = server
+            .mock("PUT", "/agents/billing/profile")
+            .match_body(Matcher::PartialJson(json!({"billing_name": "Jane"})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"company_billing": {"address": [], "email": "billing@example.com"}, "profile": {"billing_name": "Jane"}, "synced_stripe_customer_ids": ["cus_1"]}).to_string())
+            .expect(1)
+            .create();
+        let payments = server
+            .mock("GET", "/agents/billing/payments")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("limit".into(), "25".into()),
+                Matcher::UrlEncoded("provider".into(), "stripe".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"items": [{"id": "pay-1", "user_id": "user-1", "provider": "stripe", "status": "paid", "amount": "25.00", "currency": "usd"}]}).to_string())
+            .expect(1)
+            .create();
+        let payment = server
+            .mock("GET", "/agents/billing/payments/pay-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"id": "pay-1", "user_id": "user-1", "provider": "stripe", "status": "paid", "amount": "25.00", "currency": "usd", "subscription": {"id": "sub-1", "plan_id": "team", "provider": "stripe", "status": "active", "current_period_end": "2026-10-01T00:00:00Z"}}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        assert_eq!(client.billing_info().unwrap().email, "billing@example.com");
+        assert_eq!(
+            client
+                .billing_profile()
+                .unwrap()
+                .profile
+                .unwrap()
+                .billing_name
+                .as_deref(),
+            Some("Jane")
+        );
+        assert_eq!(
+            client
+                .update_billing_profile(&HyperAgentBillingProfileFields {
+                    billing_name: Some("Jane".to_owned()),
+                    ..Default::default()
+                })
+                .unwrap()
+                .synced_stripe_customer_ids,
+            Some(vec!["cus_1".to_owned()])
+        );
+        assert_eq!(
+            client
+                .payments(Some(25), Some("stripe"), None)
+                .unwrap()
+                .items[0]
+                .id,
+            "pay-1"
+        );
+        assert_eq!(
+            client
+                .payment("pay-1")
+                .unwrap()
+                .subscription
+                .unwrap()
+                .plan_id,
+            "team"
+        );
+
+        info.assert();
+        profile_get.assert();
+        profile_put.assert();
+        payments.assert();
+        payment.assert();
+    }
+
+    #[test]
+    fn stripe_checkout_and_billing_portal_parse_their_responses() {
+        let mut server = Server::new();
+        let checkout = server
+            .mock("POST", "/agents/stripe/team")
+            .match_body(Matcher::Json(
+                json!({"success_url": "https://example.com/ok", "quantity": 2}),
+            ))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"checkout_url": "https://checkout.stripe.com/session"}).to_string())
+            .expect(1)
+            .create();
+        let portal = server
+            .mock("POST", "/agents/stripe/billing-portal")
+            .match_body(Matcher::Json(json!({"return_url": "https://example.com/back", "flow_data": {"type": "payment_method_update"}})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"id": "bps_1", "url": "https://billing.stripe.com/portal"}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let checkout_result = client
+            .create_stripe_checkout("team", Some("https://example.com/ok"), None, Some(2))
+            .unwrap();
+        assert_eq!(
+            checkout_result.checkout_url,
+            "https://checkout.stripe.com/session"
+        );
+
+        let portal_result = client
+            .create_stripe_billing_portal_session(
+                "https://example.com/back",
+                Some("payment_method_update"),
+            )
+            .unwrap();
+        assert_eq!(portal_result.url, "https://billing.stripe.com/portal");
+
+        checkout.assert();
+        portal.assert();
+    }
+
+    #[test]
+    fn agents_me_parses_the_agent_product_account_view() {
+        let mut server = Server::new();
+        let me = server
+            .mock("GET", "/agents/me")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"user_id": "user-1", "orchestra_user_id": "user-1", "team_id": "team-1", "plan_id": "team", "auth_type": "user", "capabilities": ["flows:*"], "auth_capabilities": ["agents"], "has_active_subscription": true, "key_name": "default"}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let parsed_me = client.agents_me().unwrap();
+        assert_eq!(parsed_me.team_id, "team-1");
+        assert_eq!(parsed_me.capabilities, ["flows:*"]);
+        assert!(parsed_me.has_active_subscription);
+        me.assert();
+    }
+
+    #[test]
+    fn deployment_token_key_and_logs_routes_parse_their_payloads() {
+        let mut server = Server::new();
+        let token = server
+            .mock("GET", "/agents/deployments/agent-1/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"agent_id": "agent-1", "token": "fresh-token", "expires_at": "2026-09-09T00:00:00Z"}).to_string())
+            .expect(1)
+            .create();
+        let scoped = server
+            .mock("POST", "/agents/deployments/agent-1/keys")
+            .match_body(Matcher::Json(json!({"name": "child"})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({"key_id": "key-9", "name": "child", "api_key": "scoped-secret"}).to_string(),
+            )
+            .expect(1)
+            .create();
+        let logs_token = server
+            .mock("POST", "/agents/deployments/agent-1/logs/token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"agent_id": "agent-1", "token": "logs-token", "expires_at": "2026-09-09T00:00:00Z", "ws_url": "wss://example/ws/logs/agent-1"}).to_string())
+            .expect(1)
+            .create();
+        let logs = server
+            .mock("GET", "/agents/deployments/agent-1/logs")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"logs": "a\nb\nc"}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let refreshed = client.refresh_deployment_token("agent-1").unwrap();
+        assert_eq!(refreshed.agent_id, "agent-1");
+        assert_eq!(refreshed.token, "fresh-token");
+
+        let scoped_key = client
+            .create_scoped_deployment_key("agent-1", Some("child"))
+            .unwrap();
+        assert_eq!(scoped_key.api_key.as_deref(), Some("scoped-secret"));
+
+        let parsed_logs_token = client.deployment_logs_token("agent-1").unwrap();
+        assert_eq!(parsed_logs_token.token, "logs-token");
+
+        assert_eq!(client.deployment_logs("agent-1", Some(2)).unwrap(), "b\nc");
+
+        token.assert();
+        scoped.assert();
+        logs_token.assert();
+        logs.assert();
+    }
+
+    #[test]
+    fn web_search_uses_the_subscription_token_header() {
+        let mut server = Server::new();
+        let search = server
+            .mock("GET", "/agents/brave/res/v1/web/search")
+            .match_header("x-subscription-token", "test-credential")
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("q".into(), "hypercli".into()),
+                Matcher::UrlEncoded("count".into(), "5".into()),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"web": {"results": []}}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let result = client.web_search("hypercli", 5, &BTreeMap::new()).unwrap();
+
+        assert!(result["web"]["results"].is_array());
+        search.assert();
+    }
+
+    #[test]
+    fn status_gets_the_compact_platform_status() {
+        let mut server = Server::new();
+        let status = server
+            .mock("GET", "/agents/status")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"ok": true}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        assert_eq!(client.status().unwrap()["ok"], true);
+        status.assert();
     }
 }

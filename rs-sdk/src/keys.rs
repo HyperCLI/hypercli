@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use thiserror::Error;
 
 use crate::{
@@ -71,6 +71,7 @@ pub fn issue_api_key_from_jwt(
             api_base,
             api_key: SecretString::from(token.to_owned()),
             trace_file: None,
+            timeout: None,
         },
         options.timeout,
     )?;
@@ -90,6 +91,146 @@ pub fn issue_api_key_from_jwt(
         return Err(IssueApiKeyError::MissingKeySecret);
     }
     Ok(issued)
+}
+
+/// Blocking client for the product API-key management surface
+/// (`{product}/api/keys`), mirroring the Python SDK's `KeysAPI`. Obtained
+/// through [`HyperCliClient::keys`]; shares the client's retry/timeout/trace
+/// behavior.
+pub struct KeysClient<'a> {
+    pub(crate) client: &'a HyperCliClient,
+}
+
+impl KeysClient<'_> {
+    fn url(&self, path: &str) -> String {
+        self.client.product_endpoint(&format!("api/keys{path}"))
+    }
+
+    fn authenticated(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+    ) -> reqwest::blocking::RequestBuilder {
+        self.client
+            .http
+            .request(method, url)
+            .bearer_auth(self.client.api_key.expose_secret())
+    }
+
+    /// List all API keys (masked).
+    pub fn list(&self) -> Result<Vec<ApiKey>, HyperCliError> {
+        let url = self.url("");
+        self.client.send_json(
+            "keys.list",
+            "GET",
+            &url,
+            None,
+            self.authenticated(reqwest::Method::GET, &url),
+        )
+    }
+
+    /// Get a specific API key (masked).
+    pub fn get(&self, key_id: &str) -> Result<ApiKey, HyperCliError> {
+        let url = self.url(&format!("/{key_id}"));
+        self.client.send_json(
+            "keys.get",
+            "GET",
+            &url,
+            None,
+            self.authenticated(reqwest::Method::GET, &url),
+        )
+    }
+
+    /// Deactivate an API key (irreversible). Response shape is backend-owned.
+    pub fn disable(&self, key_id: &str) -> Result<serde_json::Value, HyperCliError> {
+        let url = self.url(&format!("/{key_id}"));
+        self.client.send_json(
+            "keys.disable",
+            "DELETE",
+            &url,
+            None,
+            self.authenticated(reqwest::Method::DELETE, &url),
+        )
+    }
+
+    /// Rename an API key (`PATCH {product}/api/keys/{id}` `{"name"}`).
+    pub fn rename(&self, key_id: &str, name: &str) -> Result<ApiKey, HyperCliError> {
+        let url = self.url(&format!("/{key_id}"));
+        let request = serde_json::json!({ "name": name });
+        self.client.send_json(
+            "keys.rename",
+            "PATCH",
+            &url,
+            Some(request.clone()),
+            self.authenticated(reqwest::Method::PATCH, &url)
+                .json(&request),
+        )
+    }
+}
+
+#[cfg(test)]
+mod keys_client_tests {
+    use super::*;
+    use mockito::{Matcher, Server};
+    use serde_json::json;
+
+    fn client(server: &Server) -> HyperCliClient {
+        HyperCliClient::new(ClientConfig {
+            api_base: url::Url::parse(&format!("{}/agents", server.url())).unwrap(),
+            api_key: SecretString::from("test-credential"),
+            trace_file: None,
+            timeout: None,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn list_get_disable_and_rename_hit_the_product_keys_routes() {
+        let mut server = Server::new();
+        let list = server
+            .mock("GET", "/api/keys")
+            .match_header("authorization", "Bearer test-credential")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!([{"key_id": "key-1", "name": "default", "is_active": true}]).to_string(),
+            )
+            .expect(1)
+            .create();
+        let get = server
+            .mock("GET", "/api/keys/key-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"key_id": "key-1", "name": "default", "is_active": true}).to_string())
+            .expect(1)
+            .create();
+        let rename = server
+            .mock("PATCH", "/api/keys/key-1")
+            .match_body(Matcher::Json(json!({"name": "renamed"})))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"key_id": "key-1", "name": "renamed", "is_active": true}).to_string())
+            .expect(1)
+            .create();
+        let disable = server
+            .mock("DELETE", "/api/keys/key-1")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"status": "disabled"}).to_string())
+            .expect(1)
+            .create();
+        let client = client(&server);
+
+        let keys = client.keys();
+        assert_eq!(keys.list().unwrap().len(), 1);
+        assert_eq!(keys.get("key-1").unwrap().key_id, "key-1");
+        assert_eq!(keys.rename("key-1", "renamed").unwrap().name, "renamed");
+        assert_eq!(keys.disable("key-1").unwrap()["status"], "disabled");
+        list.assert();
+        get.assert();
+        rename.assert();
+        disable.assert();
+    }
 }
 
 #[cfg(test)]

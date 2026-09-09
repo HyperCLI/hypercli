@@ -970,6 +970,24 @@ impl WorkspacesApiClient {
         Ok(())
     }
 
+    /// Accept a workspace email invite, attaching its grant to the
+    /// authenticated user (`POST {workspaces}/invites/accept/{grant_id}`).
+    /// Returns the accepted grant.
+    pub async fn accept_invite(
+        &self,
+        grant_id: &str,
+    ) -> Result<WorkspaceGrant, WorkspacesApiError> {
+        let data = self
+            .request(
+                Method::POST,
+                &format!("/invites/accept/{}", encode_ref(grant_id)),
+                &[],
+                Option::<&()>::None,
+            )
+            .await?;
+        Self::decode(data)
+    }
+
     /// Return the existing workspace matching `options`, creating it when
     /// absent. On a create conflict (HTTP 409) the list is re-read once and a
     /// recovered match is returned instead of the error.
@@ -2526,6 +2544,33 @@ mod tests {
         client.delete_file("demo", "docs/source.md").await.unwrap();
         list_mock.assert_async().await;
         delete_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn accepts_a_workspace_invite_by_grant_id() {
+        let mut server = Server::new_async().await;
+        let mock = server
+            .mock("POST", "/invites/accept/grant-1")
+            .match_header("authorization", "Bearer key")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                json!({
+                    "id": "grant-1",
+                    "workspace_id": "workspace-1",
+                    "subject_type": "user",
+                    "subject_id": "user-1",
+                    "role": "contributor"
+                })
+                .to_string(),
+            )
+            .expect(1)
+            .create_async()
+            .await;
+        let grant = client(&server).accept_invite("grant-1").await.unwrap();
+        assert_eq!(grant.id, "grant-1");
+        assert_eq!(grant.role, "contributor");
+        mock.assert_async().await;
     }
 
     #[tokio::test]
