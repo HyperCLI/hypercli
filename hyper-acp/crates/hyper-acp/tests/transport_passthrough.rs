@@ -589,7 +589,9 @@ fn write_responsive_child_script(
     script.push_str("'\n");
     script.push_str("  case \"$line\" in\n");
     script.push_str("    *'\"initialize\"'*)\n");
-    script.push_str("      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":");
+    script.push_str(
+        "      printf '%s\\n' '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":",
+    );
     script.push_str(&protocol_version.to_string());
     script.push_str(",\"agentInfo\":{\"name\":\"");
     script.push_str(agent_name);
