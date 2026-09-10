@@ -31,7 +31,7 @@
  * Exported functions are unit-tested; run directly to write output.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -127,6 +127,15 @@ export function buildSkill(source) {
   };
 }
 
+// Test workers concurrently rebuild the bundle while others read it
+// (skills.test.ts and skills.install.test.ts both buildAll in beforeAll), so
+// writes must never expose a truncated file: tmp file in the same dir, then rename.
+function writeJsonAtomic(path, value) {
+  const tmp = `${path}.tmp-${process.pid}`;
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  renameSync(tmp, path);
+}
+
 export function buildAll(srcDir = SKILLS_SRC, outDir = SKILLS_OUT, names = SKILLS) {
   mkdirSync(outDir, { recursive: true });
   const index = [];
@@ -139,7 +148,7 @@ export function buildAll(srcDir = SKILLS_SRC, outDir = SKILLS_OUT, names = SKILL
       continue;
     }
     const skill = buildSkill(readFileSync(skillPath, 'utf8'));
-    writeFileSync(join(outDir, `${skill.name}.json`), `${JSON.stringify(skill, null, 2)}\n`, 'utf8');
+    writeJsonAtomic(join(outDir, `${skill.name}.json`), skill);
     index.push({ name: skill.name, description: skill.description, commands: skill.commands });
   }
   // Allowlist-driven bundling: remove outputs of skills that left the
@@ -149,7 +158,7 @@ export function buildAll(srcDir = SKILLS_SRC, outDir = SKILLS_OUT, names = SKILL
     if (!file.endsWith('.json') || file === 'index.json') continue;
     if (!emitted.has(file.slice(0, -'.json'.length))) rmSync(join(outDir, file), { force: true });
   }
-  writeFileSync(join(outDir, 'index.json'), `${JSON.stringify({ skills: index }, null, 2)}\n`, 'utf8');
+  writeJsonAtomic(join(outDir, 'index.json'), { skills: index });
   for (const name of missing) {
     process.stderr.write(`build-skills: skipping '${name}' (no SKILL.md found)\n`);
   }
