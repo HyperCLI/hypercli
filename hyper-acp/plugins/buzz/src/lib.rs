@@ -36,8 +36,8 @@ use buzz_core::observer::{
 };
 use clap::Parser;
 use config::{
-    AuthAgentArgs, AuthMethodsArgs, AuthTagArgs, AuthenticateArgs, CliArgs, Config, DedupMode,
-    ModelsArgs, MultipleEventHandling, RespondTo, SubscribeMode,
+    AuthAgentArgs, AuthMethodsArgs, AuthTagArgs, CliArgs, Config, DedupMode, ModelsArgs,
+    MultipleEventHandling, RespondTo, SubscribeMode,
 };
 use filter::SubscriptionRule;
 use futures_util::FutureExt;
@@ -67,10 +67,6 @@ fn is_subcommand(args: &[String], name: &str) -> bool {
 
 /// Timeout for lightweight helper subcommands (spawn + initialize + model/method probes).
 const MODELS_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Timeout for `buzz-acp authenticate`. Browser-based vendor auth can require
-/// human interaction, so it must not share the short probe timeout.
-const AUTHENTICATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// Resolve the process working directory for ACP session metadata and prompts.
 ///
@@ -2449,17 +2445,6 @@ async fn tokio_main(args: Vec<String>) -> Result<()> {
             .collect();
         let args = AuthMethodsArgs::parse_from(&filtered);
         return run_auth_methods(args).await;
-    }
-
-    if is_subcommand(&args, "authenticate") {
-        let filtered: Vec<String> = args
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != 1)
-            .map(|(_, a)| a.clone())
-            .collect();
-        let args = AuthenticateArgs::parse_from(&filtered);
-        return run_authenticate(args).await;
     }
 
     if is_subcommand(&args, "auth-tag") {
@@ -5553,63 +5538,6 @@ async fn run_auth_methods(args: AuthMethodsArgs) -> Result<()> {
         }
     }
     Ok(())
-}
-
-/// `buzz-acp authenticate` — invoke one adapter-owned auth method.
-async fn run_authenticate(args: AuthenticateArgs) -> Result<()> {
-    let mut client = match spawn_auth_client(&args.agent).await {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: failed to spawn agent: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let init_result = match tokio::time::timeout(MODELS_TIMEOUT, client.initialize()).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(e)) => {
-            client.shutdown().await;
-            eprintln!("error: agent initialize failed: {e}");
-            std::process::exit(1);
-        }
-        Err(_) => {
-            client.shutdown().await;
-            eprintln!("error: agent initialize timed out ({MODELS_TIMEOUT:?})");
-            std::process::exit(1);
-        }
-    };
-
-    let supports_method = extract_auth_methods(&init_result)
-        .iter()
-        .any(|method| method.get("id").and_then(|id| id.as_str()) == Some(args.method_id.as_str()));
-    if !supports_method {
-        client.shutdown().await;
-        eprintln!(
-            "error: auth method '{}' is not advertised by this adapter",
-            args.method_id
-        );
-        std::process::exit(1);
-    }
-
-    let result =
-        tokio::time::timeout(AUTHENTICATE_TIMEOUT, client.authenticate(&args.method_id)).await;
-
-    match result {
-        Ok(Ok(_)) => {
-            client.shutdown().await;
-            Ok(())
-        }
-        Ok(Err(e)) => {
-            client.shutdown().await;
-            eprintln!("error: authenticate failed: {e}");
-            std::process::exit(1);
-        }
-        Err(_) => {
-            client.shutdown().await;
-            eprintln!("error: authenticate timed out ({AUTHENTICATE_TIMEOUT:?})");
-            std::process::exit(1);
-        }
-    }
 }
 
 /// Flow: spawn → initialize → session/new → print models → shutdown.

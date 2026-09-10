@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     ) {
         (Some("plugin"), Some("buzz")) => return run_buzz_plugin(&raw_args[3..]),
         (Some("plugin"), Some("slack")) => return run_slack_plugin(&raw_args[3..]),
-        (Some("plugin"), Some("models" | "auth-methods" | "authenticate" | "auth-tag")) => {
+        (Some("plugin"), Some("models" | "auth-methods" | "auth-tag")) => {
             return run_buzz_plugin(&raw_args[2..]);
         }
         (Some("plugin"), _) => {
@@ -91,7 +91,7 @@ async fn run_host() -> Result<()> {
 
 fn print_plugin_help() {
     println!(
-        "Usage: hyper-acp plugin <COMMAND> [ARGS]\n\nCommands:\n  buzz           Run the full Buzz ACP plugin\n  slack          Run the standalone Slack ACP plugin\n  models         Delegate to Buzz plugin models\n  auth-methods   Delegate to Buzz plugin auth-methods\n  authenticate   Delegate to Buzz plugin authenticate\n  auth-tag       Delegate to Buzz plugin auth-tag"
+        "Usage: hyper-acp plugin <COMMAND> [ARGS]\n\nCommands:\n  buzz           Run the full Buzz ACP plugin\n  slack          Run the standalone Slack ACP plugin\n  models         Delegate to Buzz plugin models\n  auth-methods   Delegate to Buzz plugin auth-methods\n  auth-tag       Delegate to Buzz plugin auth-tag"
     );
 }
 

@@ -661,14 +661,6 @@ impl AcpClient {
         Ok(result)
     }
 
-    /// Send the ACP `authenticate` request for an adapter-advertised method.
-    pub async fn authenticate(&mut self, method_id: &str) -> Result<serde_json::Value, AcpError> {
-        let params = serde_json::json!({
-            "methodId": method_id,
-        });
-        self.send_request("authenticate", params).await
-    }
-
     /// Send `session/new` and return the full response alongside the session ID.
     ///
     /// `cwd` must be an absolute path. `mcp_servers` may be empty.

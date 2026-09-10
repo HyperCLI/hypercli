@@ -22,7 +22,7 @@ fn compatibility_binary_exposes_full_harness_help() {
 
 #[test]
 fn compatibility_binary_exposes_helper_subcommands() {
-    for subcommand in ["models", "auth-methods", "authenticate", "auth-tag"] {
+    for subcommand in ["models", "auth-methods", "auth-tag"] {
         let output = Command::new(env!("CARGO_BIN_EXE_buzz-acp"))
             .arg(subcommand)
             .arg("--help")

@@ -45,32 +45,6 @@ export class CodingAgentAcpUnavailableError extends Error {
   }
 }
 
-/** JSON-RPC `auth_required` (-32000) from the upstream SDK. */
-const ACP_AUTH_REQUIRED_CODE = -32000;
-
-function isAuthRequired(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === ACP_AUTH_REQUIRED_CODE
-  );
-}
-
-/**
- * Thrown when the agent answers a request with JSON-RPC `auth_required`
- * (-32000). Call {@link CodingAgentAcpClient.authenticate} with one of the
- * `authMethods` from the initialize response, then retry.
- */
-export class CodingAgentAcpAuthRequiredError extends Error {
-  constructor(detail: string, options: { cause?: unknown } = {}) {
-    super(
-      `auth_required: ${detail}`,
-      options.cause !== undefined ? { cause: options.cause } : undefined,
-    );
-    this.name = 'CodingAgentAcpAuthRequiredError';
-  }
-}
-
 /**
  * Thrown when the connection cannot be used: initial dial or handshake
  * failure, a call made while (re)connecting, an in-flight request killed by
@@ -236,11 +210,6 @@ export class CodingAgentAcpClient {
     return this.initializeResponseValue;
   }
 
-  /** Auth methods the agent advertised in its initialize response. */
-  get authMethods(): acp.AuthMethod[] {
-    return this.initializeResponseValue?.authMethods ?? [];
-  }
-
   /** Session IDs this client created or loaded, in creation order. */
   get sessionIds(): string[] {
     return [...this.sessions.keys()];
@@ -261,7 +230,7 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     const cwd = options.cwd ?? this.cwd;
     const mcpServers = options.mcpServers ?? this.mcpServers;
-    const response = await this.requestWithAuth<acp.NewSessionResponse>(context, acp.methods.agent.session.new, {
+    const response = await context.request<acp.NewSessionResponse>(acp.methods.agent.session.new, {
       cwd,
       mcpServers,
       // Pass-through hyper-acp param: the pod host layers this last as
@@ -298,7 +267,7 @@ export class CodingAgentAcpClient {
     const previous = this.sessions.get(sessionId);
     const cwd = previous?.cwd ?? this.cwd;
     const mcpServers = previous?.mcpServers ?? this.mcpServers;
-    const response = await this.requestWithAuth<acp.LoadSessionResponse>(context, acp.methods.agent.session.load, {
+    const response = await context.request<acp.LoadSessionResponse>(acp.methods.agent.session.load, {
       sessionId,
       cwd,
       mcpServers,
@@ -322,7 +291,7 @@ export class CodingAgentAcpClient {
     const context = this.requireContext();
     this.requireSessionCapability('session/resume', 'resume');
     const previous = this.sessions.get(sessionId);
-    const response = await this.requestWithAuth<acp.ResumeSessionResponse>(context, acp.methods.agent.session.resume, {
+    const response = await context.request<acp.ResumeSessionResponse>(acp.methods.agent.session.resume, {
       sessionId,
       cwd: previous?.cwd ?? this.cwd,
       mcpServers: previous?.mcpServers ?? this.mcpServers,
@@ -391,7 +360,7 @@ export class CodingAgentAcpClient {
         ? prompt
         : [prompt];
     try {
-      return await this.requestWithAuth<acp.PromptResponse>(connection.agent, acp.methods.agent.session.prompt, {
+      return await connection.agent.request<acp.PromptResponse>(acp.methods.agent.session.prompt, {
         sessionId,
         prompt: blocks,
       });
@@ -451,12 +420,6 @@ export class CodingAgentAcpClient {
       );
     }
     return this.setConfigOption(sessionId, modelOption.id, modelId);
-  }
-
-  /** `authenticate` with one of {@link authMethods}; retry the failed call after. */
-  async authenticate(methodId: string): Promise<void> {
-    const context = this.requireContext();
-    await context.request(acp.methods.agent.authenticate, { methodId });
   }
 
   /** Unstable: list the agent's auth/model providers (`providers/list`). */
@@ -753,27 +716,6 @@ export class CodingAgentAcpClient {
         method,
         `the agent did not advertise sessionCapabilities.${capability} in its initialize response`,
       );
-    }
-  }
-
-  /** Map JSON-RPC auth_required (-32000) to a typed error; everything else rethrows. */
-  private async requestWithAuth<Response>(
-    context: acp.ClientContext,
-    method: string,
-    params?: unknown,
-  ): Promise<Response> {
-    try {
-      return await context.request<Response>(method, params);
-    } catch (error) {
-      if (isAuthRequired(error)) {
-        throw new CodingAgentAcpAuthRequiredError(
-          `${method} requires authenticate; the agent advertised methods: ${
-            this.authMethods.map((m) => m.id).join(', ') || '(none)'
-          }`,
-          { cause: error },
-        );
-      }
-      throw error;
     }
   }
 

@@ -222,21 +222,6 @@ pub struct AuthMethodsArgs {
     pub json: bool,
 }
 
-/// CLI args for `buzz-acp authenticate` — start an adapter-owned login flow.
-#[derive(Debug, Parser)]
-#[command(
-    name = "buzz-acp authenticate",
-    about = "Start an adapter-owned ACP authentication flow"
-)]
-pub struct AuthenticateArgs {
-    #[command(flatten)]
-    pub agent: AuthAgentArgs,
-
-    /// Adapter-advertised auth method id to invoke.
-    #[arg(long)]
-    pub method_id: String,
-}
-
 /// CLI args for `hyper-acp plugin auth-tag` / `buzz-acp auth-tag`.
 #[derive(Debug, Parser)]
 #[command(
