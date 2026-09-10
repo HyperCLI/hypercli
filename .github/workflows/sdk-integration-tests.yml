@@ -10,7 +10,6 @@ env:
   BOOTSTRAP_REQUEST_BACKOFF_SECONDS: "5"
   SDK_INTEGRATION_RETRIES: "2"
   SDK_INTEGRATION_RETRY_DELAY_SECONDS: "20"
-  PYTHON_PIP_CONSTRAINT: "pip>=24.3.1,<26"
 
 jobs:
   ts-sdk-unit:
@@ -24,11 +23,11 @@ jobs:
       - name: Normalize workspace ownership
         run: sudo chown -R "$(id -u):$(id -g)" "${GITHUB_WORKSPACE}"
 
-      - name: Build TS SDK CI image
-        run: docker build -f docker/cli-ci.Dockerfile -t "ts-sdk-ci:${{ github.sha }}" .
+      - name: Build SDK CI image
+        run: docker build -f docker/sdk-ci.Dockerfile -t "sdk-ci:${{ github.sha }}" .
 
       - name: Run TS SDK unit tests
-        run: docker run --rm "ts-sdk-ci:${{ github.sha }}" /tests/ts-sdk.sh
+        run: docker run --rm "sdk-ci:${{ github.sha }}" /tests/ts-sdk.sh
 
       - name: Restore workspace ownership
         if: always()
@@ -37,51 +36,16 @@ jobs:
   python-sdk-unit:
     runs-on: self-hosted
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
           clean: false
 
-      - name: Normalize workspace ownership
-        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Python SDK and CLI
-        run: |
-          rm -rf .venv
-          python -m venv .venv
-          source .venv/bin/activate
-          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install -e "sdk[dev]" -e py-cli
+      - name: Build SDK CI image
+        run: docker build -f docker/sdk-ci.Dockerfile -t "sdk-ci:${{ github.sha }}" .
 
       - name: Run Python SDK and CLI unit tests
-        run: |
-          source .venv/bin/activate
-          pytest --import-mode=importlib -q \
-            sdk/tests/test_bootstrap_dev_test_keys.py \
-            sdk/tests/test_bootstrap_console_test_key.py \
-            sdk/tests/test_bootstrap_agents_e2e_user.py \
-            sdk/tests/test_jobs.py \
-            sdk/tests/test_agents.py \
-            sdk/tests/test_hermes.py \
-            sdk/tests/test_coding_agents.py \
-            sdk/tests/test_gateway.py \
-            sdk/tests/test_keys.py \
-            sdk/tests/test_node_proxy.py \
-            sdk/tests/test_workspaces.py \
-            sdk/tests/test_exec_shell_dryrun.py \
-            sdk/tests/test_repository_integrity.py \
-            py-cli/tests/test_llm_command.py \
-            py-cli/tests/test_jobs_list_tags.py \
-            py-cli/tests/test_workspaces_command.py \
-            py-cli/tests/test_exec_shell_dryrun.py
+        run: docker run --rm "sdk-ci:${{ github.sha }}" /tests/py-unit.sh
 
   rust-sdk-unit:
     name: Rust SDK and Buzz provider
@@ -195,10 +159,6 @@ jobs:
     needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit, hyper-acp-ws-unit, hyper-acp-slack-unit, buzz-acp-unit]
     runs-on: self-hosted
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-        working-directory: ts-sdk
     env:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       ADMIN_BACKEND_BASE: ${{ secrets.ADMIN_BACKEND_BASE }}
@@ -208,98 +168,26 @@ jobs:
         with:
           clean: false
 
-      - name: Normalize workspace ownership
-        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: ts-sdk/package-lock.json
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Bootstrap live integration credentials
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [ -z "${BACKEND_API_KEY:-}" ]; then
-            echo "BACKEND_API_KEY is empty"
-          else
-            echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no)"
-          fi
-          rm -rf .bootstrap-venv
-          python3 -m venv .bootstrap-venv
-          source .bootstrap-venv/bin/activate
-          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install requests "PyYAML>=6,<7"
-          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "$GITHUB_ENV"; then
-              break
-            fi
-            if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
-              exit 1
-            fi
-            echo "Transient bootstrap failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
-            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
-          done
-
-      - name: Install TS SDK dependencies
-        run: npm ci
+      - name: Build SDK CI image
+        run: docker build -f docker/sdk-ci.Dockerfile -t "sdk-ci:${{ github.sha }}" .
 
       - name: Run TS SDK integration tests
         run: |
-          set -o pipefail
-          run_integration() {
-            local log_file
-            log_file="$(mktemp)"
-            if npm run test:integration 2>&1 | tee "${log_file}"; then
-              return 0
-            fi
-            if grep -Eq "No connected clusters available for tags|has entitlement capacity but no connected clusters are advertising that tag" "${log_file}"; then
-              echo "Skipping TS SDK integration failure due to dev cluster tag capacity"
-              return 0
-            fi
-            if grep -Eq "503 Service Unavailable|API Error 503|failed: 503 Service Unavailable|Service Unavailable" "${log_file}"; then
-              return 85
-            fi
-            return 1
-          }
-
-          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if run_integration; then
-              exit 0
-            fi
-            status=$?
-            if [ "${status}" -ne 85 ] || [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
-              exit "${status}"
-            fi
-            echo "Transient TS integration 503 failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
-            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
-          done
-
-      - name: Cleanup bootstrapped credentials
-        if: always()
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [ -d .bootstrap-venv ]; then
-            source .bootstrap-venv/bin/activate
-          fi
-          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
-            python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
-          fi
+          docker run --rm \
+            -e BACKEND_API_KEY \
+            -e ADMIN_BACKEND_BASE \
+            -e TEST_API_BASE \
+            -e SDK_INTEGRATION_RETRIES \
+            -e SDK_INTEGRATION_RETRY_DELAY_SECONDS \
+            -e BOOTSTRAP_REQUEST_TIMEOUT \
+            -e BOOTSTRAP_REQUEST_RETRIES \
+            -e BOOTSTRAP_REQUEST_BACKOFF_SECONDS \
+            "sdk-ci:${{ github.sha }}" /tests/ts-integration.sh
 
   python-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit, hyper-acp-ws-unit, hyper-acp-slack-unit, buzz-acp-unit]
     runs-on: self-hosted
     timeout-minutes: 35
-    defaults:
-      run:
-        shell: bash
-        working-directory: sdk
     env:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       ADMIN_BACKEND_BASE: ${{ secrets.ADMIN_BACKEND_BASE }}
@@ -309,96 +197,26 @@ jobs:
         with:
           clean: false
 
-      - name: Normalize workspace ownership
-        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Bootstrap live integration credentials
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [ -z "${BACKEND_API_KEY:-}" ]; then
-            echo "BACKEND_API_KEY is empty"
-          else
-            echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no)"
-          fi
-          rm -rf .bootstrap-venv
-          python -m venv .bootstrap-venv
-          source .bootstrap-venv/bin/activate
-          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install requests "PyYAML>=6,<7"
-          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "$GITHUB_ENV"; then
-              break
-            fi
-            if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
-              exit 1
-            fi
-            echo "Transient bootstrap failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
-            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
-          done
-
-      - name: Install Python SDK
-        run: |
-          rm -rf .venv
-          python -m venv .venv
-          source .venv/bin/activate
-          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install -e ".[dev]"
+      - name: Build SDK CI image
+        run: docker build -f docker/sdk-ci.Dockerfile -t "sdk-ci:${{ github.sha }}" .
 
       - name: Run Python SDK integration tests
         run: |
-          source .venv/bin/activate
-          run_integration() {
-            local log_file
-            log_file="$(mktemp)"
-            if pytest -q tests/integration 2>&1 | tee "${log_file}"; then
-              return 0
-            fi
-            if grep -Eq "No connected clusters available for tags|has entitlement capacity but no connected clusters are advertising that tag" "${log_file}"; then
-              echo "Skipping Python SDK integration failure due to dev cluster tag capacity"
-              return 0
-            fi
-            if grep -Eq "503 Service Unavailable|API Error 503|failed: 503 Service Unavailable|Service Unavailable" "${log_file}"; then
-              return 85
-            fi
-            return 1
-          }
-
-          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if run_integration; then
-              exit 0
-            fi
-            status=$?
-            if [ "${status}" -ne 85 ] || [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
-              exit "${status}"
-            fi
-            echo "Transient Python integration 503 failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
-            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
-          done
-
-      - name: Cleanup bootstrapped credentials
-        if: always()
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [ -d .bootstrap-venv ]; then
-            source .bootstrap-venv/bin/activate
-          fi
-          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
-            python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
-          fi
+          docker run --rm \
+            -e BACKEND_API_KEY \
+            -e ADMIN_BACKEND_BASE \
+            -e TEST_API_BASE \
+            -e SDK_INTEGRATION_RETRIES \
+            -e SDK_INTEGRATION_RETRY_DELAY_SECONDS \
+            -e BOOTSTRAP_REQUEST_TIMEOUT \
+            -e BOOTSTRAP_REQUEST_RETRIES \
+            -e BOOTSTRAP_REQUEST_BACKOFF_SECONDS \
+            "sdk-ci:${{ github.sha }}" /tests/py-integration.sh
 
   cli-integration:
     needs: [ts-sdk-unit, python-sdk-unit, rust-sdk-unit, hyper-acp-ws-unit, hyper-acp-slack-unit, buzz-acp-unit]
     runs-on: self-hosted
     timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-        working-directory: cli
     env:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       ADMIN_BACKEND_BASE: ${{ secrets.ADMIN_BACKEND_BASE }}
@@ -408,83 +226,21 @@ jobs:
         with:
           clean: false
 
-      - name: Normalize workspace ownership
-        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Bootstrap live integration credentials
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [ -z "${BACKEND_API_KEY:-}" ]; then
-            echo "BACKEND_API_KEY is empty"
-          else
-            echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no)"
-          fi
-          rm -rf .bootstrap-venv
-          python -m venv .bootstrap-venv
-          source .bootstrap-venv/bin/activate
-          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install requests "PyYAML>=6,<7"
-          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env --github-env-file "$GITHUB_ENV"; then
-              break
-            fi
-            if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
-              exit 1
-            fi
-            echo "Transient bootstrap failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
-            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
-          done
-
-      - name: Install CLI
-        run: |
-          rm -rf .venv
-          python -m venv .venv
-          source .venv/bin/activate
-          python -m pip install --upgrade "${PYTHON_PIP_CONSTRAINT}"
-          python -m pip install -e "../sdk[dev]" -e .
+      - name: Build SDK CI image
+        run: docker build -f docker/sdk-ci.Dockerfile -t "sdk-ci:${{ github.sha }}" .
 
       - name: Run CLI dry-run integration tests
         run: |
-          source .venv/bin/activate
-          run_integration() {
-            local log_file
-            log_file="$(mktemp)"
-            if pytest -q tests/integration 2>&1 | tee "${log_file}"; then
-              return 0
-            fi
-            if grep -Eq "503 Service Unavailable|API Error 503|failed: 503 Service Unavailable|Service Unavailable" "${log_file}"; then
-              return 85
-            fi
-            return 1
-          }
-
-          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
-            if run_integration; then
-              exit 0
-            fi
-            status=$?
-            if [ "${status}" -ne 85 ] || [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
-              exit "${status}"
-            fi
-            echo "Transient CLI integration 503 failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
-            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
-          done
-
-      - name: Cleanup bootstrapped credentials
-        if: always()
-        working-directory: ${{ github.workspace }}
-        run: |
-          if [ -d .bootstrap-venv ]; then
-            source .bootstrap-venv/bin/activate
-          fi
-          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
-            python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
-          fi
+          docker run --rm \
+            -e BACKEND_API_KEY \
+            -e ADMIN_BACKEND_BASE \
+            -e TEST_API_BASE \
+            -e SDK_INTEGRATION_RETRIES \
+            -e SDK_INTEGRATION_RETRY_DELAY_SECONDS \
+            -e BOOTSTRAP_REQUEST_TIMEOUT \
+            -e BOOTSTRAP_REQUEST_RETRIES \
+            -e BOOTSTRAP_REQUEST_BACKOFF_SECONDS \
+            "sdk-ci:${{ github.sha }}" /tests/cli-integration.sh
 
   notify-sdk-integration:
     needs:

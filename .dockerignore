@@ -1,0 +1,10 @@
+# Keep Docker build contexts small. These trees are regenerated inside the
+# image builds (npm ci / cargo / tsc) and never ship from the workspace.
+.git
+**/node_modules
+**/target
+**/dist
+**/coverage
+**/playwright-report
+**/test-results
+**/.e2e-artifacts

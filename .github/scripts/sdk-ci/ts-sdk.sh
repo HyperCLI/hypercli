@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ts-sdk vitest gate inside the CLI CI image. With no args, the full suite;
+# ts-sdk vitest gate inside the SDK CI image. With no args, the full suite;
 # otherwise the named test files.
 set -euo pipefail
 
