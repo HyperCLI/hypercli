@@ -4642,6 +4642,14 @@ export class Deployments {
     return (await this.resolveAgent(raw, requestOptions)).id;
   }
 
+  private async routesTarget(agentIdOrName: string): Promise<string> {
+    const raw = String(agentIdOrName || '').trim();
+    if (isSelfAgentRef(raw)) {
+      return 'self';
+    }
+    return this.resolveAgentId(raw);
+  }
+
   private async agentIdFor(target: Agent | string): Promise<string> {
     return typeof target === 'string' ? this.resolveAgentId(target) : target.id;
   }
@@ -5877,7 +5885,7 @@ export class Deployments {
     agentIdOrName: string,
     options: RequestOverrides = {},
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agentId = await this.routesTarget(agentIdOrName);
     const path = `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes`;
     const data = Object.keys(options).length > 0
       ? await this.agentHttp.get<AgentRoutesHydrationData>(path, undefined, options)
@@ -5890,7 +5898,7 @@ export class Deployments {
     routes: Record<string, AgentRouteConfig>,
     options: SetRoutesOptions = {},
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agentId = await this.routesTarget(agentIdOrName);
     const body: Record<string, unknown> = { routes: structuredClone(routes) };
     if (Object.prototype.hasOwnProperty.call(options, 'cors') && options.cors !== undefined) {
       body.cors = options.cors === null ? null : structuredClone(options.cors);
@@ -5907,7 +5915,7 @@ export class Deployments {
     name: string,
     route: AgentRouteConfig,
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agentId = await this.routesTarget(agentIdOrName);
     const body: Record<string, unknown> = { port: route.port };
     if (route.auth !== undefined) body.auth = route.auth;
     if (route.prefix !== undefined) body.prefix = route.prefix;
@@ -5922,7 +5930,7 @@ export class Deployments {
     agentIdOrName: string,
     name: string,
   ): Promise<AgentRoutesState> {
-    const agentId = await this.resolveAgentId(agentIdOrName);
+    const agentId = await this.routesTarget(agentIdOrName);
     const data = await this.agentHttp.delete<AgentRoutesHydrationData>(
       `${DEPLOYMENTS_API_PREFIX}/${agentId}/routes/${encodeURIComponent(name)}`,
     );

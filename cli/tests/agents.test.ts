@@ -970,6 +970,16 @@ describe('hyper agents routes', () => {
     await agents.run(ctx, ['routes', 'add', ID_A, 'web', '--port', '8080', '--prefix', 'web', '--no-auth']);
     expect(d.setRoute).toHaveBeenCalledWith(ID_A, 'web', { port: 8080, prefix: 'web', auth: false });
   });
+
+  it('treats the self selector as a routes alias without listing agents', async () => {
+    const d = createMockDeploymentsApi([agentFixture()]);
+    const { ctx } = makeCtx(fakeClient({ deployments: d }), 'table');
+
+    await agents.run(ctx, ['routes', 'add', 'self', 'web', '--port', '3000', '--no-auth']);
+
+    expect(d.list).not.toHaveBeenCalled();
+    expect(d.setRoute).toHaveBeenCalledWith('self', 'web', { port: 3000, auth: false });
+  });
 });
 
 // ---------- help / dispatch ----------

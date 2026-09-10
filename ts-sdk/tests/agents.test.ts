@@ -987,10 +987,9 @@ describe('Agents SDK', () => {
     });
   });
 
-  it('limits the self selector to status', async () => {
-    // An Agent reads its own status. It does not drive its own lifecycle, and
-    // it does not manage its own routes: the Backend serves GET
-    // /deployments/self and nothing else under that selector.
+  it('limits the self selector to status and routes', async () => {
+    // An Agent reads its own status and manages its own routes through the
+    // /deployments/self aliases; it does not drive its own lifecycle.
     const agentId = '11111111-1111-4111-8111-111111111111';
     const agentResponse = { id: agentId, user_id: 'user-456', state: 'running' };
     const http = {
@@ -1004,16 +1003,19 @@ describe('Agents SDK', () => {
     expect((await deployments.get('self')).id).toBe(agentId);
     expect(http.get).toHaveBeenCalledWith('/deployments/self');
 
+    await deployments.getRoutes('self');
+    await deployments.setRoute('self', 'web', { port: 3000, auth: true });
+    await deployments.removeRoute('self', 'web');
+    expect(http.get).toHaveBeenCalledWith('/deployments/self/routes');
+    expect(http.put).toHaveBeenCalledWith('/deployments/self/routes/web', { port: 3000, auth: true });
+    expect(http.delete).toHaveBeenCalledWith('/deployments/self/routes/web');
+
     const launchConfig = buildAgentConfig().config;
     const rejected: Array<() => Promise<unknown>> = [
       () => deployments.start('self', { launchConfig }),
       () => deployments.startOpenClaw('self', { launchConfig }),
       () => deployments.startHermesAgent('self', { launchConfig }),
       () => deployments.stop('self'),
-      () => deployments.getRoutes('self'),
-      () => deployments.setRoutes('self', {}),
-      () => deployments.setRoute('self', 'web', { port: 3000, auth: true }),
-      () => deployments.removeRoute('self', 'web'),
       () => deployments.delete('self'),
       () => deployments.createScopedKey('self'),
     ];
@@ -1021,8 +1023,6 @@ describe('Agents SDK', () => {
       await expect(operation()).rejects.toThrow('self is only supported for status');
     }
     expect(http.post).not.toHaveBeenCalled();
-    expect(http.put).not.toHaveBeenCalled();
-    expect(http.delete).not.toHaveBeenCalled();
   });
 
   const STORED_AGENT_ID = '11111111-1111-4111-8111-111111111111';

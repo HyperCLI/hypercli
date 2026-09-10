@@ -1536,7 +1536,7 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
       if (parsed.help) return printHelp();
       const ref = onePositional(parsed, 'agent id');
       const { d } = await adopt(ctx);
-      const id = await resolveAgentRef(d, ref);
+      const id = ref.trim().toLowerCase() === 'self' ? 'self' : await resolveAgentRef(d, ref);
       const state = await api('list routes', () => d.getRoutes(id));
       ctx.output.result(routesJson(state), routesTable(state));
       return;
@@ -1569,7 +1569,7 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
       if (parsed.values['no-auth'] === true) route.auth = false;
 
       const { d } = await adopt(ctx);
-      const id = await resolveAgentRef(d, ref);
+      const id = ref.trim().toLowerCase() === 'self' ? 'self' : await resolveAgentRef(d, ref);
       const state = await api('add route', () => d.setRoute(id, routeName, route));
       ctx.output.result(routesJson(state), routesTable(state));
       return;
@@ -1582,7 +1582,7 @@ async function cmdRoutes(ctx: CommandContext, args: string[]): Promise<void> {
         throw new UsageError('usage: hyper agents routes remove <id> <name>');
       }
       const { d } = await adopt(ctx);
-      const id = await resolveAgentRef(d, ref);
+      const id = ref.trim().toLowerCase() === 'self' ? 'self' : await resolveAgentRef(d, ref);
       const state = await api('remove route', () => d.removeRoute(id, routeName));
       ctx.output.result(routesJson(state), routesTable(state));
       return;
