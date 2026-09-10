@@ -242,7 +242,9 @@ case "${GROUP}/${SUB}" in
     "${CLI[@]}" agents stop "${ID}" --yes --dev
     "${CLI[@]}" agents wait "${ID}" --state STOPPED --timeout 120 --interval 5 --dev
     "${CLI[@]}" agents archive "${ID}" --dev
-    "${CLI[@]}" agents wait "${ID}" --state ARCHIVED --timeout 60 --interval 5 --dev || true
+    # Large-tier storage snapshot/finalize is slow (observed ~73s); wait for
+    # the acknowledged archive before restore, which 409s on a pending one.
+    "${CLI[@]}" agents wait "${ID}" --state ARCHIVED --timeout 240 --interval 5 --dev
     "${CLI[@]}" agents restore "${ID}" --dev
 
     step "start → chat 2/2"
