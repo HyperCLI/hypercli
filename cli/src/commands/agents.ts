@@ -58,7 +58,6 @@ export const usage = [
   'hyper agents exec <id> [--] CMD [ARGS...]',
   'hyper agents shell <id>',
   'hyper agents logs <id> [-f|--follow] [-n LINES]',
-  'hyper agents web-search <query...> [-n|--count N]',
   'hyper agents cp <src> <dst>   (exactly one side must be <id>:<path>)',
   'hyper agents activate <code> [--extend-existing]',
   'hyper agents routines list [--agent ID]',
@@ -85,7 +84,7 @@ const ACP_RUNTIMES = new Set(['opencode', 'goose', 'codex', 'claude-code', 'kimi
 
 const KNOWN_COMMANDS = new Set([
   'ls', 'list', 'status', 'wait', 'create', 'start', 'chat', 'stop', 'delete', 'exec',
-  'shell', 'logs', 'web-search', 'cp', 'activate', 'routines', ...HIDDEN,
+  'shell', 'logs', 'cp', 'activate', 'routines', ...HIDDEN,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -1218,38 +1217,6 @@ async function cmdModels(ctx: CommandContext, args: string[]): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// web-search — Brave web search through the agents API proxy (py-cli parity)
-// ---------------------------------------------------------------------------
-
-async function cmdWebSearch(ctx: CommandContext, args: string[]): Promise<void> {
-  const parsed = parseCommandArgs(args, { count: { type: 'string', short: 'n' } });
-  if (parsed.help) return printHelp();
-  if (parsed.positionals.length === 0) throw new UsageError('missing query');
-  const query = parsed.positionals.join(' ');
-
-  const countRaw = str(parsed, 'count');
-  let count = 5;
-  if (countRaw !== undefined) {
-    count = Number(countRaw);
-    if (!Number.isInteger(count) || count < 1 || count > 20) {
-      throw new UsageError(`--count must be an integer between 1 and 20 (got '${countRaw}')`);
-    }
-  }
-
-  const { d } = await adopt(ctx);
-  const payload = await api('web search', () => d.webSearch(query, { count }));
-
-  const results = Array.isArray(payload.web?.results) ? payload.web.results : [];
-  const rows = results
-    .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
-    .map((item) => [String(item.title ?? ''), String(item.url ?? '')]);
-  ctx.output.result(
-    payload,
-    rows.length === 0 ? 'No results.' : { columns: ['TITLE', 'URL'], rows },
-  );
-}
-
-// ---------------------------------------------------------------------------
 // chat — the canonical one-shot prompt round trip, validated per runtime in CI
 //
 // CI contract: zero TTY, no prompts, no stdin reads. Exit 0 exactly when an
@@ -1687,8 +1654,6 @@ export async function run(ctx: CommandContext, args: string[]): Promise<number |
       return cmdShell(ctx, rest);
     case 'logs':
       return cmdLogs(ctx, rest);
-    case 'web-search':
-      return cmdWebSearch(ctx, rest);
     case 'cp':
       return cmdCp(ctx, rest);
     case 'activate':

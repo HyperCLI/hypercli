@@ -49,7 +49,6 @@
         { "argv": ["exec", "--help"] },
         { "argv": ["shell", "--help"] },
         { "argv": ["logs", "--help"] },
-        { "argv": ["web-search", "--help"] },
         { "argv": ["cp", "--help"] },
         { "argv": ["activate", "--help"] },
         { "argv": ["routines", "list", "--help"] },
@@ -110,8 +109,14 @@
       "windows": false,
       "smokes": [
         { "argv": ["--help"] },
-        { "argv": ["tts", "--help"] },
-        { "argv": ["transcribe", "--help"] }
+        { "argv": ["tts", "--help"] }
+      ]
+    },
+    "websearch": {
+      "tests": ["websearch"],
+      "windows": false,
+      "smokes": [
+        { "argv": ["--help"] }
       ]
     }
   }
